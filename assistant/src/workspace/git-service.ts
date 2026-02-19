@@ -394,7 +394,7 @@ export class WorkspaceGitService {
         { workspaceDir: this.workspaceDir, consecutiveFailures: this.consecutiveFailures },
         'Circuit breaker open, skipping commit attempt',
       );
-      return { committed: false, status: { staged: [], modified: [], untracked: [], clean: true } };
+      return { committed: false, status: { staged: [], modified: [], untracked: [], clean: false } };
     }
 
     await this.ensureInitialized();
