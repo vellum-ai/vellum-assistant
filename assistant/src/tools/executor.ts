@@ -512,8 +512,8 @@ export class ToolExecutor {
                 sessionId: context.sessionId,
                 conversationId: context.conversationId,
                 requestId: context.requestId,
-                riskLevel,
-                decision: 'deny',
+                riskLevel: RiskLevel.High,
+                decision: response.decision === 'always_deny' ? 'always_deny' : 'deny',
                 reason: `User denied output containing secrets: ${types}`,
                 durationMs,
               });
