@@ -175,6 +175,16 @@ Wildcard patterns like `*.fal.run` match:
 
 When one credential has both an exact pattern (`api.fal.run`) and a wildcard pattern (`*.fal.run`), the exact match takes precedence.
 
+#### Debugging Proxied 401 Errors
+
+If a proxied command receives a 401 or 403 despite having the correct credential stored:
+
+1. **Check the credential reference**: Run `credential_store list` and verify the credential ID or `service/field` matches what you're passing to `credential_ids`.
+2. **Check host pattern matching**: The credential's `hostPattern` must match the target host. A wildcard pattern `*.example.com` matches `api.example.com` and the bare domain `example.com`. An exact pattern `api.example.com` only matches that specific host.
+3. **Check for ambiguity**: If two credentials match the same host with equal specificity, injection is blocked. Use `credential_store list` to check for overlapping patterns.
+4. **Check the header template**: Ensure the credential has an `injectionTemplate` with `injectionType: "header"` and the correct `headerName` (e.g., `Authorization`) and `valuePrefix` (e.g., `Bearer `).
+5. **Enable debug logging**: Set `LOG_LEVEL=debug` to see decision traces from the policy engine and rewrite callback, including which patterns matched and which credential was selected.
+
 ## Dynamic Skill Authoring
 
 The assistant can create, test, and persist new skills at runtime. This is useful when no existing tool or skill covers a user's need.
