@@ -146,7 +146,12 @@ struct InlineVideoAttachmentView: View {
     private func generateThumbnail() async {
         // Prefer the server-provided thumbnail (already decoded by mapIPCAttachments).
         if let serverImage = attachment.thumbnailImage {
+            let w = serverImage.size.width
+            let h = serverImage.size.height
             await MainActor.run {
+                if w > 0, h > 0 {
+                    videoAspectRatio = w / h
+                }
                 thumbnailImage = serverImage
             }
             return
