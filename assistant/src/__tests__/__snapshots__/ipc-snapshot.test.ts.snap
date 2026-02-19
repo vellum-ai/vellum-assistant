@@ -87,6 +87,13 @@ exports[`IPC message snapshots ClientMessage types model_set serializes to expec
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types image_gen_model_set serializes to expected JSON 1`] = `
+{
+  "model": "gemini-2.5-flash-image",
+  "type": "image_gen_model_set",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types history_request serializes to expected JSON 1`] = `
 {
   "sessionId": "sess-001",
@@ -2039,6 +2046,12 @@ exports[`IPC message snapshots ServerMessage types work_item_status_changed seri
     "updatedAt": 1700001000,
   },
   "type": "work_item_status_changed",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types tasks_changed serializes to expected JSON 1`] = `
+{
+  "type": "tasks_changed",
 }
 `;
 

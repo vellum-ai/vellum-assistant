@@ -4,6 +4,7 @@ import type { AssistantConfig } from './types.js';
 export const DEFAULT_CONFIG: AssistantConfig = {
   provider: 'anthropic',
   model: 'claude-opus-4-6', // alias: claude-opus-4
+  imageGenModel: 'gemini-2.5-flash-image',
   apiKeys: {},
   webSearchProvider: 'perplexity',
   providerOrder: [],

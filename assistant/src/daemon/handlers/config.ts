@@ -148,6 +148,7 @@ export function handleImageGenModelSet(
     const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
     ctx.debounceTimers.set('__suppress_reset__', resetTimer);
 
+    ctx.updateConfigFingerprint();
     log.info({ model: msg.model }, 'Image generation model updated');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

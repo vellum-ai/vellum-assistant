@@ -70,6 +70,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'model_set',
     model: 'claude-opus-4-6',
   },
+  image_gen_model_set: {
+    type: 'image_gen_model_set',
+    model: 'gemini-2.5-flash-image',
+  },
   history_request: {
     type: 'history_request',
     sessionId: 'sess-001',
