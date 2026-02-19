@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -22,7 +22,7 @@ interface LockfileData {
 }
 
 function getLockfilePath(): string {
-  return join(homedir(), ".vellum", "lockfile.json");
+  return join(homedir(), ".vellum.lock.json");
 }
 
 function readLockfile(): LockfileData {
@@ -45,8 +45,6 @@ function readLockfile(): LockfileData {
 
 function writeLockfile(data: LockfileData): void {
   const lockfilePath = getLockfilePath();
-  const dir = join(lockfilePath, "..");
-  mkdirSync(dir, { recursive: true });
   writeFileSync(lockfilePath, JSON.stringify(data, null, 2) + "\n");
 }
 
@@ -69,7 +67,9 @@ function writeAssistants(entries: AssistantEntry[]): void {
 
 export function loadLatestAssistant(): AssistantEntry | null {
   const entries = readAssistants();
-  if (entries.length === 0) return null;
+  if (entries.length === 0) {
+    return null;
+  }
   const sorted = [...entries].sort((a, b) => {
     const ta = a.hatchedAt ? new Date(a.hatchedAt).getTime() : 0;
     const tb = b.hatchedAt ? new Date(b.hatchedAt).getTime() : 0;

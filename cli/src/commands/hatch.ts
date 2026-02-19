@@ -576,10 +576,6 @@ async function hatchGcp(
       hatchedAt: new Date().toISOString(),
     };
     saveAssistantEntry(gcpEntry);
-    const entryFilePath = process.env.VELLUM_HATCH_ENTRY_FILE;
-    if (entryFilePath) {
-      writeFileSync(entryFilePath, JSON.stringify(gcpEntry));
-    }
 
     if (detached) {
       console.log("🚀 Startup script is running on the instance...");
@@ -722,10 +718,6 @@ async function hatchCustom(
       hatchedAt: new Date().toISOString(),
     };
     saveAssistantEntry(customEntry);
-    const entryFilePath = process.env.VELLUM_HATCH_ENTRY_FILE;
-    if (entryFilePath) {
-      writeFileSync(entryFilePath, JSON.stringify(customEntry));
-    }
 
     if (detached) {
       console.log("");
@@ -778,10 +770,6 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
     hatchedAt: new Date().toISOString(),
   };
   saveAssistantEntry(localEntry);
-  const entryFilePath = process.env.VELLUM_HATCH_ENTRY_FILE;
-  if (entryFilePath) {
-    writeFileSync(entryFilePath, JSON.stringify(localEntry));
-  }
 
   console.log("");
   console.log(`✅ Local assistant hatched!`);

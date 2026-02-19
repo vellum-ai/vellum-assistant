@@ -469,10 +469,6 @@ export async function hatchAws(
       hatchedAt: new Date().toISOString(),
     };
     saveAssistantEntry(awsEntry);
-    const entryFilePath = process.env.VELLUM_HATCH_ENTRY_FILE;
-    if (entryFilePath) {
-      writeFileSync(entryFilePath, JSON.stringify(awsEntry));
-    }
 
     if (detached) {
       console.log("\u{1F680} Startup script is running on the instance...");
