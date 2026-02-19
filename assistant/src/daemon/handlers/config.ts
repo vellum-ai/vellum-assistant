@@ -41,11 +41,16 @@ export function handleModelSet(
   ctx: HandlerContext,
 ): void {
   try {
-    // If the requested model is already the current model, skip expensive
+    // If the requested model is already the current model AND the provider
+    // is already aligned with what MODEL_TO_PROVIDER expects, skip expensive
     // reinitialization but still send model_info so the client confirms.
+    // If the provider has drifted (e.g. manual config edit), fall through
+    // so the full reinit path can repair it.
     {
       const current = getConfig();
-      if (msg.model === current.model) {
+      const expectedProvider = MODEL_TO_PROVIDER[msg.model];
+      const providerAligned = !expectedProvider || current.provider === expectedProvider;
+      if (msg.model === current.model && providerAligned) {
         const configured = Object.keys(current.apiKeys).filter((k) => !!current.apiKeys[k]);
         if (!configured.includes('ollama')) configured.push('ollama');
         ctx.send(socket, {
