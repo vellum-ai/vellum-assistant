@@ -1324,7 +1324,10 @@ export class Session {
         this.workingDir,
         async (filePath) => this.approveHostAttachmentReadImpl(filePath),
         lastAssistantMessageId,
-        'self',
+        // HTTP sessions (which call setChannelCapabilities) use 'self'; IPC/desktop
+        // sessions preserve 'local-assistant' to keep attachment namespaces isolated.
+        // PR 6 will remove assistantId from the attachment store APIs entirely.
+        this.channelCapabilities != null ? 'self' : 'local-assistant',
       );
       const { assistantAttachments, emittedAttachments } = attachmentResult;
 
