@@ -304,7 +304,7 @@ export async function handleWorkItemRunTask(
       },
     );
 
-    const finalStatus: WorkItemStatus = result.status === 'completed' ? 'done' : 'failed';
+    const finalStatus: WorkItemStatus = result.status === 'completed' ? 'awaiting_review' : 'failed';
     updateWorkItem(msg.id, {
       status: finalStatus,
       lastRunId: result.taskRunId,
