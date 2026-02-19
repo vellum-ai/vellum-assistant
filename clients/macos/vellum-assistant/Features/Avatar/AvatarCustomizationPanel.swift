@@ -10,6 +10,7 @@ struct AvatarCustomizationPanel: View {
 
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var evolutionState = AvatarEvolutionState()
+    @State private var expandedField: AvatarEvolutionState.AppearanceField?
     @State private var identity: IdentityInfo?
 
     /// All available color names from BodyColorScale, in a stable display order.
@@ -232,6 +233,7 @@ struct AvatarCustomizationPanel: View {
 
     @ViewBuilder
     private func outfitPicker(title: String, field: AvatarEvolutionState.AppearanceField, options: [String], current: String) -> some View {
+        let isExpanded = expandedField == field
         HStack(spacing: VSpacing.sm) {
             lockToggle(field: field)
 
@@ -240,20 +242,80 @@ struct AvatarCustomizationPanel: View {
                 .foregroundColor(VColor.textPrimary)
                 .frame(width: 80, alignment: .leading)
 
-            Picker("", selection: Binding(
-                get: { current },
-                set: { newValue in
-                    setOverride(field: field, value: newValue)
+            Button {
+                withAnimation(VAnimation.fast) {
+                    expandedField = isExpanded ? nil : field
                 }
-            )) {
-                ForEach(options, id: \.self) { option in
-                    Text(option.replacingOccurrences(of: "_", with: " ").capitalized)
-                        .tag(option)
+            } label: {
+                HStack {
+                    Text(current.replacingOccurrences(of: "_", with: " ").capitalized)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                }
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+                .background(VColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .overlay(alignment: .bottom) {
+                if isExpanded {
+                    VStack(spacing: 0) {
+                        ForEach(options, id: \.self) { option in
+                            Button {
+                                setOverride(field: field, value: option)
+                                withAnimation(VAnimation.fast) {
+                                    expandedField = nil
+                                }
+                            } label: {
+                                HStack {
+                                    Text(option.replacingOccurrences(of: "_", with: " ").capitalized)
+                                        .font(VFont.body)
+                                        .foregroundColor(option == current ? VColor.accent : VColor.textPrimary)
+                                    Spacer()
+                                    if option == current {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundColor(VColor.accent)
+                                    }
+                                }
+                                .padding(.horizontal, VSpacing.md)
+                                .padding(.vertical, VSpacing.sm)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .background(option == current ? VColor.accent.opacity(0.1) : Color.clear)
+
+                            if option != options.last {
+                                Divider().background(VColor.surfaceBorder)
+                            }
+                        }
+                    }
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.3), radius: 8, y: -2)
+                    .offset(y: -VSpacing.xs)
+                    .frame(maxWidth: .infinity)
+                    .alignmentGuide(.bottom) { d in d[.bottom] }
+                    .transition(.opacity)
                 }
             }
-            .labelsHidden()
-            .frame(maxWidth: .infinity)
+            .zIndex(isExpanded ? 1 : 0)
         }
+        .zIndex(isExpanded ? 1 : 0)
     }
 
     // MARK: - Field Header with Lock
