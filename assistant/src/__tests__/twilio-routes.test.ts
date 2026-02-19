@@ -99,13 +99,17 @@ mock.module('../calls/twilio-provider.js', () => {
   };
 });
 
+// Configurable mock Twilio config — tests can override wssBaseUrl
+let mockWssBaseUrl: string = 'wss://test.example.com';
+let mockWebhookBaseUrl: string = 'https://test.example.com';
+
 mock.module('../calls/twilio-config.js', () => ({
   getTwilioConfig: () => ({
     accountSid: 'AC_test',
     authToken: 'test-auth-token-for-webhooks',
     phoneNumber: '+15550001111',
-    webhookBaseUrl: 'https://test.example.com',
-    wssBaseUrl: 'wss://test.example.com',
+    webhookBaseUrl: mockWebhookBaseUrl,
+    wssBaseUrl: mockWssBaseUrl,
   }),
 }));
 
@@ -120,6 +124,7 @@ import {
   claimCallback,
   releaseCallbackClaim,
 } from '../calls/call-store.js';
+import { resolveRelayUrl } from '../calls/twilio-routes.js';
 
 initializeDb();
 
@@ -188,6 +193,8 @@ describe('twilio webhook routes', () => {
   beforeEach(() => {
     resetTables();
     mockAuthToken = AUTH_TOKEN;
+    mockWssBaseUrl = 'wss://test.example.com';
+    mockWebhookBaseUrl = 'https://test.example.com';
     delete process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED;
   });
 
@@ -522,6 +529,105 @@ describe('twilio webhook routes', () => {
 
       const res = await fetch(url, { method: 'POST', headers, body });
       expect(res.status).toBe(200);
+
+      await stopServer();
+    });
+  });
+
+  // ── resolveRelayUrl unit tests ──────────────────────────────────────
+
+  describe('resolveRelayUrl', () => {
+    test('uses wssBaseUrl when explicitly set', () => {
+      const url = resolveRelayUrl('wss://ws.example.com', 'https://web.example.com');
+      expect(url).toBe('wss://ws.example.com/v1/calls/relay');
+    });
+
+    test('falls back to webhookBaseUrl when wssBaseUrl is empty', () => {
+      const url = resolveRelayUrl('', 'https://web.example.com');
+      expect(url).toBe('wss://web.example.com/v1/calls/relay');
+    });
+
+    test('falls back to webhookBaseUrl when wssBaseUrl is whitespace-only', () => {
+      const url = resolveRelayUrl('   ', 'https://web.example.com');
+      expect(url).toBe('wss://web.example.com/v1/calls/relay');
+    });
+
+    test('normalizes http to ws in webhookBaseUrl fallback', () => {
+      const url = resolveRelayUrl('', 'http://localhost:3000');
+      expect(url).toBe('ws://localhost:3000/v1/calls/relay');
+    });
+
+    test('normalizes https to wss in webhookBaseUrl fallback', () => {
+      const url = resolveRelayUrl('', 'https://gateway.example.com');
+      expect(url).toBe('wss://gateway.example.com/v1/calls/relay');
+    });
+
+    test('strips trailing slash from wssBaseUrl', () => {
+      const url = resolveRelayUrl('wss://ws.example.com/', 'https://web.example.com');
+      expect(url).toBe('wss://ws.example.com/v1/calls/relay');
+    });
+
+    test('strips trailing slash from webhookBaseUrl fallback', () => {
+      const url = resolveRelayUrl('', 'https://web.example.com/');
+      expect(url).toBe('wss://web.example.com/v1/calls/relay');
+    });
+
+    test('preserves wss scheme in explicitly set wssBaseUrl', () => {
+      const url = resolveRelayUrl('wss://custom-relay.example.com', 'https://web.example.com');
+      expect(url).toBe('wss://custom-relay.example.com/v1/calls/relay');
+    });
+  });
+
+  // ── TwiML relay URL generation ──────────────────────────────────────
+
+  describe('voice webhook TwiML relay URL', () => {
+    function voiceUrl(sessionId: string): string {
+      return `http://127.0.0.1:${port}/v1/calls/twilio/voice-webhook?callSessionId=${sessionId}`;
+    }
+
+    test('TwiML uses explicit wssBaseUrl when set', async () => {
+      mockWssBaseUrl = 'wss://explicit-ws.example.com';
+      process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED = 'true';
+      await startServer();
+
+      const session = createTestSession('conv-twiml-1', 'CA_twiml_1');
+      const url = voiceUrl(session.id);
+      const params = { CallSid: 'CA_twiml_1' };
+      const body = buildFormBody(params);
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+
+      expect(res.status).toBe(200);
+      const twiml = await res.text();
+      expect(twiml).toContain('wss://explicit-ws.example.com/v1/calls/relay');
+
+      await stopServer();
+    });
+
+    test('TwiML falls back to webhookBaseUrl when wssBaseUrl is empty', async () => {
+      mockWssBaseUrl = '';
+      mockWebhookBaseUrl = 'https://gateway.example.com';
+      process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED = 'true';
+      await startServer();
+
+      const session = createTestSession('conv-twiml-2', 'CA_twiml_2');
+      const url = voiceUrl(session.id);
+      const params = { CallSid: 'CA_twiml_2' };
+      const body = buildFormBody(params);
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+
+      expect(res.status).toBe(200);
+      const twiml = await res.text();
+      expect(twiml).toContain('wss://gateway.example.com/v1/calls/relay');
 
       await stopServer();
     });
