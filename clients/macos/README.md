@@ -89,7 +89,7 @@ This builds a debug `.app` bundle, codesigns it, and launches it immediately.
 ## Build
 
 ```bash
-# Build debug .app bundle (→ dist/Vellum.app)
+# Build debug .app bundle (→ dist/Vellum Dev.app)
 ./build.sh
 
 # Build + launch + watch for changes (auto-rebuild)
