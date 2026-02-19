@@ -3,6 +3,9 @@ import { v4 as uuid } from 'uuid';
 import { getDb } from '../memory/db.js';
 import { callSessions, callEvents, callPendingQuestions } from '../memory/schema.js';
 import type { CallSession, CallEvent, CallPendingQuestion, CallEventType } from './types.js';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('call-store');
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -105,6 +108,7 @@ export function getActiveCallSessionForConversation(conversationId: string): Cal
         notInArray(callSessions.status, ['completed', 'failed']),
       ),
     )
+    .orderBy(desc(callSessions.createdAt))
     .get();
   if (!row) return null;
   return parseCallSession(row);
@@ -190,14 +194,22 @@ export function getPendingQuestion(callSessionId: string): CallPendingQuestion |
 
 export function answerPendingQuestion(id: string, answerText: string): void {
   const db = getDb();
-  db.update(callPendingQuestions)
+  const result = db.update(callPendingQuestions)
     .set({
       status: 'answered',
       answerText,
       answeredAt: Date.now(),
     })
-    .where(eq(callPendingQuestions.id, id))
+    .where(
+      and(
+        eq(callPendingQuestions.id, id),
+        eq(callPendingQuestions.status, 'pending'),
+      ),
+    )
     .run();
+  if (result.changes === 0) {
+    log.warn({ questionId: id }, 'answerPendingQuestion: no rows updated — question may have already been answered or expired');
+  }
 }
 
 export function expirePendingQuestions(callSessionId: string): void {
