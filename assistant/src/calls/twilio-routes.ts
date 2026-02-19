@@ -21,6 +21,7 @@ import type { CallStatus } from './types.js';
 import { answerCall } from './call-domain.js';
 import { logDeadLetterEvent } from './call-recovery.js';
 import { isTerminalState } from './call-state-machine.js';
+import { getTwilioConfig } from './twilio-config.js';
 
 const log = getLogger('twilio-routes');
 
@@ -111,7 +112,8 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     log.info({ callSessionId, callSid }, 'Stored CallSid from voice webhook');
   }
 
-  const wssBaseUrl = process.env.WSS_BASE_URL ?? process.env.BASE_URL ?? 'wss://localhost:7821';
+  const config = getTwilioConfig();
+  const wssBaseUrl = config.wssBaseUrl || config.webhookBaseUrl.replace(/^http/, 'ws');
   const welcomeGreeting = process.env.CALL_WELCOME_GREETING ?? 'Hello, how can I help you today?';
 
   const twiml = generateTwiML(callSessionId, wssBaseUrl, welcomeGreeting);
