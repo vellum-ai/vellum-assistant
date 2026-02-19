@@ -133,8 +133,10 @@ struct ChatContentView: View {
                         }
                     }
                 }
-                .onChange(of: viewModel.activeSubagents.count) { _, _ in
-                    scrollToBottom(proxy: proxy, animated: true)
+                .onChange(of: viewModel.activeSubagents.count) { oldCount, newCount in
+                    if newCount > oldCount {
+                        scrollToBottom(proxy: proxy, animated: true)
+                    }
                 }
             }
             } // end else (messages non-empty)
