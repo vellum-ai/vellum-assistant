@@ -11,7 +11,6 @@ import type {
   WorkItemPreflightRequest,
   WorkItemApprovePermissionsRequest,
   WorkItemCancelRequest,
-  WorkItemRenderRequest,
 } from '../ipc-protocol.js';
 import { log, type HandlerContext, type DispatchMap } from './shared.js';
 import { getSubagentManager } from '../../subagent/index.js';
@@ -24,7 +23,7 @@ import {
   type WorkItemStatus,
 } from '../../work-items/work-item-store.js';
 import { getTask, getTaskRun } from '../../tasks/task-store.js';
-import { runTask, renderTemplate } from '../../tasks/task-runner.js';
+import { runTask } from '../../tasks/task-runner.js';
 import { getMessages } from '../../memory/conversation-store.js';
 import { classifyRisk, check } from '../../permissions/checker.js';
 import { truncate } from '../../util/truncate.js';
@@ -313,13 +312,6 @@ export async function handleWorkItemRunTask(
   broadcastWorkItemStatus(ctx, msg.id);
   ctx.broadcast({ type: 'tasks_changed' });
 
-  // When chatRouted is true, the client handles execution by injecting
-  // the task content into the active chat session. The daemon only
-  // tracks status — it does NOT create a session or run the task.
-  if (msg.chatRouted) {
-    return;
-  }
-
   // Execute task asynchronously — lazily create a session inside the callback
   // using the conversationId provided by runTask, so the session references
   // the conversation that was actually inserted into the database.
@@ -490,27 +482,6 @@ export function handleWorkItemCancel(
   ctx.broadcast({ type: 'tasks_changed' });
 }
 
-export function handleWorkItemRender(
-  msg: WorkItemRenderRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const workItem = getWorkItem(msg.id);
-  if (!workItem) {
-    ctx.send(socket, { type: 'work_item_render_response', id: msg.id, success: false, error: 'Work item not found' });
-    return;
-  }
-
-  const task = getTask(workItem.taskId);
-  if (!task) {
-    ctx.send(socket, { type: 'work_item_render_response', id: msg.id, success: false, error: `Associated task not found: ${workItem.taskId}` });
-    return;
-  }
-
-  const content = renderTemplate(task.template, {});
-  ctx.send(socket, { type: 'work_item_render_response', id: msg.id, success: true, content, title: workItem.title });
-}
-
 export const workItemHandlers: Partial<DispatchMap> = {
   work_items_list: handleWorkItemsList,
   work_item_get: handleWorkItemGet,
@@ -523,5 +494,4 @@ export const workItemHandlers: Partial<DispatchMap> = {
   work_item_preflight: handleWorkItemPreflight,
   work_item_approve_permissions: handleWorkItemApprovePermissions,
   work_item_cancel: handleWorkItemCancel,
-  work_item_render: handleWorkItemRender,
 };

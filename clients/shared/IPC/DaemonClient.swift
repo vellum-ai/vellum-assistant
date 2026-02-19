@@ -299,9 +299,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `work_item_cancel_response` message.
     public var onWorkItemCancelResponse: ((IPCWorkItemCancelResponse) -> Void)?
 
-    /// Called when the daemon sends a `work_item_render_response` message.
-    public var onWorkItemRenderResponse: ((IPCWorkItemRenderResponse) -> Void)?
-
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -646,11 +643,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(IPCWorkItemDeleteRequest(type: "work_item_delete", id: id))
     }
 
-    /// Run the task associated with a work item.
-    /// When `chatRouted` is true, the daemon sets status to "running" but does not
-    /// execute the task — the client routes execution through the active chat session.
-    public func sendWorkItemRunTask(id: String, chatRouted: Bool? = nil) throws {
-        try send(IPCWorkItemRunTaskRequest(type: "work_item_run_task", id: id, chatRouted: chatRouted))
+    /// Run the task associated with a work item via daemon-side execution.
+    public func sendWorkItemRunTask(id: String) throws {
+        try send(IPCWorkItemRunTaskRequest(type: "work_item_run_task", id: id))
     }
 
     /// Request the latest output for a work item.
@@ -676,11 +671,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Cancel a running work item.
     public func sendWorkItemCancel(id: String) throws {
         try send(IPCWorkItemCancelRequest(type: "work_item_cancel", id: id))
-    }
-
-    /// Request the rendered template content for a work item.
-    public func sendWorkItemRender(id: String) throws {
-        try send(IPCWorkItemRenderRequest(type: "work_item_render", id: id))
     }
 
     // MARK: - Skills Management
