@@ -1,40 +1,5 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { listSchedules, getSchedule, getScheduleRuns, formatLocalDate, describeCronExpression } from '../../schedule/schedule-store.js';
-
-class ScheduleListTool implements Tool {
-  name = 'schedule_list';
-  description = 'List recurring scheduled automations (cron jobs), or show details and recent runs for a specific one. For the user\'s task queue, use task_list_show instead.';
-  category = 'schedule';
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
-        type: 'object',
-        properties: {
-          enabled_only: {
-            type: 'boolean',
-            description: 'When true, only show enabled jobs. Defaults to false.',
-          },
-          job_id: {
-            type: 'string',
-            description: 'If provided, show detailed info and recent runs for this specific job.',
-          },
-        },
-        required: [],
-      },
-    };
-  }
-
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeScheduleList(input, _context);
-  }
-}
 
 export async function executeScheduleList(
   input: Record<string, unknown>,
@@ -91,5 +56,3 @@ export async function executeScheduleList(
 
   return { content: lines.join('\n'), isError: false };
 }
-
-registerTool(new ScheduleListTool());

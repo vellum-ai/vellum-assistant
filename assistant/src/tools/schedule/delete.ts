@@ -1,36 +1,5 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { deleteSchedule, getSchedule } from '../../schedule/schedule-store.js';
-
-class ScheduleDeleteTool implements Tool {
-  name = 'schedule_delete';
-  description = 'Delete a recurring scheduled automation and all its run history';
-  category = 'schedule';
-  defaultRiskLevel = RiskLevel.High;
-
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
-        type: 'object',
-        properties: {
-          job_id: {
-            type: 'string',
-            description: 'The ID of the schedule to delete',
-          },
-        },
-        required: ['job_id'],
-      },
-    };
-  }
-
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeScheduleDelete(input, _context);
-  }
-}
 
 export async function executeScheduleDelete(
   input: Record<string, unknown>,
@@ -57,5 +26,3 @@ export async function executeScheduleDelete(
     isError: false,
   };
 }
-
-registerTool(new ScheduleDeleteTool());
