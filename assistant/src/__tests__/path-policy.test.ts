@@ -170,6 +170,16 @@ describe('sandboxPolicy', () => {
     }
   });
 
+  test('does not double-nest when boundaryDir is under /workspace', () => {
+    const boundary = '/workspace/project';
+
+    const result = sandboxPolicy('/workspace/project/file.ts', boundary, { mustExist: false });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe('/workspace/project/file.ts');
+    }
+  });
+
   test('remapped /workspace path still rejects traversal escapes', () => {
     const boundary = makeTempDir();
 

@@ -42,11 +42,19 @@ export function sandboxPolicy(
   const mustExist = options?.mustExist ?? true;
 
   // Remap container-scoped /workspace paths to the host boundary dir.
+  // Skip remapping if the path already starts with boundaryDir to avoid
+  // double-nesting (e.g. /workspace/project/file.ts → /workspace/project/project/file.ts
+  // when boundaryDir is /workspace/project).
   let effectivePath = rawPath;
-  if (rawPath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
-    effectivePath = rawPath.slice(CONTAINER_WORKSPACE_PREFIX.length);
-  } else if (rawPath === CONTAINER_WORKSPACE_EXACT) {
-    effectivePath = '.';
+  if (
+    !rawPath.startsWith(boundaryDir + '/') &&
+    rawPath !== boundaryDir
+  ) {
+    if (rawPath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
+      effectivePath = rawPath.slice(CONTAINER_WORKSPACE_PREFIX.length);
+    } else if (rawPath === CONTAINER_WORKSPACE_EXACT) {
+      effectivePath = '.';
+    }
   }
 
   const resolved = resolve(boundaryDir, effectivePath);
