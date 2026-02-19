@@ -17,6 +17,8 @@ final class TasksWindow {
         if let existing = window {
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            // Force a data refresh so the view doesn't show stale items
+            try? daemonClient.sendWorkItemsList()
             return
         }
 
