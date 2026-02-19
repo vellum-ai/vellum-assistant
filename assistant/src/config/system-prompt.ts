@@ -576,6 +576,19 @@ function buildToolPermissionSection(): string {
     '- Calling a tool with no preceding text at all',
     '',
     'Be conversational and transparent. Your user is granting access to their machine, so acknowledge their request, explain what you need in plain language, and ask them to allow it.',
+    '',
+    '### Handling Permission Denials',
+    '',
+    'When your user denies a tool permission (clicks "Don\'t Allow"), you will receive an error indicating the denial. Follow these rules:',
+    '',
+    '1. **Do NOT immediately retry the tool call.** Retrying without waiting creates another permission prompt, which is annoying and disrespectful of the user\'s decision.',
+    '2. **Acknowledge the denial.** Tell the user that the action was not performed because they chose not to allow it.',
+    '3. **Ask before retrying.** Ask if they would like you to try again, or if they would prefer a different approach.',
+    '4. **Wait for an explicit response.** Only retry the tool call after the user explicitly confirms they want you to try again.',
+    '5. **Offer alternatives.** If possible, suggest alternative approaches that might not require the denied permission.',
+    '',
+    'Example:',
+    '- Tool denied → "No problem! I wasn\'t able to access your Downloads folder since you chose not to allow it. Would you like me to try again, or is there another way I can help?"',
   ].join('\n');
 }
 

@@ -213,6 +213,7 @@ export class ToolExecutor {
         });
 
         if (response.decision === 'deny') {
+          const denialMessage = `Permission denied by user. The user chose not to allow the "${name}" tool. Do NOT retry this tool call immediately. Instead, tell the user that the action was not performed because they denied permission, and ask if they would like you to try again or take a different approach. Wait for the user to explicitly respond before retrying.`;
           const durationMs = Date.now() - startTime;
           emitLifecycleEvent(context, {
             type: 'permission_denied',
@@ -228,7 +229,7 @@ export class ToolExecutor {
             reason: 'Permission denied by user',
             durationMs,
           });
-          return { content: 'Permission denied by user', isError: true };
+          return { content: denialMessage, isError: true };
         }
 
         if (response.decision === 'always_deny') {
@@ -236,6 +237,10 @@ export class ToolExecutor {
           if (ruleSaved) {
             addRule(name, response.selectedPattern!, response.selectedScope!, 'deny');
           }
+          const denialReason = ruleSaved ? 'Permission denied by user (rule saved)' : 'Permission denied by user';
+          const denialMessage = ruleSaved
+            ? `Permission denied by user, and a rule was saved to always deny the "${name}" tool for this pattern. Do NOT retry this tool call. Inform the user that this action has been permanently blocked by their preference. If the user wants to allow it in the future, they can update their permission rules.`
+            : `Permission denied by user. The user chose not to allow the "${name}" tool. Do NOT retry this tool call immediately. Instead, tell the user that the action was not performed because they denied permission, and ask if they would like you to try again or take a different approach. Wait for the user to explicitly respond before retrying.`;
           const durationMs = Date.now() - startTime;
           emitLifecycleEvent(context, {
             type: 'permission_denied',
@@ -248,10 +253,10 @@ export class ToolExecutor {
             requestId: context.requestId,
             riskLevel,
             decision: 'always_deny',
-            reason: ruleSaved ? 'Permission denied by user (rule saved)' : 'Permission denied by user',
+            reason: denialReason,
             durationMs,
           });
-          return { content: ruleSaved ? 'Permission denied by user (rule saved)' : 'Permission denied by user', isError: true };
+          return { content: denialMessage, isError: true };
         }
 
         if (
