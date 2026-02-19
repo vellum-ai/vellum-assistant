@@ -17,13 +17,16 @@ public struct ModelListBubble: View {
     let currentModel: String
     let configuredProviders: Set<String>
 
+    /// Anthropic model shortcuts, exposed for use by ModelPickerBubble on iOS.
+    public static let anthropicModels: [(cmd: String, model: String, display: String)] = [
+        ("opus", "claude-opus-4-6", "Claude Opus 4.6"),
+        ("opus-fast", "claude-opus-4-6-fast", "Claude Opus 4.6 Fast"),
+        ("sonnet", "claude-sonnet-4-6", "Claude Sonnet 4.6"),
+        ("haiku", "claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
+    ]
+
     private static let providerGroups: [(key: String, name: String, models: [(cmd: String, model: String, display: String)])] = [
-        ("anthropic", "Anthropic", [
-            ("opus", "claude-opus-4-6", "Claude Opus 4.6"),
-            ("opus-fast", "claude-opus-4-6-fast", "Claude Opus 4.6 Fast"),
-            ("sonnet", "claude-sonnet-4-6", "Claude Sonnet 4.6"),
-            ("haiku", "claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
-        ]),
+        ("anthropic", "Anthropic", anthropicModels),
         ("openai", "OpenAI", [
             ("gpt4", "gpt-4", "GPT-4"),
             ("gpt4o", "gpt-4o", "GPT-4o"),
