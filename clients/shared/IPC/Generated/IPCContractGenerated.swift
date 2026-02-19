@@ -2066,9 +2066,25 @@ public struct IPCWorkItemPreflightResponsePermission: Codable, Sendable {
     public let currentDecision: String
 }
 
+public struct IPCWorkItemRenderRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
+public struct IPCWorkItemRenderResponse: Codable, Sendable {
+    public let type: String
+    public let id: String
+    public let success: Bool
+    public let content: String?
+    public let title: String?
+    public let error: String?
+}
+
 public struct IPCWorkItemRunTaskRequest: Codable, Sendable {
     public let type: String
     public let id: String
+    /// When true, the daemon sets status to "running" but skips execution — the client routes task content through the active chat session instead.
+    public let chatRouted: Bool?
 }
 
 public struct IPCWorkItemRunTaskResponse: Codable, Sendable {

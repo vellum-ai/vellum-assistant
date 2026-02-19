@@ -110,6 +110,7 @@ import {
   handleWorkItemPreflight,
   handleWorkItemApprovePermissions,
   handleWorkItemCancel,
+  handleWorkItemRender,
 } from './work-items.js';
 
 import {
@@ -354,6 +355,7 @@ const handlers: DispatchMap = {
   work_item_preflight: handleWorkItemPreflight,
   work_item_approve_permissions: handleWorkItemApprovePermissions,
   work_item_cancel: handleWorkItemCancel,
+  work_item_render: handleWorkItemRender,
 
   subagent_abort: handleSubagentAbort,
   subagent_status: handleSubagentStatus,
