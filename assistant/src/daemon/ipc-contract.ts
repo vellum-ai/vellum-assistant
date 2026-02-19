@@ -1015,6 +1015,10 @@ export interface ToolUseStart {
 export interface ToolOutputChunk {
   type: 'tool_output_chunk';
   chunk: string;
+  subType?: 'tool_start' | 'tool_complete' | 'status';
+  subToolName?: string;
+  subToolInput?: string;
+  subToolIsError?: boolean;
 }
 
 export interface ToolInputDelta {
