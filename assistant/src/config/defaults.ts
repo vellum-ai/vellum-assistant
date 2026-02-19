@@ -151,7 +151,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   },
   secretDetection: {
     enabled: true,
-    action: 'block',
+    action: 'redact',
     entropyThreshold: 4.0,
     allowOneTimeSend: false,
     blockIngress: true,

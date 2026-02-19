@@ -98,7 +98,7 @@ describe('AssistantConfigSchema', () => {
       },
     });
     expect(result.rateLimit).toEqual({ maxRequestsPerMinute: 0, maxTokensPerSession: 0 });
-    expect(result.secretDetection).toEqual({ enabled: true, action: 'block', entropyThreshold: 4.0, allowOneTimeSend: false, blockIngress: true });
+    expect(result.secretDetection).toEqual({ enabled: true, action: 'redact', entropyThreshold: 4.0, allowOneTimeSend: false, blockIngress: true });
     expect(result.auditLog).toEqual({ retentionDays: 0 });
   });
 
@@ -617,7 +617,7 @@ describe('loadConfig with schema validation', () => {
   test('falls back for invalid secretDetection.action', () => {
     writeConfig({ secretDetection: { action: 'explode' } });
     const config = loadConfig();
-    expect(config.secretDetection.action).toBe('block');
+    expect(config.secretDetection.action).toBe('redact');
   });
 
   test('falls back for invalid sandbox.enabled', () => {

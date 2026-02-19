@@ -101,7 +101,7 @@ export const SecretDetectionConfigSchema = z.object({
     .enum(VALID_SECRET_ACTIONS, {
       error: `secretDetection.action must be one of: ${VALID_SECRET_ACTIONS.join(', ')}`,
     })
-    .default('block'),
+    .default('redact'),
   entropyThreshold: z
     .number({ error: 'secretDetection.entropyThreshold must be a number' })
     .finite('secretDetection.entropyThreshold must be finite')
@@ -908,7 +908,7 @@ export const AssistantConfigSchema = z.object({
   }),
   secretDetection: SecretDetectionConfigSchema.default({
     enabled: true,
-    action: 'block',
+    action: 'redact',
     entropyThreshold: 4.0,
     allowOneTimeSend: false,
     blockIngress: true,

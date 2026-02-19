@@ -413,10 +413,10 @@ describe('One-time send override', () => {
     expect(DEFAULT_CONFIG.secretDetection.allowOneTimeSend).toBe(false);
   });
 
-  test('default secretDetection.action is block', () => {
+  test('default secretDetection.action is redact', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { DEFAULT_CONFIG } = require('../config/defaults.js');
-    expect(DEFAULT_CONFIG.secretDetection.action).toBe('block');
+    expect(DEFAULT_CONFIG.secretDetection.action).toBe('redact');
   });
 
   test('default secretDetection.blockIngress is true', () => {
