@@ -43,6 +43,8 @@ export interface UserMessageAttachment {
   mimeType: string;
   data: string;
   extractedText?: string;
+  /** Original file size in bytes. Present when data was omitted from history_response to reduce payload size. */
+  sizeBytes?: number;
 }
 
 export interface ConfirmationResponse {

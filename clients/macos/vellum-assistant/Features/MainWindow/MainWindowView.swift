@@ -1667,7 +1667,8 @@ private struct ActiveChatViewWrapper: View {
                 allowedDomains: settingsStore.mediaEmbedVideoAllowlistDomains
             ),
             isTemporaryChat: isTemporaryChat,
-            activeSubagents: viewModel.activeSubagents
+            activeSubagents: viewModel.activeSubagents,
+            daemonHttpPort: daemonClient.httpPort
         )
     }
 }
