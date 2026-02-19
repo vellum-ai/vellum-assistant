@@ -14,7 +14,8 @@ import {
   recordCallEvent,
   expirePendingQuestions,
   buildCallbackDedupeKey,
-  tryRecordProcessedCallback,
+  isCallbackProcessed,
+  recordProcessedCallback,
 } from './call-store.js';
 import type { CallStatus } from './types.js';
 import { answerCall } from './call-domain.js';
@@ -152,8 +153,7 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
   const sequenceNumber = formBody.get('SequenceNumber');
   const dedupeKey = buildCallbackDedupeKey(callSid, callStatus, timestamp, sequenceNumber);
 
-  const isNew = tryRecordProcessedCallback(dedupeKey, session.id);
-  if (!isNew) {
+  if (isCallbackProcessed(dedupeKey)) {
     log.info({ callSid, callStatus, dedupeKey }, 'Duplicate status callback — skipping');
     return new Response(null, { status: 200 });
   }
@@ -188,6 +188,10 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
   if (isTerminal) {
     expirePendingQuestions(session.id);
   }
+
+  // Record the dedupe marker AFTER all writes have succeeded so that
+  // Twilio retries are not silently dropped if the writes above fail.
+  recordProcessedCallback(dedupeKey, session.id);
 
   return new Response(null, { status: 200 });
 }
