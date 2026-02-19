@@ -30,7 +30,7 @@ mock.module('../config/loader.js', () => ({
 }));
 
 import type { Database } from 'bun:sqlite';
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import type { ToolContext } from '../tools/types.js';
 import { executeScheduleCreate } from '../tools/schedule/create.js';
 import { executeScheduleList } from '../tools/schedule/list.js';
@@ -40,6 +40,7 @@ import { executeScheduleDelete } from '../tools/schedule/delete.js';
 initializeDb();
 
 afterAll(() => {
+  resetDb();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
 
