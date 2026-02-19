@@ -96,15 +96,15 @@ struct ChatView: View {
     var activeSubagents: [SubagentInfo] = []
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
-    /// Uses utf8.count (O(1) for contiguous strings) instead of String.count (O(n) grapheme
-    /// cluster enumeration) to avoid per-delta CPU cost on long streaming responses.
+    /// Sums utf8.count over each segment (O(1) per contiguous segment) instead of joining first,
+    /// which would allocate a new String and re-scan O(n) bytes every delta.
     /// Uses total message text length (monotonically increasing) rather than the last segment's
     /// length, which resets when a new text segment starts after a tool call.
     private var streamingScrollTrigger: Int {
         // Use last non-queued message so streaming deltas still trigger
         // auto-scroll even when queued user messages sit at the array tail.
         let last = messages.last(where: { if case .queued = $0.status { return false }; return true })
-        let textLen = last?.text.utf8.count ?? 0
+        let textLen = last?.textSegments.reduce(0) { $0 + $1.utf8.count } ?? 0
         return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
     }
 
