@@ -189,13 +189,19 @@ struct InlineVideoAttachmentView: View {
                 do {
                     let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
                     guard let data = Data(base64Encoded: base64) else {
-                        await MainActor.run { isLoading = false }
+                        await MainActor.run {
+                            isLoading = false
+                            failed = true
+                        }
                         return
                     }
                     try data.write(to: destURL)
                     await MainActor.run { isLoading = false }
                 } catch {
-                    await MainActor.run { isLoading = false }
+                    await MainActor.run {
+                        isLoading = false
+                        failed = true
+                    }
                 }
             }
         } else {
@@ -211,7 +217,13 @@ struct InlineVideoAttachmentView: View {
             Task {
                 do {
                     let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
-                    guard let data = Data(base64Encoded: base64) else { return }
+                    guard let data = Data(base64Encoded: base64) else {
+                        await MainActor.run {
+                            isLoading = false
+                            failed = true
+                        }
+                        return
+                    }
                     let fileURL = safeTempURL()
                     try data.write(to: fileURL)
                     await MainActor.run {
