@@ -131,7 +131,11 @@ export async function resolveAssistantAttachments(
     log.info('No directives or tool content blocks to resolve');
   }
 
-  // Persist resolved attachments and link to the last assistant message
+  // Persist resolved attachments and link to the last assistant message.
+  // Large video attachments are omitted from the IPC payload and lazy-loaded
+  // by the client via the HTTP endpoint (same pattern as history_response).
+  const MAX_INLINE_B64_SIZE = 512 * 1024;
+
   if (assistantAttachments.length > 0 && lastAssistantMessageId) {
     for (let i = 0; i < assistantAttachments.length; i++) {
       const draft = assistantAttachments[i];
@@ -152,11 +156,13 @@ export async function resolveAssistantAttachments(
         throw err;
       }
       linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
+      const omitData = draft.mimeType.startsWith('video/') && draft.dataBase64.length > MAX_INLINE_B64_SIZE;
       emittedAttachments.push({
         id: stored.id,
         filename: draft.filename,
         mimeType: draft.mimeType,
-        data: draft.dataBase64,
+        data: omitData ? '' : draft.dataBase64,
+        ...(omitData ? { sizeBytes: draft.sizeBytes } : {}),
       });
     }
   } else if (assistantAttachments.length > 0) {

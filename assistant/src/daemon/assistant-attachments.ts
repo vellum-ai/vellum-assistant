@@ -313,6 +313,12 @@ export function drainDirectiveDisplayBuffer(buffer: string): DirectiveDisplayDra
 
     if (!isValidDirective) {
       emitText += tag;
+    } else {
+      // Trim the trailing newline before a stripped directive so consecutive
+      // tags don't leave a stack of blank lines in the streamed text.
+      if (emitText.endsWith('\n')) {
+        emitText = emitText.slice(0, -1);
+      }
     }
 
     cursor = end + 2;
