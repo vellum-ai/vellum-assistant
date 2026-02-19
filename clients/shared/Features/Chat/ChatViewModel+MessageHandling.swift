@@ -1011,6 +1011,12 @@ extension ChatViewModel {
             // the dedicated subagents panel once it's built.
             break
 
+        case .modelInfo(let msg):
+            selectedModel = msg.model
+            if let providers = msg.configuredProviders {
+                configuredProviders = Set(providers)
+            }
+
         default:
             break
         }

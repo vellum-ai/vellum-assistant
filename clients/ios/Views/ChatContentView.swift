@@ -37,16 +37,15 @@ struct ChatContentView: View {
                         ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                             if message.modelPicker != nil {
                                 ModelPickerBubble(
-                                    models: ModelListBubble.anthropicModels.map { (id: $0.cmd, name: $0.display) },
-                                    selectedModelId: "claude-opus-4-6",
+                                    models: ModelListBubble.anthropicModels.map { (id: $0.model, name: $0.display) },
+                                    selectedModelId: viewModel.selectedModel,
                                     onSelect: { modelId in
-                                        viewModel.inputText = "/\(modelId)"
-                                        viewModel.sendMessage()
+                                        viewModel.setModel(modelId)
                                     }
                                 )
                                 .id(message.id)
                             } else if message.modelList != nil {
-                                ModelListBubble(currentModel: "claude-opus-4-6", configuredProviders: ["anthropic"])
+                                ModelListBubble(currentModel: viewModel.selectedModel, configuredProviders: viewModel.configuredProviders)
                                     .id(message.id)
                             } else if message.commandList != nil {
                                 CommandListBubble()

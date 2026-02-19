@@ -44,6 +44,11 @@ public final class ChatViewModel: ObservableObject {
     @Published public var isWatchSessionActive: Bool = false
     @Published public var activeSubagents: [SubagentInfo] = []
 
+    /// The currently active model ID, updated via `model_info` IPC messages.
+    @Published public var selectedModel: String = "claude-opus-4-6"
+    /// Set of provider keys with configured API keys, updated via `model_info` IPC messages.
+    @Published public var configuredProviders: Set<String> = ["anthropic"]
+
     /// Maximum file size per attachment (20 MB).
     static let maxFileSize = 20 * 1024 * 1024
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
@@ -500,6 +505,13 @@ public final class ChatViewModel: ObservableObject {
             self.threadType = threadType
         }
         bootstrapSession(userMessage: nil, attachments: nil)
+    }
+
+    // MARK: - Model
+
+    /// Switch the active model via the daemon's `model_set` IPC command.
+    public func setModel(_ modelId: String) {
+        try? daemonClient.send(ModelSetRequestMessage(model: modelId))
     }
 
     // MARK: - Actions
