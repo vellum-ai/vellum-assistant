@@ -2,12 +2,21 @@
  * Tests that HTTP-triggered run/session flows mirror messages into the
  * assistant-events hub with payload parity to IPC outbound messages.
  *
+ * The Session class has two distinct outbound paths:
+ *   1. updateClient handler — used by the prompter for confirmation_request,
+ *      trace emitter, secret prompter.
+ *   2. runAgentLoop onEvent callback — used for the primary streaming events:
+ *      assistant_text_delta, message_complete, tool_use_start, tool_result, etc.
+ *
+ * Both paths must publish to the hub.
+ *
  * Tests:
- *   - confirmation_request → hub emits one AssistantEvent
- *   - assistant_text_delta + message_complete → hub emits in order
+ *   - confirmation_request (updateClient path) → hub emits one AssistantEvent
+ *   - assistant_text_delta + message_complete (onEvent path) → hub emits in order
+ *   - sessionId falls back to conversationId when the message lacks it
  */
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
@@ -45,10 +54,10 @@ initializeDb();
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Build a session that calls the updateClient handler with all given messages,
- * then resolves (simulates a completed agent loop).
+ * Build a session that calls the updateClient handler with the given messages
+ * (simulates prompter / confirmation path).
  */
-function makeSessionEmitting(...messages: ServerMessage[]): Session {
+function makeSessionEmittingViaClient(...messages: ServerMessage[]): Session {
   let clientHandler: (msg: ServerMessage) => void = () => {};
   return {
     isProcessing: () => false,
@@ -66,6 +75,25 @@ function makeSessionEmitting(...messages: ServerMessage[]): Session {
   } as unknown as Session;
 }
 
+/**
+ * Build a session that calls the onEvent callback with the given messages
+ * (simulates the primary agent-loop streaming path).
+ */
+function makeSessionEmittingViaAgentLoop(...messages: ServerMessage[]): Session {
+  return {
+    isProcessing: () => false,
+    persistUserMessage: () => undefined as unknown as string,
+    setAssistantId: () => {},
+    updateClient: () => {},
+    runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
+      for (const msg of messages) {
+        onEvent(msg);
+      }
+    },
+    handleConfirmationResponse: () => {},
+  } as unknown as Session;
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('HTTP run → confirmation_request mirrors to assistant-events hub', () => {
@@ -76,7 +104,7 @@ describe('HTTP run → confirmation_request mirrors to assistant-events hub', ()
     db.run('DELETE FROM conversations');
   });
 
-  test('confirmation_request emits one AssistantEvent with correct shape', async () => {
+  test('confirmation_request (updateClient path) emits one AssistantEvent', async () => {
     const conversation = createConversation('http-confirmation-test');
     const confirmationMsg: ServerMessage = {
       type: 'confirmation_request',
@@ -87,7 +115,7 @@ describe('HTTP run → confirmation_request mirrors to assistant-events hub', ()
       allowlistOptions: [{ label: 'ls', description: 'List files', pattern: 'ls' }],
       scopeOptions: [{ label: 'everywhere', scope: 'everywhere' }],
     };
-    const session = makeSessionEmitting(confirmationMsg);
+    const session = makeSessionEmittingViaClient(confirmationMsg);
 
     const received: AssistantEvent[] = [];
     const sub = assistantEventHub.subscribe(
@@ -122,7 +150,7 @@ describe('HTTP run → message flow mirrors to assistant-events hub', () => {
     db.run('DELETE FROM conversations');
   });
 
-  test('assistant_text_delta and message_complete emit in order', async () => {
+  test('assistant_text_delta and message_complete (onEvent path) emit in order', async () => {
     const conversation = createConversation('http-message-flow-test');
     const deltaMsg: ServerMessage = {
       type: 'assistant_text_delta',
@@ -133,7 +161,7 @@ describe('HTTP run → message flow mirrors to assistant-events hub', () => {
       type: 'message_complete',
       sessionId: conversation.id,
     };
-    const session = makeSessionEmitting(deltaMsg, completeMsg);
+    const session = makeSessionEmittingViaAgentLoop(deltaMsg, completeMsg);
 
     const received: AssistantEvent[] = [];
     const sub = assistantEventHub.subscribe(
@@ -162,11 +190,11 @@ describe('HTTP run → message flow mirrors to assistant-events hub', () => {
     expect(received[1].message).toBe(completeMsg);
   });
 
-  test('sessionId falls back to conversationId when message lacks it', async () => {
+  test('sessionId falls back to conversationId when message lacks it (onEvent path)', async () => {
     const conversation = createConversation('http-session-fallback-test');
     // pong has no sessionId field
     const msg: ServerMessage = { type: 'pong' };
-    const session = makeSessionEmitting(msg);
+    const session = makeSessionEmittingViaAgentLoop(msg);
 
     const received: AssistantEvent[] = [];
     const sub = assistantEventHub.subscribe(

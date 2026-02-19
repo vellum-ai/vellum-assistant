@@ -158,6 +158,12 @@ export class RunOrchestrator {
       } else if (msg.type === 'session_error') {
         lastError = msg.userMessage;
       }
+      // Mirror agent-loop events (assistant_text_delta, message_complete,
+      // tool_use_start, tool_result, etc.) to the hub. These travel through
+      // the onEvent path, distinct from the updateClient path used by the
+      // prompter (confirmation_request). Both paths must publish so SSE
+      // consumers receive the full response stream.
+      publishToHub(msg);
     }).then(() => {
       if (lastError) {
         log.error({ runId: run.id, error: lastError }, 'Run failed (error event from agent loop)');
