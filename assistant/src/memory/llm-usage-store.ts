@@ -16,7 +16,7 @@ export function recordUsageEvent(input: UsageEventInput, pricing: PricingResult)
   db.insert(llmUsageEvents).values({
     id: event.id,
     createdAt: event.createdAt,
-    assistantId: event.assistantId,
+    assistantId: 'self',
     conversationId: event.conversationId,
     runId: event.runId,
     requestId: event.requestId,
@@ -45,7 +45,6 @@ export function listUsageEvents(options?: { limit?: number }): UsageEvent[] {
   return rows.map(row => ({
     id: row.id,
     createdAt: row.createdAt,
-    assistantId: row.assistantId,
     conversationId: row.conversationId,
     runId: row.runId,
     requestId: row.requestId,

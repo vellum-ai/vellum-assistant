@@ -14,6 +14,7 @@ import * as runsStore from '../memory/runs-store.js';
 import type { Run } from '../memory/runs-store.js';
 import type { Session } from '../daemon/session.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
 import type { UserDecision } from '../permissions/types.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { IngressBlockedError } from '../util/errors.js';
@@ -90,8 +91,9 @@ export class RunOrchestrator {
     const messageId = session.persistUserMessage(content, attachments, requestId);
     const run = runsStore.createRun('self', conversationId, messageId);
 
-    // Set the assistant ID so attachments are scoped correctly.
-    session.setAssistantId('self');
+    // Runs are always HTTP-originated; set channel capabilities so the attachment
+    // scope heuristic resolves to 'self' rather than 'local-assistant'.
+    session.setChannelCapabilities(resolveChannelCapabilities('http-api'));
 
     // Serialized publish chain so hub subscribers observe events in order.
     let hubChain: Promise<void> = Promise.resolve();
@@ -109,6 +111,7 @@ export class RunOrchestrator {
           log.warn({ err }, 'assistant-events hub subscriber threw during HTTP run');
         });
     };
+
 
     // Hook into session to intercept confirmation_request events.
     // When the prompter sends a confirmation_request, we record it in the
@@ -144,6 +147,9 @@ export class RunOrchestrator {
     // Fire-and-forget the agent loop
     const cleanup = () => {
       this.pending.delete(run.id);
+      // Reset channel capabilities so a subsequent IPC/desktop session on the
+      // same conversation is not incorrectly treated as an HTTP-API client.
+      session.setChannelCapabilities(null);
       // Reset the session's client callback to a no-op so the stale
       // closure doesn't intercept events from future runs on the same session.
       // Set hasNoClient=true here since the run is done and no HTTP caller

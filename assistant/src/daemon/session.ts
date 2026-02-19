@@ -159,8 +159,6 @@ export class Session {
   private contextCompactedAt: number | null = null;
   /** @internal — exposed for session-history.ts module functions. */
   currentRequestId?: string;
-  /** @internal — exposed for session-usage.ts module functions. */
-  assistantId: string | null = null;
   private conflictGate = new ConflictGate();
   /** @internal — exposed for session-tool-setup.ts to propagate into ToolContext. */
   hasNoClient = false;
@@ -569,16 +567,8 @@ export class Session {
     this.secretPrompter.resolveSecret(requestId, value, delivery);
   }
 
-  /**
-   * Bind a runtime assistant ID to this session.
-   * IPC-only desktop sessions can leave this unset and use a local scope.
-   */
-  setAssistantId(assistantId: string): void {
-    this.assistantId = assistantId;
-  }
-
-  setChannelCapabilities(caps: ChannelCapabilities): void {
-    this.channelCapabilities = caps;
+  setChannelCapabilities(caps: ChannelCapabilities | null): void {
+    this.channelCapabilities = caps ?? undefined;
   }
 
   private async approveHostAttachmentReadImpl(filePath: string): Promise<boolean> {
@@ -1334,7 +1324,10 @@ export class Session {
         this.workingDir,
         async (filePath) => this.approveHostAttachmentReadImpl(filePath),
         lastAssistantMessageId,
-        this.assistantId ?? 'local-assistant',
+        // HTTP sessions (which call setChannelCapabilities) use 'self'; IPC/desktop
+        // sessions preserve 'local-assistant' to keep attachment namespaces isolated.
+        // PR 6 will remove assistantId from the attachment store APIs entirely.
+        this.channelCapabilities != null ? 'self' : 'local-assistant',
       );
       const { assistantAttachments, emittedAttachments } = attachmentResult;
 
@@ -1528,7 +1521,7 @@ export class Session {
     requestId: string | null = null,
   ): void {
     recordUsage(
-      { conversationId: this.conversationId, providerName: this.provider.name, assistantId: this.assistantId, usageStats: this.usageStats },
+      { conversationId: this.conversationId, providerName: this.provider.name, usageStats: this.usageStats },
       inputTokens, outputTokens, model, onEvent, actor, requestId,
     );
   }

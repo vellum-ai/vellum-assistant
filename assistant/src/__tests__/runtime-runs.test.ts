@@ -48,7 +48,7 @@ function makeCompletingSession(): Session {
   return {
     isProcessing: () => processing,
     persistUserMessage: () => undefined as unknown as string,
-    setAssistantId: () => {},
+    setChannelCapabilities: () => {},
     updateClient: () => {},
     runAgentLoop: async () => {
       processing = true;
@@ -66,7 +66,7 @@ function makeHangingSession(): Session {
   return {
     isProcessing: () => processing,
     persistUserMessage: () => undefined as unknown as string,
-    setAssistantId: () => {},
+    setChannelCapabilities: () => {},
     updateClient: () => {},
     runAgentLoop: async () => {
       processing = true;
@@ -82,7 +82,7 @@ function makeFailingSession(errorMsg: string): Session {
   return {
     isProcessing: () => false,
     persistUserMessage: () => undefined as unknown as string,
-    setAssistantId: () => {},
+    setChannelCapabilities: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       onEvent({ type: 'error', message: errorMsg });
@@ -97,7 +97,7 @@ function makeConfirmationSession(toolName: string, principal?: { kind?: string; 
   return {
     isProcessing: () => false,
     persistUserMessage: () => undefined as unknown as string,
-    setAssistantId: () => {},
+    setChannelCapabilities: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
     },
