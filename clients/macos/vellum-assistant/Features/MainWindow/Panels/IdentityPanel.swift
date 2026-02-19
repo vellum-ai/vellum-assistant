@@ -15,68 +15,61 @@ struct IdentityPanel: View {
     private let maxContentWidth: CGFloat = 1100
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // Header
-                HStack(alignment: .center) {
-                    Text("Assistant ID")
-                        .font(VFont.panelTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    Spacer()
-                }
-                .padding(.top, VSpacing.xxl)
-                .padding(.bottom, VSpacing.xl)
-
-                Divider().background(VColor.surfaceBorder)
-                    .padding(.bottom, VSpacing.xl)
-
-                // Avatar + ID card + CTA
-                HStack(alignment: .center, spacing: VSpacing.lg) {
-                    DinoSceneView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
-                        .frame(width: 180, height: 200)
-
-                    VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        if let identity {
-                            idCardSection(identity: identity)
-                        }
-
-                        // Customize Avatar CTA
-                        Button(action: onCustomizeAvatar) {
-                            HStack(spacing: VSpacing.xs) {
-                                Image(systemName: "paintpalette")
-                                    .font(.system(size: 12, weight: .medium))
-                                Text("Customize Avatar")
-                                    .font(VFont.bodyMedium)
-                            }
-                            .foregroundColor(VColor.accent)
-                            .padding(.horizontal, VSpacing.lg)
-                            .padding(.vertical, VSpacing.sm)
-                            .background(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.accent.opacity(0.3), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.bottom, VSpacing.xl)
-
-                // Constellation with fixed height so it's scrollable
-                ConstellationView(
-                    identity: identity,
-                    skills: skills,
-                    workspaceFiles: workspaceFiles
-                )
-                .frame(maxWidth: .infinity)
-                .frame(height: 700)
-                .background(VColor.background)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-
-                Spacer(minLength: VSpacing.xxl)
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack(alignment: .center) {
+                Text("Assistant ID")
+                    .font(VFont.panelTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
             }
-            .frame(maxWidth: maxContentWidth)
+            .padding(.top, VSpacing.xxl)
+            .padding(.bottom, VSpacing.xl)
             .padding(.horizontal, VSpacing.xxl)
-            .frame(maxWidth: .infinity)
+
+            Divider().background(VColor.surfaceBorder)
+                .padding(.horizontal, VSpacing.xxl)
+
+            // Avatar + ID card + CTA
+            HStack(alignment: .center, spacing: VSpacing.lg) {
+                DinoSceneView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
+                    .frame(width: 180, height: 200)
+
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    if let identity {
+                        idCardSection(identity: identity)
+                    }
+
+                    // Customize Avatar CTA
+                    Button(action: onCustomizeAvatar) {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "paintpalette")
+                                .font(.system(size: 12, weight: .medium))
+                            Text("Customize Avatar")
+                                .font(VFont.bodyMedium)
+                        }
+                        .foregroundColor(VColor.accent)
+                        .padding(.horizontal, VSpacing.lg)
+                        .padding(.vertical, VSpacing.sm)
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.accent.opacity(0.3), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, VSpacing.xl)
+            .padding(.horizontal, VSpacing.xxl)
+
+            // Constellation fills remaining space (pan + zoom to navigate)
+            ConstellationView(
+                identity: identity,
+                skills: skills,
+                workspaceFiles: workspaceFiles
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(VColor.background)
         }
         .background(VColor.backgroundSubtle)
         .onAppear {
