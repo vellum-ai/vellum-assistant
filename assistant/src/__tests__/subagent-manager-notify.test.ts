@@ -78,7 +78,7 @@ function makeState(
 }
 
 describe('SubagentManager abort notification', () => {
-  test('abort notifies parent with abort message', () => {
+  test('abort notifies parent with do-not-respawn message', () => {
     const manager = new SubagentManager();
     const subagentId = 'sub-1';
     const state = makeState(subagentId);
@@ -97,8 +97,8 @@ describe('SubagentManager abort notification', () => {
     expect(result).toBe(true);
     expect(state.status).toBe('aborted');
     expect(notifications).toHaveLength(1);
-    expect(notifications[0].parentSessionId).toBe('parent-sess-1');
-    expect(notifications[0].message).toContain('[Subagent "Test subagent" was aborted]');
+    expect(notifications[0].message).toContain('explicitly aborted');
+    expect(notifications[0].message).toContain('Do NOT re-spawn');
   });
 
   test('abort sends subagent_status_changed to client', () => {
@@ -228,7 +228,7 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
     expect(notifications[0].message).toContain('subagent_read');
   });
 
-  test('failed subagent notifies parent with error', async () => {
+  test('failed subagent does not notify parent (prevents auto-retry)', async () => {
     const manager = new SubagentManager();
     const subagentId = 'sub-1';
     const state = makeState(subagentId);
@@ -251,10 +251,8 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
 
     expect(state.status).toBe('failed');
     expect(state.error).toBe('API rate limit exceeded');
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0].parentSessionId).toBe('parent-sess-1');
-    expect(notifications[0].message).toContain('[Subagent "Test subagent" failed]');
-    expect(notifications[0].message).toContain('API rate limit exceeded');
+    // Failures don't notify the parent — user sees the red chip in the UI.
+    expect(notifications).toHaveLength(0);
   });
 
   test('failed subagent does not notify if already aborted', async () => {

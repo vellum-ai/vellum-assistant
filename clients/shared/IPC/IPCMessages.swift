@@ -1730,6 +1730,16 @@ extension IPCSessionSwitchRequest {
     }
 }
 
+/// Sent by the client to abort a running subagent.
+public struct SubagentAbortMessage: Encodable, Sendable {
+    public let type: String = "subagent_abort"
+    public let subagentId: String
+
+    public init(subagentId: String) {
+        self.subagentId = subagentId
+    }
+}
+
 /// Wraps any ServerMessage emitted by a subagent session for routing to the client.
 /// Hand-maintained because `event` is a recursive `ServerMessage` reference (codegen skips ServerMessage).
 /// Wire type: `"subagent_event"`

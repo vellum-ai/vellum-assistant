@@ -2,6 +2,7 @@ import SwiftUI
 
 public struct SubagentStatusChip: View {
     let subagent: SubagentInfo
+    var onAbort: (() -> Void)?
 
     @State private var phase: Int = 0
     @State private var timer: Timer?
@@ -23,8 +24,9 @@ public struct SubagentStatusChip: View {
         }
     }
 
-    public init(subagent: SubagentInfo) {
+    public init(subagent: SubagentInfo, onAbort: (() -> Void)? = nil) {
         self.subagent = subagent
+        self.onAbort = onAbort
     }
 
     public var body: some View {
@@ -61,6 +63,16 @@ public struct SubagentStatusChip: View {
             }
 
             Spacer()
+
+            if !subagent.isTerminal, let onAbort {
+                Button(action: onAbort) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(VColor.textMuted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Abort subagent")
+            }
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)

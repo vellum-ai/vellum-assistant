@@ -99,6 +99,25 @@ export class SubagentManager {
       );
     }
 
+    // Block respawn of recently-failed/aborted subagents — the user must explicitly ask.
+    console.log(`[subagent] spawn() called with label="${config.label}" parent="${config.parentSessionId}"`);
+    const children = this.parentToChildren.get(config.parentSessionId);
+    if (children) {
+      for (const childId of children) {
+        const child = this.subagents.get(childId);
+        if (child) {
+          console.log(`[subagent]   existing child: label="${child.state.config.label}" status="${child.state.status}"`);
+        }
+        if (child && child.state.config.label === config.label && (child.state.status === 'failed' || child.state.status === 'aborted')) {
+          const reason = child.state.status === 'aborted' ? 'aborted' : 'failed';
+          console.log(`[subagent]   BLOCKED: label matches ${reason} subagent`);
+          throw new Error(
+            `A subagent with label "${config.label}" was recently ${reason}. Do not retry — ask the user first.`,
+          );
+        }
+      }
+    }
+
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
     const conversation = createConversation({
@@ -226,10 +245,13 @@ export class SubagentManager {
         managed.state.completedAt = Date.now();
         this.setStatus(subagentId, 'completed', getSender());
 
+        console.log(`[subagent] Completed: "${managed.state.config.label}" — notifying parent`);
         log.info({ subagentId }, 'Subagent completed');
 
         // Notify the parent session so the LLM can call subagent_read.
         this.notifyParent(managed, 'completed', getSender());
+      } else {
+        console.log(`[subagent] Agent loop finished but status already terminal: "${managed.state.status}"`);
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -239,7 +261,12 @@ export class SubagentManager {
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         this.setStatus(subagentId, 'failed', getSender(), errorMsg);
-        this.notifyParent(managed, 'failed', getSender());
+        console.log(`[subagent] Failed: "${managed.state.config.label}" error="${errorMsg}" — NOT notifying parent`);
+        // Don't notify parent about failures — the user sees the red chip
+        // in the UI and can ask for a retry. This prevents the LLM from
+        // auto-retrying failed subagents.
+      } else {
+        console.log(`[subagent] Agent loop threw but status already terminal: "${managed.state.status}"`);
       }
 
       log.error({ subagentId, err }, 'Subagent failed');
@@ -268,14 +295,18 @@ export class SubagentManager {
     managed.state.completedAt = Date.now();
     if (parentSendToClient) {
       this.setStatus(subagentId, 'aborted', parentSendToClient);
-      // Notify parent about the abort — skip when the parent already has the
-      // tool result (e.g. subagent_abort tool) to avoid duplicate turns.
+      // Notify parent that the subagent was explicitly aborted — tell it NOT to re-spawn.
+      // Skip when the parent LLM itself called subagent_abort (it already has the tool result).
       if (this.onSubagentFinished && !options?.suppressNotification) {
         const label = managed.state.config.label;
+        const message =
+          `[Subagent "${label}" was explicitly aborted]\n\n` +
+          `This subagent was cancelled on purpose. Do NOT re-spawn or retry it.`;
+        console.log(`[subagent] Notifying parent about abort: "${label}"`);
         try {
           this.onSubagentFinished(
             managed.state.config.parentSessionId,
-            `[Subagent "${label}" was aborted]`,
+            message,
             parentSendToClient,
           );
         } catch (err) {
@@ -460,12 +491,14 @@ export class SubagentManager {
     if (outcome === 'completed') {
       message =
         `[Subagent "${config.label}" completed]\n\n` +
-        `Use subagent_read with subagent_id "${config.id}" to retrieve the full output.`;
+        `Use subagent_read with subagent_id "${config.id}" to retrieve the full output.\n` +
+        `Do NOT re-spawn this subagent — just read and share the results.`;
     } else {
       const error = managed.state.error ?? 'Unknown error';
       message =
         `[Subagent "${config.label}" failed]\n\n` +
-        `Error: ${error}`;
+        `Error: ${error}\n` +
+        `Do NOT re-spawn or retry this subagent unless the user explicitly asks.`;
     }
 
     try {

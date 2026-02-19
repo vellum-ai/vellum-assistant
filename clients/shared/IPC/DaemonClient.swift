@@ -683,6 +683,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(IPCWorkItemRenderRequest(type: "work_item_render", id: id))
     }
 
+    // MARK: - Subagent Management
+
+    /// Abort a running subagent.
+    public func sendSubagentAbort(subagentId: String) throws {
+        try send(SubagentAbortMessage(subagentId: subagentId))
+    }
+
     // MARK: - Skills Management
 
     /// Enable a skill by name.
