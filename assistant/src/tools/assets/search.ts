@@ -214,7 +214,7 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
 
     const limit = Math.min(params.limit ?? DEFAULT_LIMIT, MAX_RESULTS);
     const stmt = raw.prepare(
-      `SELECT a.id, a.assistant_id, a.original_filename, a.mime_type, a.size_bytes, a.kind, a.thumbnail_base64, a.created_at
+      `SELECT a.id, a.original_filename, a.mime_type, a.size_bytes, a.kind, a.thumbnail_base64, a.created_at
        FROM attachments a
        WHERE ${whereParts.join(' AND ')}
        ORDER BY a.created_at DESC
@@ -223,7 +223,6 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
 
     const rows = stmt.all(...bindValues, limit) as Array<{
       id: string;
-      assistant_id: string;
       original_filename: string;
       mime_type: string;
       size_bytes: number;
@@ -234,7 +233,6 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
 
     return rows.map((r) => ({
       id: r.id,
-      assistantId: r.assistant_id,
       originalFilename: r.original_filename,
       mimeType: r.mime_type,
       sizeBytes: r.size_bytes,
@@ -251,7 +249,6 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
   const query = db
     .select({
       id: attachments.id,
-      assistantId: attachments.assistantId,
       originalFilename: attachments.originalFilename,
       mimeType: attachments.mimeType,
       sizeBytes: attachments.sizeBytes,
