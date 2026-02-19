@@ -14,8 +14,8 @@ import {
   recordCallEvent,
   expirePendingQuestions,
   buildCallbackDedupeKey,
-  isCallbackProcessed,
-  recordProcessedCallback,
+  claimCallback,
+  releaseCallbackClaim,
 } from './call-store.js';
 import type { CallStatus } from './types.js';
 import { answerCall } from './call-domain.js';
@@ -154,50 +154,52 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
     return new Response(null, { status: 200 });
   }
 
-  // ── Idempotency check ────────────────────────────────────────────
+  // ── Atomic idempotency claim ────────────────────────────────────
   const timestamp = formBody.get('Timestamp');
   const sequenceNumber = formBody.get('SequenceNumber');
   const dedupeKey = buildCallbackDedupeKey(callSid, callStatus, timestamp, sequenceNumber);
 
-  if (isCallbackProcessed(dedupeKey)) {
+  if (!claimCallback(dedupeKey, session.id)) {
     log.info({ callSid, callStatus, dedupeKey }, 'Duplicate status callback — skipping');
     return new Response(null, { status: 200 });
   }
 
-  // Build updates
-  const updates: Parameters<typeof updateCallSession>[1] = {
-    status: mappedStatus,
-  };
+  try {
+    // Build updates
+    const updates: Parameters<typeof updateCallSession>[1] = {
+      status: mappedStatus,
+    };
 
-  if (mappedStatus === 'in_progress' && !session.startedAt) {
-    updates.startedAt = Date.now();
+    if (mappedStatus === 'in_progress' && !session.startedAt) {
+      updates.startedAt = Date.now();
+    }
+
+    const isTerminal = mappedStatus === 'completed' || mappedStatus === 'failed';
+    if (isTerminal) {
+      updates.endedAt = Date.now();
+    }
+
+    updateCallSession(session.id, updates);
+
+    // Record event
+    const eventType = isTerminal
+      ? (mappedStatus === 'completed' ? 'call_ended' : 'call_failed')
+      : (mappedStatus === 'in_progress' ? 'call_connected' : 'call_started');
+
+    recordCallEvent(session.id, eventType, {
+      twilioStatus: callStatus,
+      callSid,
+    });
+
+    // Expire pending questions on terminal status
+    if (isTerminal) {
+      expirePendingQuestions(session.id);
+    }
+  } catch (err) {
+    // Release claim so Twilio retries can reprocess
+    releaseCallbackClaim(dedupeKey);
+    throw err;
   }
-
-  const isTerminal = mappedStatus === 'completed' || mappedStatus === 'failed';
-  if (isTerminal) {
-    updates.endedAt = Date.now();
-  }
-
-  updateCallSession(session.id, updates);
-
-  // Record event
-  const eventType = isTerminal
-    ? (mappedStatus === 'completed' ? 'call_ended' : 'call_failed')
-    : (mappedStatus === 'in_progress' ? 'call_connected' : 'call_started');
-
-  recordCallEvent(session.id, eventType, {
-    twilioStatus: callStatus,
-    callSid,
-  });
-
-  // Expire pending questions on terminal status
-  if (isTerminal) {
-    expirePendingQuestions(session.id);
-  }
-
-  // Record the dedupe marker AFTER all writes have succeeded so that
-  // Twilio retries are not silently dropped if the writes above fail.
-  recordProcessedCallback(dedupeKey, session.id);
 
   return new Response(null, { status: 200 });
 }
