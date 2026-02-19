@@ -160,27 +160,60 @@ private enum MarkdownParser {
                 continue
             }
 
-            // Empty line — separate paragraphs
+            // Empty line — skip if not inside paragraph accumulation
             if trimmed.isEmpty {
                 i += 1
                 continue
             }
 
-            // Paragraph: accumulate consecutive non-blank lines that don't start block elements
+            // Paragraph: accumulate text lines, including blank lines between paragraphs.
+            // Only flush when a structural element (heading, code fence, list, HR) is encountered.
             var paraLines: [String] = []
             while i < lines.count {
                 let l = lines[i]
                 let t = l.trimmingCharacters(in: .whitespaces)
-                if t.isEmpty { break }
+
+                // Structural elements always break paragraph accumulation
                 if l.hasPrefix("#") || l.hasPrefix("```") ||
                    t.hasPrefix("- ") || t.hasPrefix("* ") || t.hasPrefix("+ ") ||
                    t == "---" || t == "***" || t == "___" { break }
                 if t.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil { break }
+
+                // Empty line: include it to preserve \n\n between paragraphs,
+                // but only if the next non-empty line is also text (not a structural element).
+                if t.isEmpty {
+                    // Peek ahead to see if there's more text after this blank line
+                    var j = i + 1
+                    while j < lines.count && lines[j].trimmingCharacters(in: .whitespaces).isEmpty {
+                        j += 1
+                    }
+                    if j < lines.count {
+                        let nextT = lines[j].trimmingCharacters(in: .whitespaces)
+                        let nextL = lines[j]
+                        if nextL.hasPrefix("#") || nextL.hasPrefix("```") ||
+                           nextT.hasPrefix("- ") || nextT.hasPrefix("* ") || nextT.hasPrefix("+ ") ||
+                           nextT == "---" || nextT == "***" || nextT == "___" ||
+                           nextT.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil {
+                            break
+                        }
+                    } else {
+                        // No more lines after the blank — stop
+                        break
+                    }
+                    paraLines.append("")
+                    i += 1
+                    continue
+                }
+
                 paraLines.append(l)
                 i += 1
             }
             if !paraLines.isEmpty {
-                blocks.append(.paragraph(text: paraLines.joined(separator: "\n")))
+                let text = paraLines.joined(separator: "\n")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty {
+                    blocks.append(.paragraph(text: text))
+                }
             }
         }
 
