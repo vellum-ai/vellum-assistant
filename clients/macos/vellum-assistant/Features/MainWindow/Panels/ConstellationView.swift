@@ -285,7 +285,7 @@ struct ConstellationView: View {
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
                 .contentShape(Rectangle())
-                .highPriorityGesture(
+                .gesture(
                     DragGesture()
                         .onChanged { value in
                             dragOffset = value.translation
