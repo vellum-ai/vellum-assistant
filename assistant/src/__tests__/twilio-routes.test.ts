@@ -9,7 +9,7 @@
  * - Unknown status and malformed payload handling
  * - Handler-level idempotency concurrency (concurrent duplicates, failure-retry)
  */
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterAll, mock, spyOn } from 'bun:test';
 import { createHmac } from 'node:crypto';
 import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -116,6 +116,7 @@ mock.module('../calls/twilio-config.js', () => ({
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { conversations } from '../memory/schema.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
+import * as callStore from '../calls/call-store.js';
 import {
   createCallSession,
   updateCallSession,
@@ -124,7 +125,7 @@ import {
   claimCallback,
   releaseCallbackClaim,
 } from '../calls/call-store.js';
-import { resolveRelayUrl } from '../calls/twilio-routes.js';
+import { resolveRelayUrl, handleStatusCallback } from '../calls/twilio-routes.js';
 
 initializeDb();
 
@@ -704,21 +705,47 @@ describe('twilio webhook routes', () => {
         Timestamp: '2025-01-20T12:00:00Z',
       };
 
-      // Simulate a prior failed processing attempt: claim the callback's dedupe key
-      // then release it, mimicking what the handler does on failure (catch block
-      // calls releaseCallbackClaim before re-throwing).
-      const dedupeKey = buildCallbackDedupeKey('CA_conc_3', 'in-progress', '2025-01-20T12:00:00Z', null);
-      const failedClaimId = claimCallback(dedupeKey, session.id);
-      expect(failedClaimId).not.toBeNull();
+      // Save original before spying so we can delegate on retry
+      const originalRecordCallEvent = callStore.recordCallEvent;
 
-      // Release the claim — this is what the handler does when processing throws
-      releaseCallbackClaim(dedupeKey, failedClaimId!);
+      // Make recordCallEvent throw on the first call to exercise the handler's
+      // real catch path (twilio-routes.ts:217), which calls
+      // releaseCallbackClaim before re-throwing.
+      let shouldThrow = true;
+      const spy = spyOn(callStore, 'recordCallEvent').mockImplementation((...args: Parameters<typeof callStore.recordCallEvent>) => {
+        if (shouldThrow) {
+          shouldThrow = false;
+          throw new Error('Simulated side-effect failure');
+        }
+        spy.mockRestore();
+        return originalRecordCallEvent(...args);
+      });
 
-      // No events recorded (the "failed" attempt didn't write any)
+      // Call handleStatusCallback directly (not through Bun.serve) so we can
+      // catch the re-thrown error without Bun's HTTP server swallowing it.
+      const formBody = new URLSearchParams(params).toString();
+      const directReq = new Request(url, {
+        method: 'POST',
+        body: formBody,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      });
+
+      // The handler should claim → throw in recordCallEvent → catch releases claim → re-throw
+      let handlerThrew = false;
+      try {
+        await handleStatusCallback(directReq);
+      } catch (err) {
+        handlerThrew = true;
+        expect((err as Error).message).toBe('Simulated side-effect failure');
+      }
+      expect(handlerThrew).toBe(true);
+
+      // No events recorded (the failed attempt rolled back via releaseCallbackClaim)
       const eventsAfterFailure = getCallEvents(session.id);
       expect(eventsAfterFailure.length).toBe(0);
 
-      // Retry via the real HTTP handler — should succeed because the claim was released
+      // Retry via the real HTTP handler — should succeed because the catch block
+      // released the claim, allowing a fresh claim on retry.
       const { body, headers } = signedRequest(url, params);
       const res = await fetch(url, { method: 'POST', headers, body });
       expect(res.status).toBe(200);
