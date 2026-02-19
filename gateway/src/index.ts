@@ -4,6 +4,7 @@ import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js"
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
 import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
+import { createTwilioRelayWebsocketHandler, getRelayWebsocketHandlers } from "./http/routes/twilio-relay-websocket.js";
 import { getLogger, initLogger } from "./logger.js";
 import { buildSchema } from "./schema.js";
 import { callTelegramApi } from "./telegram/api.js";
@@ -55,6 +56,7 @@ function main() {
   const handleTwilioVoiceWebhook = createTwilioVoiceWebhookHandler(config);
   const handleTwilioStatusWebhook = createTwilioStatusWebhookHandler(config);
   const handleTwilioConnectActionWebhook = createTwilioConnectActionWebhookHandler(config);
+  const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config);
 
   const handleRuntimeProxy = config.runtimeProxyEnabled
     ? createRuntimeProxyHandler(config)
@@ -62,6 +64,7 @@ function main() {
 
   const server = Bun.serve({
     port: config.port,
+    websocket: getRelayWebsocketHandlers(),
     async fetch(req) {
       const url = new URL(req.url);
 
@@ -109,6 +112,13 @@ function main() {
         url.pathname === "/v1/calls/twilio/connect-action"
       ) {
         return handleTwilioConnectActionWebhook(req);
+      }
+
+      if (url.pathname === "/webhooks/twilio/relay") {
+        const upgradeResult = handleTwilioRelayWs(req, server);
+        if (upgradeResult !== undefined) return upgradeResult;
+        // If upgrade was handled, Bun doesn't need a response
+        return undefined as unknown as Response;
       }
 
       if (handleRuntimeProxy) {

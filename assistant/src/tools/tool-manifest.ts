@@ -12,20 +12,9 @@ import type { Tool } from './types.js';
 import { memorySearchTool, memorySaveTool, memoryUpdateTool } from './memory/register.js';
 import { credentialStoreTool } from './credentials/vault.js';
 import { accountManageTool } from './credentials/account-registry.js';
-import { reminderCreateTool, reminderListTool, reminderCancelTool } from './reminder/reminder.js';
 import { screenWatchTool } from './watch/screen-watch.js';
 import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
-import { documentCreateTool, documentUpdateTool } from './document/index.js';
 import { cliDiscoverTool } from './host-terminal/cli-discover.js';
-import { followupCreateTool, followupListTool, followupResolveTool } from './followups/index.js';
-import { taskSaveTool, taskRunTool, taskListTool, taskDeleteTool, taskListShowTool, taskListAddTool, taskListUpdateTool, taskListRemoveTool } from './tasks/index.js';
-import {
-  subagentSpawnTool,
-  subagentStatusTool,
-  subagentAbortTool,
-  subagentMessageTool,
-  subagentReadTool,
-} from './subagent/index.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // Importing these modules triggers a top-level `registerTool()` call.
@@ -40,22 +29,6 @@ export async function loadEagerModules(): Promise<void> {
   await import('./skills/scaffold-managed.js');
   await import('./skills/delete-managed.js');
   await import('./system/request-permission.js');
-  await import('./schedule/create.js');
-  await import('./schedule/list.js');
-  await import('./schedule/update.js');
-  await import('./schedule/delete.js');
-  await import('./watcher/create.js');
-  await import('./watcher/list.js');
-  await import('./watcher/update.js');
-  await import('./watcher/delete.js');
-  await import('./watcher/digest.js');
-  await import('./playbooks/playbook-create.js');
-  await import('./playbooks/playbook-list.js');
-  await import('./playbooks/playbook-update.js');
-  await import('./playbooks/playbook-delete.js');
-  await import('./contacts/contact-upsert.js');
-  await import('./contacts/contact-search.js');
-  await import('./contacts/contact-merge.js');
   await import('./assets/search.js');
   await import('./assets/materialize.js');
   await import('./filesystem/view-image.js');
@@ -78,22 +51,6 @@ export const eagerModuleToolNames: string[] = [
   'scaffold_managed_skill',
   'delete_managed_skill',
   'request_system_permission',
-  'schedule_create',
-  'schedule_list',
-  'schedule_update',
-  'schedule_delete',
-  'watcher_create',
-  'watcher_list',
-  'watcher_update',
-  'watcher_delete',
-  'watcher_digest',
-  'playbook_create',
-  'playbook_list',
-  'playbook_update',
-  'playbook_delete',
-  'contact_upsert',
-  'contact_search',
-  'contact_merge',
   'asset_search',
   'asset_materialize',
   'view_image',
@@ -112,30 +69,9 @@ export const explicitTools: Tool[] = [
   memoryUpdateTool,
   credentialStoreTool,
   accountManageTool,
-  reminderCreateTool,
-  reminderListTool,
-  reminderCancelTool,
   screenWatchTool,
   vellumSkillsCatalogTool,
-  documentCreateTool,
-  documentUpdateTool,
   cliDiscoverTool,
-  followupCreateTool,
-  followupListTool,
-  followupResolveTool,
-  taskSaveTool,
-  taskRunTool,
-  taskListTool,
-  taskDeleteTool,
-  taskListShowTool,
-  taskListAddTool,
-  taskListUpdateTool,
-  taskListRemoveTool,
-  subagentSpawnTool,
-  subagentStatusTool,
-  subagentAbortTool,
-  subagentMessageTool,
-  subagentReadTool,
 ];
 
 // ── Lazy tool descriptors ───────────────────────────────────────────

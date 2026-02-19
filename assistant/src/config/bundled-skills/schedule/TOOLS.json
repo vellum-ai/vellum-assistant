@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "schedule_create",
+      "description": "Create a recurring scheduled automation that sends a message at a cron or RRULE interval. ONLY use this when the user explicitly wants something to run on a schedule (e.g. \"every day at 9am\", \"weekly on Mondays\", \"every hour\"). Do NOT use this for \"add to my tasks\" or \"add to my queue\" — use task_list_add for those requests instead.",
+      "category": "schedule",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "A human-readable name for the scheduled task"
+          },
+          "syntax": {
+            "type": "string",
+            "enum": ["cron", "rrule"],
+            "description": "Schedule syntax type. Auto-detected if omitted."
+          },
+          "expression": {
+            "type": "string",
+            "description": "Canonical schedule expression (cron or RRULE). Preferred over cron_expression."
+          },
+          "cron_expression": {
+            "type": "string",
+            "description": "Deprecated alias for expression with cron syntax. Use expression + syntax instead."
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone (e.g. \"America/Los_Angeles\"). Defaults to system timezone if omitted."
+          },
+          "message": {
+            "type": "string",
+            "description": "The message to send to the assistant when the schedule triggers"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the job is enabled immediately. Defaults to true."
+          }
+        },
+        "required": ["name", "message"]
+      },
+      "executor": "tools/schedule-create.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "schedule_list",
+      "description": "List recurring scheduled automations (cron jobs or RRULE schedules), or show details and recent runs for a specific one. For the user's task queue, use task_list_show instead.",
+      "category": "schedule",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "enabled_only": {
+            "type": "boolean",
+            "description": "When true, only show enabled jobs. Defaults to false."
+          },
+          "job_id": {
+            "type": "string",
+            "description": "If provided, show detailed info and recent runs for this specific job."
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/schedule-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "schedule_update",
+      "description": "Update an existing recurring scheduled automation (expression, syntax, message, name, or enabled state)",
+      "category": "schedule",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "The ID of the schedule to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name for the job"
+          },
+          "syntax": {
+            "type": "string",
+            "enum": ["cron", "rrule"],
+            "description": "Schedule syntax type. Auto-detected if omitted."
+          },
+          "expression": {
+            "type": "string",
+            "description": "New schedule expression (cron or RRULE). Preferred over cron_expression."
+          },
+          "cron_expression": {
+            "type": "string",
+            "description": "Deprecated alias for expression with cron syntax. Use expression + syntax instead."
+          },
+          "timezone": {
+            "type": "string",
+            "description": "New IANA timezone"
+          },
+          "message": {
+            "type": "string",
+            "description": "New message to send when triggered"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable or disable the job"
+          }
+        },
+        "required": ["job_id"]
+      },
+      "executor": "tools/schedule-update.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "schedule_delete",
+      "description": "Delete a recurring scheduled automation and all its run history",
+      "category": "schedule",
+      "risk": "high",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "The ID of the schedule to delete"
+          }
+        },
+        "required": ["job_id"]
+      },
+      "executor": "tools/schedule-delete.ts",
+      "execution_target": "host"
+    }
+  ]
+}

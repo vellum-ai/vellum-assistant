@@ -1,8 +1,6 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { getTask, listTasks, createTask } from '../../tasks/task-store.js';
-import { createWorkItem, findActiveWorkItemsByTitle, updateWorkItem, identifyEntityById, buildWorkItemMismatchError } from '../../work-items/work-item-store.js';
+import { createWorkItemWithPermissions, findActiveWorkItemsByTitle, updateWorkItem, identifyEntityById, buildWorkItemMismatchError } from '../../work-items/work-item-store.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('task-list-add');
@@ -11,49 +9,6 @@ const PRIORITY_LABELS: Record<number, string> = {
   0: 'high',
   1: 'medium',
   2: 'low',
-};
-
-const definition: ToolDefinition = {
-  name: 'task_list_add',
-  description:
-    'Add a task to the user\'s Task Queue. Use this when the user says "add to my tasks", "add to my queue", "put this on my task list", "track this task", or any variation of adding a one-off item they want to remember or work on. You can provide just a title for ad-hoc items, or reference an existing task definition by name or ID. Do NOT use schedule_create or reminder for simple "add to tasks" requests — those are for timed/recurring automation only.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      task_id: {
-        type: 'string',
-        description: 'ID of an existing task definition to enqueue. Provide this, task_name, or just title.',
-      },
-      task_name: {
-        type: 'string',
-        description:
-          'Title/name of an existing task definition to search for (case-insensitive substring match). Provide this, task_id, or just title.',
-      },
-      title: {
-        type: 'string',
-        description:
-          'Title for the work item. When provided WITHOUT task_id or task_name, creates an ad-hoc work item directly (a lightweight task template is auto-created behind the scenes). When provided WITH task_id or task_name, overrides the task definition title.',
-      },
-      notes: {
-        type: 'string',
-        description: 'Notes to attach to the work item.',
-      },
-      priority_tier: {
-        type: 'number',
-        description: '0 = high, 1 = medium (default), 2 = low.',
-      },
-      sort_index: {
-        type: 'number',
-        description: 'Manual sort order within the priority tier.',
-      },
-      if_exists: {
-        type: 'string',
-        enum: ['create_duplicate', 'reuse_existing', 'update_existing'],
-        description:
-          'What to do if an active work item with the same title already exists. Defaults to "reuse_existing".',
-      },
-    },
-  },
 };
 
 function handleDuplicate(
@@ -134,7 +89,7 @@ export async function executeTaskListAdd(
         template: titleOverride,
       });
 
-      const workItem = createWorkItem({
+      const workItem = createWorkItemWithPermissions({
         taskId: adHocTask.id,
         title: titleOverride,
         notes,
@@ -216,7 +171,7 @@ export async function executeTaskListAdd(
     log.debug({ title: finalTitle }, 'task_list_add: creating new item');
 
     const selectorType = taskId ? 'task_id' : 'task_name';
-    const workItem = createWorkItem({
+    const workItem = createWorkItemWithPermissions({
       taskId: resolvedTask.id,
       title: finalTitle,
       notes,
@@ -249,20 +204,3 @@ export async function executeTaskListAdd(
     return { content: `Error: ${msg}`, isError: true };
   }
 }
-
-class TaskListAddTool implements Tool {
-  name = 'task_list_add';
-  description = definition.description;
-  category = 'tasks';
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  }
-
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeTaskListAdd(input, _context);
-  }
-}
-
-export const taskListAddTool = new TaskListAddTool();

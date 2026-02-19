@@ -117,10 +117,19 @@ extension MainWindowView {
                     if actionId == "relay_prompt" || actionId == "agent_prompt",
                        let dataDict = actionData as? [String: Any],
                        let prompt = dataDict["prompt"] as? String,
-                       !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                       let vm = threadManager.activeViewModel {
-                        vm.inputText = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                        vm.sendMessage()
+                       !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        // Ensure a thread exists so the prompt doesn't silently fail
+                        // on fresh app launch before any chat thread is created.
+                        if threadManager.activeViewModel == nil {
+                            threadManager.createThread()
+                        }
+                        if let vm = threadManager.activeViewModel {
+                            // Sync dock state before sending so the message is
+                            // classified correctly (chat vs. workspace refinement).
+                            vm.isChatDockedToSide = windowState.isChatDockOpen
+                            vm.inputText = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                            vm.sendMessage()
+                        }
                         return
                     }
                     surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
@@ -613,6 +622,10 @@ struct DynamicWorkspaceWrapper: View {
                        let dataDict = actionData as? [String: Any],
                        let prompt = dataDict["prompt"] as? String,
                        !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        // Eagerly sync dock state so sendMessage() sees the
+                        // up-to-date value instead of the stale pre-toggle state
+                        // (onChange(of: windowState.selection) runs asynchronously).
+                        viewModel.isChatDockedToSide = true
                         viewModel.inputText = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
                         viewModel.sendMessage()
                         return

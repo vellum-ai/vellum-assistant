@@ -1,11 +1,8 @@
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import type { ImageContent } from '../../../../providers/types.js';
-import { eq } from 'drizzle-orm';
 import { getConfig } from '../../../../config/loader.js';
 import { generateImage, mapGeminiError } from '../../../../media/gemini-image-service.js';
 import { getAttachmentsByIds } from '../../../../memory/attachments-store.js';
-import { getDb } from '../../../../memory/db.js';
-import { conversationKeys } from '../../../../memory/schema.js';
 import { isAttachmentVisible, type AttachmentContext } from '../../../../daemon/media-visibility-policy.js';
 import { getConversationThreadType } from '../../../../memory/conversation-store.js';
 import { getAttachmentSourceConversations } from '../../../../tools/assets/search.js';
@@ -27,17 +24,6 @@ function isAttachmentAccessible(attachmentId: string, currentContext: Attachment
   return sources.some(
     (s) => isAttachmentVisible({ conversationId: s.conversationId, isPrivate: true }, currentContext),
   );
-}
-
-/** Resolve the assistantId for the current conversation. */
-function getAssistantIdForConversation(conversationId: string): string | null {
-  const db = getDb();
-  const row = db
-    .select({ assistantId: conversationKeys.assistantId })
-    .from(conversationKeys)
-    .where(eq(conversationKeys.conversationId, conversationId))
-    .get();
-  return row?.assistantId ?? null;
 }
 
 export async function run(
@@ -64,15 +50,7 @@ export async function run(
   let sourceImages: Array<{ mimeType: string; dataBase64: string }> | undefined;
 
   if (attachmentIds && attachmentIds.length > 0) {
-    const assistantId = getAssistantIdForConversation(context.conversationId);
-    if (!assistantId) {
-      return {
-        content: 'Could not resolve assistant context for attachment lookup.',
-        isError: true,
-      };
-    }
-
-    const attachments = getAttachmentsByIds(assistantId, attachmentIds);
+    const attachments = getAttachmentsByIds(attachmentIds);
 
     // Build visibility context for the current conversation
     const threadType = getConversationThreadType(context.conversationId);

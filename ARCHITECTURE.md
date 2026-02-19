@@ -3202,7 +3202,8 @@ sequenceDiagram
     Routes-->>Gateway: TwiML (ConversationRelay connect)
     Gateway-->>TwilioAPI: TwiML response
 
-    TwilioAPI->>WS: WebSocket /v1/calls/relay
+    TwilioAPI->>Gateway: WebSocket /webhooks/twilio/relay
+    Gateway->>WS: proxy WS to runtime /v1/calls/relay
     WS->>WS: setup message (callSid)
     WS->>Orch: new CallOrchestrator()
     Orch->>State: registerCallOrchestrator()
@@ -3262,6 +3263,7 @@ sequenceDiagram
 | `gateway/src/http/routes/twilio-voice-webhook.ts` | Gateway route: validates Twilio signature, forwards voice webhook to runtime |
 | `gateway/src/http/routes/twilio-status-webhook.ts` | Gateway route: validates Twilio signature, forwards status callback to runtime |
 | `gateway/src/http/routes/twilio-connect-action-webhook.ts` | Gateway route: validates Twilio signature, forwards connect-action to runtime |
+| `gateway/src/http/routes/twilio-relay-websocket.ts` | Gateway route: WebSocket proxy for ConversationRelay frames between Twilio and runtime |
 | `gateway/src/twilio/validate-webhook.ts` | Twilio webhook validation: HMAC-SHA1 signature verification, payload size limits, fail-closed when auth token missing |
 
 ### Call State Machine
@@ -3325,6 +3327,9 @@ Internet-facing Twilio callbacks terminate at the gateway, which validates signa
 | `POST /webhooks/twilio/voice` | HMAC-SHA1 signature, payload size | `POST /v1/calls/voice-webhook` |
 | `POST /webhooks/twilio/status` | HMAC-SHA1 signature, payload size | `POST /v1/calls/status-callback` |
 | `POST /webhooks/twilio/connect-action` | HMAC-SHA1 signature, payload size | `POST /v1/calls/connect-action` |
+| `WS /webhooks/twilio/relay` | WebSocket upgrade | `WS /v1/calls/relay` (bidirectional proxy) |
+
+In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice webhook) should point to the gateway's `/webhooks/twilio/relay` endpoint rather than directly to the runtime. The gateway proxies ConversationRelay frames bidirectionally between Twilio and the runtime, preserving close and error semantics for proper cleanup.
 
 Signature validation is **fail-closed**: if the Twilio auth token is not configured, all webhook requests are rejected with `403`. Missing or invalid `X-Twilio-Signature` headers are also rejected with `403`. Payload size is capped by `maxWebhookPayloadBytes` (checked via both `Content-Length` header and actual body size).
 

@@ -54,7 +54,7 @@ export function handleListMessages(
     );
   }
 
-  const mapping = getConversationByKey("self", conversationKey);
+  const mapping = getConversationByKey(conversationKey);
   if (!mapping) {
     return Response.json({ messages: [] });
   }
@@ -89,7 +89,7 @@ export function handleListMessages(
   const messages: RuntimeMessagePayload[] = merged.map((m) => {
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
     if (m.role === 'assistant' && m.id) {
-      const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id, "self");
+      const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
       if (linked.length > 0) {
         msgAttachments = linked.map((a) => ({
           id: a.id,
@@ -170,7 +170,7 @@ export async function handleSendMessage(
 
   // Validate that all attachment IDs resolve
   if (hasAttachments) {
-    const resolved = attachmentsStore.getAttachmentsByIds("self", attachmentIds);
+    const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
     if (resolved.length !== attachmentIds.length) {
       const resolvedIds = new Set(resolved.map((a) => a.id));
       const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
@@ -181,7 +181,7 @@ export async function handleSendMessage(
     }
   }
 
-  const mapping = getOrCreateConversation("self", conversationKey);
+  const mapping = getOrCreateConversation(conversationKey);
 
   const processor = deps.persistAndProcessMessage ?? deps.processMessage;
   if (!processor) {
@@ -247,7 +247,7 @@ export async function handleGetSuggestion(
     );
   }
 
-  const mapping = getConversationByKey("self", conversationKey);
+  const mapping = getConversationByKey(conversationKey);
   if (!mapping) {
     return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
   }

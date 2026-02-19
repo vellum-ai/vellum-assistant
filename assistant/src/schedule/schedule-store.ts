@@ -2,12 +2,16 @@ import { and, asc, desc, eq, lte } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { Cron } from 'croner';
 import { getDb } from '../memory/db.js';
-import { cronJobs, cronRuns } from '../memory/schema.js';
+import { scheduleJobs, scheduleRuns } from '../memory/schema.js';
+import { computeNextRunAt as computeNextRunAtEngine, isValidScheduleExpression } from './recurrence-engine.js';
+import type { ScheduleSyntax } from './recurrence-types.js';
 
 export interface ScheduleJob {
   id: string;
   name: string;
   enabled: boolean;
+  syntax: ScheduleSyntax;
+  expression: string;
   cronExpression: string;
   timezone: string | null;
   message: string;
@@ -48,7 +52,7 @@ export function computeNextRunAt(cronExpression: string, timezone?: string | nul
   });
   const next = cron.nextRun();
   if (!next) {
-    throw new Error(`Cron expression "${cronExpression}" has no upcoming runs`);
+    throw new Error(`Schedule expression "${cronExpression}" has no upcoming runs`);
   }
   return next.getTime();
 }
@@ -60,9 +64,16 @@ export function createSchedule(params: {
   message: string;
   enabled?: boolean;
   createdBy?: string;
+  syntax?: ScheduleSyntax;
+  expression?: string;
 }): ScheduleJob {
-  if (!isValidCronExpression(params.cronExpression)) {
-    throw new Error(`Invalid cron expression: "${params.cronExpression}"`);
+  // Resolve syntax and expression: prefer explicit values, fall back to cron default
+  const syntax: ScheduleSyntax = params.syntax ?? 'cron';
+  const expression = params.expression ?? params.cronExpression;
+
+  const spec = { syntax, expression, timezone: params.timezone };
+  if (!isValidScheduleExpression(spec)) {
+    throw new Error(`Invalid ${syntax} expression: "${expression}"`);
   }
 
   const db = getDb();
@@ -70,13 +81,14 @@ export function createSchedule(params: {
   const now = Date.now();
   const enabled = params.enabled ?? true;
   const timezone = params.timezone ?? null;
-  const nextRunAt = enabled ? computeNextRunAt(params.cronExpression, timezone) : 0;
+  const nextRunAt = enabled ? computeNextRunAtEngine(spec) : 0;
 
   const row = {
     id,
     name: params.name,
     enabled,
-    cronExpression: params.cronExpression,
+    cronExpression: expression,
+    scheduleSyntax: syntax,
     timezone,
     message: params.message,
     nextRunAt,
@@ -88,16 +100,16 @@ export function createSchedule(params: {
     updatedAt: now,
   };
 
-  db.insert(cronJobs).values(row).run();
-  return row;
+  db.insert(scheduleJobs).values(row).run();
+  return parseJobRow(row);
 }
 
 export function getSchedule(id: string): ScheduleJob | null {
   const db = getDb();
   const row = db
     .select()
-    .from(cronJobs)
-    .where(eq(cronJobs.id, id))
+    .from(scheduleJobs)
+    .where(eq(scheduleJobs.id, id))
     .get();
   if (!row) return null;
   return parseJobRow(row);
@@ -105,12 +117,12 @@ export function getSchedule(id: string): ScheduleJob | null {
 
 export function listSchedules(options?: { enabledOnly?: boolean }): ScheduleJob[] {
   const db = getDb();
-  const conditions = options?.enabledOnly ? eq(cronJobs.enabled, true) : undefined;
+  const conditions = options?.enabledOnly ? eq(scheduleJobs.enabled, true) : undefined;
   const rows = db
     .select()
-    .from(cronJobs)
+    .from(scheduleJobs)
     .where(conditions)
-    .orderBy(asc(cronJobs.nextRunAt))
+    .orderBy(asc(scheduleJobs.nextRunAt))
     .all();
   return rows.map(parseJobRow);
 }
@@ -123,67 +135,86 @@ export function updateSchedule(
     timezone?: string | null;
     message?: string;
     enabled?: boolean;
+    syntax?: ScheduleSyntax;
+    expression?: string;
   },
 ): ScheduleJob | null {
   const db = getDb();
-  const existing = db.select().from(cronJobs).where(eq(cronJobs.id, id)).get();
+  const existing = db.select().from(scheduleJobs).where(eq(scheduleJobs.id, id)).get();
   if (!existing) return null;
 
-  if (updates.cronExpression && !isValidCronExpression(updates.cronExpression)) {
-    throw new Error(`Invalid cron expression: "${updates.cronExpression}"`);
+  // Resolve the effective syntax and expression after this update
+  const newSyntax = updates.syntax ?? (existing.scheduleSyntax as ScheduleSyntax) ?? 'cron';
+  const newExpr = updates.expression ?? updates.cronExpression ?? existing.cronExpression;
+  const newTimezone = updates.timezone !== undefined ? updates.timezone : existing.timezone;
+  const newEnabled = updates.enabled !== undefined ? updates.enabled : existing.enabled;
+
+  // Validate if expression or syntax changed
+  if (updates.expression !== undefined || updates.cronExpression !== undefined || updates.syntax !== undefined) {
+    const spec = { syntax: newSyntax, expression: newExpr, timezone: newTimezone };
+    if (!isValidScheduleExpression(spec)) {
+      throw new Error(`Invalid ${newSyntax} expression: "${newExpr}"`);
+    }
   }
 
   const now = Date.now();
   const set: Record<string, unknown> = { updatedAt: now };
 
   if (updates.name !== undefined) set.name = updates.name;
-  if (updates.cronExpression !== undefined) set.cronExpression = updates.cronExpression;
+  if (updates.cronExpression !== undefined || updates.expression !== undefined) set.cronExpression = newExpr;
+  if (updates.syntax !== undefined) set.scheduleSyntax = newSyntax;
   if (updates.timezone !== undefined) set.timezone = updates.timezone;
   if (updates.message !== undefined) set.message = updates.message;
   if (updates.enabled !== undefined) set.enabled = updates.enabled;
 
-  const newExpr = updates.cronExpression ?? existing.cronExpression;
-  const newTimezone = updates.timezone !== undefined ? updates.timezone : existing.timezone;
-  const newEnabled = updates.enabled !== undefined ? updates.enabled : existing.enabled;
-
+  // Recompute nextRunAt if schedule timing may have changed
   if (
     updates.cronExpression !== undefined ||
+    updates.expression !== undefined ||
+    updates.syntax !== undefined ||
     updates.timezone !== undefined ||
     updates.enabled !== undefined
   ) {
-    set.nextRunAt = newEnabled ? computeNextRunAt(newExpr, newTimezone) : 0;
+    const spec = { syntax: newSyntax, expression: newExpr, timezone: newTimezone };
+    set.nextRunAt = newEnabled ? computeNextRunAtEngine(spec) : 0;
   }
 
-  db.update(cronJobs).set(set).where(eq(cronJobs.id, id)).run();
+  db.update(scheduleJobs).set(set).where(eq(scheduleJobs.id, id)).run();
 
   return getSchedule(id);
 }
 
 export function deleteSchedule(id: string): boolean {
   const db = getDb();
-  const result = db.delete(cronJobs).where(eq(cronJobs.id, id)).run() as unknown as { changes?: number };
+  const result = db.delete(scheduleJobs).where(eq(scheduleJobs.id, id)).run() as unknown as { changes?: number };
   return (result.changes ?? 0) > 0;
 }
 
 /**
- * Claim due schedules atomically. For each candidate where enabled=true and
- * next_run_at <= now, we advance next_run_at using optimistic locking on the
- * old value to prevent double-claiming by concurrent ticks.
+ * Claim due recurrence schedules atomically. For each candidate where
+ * enabled=true and next_run_at <= now, we advance next_run_at using
+ * optimistic locking on the old value to prevent double-claiming by
+ * concurrent ticks. Works for both cron and RRULE syntax.
  */
 export function claimDueSchedules(now: number): ScheduleJob[] {
   const db = getDb();
   const candidates = db
     .select()
-    .from(cronJobs)
-    .where(and(eq(cronJobs.enabled, true), lte(cronJobs.nextRunAt, now)))
-    .orderBy(asc(cronJobs.nextRunAt))
+    .from(scheduleJobs)
+    .where(and(eq(scheduleJobs.enabled, true), lte(scheduleJobs.nextRunAt, now)))
+    .orderBy(asc(scheduleJobs.nextRunAt))
     .all();
 
   const claimed: ScheduleJob[] = [];
   for (const row of candidates) {
     let newNextRunAt: number;
     try {
-      newNextRunAt = computeNextRunAt(row.cronExpression, row.timezone);
+      const syntax = (row.scheduleSyntax as ScheduleSyntax) ?? 'cron';
+      newNextRunAt = computeNextRunAtEngine({
+        syntax,
+        expression: row.cronExpression,
+        timezone: row.timezone,
+      });
     } catch {
       // Expression has no future runs — skip
       continue;
@@ -191,13 +222,13 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
 
     // Optimistic lock: only update if nextRunAt hasn't changed
     const result = db
-      .update(cronJobs)
+      .update(scheduleJobs)
       .set({
         nextRunAt: newNextRunAt,
         lastRunAt: now,
         updatedAt: now,
       })
-      .where(and(eq(cronJobs.id, row.id), eq(cronJobs.nextRunAt, row.nextRunAt)))
+      .where(and(eq(scheduleJobs.id, row.id), eq(scheduleJobs.nextRunAt, row.nextRunAt)))
       .run() as unknown as { changes?: number };
 
     if ((result.changes ?? 0) === 0) continue;
@@ -216,7 +247,7 @@ export function createScheduleRun(jobId: string, conversationId: string): string
   const db = getDb();
   const id = uuid();
   const now = Date.now();
-  db.insert(cronRuns).values({
+  db.insert(scheduleRuns).values({
     id,
     jobId,
     status: 'running',
@@ -238,12 +269,12 @@ export function completeScheduleRun(
   const db = getDb();
   const now = Date.now();
 
-  const run = db.select().from(cronRuns).where(eq(cronRuns.id, runId)).get();
+  const run = db.select().from(scheduleRuns).where(eq(scheduleRuns.id, runId)).get();
   if (!run) return;
 
   const durationMs = now - run.startedAt;
 
-  db.update(cronRuns)
+  db.update(scheduleRuns)
     .set({
       status: result.status,
       finishedAt: now,
@@ -251,23 +282,23 @@ export function completeScheduleRun(
       output: result.output?.slice(0, 10_000) ?? null,
       error: result.error?.slice(0, 2000) ?? null,
     })
-    .where(eq(cronRuns.id, runId))
+    .where(eq(scheduleRuns.id, runId))
     .run();
 
   // Update the parent job's lastStatus and retryCount
   if (result.status === 'error') {
     // Increment retry count
-    const job = db.select().from(cronJobs).where(eq(cronJobs.id, run.jobId)).get();
+    const job = db.select().from(scheduleJobs).where(eq(scheduleJobs.id, run.jobId)).get();
     if (job) {
-      db.update(cronJobs)
+      db.update(scheduleJobs)
         .set({ lastStatus: 'error', retryCount: job.retryCount + 1, updatedAt: now })
-        .where(eq(cronJobs.id, run.jobId))
+        .where(eq(scheduleJobs.id, run.jobId))
         .run();
     }
   } else {
-    db.update(cronJobs)
+    db.update(scheduleJobs)
       .set({ lastStatus: 'ok', retryCount: 0, updatedAt: now })
-      .where(eq(cronJobs.id, run.jobId))
+      .where(eq(scheduleJobs.id, run.jobId))
       .run();
   }
 }
@@ -276,9 +307,9 @@ export function getScheduleRuns(jobId: string, limit?: number): ScheduleRun[] {
   const db = getDb();
   const rows = db
     .select()
-    .from(cronRuns)
-    .where(eq(cronRuns.jobId, jobId))
-    .orderBy(desc(cronRuns.createdAt))
+    .from(scheduleRuns)
+    .where(eq(scheduleRuns.jobId, jobId))
+    .orderBy(desc(scheduleRuns.createdAt))
     .limit(limit ?? 10)
     .all();
   return rows.map(parseRunRow);
@@ -296,7 +327,8 @@ export function formatLocalDate(timestamp: number): string {
 }
 
 // Convert a cron expression to a human-readable description.
-// Uses the croner library to parse the expression and inspect its pattern fields.
+// Only applicable to cron syntax; RRULE schedules should display the
+// raw expression text instead.
 //
 // Examples:
 //   "* * * * *"     -> "Every minute"
@@ -418,11 +450,13 @@ export function describeCronExpression(expr: string): string {
   }
 }
 
-function parseJobRow(row: typeof cronJobs.$inferSelect): ScheduleJob {
+function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
   return {
     id: row.id,
     name: row.name,
     enabled: row.enabled,
+    syntax: (row.scheduleSyntax as ScheduleSyntax) ?? 'cron',
+    expression: row.cronExpression,
     cronExpression: row.cronExpression,
     timezone: row.timezone,
     message: row.message,
@@ -436,7 +470,7 @@ function parseJobRow(row: typeof cronJobs.$inferSelect): ScheduleJob {
   };
 }
 
-function parseRunRow(row: typeof cronRuns.$inferSelect): ScheduleRun {
+function parseRunRow(row: typeof scheduleRuns.$inferSelect): ScheduleRun {
   return {
     id: row.id,
     jobId: row.jobId,

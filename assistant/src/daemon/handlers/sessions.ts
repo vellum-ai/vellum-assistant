@@ -3,7 +3,7 @@ import { v4 as uuid } from 'uuid';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { classifySessionError, buildSessionErrorMessage } from '../session-error.js';
-import { getAttachmentsForMessageUnscoped, setAttachmentThumbnail } from '../../memory/attachments-store.js';
+import { getAttachmentsForMessage, setAttachmentThumbnail } from '../../memory/attachments-store.js';
 import { generateVideoThumbnail } from '../video-thumbnail.js';
 import type { UserMessageAttachment } from '../ipc-contract.js';
 import { normalizeThreadType } from '../ipc-protocol.js';
@@ -349,7 +349,7 @@ export function handleHistoryRequest(
   const historyMessages = merged.map((m) => {
     let attachments: UserMessageAttachment[] | undefined;
     if (m.role === 'assistant' && m.id) {
-      const linked = getAttachmentsForMessageUnscoped(m.id);
+      const linked = getAttachmentsForMessage(m.id);
       if (linked.length > 0) {
         // Skip embedding base64 data for large video attachments to keep the
         // history_response payload small. Only videos have a lazy-fetch path on

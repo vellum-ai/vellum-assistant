@@ -1,39 +1,13 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { listSchedules, getSchedule, getScheduleRuns, formatLocalDate, describeCronExpression } from '../../schedule/schedule-store.js';
+import { hasSetConstructs } from '../../schedule/recurrence-engine.js';
 
-class ScheduleListTool implements Tool {
-  name = 'schedule_list';
-  description = 'List recurring scheduled automations (cron jobs), or show details and recent runs for a specific one. For the user\'s task queue, use task_list_show instead.';
-  category = 'schedule';
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
-        type: 'object',
-        properties: {
-          enabled_only: {
-            type: 'boolean',
-            description: 'When true, only show enabled jobs. Defaults to false.',
-          },
-          job_id: {
-            type: 'string',
-            description: 'If provided, show detailed info and recent runs for this specific job.',
-          },
-        },
-        required: [],
-      },
-    };
+function describeSchedule(job: { syntax: string; expression: string; cronExpression: string }): string {
+  if (job.syntax === 'rrule') {
+    const label = hasSetConstructs(job.expression) ? '[RRULE set] ' : '';
+    return `${label}${job.expression}`;
   }
-
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeScheduleList(input, _context);
-  }
+  return describeCronExpression(job.cronExpression);
 }
 
 export async function executeScheduleList(
@@ -53,7 +27,9 @@ export async function executeScheduleList(
     const runs = getScheduleRuns(jobId, 5);
     const lines = [
       `Schedule: ${job.name}`,
-      `  Schedule: ${describeCronExpression(job.cronExpression)}${job.timezone ? ` (${job.timezone})` : ''}`,
+      `  Syntax: ${job.syntax}`,
+      `  Expression: ${job.expression}`,
+      `  Schedule: ${describeSchedule(job)}${job.timezone ? ` (${job.timezone})` : ''}`,
       `  Enabled: ${job.enabled}`,
       `  Message: ${job.message}`,
       `  Next run: ${formatLocalDate(job.nextRunAt)}`,
@@ -86,10 +62,8 @@ export async function executeScheduleList(
   for (const job of jobs) {
     const status = job.enabled ? 'enabled' : 'disabled';
     const next = job.enabled ? formatLocalDate(job.nextRunAt) : 'n/a';
-    lines.push(`  - [${status}] ${job.name} (${describeCronExpression(job.cronExpression)}) — next: ${next}`);
+    lines.push(`  - [${status}] ${job.name} ([${job.syntax}] ${describeSchedule(job)}) — next: ${next}`);
   }
 
   return { content: lines.join('\n'), isError: false };
 }
-
-registerTool(new ScheduleListTool());

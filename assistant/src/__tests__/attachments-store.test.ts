@@ -42,7 +42,6 @@ import {
   getAttachmentById,
   linkAttachmentToMessage,
   getAttachmentsForMessage,
-  getAttachmentsForMessageUnscoped,
   deleteOrphanAttachments,
   validateAttachmentUpload,
   isValidBase64,
@@ -73,10 +72,9 @@ describe('uploadAttachment', () => {
   beforeEach(resetTables);
 
   test('stores attachment and returns metadata', () => {
-    const stored = uploadAttachment('ast-1', 'chart.png', 'image/png', 'iVBORw0K');
+    const stored = uploadAttachment('chart.png', 'image/png', 'iVBORw0K');
 
     expect(stored.id).toBeDefined();
-    expect(stored.assistantId).toBe('ast-1');
     expect(stored.originalFilename).toBe('chart.png');
     expect(stored.mimeType).toBe('image/png');
     expect(stored.kind).toBe('image');
@@ -85,48 +83,42 @@ describe('uploadAttachment', () => {
   });
 
   test('classifies image MIME as image kind', () => {
-    const stored = uploadAttachment('ast-1', 'pic.jpg', 'image/jpeg', 'AAAA');
+    const stored = uploadAttachment('pic.jpg', 'image/jpeg', 'AAAA');
     expect(stored.kind).toBe('image');
   });
 
   test('classifies non-image MIME as document kind', () => {
-    const stored = uploadAttachment('ast-1', 'doc.pdf', 'application/pdf', 'JVBER');
+    const stored = uploadAttachment('doc.pdf', 'application/pdf', 'JVBER');
     expect(stored.kind).toBe('document');
   });
 
   test('generates unique IDs for each upload', () => {
-    const a = uploadAttachment('ast-1', 'a.txt', 'text/plain', 'AA==');
-    const b = uploadAttachment('ast-1', 'b.txt', 'text/plain', 'QQ==');
+    const a = uploadAttachment('a.txt', 'text/plain', 'AA==');
+    const b = uploadAttachment('b.txt', 'text/plain', 'QQ==');
     expect(a.id).not.toBe(b.id);
   });
 
   test('computes sizeBytes from base64 correctly', () => {
     // "hello" = "aGVsbG8=" (8 chars, 1 pad → 5 bytes)
-    const stored = uploadAttachment('ast-1', 'hello.txt', 'text/plain', 'aGVsbG8=');
+    const stored = uploadAttachment('hello.txt', 'text/plain', 'aGVsbG8=');
     expect(stored.sizeBytes).toBe(5);
   });
 
-  test('deduplicates by content hash within the same assistant', () => {
-    const first = uploadAttachment('ast-1', 'photo.png', 'image/png', 'iVBORw0KGgoAAAANSUh');
-    const second = uploadAttachment('ast-1', 'photo.png', 'image/png', 'iVBORw0KGgoAAAANSUh');
+  test('deduplicates by content hash', () => {
+    const first = uploadAttachment('photo.png', 'image/png', 'iVBORw0KGgoAAAANSUh');
+    const second = uploadAttachment('photo.png', 'image/png', 'iVBORw0KGgoAAAANSUh');
     expect(second.id).toBe(first.id);
   });
 
   test('deduplicates even when filenames differ', () => {
-    const first = uploadAttachment('ast-1', 'original.png', 'image/png', 'DUPECONTENT123');
-    const second = uploadAttachment('ast-1', 'renamed.png', 'image/png', 'DUPECONTENT123');
+    const first = uploadAttachment('original.png', 'image/png', 'DUPECONTENT123');
+    const second = uploadAttachment('renamed.png', 'image/png', 'DUPECONTENT123');
     expect(second.id).toBe(first.id);
   });
 
-  test('does not deduplicate across different assistants', () => {
-    const first = uploadAttachment('ast-1', 'file.txt', 'text/plain', 'CROSSASSISTANT');
-    const second = uploadAttachment('ast-2', 'file.txt', 'text/plain', 'CROSSASSISTANT');
-    expect(second.id).not.toBe(first.id);
-  });
-
   test('does not deduplicate different content', () => {
-    const first = uploadAttachment('ast-1', 'a.txt', 'text/plain', 'CONTENTA');
-    const second = uploadAttachment('ast-1', 'b.txt', 'text/plain', 'CONTENTB');
+    const first = uploadAttachment('a.txt', 'text/plain', 'CONTENTA');
+    const second = uploadAttachment('b.txt', 'text/plain', 'CONTENTB');
     expect(second.id).not.toBe(first.id);
   });
 
@@ -137,20 +129,20 @@ describe('uploadAttachment', () => {
     const oversizedData = 'A'.repeat(oversizedLength);
 
     expect(() =>
-      uploadAttachment('ast-1', 'huge.bin', 'application/octet-stream', oversizedData),
+      uploadAttachment('huge.bin', 'application/octet-stream', oversizedData),
     ).toThrow(AttachmentUploadError);
   });
 
   test('rejects invalid base64 data', () => {
     expect(() =>
-      uploadAttachment('ast-1', 'bad.txt', 'text/plain', '!!!not-base64!!!'),
+      uploadAttachment('bad.txt', 'text/plain', '!!!not-base64!!!'),
     ).toThrow(AttachmentUploadError);
   });
 
   test('accepts base64 with non-standard padding/length', () => {
     // Lenient on length — only character set is validated
     expect(() =>
-      uploadAttachment('ast-1', 'ok.txt', 'text/plain', 'AAA'),
+      uploadAttachment('ok.txt', 'text/plain', 'AAA'),
     ).not.toThrow();
   });
 
@@ -161,7 +153,7 @@ describe('uploadAttachment', () => {
     const exactData = 'A'.repeat(exactLength);
 
     expect(() =>
-      uploadAttachment('ast-1', 'exact.bin', 'application/octet-stream', exactData),
+      uploadAttachment('exact.bin', 'application/octet-stream', exactData),
     ).not.toThrow();
   });
 });
@@ -199,27 +191,17 @@ describe('deleteAttachment', () => {
   beforeEach(resetTables);
 
   test('deletes existing attachment and returns deleted', () => {
-    const stored = uploadAttachment('ast-1', 'file.txt', 'text/plain', 'dGVzdA==');
-    const result = deleteAttachment('ast-1', stored.id);
+    const stored = uploadAttachment('file.txt', 'text/plain', 'dGVzdA==');
+    const result = deleteAttachment(stored.id);
     expect(result).toBe('deleted');
 
-    const fetched = getAttachmentById('ast-1', stored.id);
+    const fetched = getAttachmentById(stored.id);
     expect(fetched).toBeNull();
   });
 
   test('returns not_found for nonexistent attachment', () => {
-    const result = deleteAttachment('ast-1', 'nonexistent-id');
+    const result = deleteAttachment('nonexistent-id');
     expect(result).toBe('not_found');
-  });
-
-  test('returns not_found when assistantId does not match', () => {
-    const stored = uploadAttachment('ast-owner', 'file.txt', 'text/plain', 'dGVzdA==');
-    const result = deleteAttachment('ast-other', stored.id);
-    expect(result).toBe('not_found');
-
-    // Original still exists
-    const fetched = getAttachmentById('ast-owner', stored.id);
-    expect(fetched).not.toBeNull();
   });
 
   test('returns still_referenced when messages reference the attachment', () => {
@@ -228,35 +210,35 @@ describe('deleteAttachment', () => {
     const msg2 = addMessage(conv.id, 'user', 'Duplicate upload');
 
     // Dedup: both uploads return the same attachment row
-    const first = uploadAttachment('ast-1', 'photo.png', 'image/png', 'SHAREDCONTENT1');
-    const second = uploadAttachment('ast-1', 'photo.png', 'image/png', 'SHAREDCONTENT1');
+    const first = uploadAttachment('photo.png', 'image/png', 'SHAREDCONTENT1');
+    const second = uploadAttachment('photo.png', 'image/png', 'SHAREDCONTENT1');
     expect(second.id).toBe(first.id);
 
     linkAttachmentToMessage(msg1.id, first.id, 0);
     linkAttachmentToMessage(msg2.id, second.id, 0);
 
     // Delete should return still_referenced and NOT remove the attachment row
-    const result = deleteAttachment('ast-1', first.id);
+    const result = deleteAttachment(first.id);
     expect(result).toBe('still_referenced');
 
     // Attachment row still exists because messages reference it
-    const fetched = getAttachmentById('ast-1', first.id);
+    const fetched = getAttachmentById(first.id);
     expect(fetched).not.toBeNull();
 
     // Both messages still see the attachment
-    const linked1 = getAttachmentsForMessage(msg1.id, 'ast-1');
+    const linked1 = getAttachmentsForMessage(msg1.id);
     expect(linked1).toHaveLength(1);
-    const linked2 = getAttachmentsForMessage(msg2.id, 'ast-1');
+    const linked2 = getAttachmentsForMessage(msg2.id);
     expect(linked2).toHaveLength(1);
   });
 
   test('deletes attachment when no messages reference it', () => {
-    const stored = uploadAttachment('ast-1', 'lonely.txt', 'text/plain', 'UNREFERENCED');
+    const stored = uploadAttachment('lonely.txt', 'text/plain', 'UNREFERENCED');
     // No linkAttachmentToMessage call — zero references
-    const result = deleteAttachment('ast-1', stored.id);
+    const result = deleteAttachment(stored.id);
     expect(result).toBe('deleted');
 
-    const fetched = getAttachmentById('ast-1', stored.id);
+    const fetched = getAttachmentById(stored.id);
     expect(fetched).toBeNull();
   });
 });
@@ -269,30 +251,24 @@ describe('getAttachmentsByIds', () => {
   beforeEach(resetTables);
 
   test('returns matching attachments with data', () => {
-    const a = uploadAttachment('ast-1', 'a.txt', 'text/plain', 'AAAA');
-    const b = uploadAttachment('ast-1', 'b.txt', 'text/plain', 'BBBB');
+    const a = uploadAttachment('a.txt', 'text/plain', 'AAAA');
+    const b = uploadAttachment('b.txt', 'text/plain', 'BBBB');
 
-    const results = getAttachmentsByIds('ast-1', [a.id, b.id]);
+    const results = getAttachmentsByIds([a.id, b.id]);
     expect(results).toHaveLength(2);
     expect(results[0].dataBase64).toBe('AAAA');
     expect(results[1].dataBase64).toBe('BBBB');
   });
 
   test('returns empty array for empty IDs list', () => {
-    const results = getAttachmentsByIds('ast-1', []);
+    const results = getAttachmentsByIds([]);
     expect(results).toHaveLength(0);
   });
 
   test('skips IDs that do not exist', () => {
-    const a = uploadAttachment('ast-1', 'a.txt', 'text/plain', 'AAAA');
-    const results = getAttachmentsByIds('ast-1', [a.id, 'nonexistent']);
+    const a = uploadAttachment('a.txt', 'text/plain', 'AAAA');
+    const results = getAttachmentsByIds([a.id, 'nonexistent']);
     expect(results).toHaveLength(1);
-  });
-
-  test('enforces assistantId scoping', () => {
-    const a = uploadAttachment('ast-owner', 'a.txt', 'text/plain', 'AAAA');
-    const results = getAttachmentsByIds('ast-other', [a.id]);
-    expect(results).toHaveLength(0);
   });
 });
 
@@ -304,8 +280,8 @@ describe('getAttachmentById', () => {
   beforeEach(resetTables);
 
   test('returns attachment with data when found', () => {
-    const stored = uploadAttachment('ast-1', 'report.pdf', 'application/pdf', 'JVBER');
-    const result = getAttachmentById('ast-1', stored.id);
+    const stored = uploadAttachment('report.pdf', 'application/pdf', 'JVBER');
+    const result = getAttachmentById(stored.id);
 
     expect(result).not.toBeNull();
     expect(result!.id).toBe(stored.id);
@@ -313,14 +289,8 @@ describe('getAttachmentById', () => {
     expect(result!.dataBase64).toBe('JVBER');
   });
 
-  test('returns null for wrong assistantId', () => {
-    const stored = uploadAttachment('ast-1', 'file.txt', 'text/plain', 'dGVzdA==');
-    const result = getAttachmentById('ast-other', stored.id);
-    expect(result).toBeNull();
-  });
-
   test('returns null for nonexistent ID', () => {
-    const result = getAttachmentById('ast-1', 'no-such-id');
+    const result = getAttachmentById('no-such-id');
     expect(result).toBeNull();
   });
 });
@@ -335,11 +305,11 @@ describe('linkAttachmentToMessage + getAttachmentsForMessage', () => {
   test('links attachment and retrieves it by message', () => {
     const conv = createConversation();
     const msg = addMessage(conv.id, 'assistant', 'Here is a chart');
-    const stored = uploadAttachment('ast-1', 'chart.png', 'image/png', 'iVBORw0K');
+    const stored = uploadAttachment('chart.png', 'image/png', 'iVBORw0K');
 
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
-    const linked = getAttachmentsForMessage(msg.id, 'ast-1');
+    const linked = getAttachmentsForMessage(msg.id);
     expect(linked).toHaveLength(1);
     expect(linked[0].id).toBe(stored.id);
     expect(linked[0].originalFilename).toBe('chart.png');
@@ -349,14 +319,14 @@ describe('linkAttachmentToMessage + getAttachmentsForMessage', () => {
   test('returns attachments in position order', () => {
     const conv = createConversation();
     const msg = addMessage(conv.id, 'assistant', 'Multiple files');
-    const a = uploadAttachment('ast-1', 'first.txt', 'text/plain', 'AAAA');
-    const b = uploadAttachment('ast-1', 'second.txt', 'text/plain', 'BBBB');
+    const a = uploadAttachment('first.txt', 'text/plain', 'AAAA');
+    const b = uploadAttachment('second.txt', 'text/plain', 'BBBB');
 
     // Link in reverse order
     linkAttachmentToMessage(msg.id, b.id, 1);
     linkAttachmentToMessage(msg.id, a.id, 0);
 
-    const linked = getAttachmentsForMessage(msg.id, 'ast-1');
+    const linked = getAttachmentsForMessage(msg.id);
     expect(linked).toHaveLength(2);
     expect(linked[0].originalFilename).toBe('first.txt');
     expect(linked[1].originalFilename).toBe('second.txt');
@@ -366,49 +336,7 @@ describe('linkAttachmentToMessage + getAttachmentsForMessage', () => {
     const conv = createConversation();
     const msg = addMessage(conv.id, 'assistant', 'No attachments');
 
-    const linked = getAttachmentsForMessage(msg.id, 'ast-1');
-    expect(linked).toHaveLength(0);
-  });
-
-  test('enforces assistantId scoping on retrieval', () => {
-    const conv = createConversation();
-    const msg = addMessage(conv.id, 'assistant', 'Scoped');
-    const stored = uploadAttachment('ast-owner', 'secret.txt', 'text/plain', 'c2VjcmV0');
-
-    linkAttachmentToMessage(msg.id, stored.id, 0);
-
-    const wrongScope = getAttachmentsForMessage(msg.id, 'ast-other');
-    expect(wrongScope).toHaveLength(0);
-
-    const rightScope = getAttachmentsForMessage(msg.id, 'ast-owner');
-    expect(rightScope).toHaveLength(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// getAttachmentsForMessageUnscoped
-// ---------------------------------------------------------------------------
-
-describe('getAttachmentsForMessageUnscoped', () => {
-  beforeEach(resetTables);
-
-  test('returns attachments without assistant scoping', () => {
-    const conv = createConversation();
-    const msg = addMessage(conv.id, 'assistant', 'Desktop history');
-    const stored = uploadAttachment('ast-1', 'result.png', 'image/png', 'iVBORw0K');
-
-    linkAttachmentToMessage(msg.id, stored.id, 0);
-
-    const linked = getAttachmentsForMessageUnscoped(msg.id);
-    expect(linked).toHaveLength(1);
-    expect(linked[0].id).toBe(stored.id);
-  });
-
-  test('returns empty for message with no links', () => {
-    const conv = createConversation();
-    const msg = addMessage(conv.id, 'assistant', 'Nothing here');
-
-    const linked = getAttachmentsForMessageUnscoped(msg.id);
+    const linked = getAttachmentsForMessage(msg.id);
     expect(linked).toHaveLength(0);
   });
 });
@@ -421,7 +349,7 @@ describe('deleteOrphanAttachments', () => {
   beforeEach(resetTables);
 
   test('removes candidate attachments with no message links', () => {
-    const stored = uploadAttachment('ast-1', 'orphan.txt', 'text/plain', 'ZGF0YQ==');
+    const stored = uploadAttachment('orphan.txt', 'text/plain', 'ZGF0YQ==');
 
     const removed = deleteOrphanAttachments([stored.id]);
     expect(removed).toBe(1);
@@ -430,27 +358,27 @@ describe('deleteOrphanAttachments', () => {
   test('preserves attachments that are still linked', () => {
     const conv = createConversation();
     const msg = addMessage(conv.id, 'assistant', 'With attachment');
-    const stored = uploadAttachment('ast-1', 'linked.txt', 'text/plain', 'ZGF0YQ==');
+    const stored = uploadAttachment('linked.txt', 'text/plain', 'ZGF0YQ==');
     linkAttachmentToMessage(msg.id, stored.id, 0);
 
     const removed = deleteOrphanAttachments([stored.id]);
     expect(removed).toBe(0);
 
-    const fetched = getAttachmentById('ast-1', stored.id);
+    const fetched = getAttachmentById(stored.id);
     expect(fetched).not.toBeNull();
   });
 
   test('removes only orphans when mixed candidates provided', () => {
     const conv = createConversation();
     const msg = addMessage(conv.id, 'assistant', 'Mixed');
-    const linked = uploadAttachment('ast-1', 'linked.txt', 'text/plain', 'AAAA');
-    const orphan = uploadAttachment('ast-1', 'orphan.txt', 'text/plain', 'BBBB');
+    const linked = uploadAttachment('linked.txt', 'text/plain', 'AAAA');
+    const orphan = uploadAttachment('orphan.txt', 'text/plain', 'BBBB');
     linkAttachmentToMessage(msg.id, linked.id, 0);
 
     const removed = deleteOrphanAttachments([linked.id, orphan.id]);
     expect(removed).toBe(1);
 
-    const remaining = getAttachmentById('ast-1', linked.id);
+    const remaining = getAttachmentById(linked.id);
     expect(remaining).not.toBeNull();
   });
 
@@ -460,14 +388,14 @@ describe('deleteOrphanAttachments', () => {
   });
 
   test('does not delete attachments outside the candidate set', () => {
-    const unrelated = uploadAttachment('ast-1', 'unrelated.txt', 'text/plain', 'AAAA');
-    const candidate = uploadAttachment('ast-1', 'candidate.txt', 'text/plain', 'BBBB');
+    const unrelated = uploadAttachment('unrelated.txt', 'text/plain', 'AAAA');
+    const candidate = uploadAttachment('candidate.txt', 'text/plain', 'BBBB');
 
     const removed = deleteOrphanAttachments([candidate.id]);
     expect(removed).toBe(1);
 
     // The unrelated attachment should still exist
-    const fetched = getAttachmentById('ast-1', unrelated.id);
+    const fetched = getAttachmentById(unrelated.id);
     expect(fetched).not.toBeNull();
   });
 });

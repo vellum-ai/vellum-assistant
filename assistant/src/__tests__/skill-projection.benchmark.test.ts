@@ -209,19 +209,66 @@ describe('Skill projection benchmark', () => {
     const prevActive = new Map<string, string>();
 
     // Warm the cache
-    projectSkillTools(history, { cache, previouslyActiveSkillIds: prevActive });
+    const warmResult = projectSkillTools(history, { cache, previouslyActiveSkillIds: prevActive });
+
+    // Snapshot cache state after warm-up
+    const entriesCountAfterWarm = cache.derived!.entries.length;
 
     // Second call with identical history — should hit cache fast path
+    let cachedResult: ReturnType<typeof projectSkillTools> | undefined;
     const elapsed = timeMs(() => {
-      const result = projectSkillTools(history, {
+      cachedResult = projectSkillTools(history, {
         cache,
         previouslyActiveSkillIds: prevActive,
       });
-      expect(result.toolDefinitions.length).toBeGreaterThan(0);
     });
+
+    // Assert cache was populated and covers all messages
+    expect(cache.derived).toBeDefined();
+    expect(cache.derived!.messageCount).toBe(history.length);
+
+    // Assert entries array length unchanged (no spurious re-derivation)
+    expect(cache.derived!.entries.length).toBe(entriesCountAfterWarm);
+
+    // Assert tool definitions are identical between warm and cached calls
+    expect(cachedResult!.toolDefinitions.length).toBe(warmResult.toolDefinitions.length);
+    const warmNames = warmResult.toolDefinitions.map((t) => t.name).sort();
+    const cachedNames = cachedResult!.toolDefinitions.map((t) => t.name).sort();
+    expect(cachedNames).toEqual(warmNames);
 
     console.log(`  Cached projection (no change): ${elapsed.toFixed(2)}ms`);
     expect(elapsed).toBeLessThan(10);
+  });
+
+  test('cache hit rate is 100% when history unchanged', () => {
+    const skillIds = ['skill-alpha', 'skill-beta', 'skill-gamma'];
+    catalogSkillIds = skillIds;
+    const history = buildHistory(100, skillIds);
+    const cache: SkillProjectionCache = {};
+    const prevActive = new Map<string, string>();
+
+    // First call populates the cache
+    const firstResult = projectSkillTools(history, { cache, previouslyActiveSkillIds: prevActive });
+    expect(cache.derived).toBeDefined();
+    const snapshotMessageCount = cache.derived!.messageCount;
+    const snapshotEntries = [...cache.derived!.entries];
+    const snapshotSeenIds = new Set(cache.derived!.seenIds);
+
+    // Run multiple subsequent calls with unchanged history
+    for (let i = 0; i < 5; i++) {
+      const result = projectSkillTools(history, { cache, previouslyActiveSkillIds: prevActive });
+
+      // Cache state must be identical after every call
+      expect(cache.derived!.messageCount).toBe(snapshotMessageCount);
+      expect(cache.derived!.entries.length).toBe(snapshotEntries.length);
+      expect(cache.derived!.seenIds.size).toBe(snapshotSeenIds.size);
+
+      // Tool definitions must match the first call exactly
+      expect(result.toolDefinitions.length).toBe(firstResult.toolDefinitions.length);
+      expect(result.toolDefinitions.map((t) => t.name).sort()).toEqual(
+        firstResult.toolDefinitions.map((t) => t.name).sort(),
+      );
+    }
   });
 
   test('cold projection: 1000 messages / 5 skills < 100ms', () => {

@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "playbook_create",
+      "description": "Create an action playbook \u2014 a trigger\u2192action rule that tells the assistant how to handle incoming messages matching a pattern",
+      "category": "playbook",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "trigger": {
+            "type": "string",
+            "description": "Pattern or description that triggers this playbook (e.g. \"meeting request\", \"from:ceo@*\", \"newsletter\")"
+          },
+          "action": {
+            "type": "string",
+            "description": "What to do when the trigger matches \u2014 natural language action description (e.g. \"check calendar, propose 3 times\")"
+          },
+          "channel": {
+            "type": "string",
+            "description": "Channel this rule applies to (e.g. \"email\", \"slack\"), or \"*\" for all channels. Defaults to \"*\"."
+          },
+          "category": {
+            "type": "string",
+            "description": "Free-form category for grouping (e.g. \"scheduling\", \"triage\"). Defaults to \"general\"."
+          },
+          "autonomy_level": {
+            "type": "string",
+            "enum": ["auto", "draft", "notify"],
+            "description": "How much autonomy: \"auto\" = execute automatically, \"draft\" = draft for review, \"notify\" = notify only. Defaults to \"draft\"."
+          },
+          "priority": {
+            "type": "number",
+            "description": "Relative priority \u2014 higher numbers take precedence. Defaults to 0."
+          }
+        },
+        "required": ["trigger", "action"]
+      },
+      "executor": "tools/playbook-create.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "playbook_list",
+      "description": "List action playbooks, optionally filtered by channel or category",
+      "category": "playbook",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "description": "Filter by channel (e.g. \"email\", \"slack\"). Omit to show all."
+          },
+          "category": {
+            "type": "string",
+            "description": "Filter by category (e.g. \"scheduling\", \"triage\"). Omit to show all."
+          }
+        }
+      },
+      "executor": "tools/playbook-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "playbook_update",
+      "description": "Update an existing action playbook rule",
+      "category": "playbook",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "playbook_id": {
+            "type": "string",
+            "description": "ID of the playbook to update (from playbook_list results)"
+          },
+          "trigger": {
+            "type": "string",
+            "description": "Updated trigger pattern"
+          },
+          "action": {
+            "type": "string",
+            "description": "Updated action description"
+          },
+          "channel": {
+            "type": "string",
+            "description": "Updated channel (\"*\" for all)"
+          },
+          "category": {
+            "type": "string",
+            "description": "Updated category"
+          },
+          "autonomy_level": {
+            "type": "string",
+            "enum": ["auto", "draft", "notify"],
+            "description": "Updated autonomy level"
+          },
+          "priority": {
+            "type": "number",
+            "description": "Updated priority"
+          }
+        },
+        "required": ["playbook_id"]
+      },
+      "executor": "tools/playbook-update.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "playbook_delete",
+      "description": "Delete an action playbook rule",
+      "category": "playbook",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "playbook_id": {
+            "type": "string",
+            "description": "ID of the playbook to delete (from playbook_list results)"
+          }
+        },
+        "required": ["playbook_id"]
+      },
+      "executor": "tools/playbook-delete.ts",
+      "execution_target": "host"
+    }
+  ]
+}

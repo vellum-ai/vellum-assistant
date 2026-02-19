@@ -415,6 +415,22 @@ describe('stripTemporalContext', () => {
     expect(result.length).toBe(1);
     expect(result[0]).toBe(messages[0]);
   });
+
+  test('preserves user-authored text that starts with <temporal_context> but not the injected prefix', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '<temporal_context>some user XML content</temporal_context>' },
+          { type: 'text', text: 'Hello' },
+        ],
+      },
+    ];
+
+    const result = stripTemporalContext(messages);
+    expect(result.length).toBe(1);
+    expect(result[0]).toBe(messages[0]); // Same reference — untouched
+  });
 });
 
 // ---------------------------------------------------------------------------

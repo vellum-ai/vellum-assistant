@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -51,8 +51,18 @@ mock.module('../config/loader.js', () => ({
 
 // ── Import after mocks ───────────────────────────────────────────────
 const { buildSystemPrompt } = await import('../config/system-prompt.js');
-const { taskListAddTool } = await import('../tools/tasks/work-item-enqueue.js');
-const { reminderCreateTool } = await import('../tools/reminder/reminder.js');
+
+// Load task_list_add description from the bundled skill TOOLS.json
+const tasksToolsJson = JSON.parse(
+  readFileSync(join(import.meta.dirname, '../config/bundled-skills/tasks/TOOLS.json'), 'utf-8'),
+);
+const taskListAddDef = tasksToolsJson.tools.find((t: { name: string }) => t.name === 'task_list_add');
+
+// Load reminder_create description from the bundled skill TOOLS.json
+const reminderToolsJson = JSON.parse(
+  readFileSync(join(import.meta.dirname, '../config/bundled-skills/reminder/TOOLS.json'), 'utf-8'),
+);
+const reminderCreateDef = reminderToolsJson.tools.find((t: { name: string }) => t.name === 'reminder_create');
 
 // schedule_create is registered via side-effect import; import the module
 // to access the tool description through the registry.
@@ -103,7 +113,7 @@ describe('Task/Schedule/Reminder routing section in system prompt', () => {
   test('routing section clarifies schedules are for recurring automation only', () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain('recurring automated jobs');
-    expect(prompt).toContain('cron schedule');
+    expect(prompt).toContain('recurrence schedule (cron or RRULE)');
     expect(prompt).toContain('ONLY when the user explicitly wants');
   });
 
@@ -144,27 +154,27 @@ describe('Task/Schedule/Reminder routing section in system prompt', () => {
 
 describe('task_list_add tool description', () => {
   test('mentions "add to my tasks" routing phrase', () => {
-    const def = taskListAddTool.getDefinition();
+    const def = taskListAddDef;
     expect(def.description).toContain('add to my tasks');
   });
 
   test('mentions "add to my queue" routing phrase', () => {
-    const def = taskListAddTool.getDefinition();
+    const def = taskListAddDef;
     expect(def.description).toContain('add to my queue');
   });
 
   test('mentions "put this on my task list" routing phrase', () => {
-    const def = taskListAddTool.getDefinition();
+    const def = taskListAddDef;
     expect(def.description).toContain('put this on my task list');
   });
 
   test('mentions ad-hoc title-only mode', () => {
-    const def = taskListAddTool.getDefinition();
+    const def = taskListAddDef;
     expect(def.description).toContain('just a title');
   });
 
   test('explicitly warns NOT to use schedule_create or reminder for task requests', () => {
-    const def = taskListAddTool.getDefinition();
+    const def = taskListAddDef;
     expect(def.description).toContain('Do NOT use schedule_create or reminder');
   });
 });
@@ -206,23 +216,19 @@ describe('schedule_create tool description', () => {
 
 describe('reminder tool description', () => {
   test('mentions time-based reminders', () => {
-    const def = reminderCreateTool.getDefinition();
-    expect(def.description).toContain('time-based reminder');
+    expect(reminderCreateDef.description).toContain('time-based reminder');
   });
 
   test('scopes to time-triggered notifications only', () => {
-    const def = reminderCreateTool.getDefinition();
-    expect(def.description).toContain('ONLY when the user wants a time-triggered notification');
+    expect(reminderCreateDef.description).toContain('ONLY when the user wants a time-triggered notification');
   });
 
   test('warns against using for "add to my tasks" requests', () => {
-    const def = reminderCreateTool.getDefinition();
-    expect(def.description).toContain('Do NOT use this for "add to my tasks"');
+    expect(reminderCreateDef.description).toContain('Do NOT use this for "add to my tasks"');
   });
 
   test('redirects to task_list_add for task queue items', () => {
-    const def = reminderCreateTool.getDefinition();
-    expect(def.description).toContain('task_list_add');
+    expect(reminderCreateDef.description).toContain('task_list_add');
   });
 });
 
@@ -232,24 +238,22 @@ describe('reminder tool description', () => {
 
 describe('cross-tool routing consistency', () => {
   test('all three tools reference task_list_add as the task-queue tool', () => {
-    const enqueueDef = taskListAddTool.getDefinition();
+    const enqueueDef = taskListAddDef;
     const scheduleTool = getTool('schedule_create')!;
     const scheduleDef = scheduleTool.getDefinition();
-    const reminderDef = reminderCreateTool.getDefinition();
 
     // task_list_add is the canonical name in all three descriptions
     expect(enqueueDef.name).toBe('task_list_add');
     expect(scheduleDef.description).toContain('task_list_add');
-    expect(reminderDef.description).toContain('task_list_add');
+    expect(reminderCreateDef.description).toContain('task_list_add');
   });
 
   test('schedule_create and reminder both reject "add to my queue" usage', () => {
     const scheduleTool = getTool('schedule_create')!;
     const scheduleDef = scheduleTool.getDefinition();
-    const reminderDef = reminderCreateTool.getDefinition();
 
     // Both should redirect away from task-queue requests
     expect(scheduleDef.description).toContain('add to my queue');
-    expect(reminderDef.description).toContain('add to my queue');
+    expect(reminderCreateDef.description).toContain('add to my queue');
   });
 });

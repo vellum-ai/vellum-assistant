@@ -668,17 +668,6 @@ exports[`IPC message snapshots ClientMessage types work_item_get serializes to e
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types work_item_create serializes to expected JSON 1`] = `
-{
-  "notes": "High priority",
-  "priorityTier": 1,
-  "sortIndex": 0,
-  "taskId": "task-001",
-  "title": "Process report",
-  "type": "work_item_create",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types work_item_update serializes to expected JSON 1`] = `
 {
   "id": "wi-001",
@@ -731,6 +720,20 @@ exports[`IPC message snapshots ClientMessage types work_item_approve_permissions
   ],
   "id": "wi-001",
   "type": "work_item_approve_permissions",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types work_item_cancel serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "type": "work_item_cancel",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types work_item_render serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "type": "work_item_render",
 }
 `;
 
@@ -1476,12 +1479,14 @@ exports[`IPC message snapshots ServerMessage types schedules_list_response seria
       "cronExpression": "0 9 * * 1-5",
       "description": "Every weekday at 9:00 AM",
       "enabled": true,
+      "expression": "0 9 * * 1-5",
       "id": "sched-001",
       "lastRunAt": 1700000000000,
       "lastStatus": "ok",
       "message": "Remind me about the standup",
       "name": "Daily standup reminder",
       "nextRunAt": 1700100000000,
+      "syntax": "cron",
       "timezone": "America/Los_Angeles",
     },
   ],
@@ -2012,28 +2017,6 @@ exports[`IPC message snapshots ServerMessage types work_item_get_response serial
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types work_item_create_response serializes to expected JSON 1`] = `
-{
-  "item": {
-    "createdAt": 1700000000,
-    "id": "wi-001",
-    "lastRunConversationId": null,
-    "lastRunId": null,
-    "lastRunStatus": null,
-    "notes": null,
-    "priorityTier": 1,
-    "sortIndex": null,
-    "sourceId": null,
-    "sourceType": null,
-    "status": "queued",
-    "taskId": "task-001",
-    "title": "Process report",
-    "updatedAt": 1700000000,
-  },
-  "type": "work_item_create_response",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types work_item_update_response serializes to expected JSON 1`] = `
 {
   "item": {
@@ -2114,6 +2097,24 @@ exports[`IPC message snapshots ServerMessage types work_item_approve_permissions
   "id": "wi-001",
   "success": true,
   "type": "work_item_approve_permissions_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types work_item_cancel_response serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "success": true,
+  "type": "work_item_cancel_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types work_item_render_response serializes to expected JSON 1`] = `
+{
+  "content": "# Rendered Work Item",
+  "id": "wi-001",
+  "success": true,
+  "title": "Process report",
+  "type": "work_item_render_response",
 }
 `;
 

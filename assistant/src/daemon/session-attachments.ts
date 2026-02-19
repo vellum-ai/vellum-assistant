@@ -93,7 +93,6 @@ export async function resolveAssistantAttachments(
   workingDir: string,
   approveHostRead: ApproveHostRead,
   lastAssistantMessageId: string | undefined,
-  assistantScope: string,
 ): Promise<AttachmentResolutionResult> {
   let assistantAttachments: AssistantAttachmentDraft[] = [];
   const emittedAttachments: UserMessageAttachment[] = [];
@@ -143,7 +142,6 @@ export async function resolveAssistantAttachments(
       let stored;
       try {
         stored = uploadAttachment(
-          assistantScope,
           draft.filename,
           draft.mimeType,
           draft.dataBase64,

@@ -1,6 +1,4 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { listFollowUps, getOverdueFollowUps } from '../../followups/followup-store.js';
 import type { FollowUp, FollowUpStatus } from '../../followups/types.js';
 
@@ -16,49 +14,6 @@ function formatFollowUpSummary(f: FollowUp): string {
     parts.push(`  Expected by: ${deadline.toISOString()}${isOverdue ? ' (OVERDUE)' : ''}`);
   }
   return parts.join('\n');
-}
-
-const definition: ToolDefinition = {
-  name: 'followup_list',
-  description: 'List follow-ups with optional filters by status, channel, or contact. Can also show only overdue follow-ups.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      status: {
-        type: 'string',
-        enum: [...VALID_STATUSES],
-        description: 'Filter by status (pending, resolved, overdue, nudged)',
-      },
-      channel: {
-        type: 'string',
-        description: 'Filter by communication channel (e.g. email, slack)',
-      },
-      contact_id: {
-        type: 'string',
-        description: 'Filter by contact ID',
-      },
-      overdue_only: {
-        type: 'boolean',
-        description: 'When true, return only pending follow-ups past their expected response deadline',
-      },
-    },
-    required: [],
-  },
-};
-
-class FollowUpListTool implements Tool {
-  name = 'followup_list';
-  description = definition.description;
-  category = 'followups';
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  }
-
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeFollowupList(input, _context);
-  }
 }
 
 export async function executeFollowupList(
@@ -103,5 +58,3 @@ export async function executeFollowupList(
     return { content: `Error: ${msg}`, isError: true };
   }
 }
-
-export const followupListTool = new FollowUpListTool();

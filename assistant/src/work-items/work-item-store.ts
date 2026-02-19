@@ -5,7 +5,7 @@ import { getTask } from '../tasks/task-store.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
-export type WorkItemStatus = 'queued' | 'running' | 'awaiting_review' | 'failed' | 'done' | 'archived';
+export type WorkItemStatus = 'queued' | 'running' | 'awaiting_review' | 'failed' | 'cancelled' | 'done' | 'archived';
 
 export interface WorkItem {
   id: string;
@@ -59,6 +59,38 @@ export function createWorkItem(opts: {
     updatedAt: now,
   };
   db.insert(workItems).values(item).run();
+  return item;
+}
+
+/**
+ * Create a work item and bundle the associated task's required tools as
+ * pre-approved permissions. This is the canonical create path — both
+ * the `task_list_add` tool and any IPC callers should use this to ensure
+ * permissions are always set at creation time.
+ */
+export function createWorkItemWithPermissions(opts: {
+  taskId: string;
+  title: string;
+  notes?: string;
+  priorityTier?: number;
+  sortIndex?: number;
+  sourceType?: string;
+  sourceId?: string;
+}): WorkItem {
+  const item = createWorkItem(opts);
+
+  const task = getTask(opts.taskId);
+  if (task) {
+    const requiredTools: string[] = task.requiredTools ? JSON.parse(task.requiredTools) : [];
+    if (requiredTools.length > 0) {
+      const updated = updateWorkItem(item.id, {
+        approvedTools: JSON.stringify(requiredTools),
+        approvalStatus: 'approved',
+      });
+      if (updated) return updated;
+    }
+  }
+
   return item;
 }
 

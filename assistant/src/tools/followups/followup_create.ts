@@ -1,6 +1,4 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { createFollowUp } from '../../followups/followup-store.js';
 import { getContact } from '../../contacts/contact-store.js';
 import type { FollowUp } from '../../followups/types.js';
@@ -17,54 +15,8 @@ function formatFollowUp(f: FollowUp): string {
   if (f.expectedResponseBy) {
     lines.push(`  Expected response by: ${new Date(f.expectedResponseBy).toISOString()}`);
   }
-  if (f.reminderCronId) lines.push(`  Reminder cron: ${f.reminderCronId}`);
+  if (f.reminderScheduleId) lines.push(`  Reminder schedule: ${f.reminderScheduleId}`);
   return lines.join('\n');
-}
-
-const definition: ToolDefinition = {
-  name: 'followup_create',
-  description: 'Create a follow-up tracker for a sent message. Tracks conversations awaiting a response across channels (email, Slack, WhatsApp, etc.).',
-  input_schema: {
-    type: 'object',
-    properties: {
-      channel: {
-        type: 'string',
-        description: 'Communication channel (e.g. email, slack, whatsapp)',
-      },
-      thread_id: {
-        type: 'string',
-        description: 'External thread or conversation identifier on that channel',
-      },
-      contact_id: {
-        type: 'string',
-        description: 'Optional contact ID from the contact graph. Used for grace period context.',
-      },
-      expected_response_hours: {
-        type: 'number',
-        description: 'Hours to wait for a response before marking as overdue. If omitted, no deadline is set.',
-      },
-      reminder_cron_id: {
-        type: 'string',
-        description: 'Optional cron job ID to fire a reminder when overdue',
-      },
-    },
-    required: ['channel', 'thread_id'],
-  },
-};
-
-class FollowUpCreateTool implements Tool {
-  name = 'followup_create';
-  description = definition.description;
-  category = 'followups';
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  }
-
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeFollowupCreate(input, _context);
-  }
 }
 
 export async function executeFollowupCreate(
@@ -83,7 +35,8 @@ export async function executeFollowupCreate(
 
   const contactId = input.contact_id as string | undefined;
   const expectedResponseHours = input.expected_response_hours as number | undefined;
-  const reminderCronId = input.reminder_cron_id as string | undefined;
+  // Canonical: reminder_schedule_id; deprecated alias: reminder_cron_id
+  const reminderScheduleId = (input.reminder_schedule_id ?? input.reminder_cron_id) as string | undefined;
 
   // Validate contact exists if provided
   if (contactId) {
@@ -109,7 +62,7 @@ export async function executeFollowupCreate(
       contactId: contactId ?? null,
       sentAt: now,
       expectedResponseBy,
-      reminderCronId: reminderCronId ?? null,
+      reminderScheduleId: reminderScheduleId ?? null,
     });
 
     return {
@@ -121,5 +74,3 @@ export async function executeFollowupCreate(
     return { content: `Error: ${msg}`, isError: true };
   }
 }
-
-export const followupCreateTool = new FollowUpCreateTool();

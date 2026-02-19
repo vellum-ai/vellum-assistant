@@ -103,7 +103,7 @@ describe('AssetMaterializeTool sandbox path enforcement', () => {
   beforeEach(resetTables);
 
   test('rejects path that escapes sandbox via ../', async () => {
-    const stored = uploadAttachment('ast-1', 'test.png', 'image/png', 'AAAA');
+    const stored = uploadAttachment('test.png', 'image/png', 'AAAA');
     const result = await assetMaterializeTool.execute(
       { attachment_id: stored.id, destination_path: '../../etc/evil.png' },
       dummyContext,
@@ -113,7 +113,7 @@ describe('AssetMaterializeTool sandbox path enforcement', () => {
   });
 
   test('rejects absolute path outside sandbox', async () => {
-    const stored = uploadAttachment('ast-1', 'test.png', 'image/png', 'AAAA');
+    const stored = uploadAttachment('test.png', 'image/png', 'AAAA');
     const result = await assetMaterializeTool.execute(
       { attachment_id: stored.id, destination_path: '/tmp/outside-sandbox/evil.png' },
       dummyContext,
@@ -123,7 +123,7 @@ describe('AssetMaterializeTool sandbox path enforcement', () => {
   });
 
   test('accepts relative path inside sandbox', async () => {
-    const stored = uploadAttachment('ast-1', 'test.png', 'image/png', 'AAAA');
+    const stored = uploadAttachment('test.png', 'image/png', 'AAAA');
     const result = await assetMaterializeTool.execute(
       { attachment_id: stored.id, destination_path: 'output.png' },
       dummyContext,
@@ -133,7 +133,7 @@ describe('AssetMaterializeTool sandbox path enforcement', () => {
   });
 
   test('accepts nested path inside sandbox with auto-created subdirs', async () => {
-    const stored = uploadAttachment('ast-1', 'test.png', 'image/png', 'AAAA');
+    const stored = uploadAttachment('test.png', 'image/png', 'AAAA');
     const result = await assetMaterializeTool.execute(
       { attachment_id: stored.id, destination_path: 'subdir/deep/output.png' },
       dummyContext,
@@ -172,7 +172,7 @@ describe('AssetMaterializeTool materialization', () => {
     const originalContent = 'Hello, World!';
     const base64Content = Buffer.from(originalContent).toString('base64');
 
-    const stored = uploadAttachment('ast-1', 'hello.txt', 'text/plain', base64Content);
+    const stored = uploadAttachment('hello.txt', 'text/plain', base64Content);
 
     const destPath = 'materialized-hello.txt';
     const result = await assetMaterializeTool.execute(
@@ -194,7 +194,7 @@ describe('AssetMaterializeTool materialization', () => {
     const binaryBytes = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
     const base64Content = binaryBytes.toString('base64');
 
-    const stored = uploadAttachment('ast-1', 'tiny.png', 'image/png', base64Content);
+    const stored = uploadAttachment('tiny.png', 'image/png', base64Content);
 
     const result = await assetMaterializeTool.execute(
       { attachment_id: stored.id, destination_path: 'images/tiny.png' },
@@ -209,7 +209,7 @@ describe('AssetMaterializeTool materialization', () => {
 
   test('result includes resolved path', async () => {
     const base64Content = Buffer.from('test').toString('base64');
-    const stored = uploadAttachment('ast-1', 'doc.txt', 'text/plain', base64Content);
+    const stored = uploadAttachment('doc.txt', 'text/plain', base64Content);
 
     const result = await assetMaterializeTool.execute(
       { attachment_id: stored.id, destination_path: 'output/doc.txt' },
@@ -222,7 +222,7 @@ describe('AssetMaterializeTool materialization', () => {
 
   test('result includes filename, MIME type and size info', async () => {
     const base64Content = Buffer.from('some data here').toString('base64');
-    const stored = uploadAttachment('ast-1', 'report.pdf', 'application/pdf', base64Content);
+    const stored = uploadAttachment('report.pdf', 'application/pdf', base64Content);
 
     const result = await assetMaterializeTool.execute(
       { attachment_id: stored.id, destination_path: 'report.pdf' },
@@ -307,7 +307,7 @@ describe('AssetMaterializeTool visibility policy', () => {
   test('materializing from a standard thread works from any context', async () => {
     const standardConv = createConversation({ title: 'standard-conv' });
     const base64Content = Buffer.from('standard content').toString('base64');
-    const attachment = uploadAttachment('ast-1', 'public.txt', 'text/plain', base64Content);
+    const attachment = uploadAttachment('public.txt', 'text/plain', base64Content);
     const msg = addMessage(standardConv.id, 'user', 'standard message');
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
@@ -330,7 +330,7 @@ describe('AssetMaterializeTool visibility policy', () => {
   test('materializing from a private thread works within the same private thread', async () => {
     const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
     const base64Content = Buffer.from('private content').toString('base64');
-    const attachment = uploadAttachment('ast-1', 'secret.txt', 'text/plain', base64Content);
+    const attachment = uploadAttachment('secret.txt', 'text/plain', base64Content);
     const msg = addMessage(privateConv.id, 'user', 'private message');
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
@@ -352,7 +352,7 @@ describe('AssetMaterializeTool visibility policy', () => {
   test('materializing from a private thread is REJECTED from a different conversation', async () => {
     const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
     const base64Content = Buffer.from('private content').toString('base64');
-    const attachment = uploadAttachment('ast-1', 'secret.txt', 'text/plain', base64Content);
+    const attachment = uploadAttachment('secret.txt', 'text/plain', base64Content);
     const msg = addMessage(privateConv.id, 'user', 'private message');
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
@@ -376,7 +376,7 @@ describe('AssetMaterializeTool visibility policy', () => {
   test('error message is user-actionable', async () => {
     const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
     const base64Content = Buffer.from('private content').toString('base64');
-    const attachment = uploadAttachment('ast-1', 'confidential.pdf', 'application/pdf', base64Content);
+    const attachment = uploadAttachment('confidential.pdf', 'application/pdf', base64Content);
     const msg = addMessage(privateConv.id, 'user', 'private message');
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
@@ -402,7 +402,7 @@ describe('AssetMaterializeTool visibility policy', () => {
   test('materializing from a different private thread is REJECTED', async () => {
     const privateConv1 = createConversation({ title: 'private-conv-1', threadType: 'private' });
     const base64Content = Buffer.from('private content').toString('base64');
-    const attachment = uploadAttachment('ast-1', 'secret.txt', 'text/plain', base64Content);
+    const attachment = uploadAttachment('secret.txt', 'text/plain', base64Content);
     const msg = addMessage(privateConv1.id, 'user', 'private message');
     linkAttachmentToMessage(msg.id, attachment.id, 0);
 
@@ -426,7 +426,7 @@ describe('AssetMaterializeTool visibility policy', () => {
     const privateConv = createConversation({ title: 'private-conv', threadType: 'private' });
     const standardConv = createConversation({ title: 'standard-conv' });
     const base64Content = Buffer.from('shared content').toString('base64');
-    const attachment = uploadAttachment('ast-1', 'shared.txt', 'text/plain', base64Content);
+    const attachment = uploadAttachment('shared.txt', 'text/plain', base64Content);
 
     const msg1 = addMessage(privateConv.id, 'user', 'private message');
     const msg2 = addMessage(standardConv.id, 'user', 'standard message');

@@ -1,5 +1,4 @@
-// Barrel export — importing this module triggers registration of all playbook tools.
-import './playbook-create.js';
-import './playbook-list.js';
-import './playbook-update.js';
-import './playbook-delete.js';
+export { executePlaybookCreate } from './playbook-create.js';
+export { executePlaybookList } from './playbook-list.js';
+export { executePlaybookUpdate } from './playbook-update.js';
+export { executePlaybookDelete } from './playbook-delete.js';

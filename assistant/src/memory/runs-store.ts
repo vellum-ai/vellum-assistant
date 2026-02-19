@@ -85,7 +85,6 @@ function rowToRun(row: typeof messageRuns.$inferSelect): Run {
 // ---------------------------------------------------------------------------
 
 export function createRun(
-  assistantId: string,
   conversationId: string,
   messageId?: string,
 ): Run {
@@ -95,7 +94,7 @@ export function createRun(
 
   const row = {
     id,
-    assistantId,
+    assistantId: 'self',
     conversationId,
     messageId: messageId ?? null,
     status: 'running' as const,

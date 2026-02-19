@@ -35,10 +35,9 @@ export interface RecordInboundOptions {
 
 /**
  * Record an inbound channel event. Returns `duplicate: true` if this
- * exact (assistant, channel, chat, message) combination was already seen.
+ * exact (channel, chat, message) combination was already seen.
  */
 export function recordInbound(
-  assistantId: string,
   sourceChannel: string,
   externalChatId: string,
   externalMessageId: string,
@@ -54,7 +53,6 @@ export function recordInbound(
     .from(channelInboundEvents)
     .where(
       and(
-        eq(channelInboundEvents.assistantId, assistantId),
         eq(channelInboundEvents.sourceChannel, sourceChannel),
         eq(channelInboundEvents.externalChatId, externalChatId),
         eq(channelInboundEvents.externalMessageId, externalMessageId),
@@ -72,7 +70,7 @@ export function recordInbound(
   }
 
   const conversationKey = `${sourceChannel}:${externalChatId}`;
-  const mapping = getOrCreateConversation(assistantId, conversationKey);
+  const mapping = getOrCreateConversation(conversationKey);
   const now = Date.now();
   const eventId = uuid();
 
@@ -84,7 +82,7 @@ export function recordInbound(
     tx.insert(channelInboundEvents)
       .values({
         id: eventId,
-        assistantId,
+        assistantId: 'self',
         sourceChannel,
         externalChatId,
         externalMessageId,
@@ -122,7 +120,6 @@ export function linkMessage(eventId: string, messageId: string): void {
  * platform-level message identifier (e.g. Telegram message_id).
  */
 export function findMessageBySourceId(
-  assistantId: string,
   sourceChannel: string,
   externalChatId: string,
   sourceMessageId: string,
@@ -136,7 +133,6 @@ export function findMessageBySourceId(
     .from(channelInboundEvents)
     .where(
       and(
-        eq(channelInboundEvents.assistantId, assistantId),
         eq(channelInboundEvents.sourceChannel, sourceChannel),
         eq(channelInboundEvents.externalChatId, externalChatId),
         eq(channelInboundEvents.sourceMessageId, sourceMessageId),
@@ -153,7 +149,6 @@ export function findMessageBySourceId(
  * Acknowledge delivery of an outbound message for a channel event.
  */
 export function acknowledgeDelivery(
-  assistantId: string,
   sourceChannel: string,
   externalChatId: string,
   externalMessageId: string,
@@ -166,7 +161,6 @@ export function acknowledgeDelivery(
     .from(channelInboundEvents)
     .where(
       and(
-        eq(channelInboundEvents.assistantId, assistantId),
         eq(channelInboundEvents.sourceChannel, sourceChannel),
         eq(channelInboundEvents.externalChatId, externalChatId),
         eq(channelInboundEvents.externalMessageId, externalMessageId),
@@ -271,7 +265,6 @@ export function recordProcessingFailure(eventId: string, err: unknown): void {
 /** Fetch events eligible for automatic retry (failed + past their backoff). */
 export function getRetryableEvents(limit = 20): Array<{
   id: string;
-  assistantId: string;
   conversationId: string;
   processingAttempts: number;
   rawPayload: string | null;
@@ -281,7 +274,6 @@ export function getRetryableEvents(limit = 20): Array<{
   return db
     .select({
       id: channelInboundEvents.id,
-      assistantId: channelInboundEvents.assistantId,
       conversationId: channelInboundEvents.conversationId,
       processingAttempts: channelInboundEvents.processingAttempts,
       rawPayload: channelInboundEvents.rawPayload,
@@ -297,8 +289,8 @@ export function getRetryableEvents(limit = 20): Array<{
     .all();
 }
 
-/** Fetch dead-lettered events for an assistant. */
-export function getDeadLetterEvents(assistantId: string): Array<{
+/** Fetch dead-lettered events. */
+export function getDeadLetterEvents(): Array<{
   id: string;
   sourceChannel: string;
   externalChatId: string;
@@ -321,12 +313,7 @@ export function getDeadLetterEvents(assistantId: string): Array<{
       createdAt: channelInboundEvents.createdAt,
     })
     .from(channelInboundEvents)
-    .where(
-      and(
-        eq(channelInboundEvents.assistantId, assistantId),
-        eq(channelInboundEvents.processingStatus, 'dead_letter'),
-      ),
-    )
+    .where(eq(channelInboundEvents.processingStatus, 'dead_letter'))
     .all();
 }
 
@@ -334,7 +321,7 @@ export function getDeadLetterEvents(assistantId: string): Array<{
  * Reset dead-lettered events back to 'failed' so the sweep can retry
  * them. Resets attempt counter and sets an immediate retry_after.
  */
-export function replayDeadLetters(assistantId: string, eventIds: string[]): number {
+export function replayDeadLetters(eventIds: string[]): number {
   const db = getDb();
   const now = Date.now();
   let count = 0;
@@ -345,7 +332,6 @@ export function replayDeadLetters(assistantId: string, eventIds: string[]): numb
       .where(
         and(
           eq(channelInboundEvents.id, id),
-          eq(channelInboundEvents.assistantId, assistantId),
           eq(channelInboundEvents.processingStatus, 'dead_letter'),
         ),
       )

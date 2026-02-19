@@ -34,7 +34,9 @@ import {
   stripActiveSurfaceContext,
   stripWorkspaceTopLevelContext,
   stripChannelCapabilityContext,
+  stripTemporalContext,
 } from './session-runtime-assembly.js';
+import { buildTemporalContext } from './date-context.js';
 import type { ActiveSurfaceContext, ChannelCapabilities } from './session-runtime-assembly.js';
 import {
   cleanAssistantContent,
@@ -278,11 +280,17 @@ export async function runAgentLoopImpl(
 
     ctx.refreshWorkspaceTopLevelContextIfNeeded();
 
+    // Compute fresh temporal context each turn for date grounding.
+    const temporalContext = buildTemporalContext({
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+
     runMessages = applyRuntimeInjections(runMessages, {
       softConflictInstruction,
       activeSurface,
       workspaceTopLevelContext: ctx.workspaceTopLevelContext,
       channelCapabilities: ctx.channelCapabilities ?? null,
+      temporalContext,
     });
 
     // Pre-run repair
@@ -567,6 +575,8 @@ export async function runAgentLoopImpl(
           softConflictInstruction,
           activeSurface,
           workspaceTopLevelContext: ctx.workspaceTopLevelContext,
+          channelCapabilities: ctx.channelCapabilities ?? null,
+          temporalContext,
         });
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
@@ -597,6 +607,8 @@ export async function runAgentLoopImpl(
             softConflictInstruction,
             activeSurface,
             workspaceTopLevelContext: ctx.workspaceTopLevelContext,
+            channelCapabilities: ctx.channelCapabilities ?? null,
+            temporalContext,
           });
           preRepairMessages = runMessages;
           preRunHistoryLength = runMessages.length;
@@ -685,10 +697,12 @@ export async function runAgentLoopImpl(
 
     const restoredHistory = [...preRepairMessages, ...newMessages];
     const recallStripped = stripMemoryRecallMessages(restoredHistory, recall.injectedText, recallInjectionStrategy);
-    ctx.messages = stripChannelCapabilityContext(
-      stripWorkspaceTopLevelContext(
-        stripActiveSurfaceContext(
-          stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
+    ctx.messages = stripTemporalContext(
+      stripChannelCapabilityContext(
+        stripWorkspaceTopLevelContext(
+          stripActiveSurfaceContext(
+            stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
+          ),
         ),
       ),
     );
@@ -707,7 +721,6 @@ export async function runAgentLoopImpl(
       ctx.workingDir,
       async (filePath) => approveHostAttachmentRead(filePath, ctx.workingDir, ctx.prompter, ctx.conversationId, ctx.hasNoClient),
       lastAssistantMessageId,
-      ctx.channelCapabilities != null ? 'self' : 'local-assistant',
     );
     const { assistantAttachments, emittedAttachments } = attachmentResult;
 

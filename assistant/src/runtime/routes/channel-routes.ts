@@ -34,7 +34,7 @@ export async function handleDeleteConversation(req: Request): Promise<Response> 
   }
 
   const conversationKey = `${sourceChannel}:${externalChatId}`;
-  deleteConversationKey("self", conversationKey);
+  deleteConversationKey(conversationKey);
 
   return Response.json({ ok: true });
 }
@@ -89,7 +89,7 @@ export async function handleChannelInbound(
   }
 
   if (hasAttachments) {
-    const resolved = attachmentsStore.getAttachmentsByIds("self", attachmentIds);
+    const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
     if (resolved.length !== attachmentIds.length) {
       const resolvedIds = new Set(resolved.map((a) => a.id));
       const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
@@ -112,7 +112,6 @@ export async function handleChannelInbound(
   if (isEdit && sourceMessageId) {
     // Dedup the edit event itself (retried edited_message webhooks)
     const editResult = channelDeliveryStore.recordInbound(
-      "self",
       sourceChannel,
       externalChatId,
       externalMessageId,
@@ -136,7 +135,6 @@ export async function handleChannelInbound(
     let original: { messageId: string; conversationId: string } | null = null;
     for (let attempt = 0; attempt <= EDIT_LOOKUP_RETRIES; attempt++) {
       original = channelDeliveryStore.findMessageBySourceId(
-        "self",
         sourceChannel,
         externalChatId,
         sourceMessageId,
@@ -173,7 +171,6 @@ export async function handleChannelInbound(
 
   // ── New message path ──
   const result = channelDeliveryStore.recordInbound(
-    "self",
     sourceChannel,
     externalChatId,
     externalMessageId,
@@ -256,7 +253,7 @@ export async function handleChannelInbound(
         try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
         const rendered = renderHistoryContent(parsed);
 
-        const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id, "self");
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id);
         const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({
           id: a.id,
           filename: a.originalFilename,
@@ -289,7 +286,7 @@ export async function handleChannelInbound(
 }
 
 export function handleListDeadLetters(): Response {
-  const events = channelDeliveryStore.getDeadLetterEvents("self");
+  const events = channelDeliveryStore.getDeadLetterEvents();
   return Response.json({ events });
 }
 
@@ -301,7 +298,7 @@ export async function handleReplayDeadLetters(req: Request): Promise<Response> {
     return Response.json({ error: 'eventIds array is required' }, { status: 400 });
   }
 
-  const replayed = channelDeliveryStore.replayDeadLetters("self", eventIds);
+  const replayed = channelDeliveryStore.replayDeadLetters(eventIds);
   return Response.json({ replayed });
 }
 
@@ -325,7 +322,6 @@ export async function handleChannelDeliveryAck(req: Request): Promise<Response> 
   }
 
   const acked = channelDeliveryStore.acknowledgeDelivery(
-    "self",
     sourceChannel,
     externalChatId,
     externalMessageId,

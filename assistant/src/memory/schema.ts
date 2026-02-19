@@ -243,13 +243,14 @@ export const reminders = sqliteTable('reminders', {
   updatedAt: integer('updated_at').notNull(),
 });
 
-// ── Cron / Deferred Tasks ────────────────────────────────────────────
+// ── Recurrence Schedules ─────────────────────────────────────────────
 
 export const cronJobs = sqliteTable('cron_jobs', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   cronExpression: text('cron_expression').notNull(),    // e.g. '0 9 * * 1-5'
+  scheduleSyntax: text('schedule_syntax').notNull().default('cron'),  // 'cron' | 'rrule'
   timezone: text('timezone'),                           // e.g. 'America/Los_Angeles'
   message: text('message').notNull(),
   nextRunAt: integer('next_run_at').notNull(),
@@ -288,6 +289,11 @@ export const cronRuns = sqliteTable('cron_runs', {
   conversationId: text('conversation_id'),
   createdAt: integer('created_at').notNull(),
 });
+
+// Recurrence-centric aliases — prefer these in new code.
+// Physical table names remain `cron_jobs` / `cron_runs` for migration compatibility.
+export const scheduleJobs = cronJobs;
+export const scheduleRuns = cronRuns;
 
 // ── LLM Usage Events (cost tracking ledger) ─────────────────────────
 
@@ -433,7 +439,7 @@ export const workItems = sqliteTable('work_items', {
   taskId: text('task_id').notNull().references(() => tasks.id),
   title: text('title').notNull(),
   notes: text('notes'),
-  status: text('status').notNull().default('queued'),  // queued | running | awaiting_review | failed | done | archived
+  status: text('status').notNull().default('queued'),  // queued | running | awaiting_review | failed | cancelled | done | archived
   priorityTier: integer('priority_tier').notNull().default(1), // 0=high, 1=medium, 2=low
   sortIndex: integer('sort_index'),  // manual ordering within same priority tier; null = fall back to updated_at
   lastRunId: text('last_run_id'),

@@ -77,6 +77,7 @@ export function registerConfigCommand(program: Command): void {
     .command('validate-allowlist')
     .description('Validate regex patterns in secret-allowlist.json')
     .action(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { validateAllowlistFile } = require('../security/secret-allowlist.js') as typeof import('../security/secret-allowlist.js');
       try {
         const errors = validateAllowlistFile();

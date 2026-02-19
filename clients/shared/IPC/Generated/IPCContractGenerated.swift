@@ -1099,6 +1099,8 @@ public struct IPCSchedulesListResponseSchedule: Codable, Sendable {
     public let id: String
     public let name: String
     public let enabled: Bool
+    public let syntax: String
+    public let expression: String
     public let cronExpression: String
     public let timezone: String?
     public let message: String
@@ -1954,37 +1956,6 @@ public struct IPCWorkItemCompleteRequest: Codable, Sendable {
     public let id: String
 }
 
-public struct IPCWorkItemCreateRequest: Codable, Sendable {
-    public let type: String
-    public let taskId: String
-    public let title: String?
-    public let notes: String?
-    public let priorityTier: Double?
-    public let sortIndex: Int?
-}
-
-public struct IPCWorkItemCreateResponse: Codable, Sendable {
-    public let type: String
-    public let item: IPCWorkItemCreateResponseItem
-}
-
-public struct IPCWorkItemCreateResponseItem: Codable, Sendable {
-    public let id: String
-    public let taskId: String
-    public let title: String
-    public let notes: String?
-    public let status: String
-    public let priorityTier: Double
-    public let sortIndex: Int?
-    public let lastRunId: String?
-    public let lastRunConversationId: String?
-    public let lastRunStatus: String?
-    public let sourceType: String?
-    public let sourceId: String?
-    public let createdAt: Int
-    public let updatedAt: Int
-}
-
 public struct IPCWorkItemDeleteRequest: Codable, Sendable {
     public let type: String
     public let id: String
@@ -2066,25 +2037,9 @@ public struct IPCWorkItemPreflightResponsePermission: Codable, Sendable {
     public let currentDecision: String
 }
 
-public struct IPCWorkItemRenderRequest: Codable, Sendable {
-    public let type: String
-    public let id: String
-}
-
-public struct IPCWorkItemRenderResponse: Codable, Sendable {
-    public let type: String
-    public let id: String
-    public let success: Bool
-    public let content: String?
-    public let title: String?
-    public let error: String?
-}
-
 public struct IPCWorkItemRunTaskRequest: Codable, Sendable {
     public let type: String
     public let id: String
-    /// When true, the daemon sets status to "running" but skips execution — the client routes task content through the active chat session instead.
-    public let chatRouted: Bool?
 }
 
 public struct IPCWorkItemRunTaskResponse: Codable, Sendable {

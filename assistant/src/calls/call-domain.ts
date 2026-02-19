@@ -6,7 +6,7 @@
  */
 
 import { getLogger } from '../util/logger.js';
-import { DENIED_NUMBERS } from './call-constants.js';
+import { isDeniedNumber } from './call-constants.js';
 import {
   createCallSession,
   getCallSession,
@@ -81,7 +81,7 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
     return { ok: false, error: 'task is required and must be a non-empty string', status: 400 };
   }
 
-  if (DENIED_NUMBERS.has(phoneNumber)) {
+  if (isDeniedNumber(phoneNumber)) {
     return { ok: false, error: 'This phone number is not allowed to be called', status: 403 };
   }
 

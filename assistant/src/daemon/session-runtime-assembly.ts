@@ -330,13 +330,19 @@ export function injectTemporalContext(message: Message, temporalContext: string)
  * Strip `<temporal_context>` blocks injected by `injectTemporalContext`.
  * Called after the agent run to prevent temporal context from persisting
  * in session history.
+ *
+ * Uses a specific prefix (`<temporal_context>\nToday:`) so that
+ * user-authored text that happens to start with `<temporal_context>`
+ * is preserved.
  */
+const TEMPORAL_INJECTED_PREFIX = '<temporal_context>\nToday:';
+
 export function stripTemporalContext(messages: Message[]): Message[] {
   return messages.map((message) => {
     if (message.role !== 'user') return message;
     const nextContent = message.content.filter((block) => {
       if (block.type !== 'text') return true;
-      return !block.text.startsWith('<temporal_context>');
+      return !block.text.startsWith(TEMPORAL_INJECTED_PREFIX);
     });
     if (nextContent.length === message.content.length) return message;
     if (nextContent.length === 0) return null;

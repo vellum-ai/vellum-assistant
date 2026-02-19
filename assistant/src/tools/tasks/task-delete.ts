@@ -1,27 +1,9 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { deleteTask, deleteTasks, getTask } from '../../tasks/task-store.js';
 import { removeWorkItemFromQueue } from '../../work-items/work-item-store.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('task-delete');
-
-const definition: ToolDefinition = {
-  name: 'task_delete',
-  description: 'Delete one or more task templates by ID. Also removes associated task runs and work items (Tasks).',
-  input_schema: {
-    type: 'object',
-    properties: {
-      task_ids: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'One or more task IDs to delete.',
-      },
-    },
-    required: ['task_ids'],
-  },
-};
 
 export async function executeTaskDelete(
   input: Record<string, unknown>,
@@ -98,20 +80,3 @@ export async function executeTaskDelete(
     return { content: `Error: ${msg}`, isError: true };
   }
 }
-
-class TaskDeleteTool implements Tool {
-  name = 'task_delete';
-  description = definition.description;
-  category = 'tasks';
-  defaultRiskLevel = RiskLevel.Medium;
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  }
-
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeTaskDelete(input, _context);
-  }
-}
-
-export const taskDeleteTool = new TaskDeleteTool();

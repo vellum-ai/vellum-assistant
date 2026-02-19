@@ -1,41 +1,5 @@
-/**
- * subagent_status tool — query the status of one or all subagents.
- */
-
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { getSubagentManager } from '../../subagent/index.js';
-
-const definition: ToolDefinition = {
-  name: 'subagent_status',
-  description: 'Get the status of a specific subagent or list all subagents for the current session. Only use this when the user explicitly asks about subagent status — do NOT poll automatically, as you will be notified when subagents complete.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      subagent_id: {
-        type: 'string',
-        description: 'Optional subagent ID to query. If omitted, returns all subagents for this session.',
-      },
-    },
-    required: [],
-  },
-};
-
-export const subagentStatusTool: Tool = {
-  name: 'subagent_status',
-  description: definition.description,
-  category: 'orchestration',
-  defaultRiskLevel: RiskLevel.Low,
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  },
-
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
-    return executeSubagentStatus(input, context);
-  },
-};
 
 export async function executeSubagentStatus(
   input: Record<string, unknown>,

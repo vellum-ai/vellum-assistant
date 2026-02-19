@@ -1,7 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { RiskLevel } from '../../permissions/types.js';
 import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { registerTool } from '../registry.js';
 import { getDb } from '../../memory/db.js';
 import { memoryItems } from '../../memory/schema.js';
 import { parsePlaybookStatement } from '../../playbooks/types.js';
@@ -52,25 +50,3 @@ export async function executePlaybookDelete(input: Record<string, unknown>, cont
     return { content: `Error deleting playbook: ${msg}`, isError: true };
   }
 }
-
-registerTool({
-  name: 'playbook_delete',
-  description: 'Delete an action playbook rule',
-  category: 'playbook',
-  defaultRiskLevel: RiskLevel.Low,
-  getDefinition: () => ({
-    name: 'playbook_delete',
-    description: 'Delete an action playbook rule',
-    input_schema: {
-      type: 'object',
-      properties: {
-        playbook_id: {
-          type: 'string',
-          description: 'ID of the playbook to delete (from playbook_list results)',
-        },
-      },
-      required: ['playbook_id'],
-    },
-  }),
-  execute: executePlaybookDelete,
-});

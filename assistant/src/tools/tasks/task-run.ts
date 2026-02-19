@@ -1,33 +1,7 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { getTask, listTasks } from '../../tasks/task-store.js';
 import { renderTemplate } from '../../tasks/task-runner.js';
 import { identifyEntityById, buildWorkItemMismatchError } from '../../work-items/work-item-store.js';
-
-const definition: ToolDefinition = {
-  name: 'task_run',
-  description:
-    'Run a task template. Resolves the template by name (fuzzy match) or ID, renders it with the provided inputs, and returns the rendered prompt for execution as a Task (work item).',
-  input_schema: {
-    type: 'object',
-    properties: {
-      task_name: {
-        type: 'string',
-        description: 'Fuzzy match a task template by name (case-insensitive substring match)',
-      },
-      task_id: {
-        type: 'string',
-        description: 'Exact match a task template by ID',
-      },
-      inputs: {
-        type: 'object',
-        description: 'Values for template placeholders (e.g. {"file_path": "/tmp/foo.txt", "url": "https://example.com"})',
-        additionalProperties: { type: 'string' },
-      },
-    },
-  },
-};
 
 export async function executeTaskRun(
   input: Record<string, unknown>,
@@ -121,20 +95,3 @@ export async function executeTaskRun(
     return { content: `Error: ${msg}`, isError: true };
   }
 }
-
-class TaskRunTool implements Tool {
-  name = 'task_run';
-  description = definition.description;
-  category = 'tasks';
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  }
-
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeTaskRun(input, _context);
-  }
-}
-
-export const taskRunTool = new TaskRunTool();

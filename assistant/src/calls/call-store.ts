@@ -1,7 +1,7 @@
 import { eq, and, notInArray, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../memory/db.js';
-import { callSessions, callEvents, callPendingQuestions, processedCallbacks } from '../memory/schema.js';
+import { callSessions, callEvents, callPendingQuestions } from '../memory/schema.js';
 import type { CallSession, CallEvent, CallPendingQuestion, CallEventType, CallStatus } from './types.js';
 import { validateTransition } from './call-state-machine.js';
 import { getLogger } from '../util/logger.js';
@@ -318,8 +318,8 @@ export function recordProcessedCallback(
  *
  * Uses INSERT ... ON CONFLICT DO NOTHING pattern for atomicity.
  *
- * @deprecated Use isCallbackProcessed + recordProcessedCallback instead to
- * ensure the dedupe marker is only persisted after downstream writes succeed.
+ * @deprecated Use claimCallback + releaseCallbackClaim instead to
+ * atomically claim a callback and release on failure.
  */
 export function tryRecordProcessedCallback(
   dedupeKey: string,
@@ -334,4 +334,31 @@ export function tryRecordProcessedCallback(
 
   const changes = raw.query('SELECT changes() as c').get() as { c: number };
   return changes.c > 0;
+}
+
+/**
+ * Atomically claim a callback for processing. Returns true if this caller
+ * won the claim (INSERT succeeded). Returns false if another caller already
+ * claimed it (dedupe_key conflict).
+ *
+ * If processing fails, call `releaseCallbackClaim(dedupeKey)` to allow retries.
+ */
+export function claimCallback(dedupeKey: string, callSessionId: string): boolean {
+  const db = getDb();
+  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+  raw.query(
+    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
+  ).run(uuid(), dedupeKey, callSessionId, Date.now());
+  const changes = raw.query('SELECT changes() as c').get() as { c: number };
+  return changes.c > 0;
+}
+
+/**
+ * Release a callback claim so that retries can reprocess it.
+ * Called when processing fails after a successful claim.
+ */
+export function releaseCallbackClaim(dedupeKey: string): void {
+  const db = getDb();
+  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+  raw.query(`DELETE FROM processed_callbacks WHERE dedupe_key = ?`).run(dedupeKey);
 }

@@ -1,27 +1,5 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { compileTaskFromConversation, saveCompiledTask } from '../../tasks/task-compiler.js';
-
-const definition: ToolDefinition = {
-  name: 'task_save',
-  description:
-    'Save the current conversation as a reusable task template (definition). This is NOT for adding items to the user\'s task queue — use task_list_add for that. task_save extracts the conversation pattern into a reusable definition with placeholders that can be run later with different inputs.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      conversation_id: {
-        type: 'string',
-        description: 'The conversation to capture as a task template. If omitted, uses the current conversation.',
-      },
-      title: {
-        type: 'string',
-        description: 'Optional override for the auto-generated task title',
-      },
-    },
-    required: [],
-  },
-};
 
 export async function executeTaskSave(
   input: Record<string, unknown>,
@@ -67,20 +45,3 @@ export async function executeTaskSave(
     return { content: `Error: ${msg}`, isError: true };
   }
 }
-
-class TaskSaveTool implements Tool {
-  name = 'task_save';
-  description = definition.description;
-  category = 'tasks';
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  }
-
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
-    return executeTaskSave(input, context);
-  }
-}
-
-export const taskSaveTool = new TaskSaveTool();

@@ -139,7 +139,7 @@ describe('run approval state executionTarget', () => {
 
   test('stores pending confirmation executionTarget when provided', () => {
     const conversation = createConversation('run test');
-    const run = createRun('assistant-1', conversation.id);
+    const run = createRun(conversation.id);
 
     setRunConfirmation(run.id, {
       toolName: 'host_file_read',
@@ -158,7 +158,7 @@ describe('run approval state executionTarget', () => {
 
   test('parses pending confirmations without executionTarget for legacy rows', () => {
     const conversation = createConversation('legacy run test');
-    const run = createRun('assistant-1', conversation.id);
+    const run = createRun(conversation.id);
 
     setRunConfirmation(run.id, {
       toolName: 'bash',

@@ -14,13 +14,14 @@ import {
   recordCallEvent,
   expirePendingQuestions,
   buildCallbackDedupeKey,
-  isCallbackProcessed,
-  recordProcessedCallback,
+  claimCallback,
+  releaseCallbackClaim,
 } from './call-store.js';
 import type { CallStatus } from './types.js';
 import { answerCall } from './call-domain.js';
 import { logDeadLetterEvent } from './call-recovery.js';
 import { isTerminalState } from './call-state-machine.js';
+import { getTwilioConfig } from './twilio-config.js';
 
 const log = getLogger('twilio-routes');
 
@@ -111,7 +112,8 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     log.info({ callSessionId, callSid }, 'Stored CallSid from voice webhook');
   }
 
-  const wssBaseUrl = process.env.WSS_BASE_URL ?? process.env.BASE_URL ?? 'wss://localhost:7821';
+  const config = getTwilioConfig();
+  const wssBaseUrl = config.wssBaseUrl || config.webhookBaseUrl.replace(/^http/, 'ws');
   const welcomeGreeting = process.env.CALL_WELCOME_GREETING ?? 'Hello, how can I help you today?';
 
   const twiml = generateTwiML(callSessionId, wssBaseUrl, welcomeGreeting);
@@ -154,50 +156,52 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
     return new Response(null, { status: 200 });
   }
 
-  // ── Idempotency check ────────────────────────────────────────────
+  // ── Atomic idempotency claim ────────────────────────────────────
   const timestamp = formBody.get('Timestamp');
   const sequenceNumber = formBody.get('SequenceNumber');
   const dedupeKey = buildCallbackDedupeKey(callSid, callStatus, timestamp, sequenceNumber);
 
-  if (isCallbackProcessed(dedupeKey)) {
+  if (!claimCallback(dedupeKey, session.id)) {
     log.info({ callSid, callStatus, dedupeKey }, 'Duplicate status callback — skipping');
     return new Response(null, { status: 200 });
   }
 
-  // Build updates
-  const updates: Parameters<typeof updateCallSession>[1] = {
-    status: mappedStatus,
-  };
+  try {
+    // Build updates
+    const updates: Parameters<typeof updateCallSession>[1] = {
+      status: mappedStatus,
+    };
 
-  if (mappedStatus === 'in_progress' && !session.startedAt) {
-    updates.startedAt = Date.now();
+    if (mappedStatus === 'in_progress' && !session.startedAt) {
+      updates.startedAt = Date.now();
+    }
+
+    const isTerminal = mappedStatus === 'completed' || mappedStatus === 'failed';
+    if (isTerminal) {
+      updates.endedAt = Date.now();
+    }
+
+    updateCallSession(session.id, updates);
+
+    // Record event
+    const eventType = isTerminal
+      ? (mappedStatus === 'completed' ? 'call_ended' : 'call_failed')
+      : (mappedStatus === 'in_progress' ? 'call_connected' : 'call_started');
+
+    recordCallEvent(session.id, eventType, {
+      twilioStatus: callStatus,
+      callSid,
+    });
+
+    // Expire pending questions on terminal status
+    if (isTerminal) {
+      expirePendingQuestions(session.id);
+    }
+  } catch (err) {
+    // Release claim so Twilio retries can reprocess
+    releaseCallbackClaim(dedupeKey);
+    throw err;
   }
-
-  const isTerminal = mappedStatus === 'completed' || mappedStatus === 'failed';
-  if (isTerminal) {
-    updates.endedAt = Date.now();
-  }
-
-  updateCallSession(session.id, updates);
-
-  // Record event
-  const eventType = isTerminal
-    ? (mappedStatus === 'completed' ? 'call_ended' : 'call_failed')
-    : (mappedStatus === 'in_progress' ? 'call_connected' : 'call_started');
-
-  recordCallEvent(session.id, eventType, {
-    twilioStatus: callStatus,
-    callSid,
-  });
-
-  // Expire pending questions on terminal status
-  if (isTerminal) {
-    expirePendingQuestions(session.id);
-  }
-
-  // Record the dedupe marker AFTER all writes have succeeded so that
-  // Twilio retries are not silently dropped if the writes above fail.
-  recordProcessedCallback(dedupeKey, session.id);
 
   return new Response(null, { status: 200 });
 }
