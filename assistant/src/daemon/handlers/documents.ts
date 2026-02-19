@@ -1,4 +1,4 @@
-import type { HandlerContext } from './shared.js';
+import type { HandlerContext, DispatchMap } from './shared.js';
 import type { DocumentSaveRequest, DocumentLoadRequest, DocumentListRequest } from '../ipc-protocol.js';
 import type * as net from 'node:net';
 import type { Database } from 'bun:sqlite';
@@ -164,3 +164,9 @@ export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket,
     });
   }
 }
+
+export const documentHandlers: Partial<DispatchMap> = {
+  document_save: handleDocumentSave,
+  document_load: handleDocumentLoad,
+  document_list: handleDocumentList,
+};

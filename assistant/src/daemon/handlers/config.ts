@@ -21,7 +21,7 @@ import type {
   SlackWebhookConfigRequest,
   VercelApiConfigRequest,
 } from '../ipc-protocol.js';
-import { log, CONFIG_RELOAD_DEBOUNCE_MS, type HandlerContext } from './shared.js';
+import { log, CONFIG_RELOAD_DEBOUNCE_MS, type HandlerContext, type DispatchMap } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
 
 export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
@@ -462,3 +462,23 @@ export function handleEnvVarsRequest(socket: net.Socket, ctx: HandlerContext): v
   }
   ctx.send(socket, { type: 'env_vars_response', vars });
 }
+
+export const configHandlers: Partial<DispatchMap> = {
+  model_get: (_msg, socket, ctx) => handleModelGet(socket, ctx),
+  model_set: handleModelSet,
+  image_gen_model_set: handleImageGenModelSet,
+  add_trust_rule: handleAddTrustRule,
+  trust_rules_list: (_msg, socket, ctx) => handleTrustRulesList(socket, ctx),
+  remove_trust_rule: handleRemoveTrustRule,
+  update_trust_rule: handleUpdateTrustRule,
+  accept_starter_bundle: (_msg, socket, ctx) => handleAcceptStarterBundle(socket, ctx),
+  schedules_list: (_msg, socket, ctx) => handleSchedulesList(socket, ctx),
+  schedule_toggle: handleScheduleToggle,
+  schedule_remove: handleScheduleRemove,
+  reminders_list: (_msg, socket, ctx) => handleRemindersList(socket, ctx),
+  reminder_cancel: handleReminderCancel,
+  share_to_slack: handleShareToSlack,
+  slack_webhook_config: handleSlackWebhookConfig,
+  vercel_api_config: handleVercelApiConfig,
+  env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
+};

@@ -10,7 +10,7 @@ import type {
   CuObservation,
   ServerMessage,
 } from '../ipc-protocol.js';
-import { log, type HandlerContext } from './shared.js';
+import { log, type HandlerContext, type DispatchMap } from './shared.js';
 
 const cuObservationSequenceBySession = new Map<string, number>();
 
@@ -179,3 +179,9 @@ export async function handleCuObservation(
     log.error({ err, sessionId: msg.sessionId }, 'Error handling CU observation');
   });
 }
+
+export const computerUseHandlers: Partial<DispatchMap> = {
+  cu_session_create: handleCuSessionCreate,
+  cu_session_abort: handleCuSessionAbort,
+  cu_observation: handleCuObservation,
+};

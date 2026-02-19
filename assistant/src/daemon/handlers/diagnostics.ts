@@ -9,7 +9,7 @@ import archiver from 'archiver';
 import { getDb } from '../../memory/db.js';
 import { messages, toolInvocations, llmUsageEvents, llmRequestLogs } from '../../memory/schema.js';
 import type { DiagnosticsExportRequest } from '../ipc-protocol.js';
-import { log, type HandlerContext } from './shared.js';
+import { log, type HandlerContext, type DispatchMap } from './shared.js';
 
 const MAX_CONTENT_LENGTH = 500;
 
@@ -332,3 +332,7 @@ export async function handleDiagnosticsExport(
     });
   }
 }
+
+export const diagnosticsHandlers: Partial<DispatchMap> = {
+  diagnostics_export_request: handleDiagnosticsExport,
+};

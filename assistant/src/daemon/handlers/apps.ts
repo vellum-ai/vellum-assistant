@@ -18,7 +18,7 @@ import type {
   AppUpdatePreviewRequest,
   UiSurfaceShow,
 } from '../ipc-protocol.js';
-import { log, compareSemver, createSigningCallback, type HandlerContext } from './shared.js';
+import { log, compareSemver, createSigningCallback, type HandlerContext, type DispatchMap } from './shared.js';
 
 export function handleAppDataRequest(
   msg: AppDataRequest,
@@ -444,3 +444,18 @@ export function handleGalleryInstall(
     });
   }
 }
+
+export const appHandlers: Partial<DispatchMap> = {
+  app_data_request: handleAppDataRequest,
+  app_open_request: handleAppOpenRequest,
+  app_update_preview: handleAppUpdatePreview,
+  app_preview_request: handleAppPreview,
+  apps_list: (_msg, socket, ctx) => handleAppsList(socket, ctx),
+  shared_apps_list: (_msg, socket, ctx) => handleSharedAppsList(socket, ctx),
+  shared_app_delete: handleSharedAppDelete,
+  fork_shared_app: handleForkSharedApp,
+  share_app_cloud: handleShareAppCloud,
+  bundle_app: handleBundleApp,
+  gallery_list: (_msg, socket, ctx) => handleGalleryList(socket, ctx),
+  gallery_install: handleGalleryInstall,
+};

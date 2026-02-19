@@ -7,7 +7,7 @@ import {
 } from '../../home-base/prebuilt/seed.js';
 import { getHomeBaseAppLink } from '../../home-base/app-link-store.js';
 import { getApp } from '../../memory/app-store.js';
-import { log, type HandlerContext } from './shared.js';
+import { log, type HandlerContext, type DispatchMap } from './shared.js';
 
 export function handleHomeBaseGet(
   msg: HomeBaseGetRequest,
@@ -71,3 +71,7 @@ export function handleHomeBaseGet(
     ctx.send(socket, { type: 'error', message: `Failed to resolve home base metadata: ${message}` });
   }
 }
+
+export const homeBaseHandlers: Partial<DispatchMap> = {
+  home_base_get: handleHomeBaseGet,
+};

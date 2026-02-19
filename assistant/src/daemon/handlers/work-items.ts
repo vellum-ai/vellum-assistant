@@ -12,7 +12,7 @@ import type {
   WorkItemApprovePermissionsRequest,
   WorkItemCancelRequest,
 } from '../ipc-protocol.js';
-import { log, type HandlerContext } from './shared.js';
+import { log, type HandlerContext, type DispatchMap } from './shared.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import {
   createWorkItem,
@@ -468,3 +468,17 @@ export function handleWorkItemCancel(
   broadcastWorkItemStatus(ctx, msg.id);
   ctx.broadcast({ type: 'tasks_changed' });
 }
+
+export const workItemHandlers: Partial<DispatchMap> = {
+  work_items_list: handleWorkItemsList,
+  work_item_get: handleWorkItemGet,
+  work_item_create: handleWorkItemCreate,
+  work_item_update: handleWorkItemUpdate,
+  work_item_complete: handleWorkItemComplete,
+  work_item_delete: handleWorkItemDelete,
+  work_item_run_task: handleWorkItemRunTask,
+  work_item_output: handleWorkItemOutput,
+  work_item_preflight: handleWorkItemPreflight,
+  work_item_approve_permissions: handleWorkItemApprovePermissions,
+  work_item_cancel: handleWorkItemCancel,
+};

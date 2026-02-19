@@ -31,6 +31,7 @@ import {
   mergeToolResults,
   pendingStandaloneSecrets,
   type HandlerContext,
+  type DispatchMap,
   type HistoryToolCall,
   type HistorySurface,
   type ParsedHistoryMessage,
@@ -497,3 +498,20 @@ export function handleDeleteQueuedMessage(
     log.warn({ sessionId: msg.sessionId, requestId: msg.requestId }, 'Queued message not found for deletion');
   }
 }
+
+export const sessionHandlers: Partial<DispatchMap> = {
+  user_message: handleUserMessage,
+  confirmation_response: handleConfirmationResponse,
+  secret_response: handleSecretResponse,
+  session_list: (_msg, socket, ctx) => handleSessionList(socket, ctx),
+  session_create: handleSessionCreate,
+  sessions_clear: (_msg, socket, ctx) => handleSessionsClear(socket, ctx),
+  session_switch: handleSessionSwitch,
+  cancel: handleCancel,
+  delete_queued_message: handleDeleteQueuedMessage,
+  history_request: handleHistoryRequest,
+  undo: handleUndo,
+  regenerate: handleRegenerate,
+  usage_request: handleUsageRequest,
+  sandbox_set: handleSandboxSet,
+};
