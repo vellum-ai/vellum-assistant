@@ -13,6 +13,7 @@ import {
   updateCallSession,
   recordCallEvent,
 } from './call-store.js';
+import { CallOrchestrator } from './call-orchestrator.js';
 
 const log = getLogger('relay-server');
 
@@ -89,6 +90,7 @@ export class RelayConnection {
   private callSessionId: string;
   private conversationHistory: Array<{ role: 'caller' | 'assistant'; text: string; timestamp: number }>;
   private abortController: AbortController;
+  private orchestrator: CallOrchestrator | null = null;
 
   constructor(ws: ServerWebSocket<RelayWebSocketData>, callSessionId: string) {
     this.ws = ws;
@@ -165,9 +167,34 @@ export class RelayConnection {
   }
 
   /**
+   * Get the call session ID for this connection.
+   */
+  getCallSessionId(): string {
+    return this.callSessionId;
+  }
+
+  /**
+   * Set the orchestrator for this connection.
+   */
+  setOrchestrator(orchestrator: CallOrchestrator): void {
+    this.orchestrator = orchestrator;
+  }
+
+  /**
+   * Get the orchestrator for this connection.
+   */
+  getOrchestrator(): CallOrchestrator | null {
+    return this.orchestrator;
+  }
+
+  /**
    * Clean up resources on disconnect.
    */
   destroy(): void {
+    if (this.orchestrator) {
+      this.orchestrator.destroy();
+      this.orchestrator = null;
+    }
     this.abortController.abort();
     log.info({ callSessionId: this.callSessionId }, 'RelayConnection destroyed');
   }
@@ -192,6 +219,10 @@ export class RelayConnection {
       to: msg.to,
       customParameters: msg.customParameters,
     });
+
+    // Create and attach the LLM-driven orchestrator
+    const orchestrator = new CallOrchestrator(this.callSessionId, this, session?.task ?? null);
+    this.setOrchestrator(orchestrator);
   }
 
   private async handlePrompt(msg: RelayPromptMessage): Promise<void> {
@@ -218,16 +249,13 @@ export class RelayConnection {
       lang: msg.lang,
     });
 
-    // Placeholder response — the orchestrator (M4) will hook into this later
-    const placeholderResponse = 'I received your message. The call orchestrator is not yet connected.';
-    this.sendTextToken(placeholderResponse, true);
-
-    // Record assistant response in history
-    this.conversationHistory.push({
-      role: 'assistant',
-      text: placeholderResponse,
-      timestamp: Date.now(),
-    });
+    // Route to orchestrator for LLM-driven response
+    if (this.orchestrator) {
+      await this.orchestrator.handleCallerUtterance(msg.voicePrompt);
+    } else {
+      // Fallback if orchestrator not yet initialized
+      this.sendTextToken('I\'m still setting up. Please hold.', true);
+    }
   }
 
   private handleInterrupt(msg: RelayInterruptMessage): void {
@@ -239,6 +267,11 @@ export class RelayConnection {
     // Abort any in-flight processing
     this.abortController.abort();
     this.abortController = new AbortController();
+
+    // Notify the orchestrator of the interruption
+    if (this.orchestrator) {
+      this.orchestrator.handleInterrupt();
+    }
   }
 
   private handleDtmf(msg: RelayDtmfMessage): void {
