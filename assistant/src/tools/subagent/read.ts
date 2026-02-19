@@ -1,44 +1,6 @@
-/**
- * subagent_read tool — read the full output from a completed subagent's conversation.
- */
-
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { getSubagentManager, TERMINAL_STATUSES } from '../../subagent/index.js';
 import { getMessages } from '../../memory/conversation-store.js';
-
-const definition: ToolDefinition = {
-  name: 'subagent_read',
-  description:
-    'Read the full conversation output from a subagent. ' +
-    'Use this after a subagent completes to retrieve its full work product.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      subagent_id: {
-        type: 'string',
-        description: 'The ID of the subagent whose output to read.',
-      },
-    },
-    required: ['subagent_id'],
-  },
-};
-
-export const subagentReadTool: Tool = {
-  name: 'subagent_read',
-  description: definition.description,
-  category: 'orchestration',
-  defaultRiskLevel: RiskLevel.Low,
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  },
-
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
-    return executeSubagentRead(input, context);
-  },
-};
 
 export async function executeSubagentRead(
   input: Record<string, unknown>,

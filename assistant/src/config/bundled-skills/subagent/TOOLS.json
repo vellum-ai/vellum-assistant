@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "subagent_spawn",
+      "description": "Spawn an independent subagent to work on a task in parallel. The subagent runs autonomously and its results are reported back when complete.",
+      "category": "orchestration",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Short human-readable label for this subagent (e.g. \"Research competitor pricing\")"
+          },
+          "objective": {
+            "type": "string",
+            "description": "The task objective — what the subagent should accomplish"
+          },
+          "context": {
+            "type": "string",
+            "description": "Optional additional context to pass to the subagent"
+          }
+        },
+        "required": ["label", "objective"]
+      },
+      "executor": "tools/subagent-spawn.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "subagent_status",
+      "description": "Get the status of a specific subagent or list all subagents for the current session. Only use this when the user explicitly asks about subagent status — do NOT poll automatically, as you will be notified when subagents complete.",
+      "category": "orchestration",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subagent_id": {
+            "type": "string",
+            "description": "Optional subagent ID to query. If omitted, returns all subagents for this session."
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/subagent-status.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "subagent_abort",
+      "description": "Abort a running subagent by ID.",
+      "category": "orchestration",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subagent_id": {
+            "type": "string",
+            "description": "The ID of the subagent to abort."
+          }
+        },
+        "required": ["subagent_id"]
+      },
+      "executor": "tools/subagent-abort.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "subagent_message",
+      "description": "Send a follow-up message to a running subagent.",
+      "category": "orchestration",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subagent_id": {
+            "type": "string",
+            "description": "The ID of the subagent to send a message to."
+          },
+          "content": {
+            "type": "string",
+            "description": "The message content to send to the subagent."
+          }
+        },
+        "required": ["subagent_id", "content"]
+      },
+      "executor": "tools/subagent-message.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "subagent_read",
+      "description": "Read the full conversation output from a subagent. Use this after a subagent completes to retrieve its full work product.",
+      "category": "orchestration",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subagent_id": {
+            "type": "string",
+            "description": "The ID of the subagent whose output to read."
+          }
+        },
+        "required": ["subagent_id"]
+      },
+      "executor": "tools/subagent-read.ts",
+      "execution_target": "host"
+    }
+  ]
+}

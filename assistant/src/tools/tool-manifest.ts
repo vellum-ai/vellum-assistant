@@ -15,13 +15,6 @@ import { accountManageTool } from './credentials/account-registry.js';
 import { screenWatchTool } from './watch/screen-watch.js';
 import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
 import { cliDiscoverTool } from './host-terminal/cli-discover.js';
-import {
-  subagentSpawnTool,
-  subagentStatusTool,
-  subagentAbortTool,
-  subagentMessageTool,
-  subagentReadTool,
-} from './subagent/index.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // Importing these modules triggers a top-level `registerTool()` call.
@@ -87,11 +80,6 @@ export const explicitTools: Tool[] = [
   screenWatchTool,
   vellumSkillsCatalogTool,
   cliDiscoverTool,
-  subagentSpawnTool,
-  subagentStatusTool,
-  subagentAbortTool,
-  subagentMessageTool,
-  subagentReadTool,
 ];
 
 // ── Lazy tool descriptors ───────────────────────────────────────────
