@@ -734,10 +734,15 @@ private final class ComposerNativeTextView: NSTextView {
 
         let linePadding = textContainer?.lineFragmentPadding ?? 0
         let x = textContainerInset.width + linePadding
-        let y = textContainerInset.height + placeholderVerticalOffset
         let width = max(0, bounds.width - x - textContainerInset.width - linePadding)
-        let height = max(0, bounds.height - (textContainerInset.height * 2))
-        let rect = NSRect(x: x, y: y, width: width, height: height)
+
+        // Measure placeholder height to vertically center it
+        let measureSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        let placeholderSize = (placeholderText as NSString).boundingRect(
+            with: measureSize, options: .usesLineFragmentOrigin, attributes: attributes
+        ).size
+        let y = max(0, (bounds.height - placeholderSize.height) / 2)
+        let rect = NSRect(x: x, y: y, width: width, height: placeholderSize.height)
 
         (placeholderText as NSString).draw(in: rect, withAttributes: attributes)
     }
