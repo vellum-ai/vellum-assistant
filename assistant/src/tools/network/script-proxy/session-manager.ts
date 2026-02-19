@@ -14,7 +14,7 @@ import type {
 import type { PolicyCallback } from './http-forwarder.js';
 import { evaluateRequestWithApproval } from './policy.js';
 import { getCAPath, getCombinedCAPath, ensureLocalCA, ensureCombinedCABundle } from './certs.js';
-import { minimatch } from 'minimatch';
+import { matchHostPattern, compareMatchSpecificity, type HostMatchKind } from '../../credentials/host-pattern-match.js';
 import { resolveById } from '../../credentials/resolve.js';
 import { listCredentialMetadata } from '../../credentials/metadata-store.js';
 import type { CredentialInjectionTemplate } from '../../credentials/policy-types.js';
@@ -162,28 +162,42 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
         shouldIntercept: (hostname: string, port: number) =>
           routeConnection(hostname, port, managed.session.credentialIds, templates),
         rewriteCallback: async (req) => {
-          // Collect matching header-injection candidates to detect ambiguity
-          // before injecting any secrets — mirrors the HTTP policyCallback
-          // guard. Query templates are excluded because the MITM
-          // RewriteCallback can't rewrite URL paths; counting them would
-          // cause false ambiguity when a host has both query and header
-          // templates.
-          const candidates: { credId: string; tpl: CredentialInjectionTemplate }[] = [];
+          // Per-credential best-match selection, mirroring the policy engine's
+          // specificity logic (PR 04). For each credential, pick the single
+          // best header template by specificity (exact > wildcard).
+          const perCredentialBest: { credId: string; tpl: CredentialInjectionTemplate }[] = [];
+
           for (const [credId, tpls] of templates) {
+            let bestMatch: HostMatchKind = 'none';
+            let bestCandidates: CredentialInjectionTemplate[] = [];
+
             for (const tpl of tpls) {
               if (tpl.injectionType === 'query') continue;
-              if (minimatch(req.hostname, tpl.hostPattern, { nocase: true })) {
-                candidates.push({ credId, tpl });
+              const match = matchHostPattern(req.hostname, tpl.hostPattern, { includeApexForWildcard: true });
+              if (match === 'none') continue;
+
+              const cmp = compareMatchSpecificity(match, bestMatch);
+              if (cmp < 0) {
+                bestMatch = match;
+                bestCandidates = [tpl];
+              } else if (cmp === 0) {
+                bestCandidates.push(tpl);
               }
+            }
+
+            if (bestCandidates.length === 1) {
+              perCredentialBest.push({ credId, tpl: bestCandidates[0] });
+            } else if (bestCandidates.length > 1) {
+              // Same credential, same-specificity tie — ambiguous, block
+              return null;
             }
           }
 
-          if (candidates.length === 0) return req.headers;
-          // Ambiguous — multiple templates match; block to avoid injecting
-          // the wrong secret (403 Forbidden via null return).
-          if (candidates.length > 1) return null;
+          if (perCredentialBest.length === 0) return req.headers;
+          // Cross-credential ambiguity — block
+          if (perCredentialBest.length > 1) return null;
 
-          const { credId, tpl } = candidates[0];
+          const { credId, tpl } = perCredentialBest[0];
 
           if (tpl.injectionType === 'header' && tpl.headerName) {
             const resolved = resolveById(credId);
