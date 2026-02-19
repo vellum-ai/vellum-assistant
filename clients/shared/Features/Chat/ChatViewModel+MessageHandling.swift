@@ -571,13 +571,6 @@ extension ChatViewModel {
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
-            pendingVoiceMessage = false
-            isWorkspaceRefinementInFlight = false
-            refinementMessagePreview = nil
-            refinementStreamingText = nil
-            cancelledDuringRefinement = false
-            cancelTimeoutTask?.cancel()
-            cancelTimeoutTask = nil
             let wasCancelling = isCancelling
             isCancelling = false
             // Stale cancel event from a previous cancel cycle — the daemon
@@ -587,6 +580,13 @@ extension ChatViewModel {
             if !wasCancelling && isSending {
                 return
             }
+            pendingVoiceMessage = false
+            isWorkspaceRefinementInFlight = false
+            refinementMessagePreview = nil
+            refinementStreamingText = nil
+            cancelledDuringRefinement = false
+            cancelTimeoutTask?.cancel()
+            cancelTimeoutTask = nil
             isThinking = false
             if wasCancelling {
                 isSending = false
