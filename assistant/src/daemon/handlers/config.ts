@@ -573,7 +573,7 @@ export function handleTwitterIntegrationConfig(
         managedAvailable: false,
         localClientConfigured: false,
         connected: false,
-        error: `Unknown action: ${(msg as any).action}`,
+        error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}`,
       });
     }
   } catch (err) {

@@ -124,7 +124,7 @@ import type {
 } from '../daemon/ipc-contract.js';
 
 // Mock global fetch for Twitter /2/users/me
-const originalFetch = globalThis.fetch;
+const _originalFetch = globalThis.fetch;
 let mockFetchResponse: { ok: boolean; json: () => Promise<unknown> } = {
   ok: true,
   json: async () => ({ data: { username: 'testuser' } }),
