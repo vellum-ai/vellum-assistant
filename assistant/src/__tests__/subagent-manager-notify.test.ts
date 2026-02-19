@@ -184,6 +184,22 @@ describe('SubagentManager abort notification', () => {
     expect(result).toBe(true);
     expect(state.status).toBe('aborted');
   });
+
+  test('abort with suppressNotification skips onSubagentFinished', () => {
+    const manager = new SubagentManager();
+    const subagentId = 'sub-1';
+    const state = makeState(subagentId);
+    injectFakeSubagent(manager, subagentId, state);
+
+    const notifications: string[] = [];
+    manager.onSubagentFinished = (_pid, message) => notifications.push(message);
+
+    const result = manager.abort(subagentId, () => {}, undefined, { suppressNotification: true });
+
+    expect(result).toBe(true);
+    expect(state.status).toBe('aborted');
+    expect(notifications).toHaveLength(0);
+  });
 });
 
 describe('SubagentManager notifyParent (via runSubagent)', () => {
@@ -346,5 +362,17 @@ describe('SubagentManager abort race guard', () => {
     expect(notifications).toHaveLength(0);
     // Status should remain aborted, not overwritten to completed.
     expect(state.status).toBe('aborted');
+  });
+});
+
+describe('SubagentManager sendMessage validation', () => {
+  test('rejects empty content without throwing', () => {
+    const manager = new SubagentManager();
+    const subagentId = 'sub-1';
+    injectFakeSubagent(manager, subagentId, makeState(subagentId));
+
+    expect(manager.sendMessage(subagentId, '')).toBe(false);
+    expect(manager.sendMessage(subagentId, '   ')).toBe(false);
+    expect(manager.sendMessage(subagentId, '\n\t')).toBe(false);
   });
 });

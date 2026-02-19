@@ -44,6 +44,7 @@ export const subagentAbortTool: Tool = {
       subagentId,
       sendToClient as ((msg: unknown) => void) | undefined,
       context.sessionId,
+      { suppressNotification: true },
     );
 
     if (!aborted) {

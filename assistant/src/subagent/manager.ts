@@ -252,6 +252,7 @@ export class SubagentManager {
     subagentId: string,
     parentSendToClient?: (msg: ServerMessage) => void,
     callerSessionId?: string,
+    options?: { suppressNotification?: boolean },
   ): boolean {
     const managed = this.subagents.get(subagentId);
     if (!managed) return false;
@@ -267,8 +268,9 @@ export class SubagentManager {
     managed.state.completedAt = Date.now();
     if (parentSendToClient) {
       this.setStatus(subagentId, 'aborted', parentSendToClient);
-      // Notify parent about the abort.
-      if (this.onSubagentFinished) {
+      // Notify parent about the abort — skip when the parent already has the
+      // tool result (e.g. subagent_abort tool) to avoid duplicate turns.
+      if (this.onSubagentFinished && !options?.suppressNotification) {
         const label = managed.state.config.label;
         try {
           this.onSubagentFinished(
@@ -321,6 +323,9 @@ export class SubagentManager {
   // ── Send message to subagent ──────────────────────────────────────────
 
   sendMessage(subagentId: string, content: string): boolean {
+    const trimmed = content?.trim();
+    if (!trimmed) return false;
+
     const managed = this.subagents.get(subagentId);
     if (!managed) return false;
     if (TERMINAL_STATUSES.has(managed.state.status)) return false;
@@ -329,12 +334,12 @@ export class SubagentManager {
     const requestId = uuid();
 
     // If the session is busy, queue the message; otherwise process immediately.
-    const result = managed.session.enqueueMessage(content, [], onEvent, requestId);
+    const result = managed.session.enqueueMessage(trimmed, [], onEvent, requestId);
     if (result.rejected) return false;
     if (!result.queued) {
       // Session is idle — send directly.  Fire-and-forget so we don't block.
-      const messageId = managed.session.persistUserMessage(content, []);
-      managed.session.runAgentLoop(content, messageId, onEvent).catch((err) => {
+      const messageId = managed.session.persistUserMessage(trimmed, []);
+      managed.session.runAgentLoop(trimmed, messageId, onEvent).catch((err) => {
         log.error({ subagentId, err }, 'Subagent message processing failed');
       });
     }
