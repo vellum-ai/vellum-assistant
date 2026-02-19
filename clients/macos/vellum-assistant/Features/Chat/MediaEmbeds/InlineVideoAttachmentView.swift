@@ -184,7 +184,7 @@ struct InlineVideoAttachmentView: View {
 
 /// Fetch attachment base64 data from the daemon HTTP endpoint.
 private func fetchAttachmentData(port: Int, attachmentId: String) async throws -> String {
-    guard let token = readSessionToken() else {
+    guard let token = await SessionTokenManager.getTokenAsync() else {
         throw URLError(.userAuthenticationRequired)
     }
     let url = URL(string: "http://localhost:\(port)/v1/attachments/\(attachmentId)")!
