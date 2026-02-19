@@ -1,198 +1,122 @@
 import { spawn } from "child_process";
+import { rmSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 
-import { VALID_REMOTE_HOSTS } from "../lib/constants";
-import type { RemoteHost } from "../lib/constants";
-import { getActiveProject, instanceExists } from "../lib/gcp";
-import { execOutput } from "../lib/step-runner";
+import { findAssistantByName, removeAssistantEntry } from "../lib/assistant-config";
+import type { AssistantEntry } from "../lib/assistant-config";
+import { retireInstance as retireAwsInstance } from "../lib/aws";
+import { retireInstance as retireGcpInstance } from "../lib/gcp";
+import { exec } from "../lib/step-runner";
 
-interface RetireArgs {
-  name: string;
-  remote: RemoteHost;
+function resolveCloud(entry: AssistantEntry): string {
+  if (entry.cloud) return entry.cloud;
+  if (entry.project) return "gcp";
+  if (entry.sshUser) return "custom";
+  return "local";
 }
 
-function parseArgs(): RetireArgs {
-  const args = process.argv.slice(3);
-  let name: string | null = null;
-  let remote: RemoteHost = "gcp";
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--remote") {
-      const next = args[i + 1];
-      if (!next || !VALID_REMOTE_HOSTS.includes(next as RemoteHost)) {
-        console.error(
-          `Error: --remote requires one of: ${VALID_REMOTE_HOSTS.join(", ")}`,
-        );
-        process.exit(1);
-      }
-      remote = next as RemoteHost;
-      i++;
-    } else if (!arg.startsWith("-")) {
-      name = arg;
-    } else {
-      console.error(
-        `Error: Unknown argument '${arg}'. Usage: vellum-cli retire <name> [--remote <${VALID_REMOTE_HOSTS.join("|")}>]`,
-      );
-      process.exit(1);
-    }
-  }
-
-  if (!name) {
-    console.error("Error: Instance name is required.");
-    console.error(
-      `Usage: vellum-cli retire <name> [--remote <${VALID_REMOTE_HOSTS.join("|")}>]`,
-    );
-    process.exit(1);
-  }
-
-  return { name, remote };
-}
-
-async function retireGcp(name: string): Promise<void> {
-  const project = process.env.GCP_PROJECT ?? (await getActiveProject());
-  const zone = process.env.GCP_DEFAULT_ZONE;
-  if (!zone) {
-    console.error("Error: GCP_DEFAULT_ZONE environment variable is not set.");
-    process.exit(1);
-  }
-
-  const exists = await instanceExists(name, project, zone);
-  if (!exists) {
-    console.warn(
-      `⚠️  Instance ${name} not found in GCP (project=${project}, zone=${zone}).`,
-    );
-    return;
-  }
-
-  console.log(`🗑️  Deleting GCP instance ${name}\n`);
-
-  const child = spawn(
-    "gcloud",
-    [
-      "compute",
-      "instances",
-      "delete",
-      name,
-      `--project=${project}`,
-      `--zone=${zone}`,
-    ],
-    { stdio: "inherit" },
-  );
-
-  await new Promise<void>((resolve, reject) => {
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`gcloud instance delete exited with code ${code}`));
-      }
-    });
-    child.on("error", reject);
-  });
-
-  console.log(`✅ Instance ${name} deleted.`);
-}
-
-async function getAwsInstanceId(
-  name: string,
-  region: string,
-): Promise<string | null> {
+function extractHostFromUrl(url: string): string {
   try {
-    const output = await execOutput("aws", [
-      "ec2",
-      "describe-instances",
-      "--filters",
-      `Name=tag:Name,Values=${name}`,
-      "Name=instance-state-name,Values=pending,running,stopping,stopped",
-      "--query",
-      "Reservations[0].Instances[0].InstanceId",
-      "--output",
-      "text",
-      "--region",
-      region,
-    ]);
-    const id = output.trim();
-    return id && id !== "None" ? id : null;
+    const parsed = new URL(url);
+    return parsed.hostname;
   } catch {
-    return null;
+    return url.replace(/^https?:\/\//, "").split(":")[0];
   }
 }
 
-async function retireAws(name: string): Promise<void> {
-  const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
-  if (!region) {
-    console.error("Error: AWS_REGION environment variable is not set.");
-    process.exit(1);
-  }
+async function retireLocal(): Promise<void> {
+  console.log("\u{1F5D1}\ufe0f  Stopping local daemon...\n");
 
-  const instanceId = await getAwsInstanceId(name, region);
-  if (!instanceId) {
-    console.warn(
-      `⚠️  Instance ${name} not found in AWS (region=${region}).`,
-    );
-    return;
-  }
-
-  console.log(`🗑️  Terminating AWS instance ${name} (${instanceId})\n`);
-
-  const child = spawn(
-    "aws",
-    [
-      "ec2",
-      "terminate-instances",
-      "--instance-ids",
-      instanceId,
-      "--region",
-      region,
-    ],
-    { stdio: "inherit" },
-  );
-
-  await new Promise<void>((resolve, reject) => {
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(
-          new Error(
-            `aws ec2 terminate-instances exited with code ${code}`,
-          ),
-        );
-      }
+  try {
+    const child = spawn("bunx", ["vellum", "daemon", "stop"], {
+      stdio: "inherit",
     });
-    child.on("error", reject);
-  });
 
-  console.log(`✅ Instance ${name} (${instanceId}) terminated.`);
+    await new Promise<void>((resolve) => {
+      child.on("close", () => resolve());
+      child.on("error", () => resolve());
+    });
+  } catch {}
+
+  const vellumDir = join(homedir(), ".vellum");
+  rmSync(vellumDir, { recursive: true, force: true });
+  console.log("\u2705 Local instance retired.");
+}
+
+async function retireCustom(entry: AssistantEntry): Promise<void> {
+  const host = extractHostFromUrl(entry.runtimeUrl);
+  const sshUser = entry.sshUser ?? "root";
+  const sshHost = `${sshUser}@${host}`;
+
+  console.log(`\u{1F5D1}\ufe0f  Retiring custom instance on ${sshHost}...\n`);
+
+  const remoteCmd = [
+    "bunx vellum daemon stop 2>/dev/null || true",
+    "pkill -f gateway 2>/dev/null || true",
+    "rm -rf ~/.vellum",
+  ].join(" && ");
+
+  try {
+    await exec("ssh", [
+      "-o", "StrictHostKeyChecking=no",
+      "-o", "UserKnownHostsFile=/dev/null",
+      "-o", "ConnectTimeout=10",
+      "-o", "LogLevel=ERROR",
+      sshHost,
+      remoteCmd,
+    ]);
+  } catch (error) {
+    console.warn(
+      `\u26a0\ufe0f  Remote cleanup may have partially failed: ${error instanceof Error ? error.message : error}`,
+    );
+  }
+
+  console.log(`\u2705 Custom instance retired.`);
 }
 
 export async function retire(): Promise<void> {
-  const { name, remote } = parseArgs();
+  const name = process.argv[3];
 
-  if (remote === "gcp") {
-    await retireGcp(name);
-    return;
+  if (!name) {
+    console.error("Error: Instance name is required.");
+    console.error("Usage: vellum-cli retire <name>");
+    process.exit(1);
   }
 
-  if (remote === "aws") {
-    await retireAws(name);
-    return;
+  const entry = findAssistantByName(name);
+  if (!entry) {
+    console.error(`No assistant found with name '${name}'.`);
+    console.error("Run 'vellum-cli hatch' first, or check the instance name.");
+    process.exit(1);
   }
 
-  if (remote === "local") {
-    console.log(
-      "ℹ️  Local instances don't need remote cleanup. Use 'bunx vellum daemon stop' to stop the local daemon.",
-    );
-    return;
+  const cloud = resolveCloud(entry);
+
+  if (cloud === "gcp") {
+    const project = entry.project;
+    const zone = entry.zone;
+    if (!project || !zone) {
+      console.error("Error: GCP project and zone not found in assistant config.");
+      process.exit(1);
+    }
+    await retireGcpInstance(name, project, zone);
+  } else if (cloud === "aws") {
+    const region = entry.region;
+    if (!region) {
+      console.error("Error: AWS region not found in assistant config.");
+      process.exit(1);
+    }
+    await retireAwsInstance(name, region);
+  } else if (cloud === "local") {
+    await retireLocal();
+  } else if (cloud === "custom") {
+    await retireCustom(entry);
+  } else {
+    console.error(`Error: Unknown cloud type '${cloud}'.`);
+    process.exit(1);
   }
 
-  if (remote === "custom") {
-    console.log(
-      "ℹ️  Custom instances must be managed directly on the remote host.",
-    );
-    return;
-  }
-
-  console.error(`Error: Remote host '${remote}' is not supported for retire.`);
-  process.exit(1);
+  removeAssistantEntry(name);
+  console.log(`Removed ${name} from config.`);
 }

@@ -1,3 +1,5 @@
+import { spawn } from "child_process";
+
 import { exec, execOutput } from "./step-runner";
 
 export async function getActiveProject(): Promise<string> {
@@ -258,4 +260,46 @@ export async function sshCommand(
     "--ssh-flag=-o LogLevel=ERROR",
     `--command=${command}`,
   ]);
+}
+
+export async function retireInstance(
+  name: string,
+  project: string,
+  zone: string,
+): Promise<void> {
+  const exists = await instanceExists(name, project, zone);
+  if (!exists) {
+    console.warn(
+      `\u26a0\ufe0f  Instance ${name} not found in GCP (project=${project}, zone=${zone}).`,
+    );
+    return;
+  }
+
+  console.log(`\u{1F5D1}\ufe0f  Deleting GCP instance ${name}\n`);
+
+  const child = spawn(
+    "gcloud",
+    [
+      "compute",
+      "instances",
+      "delete",
+      name,
+      `--project=${project}`,
+      `--zone=${zone}`,
+    ],
+    { stdio: "inherit" },
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`gcloud instance delete exited with code ${code}`));
+      }
+    });
+    child.on("error", reject);
+  });
+
+  console.log(`\u2705 Instance ${name} deleted.`);
 }

@@ -76,42 +76,22 @@ When hatching on GCP in interactive mode (without `-d`), the CLI displays an ani
 
 ### `retire`
 
-Delete a provisioned assistant instance.
+Delete a provisioned assistant instance. The cloud provider and connection details are automatically resolved from the saved assistant config (written during `hatch`).
 
 ```bash
-vellum-cli retire <name> [options]
+vellum-cli retire <name>
 ```
 
-#### Options
+The CLI looks up the instance by name in `~/.vellum/lockfile.json` and determines how to retire it based on the saved `cloud` field:
 
-| Option              | Description |
-| ------------------- | ----------- |
-| `--remote <target>` | Cloud provider of the instance. One of: `local`, `gcp`, `aws`, `custom`. Defaults to `gcp`. |
-
-#### Remote Targets
-
-- **`gcp`** -- Deletes a GCP Compute Engine instance via `gcloud compute instances delete`.
-- **`aws`** -- Terminates an AWS EC2 instance by looking up the instance ID from its Name tag.
-- **`local`** -- No remote cleanup needed; prints a reminder to stop the local daemon.
-- **`custom`** -- No remote cleanup; custom instances must be managed directly on the remote host.
-
-#### Environment Variables
-
-| Variable              | Required For | Description |
-| --------------------- | ------------ | ----------- |
-| `GCP_PROJECT`         | `gcp`        | GCP project ID. Falls back to the active `gcloud` project. |
-| `GCP_DEFAULT_ZONE`    | `gcp`        | GCP zone of the compute instance. |
-| `AWS_REGION`          | `aws`        | AWS region of the EC2 instance. |
+- **`gcp`** -- Deletes the GCP Compute Engine instance via `gcloud compute instances delete`.
+- **`aws`** -- Terminates the AWS EC2 instance by looking up the instance ID from its Name tag.
+- **`local`** -- Stops the local daemon (`bunx vellum daemon stop`) and removes the `~/.vellum` directory.
+- **`custom`** -- SSHs to the remote host to stop the daemon/gateway and remove the `~/.vellum` directory.
 
 #### Examples
 
 ```bash
-# Retire a GCP instance (default)
+# Retire an instance (cloud type resolved from config)
 vellum-cli retire my-assistant
-
-# Retire a GCP instance explicitly
-vellum-cli retire my-assistant --remote gcp
-
-# Retire an AWS instance
-AWS_REGION=us-east-1 vellum-cli retire my-assistant --remote aws
 ```
