@@ -3,6 +3,9 @@ import { getLogger } from "../../logger.js";
 
 const log = getLogger("twilio-relay-ws");
 
+// Cap buffered messages to prevent unbounded memory growth if upstream stalls
+const MAX_PENDING_MESSAGES = 100;
+
 /**
  * Create a WebSocket upgrade handler that proxies Twilio ConversationRelay
  * frames between Twilio and the runtime's /v1/calls/relay endpoint.
@@ -92,7 +95,11 @@ export function getRelayWebsocketHandlers() {
       if (upstream && upstream.readyState === WebSocket.OPEN) {
         upstream.send(message);
       } else if (ws.data.pendingMessages) {
-        // Buffer messages until upstream connects
+        if (ws.data.pendingMessages.length >= MAX_PENDING_MESSAGES) {
+          log.warn({ callSessionId: ws.data.callSessionId }, "Pending message buffer full, closing connection");
+          ws.close(1011, "Buffer overflow");
+          return;
+        }
         ws.data.pendingMessages.push(message);
       }
     },
@@ -100,7 +107,9 @@ export function getRelayWebsocketHandlers() {
     close(ws: import("bun").ServerWebSocket<RelaySocketData>, code: number, reason: string) {
       const { callSessionId, upstream } = ws.data;
       log.info({ callSessionId, code, reason }, "Twilio WS closed");
-      if (upstream && upstream.readyState === WebSocket.OPEN) {
+      // Clear pending buffer so no messages are flushed after close
+      ws.data.pendingMessages = undefined;
+      if (upstream && (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING)) {
         upstream.close(code, reason);
       }
     },
