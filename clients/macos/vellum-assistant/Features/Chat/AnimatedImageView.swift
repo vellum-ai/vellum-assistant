@@ -49,7 +49,7 @@ struct AnimatedImageView: View {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: maxDimension)
+                    .frame(maxWidth: maxDimension, maxHeight: maxDimension)
             } else {
                 Image(systemName: "photo")
                     .font(.system(size: 24))
