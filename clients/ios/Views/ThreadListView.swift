@@ -186,6 +186,9 @@ struct ThreadListView: View {
                     store.loadHistoryIfNeeded(for: selectedId)
                     store.viewModel(for: selectedId).consumeDeepLinkIfNeeded()
                 }
+                .onOpenURL { _ in
+                    store.viewModel(for: selectedId).consumeDeepLinkIfNeeded()
+                }
         } else {
             Text("Select a chat")
                 .foregroundStyle(.secondary)

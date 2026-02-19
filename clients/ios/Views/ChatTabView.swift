@@ -33,6 +33,9 @@ struct ChatTabView: View {
             .onAppear {
                 viewModel.consumeDeepLinkIfNeeded()
             }
+            .onOpenURL { _ in
+                viewModel.consumeDeepLinkIfNeeded()
+            }
             .navigationTitle("Chat")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
