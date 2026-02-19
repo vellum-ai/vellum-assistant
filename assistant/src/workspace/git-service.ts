@@ -619,6 +619,23 @@ export class WorkspaceGitService {
   }
 
   /**
+   * Get the commit hash of the current HEAD.
+   * This is a lightweight read-only operation that does not require the mutex.
+   */
+  async getHeadHash(): Promise<string> {
+    const { stdout } = await this.execGit(['rev-parse', 'HEAD']);
+    return stdout.trim();
+  }
+
+  /**
+   * Write a git note to a specific commit.
+   * Uses the 'vellum' notes ref to avoid conflicts with default notes.
+   */
+  async writeNote(commitHash: string, noteContent: string): Promise<void> {
+    await this.execGit(['notes', '--ref=vellum', 'add', '-f', '-m', noteContent, commitHash]);
+  }
+
+  /**
    * Check if the workspace has a git repository initialized.
    * This is a non-blocking check that doesn't trigger initialization.
    */
