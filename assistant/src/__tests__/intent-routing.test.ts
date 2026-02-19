@@ -113,7 +113,7 @@ describe('Task/Schedule/Reminder routing section in system prompt', () => {
   test('routing section clarifies schedules are for recurring automation only', () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain('recurring automated jobs');
-    expect(prompt).toContain('cron schedule');
+    expect(prompt).toContain('recurrence schedule (cron or RRULE)');
     expect(prompt).toContain('ONLY when the user explicitly wants');
   });
 

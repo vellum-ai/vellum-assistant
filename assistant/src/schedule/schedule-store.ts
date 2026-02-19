@@ -3,11 +3,15 @@ import { v4 as uuid } from 'uuid';
 import { Cron } from 'croner';
 import { getDb } from '../memory/db.js';
 import { cronJobs, cronRuns } from '../memory/schema.js';
+import { computeNextRunAt as computeNextRunAtEngine, isValidScheduleExpression } from './recurrence-engine.js';
+import type { ScheduleSyntax } from './recurrence-types.js';
 
 export interface ScheduleJob {
   id: string;
   name: string;
   enabled: boolean;
+  syntax: ScheduleSyntax;
+  expression: string;
   cronExpression: string;
   timezone: string | null;
   message: string;
@@ -60,9 +64,16 @@ export function createSchedule(params: {
   message: string;
   enabled?: boolean;
   createdBy?: string;
+  syntax?: ScheduleSyntax;
+  expression?: string;
 }): ScheduleJob {
-  if (!isValidCronExpression(params.cronExpression)) {
-    throw new Error(`Invalid cron expression: "${params.cronExpression}"`);
+  // Resolve syntax and expression: prefer explicit syntax/expression, fall back to cron
+  const syntax: ScheduleSyntax = params.syntax ?? 'cron';
+  const expression = params.expression ?? params.cronExpression;
+
+  const spec = { syntax, expression, timezone: params.timezone };
+  if (!isValidScheduleExpression(spec)) {
+    throw new Error(`Invalid ${syntax} expression: "${expression}"`);
   }
 
   const db = getDb();
@@ -70,13 +81,14 @@ export function createSchedule(params: {
   const now = Date.now();
   const enabled = params.enabled ?? true;
   const timezone = params.timezone ?? null;
-  const nextRunAt = enabled ? computeNextRunAt(params.cronExpression, timezone) : 0;
+  const nextRunAt = enabled ? computeNextRunAtEngine(spec) : 0;
 
   const row = {
     id,
     name: params.name,
     enabled,
-    cronExpression: params.cronExpression,
+    cronExpression: expression,
+    scheduleSyntax: syntax,
     timezone,
     message: params.message,
     nextRunAt,
@@ -89,7 +101,7 @@ export function createSchedule(params: {
   };
 
   db.insert(cronJobs).values(row).run();
-  return row;
+  return parseJobRow(row);
 }
 
 export function getSchedule(id: string): ScheduleJob | null {
@@ -123,35 +135,48 @@ export function updateSchedule(
     timezone?: string | null;
     message?: string;
     enabled?: boolean;
+    syntax?: ScheduleSyntax;
+    expression?: string;
   },
 ): ScheduleJob | null {
   const db = getDb();
   const existing = db.select().from(cronJobs).where(eq(cronJobs.id, id)).get();
   if (!existing) return null;
 
-  if (updates.cronExpression && !isValidCronExpression(updates.cronExpression)) {
-    throw new Error(`Invalid cron expression: "${updates.cronExpression}"`);
+  // Resolve the effective syntax and expression after this update
+  const newSyntax = updates.syntax ?? (existing.scheduleSyntax as ScheduleSyntax) ?? 'cron';
+  const newExpr = updates.expression ?? updates.cronExpression ?? existing.cronExpression;
+  const newTimezone = updates.timezone !== undefined ? updates.timezone : existing.timezone;
+  const newEnabled = updates.enabled !== undefined ? updates.enabled : existing.enabled;
+
+  // Validate if expression or syntax changed
+  if (updates.expression !== undefined || updates.cronExpression !== undefined || updates.syntax !== undefined) {
+    const spec = { syntax: newSyntax, expression: newExpr, timezone: newTimezone };
+    if (!isValidScheduleExpression(spec)) {
+      throw new Error(`Invalid ${newSyntax} expression: "${newExpr}"`);
+    }
   }
 
   const now = Date.now();
   const set: Record<string, unknown> = { updatedAt: now };
 
   if (updates.name !== undefined) set.name = updates.name;
-  if (updates.cronExpression !== undefined) set.cronExpression = updates.cronExpression;
+  if (updates.cronExpression !== undefined || updates.expression !== undefined) set.cronExpression = newExpr;
+  if (updates.syntax !== undefined) set.scheduleSyntax = newSyntax;
   if (updates.timezone !== undefined) set.timezone = updates.timezone;
   if (updates.message !== undefined) set.message = updates.message;
   if (updates.enabled !== undefined) set.enabled = updates.enabled;
 
-  const newExpr = updates.cronExpression ?? existing.cronExpression;
-  const newTimezone = updates.timezone !== undefined ? updates.timezone : existing.timezone;
-  const newEnabled = updates.enabled !== undefined ? updates.enabled : existing.enabled;
-
+  // Recompute nextRunAt if schedule timing may have changed
   if (
     updates.cronExpression !== undefined ||
+    updates.expression !== undefined ||
+    updates.syntax !== undefined ||
     updates.timezone !== undefined ||
     updates.enabled !== undefined
   ) {
-    set.nextRunAt = newEnabled ? computeNextRunAt(newExpr, newTimezone) : 0;
+    const spec = { syntax: newSyntax, expression: newExpr, timezone: newTimezone };
+    set.nextRunAt = newEnabled ? computeNextRunAtEngine(spec) : 0;
   }
 
   db.update(cronJobs).set(set).where(eq(cronJobs.id, id)).run();
@@ -183,7 +208,12 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
   for (const row of candidates) {
     let newNextRunAt: number;
     try {
-      newNextRunAt = computeNextRunAt(row.cronExpression, row.timezone);
+      const syntax = (row.scheduleSyntax as ScheduleSyntax) ?? 'cron';
+      newNextRunAt = computeNextRunAtEngine({
+        syntax,
+        expression: row.cronExpression,
+        timezone: row.timezone,
+      });
     } catch {
       // Expression has no future runs — skip
       continue;
@@ -423,6 +453,8 @@ function parseJobRow(row: typeof cronJobs.$inferSelect): ScheduleJob {
     id: row.id,
     name: row.name,
     enabled: row.enabled,
+    syntax: (row.scheduleSyntax as ScheduleSyntax) ?? 'cron',
+    expression: row.cronExpression,
     cronExpression: row.cronExpression,
     timezone: row.timezone,
     message: row.message,

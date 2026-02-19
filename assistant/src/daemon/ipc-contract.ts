@@ -1454,6 +1454,8 @@ export interface SchedulesListResponse {
     id: string;
     name: string;
     enabled: boolean;
+    syntax: string;
+    expression: string;
     cronExpression: string;
     timezone: string | null;
     message: string;

@@ -103,7 +103,6 @@ import {
   createCallSession,
   getCallSession,
   getCallEvents,
-  updateCallSession,
 } from '../calls/call-store.js';
 import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';

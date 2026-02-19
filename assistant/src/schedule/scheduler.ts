@@ -5,6 +5,7 @@ import {
   createScheduleRun,
   completeScheduleRun,
 } from './schedule-store.js';
+import { hasSetConstructs } from './recurrence-engine.js';
 import { claimDueReminders, completeReminder, failReminder, setReminderConversationId } from '../tools/reminder/reminder-store.js';
 import { runWatchersOnce, type WatcherNotifier, type WatcherEscalator } from '../watcher/engine.js';
 
@@ -80,8 +81,9 @@ async function runScheduleOnce(
     const taskMatch = job.message.match(/^run_task:(\S+)$/);
     if (taskMatch) {
       const taskId = taskMatch[1];
+      const isRruleSet = job.syntax === 'rrule' && hasSetConstructs(job.expression);
       try {
-        log.info({ jobId: job.id, name: job.name, taskId }, 'Executing scheduled task');
+        log.info({ jobId: job.id, name: job.name, taskId, syntax: job.syntax, expression: job.expression, isRruleSet }, 'Executing scheduled task');
         const { runTask } = await import('../tasks/task-runner.js');
         const result = await runTask(
           { taskId, workingDir: process.cwd() },
@@ -99,7 +101,7 @@ async function runScheduleOnce(
         processed += 1;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        log.warn({ err, jobId: job.id, name: job.name, taskId }, 'Scheduled task execution failed');
+        log.warn({ err, jobId: job.id, name: job.name, taskId, syntax: job.syntax, expression: job.expression, isRruleSet }, 'Scheduled task execution failed');
         // Create a fallback conversation for the schedule run record
         const fallbackConversation = createConversation(`Schedule: ${job.name}`);
         const runId = createScheduleRun(job.id, fallbackConversation.id);
@@ -110,16 +112,17 @@ async function runScheduleOnce(
 
     const conversation = createConversation(`Schedule: ${job.name}`);
     const runId = createScheduleRun(job.id, conversation.id);
+    const isRruleSetMsg = job.syntax === 'rrule' && hasSetConstructs(job.expression);
 
     try {
-      log.info({ jobId: job.id, name: job.name, conversationId: conversation.id }, 'Executing schedule');
+      log.info({ jobId: job.id, name: job.name, syntax: job.syntax, expression: job.expression, isRruleSet: isRruleSetMsg, conversationId: conversation.id }, 'Executing schedule');
       await processMessage(conversation.id, job.message);
       completeScheduleRun(runId, { status: 'ok' });
       notifySchedule({ id: job.id, name: job.name });
       processed += 1;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.warn({ err, jobId: job.id, name: job.name }, 'Schedule execution failed');
+      log.warn({ err, jobId: job.id, name: job.name, syntax: job.syntax, expression: job.expression, isRruleSet: isRruleSetMsg }, 'Schedule execution failed');
       completeScheduleRun(runId, { status: 'error', error: message });
     }
   }

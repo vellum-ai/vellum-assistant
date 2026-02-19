@@ -140,12 +140,27 @@ private struct ScheduleRow: View {
         }
     }
 
+    private var syntaxLabel: String {
+        schedule.syntax == "rrule" ? "rrule" : "cron"
+    }
+
+    private var syntaxColor: Color {
+        schedule.syntax == "rrule" ? .purple : .blue
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(schedule.name)
                         .fontWeight(.medium)
+                    Text(syntaxLabel)
+                        .font(.caption2)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(syntaxColor.opacity(0.12))
+                        .foregroundStyle(syntaxColor)
+                        .clipShape(Capsule())
                     if let status = schedule.lastStatus {
                         Text(status)
                             .font(.caption)
@@ -159,6 +174,10 @@ private struct ScheduleRow: View {
                 Text(schedule.description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text(schedule.expression)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
                 HStack(spacing: 6) {
                     if schedule.enabled {
                         Text("Next: \(nextRunText)")
