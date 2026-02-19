@@ -1029,7 +1029,7 @@ The workspace sandbox (`~/.vellum/workspace`) is automatically tracked by a per-
 graph TB
     subgraph "Turn-boundary commits (primary)"
         SESSION["Session.processMessage()"]
-        TURN_COMMIT["commitTurnChanges()<br/>fire-and-forget"]
+        TURN_COMMIT["commitTurnChanges()<br/>awaited"]
         GIT_SERVICE["WorkspaceGitService<br/>mutex-protected"]
     end
 
@@ -1043,7 +1043,7 @@ graph TB
         SHUTDOWN["Graceful shutdown<br/>commitAllPending()"]
     end
 
-    SESSION -->|"void (non-blocking)"| TURN_COMMIT
+    SESSION -->|"await"| TURN_COMMIT
     TURN_COMMIT --> GIT_SERVICE
     HEARTBEAT --> CHECK
     CHECK --> GIT_SERVICE
@@ -1053,9 +1053,9 @@ graph TB
 
 ### How it works
 
-1. **Lazy initialization**: The git repository is created on first use, not at workspace creation. When `ensureInitialized()` is called, it checks for a `.git` directory. If absent, it runs `git init`, creates a `.gitignore` (excluding `data/`, `logs/`, `*.log`, `*.sock`, `*.pid`, `session-token`, `http-token`), sets the git identity to "Vellum Assistant", and creates an initial commit capturing any pre-existing files. This handles migration of existing workspaces transparently.
+1. **Lazy initialization**: The git repository is created on first use, not at workspace creation. When `ensureInitialized()` is called, it checks for a `.git` directory. If absent, it runs `git init`, creates a `.gitignore` (excluding `data/`, `logs/`, `*.log`, `*.sock`, `*.pid`, `session-token`, `http-token`), sets the git identity to "Vellum Assistant", and creates an initial baseline commit capturing any pre-existing files. The baseline commit is intentional — it makes `git log`, `git diff`, and `git revert` work cleanly from the start. Both new and existing workspaces get the same treatment. For existing repos (e.g. created by older versions or external tools), `.gitignore` rules and git identity are set idempotently on each init, ensuring proper configuration regardless of how the repo was originally created.
 
-2. **Turn-boundary commits**: After each conversation turn (user message + assistant response cycle), `session.ts` calls `void commitTurnChanges(workspaceDir, sessionId, turnNumber)` in a fire-and-forget pattern. This checks for uncommitted changes and, if any exist, creates a single commit with structured metadata (session ID, turn number, timestamp, file count). The `void` prefix ensures the commit never blocks the turn response.
+2. **Turn-boundary commits**: After each conversation turn (user message + assistant response cycle), `session.ts` calls `await commitTurnChanges(workspaceDir, sessionId, turnNumber)`. This checks for uncommitted changes and, if any exist, creates a single commit with structured metadata (session ID, turn number, timestamp, file count). The commit is awaited to prevent cross-turn file attribution: without awaiting, the next turn could begin and its file writes could be attributed to this turn's commit.
 
 3. **Heartbeat safety net**: A `HeartbeatService` runs on a 5-minute interval, checking all tracked workspaces for uncommitted changes. It auto-commits when changes exceed either an age threshold (5 minutes since first detected) or a file count threshold (20+ files). This catches changes from long-running bash scripts, background processes, or crashed sessions that miss turn-boundary commits.
 
@@ -1066,9 +1066,10 @@ graph TB
 ### Design decisions
 
 - **Commit at turn boundaries, not per-tool-call**: A single commit per turn captures all file mutations from that turn atomically. This avoids noisy per-file commits and keeps the history meaningful.
-- **Lazy init for migration**: Existing workspaces get their files captured in an "Initial commit: migrated existing workspace" on first use, rather than requiring an explicit migration step.
+- **Lazy init with baseline commit**: The repo is created on first use, not at daemon startup. Existing workspaces get their files captured in an "Initial commit: migrated existing workspace" on first use, rather than requiring an explicit migration step. The baseline commit ensures `git log`, `git diff`, and `git revert` work cleanly from the start.
 - **Mutex serialization**: All git operations go through a per-workspace `Mutex` to prevent concurrent `git add`/`git commit` from corrupting the index. The mutex uses a FIFO wait queue.
-- **Fire-and-forget in session.ts**: Turn commits use `void commitTurnChanges(...)` so they never block the assistant response. All errors are caught and logged as warnings.
+- **Awaited in session.ts**: Turn commits use `await commitTurnChanges(...)` to prevent cross-turn file attribution. Without awaiting, the next turn could begin (via `drainQueue` in the finally block) and its file writes could be attributed to the previous turn's commit. All errors are caught and logged as warnings.
+- **Branch enforcement at init time**: `ensureOnMainLocked()` is called during initialization to ensure the workspace is on the `main` branch. If the workspace is on the wrong branch or in a detached HEAD state, it auto-corrects to `main` with a warning log. Per-commit enforcement is unnecessary since nothing in the codebase switches branches.
 - **We intentionally don't provide custom history APIs** -- assistants should use git commands naturally via Bash (e.g. `git log`, `git diff`, `git show`). The workspace git repo is a standard git repository that any tool can interact with.
 
 ### Key files
@@ -1078,7 +1079,7 @@ graph TB
 | `assistant/src/workspace/git-service.ts` | `WorkspaceGitService`: lazy init, mutex, `commitChanges()`, `getStatus()`, singleton registry |
 | `assistant/src/workspace/turn-commit.ts` | `commitTurnChanges()`: turn-boundary commit with structured metadata |
 | `assistant/src/workspace/heartbeat-service.ts` | `HeartbeatService`: periodic safety-net auto-commits and shutdown commits |
-| `assistant/src/daemon/session.ts` | Integration: `void commitTurnChanges(...)` at turn boundary (line ~1220) |
+| `assistant/src/daemon/session.ts` | Integration: `await commitTurnChanges(...)` at turn boundary |
 | `assistant/src/daemon/lifecycle.ts` | Integration: `HeartbeatService` start/stop and shutdown commit |
 
 ---
