@@ -17,7 +17,7 @@ import { copyToClipboard, extractLastCodeBlock, formatSessionForExport } from '.
 import { timeAgo } from './util/time.js';
 import { ensureDaemonRunning } from './daemon/lifecycle.js';
 import { shouldAutoStartDaemon } from './daemon/connection-policy.js';
-import { renderMainScreen, updateStatusText, updateDaemonText, type MainScreenLayout } from './cli/main-screen.jsx';
+import { renderMainScreen, updateStatusText, updateDaemonText, showSelectionWindow, type MainScreenLayout } from './cli/main-screen.jsx';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
@@ -182,103 +182,7 @@ export async function startCli(): Promise<void> {
     return `${req.toolName}: ${JSON.stringify(req.input).slice(0, 80)}`;
   }
 
-  function showSelectionWindow(
-    title: string,
-    options: string[],
-    onSelect: (index: number) => void,
-    onCancel: () => void,
-  ): void {
-    let selectedIndex = 0;
-    const windowWidth = 60;
-
-    function drawWindow(): void {
-      const top = `\u250C\u2500 ${title} ${"\u2500".repeat(Math.max(0, windowWidth - title.length - 4))}\u2510`;
-      const bottom = `\u2514${"\u2500".repeat(windowWidth - 2)}\u2518`;
-      const hint = `\x1B[2m  \u2191/\u2193 navigate  Enter select  Esc cancel\x1B[0m`;
-
-      // Move cursor up to redraw the window in place
-      const totalLines = options.length + 3;
-      process.stdout.write(`\x1b[${totalLines}A`);
-
-      process.stdout.write(`\x1b[K${top}\n`);
-      for (let i = 0; i < options.length; i++) {
-        const marker = i === selectedIndex ? '\x1B[36m\u276F\x1B[0m' : ' ';
-        const label = i === selectedIndex ? `\x1B[1m${options[i]}\x1B[0m` : options[i];
-        const padding = ' '.repeat(Math.max(0, windowWidth - options[i].length - 6));
-        process.stdout.write(`\x1b[K\u2502 ${marker} ${label}${padding}\u2502\n`);
-      }
-      process.stdout.write(`\x1b[K${bottom}\n`);
-      process.stdout.write(`\x1b[K${hint}`);
-    }
-
-    function initialDraw(): void {
-      const top = `\u250C\u2500 ${title} ${"\u2500".repeat(Math.max(0, windowWidth - title.length - 4))}\u2510`;
-      const bottom = `\u2514${"\u2500".repeat(windowWidth - 2)}\u2518`;
-      const hint = `\x1B[2m  \u2191/\u2193 navigate  Enter select  Esc cancel\x1B[0m`;
-
-      process.stdout.write(`${top}\n`);
-      for (let i = 0; i < options.length; i++) {
-        const marker = i === selectedIndex ? '\x1B[36m\u276F\x1B[0m' : ' ';
-        const label = i === selectedIndex ? `\x1B[1m${options[i]}\x1B[0m` : options[i];
-        const padding = ' '.repeat(Math.max(0, windowWidth - options[i].length - 6));
-        process.stdout.write(`\u2502 ${marker} ${label}${padding}\u2502\n`);
-      }
-      process.stdout.write(`${bottom}\n`);
-      process.stdout.write(hint);
-    }
-
-    function clearWindow(): void {
-      const totalLines = options.length + 3;
-      process.stdout.write(`\x1b[${totalLines}A`);
-      for (let i = 0; i < totalLines; i++) {
-        process.stdout.write('\x1b[K\n');
-      }
-      process.stdout.write(`\x1b[${totalLines}A`);
-    }
-
-    function cleanup(): void {
-      process.stdin.removeListener('data', onKeypress);
-      if (process.stdin.isTTY) {
-        process.stdin.setRawMode(false);
-      }
-      rl.resume();
-    }
-
-    function onKeypress(data: Buffer): void {
-      const key = data.toString();
-
-      if (key === '\x1b[A') {
-        // Up arrow
-        selectedIndex = (selectedIndex - 1 + options.length) % options.length;
-        drawWindow();
-      } else if (key === '\x1b[B') {
-        // Down arrow
-        selectedIndex = (selectedIndex + 1) % options.length;
-        drawWindow();
-      } else if (key === '\r' || key === '\n') {
-        // Enter
-        clearWindow();
-        cleanup();
-        onSelect(selectedIndex);
-      } else if (key === '\x1b' || key === '\x03') {
-        // Escape or Ctrl+C
-        clearWindow();
-        cleanup();
-        onCancel();
-      }
-    }
-
-    rl.pause();
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(true);
-    }
-    process.stdin.resume();
-
-    initialDraw();
-    process.stdin.on('data', onKeypress);
-  }
-
-  function renderConfirmationPrompt(req: ConfirmationRequest): void {
+  async function renderConfirmationPrompt(req: ConfirmationRequest): Promise<void> {
     const preview = formatCommandPreview(req);
     const principalTag = formatPrincipalTag(req);
     process.stdout.write('\n');
@@ -311,106 +215,87 @@ export async function startCli(): Promise<void> {
       options.push('Allowlist...', 'Allowlist (high-risk)...', 'Denylist...');
     }
 
-    showSelectionWindow(
-      'Tool Approval',
-      options,
-      (index) => {
-        if (index === 0) {
-          pendingConfirmation = false;
-          send({
-            type: 'confirmation_response',
-            requestId: req.requestId,
-            decision: 'allow',
-          });
-          spinner.start('Thinking...');
-          return;
-        }
-        if (index === 1) {
-          pendingConfirmation = false;
-          send({
-            type: 'confirmation_response',
-            requestId: req.requestId,
-            decision: 'deny',
-          });
-          prompt();
-          return;
-        }
-        if (index === 2) {
-          renderPatternSelection(req, 'always_allow');
-          return;
-        }
-        if (index === 3) {
-          renderPatternSelection(req, 'always_allow_high_risk');
-          return;
-        }
-        if (index === 4) {
-          renderPatternSelection(req, 'always_deny');
-          return;
-        }
-      },
-      () => {
-        pendingConfirmation = false;
-        send({
-          type: 'confirmation_response',
-          requestId: req.requestId,
-          decision: 'deny',
-        });
-        prompt();
-      },
-    );
+    const index = await showSelectionWindow('Tool Approval', options, rl);
+
+    if (index === 0) {
+      pendingConfirmation = false;
+      send({
+        type: 'confirmation_response',
+        requestId: req.requestId,
+        decision: 'allow',
+      });
+      spinner.start('Thinking...');
+      return;
+    }
+    if (index === 2) {
+      await renderPatternSelection(req, 'always_allow');
+      return;
+    }
+    if (index === 3) {
+      await renderPatternSelection(req, 'always_allow_high_risk');
+      return;
+    }
+    if (index === 4) {
+      await renderPatternSelection(req, 'always_deny');
+      return;
+    }
+
+    pendingConfirmation = false;
+    send({
+      type: 'confirmation_response',
+      requestId: req.requestId,
+      decision: 'deny',
+    });
+    prompt();
   }
 
-  function renderPatternSelection(req: ConfirmationRequest, decision: 'always_allow' | 'always_allow_high_risk' | 'always_deny'): void {
+  async function renderPatternSelection(req: ConfirmationRequest, decision: 'always_allow' | 'always_allow_high_risk' | 'always_deny'): Promise<void> {
     const label = decision === 'always_deny' ? 'Denylist' : decision === 'always_allow_high_risk' ? 'Allowlist (high-risk)' : 'Allowlist';
     const options = req.allowlistOptions.map((o) => o.label);
 
-    showSelectionWindow(
-      `${label}: choose command pattern`,
-      options,
-      (index) => {
-        const selectedPattern = req.allowlistOptions[index].pattern;
-        renderScopeSelection(req, selectedPattern, decision);
-      },
-      () => {
-        pendingConfirmation = false;
-        send({
-          type: 'confirmation_response',
-          requestId: req.requestId,
-          decision: 'deny',
-        });
-        prompt();
-      },
-    );
+    const index = await showSelectionWindow(`${label}: choose command pattern`, options, rl);
+
+    if (index >= 0 && index < req.allowlistOptions.length) {
+      const selectedPattern = req.allowlistOptions[index].pattern;
+      await renderScopeSelection(req, selectedPattern, decision);
+      return;
+    }
+
+    pendingConfirmation = false;
+    send({
+      type: 'confirmation_response',
+      requestId: req.requestId,
+      decision: 'deny',
+    });
+    prompt();
   }
 
-  function renderScopeSelection(req: ConfirmationRequest, selectedPattern: string, decision: 'always_allow' | 'always_allow_high_risk' | 'always_deny'): void {
+  async function renderScopeSelection(req: ConfirmationRequest, selectedPattern: string, decision: 'always_allow' | 'always_allow_high_risk' | 'always_deny'): Promise<void> {
     const label = decision === 'always_deny' ? 'Denylist' : decision === 'always_allow_high_risk' ? 'Allowlist (high-risk)' : 'Allowlist';
     const options = req.scopeOptions.map((o) => o.label);
 
-    showSelectionWindow(
-      `${label}: choose scope`,
-      options,
-      (index) => {
-        pendingConfirmation = false;
-        send({
-          type: 'confirmation_response',
-          requestId: req.requestId,
-          decision,
-          selectedPattern,
-          selectedScope: req.scopeOptions[index].scope,
-        });
-        spinner.start('Thinking...');
-      },
-      () => {
-        pendingConfirmation = false;
-        send({
-          type: 'confirmation_response',
-          requestId: req.requestId,
-          decision: 'deny',
-        });
-        prompt();
-      },
-    );
+    const index = await showSelectionWindow(`${label}: choose scope`, options, rl);
+
+    if (index >= 0 && index < req.scopeOptions.length) {
+      pendingConfirmation = false;
+      send({
+        type: 'confirmation_response',
+        requestId: req.requestId,
+        decision,
+        selectedPattern,
+        selectedScope: req.scopeOptions[index].scope,
+      });
+      spinner.start('Thinking...');
+      return;
+    }
+
+    pendingConfirmation = false;
+    send({
+      type: 'confirmation_response',
+      requestId: req.requestId,
+      decision: 'deny',
+    });
+    prompt();
   }
 
   function renderSessionPicker(sessions: Array<{ id: string; title: string; updatedAt: number }>): void {

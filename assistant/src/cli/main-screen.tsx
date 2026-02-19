@@ -1,6 +1,6 @@
-import { type ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import { basename } from "node:path";
-import { Box, render as inkRender, Text } from "ink";
+import { Box, render as inkRender, Text, useInput } from "ink";
 import { getSocketPath, getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 
@@ -152,4 +152,92 @@ export function updateDaemonText(
   process.stdout.write(
     `\x1b7\x1b[${daemonLine};${layout.statusCol}H\x1b[K\x1b[35m${text}\x1b[0m\x1b8`,
   );
+}
+
+interface SelectionWindowProps {
+  title: string;
+  options: string[];
+  onSelect: (index: number) => void;
+  onCancel: () => void;
+}
+
+function SelectionWindow({ title, options, onSelect, onCancel }: SelectionWindowProps): ReactElement {
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  useInput((input, key) => {
+    if (key.upArrow) {
+      setSelectedIndex((prev) => (prev - 1 + options.length) % options.length);
+    } else if (key.downArrow) {
+      setSelectedIndex((prev) => (prev + 1) % options.length);
+    } else if (key.return) {
+      onSelect(selectedIndex);
+    } else if (key.escape || (key.ctrl && input === 'c')) {
+      onCancel();
+    }
+  });
+
+  const windowWidth = 60;
+  const borderH = "\u2500".repeat(Math.max(0, windowWidth - title.length - 4));
+
+  return (
+    <Box flexDirection="column" width={windowWidth}>
+      <Text>{"\u250C\u2500 " + title + " " + borderH + "\u2510"}</Text>
+      {options.map((option, i) => {
+        const marker = i === selectedIndex ? "\u276F" : " ";
+        const padding = " ".repeat(Math.max(0, windowWidth - option.length - 6));
+        return (
+          <Text key={i}>
+            {"\u2502 "}
+            <Text color={i === selectedIndex ? "cyan" : undefined}>{marker}</Text>
+            {" "}
+            <Text bold={i === selectedIndex}>{option}</Text>
+            {padding}
+            {"\u2502"}
+          </Text>
+        );
+      })}
+      <Text>{"\u2514" + "\u2500".repeat(windowWidth - 2) + "\u2518"}</Text>
+      <Text dimColor>{"  \u2191/\u2193 navigate  Enter select  Esc cancel"}</Text>
+    </Box>
+  );
+}
+
+export function showSelectionWindow(
+  title: string,
+  options: string[],
+  rl: { pause: () => void; resume: () => void },
+): Promise<number> {
+  rl.pause();
+
+  return new Promise<number>((resolve) => {
+    let resolved = false;
+
+    const instance = inkRender(
+      <SelectionWindow
+        title={title}
+        options={options}
+        onSelect={(index) => {
+          if (resolved) {
+            return;
+          }
+          resolved = true;
+          instance.clear();
+          instance.unmount();
+          rl.resume();
+          resolve(index);
+        }}
+        onCancel={() => {
+          if (resolved) {
+            return;
+          }
+          resolved = true;
+          instance.clear();
+          instance.unmount();
+          rl.resume();
+          resolve(-1);
+        }}
+      />,
+      { exitOnCtrlC: false, patchConsole: false },
+    );
+  });
 }
