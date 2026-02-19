@@ -172,6 +172,9 @@ daemon
     const result = await stopDaemon();
     if (result.stopped) {
       log.info('Daemon stopped');
+    } else if (result.reason === 'stop_failed') {
+      log.error('Failed to stop daemon — process survived SIGKILL');
+      process.exit(1);
     } else {
       log.info('Daemon is not running');
     }
@@ -184,6 +187,9 @@ daemon
     const stopResult = await stopDaemon();
     if (stopResult.stopped) {
       log.info('Daemon stopped');
+    } else if (stopResult.reason === 'stop_failed') {
+      log.error('Failed to stop daemon — process survived SIGKILL, cannot restart');
+      process.exit(1);
     }
     const startResult = await startDaemon();
     log.info(`Daemon started (pid ${startResult.pid})`);
@@ -212,7 +218,11 @@ program
     const status = getDaemonStatus();
     if (status.running) {
       log.info('Stopping existing daemon...');
-      await stopDaemon();
+      const stopResult = await stopDaemon();
+      if (!stopResult.stopped && stopResult.reason === 'stop_failed') {
+        log.error('Failed to stop existing daemon — process survived SIGKILL');
+        process.exit(1);
+      }
     }
 
     const mainPath = `${import.meta.dirname}/daemon/main.ts`;
