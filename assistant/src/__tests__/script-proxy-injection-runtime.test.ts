@@ -231,10 +231,8 @@ describe('policyCallback credential injection', () => {
     }
   });
 
-  test('unresolvable credential ID returns empty headers', async () => {
-    let receivedHeaders: http.IncomingHttpHeaders = {};
-    const echo = http.createServer((req, res) => {
-      receivedHeaders = req.headers;
+  test('unresolvable credential ID is blocked', async () => {
+    const echo = http.createServer((_req, res) => {
       res.writeHead(200);
       res.end('ok');
     });
