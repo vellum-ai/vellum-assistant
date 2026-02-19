@@ -272,6 +272,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `work_item_status_changed` broadcast.
     public var onWorkItemStatusChanged: ((IPCWorkItemStatusChanged) -> Void)?
 
+    /// Called when the daemon sends a `tasks_changed` broadcast.
+    public var onTasksChanged: ((IPCTasksChanged) -> Void)?
+
     /// Called when the daemon sends a `work_item_run_task_response` message.
     public var onWorkItemRunTaskResponse: ((IPCWorkItemRunTaskResponse) -> Void)?
 
@@ -1416,6 +1419,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onWorkItemsListResponse?(msg)
         case .workItemStatusChanged(let msg):
             onWorkItemStatusChanged?(msg)
+        case .tasksChanged(let msg):
+            onTasksChanged?(msg)
         case .workItemRunTaskResponse(let msg):
             onWorkItemRunTaskResponse?(msg)
         case .workItemUpdateResponse(let msg):
