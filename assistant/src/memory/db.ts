@@ -544,6 +544,7 @@ export function initializeDb(): void {
   migrateMemoryEntityRelationDedup(database);
   migrateMemoryItemsFingerprintScopeUnique(database);
   migrateMemoryItemsScopeSaltedFingerprints(database);
+  migrateAssistantIdToSelf(database);
 
   // Indexes for query performance on large datasets
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_request_logs_conv_created ON llm_request_logs(conversation_id, created_at)`);
@@ -1092,6 +1093,99 @@ function migrateMemoryItemsScopeSaltedFingerprints(database: ReturnType<typeof d
       const fingerprint = computeMemoryFingerprint(item.scope_id, item.kind, item.subject, item.statement);
       updateStmt.run(fingerprint, item.id);
     }
+
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+
+    raw.exec('COMMIT');
+  } catch (e) {
+    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    throw e;
+  }
+}
+
+/**
+ * One-shot migration: normalize all assistant_id values in assistant-scoped tables
+ * to "self" so they are visible after the daemon switched to the implicit single-tenant
+ * identity.
+ *
+ * Before this change, rows were keyed by the real assistantId string passed via the
+ * HTTP route. After the route change, all lookups use the constant "self". Without this
+ * migration an upgraded daemon would see empty history / attachment lists for existing
+ * data that was stored under the old assistantId.
+ *
+ * Affected tables:
+ *   - conversation_keys   UNIQUE (assistant_id, conversation_key)
+ *   - attachments         UNIQUE (assistant_id, content_hash) WHERE content_hash IS NOT NULL
+ *   - channel_inbound_events  UNIQUE (assistant_id, source_channel, external_chat_id, external_message_id)
+ *   - message_runs        no unique constraint on assistant_id
+ *
+ * For tables with a unique constraint, rows that would collide with an already-existing
+ * "self" row are deleted first (keeping the "self" copy), then the remaining rows are
+ * updated.
+ */
+function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof schema>>): void {
+  const raw = (database as unknown as { $client: Database }).$client;
+  const checkpointKey = 'migration_normalize_assistant_id_to_self_v1';
+  const checkpoint = raw.query(
+    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
+  ).get(checkpointKey);
+  if (checkpoint) return;
+
+  try {
+    raw.exec('BEGIN');
+
+    // conversation_keys: UNIQUE (assistant_id, conversation_key)
+    // Delete non-self rows that conflict with an existing 'self' row, then update the rest.
+    raw.exec(/*sql*/ `
+      DELETE FROM conversation_keys
+      WHERE assistant_id != 'self'
+        AND EXISTS (
+          SELECT 1 FROM conversation_keys ck2
+          WHERE ck2.assistant_id = 'self'
+            AND ck2.conversation_key = conversation_keys.conversation_key
+        )
+    `);
+    raw.exec(/*sql*/ `
+      UPDATE conversation_keys SET assistant_id = 'self' WHERE assistant_id != 'self'
+    `);
+
+    // attachments: UNIQUE (assistant_id, content_hash) WHERE content_hash IS NOT NULL
+    raw.exec(/*sql*/ `
+      DELETE FROM attachments
+      WHERE assistant_id != 'self'
+        AND content_hash IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM attachments a2
+          WHERE a2.assistant_id = 'self'
+            AND a2.content_hash = attachments.content_hash
+        )
+    `);
+    raw.exec(/*sql*/ `
+      UPDATE attachments SET assistant_id = 'self' WHERE assistant_id != 'self'
+    `);
+
+    // channel_inbound_events: UNIQUE (assistant_id, source_channel, external_chat_id, external_message_id)
+    raw.exec(/*sql*/ `
+      DELETE FROM channel_inbound_events
+      WHERE assistant_id != 'self'
+        AND EXISTS (
+          SELECT 1 FROM channel_inbound_events e2
+          WHERE e2.assistant_id = 'self'
+            AND e2.source_channel = channel_inbound_events.source_channel
+            AND e2.external_chat_id = channel_inbound_events.external_chat_id
+            AND e2.external_message_id = channel_inbound_events.external_message_id
+        )
+    `);
+    raw.exec(/*sql*/ `
+      UPDATE channel_inbound_events SET assistant_id = 'self' WHERE assistant_id != 'self'
+    `);
+
+    // message_runs: no unique constraint on assistant_id — simple bulk update
+    raw.exec(/*sql*/ `
+      UPDATE message_runs SET assistant_id = 'self' WHERE assistant_id != 'self'
+    `);
 
     raw.query(
       `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
