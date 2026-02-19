@@ -734,6 +734,20 @@ exports[`IPC message snapshots ClientMessage types work_item_approve_permissions
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types work_item_cancel serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "type": "work_item_cancel",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types work_item_render serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "type": "work_item_render",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types document_save serializes to expected JSON 1`] = `
 {
   "content": "# Hello",
@@ -1476,12 +1490,14 @@ exports[`IPC message snapshots ServerMessage types schedules_list_response seria
       "cronExpression": "0 9 * * 1-5",
       "description": "Every weekday at 9:00 AM",
       "enabled": true,
+      "expression": "0 9 * * 1-5",
       "id": "sched-001",
       "lastRunAt": 1700000000000,
       "lastStatus": "ok",
       "message": "Remind me about the standup",
       "name": "Daily standup reminder",
       "nextRunAt": 1700100000000,
+      "syntax": "cron",
       "timezone": "America/Los_Angeles",
     },
   ],
@@ -2114,6 +2130,24 @@ exports[`IPC message snapshots ServerMessage types work_item_approve_permissions
   "id": "wi-001",
   "success": true,
   "type": "work_item_approve_permissions_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types work_item_cancel_response serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "success": true,
+  "type": "work_item_cancel_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types work_item_render_response serializes to expected JSON 1`] = `
+{
+  "content": "# Rendered Work Item",
+  "id": "wi-001",
+  "success": true,
+  "title": "Process report",
+  "type": "work_item_render_response",
 }
 `;
 

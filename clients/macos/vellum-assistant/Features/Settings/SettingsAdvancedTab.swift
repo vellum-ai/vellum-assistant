@@ -13,6 +13,7 @@ struct SettingsAdvancedTab: View {
     @State private var sessionToken: String = ""
     @State private var tokenCopied: Bool = false
     @State private var showingRetireConfirmation: Bool = false
+    @State private var isRetiring: Bool = false
     #if DEBUG
     @State private var showingEnvVars = false
     @State private var appEnvVars: [(String, String)] = []
@@ -38,10 +39,27 @@ struct SettingsAdvancedTab: View {
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Retire", role: .destructive) {
+                isRetiring = true
                 NSApp.sendAction(#selector(AppDelegate.performRetire), to: nil, from: nil)
             }
         } message: {
             Text("This will stop the assistant daemon, remove local data, and return to initial setup. This action cannot be undone.")
+        }
+        .sheet(isPresented: $isRetiring) {
+            VStack(spacing: VSpacing.lg) {
+                ProgressView()
+                    .controlSize(.regular)
+                    .progressViewStyle(.circular)
+                Text("Retiring assistant...")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+                Text("Stopping the daemon and removing local data.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+            .padding(VSpacing.xxl)
+            .frame(minWidth: 260)
+            .interactiveDismissDisabled()
         }
         #if DEBUG
         .sheet(isPresented: $showingEnvVars) {

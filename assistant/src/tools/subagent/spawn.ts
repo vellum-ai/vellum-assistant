@@ -1,51 +1,5 @@
-/**
- * subagent_spawn tool — lets the parent LLM spawn an autonomous subagent.
- */
-
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { getSubagentManager } from '../../subagent/index.js';
-
-const definition: ToolDefinition = {
-  name: 'subagent_spawn',
-  description:
-    'Spawn an independent subagent to work on a task in parallel. ' +
-    'The subagent runs autonomously and its results are reported back when complete.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      label: {
-        type: 'string',
-        description: 'Short human-readable label for this subagent (e.g. "Research competitor pricing")',
-      },
-      objective: {
-        type: 'string',
-        description: 'The task objective — what the subagent should accomplish',
-      },
-      context: {
-        type: 'string',
-        description: 'Optional additional context to pass to the subagent',
-      },
-    },
-    required: ['label', 'objective'],
-  },
-};
-
-export const subagentSpawnTool: Tool = {
-  name: 'subagent_spawn',
-  description: definition.description,
-  category: 'orchestration',
-  defaultRiskLevel: RiskLevel.Low,
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  },
-
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
-    return executeSubagentSpawn(input, context);
-  },
-};
 
 export async function executeSubagentSpawn(
   input: Record<string, unknown>,

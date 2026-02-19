@@ -1,7 +1,7 @@
 import { eq, and, notInArray, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../memory/db.js';
-import { callSessions, callEvents, callPendingQuestions, processedCallbacks } from '../memory/schema.js';
+import { callSessions, callEvents, callPendingQuestions } from '../memory/schema.js';
 import type { CallSession, CallEvent, CallPendingQuestion, CallEventType, CallStatus } from './types.js';
 import { validateTransition } from './call-state-machine.js';
 import { getLogger } from '../util/logger.js';

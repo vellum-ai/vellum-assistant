@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { detectScheduleSyntax, normalizeScheduleSyntax, type ScheduleSyntax } from '../schedule/recurrence-types.js';
+import { detectScheduleSyntax, normalizeScheduleSyntax } from '../schedule/recurrence-types.js';
 
 describe('detectScheduleSyntax', () => {
   test('detects cron for standard 5-field expressions', () => {

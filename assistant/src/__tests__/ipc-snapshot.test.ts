@@ -924,6 +924,8 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
         id: 'sched-001',
         name: 'Daily standup reminder',
         enabled: true,
+        syntax: 'cron',
+        expression: '0 9 * * 1-5',
         cronExpression: '0 9 * * 1-5',
         timezone: 'America/Los_Angeles',
         message: 'Remind me about the standup',

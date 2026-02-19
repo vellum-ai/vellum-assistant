@@ -364,6 +364,7 @@ struct MainWindowView: View {
                                 sidebarOpen.toggle()
                             }
                         }
+                        .help(sidebarOpen ? "Hide sidebar" : "Show sidebar")
                         if !sidebarOpen,
                            let vm = threadManager.activeViewModel,
                            threadManager.activeThread?.kind == .private
@@ -373,10 +374,7 @@ struct MainWindowView: View {
                                 windowState.selection = nil
                                 threadManager.createThread()
                             }
-                        }
-                        if windowState.isShowingChat, threadManager.activeThread?.kind == .private {
-                            Spacer().frame(width: VSpacing.sm)
-                            TemporaryChatIndicator(onExit: { toggleTemporaryChat() })
+                            .help("New chat")
                         }
                         Spacer()
                         if windowState.isShowingChat {
@@ -417,6 +415,7 @@ struct MainWindowView: View {
                                 isActive: threadManager.activeThread?.kind == .private,
                                 onToggle: { toggleTemporaryChat() }
                             )
+                            .help(threadManager.activeThread?.kind == .private ? "Exit temporary chat" : "Temporary chat")
                         }
                     }
                     .padding(.leading, trafficLightPadding)

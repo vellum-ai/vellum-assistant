@@ -246,6 +246,7 @@ export const cronJobs = sqliteTable('cron_jobs', {
   name: text('name').notNull(),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   cronExpression: text('cron_expression').notNull(),    // e.g. '0 9 * * 1-5'
+  scheduleSyntax: text('schedule_syntax').notNull().default('cron'),  // 'cron' | 'rrule'
   timezone: text('timezone'),                           // e.g. 'America/Los_Angeles'
   message: text('message').notNull(),
   nextRunAt: integer('next_run_at').notNull(),

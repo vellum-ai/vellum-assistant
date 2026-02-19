@@ -237,13 +237,15 @@ export function handleSchedulesList(socket: net.Socket, ctx: HandlerContext): vo
       id: j.id,
       name: j.name,
       enabled: j.enabled,
+      syntax: j.syntax,
+      expression: j.expression,
       cronExpression: j.cronExpression,
       timezone: j.timezone,
       message: j.message,
       nextRunAt: j.nextRunAt,
       lastRunAt: j.lastRunAt,
       lastStatus: j.lastStatus,
-      description: describeCronExpression(j.cronExpression),
+      description: j.syntax === 'cron' ? describeCronExpression(j.cronExpression) : j.expression,
     })),
   });
 }

@@ -1,8 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { RiskLevel } from '../../permissions/types.js';
 import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { registerTool } from '../registry.js';
 import { getDb } from '../../memory/db.js';
 import { computeMemoryFingerprint } from '../../memory/fingerprint.js';
 import { memoryItems } from '../../memory/schema.js';
@@ -96,46 +94,3 @@ export async function executePlaybookCreate(input: Record<string, unknown>, cont
     return { content: `Error creating playbook: ${msg}`, isError: true };
   }
 }
-
-registerTool({
-  name: 'playbook_create',
-  description: 'Create an action playbook — a trigger→action rule that tells the assistant how to handle incoming messages matching a pattern',
-  category: 'playbook',
-  defaultRiskLevel: RiskLevel.Low,
-  getDefinition: () => ({
-    name: 'playbook_create',
-    description: 'Create an action playbook — a trigger→action rule that tells the assistant how to handle incoming messages matching a pattern',
-    input_schema: {
-      type: 'object',
-      properties: {
-        trigger: {
-          type: 'string',
-          description: 'Pattern or description that triggers this playbook (e.g. "meeting request", "from:ceo@*", "newsletter")',
-        },
-        action: {
-          type: 'string',
-          description: 'What to do when the trigger matches — natural language action description (e.g. "check calendar, propose 3 times")',
-        },
-        channel: {
-          type: 'string',
-          description: 'Channel this rule applies to (e.g. "email", "slack"), or "*" for all channels. Defaults to "*".',
-        },
-        category: {
-          type: 'string',
-          description: 'Free-form category for grouping (e.g. "scheduling", "triage"). Defaults to "general".',
-        },
-        autonomy_level: {
-          type: 'string',
-          enum: ['auto', 'draft', 'notify'],
-          description: 'How much autonomy: "auto" = execute automatically, "draft" = draft for review, "notify" = notify only. Defaults to "draft".',
-        },
-        priority: {
-          type: 'number',
-          description: 'Relative priority — higher numbers take precedence. Defaults to 0.',
-        },
-      },
-      required: ['trigger', 'action'],
-    },
-  }),
-  execute: executePlaybookCreate,
-});

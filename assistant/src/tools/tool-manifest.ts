@@ -15,14 +15,6 @@ import { accountManageTool } from './credentials/account-registry.js';
 import { screenWatchTool } from './watch/screen-watch.js';
 import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
 import { cliDiscoverTool } from './host-terminal/cli-discover.js';
-import { taskSaveTool, taskRunTool, taskListTool, taskDeleteTool, taskListShowTool, taskListAddTool, taskListUpdateTool, taskListRemoveTool } from './tasks/index.js';
-import {
-  subagentSpawnTool,
-  subagentStatusTool,
-  subagentAbortTool,
-  subagentMessageTool,
-  subagentReadTool,
-} from './subagent/index.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // Importing these modules triggers a top-level `registerTool()` call.
@@ -37,10 +29,6 @@ export async function loadEagerModules(): Promise<void> {
   await import('./skills/scaffold-managed.js');
   await import('./skills/delete-managed.js');
   await import('./system/request-permission.js');
-  await import('./playbooks/playbook-create.js');
-  await import('./playbooks/playbook-list.js');
-  await import('./playbooks/playbook-update.js');
-  await import('./playbooks/playbook-delete.js');
   await import('./assets/search.js');
   await import('./assets/materialize.js');
   await import('./filesystem/view-image.js');
@@ -63,10 +51,6 @@ export const eagerModuleToolNames: string[] = [
   'scaffold_managed_skill',
   'delete_managed_skill',
   'request_system_permission',
-  'playbook_create',
-  'playbook_list',
-  'playbook_update',
-  'playbook_delete',
   'asset_search',
   'asset_materialize',
   'view_image',
@@ -88,19 +72,6 @@ export const explicitTools: Tool[] = [
   screenWatchTool,
   vellumSkillsCatalogTool,
   cliDiscoverTool,
-  taskSaveTool,
-  taskRunTool,
-  taskListTool,
-  taskDeleteTool,
-  taskListShowTool,
-  taskListAddTool,
-  taskListUpdateTool,
-  taskListRemoveTool,
-  subagentSpawnTool,
-  subagentStatusTool,
-  subagentAbortTool,
-  subagentMessageTool,
-  subagentReadTool,
 ];
 
 // ── Lazy tool descriptors ───────────────────────────────────────────

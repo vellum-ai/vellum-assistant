@@ -68,7 +68,7 @@ function createMockStream(tokens: string[]) {
   return stream;
 }
 
-let mockStreamFn = mock((..._args: unknown[]) => createMockStream(['Hello']));
+const mockStreamFn = mock((..._args: unknown[]) => createMockStream(['Hello']));
 
 mock.module('@anthropic-ai/sdk', () => ({
   default: class MockAnthropic {
@@ -81,10 +81,9 @@ mock.module('@anthropic-ai/sdk', () => ({
 // ── Import source modules after all mocks ───────────────────────────
 
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { conversations, messages } from '../memory/schema.js';
+import { conversations } from '../memory/schema.js';
 import {
   createCallSession,
-  getCallSession,
   getPendingQuestion,
   updateCallSession,
   recordCallEvent,
@@ -95,7 +94,6 @@ import {
   unregisterCallQuestionNotifier,
   registerCallCompletionNotifier,
   unregisterCallCompletionNotifier,
-  getCallOrchestrator,
   fireCallQuestionNotifier,
   fireCallCompletionNotifier,
 } from '../calls/call-state.js';
@@ -358,7 +356,7 @@ describe('call-bridge', () => {
     recordCallEvent(callSession.id, 'call_started', {});
     recordCallEvent(callSession.id, 'call_ended', {});
 
-    registerCallCompletionNotifier('conv-notifier-c', (callSessionId: string) => {
+    registerCallCompletionNotifier('conv-notifier-c', (_callSessionId: string) => {
       const summaryText = `**Call completed**. Events recorded.`;
       conversationStore.addMessage(
         'conv-notifier-c',

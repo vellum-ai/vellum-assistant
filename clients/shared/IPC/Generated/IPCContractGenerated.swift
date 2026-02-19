@@ -1099,6 +1099,8 @@ public struct IPCSchedulesListResponseSchedule: Codable, Sendable {
     public let id: String
     public let name: String
     public let enabled: Bool
+    public let syntax: String
+    public let expression: String
     public let cronExpression: String
     public let timezone: String?
     public let message: String

@@ -59,8 +59,11 @@ mock.module('../security/secure-keys.js', () => ({
 // Use the real TwilioConversationRelayProvider (not mocked) for signature validation
 // but mock the instance methods that hit Twilio API
 mock.module('../calls/twilio-provider.js', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { createHmac: createHmacNode } = require('node:crypto');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { timingSafeEqual: timingSafeEqualNode } = require('node:crypto');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getSecureKey } = require('../security/secure-keys.js');
 
   return {
@@ -227,7 +230,7 @@ describe('twilio webhook routes', () => {
   describe('signature validation', () => {
     test('valid signature returns 200', async () => {
       await startServer();
-      const session = createTestSession('conv-sig-1', 'CA_sig_valid');
+      createTestSession('conv-sig-1', 'CA_sig_valid');
       const url = statusUrl();
       const params = { CallSid: 'CA_sig_valid', CallStatus: 'completed' };
       const { body, headers } = signedRequest(url, params);
@@ -326,7 +329,7 @@ describe('twilio webhook routes', () => {
       mockAuthToken = undefined; // Token not configured, but bypass should work
       await startServer();
 
-      const session = createTestSession('conv-bypass-1', 'CA_bypass');
+      createTestSession('conv-bypass-1', 'CA_bypass');
       const url = statusUrl();
       const params = { CallSid: 'CA_bypass', CallStatus: 'completed' };
 
