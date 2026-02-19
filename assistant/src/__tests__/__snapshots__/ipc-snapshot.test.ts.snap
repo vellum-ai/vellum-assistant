@@ -783,7 +783,6 @@ exports[`IPC message snapshots ClientMessage types subagent_abort serializes to 
 
 exports[`IPC message snapshots ClientMessage types subagent_status serializes to expected JSON 1`] = `
 {
-  "sessionId": "sess-001",
   "subagentId": "sub-001",
   "type": "subagent_status",
 }
