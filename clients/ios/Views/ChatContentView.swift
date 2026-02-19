@@ -8,21 +8,20 @@ let chatBackgroundImage: UIImage? = {
     return UIImage(contentsOfFile: url.path)
 }()
 
+private let greetingChoices = [
+    "What are we working on?",
+    "I'm here whenever you need me.",
+    "What's on your mind?",
+    "Let's make something happen.",
+    "Ready when you are.",
+]
+
 struct ChatContentView: View {
     @ObservedObject var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
     @State private var emptyStateVisible = false
-    @State private var greeting: String = {
-        let choices = [
-            "What are we working on?",
-            "I'm here whenever you need me.",
-            "What's on your mind?",
-            "Let's make something happen.",
-            "Ready when you are.",
-        ]
-        return choices.randomElement()!
-    }()
+    @State private var greeting: String = greetingChoices.randomElement()!
 
     var body: some View {
         VStack(spacing: 0) {
@@ -167,9 +166,7 @@ struct ChatContentView: View {
         .animation(.easeInOut(duration: 0.2), value: viewModel.errorText)
         .onChange(of: viewModel.messages.isEmpty) { _, isEmpty in
             if isEmpty {
-                greeting = ["What are we working on?", "I'm here whenever you need me.",
-                            "What's on your mind?", "Let's make something happen.",
-                            "Ready when you are."].randomElement()!
+                greeting = greetingChoices.randomElement()!
             }
         }
     }

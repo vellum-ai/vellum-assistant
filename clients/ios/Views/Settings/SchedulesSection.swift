@@ -98,10 +98,7 @@ struct SchedulesSection: View {
     }
 
     private func formatTimestamp(_ ms: Int) -> String? {
-        let date = Date(timeIntervalSince1970: TimeInterval(ms) / 1000.0)
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
+        DateFormatting.relativeTimestamp(fromMilliseconds: ms)
     }
 }
 #endif
