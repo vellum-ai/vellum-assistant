@@ -5,14 +5,20 @@ import { loadSkillCatalog } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
 import {
   buildInvocableSlashCatalog,
-  resolveSlashSkillCommand,
   rewriteKnownSlashCommandPrompt,
+  parseSlashCandidate,
+  formatUnknownSlashSkillMessage,
 } from '../skills/slash-commands.js';
 import { getWorkspacePromptPath } from '../util/platform.js';
+import { discoverCCCommands } from '../commands/cc-command-registry.js';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('session-slash');
 
 export type SlashResolution =
   | { kind: 'passthrough'; content: string }
   | { kind: 'rewritten'; content: string; skillId: string }
+  | { kind: 'cc_command'; content: string; commandName: string }
   | { kind: 'unknown'; message: string };
 
 // ── /model command ───────────────────────────────────────────────────
@@ -240,51 +246,174 @@ function resolveModelCommand(content: string): SlashResolution | null {
 }
 
 /**
- * Resolve slash commands against the current skill catalog.
+ * Resolve slash commands against both the Vellum skill catalog and
+ * Claude Code `.claude/commands/*.md` files.
+ *
  * Returns `unknown` with a deterministic message, or the (possibly rewritten) content.
  */
-export function resolveSlash(content: string): SlashResolution {
+export function resolveSlash(content: string, cwd?: string): SlashResolution {
+  const start = performance.now();
+
   // Check provider shortcuts first (/gpt4, /opus, etc.)
   const providerResult = resolveProviderModelCommand(content);
-  if (providerResult) return providerResult;
+  if (providerResult) {
+    log.debug({ durationMs: performance.now() - start, kind: providerResult.kind }, 'Slash route resolved');
+    return providerResult;
+  }
 
   // Handle /model command
   const modelResult = resolveModelCommand(content);
-  if (modelResult) return modelResult;
+  if (modelResult) {
+    log.debug({ durationMs: performance.now() - start, kind: modelResult.kind }, 'Slash route resolved');
+    return modelResult;
+  }
 
-  // Handle /commands command
+  // Handle /commands command — lists all available commands from both sources
   if (content.trim() === '/commands') {
-    return {
-      kind: 'unknown',
-      message: '/commands — List all available commands\n/model — Show or switch the current model\n/models — List all available models',
-    };
+    const lines = [
+      '/commands — List all available commands',
+      '/model — Show or switch the current model',
+      '/models — List all available models',
+    ];
+
+    const config = getConfig();
+    const catalog = loadSkillCatalog();
+    const resolved = resolveSkillStates(catalog, config);
+    const invocable = buildInvocableSlashCatalog(catalog, resolved);
+    if (invocable.size > 0) {
+      lines.push('');
+      lines.push('Skills:');
+      for (const [, skill] of invocable) {
+        lines.push(`- /${skill.canonicalId} — ${skill.name}`);
+      }
+    }
+
+    if (cwd) {
+      const ccRegistry = discoverCCCommands(cwd);
+      if (ccRegistry.entries.size > 0) {
+        lines.push('');
+        lines.push('Claude Code commands:');
+        for (const [, entry] of ccRegistry.entries) {
+          lines.push(`- /${entry.name} — ${entry.summary}`);
+        }
+      }
+    }
+
+    const result: SlashResolution = { kind: 'unknown', message: lines.join('\n') };
+    log.debug({ durationMs: performance.now() - start, kind: result.kind }, 'Slash route resolved');
+    return result;
   }
 
   const config = getConfig();
   const catalog = loadSkillCatalog();
   const resolved = resolveSkillStates(catalog, config);
   const invocable = buildInvocableSlashCatalog(catalog, resolved);
-  const resolution = resolveSlashSkillCommand(content, invocable);
 
-  if (resolution.kind === 'known') {
-    const skill = invocable.get(resolution.skillId.toLowerCase());
-    return {
+  // Parse the slash candidate before doing dual-source lookup
+  const candidate = parseSlashCandidate(content);
+  if (candidate.kind === 'none') {
+    const result: SlashResolution = { kind: 'passthrough', content };
+    log.debug({ durationMs: performance.now() - start, kind: result.kind }, 'Slash route resolved');
+    return result;
+  }
+
+  const token = candidate.token!;
+  const requestedId = token.slice(1);
+  const lookupKey = requestedId.toLowerCase();
+
+  // Extract trailing args: everything after the first token
+  const trimmed = content.trimStart();
+  const firstSpaceIdx = trimmed.search(/\s/);
+  const trailingArgs = firstSpaceIdx === -1 ? '' : trimmed.slice(firstSpaceIdx).trim();
+
+  // Lookup in both sources
+  const vellumMatch = invocable.get(lookupKey);
+  const ccRegistry = cwd ? discoverCCCommands(cwd) : null;
+  const ccMatch = ccRegistry?.entries.get(lookupKey);
+
+  const hasVellum = !!vellumMatch;
+  const hasCc = !!ccMatch;
+
+  let result: SlashResolution;
+
+  if (hasVellum && !hasCc) {
+    // vellum_only → existing rewrite logic
+    result = {
       kind: 'rewritten',
       content: rewriteKnownSlashCommandPrompt({
         rawInput: content,
-        skillId: resolution.skillId,
-        skillName: skill?.name ?? resolution.skillId,
-        trailingArgs: resolution.trailingArgs,
+        skillId: vellumMatch.canonicalId,
+        skillName: vellumMatch.name,
+        trailingArgs,
       }),
-      skillId: resolution.skillId,
+      skillId: vellumMatch.canonicalId,
+    };
+  } else if (hasCc && !hasVellum) {
+    // cc_only → route to CC command
+    result = buildCCCommandResolution(ccMatch.name, trailingArgs);
+  } else if (hasVellum && hasCc) {
+    // both → check collision preference
+    const preference = config.slashCollisionPreference;
+    if (preference === 'prefer_vellum') {
+      result = {
+        kind: 'rewritten',
+        content: rewriteKnownSlashCommandPrompt({
+          rawInput: content,
+          skillId: vellumMatch.canonicalId,
+          skillName: vellumMatch.name,
+          trailingArgs,
+        }),
+        skillId: vellumMatch.canonicalId,
+      };
+    } else if (preference === 'prefer_cc') {
+      result = buildCCCommandResolution(ccMatch.name, trailingArgs);
+    } else {
+      // 'ask' — return disambiguation message
+      result = {
+        kind: 'unknown',
+        message: [
+          `\`/${requestedId}\` matches both a Vellum skill and a Claude Code command.`,
+          '',
+          `- Vellum skill: **${vellumMatch.name}** (/${vellumMatch.canonicalId})`,
+          `- Claude Code command: **${ccMatch.name}**`,
+          '',
+          'Set `slashCollisionPreference` in your config to `prefer_vellum` or `prefer_cc` to resolve automatically.',
+        ].join('\n'),
+      };
+    }
+  } else {
+    // none → return unknown with combined listing
+    const availableSkillIds = Array.from(invocable.values())
+      .map((s) => s.canonicalId)
+      .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+    const ccCommandNames = ccRegistry
+      ? Array.from(ccRegistry.entries.values())
+          .map((e) => e.name)
+          .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+      : undefined;
+    result = {
+      kind: 'unknown',
+      message: formatUnknownSlashSkillMessage(requestedId, availableSkillIds, ccCommandNames),
     };
   }
 
-  if (resolution.kind === 'unknown') {
-    return { kind: 'unknown', message: resolution.message };
-  }
+  log.debug({ durationMs: performance.now() - start, kind: result.kind }, 'Slash route resolved');
+  return result;
+}
 
-  return { kind: 'passthrough', content };
+/** Build a cc_command resolution with a rewritten prompt. */
+function buildCCCommandResolution(commandName: string, trailingArgs: string): SlashResolution {
+  const rewrittenPrompt = [
+    `The user invoked the slash command \`/${commandName}\`.`,
+    `Execute the Claude Code command "${commandName}" using the claude_code tool with command="${commandName}".`,
+    trailingArgs ? `\nUser arguments: ${trailingArgs}` : '',
+  ].filter(Boolean).join('\n');
+
+  return {
+    kind: 'cc_command',
+    content: rewrittenPrompt,
+    commandName,
+  };
 }
 
 // ── Provider Ordering Error Detection ────────────────────────────────
