@@ -437,6 +437,16 @@ struct MainWindowView: View {
 
                         // Sidebar drawer
                         if sidebarVisible {
+                            // Click-outside-to-dismiss scrim (overlay mode only)
+                            if !sidebarPushesContent {
+                                Color.clear
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        withAnimation(.easeInOut(duration: 0.35)) {
+                                            sidebarOpen = false
+                                        }
+                                    }
+                            }
                             HStack(spacing: 0) {
                                 sidebarView
                                 drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
