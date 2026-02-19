@@ -57,43 +57,50 @@ class FollowUpListTool implements Tool {
   }
 
   async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    const status = input.status as FollowUpStatus | undefined;
-    const channel = input.channel as string | undefined;
-    const contactId = input.contact_id as string | undefined;
-    const overdueOnly = input.overdue_only as boolean | undefined;
+    return executeFollowupList(input, _context);
+  }
+}
 
-    if (status && !VALID_STATUSES.includes(status as typeof VALID_STATUSES[number])) {
-      return {
-        content: `Error: Invalid status "${status}". Must be one of: ${VALID_STATUSES.join(', ')}`,
-        isError: true,
-      };
+export async function executeFollowupList(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const status = input.status as FollowUpStatus | undefined;
+  const channel = input.channel as string | undefined;
+  const contactId = input.contact_id as string | undefined;
+  const overdueOnly = input.overdue_only as boolean | undefined;
+
+  if (status && !VALID_STATUSES.includes(status as typeof VALID_STATUSES[number])) {
+    return {
+      content: `Error: Invalid status "${status}". Must be one of: ${VALID_STATUSES.join(', ')}`,
+      isError: true,
+    };
+  }
+
+  try {
+    let results: FollowUp[];
+
+    if (overdueOnly || status === 'overdue') {
+      results = getOverdueFollowUps();
+      if (channel) results = results.filter((f) => f.channel === channel);
+      if (contactId) results = results.filter((f) => f.contactId === contactId);
+    } else {
+      results = listFollowUps({ status, channel, contactId });
     }
 
-    try {
-      let results: FollowUp[];
-
-      if (overdueOnly || status === 'overdue') {
-        results = getOverdueFollowUps();
-        if (channel) results = results.filter((f) => f.channel === channel);
-        if (contactId) results = results.filter((f) => f.contactId === contactId);
-      } else {
-        results = listFollowUps({ status, channel, contactId });
-      }
-
-      if (results.length === 0) {
-        return { content: 'No follow-ups found matching the criteria.', isError: false };
-      }
-
-      const lines = [`Found ${results.length} follow-up(s):\n`];
-      for (const followUp of results) {
-        lines.push(formatFollowUpSummary(followUp));
-      }
-
-      return { content: lines.join('\n'), isError: false };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return { content: `Error: ${msg}`, isError: true };
+    if (results.length === 0) {
+      return { content: 'No follow-ups found matching the criteria.', isError: false };
     }
+
+    const lines = [`Found ${results.length} follow-up(s):\n`];
+    for (const followUp of results) {
+      lines.push(formatFollowUpSummary(followUp));
+    }
+
+    return { content: lines.join('\n'), isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { content: `Error: ${msg}`, isError: true };
   }
 }
 
