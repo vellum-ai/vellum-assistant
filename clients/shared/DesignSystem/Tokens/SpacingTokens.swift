@@ -9,8 +9,14 @@ public enum VSpacing {
     public static let md: CGFloat   = 12
     public static let lg: CGFloat   = 16
     public static let xl: CGFloat   = 24
+
+    #if os(iOS)
+    public static let xxl: CGFloat  = 24
+    public static let xxxl: CGFloat = 40
+    #else
     public static let xxl: CGFloat  = 32
     public static let xxxl: CGFloat = 48
+    #endif
 
     // MARK: - Semantic Aliases
 
@@ -19,7 +25,11 @@ public enum VSpacing {
     /// Standard content padding inside cards and panels
     public static let content: CGFloat = lg
     /// Standard section gap between major UI blocks
+    #if os(iOS)
+    public static let section: CGFloat = 20
+    #else
     public static let section: CGFloat = xl
+    #endif
     /// Standard window/page-level margin
     public static let page: CGFloat = xxl
     /// Compact vertical padding for buttons
