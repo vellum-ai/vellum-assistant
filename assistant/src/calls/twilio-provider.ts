@@ -48,8 +48,13 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
       StatusCallbackEvent: 'initiated ringing answered completed',
     });
 
+    const reservedKeys = new Set(['From', 'To', 'Url', 'StatusCallback', 'StatusCallbackEvent']);
     if (opts.customParams) {
       for (const [key, value] of Object.entries(opts.customParams)) {
+        if (reservedKeys.has(key)) {
+          log.warn({ key }, 'Ignoring reserved Twilio parameter in customParams');
+          continue;
+        }
         body.set(key, value);
       }
     }
