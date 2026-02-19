@@ -994,12 +994,21 @@ struct MainWindowView: View {
                         let newWidth = initialWidth + Double(deltaX)
                         let minDrawerWidth: CGFloat = 200
                         let minMainContent: CGFloat = 300
-                        let sidePanelVisible =
-                            (windowState.activePanel != nil &&
-                             !(windowState.isDynamicExpanded && windowState.activePanel == .generated) &&
-                             windowState.activePanel != .directory) ||
-                            (windowState.isDynamicExpanded && windowState.activePanel == .generated && windowState.isChatDockOpen)
-                        let activePanelWidth: CGFloat = sidePanelVisible ? sidePanelWidth : 0
+                        // Only subtract side panel width when a right-side split panel is
+                        // actually rendered. Full-window panels (identity, agent, settings,
+                        // debug, doctor, directory) don't have a right split.
+                        let hasRightSplitPanel: Bool = {
+                            guard let panel = windowState.activePanel else { return false }
+                            switch panel {
+                            case .documentEditor:
+                                return true
+                            case .generated:
+                                return windowState.isDynamicExpanded && windowState.isChatDockOpen
+                            default:
+                                return false
+                            }
+                        }()
+                        let activePanelWidth: CGFloat = hasRightSplitPanel ? sidePanelWidth : 0
                         let maxAllowed = initialAvailableWidth - minMainContent - VSpacing.xs - (VSpacing.xs * 2) - activePanelWidth
 
                         // Update width without animation to prevent jitter
