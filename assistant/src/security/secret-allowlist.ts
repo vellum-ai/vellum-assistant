@@ -116,7 +116,11 @@ export interface AllowlistValidationError {
  */
 export function validateAllowlist(config: AllowlistConfig): AllowlistValidationError[] {
   const errors: AllowlistValidationError[] = [];
-  if (!config.patterns || !Array.isArray(config.patterns)) return errors;
+  if (!config.patterns) return errors;
+  if (!Array.isArray(config.patterns)) {
+    errors.push({ index: -1, pattern: String(config.patterns), message: '"patterns" must be an array' });
+    return errors;
+  }
 
   for (let i = 0; i < config.patterns.length; i++) {
     const p = config.patterns[i];
