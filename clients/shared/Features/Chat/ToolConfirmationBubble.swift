@@ -167,7 +167,7 @@ public struct ToolConfirmationBubble: View {
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(VColor.textMuted)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
-                        Text("More details")
+                        Text(showTechnicalDetails ? "Hide" : "More details")
                             .font(VFont.captionMedium)
                             .foregroundColor(VColor.textMuted)
                     }
