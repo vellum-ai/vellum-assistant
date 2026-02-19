@@ -8,7 +8,7 @@ export async function run(
   const tweetText = input.tweet_text as string | undefined;
   if (!tweetText?.trim()) {
     return {
-      output: JSON.stringify({ ok: false, error: 'tweet_text is required' }),
+      content: JSON.stringify({ ok: false, error: 'tweet_text is required' }),
       isError: true,
     };
   }
@@ -16,7 +16,7 @@ export async function run(
   try {
     const result = await postTweet(tweetText);
     return {
-      output: JSON.stringify({
+      content: JSON.stringify({
         ok: true,
         tweetId: result.tweetId,
         text: result.text,
@@ -26,7 +26,7 @@ export async function run(
   } catch (err) {
     if (err instanceof SessionExpiredError) {
       return {
-        output: JSON.stringify({
+        content: JSON.stringify({
           ok: false,
           error: 'session_expired',
           message: 'Twitter session has expired. Run `vellum twitter refresh` to capture a fresh session.',
@@ -35,7 +35,7 @@ export async function run(
       };
     }
     return {
-      output: JSON.stringify({
+      content: JSON.stringify({
         ok: false,
         error: err instanceof Error ? err.message : String(err),
       }),
