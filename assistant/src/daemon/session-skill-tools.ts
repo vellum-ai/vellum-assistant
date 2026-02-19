@@ -178,7 +178,13 @@ export function projectSkillTools(
         // Hash changed — unregister stale tools, then re-register with new definitions
         log.info({ skillId, prevHash, currentHash }, 'Skill version changed, re-registering tools');
         unregisterSkillTools(skillId);
-        registerSkillTools(tools);
+        try {
+          registerSkillTools(tools);
+        } catch (err) {
+          log.error({ err, skillId }, 'Failed to re-register skill tools after version change');
+          // Don't add to successfulEntries — will be cleaned up as transiently-failed
+          continue;
+        }
       } else {
         // Hash unchanged — check if the bundled status drifted (e.g. a
         // managed skill override was added/removed with identical content).
