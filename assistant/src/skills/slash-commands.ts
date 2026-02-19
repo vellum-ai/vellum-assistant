@@ -135,6 +135,7 @@ export function resolveSlashSkillCommand(
 export function formatUnknownSlashSkillMessage(
   requestedId: string,
   availableSkillIds: string[],
+  ccCommandNames?: string[],
 ): string {
   const lines = [`Unknown command \`/${requestedId}\`.`];
   if (availableSkillIds.length > 0) {
@@ -143,7 +144,15 @@ export function formatUnknownSlashSkillMessage(
     for (const id of availableSkillIds) {
       lines.push(`- \`/${id}\``);
     }
-  } else {
+  }
+  if (ccCommandNames && ccCommandNames.length > 0) {
+    lines.push('');
+    lines.push('Claude Code commands:');
+    for (const name of ccCommandNames) {
+      lines.push(`- \`/${name}\``);
+    }
+  }
+  if (availableSkillIds.length === 0 && (!ccCommandNames || ccCommandNames.length === 0)) {
     lines.push('');
     lines.push('No slash commands are currently available.');
   }

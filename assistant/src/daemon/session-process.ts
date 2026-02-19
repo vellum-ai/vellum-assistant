@@ -55,6 +55,8 @@ export interface ProcessSessionContext {
   currentPage?: string;
   /** Request-scoped skill IDs preactivated via slash resolution. */
   preactivatedSkillIds?: string[];
+  /** Working directory of the session, used for CC command discovery. */
+  readonly workingDir?: string;
   persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>): string;
   runAgentLoop(
     content: string,
@@ -93,7 +95,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   });
 
   // Resolve slash commands for queued messages
-  const slashResult = resolveSlash(next.content);
+  const slashResult = resolveSlash(next.content, session.workingDir);
 
   // Unknown slash — persist the exchange and continue draining.
   // Persist each message before pushing to session.messages so that a
@@ -205,7 +207,7 @@ export async function processMessage(
   session.currentPage = currentPage;
 
   // Resolve slash commands before persistence
-  const slashResult = resolveSlash(content);
+  const slashResult = resolveSlash(content, session.workingDir);
 
   // Unknown slash command — persist the exchange (user + assistant) so the
   // messageId is real.  Persist each message before pushing to session.messages
