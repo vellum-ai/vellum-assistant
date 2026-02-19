@@ -5,7 +5,7 @@
  * session creation timing (request to first-tool-ready state).
  *
  * Component targets:
- * - initializeTools: < 150ms
+ * - initializeTools: < 100ms
  * - buildSystemPrompt: < 50ms
  * - getAllToolDefinitions: < 10ms
  *
@@ -216,14 +216,14 @@ afterAll(() => {
 });
 
 describe('Session initialization benchmark', () => {
-  test('initializeTools completes under 150ms', async () => {
+  test('initializeTools completes under 100ms', async () => {
     __resetRegistryForTesting();
 
     const start = performance.now();
     await initializeTools();
     const elapsed = performance.now() - start;
 
-    expect(elapsed).toBeLessThan(150);
+    expect(elapsed).toBeLessThan(100);
   });
 
   test('getAllToolDefinitions retrieves definitions under 10ms', async () => {
@@ -370,7 +370,7 @@ describe('End-to-end session creation benchmark', () => {
     // audit, and domain-event listeners — verify at least some exist
     expect(session.eventBus.listenerCount()).toBeGreaterThan(0);
 
-    expect(elapsed).toBeLessThan(200);
+    expect(elapsed).toBeLessThan(10);
 
     session.dispose();
   });
