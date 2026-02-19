@@ -8,6 +8,7 @@ struct TasksWindowView: View {
     @State private var items: [IPCWorkItemsListResponseItem] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var refreshTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -139,10 +140,17 @@ struct TasksWindowView: View {
 
     private func listenForStatusChanges() {
         daemonClient.onWorkItemStatusChanged = { _ in
-            do {
-                try daemonClient.sendWorkItemsList()
-            } catch {
-                // Silently ignore; the list will refresh on next status change
+            // Debounce rapid broadcasts so multiple priority edits coalesce
+            // into a single re-fetch instead of N overlapping calls.
+            refreshTask?.cancel()
+            refreshTask = Task {
+                try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+                guard !Task.isCancelled else { return }
+                do {
+                    try daemonClient.sendWorkItemsList()
+                } catch {
+                    // Silently ignore; the list will refresh on next status change
+                }
             }
         }
     }
