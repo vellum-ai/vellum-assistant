@@ -19,12 +19,14 @@ export type SlashResolution =
 
 const AVAILABLE_MODELS = [
   'claude-opus-4-6',
+  'claude-opus-4-6-fast',
   'claude-sonnet-4-6',
   'claude-haiku-4-5-20251001',
 ] as const;
 
 const MODEL_DISPLAY_NAMES: Record<string, string> = {
   'claude-opus-4-6': 'Claude Opus 4.6',
+  'claude-opus-4-6-fast': 'Claude Opus 4.6 Fast',
   'claude-sonnet-4-6': 'Claude Sonnet 4.6',
   'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
 };
@@ -32,6 +34,7 @@ const MODEL_DISPLAY_NAMES: Record<string, string> = {
 const PROVIDER_MODEL_SHORTCUTS: Record<string, { provider: string; model: string; displayName: string }> = {
   // Anthropic
   'opus': { provider: 'anthropic', model: 'claude-opus-4-6', displayName: 'Claude Opus 4.6' },
+  'opus-fast': { provider: 'anthropic', model: 'claude-opus-4-6-fast', displayName: 'Claude Opus 4.6 Fast' },
   'sonnet': { provider: 'anthropic', model: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6' },
   'haiku': { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', displayName: 'Claude Haiku 4.5' },
 

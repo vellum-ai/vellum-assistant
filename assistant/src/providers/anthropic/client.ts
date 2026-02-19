@@ -341,10 +341,13 @@ export class AnthropicProvider implements Provider {
   private model: string;
   private useNativeWebSearch: boolean;
   private streamTimeoutMs: number;
+  private fastMode: boolean;
 
   constructor(apiKey: string, model: string, options: { useNativeWebSearch?: boolean; streamTimeoutMs?: number } = {}) {
     this.client = new Anthropic({ apiKey });
-    this.model = model;
+    // Models ending in "-fast" use the beta fast-mode API
+    this.fastMode = model.endsWith('-fast');
+    this.model = this.fastMode ? model.slice(0, -'-fast'.length) : model;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
     this.streamTimeoutMs = options.streamTimeoutMs ?? 300_000;
   }
@@ -506,7 +509,12 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      const stream = this.client.messages.stream(params, { signal: timeoutController.signal });
+      const stream = this.fastMode
+        ? this.client.beta.messages.stream(
+            { ...params, betas: ['fast-mode-2026-02-01'], speed: 'fast' } as Parameters<typeof this.client.beta.messages.stream>[0],
+            { signal: timeoutController.signal },
+          )
+        : this.client.messages.stream(params, { signal: timeoutController.signal });
 
       stream.on("text", (text) => {
         onEvent?.({ type: "text_delta", text });
