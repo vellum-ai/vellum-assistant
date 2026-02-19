@@ -3,40 +3,25 @@ import type { DocumentSaveRequest, DocumentLoadRequest, DocumentListRequest } fr
 import type * as net from 'node:net';
 import type { Database } from 'bun:sqlite';
 import { getDb } from '../../memory/db.js';
+import { getLogger } from '../../util/logger.js';
 
-import { writeFileSync } from 'node:fs';
+const log = getLogger('documents');
 
 export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket, ctx: HandlerContext): void {
-  const logMsg = `[${new Date().toISOString()}] handleDocumentSave called: ${JSON.stringify({
+  log.info({
     surfaceId: msg.surfaceId,
     conversationId: msg.conversationId,
     title: msg.title,
     contentLength: msg.content.length,
     wordCount: msg.wordCount,
-  })}\n`;
+  }, 'Received save request');
 
   try {
-    writeFileSync('/tmp/document-save-debug.log', logMsg, { flag: 'a' });
-  } catch {
-    // Ignore logging errors
-  }
-
-  console.log('💾 [handleDocumentSave] Received save request:', {
-    surfaceId: msg.surfaceId,
-    conversationId: msg.conversationId,
-    title: msg.title,
-    contentLength: msg.content.length,
-    wordCount: msg.wordCount,
-  });
-
-  try {
-    writeFileSync('/tmp/document-save-debug.log', `[${new Date().toISOString()}] Getting db...\n`, { flag: 'a' });
     const db = getDb();
     // Get the raw SQLite client from Drizzle
     const sqlite = (db as unknown as { $client: Database }).$client;
     const now = Date.now();
 
-    writeFileSync('/tmp/document-save-debug.log', `[${new Date().toISOString()}] Running sqlite.run()...\n`, { flag: 'a' });
     // Upsert document (insert or update if exists)
     sqlite.run(
       `INSERT INTO documents (surface_id, conversation_id, title, content, word_count, created_at, updated_at)
@@ -49,18 +34,15 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
       [msg.surfaceId, msg.conversationId, msg.title, msg.content, msg.wordCount, now, now]
     );
 
-    writeFileSync('/tmp/document-save-debug.log', `[${new Date().toISOString()}] db.run() completed, sending response...\n`, { flag: 'a' });
     ctx.send(socket, {
       type: 'document_save_response',
       surfaceId: msg.surfaceId,
       success: true,
     });
 
-    writeFileSync('/tmp/document-save-debug.log', `[${new Date().toISOString()}] Response sent successfully\n`, { flag: 'a' });
-
-    console.log(`[documents] Saved document: ${msg.surfaceId} - "${msg.title}"`);
+    log.info({ surfaceId: msg.surfaceId, title: msg.title }, 'Saved document');
   } catch (error) {
-    console.error('[documents] Save error:', error);
+    log.error({ err: error, surfaceId: msg.surfaceId }, 'Save error');
     ctx.send(socket, {
       type: 'document_save_response',
       surfaceId: msg.surfaceId,
@@ -101,7 +83,7 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
         updatedAt: result.updated_at,
         success: true,
       });
-      console.log(`[documents] Loaded document: ${msg.surfaceId}`);
+      log.info({ surfaceId: msg.surfaceId }, 'Loaded document');
     } else {
       ctx.send(socket, {
         type: 'document_load_response',
@@ -115,10 +97,10 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
         success: false,
         error: 'Document not found',
       });
-      console.log(`[documents] Document not found: ${msg.surfaceId}`);
+      log.info({ surfaceId: msg.surfaceId }, 'Document not found');
     }
   } catch (error) {
-    console.error('[documents] Load error:', error);
+    log.error({ err: error, surfaceId: msg.surfaceId }, 'Load error');
     ctx.send(socket, {
       type: 'document_load_response',
       surfaceId: msg.surfaceId,
@@ -173,9 +155,9 @@ export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket,
       })),
     });
 
-    console.log(`[documents] Listed ${results.length} documents`);
+    log.info({ count: results.length }, 'Listed documents');
   } catch (error) {
-    console.error('[documents] List error:', error);
+    log.error({ err: error }, 'List error');
     ctx.send(socket, {
       type: 'document_list_response',
       documents: [],

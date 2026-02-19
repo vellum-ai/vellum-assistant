@@ -239,7 +239,6 @@ export async function handleChannelInbound(
     } catch (err) {
       // Secret ingress blocks are not retryable — let the top-level handler return 422
       if (err instanceof IngressBlockedError) throw err;
-      console.error(`[runtime-http] Processing failed`, err);
       log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');
       channelDeliveryStore.recordProcessingFailure(result.eventId, err);
     }
