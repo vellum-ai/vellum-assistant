@@ -132,7 +132,7 @@ The `vellum-assistant-iosTests` target contains 70 iOS-specific integration test
 
 ```bash
 cd clients
-swift test --filter vellum-assistant-iosTests
+swift test --filter vellum_assistant_iosTests
 ```
 
 Test files in `clients/ios/Tests/`:

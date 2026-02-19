@@ -190,7 +190,7 @@ cd clients/macos
 
 ```bash
 cd clients
-swift test --filter vellum-assistant-iosTests    # 70 iOS-specific tests
+swift test --filter vellum_assistant_iosTests    # 70 iOS-specific tests
 ```
 
 Test files in `clients/ios/Tests/`:
