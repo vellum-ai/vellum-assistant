@@ -682,6 +682,7 @@ export class Session {
 
     // Tracks whether the agent loop started — once true, we guarantee a
     // turn-boundary commit even if post-processing throws.
+    let turnStarted = false;
 
     try {
       const preMessageResult = await getHookManager().trigger('pre-message', {
@@ -1092,6 +1093,10 @@ export class Session {
       };
 
       // Mark that the agent loop is about to run — workspace files may be
+      // modified from this point onward, so we must commit at the turn boundary
+      // even if post-processing (e.g. resolveAssistantAttachments) throws.
+      turnStarted = true;
+
       let updatedHistory = await this.agentLoop.run(
         runMessages,
         buildEventHandler(),
@@ -1320,13 +1325,6 @@ export class Session {
         sessionId: this.conversationId,
       });
 
-      // Turn-boundary commit: must run before resolveAssistantAttachments
-      // because that call can rethrow non-upload errors.  Without committing
-      // first, workspace file changes from this turn would be swept into the
-      // next turn's commit, breaking per-turn attribution.
-      this.turnCount++;
-      await commitTurnChanges(this.workingDir, this.conversationId, this.turnCount);
-
       // Resolve accumulated attachment directives and tool content blocks
       // BEFORE emitting the completion event so attachments are included.
       const attachmentResult = await resolveAssistantAttachments(
@@ -1348,11 +1346,10 @@ export class Session {
         onEvent({ type: 'assistant_text_delta', text: warningText, sessionId: this.conversationId });
       }
 
-      // Emit the completion event BEFORE the turn-boundary commit so the
-      // client's thinking/streaming indicators clear immediately.  The git
-      // commit can take 0.5–2 s on large workspaces and has no dependency
-      // on the completion signal — it only needs to finish before
-      // drainQueue (which runs in `finally`).
+      // Emit the completion event here in the try block; the turn-boundary
+      // commit runs in `finally` (after this), so the client's
+      // thinking/streaming indicators clear immediately without waiting
+      // for the git commit (which can take 0.5–2 s on large workspaces).
       if (yieldedForHandoff) {
         this.traceEmitter.emit('generation_handoff', 'Handing off to next queued message', {
           requestId: reqId,
@@ -1420,6 +1417,14 @@ export class Session {
         });
       }
     } finally {
+      // Turn-boundary commit: runs after completion/error events (try or
+      // catch) but before drainQueue.  Guarantees a commit attempt whenever
+      // the agent loop started, even if post-processing threw.
+      if (turnStarted) {
+        this.turnCount++;
+        await commitTurnChanges(this.workingDir, this.conversationId, this.turnCount);
+      }
+
       this.profiler.emitSummary(this.traceEmitter, reqId);
 
       this.abortController = null;
