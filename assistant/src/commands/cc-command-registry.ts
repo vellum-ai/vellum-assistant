@@ -140,7 +140,7 @@ export function discoverCCCommands(cwd: string, ttlMs: number = DEFAULT_CACHE_TT
           const nameWithoutExt = basename(file.name, '.md');
 
           // Validate command name
-          if (!COMMAND_NAME_REGEX.test(nameWithoutExt)) {
+          if (!COMMAND_NAME_REGEX.test(nameWithoutExt) || nameWithoutExt.includes('..')) {
             log.warn({ fileName: file.name, dir: commandsDir }, 'Skipping invalid CC command filename');
             continue;
           }
