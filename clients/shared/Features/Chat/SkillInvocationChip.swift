@@ -1,10 +1,13 @@
-import VellumAssistantShared
 import SwiftUI
 
-struct SkillInvocationChip: View {
+public struct SkillInvocationChip: View {
     let data: SkillInvocationData
 
-    var body: some View {
+    public init(data: SkillInvocationData) {
+        self.data = data
+    }
+
+    public var body: some View {
         HStack(spacing: VSpacing.md) {
             if let emoji = data.emoji {
                 Text(emoji)
@@ -35,24 +38,4 @@ struct SkillInvocationChip: View {
                 .stroke(Amber._600.opacity(0.6), lineWidth: 2)
         )
     }
-}
-
-#Preview("SkillInvocationChip") {
-    ZStack {
-        VColor.background.ignoresSafeArea()
-        VStack(spacing: VSpacing.lg) {
-            SkillInvocationChip(data: SkillInvocationData(
-                name: "Summarize Page",
-                emoji: "📝",
-                description: "Summarize the contents of the current page"
-            ))
-            SkillInvocationChip(data: SkillInvocationData(
-                name: "Start the Day",
-                emoji: nil,
-                description: "Morning routine skill"
-            ))
-        }
-        .padding()
-    }
-    .frame(width: 400, height: 200)
 }
