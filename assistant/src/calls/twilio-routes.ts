@@ -118,7 +118,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   // gateway. wssBaseUrl (when set) points directly at runtime; otherwise
   // webhookBaseUrl may point at the gateway OR at the runtime in gateway-less
   // deployments, so we use the same path either way.
-  const wsBase = (config.wssBaseUrl || config.webhookBaseUrl).replace(/\/$/, '').replace(/^http/, 'ws');
+  const wsBase = (config.wssBaseUrl ?? config.webhookBaseUrl).replace(/\/$/, '').replace(/^http/, 'ws');
   const relayUrl = `${wsBase}/v1/calls/relay`;
   const welcomeGreeting = process.env.CALL_WELCOME_GREETING ?? 'Hello, how can I help you today?';
 

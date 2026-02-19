@@ -95,9 +95,10 @@ export function getRelayWebsocketHandlers() {
       if (upstream && upstream.readyState === WebSocket.OPEN) {
         upstream.send(message);
       } else if (ws.data.pendingMessages) {
+        // Buffer messages until upstream connects
         if (ws.data.pendingMessages.length >= MAX_PENDING_MESSAGES) {
-          log.warn({ callSessionId: ws.data.callSessionId }, "Pending message buffer full, closing connection");
-          ws.close(1011, "Buffer overflow");
+          log.warn({ callSessionId: ws.data.callSessionId }, "Pending message buffer overflow — closing connection");
+          ws.close(1008, "Buffer overflow");
           return;
         }
         ws.data.pendingMessages.push(message);
