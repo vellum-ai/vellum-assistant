@@ -192,28 +192,24 @@ struct InlineVideoAttachmentView: View {
         }
     }
 
+    /// Check if the temp file from thumbnail generation is already on disk.
+    private var cachedFileURL: URL? {
+        let url = safeTempURL()
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     private func prepareAndPlay() {
-        if attachment.isLazyLoad {
+        // Reuse the temp file written by generateThumbnail() if available.
+        if let fileURL = cachedFileURL {
+            Task { await playFromFile(fileURL) }
+        } else if attachment.isLazyLoad {
             fetchAndPlay()
         } else {
             Task { await playFromBase64(attachment.data) }
         }
     }
 
-    private func playFromBase64(_ base64: String) async {
-        guard let data = Data(base64Encoded: base64) else {
-            await MainActor.run { failed = true }
-            return
-        }
-
-        let fileURL = safeTempURL()
-        do {
-            try data.write(to: fileURL)
-        } catch {
-            await MainActor.run { failed = true }
-            return
-        }
-
+    private func playFromFile(_ fileURL: URL) async {
         let asset = AVAsset(url: fileURL)
         if let tracks = try? await asset.load(.tracks),
            let videoTrack = tracks.first(where: { $0.mediaType == .video }),
@@ -234,6 +230,23 @@ struct InlineVideoAttachmentView: View {
             self.isPlaying = true
             avPlayer.play()
         }
+    }
+
+    private func playFromBase64(_ base64: String) async {
+        guard let data = Data(base64Encoded: base64) else {
+            await MainActor.run { failed = true }
+            return
+        }
+
+        let fileURL = safeTempURL()
+        do {
+            try data.write(to: fileURL)
+        } catch {
+            await MainActor.run { failed = true }
+            return
+        }
+
+        await playFromFile(fileURL)
     }
 
     private func fetchAndPlay() {
@@ -265,7 +278,12 @@ struct InlineVideoAttachmentView: View {
         guard panel.runModal() == .OK, let destURL = panel.url else { return }
 
         isSaving = true
-        if attachment.isLazyLoad {
+        if let sourceURL = cachedFileURL {
+            Task.detached {
+                try? FileManager.default.copyItem(at: sourceURL, to: destURL)
+                await MainActor.run { isSaving = false }
+            }
+        } else if attachment.isLazyLoad {
             guard let port = daemonHttpPort, let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
                 isSaving = false
                 return
@@ -297,7 +315,9 @@ struct InlineVideoAttachmentView: View {
     }
 
     private func openInExternalPlayer() {
-        if attachment.isLazyLoad {
+        if let fileURL = cachedFileURL {
+            NSWorkspace.shared.open(fileURL)
+        } else if attachment.isLazyLoad {
             guard let port = daemonHttpPort, let attachmentId = attachment.id.isEmpty ? nil : attachment.id else { return }
             isLoading = true
             Task {
