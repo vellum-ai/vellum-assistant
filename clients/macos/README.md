@@ -54,6 +54,22 @@ Requires Apple Developer account + App Store Connect setup. Deferred to PR 12-13
 
 **Daemon Connection Note:** The iOS app connects to the daemon via TCP (default: localhost:8765). For Simulator testing, the daemon should run on your Mac. For device testing, configure the daemon hostname to your Mac's IP address in Settings.
 
+## Download
+
+To install the pre-built macOS app, download the signed and notarized DMG:
+
+**[Download Vellum.dmg](https://github.com/vellum-ai/velly/releases/latest/download/vellum-assistant.dmg)**
+
+1. Open the DMG and drag **Vellum.app** to your Applications folder
+2. Launch Vellum — macOS may prompt "are you sure?" on first launch (click Open)
+3. The app appears as a sparkles icon in your menu bar
+
+The app includes **Sparkle auto-update** — after the initial install, updates are downloaded and applied automatically in the background. You'll be prompted to relaunch when a new version is ready.
+
+> **Note:** You still need the daemon running for the app to function. See the [Daemon](#daemon) section below for setup.
+
+All releases are available at [github.com/vellum-ai/velly/releases](https://github.com/vellum-ai/velly/releases).
+
 ## Requirements
 
 - macOS 14.0 (Sonoma) or later
