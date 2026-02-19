@@ -190,6 +190,7 @@ describe('view_image error handling', () => {
     const result = await tool.execute({ path: '../../etc/passwd.jpg' }, makeContext());
 
     expect(result.isError).toBe(true);
+    expect(result.content).toContain('outside the working directory');
   });
 
   test('rejects file with unrecognizable magic bytes', async () => {
