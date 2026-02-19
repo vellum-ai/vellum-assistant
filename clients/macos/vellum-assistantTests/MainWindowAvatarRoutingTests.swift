@@ -40,16 +40,23 @@ final class MainWindowAvatarRoutingTests: XCTestCase {
     // MARK: - Callback Contract Tests
 
     /// Verifies that IdentityPanel's init signature requires an onCustomizeAvatar callback.
-    /// This is a compile-time guard — if the parameter is removed, this test fails to compile.
+    /// Instantiates a real IdentityPanel so the test fails to compile if the parameter is removed.
     func testIdentityPanelRequiresCustomizeAvatarCallback() {
-        var callbackInvoked = false
-        let callback: () -> Void = { callbackInvoked = true }
+        var customizeCalled = false
+        var closeCalled = false
 
-        // This verifies the IdentityPanel type accepts the callback in its init.
-        // We use _ to discard the result since we can't render SwiftUI views in unit tests.
-        _ = callback  // Ensure the closure type matches what IdentityPanel expects: () -> Void
-        callback()
-        XCTAssertTrue(callbackInvoked)
+        let panel = IdentityPanel(
+            onClose: { closeCalled = true },
+            onCustomizeAvatar: { customizeCalled = true },
+            daemonClient: DaemonClient()
+        )
+
+        // Verify callbacks are wired — invoke them directly to confirm the closures passed through
+        panel.onClose()
+        panel.onCustomizeAvatar()
+
+        XCTAssertTrue(closeCalled)
+        XCTAssertTrue(customizeCalled)
     }
 
     // MARK: - State Transition Tests
