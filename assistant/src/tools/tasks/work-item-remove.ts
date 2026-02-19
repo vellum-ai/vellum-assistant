@@ -1,7 +1,7 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { resolveWorkItem, removeWorkItemFromQueue, identifyEntityById, buildTaskTemplateMismatchError } from '../../work-items/work-item-store.js';
+import { resolveWorkItem, removeWorkItemFromQueue, identifyEntityById, buildTaskTemplateMismatchError, type WorkItemStatus } from '../../work-items/work-item-store.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('task-list-remove');
@@ -65,7 +65,7 @@ class TaskListRemoveTool implements Tool {
         taskId: input.task_id as string | undefined,
         title: (input.task_name ?? input.title) as string | undefined,
         priorityTier: input.priority_tier as number | undefined,
-        status: input.status as import('../../work-items/work-item-store.js').WorkItemStatus | undefined,
+        status: input.status as WorkItemStatus | undefined,
         createdOrder: input.created_order as number | undefined,
       };
 
