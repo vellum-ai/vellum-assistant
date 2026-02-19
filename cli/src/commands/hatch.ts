@@ -475,9 +475,9 @@ async function hatchGcp(
     console.log(`   Species: ${species}`);
     console.log(`   Cloud: GCP`);
     console.log(`   Project: ${project}`);
-    const zone = process.env.DEFAULT_ZONE;
+    const zone = process.env.GCP_DEFAULT_ZONE;
     if (!zone) {
-      console.error("Error: DEFAULT_ZONE environment variable is not set.");
+      console.error("Error: GCP_DEFAULT_ZONE environment variable is not set.");
       process.exit(1);
     }
 
