@@ -37,6 +37,12 @@ export const TimeoutConfigSchema = z.object({
     .finite('timeouts.providerStreamTimeoutSec must be finite')
     .positive('timeouts.providerStreamTimeoutSec must be a positive number')
     .default(300),
+  toolTimeoutOverrides: z
+    .record(
+      z.string(),
+      z.number().finite().positive(),
+    )
+    .default({}),
 });
 
 export const DockerConfigSchema = z.object({

@@ -390,7 +390,8 @@ export class ToolExecutor {
 
       // Execute the tool — proxy tools delegate to an external resolver
       let execResult: ToolExecutionResult;
-      const rawTimeoutSec = tool.timeoutSec ?? getConfig().timeouts.toolExecutionTimeoutSec;
+      const timeoutConfig = getConfig().timeouts;
+      const rawTimeoutSec = timeoutConfig.toolTimeoutOverrides?.[name] ?? tool.timeoutSec ?? timeoutConfig.toolExecutionTimeoutSec;
       const toolTimeoutMs = safeTimeoutMs(rawTimeoutSec);
 
       // Enrich context with principal so tools (e.g. claude_code) can
