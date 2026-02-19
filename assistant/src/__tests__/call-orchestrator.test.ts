@@ -85,14 +85,9 @@ import { conversations } from '../memory/schema.js';
 import {
   createCallSession,
   getCallSession,
-  updateCallSession,
-  recordCallEvent,
-  createPendingQuestion,
   getPendingQuestion,
 } from '../calls/call-store.js';
 import {
-  registerCallOrchestrator,
-  unregisterCallOrchestrator,
   getCallOrchestrator,
 } from '../calls/call-state.js';
 import { CallOrchestrator } from '../calls/call-orchestrator.js';
@@ -276,7 +271,7 @@ describe('call-orchestrator', () => {
     mockStreamFn.mockImplementation(() =>
       createMockStream(['Hold on. [ASK_USER: Preferred time?]']),
     );
-    const { session, relay, orchestrator } = setupOrchestrator();
+    const { relay, orchestrator } = setupOrchestrator();
 
     await orchestrator.handleCallerUtterance('I need an appointment');
 

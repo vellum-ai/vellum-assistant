@@ -128,7 +128,7 @@ export class RelayConnection {
         this.handleError(parsed);
         break;
       default:
-        log.warn({ callSessionId: this.callSessionId, type: (parsed as any).type }, 'Unknown relay message type');
+        log.warn({ callSessionId: this.callSessionId, type: (parsed as Record<string, unknown>).type }, 'Unknown relay message type');
     }
   }
 

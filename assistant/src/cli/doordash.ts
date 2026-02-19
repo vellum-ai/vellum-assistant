@@ -664,7 +664,7 @@ export function registerDoordashCommand(program: Command): void {
 // Chrome CDP restart helper
 // ---------------------------------------------------------------------------
 
-import { execSync, spawn as spawnChild } from 'node:child_process';
+import { spawn as spawnChild } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join as pathJoin } from 'node:path';
 
