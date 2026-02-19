@@ -15,7 +15,6 @@ import {
 import {
   extractQueries,
   saveQueries,
-  type CapturedQuery,
 } from '../doordash/query-extractor.js';
 import { NetworkRecorder } from '../tools/browser/network-recorder.js';
 import {
@@ -42,7 +41,6 @@ import { getSocketPath, readSessionToken } from '../util/platform.js';
 import {
   serialize,
   createMessageParser,
-  type ServerMessage,
 } from '../daemon/ipc-protocol.js';
 
 // ---------------------------------------------------------------------------

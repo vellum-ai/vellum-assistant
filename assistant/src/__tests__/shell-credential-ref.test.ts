@@ -32,7 +32,7 @@ mock.module('../security/secret-scanner.js', () => ({
 
 // Mock sandbox
 mock.module('../tools/terminal/sandbox.js', () => ({
-  wrapCommand: (cmd: string, cwd: string) => ({ command: '/bin/sh', args: ['-c', cmd] }),
+  wrapCommand: (cmd: string, _cwd: string) => ({ command: '/bin/sh', args: ['-c', cmd] }),
 }));
 
 // Mock safe-env
@@ -96,7 +96,7 @@ describe('shell tool credential ref resolution', () => {
       injectionTemplates: [{ hostPattern: '*.fal.ai', injectionType: 'header', headerName: 'Authorization', valuePrefix: 'Key ' }],
     });
 
-    const result = await shellTool.execute({
+    await shellTool.execute({
       command: 'echo hello',
       reason: 'test',
       network_mode: 'proxied',
@@ -112,7 +112,7 @@ describe('shell tool credential ref resolution', () => {
   test('UUID ref remains supported', async () => {
     const meta = upsertCredentialMetadata('github', 'token');
 
-    const result = await shellTool.execute({
+    await shellTool.execute({
       command: 'echo hello',
       reason: 'test',
       network_mode: 'proxied',

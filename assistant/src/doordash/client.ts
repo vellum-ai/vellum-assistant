@@ -15,7 +15,6 @@ import {
   RETAIL_STORE_FEED_QUERY,
   RETAIL_SEARCH_QUERY,
   ITEM_PAGE_QUERY,
-  ADD_CART_ITEM_QUERY,
   REMOVE_CART_ITEM_QUERY,
   DETAILED_CART_QUERY,
   LIST_CARTS_QUERY,
@@ -183,7 +182,7 @@ async function graphql<T = unknown>(
   _session?: DoorDashSession,
 ): Promise<T> {
   // Still require a session to exist (proves we've logged in)
-  _session ?? requireSession();
+  if (!_session) requireSession();
 
   const wsUrl = await findDoordashTab();
   const url = `${GRAPHQL_BASE}/${operationName}?operation=${operationName}`;

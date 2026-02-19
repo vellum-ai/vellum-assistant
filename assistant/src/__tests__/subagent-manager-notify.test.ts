@@ -248,7 +248,7 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
     };
 
     const clientMessages: ServerMessage[] = [];
-    const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
+    const _sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
 
     await asInternals(manager).runSubagent(subagentId, 'Do something');
 
