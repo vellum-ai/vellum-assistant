@@ -413,6 +413,12 @@ public struct IPCDaemonStatusMessage: Codable, Sendable {
     public let httpPort: Double?
 }
 
+public struct IPCDeleteQueuedMessage: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let requestId: String
+}
+
 public struct IPCDiagnosticsExportRequest: Codable, Sendable {
     public let type: String
     public let conversationId: String
@@ -897,6 +903,12 @@ public struct IPCMessageQueued: Codable, Sendable {
     public let sessionId: String
     public let requestId: String
     public let position: Int
+}
+
+public struct IPCMessageQueuedDeleted: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let requestId: String
 }
 
 public struct IPCModelGetRequest: Codable, Sendable {

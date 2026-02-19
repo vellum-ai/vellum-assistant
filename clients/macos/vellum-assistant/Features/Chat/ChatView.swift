@@ -90,6 +90,7 @@ struct ChatView: View {
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
+    var onDeleteQueuedMessage: ((UUID) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
     var activeSubagents: [SubagentInfo] = []
@@ -594,6 +595,7 @@ struct ChatView: View {
                                 onRegenerate: onRegenerate,
                                 onSurfaceAction: onSurfaceAction,
                                 onReportMessage: onReportMessage,
+                                onDeleteQueuedMessage: onDeleteQueuedMessage,
                                 mediaEmbedSettings: mediaEmbedSettings
                             )
                                 .id(message.id)
@@ -900,6 +902,7 @@ private struct ChatBubble: View {
     let onRegenerate: () -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     var onReportMessage: ((String?) -> Void)?
+    var onDeleteQueuedMessage: ((UUID) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
 
     @State private var appearance = AvatarAppearanceManager.shared
@@ -1044,9 +1047,22 @@ private struct ChatBubble: View {
                 }
 
                 if let label = statusLabel {
-                    Text(label)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                    HStack(spacing: VSpacing.xs) {
+                        Text(label)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        if case .queued = message.status, let onDelete = onDeleteQueuedMessage {
+                            Button {
+                                onDelete(message.id)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Delete queued message")
+                        }
+                    }
                 }
 
                 HStack(spacing: VSpacing.xs) {

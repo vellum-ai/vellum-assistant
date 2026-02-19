@@ -494,6 +494,25 @@ extension ChatViewModel {
                 }
             }
 
+        case .messageQueuedDeleted(let msg):
+            guard belongsToSession(msg.sessionId) else { return }
+            pendingQueuedCount = max(0, pendingQueuedCount - 1)
+            // Remove the message from the UI
+            if let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId) {
+                messages.removeAll { $0.id == messageId }
+            }
+            // Recompute positions for remaining queued messages
+            var queuePosition = 0
+            for i in messages.indices {
+                if case .queued = messages[i].status {
+                    messages[i].status = .queued(position: queuePosition)
+                    queuePosition += 1
+                }
+            }
+            if pendingQueuedCount == 0 && !isThinking {
+                isSending = false
+            }
+
         case .messageDequeued(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             pendingQueuedCount = max(0, pendingQueuedCount - 1)

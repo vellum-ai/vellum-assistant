@@ -58,6 +58,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   cancel: {
     type: 'cancel',
   },
+  delete_queued_message: {
+    type: 'delete_queued_message',
+    sessionId: 'sess-001',
+    requestId: 'req-001',
+  },
   model_get: {
     type: 'model_get',
   },
@@ -824,6 +829,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   message_dequeued: {
     type: 'message_dequeued',
+    sessionId: 'sess-001',
+    requestId: 'req-queue-001',
+  },
+  message_queued_deleted: {
+    type: 'message_queued_deleted',
     sessionId: 'sess-001',
     requestId: 'req-queue-001',
   },
