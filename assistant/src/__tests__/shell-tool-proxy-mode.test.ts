@@ -110,6 +110,14 @@ mock.module('../tools/network/script-proxy/index.js', () => ({
   stopAllSessions: async () => {},
 }));
 
+mock.module('../tools/credentials/resolve.js', () => ({
+  resolveCredentialRef: (ref: string) => ({ credentialId: ref }),
+}));
+
+mock.module('../tools/network/script-proxy/logging.js', () => ({
+  buildCredentialRefTrace: (rawRefs: string[], resolvedIds: string[], unresolvedRefs: string[]) => ({ rawRefs, resolvedIds, unresolvedRefs }),
+}));
+
 import { shellTool } from '../tools/terminal/shell.js';
 import type { ToolContext } from '../tools/types.js';
 
