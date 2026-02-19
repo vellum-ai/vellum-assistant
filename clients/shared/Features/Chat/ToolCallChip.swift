@@ -84,22 +84,30 @@ public struct ToolCallChip: View {
                     // Image preview (for browser_screenshot etc.)
                     if let cachedImage = toolCall.cachedImage {
                         #if os(macOS)
-                        Image(nsImage: cachedImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .padding(.horizontal, VSpacing.sm)
-                            .onTapGesture(count: 2) {
-                                let path = toolCall.inputFull
-                                guard !path.isEmpty,
-                                      FileManager.default.fileExists(atPath: path) else { return }
-                                NSWorkspace.shared.open(URL(fileURLWithPath: path))
-                            }
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() }
-                                else { NSCursor.pop() }
-                            }
+                        let canOpenImage = !toolCall.inputFull.isEmpty
+                            && FileManager.default.fileExists(atPath: toolCall.inputFull)
+                        if canOpenImage {
+                            Image(nsImage: cachedImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxWidth: .infinity)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                                .padding(.horizontal, VSpacing.sm)
+                                .onTapGesture(count: 2) {
+                                    NSWorkspace.shared.open(URL(fileURLWithPath: toolCall.inputFull))
+                                }
+                                .onHover { hovering in
+                                    if hovering { NSCursor.pointingHand.push() }
+                                    else { NSCursor.pop() }
+                                }
+                        } else {
+                            Image(nsImage: cachedImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxWidth: .infinity)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                                .padding(.horizontal, VSpacing.sm)
+                        }
                         #elseif os(iOS)
                         Image(uiImage: cachedImage)
                             .resizable()
