@@ -744,7 +744,10 @@ export class DaemonServer {
       ('sessionId' in msg && typeof msgRecord.sessionId === 'string'
         ? msgRecord.sessionId as string
         : undefined) ?? this.socketToSession.get(socket);
-    this.publishAssistantEvent(msg, sessionId);
+    // Resolve assistantId from the session if available; fall back to daemon default.
+    const socketSession = sessionId ? this.sessions.get(sessionId) : undefined;
+    const assistantId = socketSession?.assistantId ?? this.assistantId;
+    this.publishAssistantEvent(msg, sessionId, assistantId);
   }
 
   broadcast(msg: ServerMessage, excludeSocket?: net.Socket): void {
@@ -760,7 +763,10 @@ export class DaemonServer {
       ('sessionId' in msg && typeof msgRecord.sessionId === 'string'
         ? msgRecord.sessionId as string
         : undefined) ?? (excludeSocket ? this.socketToSession.get(excludeSocket) : undefined);
-    this.publishAssistantEvent(msg, sessionId);
+    // Resolve assistantId from the origin session if available; fall back to daemon default.
+    const originSession = sessionId ? this.sessions.get(sessionId) : undefined;
+    const assistantId = originSession?.assistantId ?? this.assistantId;
+    this.publishAssistantEvent(msg, sessionId, assistantId);
   }
 
   /**
@@ -771,8 +777,8 @@ export class DaemonServer {
    */
   private _hubChain: Promise<void> = Promise.resolve();
 
-  private publishAssistantEvent(msg: ServerMessage, sessionId?: string): void {
-    const event = buildAssistantEvent(this.assistantId, msg, sessionId);
+  private publishAssistantEvent(msg: ServerMessage, sessionId?: string, assistantId?: string): void {
+    const event = buildAssistantEvent(assistantId ?? this.assistantId, msg, sessionId);
     this._hubChain = this._hubChain
       .then(() => assistantEventHub.publish(event))
       .catch((err: unknown) => {
