@@ -1,6 +1,6 @@
 import * as net from 'node:net';
 import { randomBytes } from 'node:crypto';
-import { existsSync, chmodSync, writeFileSync, unlinkSync, readdirSync, watch, type FSWatcher } from 'node:fs';
+import { existsSync, chmodSync, readFileSync, writeFileSync, unlinkSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import { getSocketPath, getSessionTokenPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile, getTCPPort, getTCPHost, isTCPEnabled } from '../util/platform.js';
 import { hasNoAuthOverride } from './connection-policy.js';
@@ -39,6 +39,18 @@ import { getSubagentManager } from '../subagent/index.js';
 import { tryHandlePendingCallAnswer } from '../calls/call-bridge.js';
 
 const log = getLogger('server');
+
+function readPackageVersion(): string | undefined {
+  try {
+    const pkgPath = join(import.meta.dir, '../../package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version?: string };
+    return pkg.version;
+  } catch {
+    return undefined;
+  }
+}
+
+const daemonVersion = readPackageVersion();
 
 export class DaemonServer {
   private server: net.Server | null = null;
@@ -382,6 +394,7 @@ export class DaemonServer {
     this.broadcast({
       type: 'daemon_status',
       httpPort: port,
+      version: daemonVersion,
     });
   }
 
@@ -792,6 +805,7 @@ export class DaemonServer {
       this.send(socket, {
         type: 'daemon_status',
         httpPort: this.httpPort,
+        version: daemonVersion,
       });
       return;
     }
@@ -810,6 +824,7 @@ export class DaemonServer {
     this.send(socket, {
       type: 'daemon_status',
       httpPort: this.httpPort,
+      version: daemonVersion,
     });
   }
 

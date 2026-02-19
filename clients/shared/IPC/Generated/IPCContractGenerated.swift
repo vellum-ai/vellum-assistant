@@ -411,6 +411,7 @@ public struct IPCCuSessionCreate: Codable, Sendable {
 public struct IPCDaemonStatusMessage: Codable, Sendable {
     public let type: String
     public let httpPort: Double?
+    public let version: String?
 }
 
 public struct IPCDeleteQueuedMessage: Codable, Sendable {

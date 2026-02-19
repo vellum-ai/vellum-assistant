@@ -100,6 +100,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// `nil` means the HTTP server is not running.
     @Published public var httpPort: Int?
 
+    /// The daemon version string, populated via `daemon_status` on connect.
+    @Published public private(set) var daemonVersion: String?
+
     /// Latest memory health payload from daemon `memory_status` events.
     @Published public var latestMemoryStatus: MemoryStatusMessage?
 
@@ -1311,6 +1314,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         // Handle daemon status internally.
         if case .daemonStatus(let status) = message {
             httpPort = status.httpPort.flatMap { Int(exactly: $0) }
+            if let version = status.version {
+                daemonVersion = version
+            }
         }
 
         // Handle blob probe result internally.

@@ -1103,6 +1103,7 @@ export interface PongMessage {
 export interface DaemonStatusMessage {
   type: 'daemon_status';
   httpPort?: number;
+  version?: string;
 }
 
 export interface GenerationCancelled {

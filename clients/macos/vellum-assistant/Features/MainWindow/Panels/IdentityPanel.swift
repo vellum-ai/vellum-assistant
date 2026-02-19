@@ -120,7 +120,7 @@ struct IdentityPanel: View {
                 idRow(label: "Personality", value: identity.personality)
             }
 
-            idRow(label: "Version", value: metadata?.version ?? "v1.0")
+            idRow(label: "Version", value: daemonClient.daemonVersion ?? metadata?.version ?? "—")
 
             if let date = metadata?.createdAt {
                 idRow(label: "Created at", value: formatDate(date))
