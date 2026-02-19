@@ -74,6 +74,12 @@ struct ChatContentView: View {
                                     }
                                 )
                                 .id(message.id)
+
+                                // Compact used tools summary for completed assistant messages
+                                let completedTools = message.toolCalls.filter { $0.isComplete }
+                                if message.role == .assistant && !message.isStreaming && !completedTools.isEmpty {
+                                    UsedToolsListCompact(toolCalls: completedTools)
+                                }
                             }
 
                             // Subagent chips anchored to the message that spawned them
