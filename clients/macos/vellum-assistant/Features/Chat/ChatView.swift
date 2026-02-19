@@ -369,6 +369,7 @@ struct ChatView: View {
                     // Filter out queued messages — they're shown above the composer instead
                     let displayMessages = messages.filter { msg in
                         if case .queued = msg.status { return false }
+                        if msg.isSubagentNotification { return false }
                         return true
                     }
                     ForEach(Array(displayMessages.enumerated()), id: \.element.id) { index, message in

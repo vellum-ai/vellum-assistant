@@ -338,7 +338,8 @@ export function handleHistoryRequest(
       contentOrder = text ? ['text:0'] : [];
       surfaces = [];
     }
-    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls, toolCallsBeforeText, textSegments, contentOrder, surfaces };
+    const subagentNotification = m.flags ? (JSON.parse(m.flags) as { subagentNotification?: { subagentId: string; label: string; status: string; error?: string } }).subagentNotification : undefined;
+    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls, toolCallsBeforeText, textSegments, contentOrder, surfaces, ...(subagentNotification ? { subagentNotification: subagentNotification as ParsedHistoryMessage['subagentNotification'] } : {}) };
   });
 
   // Merge tool_result data from user messages into the preceding assistant
@@ -388,6 +389,7 @@ export function handleHistoryRequest(
       ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
       ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
       ...(m.surfaces.length > 0 ? { surfaces: m.surfaces } : {}),
+      ...(m.subagentNotification ? { subagentNotification: m.subagentNotification } : {}),
     };
   });
   ctx.send(socket, { type: 'history_response', sessionId: msg.sessionId, messages: historyMessages });

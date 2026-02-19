@@ -544,6 +544,7 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN memory_scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE attachments ADD COLUMN thumbnail_base64 TEXT`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE cron_jobs ADD COLUMN schedule_syntax TEXT NOT NULL DEFAULT 'cron'`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE messages ADD COLUMN flags TEXT`); } catch { /* already exists */ }
 
   migrateJobDeferrals(database);
   migrateToolInvocationsFk(database);

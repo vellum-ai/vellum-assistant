@@ -108,7 +108,7 @@ export function getLatestConversation() {
   return result ?? null;
 }
 
-export function addMessage(conversationId: string, role: string, content: string) {
+export function addMessage(conversationId: string, role: string, content: string, metadata?: Record<string, unknown>) {
   const db = getDb();
   const now = monotonicNow();
   const message = {
@@ -117,6 +117,7 @@ export function addMessage(conversationId: string, role: string, content: string
     role,
     content,
     createdAt: now,
+    ...(metadata ? { flags: JSON.stringify(metadata) } : {}),
   };
   // Wrap insert + updatedAt bump in a transaction so they're atomic.
   db.transaction((tx) => {

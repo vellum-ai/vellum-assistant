@@ -703,6 +703,15 @@ public struct IPCHistoryResponseMessage: Codable, Sendable {
     public let contentOrder: [String]?
     /// UI surfaces (widgets) embedded in the message.
     public let surfaces: [IPCHistoryResponseSurface]?
+    /// Present when this message is a subagent lifecycle notification (completed/failed/aborted).
+    public let subagentNotification: IPCHistoryResponseMessageSubagentNotification?
+}
+
+public struct IPCHistoryResponseMessageSubagentNotification: Codable, Sendable {
+    public let subagentId: String
+    public let label: String
+    public let status: String
+    public let error: String?
 }
 
 public struct IPCHistoryResponseSurface: Codable, Sendable {

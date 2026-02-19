@@ -1103,9 +1103,9 @@ extension IPCHistoryResponse {
 }
 
 extension IPCHistoryResponseMessage {
-    /// Backward-compatible init without textSegments/contentOrder/surfaces (added in later IPC versions).
+    /// Backward-compatible init without textSegments/contentOrder/surfaces/subagentNotification (added in later IPC versions).
     public init(role: String, text: String, timestamp: Double, toolCalls: [IPCHistoryResponseToolCall]?, toolCallsBeforeText: Bool?, attachments: [IPCUserMessageAttachment]?) {
-        self.init(id: nil, role: role, text: text, timestamp: timestamp, toolCalls: toolCalls, toolCallsBeforeText: toolCallsBeforeText, attachments: attachments, textSegments: nil, contentOrder: nil, surfaces: nil)
+        self.init(id: nil, role: role, text: text, timestamp: timestamp, toolCalls: toolCalls, toolCallsBeforeText: toolCallsBeforeText, attachments: attachments, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil)
     }
 }
 

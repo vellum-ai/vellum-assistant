@@ -269,8 +269,9 @@ export class Session {
     requestId: string,
     activeSurfaceId?: string,
     currentPage?: string,
+    metadata?: Record<string, unknown>,
   ): { queued: boolean; rejected?: boolean; requestId: string } {
-    return enqueueMessageImpl(this, content, attachments, onEvent, requestId, activeSurfaceId, currentPage);
+    return enqueueMessageImpl(this, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, metadata);
   }
 
   getQueueDepth(): number {
@@ -318,8 +319,9 @@ export class Session {
     content: string,
     attachments: UserMessageAttachment[],
     requestId?: string,
+    metadata?: Record<string, unknown>,
   ): string {
-    return persistUserMessageImpl(this, content, attachments, requestId);
+    return persistUserMessageImpl(this, content, attachments, requestId, metadata);
   }
 
   // ── Agent Loop ───────────────────────────────────────────────────

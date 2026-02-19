@@ -1180,6 +1180,13 @@ export interface HistoryResponse {
     contentOrder?: string[];
     /** UI surfaces (widgets) embedded in the message. */
     surfaces?: HistoryResponseSurface[];
+    /** Present when this message is a subagent lifecycle notification (completed/failed/aborted). */
+    subagentNotification?: {
+      subagentId: string;
+      label: string;
+      status: 'completed' | 'failed' | 'aborted';
+      error?: string;
+    };
   }>;
 }
 

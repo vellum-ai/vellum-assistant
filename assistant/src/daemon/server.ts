@@ -140,21 +140,23 @@ export class DaemonServer {
     };
     // When a subagent finishes, inject the result into the parent session
     // so the LLM automatically informs the user.
-    getSubagentManager().onSubagentFinished = (parentSessionId, message, sendToClient) => {
+    getSubagentManager().onSubagentFinished = (parentSessionId, message, sendToClient, notification) => {
       const parentSession = this.sessions.get(parentSessionId);
       if (!parentSession) {
         log.warn({ parentSessionId }, 'Subagent finished but parent session not found');
         return;
       }
       const requestId = `subagent-notify-${Date.now()}`;
-      const enqueueResult = parentSession.enqueueMessage(message, [], sendToClient, requestId);
+      // Store structured notification data in the DB for history reconstruction
+      const metadata = { subagentNotification: notification };
+      const enqueueResult = parentSession.enqueueMessage(message, [], sendToClient, requestId, undefined, undefined, metadata);
       if (enqueueResult.rejected) {
         log.warn({ parentSessionId }, 'Parent session queue full, dropping subagent notification');
         return;
       }
       if (!enqueueResult.queued) {
         // Parent is idle — send directly.
-        const messageId = parentSession.persistUserMessage(message, []);
+        const messageId = parentSession.persistUserMessage(message, [], undefined, metadata);
         parentSession.runAgentLoop(message, messageId, sendToClient).catch((err) => {
           log.error({ parentSessionId, err }, 'Failed to process subagent notification in parent');
         });

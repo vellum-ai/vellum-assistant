@@ -1096,6 +1096,8 @@ public final class ChatViewModel: ObservableObject {
     /// history before the existing messages so the user sees full context.
     public func populateFromHistory(_ historyMessages: [HistoryResponseMessage.HistoryMessageItem]) {
         var chatMessages: [ChatMessage] = []
+        var reconstructedSubagents: [SubagentInfo] = []
+        var lastAssistantMessageId: UUID?
         for item in historyMessages {
             let role: ChatRole = item.role == "assistant" ? .assistant : .user
             var toolCalls: [ToolCallData] = []
@@ -1200,7 +1202,30 @@ public final class ChatViewModel: ObservableObject {
                 log.info("Message contentOrder: \(item.contentOrder ?? []), surface refs: \(surfaceRefs.count), inlineSurfaces: \(chatMsg.inlineSurfaces.count)")
             }
 
+            // Track last assistant message ID for parenting reconstructed subagent chips
+            if role == .assistant {
+                lastAssistantMessageId = chatMsg.id
+            }
+
+            // Reconstruct subagent chips from structured notification metadata
+            if let notification = item.subagentNotification {
+                var info = SubagentInfo(
+                    id: notification.subagentId,
+                    label: notification.label,
+                    status: SubagentStatus(wire: notification.status),
+                    parentMessageId: lastAssistantMessageId
+                )
+                info.error = notification.error
+                reconstructedSubagents.append(info)
+                chatMsg.isSubagentNotification = true
+            }
+
             chatMessages.append(chatMsg)
+        }
+
+        // Merge reconstructed subagents into activeSubagents (avoid duplicates)
+        for info in reconstructedSubagents where !activeSubagents.contains(where: { $0.id == info.id }) {
+            activeSubagents.append(info)
         }
 
         // Tag assistant messages that follow "/model" or "/models" user messages
