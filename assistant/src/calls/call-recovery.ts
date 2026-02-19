@@ -21,8 +21,16 @@ const defaultLog = getLogger('call-recovery');
  *
  * A daemon crash can leave a live Twilio call without a persisted SID
  * (crash after `initiateCall` succeeds but before the SID is written).
- * Webhooks carrying the SID may still arrive after restart, so we skip
- * very recent sessions and only fail them once the grace period expires.
+ * Webhooks carrying the SID may still arrive after restart.
+ *
+ * Sessions younger than this threshold are annotated but left in their
+ * current non-terminal state so incoming webhooks can still deliver the
+ * SID and resume the call normally.
+ *
+ * Sessions older than this threshold are also left non-terminal (NOT
+ * failed) because the state machine rejects transitions out of terminal
+ * states, which would strand the call if a late webhook arrives. They
+ * are annotated with an error message for operator visibility.
  */
 export const NO_SID_GRACE_PERIOD_MS = 60_000;
 
@@ -62,10 +70,9 @@ function isTerminal(status: CallStatus): boolean {
  * For each recoverable call:
  * - If it has a provider SID, fetch the current status from the provider
  *   and transition the call to match.
- * - If no provider SID exists and the session is recent (< 60 s), skip it
- *   so that webhooks carrying the SID can still arrive after a daemon crash.
- * - If no provider SID exists and the session is older than the grace period,
- *   fail it with an explanatory error message.
+ * - If no provider SID exists, leave it in its current non-terminal state
+ *   so that webhooks carrying the SID can still arrive and resume the call.
+ *   The session is annotated with a `lastError` for operator visibility.
  * - If the call transitions to a terminal state, expire any pending questions.
  */
 export async function reconcileCallsOnStartup(
@@ -85,31 +92,23 @@ export async function reconcileCallsOnStartup(
     try {
       if (!session.providerCallSid) {
         const sessionAgeMs = Date.now() - session.createdAt;
+        const isStale = sessionAgeMs >= NO_SID_GRACE_PERIOD_MS;
 
-        if (sessionAgeMs < NO_SID_GRACE_PERIOD_MS) {
-          // Session is recent — the SID may arrive via webhook shortly.
-          // Skip it so webhooks can still deliver the SID and resume the call.
-          log.info(
-            { callSessionId: session.id, previousStatus: session.status, sessionAgeMs },
-            'Skipping recent no-SID session (within grace period, webhooks may still arrive)',
-          );
-          updateCallSession(session.id, {
-            lastError: 'Daemon restarted before provider SID persisted; awaiting webhook',
-          });
-          continue;
-        }
-
-        // Session is older than the grace period — fail it cleanly
+        // Never terminalize no-SID sessions. The state machine rejects
+        // transitions out of terminal states, so marking them `failed`
+        // would strand the call if a late webhook delivers the SID.
+        // Instead, annotate with an error and leave them non-terminal.
         log.info(
-          { callSessionId: session.id, previousStatus: session.status, sessionAgeMs },
-          'Failing stale call with no provider SID (grace period expired)',
+          { callSessionId: session.id, previousStatus: session.status, sessionAgeMs, isStale },
+          isStale
+            ? 'No-SID session past grace period — leaving non-terminal for late webhooks'
+            : 'Skipping recent no-SID session (within grace period, webhooks may still arrive)',
         );
         updateCallSession(session.id, {
-          status: 'failed',
-          endedAt: Date.now(),
-          lastError: 'Daemon restarted before call connected to provider',
+          lastError: isStale
+            ? 'Daemon restarted before provider SID persisted; grace period expired but leaving non-terminal for late webhooks'
+            : 'Daemon restarted before provider SID persisted; awaiting webhook',
         });
-        expirePendingQuestions(session.id);
         continue;
       }
 
