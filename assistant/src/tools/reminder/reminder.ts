@@ -8,28 +8,9 @@ import {
   cancelReminder,
 } from './reminder-store.js';
 
-function executeReminder(input: Record<string, unknown>): ToolExecutionResult {
-  const action = input.action as string | undefined;
-  if (!action) {
-    return { content: 'Error: action is required', isError: true };
-  }
+// ── Exported execute functions ──────────────────────────────────────
 
-  switch (action) {
-    case 'create':
-      return createAction(input);
-    case 'list':
-      return listAction();
-    case 'cancel':
-      return cancelAction(input);
-    default:
-      return {
-        content: `Error: Unknown action "${action}". Valid actions: create, list, cancel`,
-        isError: true,
-      };
-  }
-}
-
-function createAction(input: Record<string, unknown>): ToolExecutionResult {
+export function executeReminderCreate(input: Record<string, unknown>): ToolExecutionResult {
   const fireAtStr = input.fire_at as string | undefined;
   const label = input.label as string | undefined;
   const message = input.message as string | undefined;
@@ -68,7 +49,7 @@ function createAction(input: Record<string, unknown>): ToolExecutionResult {
   };
 }
 
-function listAction(): ToolExecutionResult {
+export function executeReminderList(): ToolExecutionResult {
   const all = listReminders();
   if (all.length === 0) {
     return { content: 'No reminders found.', isError: false };
@@ -86,7 +67,7 @@ function listAction(): ToolExecutionResult {
   return { content: `Reminders:\n${lines.join('\n')}`, isError: false };
 }
 
-function cancelAction(input: Record<string, unknown>): ToolExecutionResult {
+export function executeReminderCancel(input: Record<string, unknown>): ToolExecutionResult {
   const reminderId = input.reminder_id as string | undefined;
   if (!reminderId) {
     return { content: 'Error: reminder_id is required for cancel', isError: true };
@@ -100,9 +81,11 @@ function cancelAction(input: Record<string, unknown>): ToolExecutionResult {
   return { content: `Reminder "${reminderId}" cancelled.`, isError: false };
 }
 
-class ReminderTool implements Tool {
-  name = 'reminder';
-  description = 'Create, list, or cancel one-time time-based reminders. Reminders fire at a specific future time and either notify the user or execute a message through the assistant. Use this ONLY when the user wants a time-triggered notification (e.g. "remind me at 3pm", "remind me in 2 hours"). Do NOT use this for "add to my tasks" or "add to my queue" — use task_list_add for those requests.';
+// ── reminder_create ─────────────────────────────────────────────────
+
+class ReminderCreateTool implements Tool {
+  name = 'reminder_create';
+  description = 'Create a one-time time-based reminder. Reminders fire at a specific future time and either notify the user or execute a message through the assistant. Use this ONLY when the user wants a time-triggered notification (e.g. "remind me at 3pm", "remind me in 2 hours"). Do NOT use this for "add to my tasks" or "add to my queue" — use task_list_add for those requests.';
   category = 'reminder';
   defaultRiskLevel = RiskLevel.Low;
 
@@ -113,41 +96,90 @@ class ReminderTool implements Tool {
       input_schema: {
         type: 'object',
         properties: {
-          action: {
-            type: 'string',
-            enum: ['create', 'list', 'cancel'],
-            description: 'Reminder action',
-          },
           fire_at: {
             type: 'string',
-            description: 'ISO 8601 timestamp for when the reminder should fire (required for create)',
+            description: 'ISO 8601 timestamp for when the reminder should fire',
           },
           label: {
             type: 'string',
-            description: 'Human-readable label (required for create)',
+            description: 'Human-readable label',
           },
           message: {
             type: 'string',
-            description: 'Content shown in notification (notify) or sent to agent (execute). Required for create.',
+            description: 'Content shown in notification (notify) or sent to agent (execute)',
           },
           mode: {
             type: 'string',
             enum: ['notify', 'execute'],
             description: 'How the reminder fires. Defaults to notify.',
           },
-          reminder_id: {
-            type: 'string',
-            description: 'Reminder ID (required for cancel)',
-          },
         },
-        required: ['action'],
+        required: ['fire_at', 'label'],
       },
     };
   }
 
   async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeReminder(input);
+    return executeReminderCreate(input);
   }
 }
 
-export const reminderTool = new ReminderTool();
+// ── reminder_list ───────────────────────────────────────────────────
+
+class ReminderListTool implements Tool {
+  name = 'reminder_list';
+  description = 'List all reminders and their current status.';
+  category = 'reminder';
+  defaultRiskLevel = RiskLevel.Low;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {},
+      },
+    };
+  }
+
+  async execute(_input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+    return executeReminderList();
+  }
+}
+
+// ── reminder_cancel ─────────────────────────────────────────────────
+
+class ReminderCancelTool implements Tool {
+  name = 'reminder_cancel';
+  description = 'Cancel a pending reminder by ID.';
+  category = 'reminder';
+  defaultRiskLevel = RiskLevel.Low;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          reminder_id: {
+            type: 'string',
+            description: 'Reminder ID to cancel',
+          },
+        },
+        required: ['reminder_id'],
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+    return executeReminderCancel(input);
+  }
+}
+
+// ── Exported tool instances ─────────────────────────────────────────
+
+export const reminderCreateTool = new ReminderCreateTool();
+export const reminderListTool = new ReminderListTool();
+export const reminderCancelTool = new ReminderCancelTool();

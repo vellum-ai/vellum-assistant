@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach } from 'bun:test';
 import { initializeDb } from '../memory/db.js';
 import { getDb } from '../memory/db.js';
 import { reminders } from '../memory/schema.js';
-import { reminderTool } from '../tools/reminder/reminder.js';
+import { reminderCreateTool, reminderListTool, reminderCancelTool } from '../tools/reminder/reminder.js';
 import { claimDueReminders } from '../tools/reminder/reminder-store.js';
 
 initializeDb();
@@ -22,26 +22,11 @@ describe('reminder tool', () => {
     clearReminders();
   });
 
-  // ── action validation ───────────────────────────────────────────────
-
-  test('rejects missing action', async () => {
-    const result = await reminderTool.execute({}, dummyContext);
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('action is required');
-  });
-
-  test('rejects unknown action', async () => {
-    const result = await reminderTool.execute({ action: 'explode' }, dummyContext);
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('Unknown action');
-  });
-
   // ── create ──────────────────────────────────────────────────────────
 
   test('create with valid future ISO timestamp succeeds', async () => {
     const future = new Date(Date.now() + 60_000).toISOString();
-    const result = await reminderTool.execute({
-      action: 'create',
+    const result = await reminderCreateTool.execute({
       fire_at: future,
       label: 'Call Sidd',
       message: 'Remember to call Sidd',
@@ -55,8 +40,7 @@ describe('reminder tool', () => {
 
   test('create with past timestamp returns error', async () => {
     const past = new Date(Date.now() - 60_000).toISOString();
-    const result = await reminderTool.execute({
-      action: 'create',
+    const result = await reminderCreateTool.execute({
       fire_at: past,
       label: 'Too late',
       message: 'This is in the past',
@@ -67,8 +51,7 @@ describe('reminder tool', () => {
   });
 
   test('create with invalid timestamp string returns error', async () => {
-    const result = await reminderTool.execute({
-      action: 'create',
+    const result = await reminderCreateTool.execute({
       fire_at: 'not-a-date',
       label: 'Bad date',
       message: 'This has a bad date',
@@ -79,8 +62,7 @@ describe('reminder tool', () => {
   });
 
   test('create rejects non-ISO date formats like MM/DD/YYYY', async () => {
-    const result = await reminderTool.execute({
-      action: 'create',
+    const result = await reminderCreateTool.execute({
       fire_at: '03/04/2027',
       label: 'Ambiguous date',
       message: 'This format is locale-dependent',
@@ -91,8 +73,7 @@ describe('reminder tool', () => {
   });
 
   test('create rejects ISO timestamp without timezone', async () => {
-    const result = await reminderTool.execute({
-      action: 'create',
+    const result = await reminderCreateTool.execute({
       fire_at: '2027-03-15T09:00:00',
       label: 'No timezone',
       message: 'Missing timezone offset',
@@ -106,8 +87,7 @@ describe('reminder tool', () => {
     const future = new Date(Date.now() + 120_000);
     const offset = '-05:00';
     const isoWithOffset = future.toISOString().replace('Z', offset);
-    const result = await reminderTool.execute({
-      action: 'create',
+    const result = await reminderCreateTool.execute({
       fire_at: isoWithOffset,
       label: 'With offset',
       message: 'Has explicit timezone',
@@ -119,8 +99,7 @@ describe('reminder tool', () => {
 
   test('create defaults mode to notify', async () => {
     const future = new Date(Date.now() + 60_000).toISOString();
-    const result = await reminderTool.execute({
-      action: 'create',
+    const result = await reminderCreateTool.execute({
       fire_at: future,
       label: 'Default mode',
       message: 'Should be notify',
@@ -132,8 +111,7 @@ describe('reminder tool', () => {
 
   test('create with mode execute sets mode correctly', async () => {
     const future = new Date(Date.now() + 60_000).toISOString();
-    const result = await reminderTool.execute({
-      action: 'create',
+    const result = await reminderCreateTool.execute({
       fire_at: future,
       label: 'Execute mode',
       message: 'Should be execute',
@@ -145,8 +123,7 @@ describe('reminder tool', () => {
   });
 
   test('create requires fire_at', async () => {
-    const result = await reminderTool.execute({
-      action: 'create',
+    const result = await reminderCreateTool.execute({
       label: 'No fire_at',
       message: 'Missing fire_at',
     }, dummyContext);
@@ -157,8 +134,7 @@ describe('reminder tool', () => {
 
   test('create requires label', async () => {
     const future = new Date(Date.now() + 60_000).toISOString();
-    const result = await reminderTool.execute({
-      action: 'create',
+    const result = await reminderCreateTool.execute({
       fire_at: future,
       message: 'Missing label',
     }, dummyContext);
@@ -169,8 +145,7 @@ describe('reminder tool', () => {
 
   test('create requires message', async () => {
     const future = new Date(Date.now() + 60_000).toISOString();
-    const result = await reminderTool.execute({
-      action: 'create',
+    const result = await reminderCreateTool.execute({
       fire_at: future,
       label: 'No message',
     }, dummyContext);
@@ -182,21 +157,20 @@ describe('reminder tool', () => {
   // ── list ────────────────────────────────────────────────────────────
 
   test('list returns "No reminders found" when empty', async () => {
-    const result = await reminderTool.execute({ action: 'list' }, dummyContext);
+    const result = await reminderListTool.execute({}, dummyContext);
     expect(result.isError).toBe(false);
     expect(result.content).toContain('No reminders found');
   });
 
   test('list returns formatted reminders', async () => {
     const future = new Date(Date.now() + 60_000).toISOString();
-    await reminderTool.execute({
-      action: 'create',
+    await reminderCreateTool.execute({
       fire_at: future,
       label: 'Test reminder',
       message: 'Test message',
     }, dummyContext);
 
-    const result = await reminderTool.execute({ action: 'list' }, dummyContext);
+    const result = await reminderListTool.execute({}, dummyContext);
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Test reminder');
     expect(result.content).toContain('pending');
@@ -206,8 +180,7 @@ describe('reminder tool', () => {
 
   test('cancel with valid pending reminder succeeds', async () => {
     const future = new Date(Date.now() + 60_000).toISOString();
-    const createResult = await reminderTool.execute({
-      action: 'create',
+    const createResult = await reminderCreateTool.execute({
       fire_at: future,
       label: 'Cancel me',
       message: 'To be cancelled',
@@ -218,8 +191,7 @@ describe('reminder tool', () => {
     expect(idMatch).not.toBeNull();
     const id = idMatch![1].trim();
 
-    const result = await reminderTool.execute({
-      action: 'cancel',
+    const result = await reminderCancelTool.execute({
       reminder_id: id,
     }, dummyContext);
 
@@ -228,8 +200,7 @@ describe('reminder tool', () => {
   });
 
   test('cancel with nonexistent ID returns error', async () => {
-    const result = await reminderTool.execute({
-      action: 'cancel',
+    const result = await reminderCancelTool.execute({
       reminder_id: 'nonexistent',
     }, dummyContext);
 
@@ -239,8 +210,7 @@ describe('reminder tool', () => {
 
   test('cancel with already-fired reminder returns error', async () => {
     const future = new Date(Date.now() + 60_000).toISOString();
-    const createResult = await reminderTool.execute({
-      action: 'create',
+    const createResult = await reminderCreateTool.execute({
       fire_at: future,
       label: 'Fire then cancel',
       message: 'x',
@@ -252,8 +222,7 @@ describe('reminder tool', () => {
     // Force-fire by claiming with a future timestamp
     claimDueReminders(Date.now() + 120_000);
 
-    const result = await reminderTool.execute({
-      action: 'cancel',
+    const result = await reminderCancelTool.execute({
       reminder_id: id,
     }, dummyContext);
 
