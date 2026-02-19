@@ -13,7 +13,7 @@ export interface EvictorOptions {
   ttlMs?: number;
   /** Max number of in-memory sessions before LRU eviction kicks in. Default: 100. */
   maxSessions?: number;
-  /** RSS threshold (bytes) above which idle sessions are aggressively evicted. Default: 1.5 GB. */
+  /** RSS threshold (bytes) above which idle sessions are aggressively evicted. Default: 3 GB. */
   memoryThresholdBytes?: number;
   /** Interval between periodic sweeps (ms). Default: 60 s. */
   sweepIntervalMs?: number;
@@ -32,7 +32,7 @@ export interface EvictionResult {
 
 const DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const DEFAULT_MAX_SESSIONS = 100;
-const DEFAULT_MEMORY_THRESHOLD_BYTES = 1536 * 1024 * 1024; // 1.5 GB
+const DEFAULT_MEMORY_THRESHOLD_BYTES = 3072 * 1024 * 1024; // 3 GB
 const DEFAULT_SWEEP_INTERVAL_MS = 60 * 1000; // 60 seconds
 
 export class SessionEvictor {
