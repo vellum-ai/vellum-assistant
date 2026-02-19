@@ -3,12 +3,11 @@ import VellumAssistantShared
 
 /// Standalone window view that displays the task queue.
 struct TasksWindowView: View {
-    @ObservedObject var daemonClient: DaemonClient
+    @StateObject private var viewModel: TasksWindowViewModel
 
-    @State private var items: [IPCWorkItemsListResponseItem] = []
-    @State private var isLoading = true
-    @State private var errorMessage: String?
-    @State private var refreshTask: Task<Void, Never>?
+    init(daemonClient: DaemonClient) {
+        _viewModel = StateObject(wrappedValue: TasksWindowViewModel(daemonClient: daemonClient))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,7 +17,7 @@ struct TasksWindowView: View {
                     .font(VFont.display)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                Text("\(items.count)")
+                Text("\(viewModel.items.count)")
                     .font(VFont.monoSmall)
                     .foregroundColor(VColor.textMuted)
                     .padding(.horizontal, VSpacing.sm)
@@ -60,7 +59,7 @@ struct TasksWindowView: View {
                 .frame(height: 1)
 
             // Content
-            if isLoading {
+            if viewModel.isLoading {
                 VStack {
                     Spacer()
                     ProgressView()
@@ -68,7 +67,7 @@ struct TasksWindowView: View {
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = errorMessage {
+            } else if let error = viewModel.errorMessage {
                 VStack(spacing: VSpacing.md) {
                     Spacer()
                     Image(systemName: "exclamationmark.triangle")
@@ -79,14 +78,14 @@ struct TasksWindowView: View {
                         .foregroundColor(VColor.textSecondary)
                         .multilineTextAlignment(.center)
                     Button("Retry") {
-                        fetchWorkItems()
+                        viewModel.fetchItems()
                     }
                     .font(VFont.caption)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
                 .padding(VSpacing.lg)
-            } else if items.isEmpty {
+            } else if viewModel.items.isEmpty {
                 VEmptyState(
                     title: "No tasks",
                     subtitle: "Your tasks will appear here",
@@ -95,13 +94,13 @@ struct TasksWindowView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: VSpacing.xs) {
-                        ForEach(items, id: \.id) { item in
+                        ForEach(viewModel.items, id: \.id) { item in
                             TasksWindowRow(
                                 item: item,
-                                onRun: { runTask(id: item.id) },
-                                onComplete: { completeTask(id: item.id) },
+                                onRun: { viewModel.runTask(id: item.id) },
+                                onComplete: { viewModel.completeTask(id: item.id) },
                                 onPriorityChange: { newTier in
-                                    updatePriority(id: item.id, tier: newTier)
+                                    viewModel.updatePriority(id: item.id, tier: newTier)
                                 }
                             )
                         }
@@ -113,107 +112,6 @@ struct TasksWindowView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(VColor.background)
-        .onAppear {
-            fetchWorkItems()
-            listenForChanges()
-        }
-    }
-
-    // MARK: - Data Fetching
-
-    private func fetchWorkItems() {
-        isLoading = true
-        errorMessage = nil
-
-        daemonClient.onWorkItemsListResponse = { response in
-            self.items = response.items
-            self.isLoading = false
-        }
-
-        do {
-            try daemonClient.sendWorkItemsList()
-        } catch {
-            errorMessage = error.localizedDescription
-            isLoading = false
-        }
-    }
-
-    private func listenForChanges() {
-        // Debounce rapid broadcasts so multiple mutations coalesce
-        // into a single re-fetch instead of N overlapping calls.
-        let scheduleRefresh = {
-            refreshTask?.cancel()
-            refreshTask = Task {
-                try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
-                guard !Task.isCancelled else { return }
-                do {
-                    try daemonClient.sendWorkItemsList()
-                } catch {
-                    // Silently ignore; the list will refresh on next change
-                }
-            }
-        }
-
-        daemonClient.onWorkItemStatusChanged = { _ in
-            scheduleRefresh()
-        }
-
-        daemonClient.onTasksChanged = { _ in
-            scheduleRefresh()
-        }
-    }
-
-    // MARK: - Actions
-
-    private func runTask(id: String) {
-        do {
-            try daemonClient.sendWorkItemRunTask(id: id)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func completeTask(id: String) {
-        do {
-            try daemonClient.sendWorkItemComplete(id: id)
-            items.removeAll { $0.id == id }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func updatePriority(id: String, tier: Double) {
-        // Snapshot for rollback on failure
-        let snapshot = items
-
-        // Optimistic local update: replace the item's priority and re-sort
-        if let index = items.firstIndex(where: { $0.id == id }) {
-            var updated = items
-            updated[index] = updated[index].withPriorityTier(tier)
-            updated.sort {
-                if $0.priorityTier != $1.priorityTier {
-                    return $0.priorityTier < $1.priorityTier
-                }
-                if let s0 = $0.sortIndex, let s1 = $1.sortIndex, s0 != s1 {
-                    return s0 < s1
-                }
-                return $0.updatedAt > $1.updatedAt
-            }
-            // Fast linear transition to avoid jittery spring animations on reorder
-            withAnimation(.linear(duration: 0.15)) {
-                items = updated
-            }
-        }
-
-        do {
-            try daemonClient.sendWorkItemUpdate(id: id, priorityTier: tier)
-        } catch {
-            // Rollback to pre-update state
-            withAnimation(.linear(duration: 0.15)) {
-                items = snapshot
-            }
-            errorMessage = error.localizedDescription
-        }
     }
 }
 
