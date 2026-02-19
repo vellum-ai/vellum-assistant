@@ -208,6 +208,9 @@ final class VoiceInputManager {
         recognitionTask = speechRecognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
                 guard let self = self else { return }
+                // Ignore late callbacks delivered after recording was stopped
+                // (e.g. endAudio() triggering a delayed isFinal via Task dispatch).
+                guard self.isRecording else { return }
 
                 if let result = result {
                     let text = result.bestTranscription.formattedString
@@ -226,6 +229,7 @@ final class VoiceInputManager {
                 if let error = error {
                     log.error("Recognition error: \(error.localizedDescription)")
                     self.recognitionTask = nil
+                    self.stopRecording()
                 }
             }
         }
@@ -257,6 +261,8 @@ final class VoiceInputManager {
 
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
+        recognitionTask?.cancel()
+        recognitionTask = nil
         recognitionRequest?.endAudio()
         recognitionRequest = nil
     }

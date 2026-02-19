@@ -1606,7 +1606,10 @@ private struct ActiveChatViewWrapper: View {
             onOpenSettings: {
                 windowState.selection = .panel(.settings)
             },
-            onSend: viewModel.sendMessage,
+            onSend: {
+                if viewModel.isRecording { onMicrophoneToggle() }
+                viewModel.sendMessage()
+            },
             onStop: viewModel.stopGenerating,
             onDismissError: viewModel.dismissError,
             isRetryableError: viewModel.isRetryableError,
