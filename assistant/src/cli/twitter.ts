@@ -205,7 +205,7 @@ export function registerTwitterCommand(program: Command): void {
 // Chrome CDP restart helper
 // ---------------------------------------------------------------------------
 
-import { execSync, spawn as spawnChild } from 'node:child_process';
+import { spawn as spawnChild } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join as pathJoin } from 'node:path';
 
@@ -225,26 +225,11 @@ async function isCdpReady(): Promise<boolean> {
 }
 
 async function ensureChromeWithCDP(): Promise<void> {
+  // Already running with CDP?
   if (await isCdpReady()) return;
 
-  try {
-    execSync('osascript -e \'tell application "Google Chrome" to quit\'', {
-      timeout: 5000,
-      stdio: 'ignore',
-    });
-  } catch {
-    // Chrome might not be running
-  }
-
-  for (let i = 0; i < 30; i++) {
-    try {
-      execSync('pgrep -x "Google Chrome"', { stdio: 'ignore' });
-      await new Promise(r => setTimeout(r, 200));
-    } catch {
-      break;
-    }
-  }
-
+  // Launch a separate Chrome instance with CDP flags alongside any existing Chrome.
+  // Using a dedicated --user-data-dir allows coexistence without killing the user's browser.
   const chromeApp =
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   spawnChild(chromeApp, [
@@ -257,6 +242,7 @@ async function ensureChromeWithCDP(): Promise<void> {
     stdio: 'ignore',
   }).unref();
 
+  // Wait for CDP to be ready
   for (let i = 0; i < 30; i++) {
     await new Promise(r => setTimeout(r, 500));
     if (await isCdpReady()) return;
