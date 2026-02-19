@@ -25,31 +25,24 @@ struct AvatarCustomizationPanel: View {
     private let accessoryOptions = ["none", "sunglasses", "monocle", "bowtie", "necklace", "scarf", "cape"]
     private let heldItemOptions = ["none", "sword", "staff", "shield", "balloon"]
 
+    private let maxContentWidth: CGFloat = 1100
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack {
-                Text("Customize Avatar")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                // Header
+                HStack(alignment: .center) {
+                    Text("Customize Avatar")
+                        .font(VFont.panelTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Spacer()
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close Customize Avatar")
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.lg)
+                .padding(.top, VSpacing.xxl)
+                .padding(.bottom, VSpacing.xl)
 
-            Divider()
-                .background(VColor.surfaceBorder)
+                Divider().background(VColor.surfaceBorder)
+                    .padding(.bottom, VSpacing.xl)
 
-            ScrollView {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
                     // Live avatar preview
                     avatarPreview
@@ -77,15 +70,14 @@ struct AvatarCustomizationPanel: View {
                     // Reset button
                     resetButton
                 }
-                .padding(VSpacing.lg)
+
+                Spacer(minLength: VSpacing.xxl)
             }
+            .frame(maxWidth: maxContentWidth)
+            .padding(.horizontal, VSpacing.xxl)
+            .frame(maxWidth: .infinity)
         }
-        .background(Meadow.panelBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(Meadow.panelBorder, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .background(VColor.backgroundSubtle)
         .onAppear {
             evolutionState.load()
             identity = IdentityInfo.load()
