@@ -33,16 +33,24 @@ extension ChatViewModel {
     ]
 
     /// Extract the most relevant tool input value as a full string (no truncation).
+    /// Redacts values for sensitive keys to prevent credential leakage into inputSummary.
     func extractToolInput(_ input: [String: AnyCodable]) -> String {
         // Pick the first matching priority key, falling back to the first sorted key.
+        let key: String
         let value: AnyCodable
         if let match = Self.toolInputPriorityKeys.first(where: { input[$0] != nil }),
            let v = input[match] {
+            key = match
             value = v
         } else if let firstKey = input.keys.sorted().first, let v = input[firstKey] {
+            key = firstKey
             value = v
         } else {
             return ""
+        }
+        // Redact sensitive keys before returning
+        if Self.isSensitiveKey(key) {
+            return "[redacted]"
         }
         if let s = value.value as? String {
             return s
@@ -61,9 +69,19 @@ extension ChatViewModel {
     }
 
     /// Argument keys whose values may contain credentials and must be redacted.
+    /// All comparisons use lowercased keys to catch variants like accessToken,
+    /// Authorization, X-API-KEY, etc.
     private static let sensitiveKeys: Set<String> = [
-        "value", "secret", "password", "token", "client_secret", "api_key"
+        "value", "secret", "password", "token", "client_secret", "api_key",
+        "authorization", "access_token", "refresh_token", "api_secret",
+        "accesstoken", "refreshtoken", "apikey", "apisecret", "clientsecret",
+        "x-api-key"
     ]
+
+    /// Case-insensitive check: does the given key match any sensitive key?
+    private static func isSensitiveKey(_ key: String) -> Bool {
+        sensitiveKeys.contains(key.lowercased())
+    }
 
     /// Format all tool input arguments for display in expanded details.
     /// The primary value comes first, then remaining keys as `key: value` lines.
@@ -79,23 +97,23 @@ extension ChatViewModel {
 
         // Primary value first (undecorated)
         if let key = primaryKey, let value = input[key] {
-            if Self.sensitiveKeys.contains(key) {
+            if Self.isSensitiveKey(key) {
                 lines.append("[redacted]")
             } else {
-                lines.append(stringifyValue(value))
+                lines.append(redactingStringifyValue(value))
             }
         }
 
-        // Remaining keys sorted alphabetically, skipping sensitive values
+        // Remaining keys sorted alphabetically, redacting sensitive values
         let otherKeys = input.keys
             .filter { $0 != primaryKey }
             .sorted()
         for key in otherKeys {
             guard let value = input[key] else { continue }
-            if Self.sensitiveKeys.contains(key) {
+            if Self.isSensitiveKey(key) {
                 lines.append("\(key): [redacted]")
             } else {
-                lines.append("\(key): \(stringifyValue(value))")
+                lines.append("\(key): \(redactingStringifyValue(value))")
             }
         }
 
@@ -112,6 +130,78 @@ extension ChatViewModel {
             return json
         }
         return String(describing: value.value ?? "")
+    }
+
+    /// Stringify a value, recursively redacting sensitive keys in nested objects.
+    private func redactingStringifyValue(_ value: AnyCodable) -> String {
+        if let dict = value.value as? [String: Any] {
+            return redactDictionary(dict)
+        }
+        if let array = value.value as? [Any] {
+            return redactArray(array)
+        }
+        return stringifyValue(value)
+    }
+
+    /// Recursively redact sensitive keys in a dictionary, returning a JSON-like string.
+    private func redactDictionary(_ dict: [String: Any]) -> String {
+        var redacted: [String: Any] = [:]
+        for (key, val) in dict {
+            if Self.isSensitiveKey(key) {
+                redacted[key] = "[redacted]"
+            } else if let nested = val as? [String: Any] {
+                // Parse the redacted nested dict back as-is (store as string for encoding)
+                redacted[key] = redactDictionary(nested)
+            } else if let nested = val as? [Any] {
+                redacted[key] = redactArray(nested)
+            } else {
+                redacted[key] = val
+            }
+        }
+        // Encode the redacted dict to JSON
+        if let data = try? JSONSerialization.data(withJSONObject: redacted, options: [.sortedKeys]),
+           let json = String(data: data, encoding: .utf8) {
+            return json
+        }
+        return String(describing: redacted)
+    }
+
+    /// Recursively redact sensitive keys in array elements.
+    private func redactArray(_ array: [Any]) -> String {
+        let redacted: [Any] = array.map { element in
+            if let dict = element as? [String: Any] {
+                // Return the redacted dict (not string) so JSONSerialization handles it
+                return redactDictionaryAsObject(dict)
+            }
+            return element
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: redacted, options: [.sortedKeys]),
+           let json = String(data: data, encoding: .utf8) {
+            return json
+        }
+        return String(describing: redacted)
+    }
+
+    /// Recursively redact sensitive keys, returning a dictionary (not string) for nesting.
+    private func redactDictionaryAsObject(_ dict: [String: Any]) -> [String: Any] {
+        var redacted: [String: Any] = [:]
+        for (key, val) in dict {
+            if Self.isSensitiveKey(key) {
+                redacted[key] = "[redacted]"
+            } else if let nested = val as? [String: Any] {
+                redacted[key] = redactDictionaryAsObject(nested)
+            } else if let nested = val as? [Any] {
+                redacted[key] = nested.map { element -> Any in
+                    if let d = element as? [String: Any] {
+                        return redactDictionaryAsObject(d)
+                    }
+                    return element
+                }
+            } else {
+                redacted[key] = val
+            }
+        }
+        return redacted
     }
 
     func toolDisplayName(_ name: String) -> String {
