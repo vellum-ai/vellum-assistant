@@ -93,7 +93,9 @@ private struct UsedToolsRow: View {
     @State private var isHovered = false
 
     private var hasDetails: Bool {
-        (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true)) || toolCall.cachedImage != nil
+        !toolCall.inputSummary.isEmpty ||
+        (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true)) ||
+        toolCall.cachedImage != nil
     }
 
     var body: some View {
