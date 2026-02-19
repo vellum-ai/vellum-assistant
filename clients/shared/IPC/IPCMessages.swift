@@ -139,7 +139,7 @@ public typealias IPCAttachment = IPCUserMessageAttachment
 
 extension IPCUserMessageAttachment {
     public init(filename: String, mimeType: String, data: String, extractedText: String?) {
-        self.init(id: nil, filename: filename, mimeType: mimeType, data: data, extractedText: extractedText, sizeBytes: nil)
+        self.init(id: nil, filename: filename, mimeType: mimeType, data: data, extractedText: extractedText, sizeBytes: nil, thumbnailData: nil)
     }
 }
 
