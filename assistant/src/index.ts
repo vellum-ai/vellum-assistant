@@ -444,6 +444,32 @@ config
     }
   });
 
+config
+  .command('validate-allowlist')
+  .description('Validate regex patterns in secret-allowlist.json')
+  .action(() => {
+    const { validateAllowlistFile } = require('./security/secret-allowlist.js') as typeof import('./security/secret-allowlist.js');
+    try {
+      const errors = validateAllowlistFile();
+      if (errors === null) {
+        log.info('No secret-allowlist.json file found');
+        return;
+      }
+      if (errors.length === 0) {
+        log.info('All patterns in secret-allowlist.json are valid');
+        return;
+      }
+      log.error(`Found ${errors.length} invalid pattern(s) in secret-allowlist.json:`);
+      for (const e of errors) {
+        log.error(`  [${e.index}] "${e.pattern}": ${e.message}`);
+      }
+      process.exit(1);
+    } catch (err) {
+      log.error(`Failed to read secret-allowlist.json: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
 // --- Keys commands ---
 const keys = program.command('keys').description('Manage API keys in secure storage');
 
@@ -1025,7 +1051,7 @@ program
     const subcommands: Record<string, string[]> = {
       daemon: ['start', 'stop', 'restart', 'status'],
       sessions: ['list', 'new', 'export', 'clear'],
-      config: ['set', 'get', 'list'],
+      config: ['set', 'get', 'list', 'validate-allowlist'],
       keys: ['list', 'set', 'delete'],
       trust: ['list', 'remove', 'clear'],
       memory: ['status', 'backfill', 'query', 'rebuild-index'],

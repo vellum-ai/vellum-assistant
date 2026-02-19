@@ -104,6 +104,48 @@ export function isAllowlisted(value: string): boolean {
   return false;
 }
 
+export interface AllowlistValidationError {
+  index: number;
+  pattern: string;
+  message: string;
+}
+
+/**
+ * Validate all regex patterns in an allowlist config without loading them.
+ * Returns an array of validation errors (empty = all valid).
+ */
+export function validateAllowlist(config: AllowlistConfig): AllowlistValidationError[] {
+  const errors: AllowlistValidationError[] = [];
+  if (!config.patterns || !Array.isArray(config.patterns)) return errors;
+
+  for (let i = 0; i < config.patterns.length; i++) {
+    const p = config.patterns[i];
+    if (typeof p !== 'string') {
+      errors.push({ index: i, pattern: String(p), message: 'Pattern is not a string' });
+      continue;
+    }
+    try {
+      new RegExp(p);
+    } catch (err) {
+      errors.push({ index: i, pattern: p, message: (err as Error).message });
+    }
+  }
+  return errors;
+}
+
+/**
+ * Read secret-allowlist.json from disk and validate it.
+ * Returns validation errors, or null if the file doesn't exist.
+ */
+export function validateAllowlistFile(): AllowlistValidationError[] | null {
+  const filePath = join(getRootDir(), 'protected', 'secret-allowlist.json');
+  if (!existsSync(filePath)) return null;
+
+  const raw = readFileSync(filePath, 'utf-8');
+  const config: AllowlistConfig = JSON.parse(raw);
+  return validateAllowlist(config);
+}
+
 /**
  * Reset cached state so the allowlist is reloaded on next check.
  * Called by the daemon file watcher when secret-allowlist.json changes,

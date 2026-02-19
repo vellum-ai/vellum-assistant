@@ -10,7 +10,7 @@ import { RateLimitProvider } from '../providers/ratelimit.js';
 import { getConfig, invalidateConfigCache } from '../config/loader.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
 import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
-import { resetAllowlist } from '../security/secret-allowlist.js';
+import { resetAllowlist, validateAllowlistFile } from '../security/secret-allowlist.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { IngressBlockedError } from '../util/errors.js';
 import { clearEmbeddingBackendCache } from '../memory/embedding-backend.js';
@@ -331,6 +331,16 @@ export class DaemonServer {
       },
       'secret-allowlist.json': () => {
         resetAllowlist();
+        try {
+          const errors = validateAllowlistFile();
+          if (errors && errors.length > 0) {
+            for (const e of errors) {
+              log.warn({ index: e.index, pattern: e.pattern }, `Invalid regex in secret-allowlist.json: ${e.message}`);
+            }
+          }
+        } catch (err) {
+          log.warn({ err }, 'Failed to validate secret-allowlist.json');
+        }
       },
     };
 
