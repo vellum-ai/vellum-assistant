@@ -113,6 +113,8 @@ graph TB
             DB_CHAN["channel_inbound_events"]
             DB_KEYS["conversation_keys"]
             DB_REMINDERS["reminders"]
+            DB_SCHED_JOBS["cron_jobs (recurrence schedules)"]
+            DB_SCHED_RUNS["cron_runs (schedule execution history)"]
             DB_HOME["home_base_app_links"]
             DB_TASKS["tasks"]
             DB_TASK_RUNS["task_runs"]
@@ -473,6 +475,8 @@ graph LR
         JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill,<br/>conflict resolution, cleanup<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
         REM["reminders<br/>───────────────<br/>One-time scheduled reminders<br/>label, message, fireAt<br/>mode: notify | execute<br/>status: pending → fired | cancelled"]
+        SCHED_JOBS["cron_jobs (recurrence schedules)<br/>───────────────<br/>Recurring schedule definitions<br/>cron_expression: cron or RRULE string<br/>schedule_syntax: 'cron' | 'rrule'<br/>timezone, message, next_run_at<br/>enabled, retry_count<br/>Legacy alias: scheduleJobs"]
+        SCHED_RUNS["cron_runs (schedule runs)<br/>───────────────<br/>Execution history per schedule<br/>job_id (FK → cron_jobs)<br/>status: ok | error<br/>duration_ms, output, error<br/>Legacy alias: scheduleRuns"]
         TASKS["tasks<br/>───────────────<br/>Reusable prompt templates<br/>title, Handlebars template<br/>inputSchema, contextFlags<br/>requiredTools, status"]
         TASK_RUNS["task_runs<br/>───────────────<br/>Execution history per task<br/>taskId (FK → tasks)<br/>conversationId, status<br/>startedAt, finishedAt, error"]
         WORK_ITEMS["work_items<br/>───────────────<br/>Task Queue entries<br/>taskId (FK → tasks)<br/>title, notes, status<br/>priority_tier (0-3), sort_index<br/>last_run_id, last_run_status<br/>source_type, source_id"]
@@ -2920,6 +2924,33 @@ Media embed preferences live in the workspace config file (`~/.vellum/workspace/
 
 ---
 
+## Recurrence Schedules — Cron and RRULE Dual-Syntax Engine
+
+The scheduler supports two recurrence syntaxes for recurring tasks:
+
+- **Cron** — Standard 5-field cron expressions (e.g., `0 9 * * 1-5` for weekday mornings). Evaluated via the `croner` library.
+- **RRULE** — iCalendar recurrence rules (RFC 5545). Supports `DTSTART`, `RRULE:`, `RDATE`, `EXDATE`, and `EXRULE` lines. RRULE sets (multiple `RRULE` lines, `RDATE`/`EXDATE` exclusions) are parsed via `rrulestr` with `forceset: true`.
+
+### Syntax Detection
+
+The `detectScheduleSyntax()` function auto-detects which syntax an expression uses by checking for RRULE markers (`RRULE:`, `DTSTART`, `FREQ=`). When creating or updating a schedule, the caller can explicitly specify `syntax: 'cron' | 'rrule'`, or the system infers it from the expression string via `resolveScheduleSpec()`.
+
+### Legacy Compatibility
+
+The database column is named `cron_expression` and the Drizzle table is `cronJobs` for migration compatibility. Code aliases `scheduleJobs` and `scheduleRuns` are preferred in new code. The legacy field names `cron_expression` and `cronExpression` remain supported in API inputs during the transition period. Both `expression` (new) and `cronExpression` (legacy) are accepted when creating or updating schedules.
+
+### Key Source Files
+
+| File | Responsibility |
+|------|---------------|
+| `assistant/src/schedule/recurrence-types.ts` | `ScheduleSyntax` type, `detectScheduleSyntax()`, `resolveScheduleSpec()` |
+| `assistant/src/schedule/recurrence-engine.ts` | Validation (`isValidScheduleExpression`), next-run computation, RRULE set detection |
+| `assistant/src/schedule/schedule-store.ts` | CRUD operations, claim-based polling, legacy `cronExpression` field support |
+| `assistant/src/schedule/scheduler.ts` | 15-second tick loop, fires due schedules and reminders |
+| `assistant/src/memory/schema.ts` | `cronJobs` / `scheduleJobs` table, `scheduleSyntax` column |
+
+---
+
 ## Watcher System — Event-Driven Polling
 
 Watchers poll external APIs on an interval, detect new events via watermark-based change tracking, and process them through a background LLM session.
@@ -2928,7 +2959,7 @@ Watchers poll external APIs on an interval, detect new events via watermark-base
 graph TD
     subgraph "Scheduler (15s tick)"
         TICK["runScheduleOnce()"]
-        CRON["Cron Jobs"]
+        CRON["Recurrence Schedules<br/>(cron + RRULE)"]
         REMIND["Reminders"]
         WATCH["runWatchersOnce()"]
     end
@@ -3419,6 +3450,7 @@ Call behavior is controlled via the `calls` config block in the assistant config
 | IPC blob payloads | `~/.vellum/workspace/data/ipc-blobs/` | Binary files (UUID names) | File I/O (atomic write) | Ephemeral; consumed on hydration, stale sweep every 5min |
 | Tasks & task runs | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent |
 | Work items (Task Queue) | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; archived items retained |
+| Recurrence schedules & runs | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; supports cron and RRULE syntax |
 | Watchers & events | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, cascade on watcher delete |
 | Proxy CA cert + key | `{dataDir}/proxy-ca/` | PEM files (ca.pem, ca-key.pem) | openssl CLI | Permanent (10-year validity) |
 | Proxy leaf certs | `{dataDir}/proxy-ca/issued/` | PEM files per hostname | openssl CLI, cached | 1-year validity, re-issued on CA change |
