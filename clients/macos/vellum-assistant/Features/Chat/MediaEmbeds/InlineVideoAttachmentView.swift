@@ -18,10 +18,33 @@ struct InlineVideoAttachmentView: View {
     @State private var isPlaying = false
     @State private var isLoading = false
     @State private var failed = false
-    @State private var videoAspectRatio: CGFloat = 3.0 / 4.0
+    @State private var videoAspectRatio: CGFloat
     @State private var isHovering = false
     @State private var isSaving = false
     @State private var thumbnailImage: NSImage?
+
+    init(attachment: ChatAttachment, daemonHttpPort: Int?) {
+        self.attachment = attachment
+        self.daemonHttpPort = daemonHttpPort
+
+        if let img = attachment.thumbnailImage {
+            // Use pixel dimensions for accurate aspect ratio (immune to DPI metadata).
+            var w: CGFloat = 0
+            var h: CGFloat = 0
+            if let rep = img.representations.first {
+                w = CGFloat(rep.pixelsWide)
+                h = CGFloat(rep.pixelsHigh)
+            }
+            if w <= 0 || h <= 0 {
+                w = img.size.width
+                h = img.size.height
+            }
+            _videoAspectRatio = State(initialValue: w > 0 && h > 0 ? w / h : 3.0 / 4.0)
+            _thumbnailImage = State(initialValue: img)
+        } else {
+            _videoAspectRatio = State(initialValue: 3.0 / 4.0)
+        }
+    }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -76,7 +99,7 @@ struct InlineVideoAttachmentView: View {
             if let thumbnailImage {
                 Image(nsImage: thumbnailImage)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .aspectRatio(contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             }
 
@@ -144,18 +167,8 @@ struct InlineVideoAttachmentView: View {
     }
 
     private func generateThumbnail() async {
-        // Prefer the server-provided thumbnail (already decoded by mapIPCAttachments).
-        if let serverImage = attachment.thumbnailImage {
-            let w = serverImage.size.width
-            let h = serverImage.size.height
-            await MainActor.run {
-                if w > 0, h > 0 {
-                    videoAspectRatio = w / h
-                }
-                thumbnailImage = serverImage
-            }
-            return
-        }
+        // Server thumbnail and aspect ratio are set eagerly in init.
+        if thumbnailImage != nil { return }
 
         // Fallback: extract thumbnail from inline video data.
         guard !attachment.data.isEmpty, let data = Data(base64Encoded: attachment.data) else { return }
