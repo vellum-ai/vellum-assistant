@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 public struct ToolCallChip: View {
     public let toolCall: ToolCallData
@@ -91,6 +94,16 @@ public struct ToolCallChip: View {
                             .frame(maxWidth: .infinity)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                             .padding(.horizontal, VSpacing.sm)
+                            .onTapGesture(count: 2) {
+                                let path = toolCall.inputFull
+                                guard !path.isEmpty,
+                                      FileManager.default.fileExists(atPath: path) else { return }
+                                NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                            }
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.push() }
+                                else { NSCursor.pop() }
+                            }
                         #elseif os(iOS)
                         Image(uiImage: cachedImage)
                             .resizable()
