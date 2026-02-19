@@ -142,13 +142,17 @@ private struct TasksWindowRow: View {
             statusColumn
                 .frame(width: TasksTableContract.statusWidth)
 
-            // Actions column — fixed width
+            // Actions column — fixed width; sits above the row background
+            // in the hit-test stack so button clicks are never intercepted.
             actionsColumn
                 .frame(width: TasksTableContract.actionsWidth)
+                .contentShape(Rectangle())
+                .allowsHitTesting(true)
         }
         .frame(minHeight: 36)
         .padding(.vertical, VSpacing.sm)
         .padding(.horizontal, VSpacing.md)
+        .contentShape(Rectangle())
         .background(isHovered ? VColor.surface.opacity(0.8) : VColor.surface.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
@@ -235,28 +239,32 @@ private struct TasksWindowRow: View {
     private var actionsColumn: some View {
         let status = WorkItemStatus(rawStatus: item.status)
         let isRunning = runningIds.contains(item.id)
-        let runEnabled = status == .queued && !isRunning
-        let showRun = status == .queued || status == .failed
+        let isFailed = status == .failed
+        let runEnabled = !isRunning
+        let showRun = status == .queued || isFailed
+        let buttonColor = isFailed ? VColor.warning : VColor.accent
+        let buttonLabel = isRunning ? "Starting..." : (isFailed ? "Retry" : "Run")
         return HStack(spacing: VSpacing.xs) {
             if showRun {
                 Button(action: onRun) {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "play.fill")
+                        Image(systemName: isFailed ? "arrow.clockwise" : "play.fill")
                             .font(.system(size: 10))
-                        Text(isRunning ? "Starting..." : "Run")
+                        Text(buttonLabel)
                             .font(VFont.caption)
                     }
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(buttonColor)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xs)
-                    .background(VColor.accent.opacity(0.12))
+                    .background(buttonColor.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!runEnabled)
                 .opacity(runEnabled ? 1.0 : 0.4)
-                .accessibilityLabel(isRunning ? "Task is starting" : "Run task")
-                .accessibilityHint(runEnabled ? "" : isRunning ? "Task is already starting" : "Task cannot be run because it has failed")
+                .accessibilityLabel(isRunning ? "Task is starting" : (isFailed ? "Retry task" : "Run task"))
+                .accessibilityHint(isRunning ? "Task is already starting" : (isFailed ? "Retry running this failed task" : ""))
             }
 
             if status == .awaitingReview {
@@ -272,6 +280,7 @@ private struct TasksWindowRow: View {
                     .padding(.vertical, VSpacing.xs)
                     .background(VColor.success.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Mark task as reviewed")
@@ -285,6 +294,7 @@ private struct TasksWindowRow: View {
                         .frame(width: 20, height: 20)
                         .background(VColor.surfaceBorder.opacity(0.5))
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Remove task")
