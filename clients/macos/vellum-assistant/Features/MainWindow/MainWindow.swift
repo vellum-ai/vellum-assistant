@@ -211,8 +211,8 @@ final class MainWindow {
         let hostingController = NSHostingController(rootView: MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}))
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let windowWidth: CGFloat = 780
-        let windowHeight: CGFloat = 700
+        let windowWidth: CGFloat = 1200
+        let windowHeight: CGFloat = 900
         let windowRect = NSRect(
             x: screenFrame.midX - windowWidth / 2,
             y: screenFrame.midY - windowHeight / 2,

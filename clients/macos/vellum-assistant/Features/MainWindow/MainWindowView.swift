@@ -282,47 +282,46 @@ struct MainWindowView: View {
     private var coreLayoutView: some View {
         GeometryReader { geometry in
             Group {
-                VStack(spacing: 0) {
-                    // Top bar — full-width, darkest background
-                    HStack(spacing: 0) {
-                        VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true) {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                sidebarOpen.toggle()
-                            }
-                        }
-                        Spacer()
-                        if !isGeneratedWorkspaceOpen {
-                            TemporaryChatToggle(
-                                isActive: threadManager.activeThread?.kind == .private,
-                                onToggle: { toggleTemporaryChat() }
-                            )
-                        }
+                HStack(spacing: 0) {
+                    // Left: Full-height sidebar (extends behind traffic lights)
+                    sidebarView
+                        .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? threadDrawerWidth : 0, alignment: .leading)
+                        .clipped()
+                        .allowsHitTesting(sidebarOpen && windowState.layoutConfig.left.visible)
+                        .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
+                        .animation(nil, value: threadDrawerWidth)
+
+                    if sidebarOpen && windowState.layoutConfig.left.visible {
+                        drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
                     }
-                    .padding(.leading, trafficLightPadding)
-                    .padding(.trailing, VSpacing.lg)
-                    .frame(height: 36)
-                    .background(VColor.background)
 
-                    // Sidebar + main content
-                    HStack(spacing: 0) {
-                        // Left: Full-height sidebar (always rendered, width collapses to 0)
-                        sidebarView
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                            .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? threadDrawerWidth : 0, alignment: .leading)
-                            .clipped()
-                            .allowsHitTesting(sidebarOpen && windowState.layoutConfig.left.visible)
-                            .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
-                            .animation(nil, value: threadDrawerWidth)
-
-                        if sidebarOpen && windowState.layoutConfig.left.visible {
-                            drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
+                    // Right: Top bar + main content
+                    VStack(spacing: 0) {
+                        if windowState.isShowingChat {
+                            // Top bar — only shown for chat views, not panels.
+                            HStack(spacing: 0) {
+                                if !(sidebarOpen && windowState.layoutConfig.left.visible) {
+                                    VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true) {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                            sidebarOpen.toggle()
+                                        }
+                                    }
+                                }
+                                Spacer()
+                                TemporaryChatToggle(
+                                    isActive: threadManager.activeThread?.kind == .private,
+                                    onToggle: { toggleTemporaryChat() }
+                                )
+                            }
+                            .padding(.leading, (sidebarOpen && windowState.layoutConfig.left.visible) ? VSpacing.sm : trafficLightPadding)
+                            .padding(.trailing, VSpacing.lg)
+                            .frame(height: 36)
+                            .background(TitleBarInteractableBackground())
                         }
 
-                        // Right: Main content
+                        // Main content
                         chatContentView(geometry: geometry)
                     }
-                    .padding(.leading, VSpacing.sm)
-                    .padding(.bottom, VSpacing.sm)
                 }
                 .coordinateSpace(name: drawerDragCoordinateSpaceName)
                 .overlay {
@@ -341,14 +340,6 @@ struct MainWindowView: View {
                     // Control center drawer rendered at top level so it floats above all content
                     if showControlCenterDrawer {
                         DrawerMenuView(
-                            onIdentity: {
-                                showControlCenterDrawer = false
-                                windowState.togglePanel(.identity)
-                            },
-                            onSkills: {
-                                showControlCenterDrawer = false
-                                windowState.togglePanel(.agent)
-                            },
                             onTaskQueue: {
                                 showControlCenterDrawer = false
                                 (NSApp.delegate as? AppDelegate)?.showTasksWindow()
@@ -366,8 +357,8 @@ struct MainWindowView: View {
                                 windowState.togglePanel(.doctor)
                             }
                         )
-                        .frame(width: 200)
-                        .offset(x: threadDrawerWidth + 8, y: -8)
+                        .frame(width: threadDrawerWidth - VSpacing.sm * 2)
+                        .offset(x: VSpacing.sm, y: -52)
                         .zIndex(10)
                         .transition(.opacity)
                     }
@@ -671,102 +662,77 @@ struct MainWindowView: View {
     @ViewBuilder
     private var sidebarView: some View {
         VStack(spacing: 0) {
+            // Sidebar toggle in traffic-light row
+            HStack {
+                Spacer()
+                VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        sidebarOpen.toggle()
+                    }
+                }
+            }
+            .padding(.trailing, VSpacing.sm)
+            .frame(height: 36)
+
             ScrollView {
                 VStack(spacing: 0) {
-                    // MARK: Threads Section
-                    VStack(spacing: VSpacing.xs) {
-                        SidebarSectionHeader(title: "Threads") {
-                            NewConversationButton(action: { windowState.selection = nil; threadManager.createThread() })
-                        }
+                    // MARK: New Chat Button
+                    NewChatButton(action: { windowState.selection = nil; threadManager.createThread() })
+                        .padding(.bottom, VSpacing.sm)
 
-                        ForEach(displayedThreads) { thread in
-                            threadItem(thread)
-                                .dropDestination(for: String.self) { items, _ in
-                                    guard let droppedId = items.first,
-                                          let sourceUUID = UUID(uuidString: droppedId),
-                                          sourceUUID != thread.id else { return false }
-                                    return threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
-                                } isTargeted: { _ in }
-                        }
-
-                        if threadManager.visibleThreads.count > 5 {
-                            Button {
-                                withAnimation(VAnimation.standard) { showAllThreads.toggle() }
-                            } label: {
-                                Text(showAllThreads ? "Show less" : "Show more")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.leading, VSpacing.lg)
-                                    .padding(.vertical, VSpacing.xs)
-                            }
-                            .buttonStyle(.plain)
-                        }
+                    // MARK: Nav Items
+                    SidebarNavRow(icon: "square.grid.2x2", label: "App Directory") {
+                        windowState.togglePanel(.directory)
                     }
-                    .padding(.bottom, VSpacing.lg)
-
-                    VColor.background.frame(height: 1)
-                        .padding(.horizontal, VSpacing.sm)
-
-                    // MARK: Apps Section
-                    VStack(spacing: VSpacing.xs) {
-                        SidebarSectionHeader(title: "Apps") {
-                            VButton(label: "Directory", style: .ghost) {
-                                windowState.togglePanel(.directory)
-                            }
-                            .controlSize(.small)
-                        }
-
-                        if !appListManager.apps.isEmpty {
-                            ForEach(displayedApps) { app in
-                                sidebarAppItem(app)
-                                    .dropDestination(for: String.self) { items, _ in
-                                        guard let droppedId = items.first,
-                                              droppedId != app.id else { return false }
-                                        return appListManager.moveApp(sourceId: droppedId, beforeId: app.id)
-                                    } isTargeted: { _ in }
-                            }
-
-                            if appListManager.displayApps.count > 5 {
-                                Button {
-                                    withAnimation(VAnimation.standard) { showAllApps.toggle() }
-                                } label: {
-                                    Text(showAllApps ? "Show less" : "Show more")
-                                        .font(VFont.caption)
-                                        .foregroundColor(VColor.textMuted)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.leading, VSpacing.lg)
-                                        .padding(.vertical, VSpacing.xs)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
+                    SidebarNavRow(icon: "person.crop.circle", label: "Identity") {
+                        windowState.togglePanel(.identity)
                     }
-                    .padding(.top, VSpacing.lg)
+                    SidebarNavRow(icon: "wand.and.stars", label: "Skills") {
+                        windowState.togglePanel(.agent)
+                    }
+
+                    // MARK: Recents
+                    SidebarSubheader(title: "Recents")
+
+                    ForEach(displayedThreads) { thread in
+                        threadItem(thread)
+                            .padding(.bottom, 1)
+                            .dropDestination(for: String.self) { items, _ in
+                                guard let droppedId = items.first,
+                                      let sourceUUID = UUID(uuidString: droppedId),
+                                      sourceUUID != thread.id else { return false }
+                                return threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
+                            } isTargeted: { _ in }
+                    }
+
+                    if threadManager.visibleThreads.count > 5 {
+                        Button {
+                            withAnimation(VAnimation.standard) { showAllThreads.toggle() }
+                        } label: {
+                            Text(showAllThreads ? "Show less" : "Show more")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, VSpacing.md)
+                                .padding(.vertical, VSpacing.xs)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .padding(VSpacing.xs)
-                .padding(.top, VSpacing.sm)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                .padding(.horizontal, VSpacing.xs)
-                .padding(.top, VSpacing.xs)
             }
             .scrollClipDisabled()
             .clipped()
 
             Spacer(minLength: 0)
 
-            // Control Center pill button
-            ControlCenterMenuButton(
+            // Control Center row
+            ControlCenterRow(
                 onToggle: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                         showControlCenterDrawer.toggle()
                     }
                 }
             )
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.md)
-            .zIndex(1)
         }
         .frame(width: threadDrawerWidth)
         .background(VColor.backgroundSubtle)
@@ -1367,58 +1333,108 @@ private struct ZoomIndicatorView: View {
     }
 }
 
-private struct SidebarSectionHeader<Trailing: View>: View {
-    let title: String
-    let trailing: Trailing
-
-    init(title: String, @ViewBuilder trailing: () -> Trailing) {
-        self.title = title
-        self.trailing = trailing()
-    }
-
-    var body: some View {
-        HStack {
-            Text(title)
-                .font(VFont.headline)
-                .foregroundColor(VColor.textSecondary)
-                .textCase(.uppercase)
-            Spacer()
-            trailing
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.bottom, VSpacing.xs)
-    }
-}
-
-extension SidebarSectionHeader where Trailing == EmptyView {
-    init(title: String) {
-        self.title = title
-        self.trailing = EmptyView()
-    }
-}
-
-private struct NewConversationButton: View {
+private struct NewChatButton: View {
     let action: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
-        VButton(label: "New", icon: "plus", style: .primary, action: action)
-            .controlSize(.small)
+        Button(action: action) {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(VColor.textSecondary)
+                    .frame(width: 22, height: 22)
+                    .background(VColor.surfaceBorder.opacity(0.5))
+                    .clipShape(Circle())
+                Text("New chat")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : .clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
 
-private struct ControlCenterMenuButton: View {
-    let onToggle: () -> Void
+private struct SidebarNavRow: View {
+    let icon: String
+    let label: String
+    let action: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
-        VButton(label: "Control Center", icon: "gearshape", style: .ghost, size: .large, isFullWidth: true) {
-            onToggle()
+        Button(action: action) {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
+                    .frame(width: 18)
+                Text(label)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : .clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+}
+
+private struct SidebarSubheader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(VFont.caption)
+            .foregroundColor(VColor.textMuted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, 20)
+    }
+}
+
+private struct ControlCenterRow: View {
+    let onToggle: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(VColor.textSecondary)
+                    .frame(width: 18)
+                Text("Control Center")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(VColor.textMuted)
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.md)
+            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : .clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .overlay(alignment: .top) {
+            VColor.surfaceBorder.frame(height: 1)
         }
     }
 }
 
 private struct DrawerMenuView: View {
-    let onIdentity: () -> Void
-    let onSkills: () -> Void
     let onTaskQueue: () -> Void
     let onSettings: () -> Void
     let onDebug: () -> Void
@@ -1426,13 +1442,7 @@ private struct DrawerMenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DrawerMenuItem(icon: "person.crop.circle", label: "Identity", action: onIdentity)
-            DrawerMenuItem(icon: "wand.and.stars", label: "Skills", action: onSkills)
             DrawerMenuItem(icon: "list.bullet.clipboard", label: "Tasks", action: onTaskQueue)
-
-            VColor.surfaceBorder.frame(height: 1)
-                .padding(.vertical, VSpacing.xs)
-
             DrawerMenuItem(icon: "gearshape", label: "Settings", action: onSettings)
 
             VColor.surfaceBorder.frame(height: 1)
@@ -1448,7 +1458,7 @@ private struct DrawerMenuView: View {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(VColor.surfaceBorder, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.3), radius: 12, x: 4)
+        .shadow(color: .black.opacity(0.15), radius: 6, y: -2)
     }
 }
 
@@ -1486,6 +1496,31 @@ private struct DrawerMenuItem: View {
     }
 }
 
+
+// MARK: - Title Bar Hit-Testing Fix
+
+/// An AppKit-backed background view that tells macOS "don't drag the window
+/// from this area."  Without this, the transparent title bar swallows clicks
+/// intended for the sidebar toggle and temporary-chat toggle when the sidebar
+/// is closed, because the buttons sit inside a nested HStack>VStack rather
+/// than at the root VStack level where NSHostingView's hit-test naturally
+/// finds them.
+private struct TitleBarInteractableBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> some NSView {
+        let view = NonDraggableView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor(VColor.background).cgColor
+        return view
+    }
+
+    func updateNSView(_ nsView: some NSView, context: Context) {
+        nsView.layer?.backgroundColor = NSColor(VColor.background).cgColor
+    }
+}
+
+private class NonDraggableView: NSView {
+    override var mouseDownCanMoveWindow: Bool { false }
+}
 
 // MARK: - File Picker Helper
 

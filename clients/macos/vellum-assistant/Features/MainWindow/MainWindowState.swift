@@ -71,6 +71,15 @@ final class MainWindowState: ObservableObject {
         }
     }
 
+    /// Whether the main content area is showing a plain chat conversation
+    /// (either an explicit `.thread` selection or `nil` which defaults to chat).
+    var isShowingChat: Bool {
+        switch selection {
+        case .thread, .none: return true
+        default: return false
+        }
+    }
+
     /// Whether the dynamic workspace (app view) is expanded.
     var isDynamicExpanded: Bool {
         get {
