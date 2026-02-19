@@ -3167,6 +3167,126 @@ The avatar evolves during onboarding based on conversation and identity choices.
 
 **Persistence:** Evolution state in UserDefaults, resolved appearance in LOOKS.md
 
+## Outgoing AI Phone Calls — Twilio ConversationRelay
+
+The Calls subsystem enables the assistant to place outgoing phone calls on behalf of the user via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak with the callee in real time, and can pause to consult the user (in the chat UI) when it encounters questions it cannot answer on its own.
+
+### Call Flow
+
+```mermaid
+sequenceDiagram
+    participant User as User (Chat UI)
+    participant Session as Session / Tool Executor
+    participant CallStore as CallStore (SQLite)
+    participant TwilioProvider as TwilioProvider
+    participant TwilioAPI as Twilio REST API
+    participant TwilioWH as Twilio Webhooks
+    participant Routes as twilio-routes.ts
+    participant WS as RelayConnection (WebSocket)
+    participant Orch as CallOrchestrator
+    participant LLM as Anthropic Claude
+    participant State as CallState (Notifiers)
+
+    User->>Session: call_start tool
+    Session->>CallStore: createCallSession()
+    Session->>TwilioProvider: initiateCall()
+    TwilioProvider->>TwilioAPI: POST /Calls.json
+    TwilioAPI-->>TwilioProvider: { callSid }
+    Session->>CallStore: updateCallSession(providerCallSid)
+
+    TwilioAPI->>Routes: POST /v1/calls/voice-webhook
+    Routes->>CallStore: getCallSession()
+    Routes-->>TwilioAPI: TwiML (ConversationRelay connect)
+
+    TwilioAPI->>WS: WebSocket /v1/calls/relay
+    WS->>WS: setup message (callSid)
+    WS->>Orch: new CallOrchestrator()
+    Orch->>State: registerCallOrchestrator()
+
+    loop Conversation turns
+        TwilioAPI->>WS: prompt (caller utterance)
+        WS->>Orch: handleCallerUtterance()
+        Orch->>LLM: messages.stream()
+        LLM-->>Orch: text tokens (streaming)
+        Orch->>WS: sendTextToken() (for TTS)
+        Orch->>CallStore: recordCallEvent()
+    end
+
+    alt ASK_USER pattern detected
+        Orch->>CallStore: createPendingQuestion()
+        Orch->>State: fireCallQuestionNotifier()
+        State->>Session: question callback
+        Session->>User: display question in chat
+        User->>Routes: POST /v1/calls/:id/answer
+        Routes->>CallStore: answerPendingQuestion()
+        Routes->>Orch: handleUserAnswer()
+        Orch->>LLM: continue with [USER_ANSWERED: ...]
+    end
+
+    alt END_CALL pattern detected
+        Orch->>WS: endSession()
+        Orch->>CallStore: updateCallSession(completed)
+        Orch->>State: fireCallCompletionNotifier()
+    end
+
+    TwilioAPI->>Routes: POST /v1/calls/status-callback
+    Routes->>CallStore: updateCallSession(status)
+```
+
+### Key Components
+
+| File | Role |
+|------|------|
+| `assistant/src/calls/call-store.ts` | CRUD operations for call sessions, call events, and pending questions in SQLite via Drizzle ORM |
+| `assistant/src/calls/twilio-provider.ts` | Twilio Voice REST API integration (initiateCall, endCall, getCallStatus) using direct fetch — no Twilio SDK dependency |
+| `assistant/src/calls/twilio-routes.ts` | HTTP webhook handlers: voice webhook (returns TwiML), status callback, connect action, and user answer endpoint |
+| `assistant/src/calls/relay-server.ts` | WebSocket handler for the Twilio ConversationRelay protocol; manages RelayConnection instances per call |
+| `assistant/src/calls/call-orchestrator.ts` | LLM-driven conversation manager: receives caller utterances, streams responses via Anthropic Claude, detects ASK_USER and END_CALL control markers |
+| `assistant/src/calls/call-state.ts` | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and orchestrator registry |
+| `assistant/src/calls/call-constants.ts` | Configuration constants: MAX_CALL_DURATION_MS (12 min), USER_CONSULTATION_TIMEOUT_MS (90 s), SILENCE_TIMEOUT_MS (30 s), denied emergency numbers |
+| `assistant/src/calls/voice-provider.ts` | Abstract VoiceProvider interface for provider-agnostic call initiation |
+| `assistant/src/calls/twilio-config.ts` | Twilio credential and configuration resolution from secure key store and environment |
+| `assistant/src/calls/types.ts` | TypeScript type definitions: CallSession, CallEvent, CallPendingQuestion, CallStatus, CallEventType |
+
+### New SQLite Tables
+
+All three tables live in `~/.vellum/workspace/data/db/assistant.db` alongside existing tables:
+
+- **`call_sessions`** — One row per outgoing call. Tracks conversation association, provider info (Twilio CallSid), phone numbers, task description, status lifecycle (`initiated` -> `ringing` -> `in_progress` -> `waiting_on_user` -> `completed`/`failed`), and timestamps. Foreign key to `conversations(id)` with cascade delete.
+
+- **`call_events`** — Append-only event log for each call session. Event types include `call_started`, `call_connected`, `caller_spoke`, `assistant_spoke`, `user_question_asked`, `user_answered`, `call_ended`, `call_failed`. Each event carries a JSON payload. Foreign key to `call_sessions(id)` with cascade delete.
+
+- **`call_pending_questions`** — Tracks questions the AI asks the user during a call (via the `[ASK_USER: ...]` pattern). Status lifecycle: `pending` -> `answered`/`expired`/`cancelled`. Foreign key to `call_sessions(id)` with cascade delete.
+
+### New HTTP Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/calls/voice-webhook` | Twilio voice webhook; returns TwiML with ConversationRelay connect |
+| POST | `/v1/calls/status-callback` | Twilio status callback (ringing, in-progress, completed, failed) |
+| POST | `/v1/calls/connect-action` | TwiML connect action callback when ConversationRelay ends |
+| POST | `/v1/calls/:callSessionId/answer` | User answers a pending question from the chat UI |
+| WS | `/v1/calls/relay` | ConversationRelay WebSocket (bidirectional: prompt/interrupt/dtmf from Twilio, text tokens/end to Twilio) |
+
+### New Tools
+
+| Tool | Description |
+|------|-------------|
+| `call_start` | Initiates an outgoing phone call to a specified number with an optional task description |
+| `call_status` | Retrieves the current status of a call session |
+| `call_end` | Terminates an active call |
+
+### Control Markers
+
+The CallOrchestrator detects two special markers in the LLM's response text:
+
+- **`[ASK_USER: question]`** — The AI needs to consult the user. The orchestrator creates a pending question, notifies the session via `fireCallQuestionNotifier`, puts the caller on hold, and waits up to 90 seconds for a user answer.
+- **`[END_CALL]`** — The AI has determined the call's purpose is fulfilled. The orchestrator sends a goodbye, closes the ConversationRelay session, and marks the call as completed.
+
+Both markers are stripped from the TTS output so the callee never hears the raw control text.
+
+---
+
 ## Storage Summary
 
 | What | Where | Format | ORM/Driver | Retention |
@@ -3198,4 +3318,6 @@ The avatar evolves during onboarding based on conversation and identity choices.
 | Proxy CA cert + key | `{dataDir}/proxy-ca/` | PEM files (ca.pem, ca-key.pem) | openssl CLI | Permanent (10-year validity) |
 | Proxy leaf certs | `{dataDir}/proxy-ca/issued/` | PEM files per hostname | openssl CLI, cached | 1-year validity, re-issued on CA change |
 | Proxy sessions | In-memory (SessionManager) | Map<ProxySessionId, ManagedSession> | Manual lifecycle | Ephemeral; 5min idle timeout, cleared on shutdown |
+| Call sessions, events, pending questions | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, cascade on session delete |
+| Active call orchestrators | In-memory (CallState) | Map<callSessionId, CallOrchestrator> | Manual lifecycle | Ephemeral; cleared on call end or destroy |
 | IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |
