@@ -7,6 +7,7 @@ import VellumAssistantShared
 /// or wrapped in a VSidePanel via AgentPanel.
 struct AgentPanelContent: View {
     var onInvokeSkill: ((SkillInfo) -> Void)?
+    var onSkillsChanged: (() -> Void)?
     let daemonClient: DaemonClient
 
     @StateObject private var skillsManager: SkillsManager
@@ -18,8 +19,9 @@ struct AgentPanelContent: View {
     @State private var hoveredDetailInstall = false
     @State private var skillToDelete: SkillInfo?
 
-    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient) {
+    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: DaemonClient) {
         self.onInvokeSkill = onInvokeSkill
+        self.onSkillsChanged = onSkillsChanged
         self.daemonClient = daemonClient
         _skillsManager = StateObject(wrappedValue: SkillsManager(daemonClient: daemonClient))
     }
@@ -38,6 +40,9 @@ struct AgentPanelContent: View {
         }
         .onAppear {
             skillsManager.fetchSkills()
+        }
+        .onChange(of: skillsManager.skills.map(\.id)) {
+            onSkillsChanged?()
         }
         .alert("Delete Skill", isPresented: Binding(
             get: { skillToDelete != nil },

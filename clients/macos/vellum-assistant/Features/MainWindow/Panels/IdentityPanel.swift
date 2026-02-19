@@ -63,6 +63,7 @@ struct IdentityPanel: View {
                     // Skills management
                     AgentPanelContent(
                         onInvokeSkill: onInvokeSkill,
+                        onSkillsChanged: { fetchSkills() },
                         daemonClient: daemonClient
                     )
                     .padding(.horizontal, VSpacing.lg)
