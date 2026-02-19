@@ -36,12 +36,12 @@ function escapeXml(str: string): string {
     .replace(/'/g, '&apos;');
 }
 
-function generateTwiML(callSessionId: string, wssBaseUrl: string, welcomeGreeting: string): string {
+function generateTwiML(callSessionId: string, relayUrl: string, welcomeGreeting: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
     <ConversationRelay
-      url="${escapeXml(wssBaseUrl)}/v1/calls/relay?callSessionId=${escapeXml(callSessionId)}"
+      url="${escapeXml(relayUrl)}?callSessionId=${escapeXml(callSessionId)}"
       welcomeGreeting="${escapeXml(welcomeGreeting)}"
       voice="Google.en-US-Journey-O"
       language="en-US"
@@ -113,10 +113,17 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   }
 
   const config = getTwilioConfig();
-  const wssBaseUrl = config.wssBaseUrl || config.webhookBaseUrl.replace(/^http/, 'ws');
+  let relayUrl: string;
+  if (config.wssBaseUrl) {
+    // wssBaseUrl points directly to runtime — use runtime's internal relay path
+    relayUrl = `${config.wssBaseUrl.replace(/\/$/, '')}/v1/calls/relay`;
+  } else {
+    // Fall back to gateway's public URL — use gateway's relay path
+    relayUrl = `${config.webhookBaseUrl.replace(/\/$/, '').replace(/^http/, 'ws')}/webhooks/twilio/relay`;
+  }
   const welcomeGreeting = process.env.CALL_WELCOME_GREETING ?? 'Hello, how can I help you today?';
 
-  const twiml = generateTwiML(callSessionId, wssBaseUrl, welcomeGreeting);
+  const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting);
 
   log.info({ callSessionId }, 'Returning ConversationRelay TwiML');
 

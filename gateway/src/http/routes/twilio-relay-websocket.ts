@@ -34,6 +34,7 @@ type RelaySocketData = {
   callSessionId: string;
   config: GatewayConfig;
   upstream?: WebSocket;
+  pendingMessages?: (string | ArrayBuffer | Uint8Array)[];
 };
 
 /**
@@ -43,6 +44,9 @@ export function getRelayWebsocketHandlers() {
   return {
     open(ws: import("bun").ServerWebSocket<RelaySocketData>) {
       const { callSessionId, config } = ws.data;
+
+      // Initialize message buffer for frames arriving before upstream connects
+      ws.data.pendingMessages = [];
 
       // Build upstream URL to runtime
       const runtimeBase = config.assistantRuntimeBaseUrl.replace(/^http/, 'ws');
@@ -55,6 +59,14 @@ export function getRelayWebsocketHandlers() {
 
       upstream.addEventListener("open", () => {
         log.info({ callSessionId }, "Upstream WS connected");
+        // Flush any buffered messages
+        const pending = ws.data.pendingMessages;
+        if (pending) {
+          for (const msg of pending) {
+            upstream.send(msg);
+          }
+          ws.data.pendingMessages = undefined;
+        }
       });
 
       upstream.addEventListener("message", (event) => {
@@ -79,6 +91,9 @@ export function getRelayWebsocketHandlers() {
       const upstream = ws.data.upstream;
       if (upstream && upstream.readyState === WebSocket.OPEN) {
         upstream.send(message);
+      } else if (ws.data.pendingMessages) {
+        // Buffer messages until upstream connects
+        ws.data.pendingMessages.push(message);
       }
     },
 
