@@ -314,9 +314,12 @@ export function drainDirectiveDisplayBuffer(buffer: string): DirectiveDisplayDra
     if (!isValidDirective) {
       emitText += tag;
     } else {
-      // Trim the trailing newline before a stripped directive so consecutive
-      // tags don't leave a stack of blank lines in the streamed text.
-      if (emitText.endsWith('\n')) {
+      // Only trim the trailing newline when the directive occupied its own
+      // line (preceded by \n and followed by \n or end-of-buffer). This
+      // avoids corrupting inline text like "Hello\n<directive/>world" into
+      // "Helloworld".
+      const nextChar = buffer[end + 2];
+      if (emitText.endsWith('\n') && (nextChar === '\n' || nextChar === undefined)) {
         emitText = emitText.slice(0, -1);
       }
     }
