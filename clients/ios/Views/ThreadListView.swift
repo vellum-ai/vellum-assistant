@@ -5,16 +5,19 @@ import VellumAssistantShared
 
 // MARK: - IOSThread
 
-/// Represents a single local chat thread on iOS.
+/// Represents a single chat thread on iOS.
 struct IOSThread: Identifiable {
     let id: UUID
     var title: String
     let createdAt: Date
+    /// When non-nil, this thread is backed by a daemon session (Connected mode).
+    var sessionId: String?
 
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date()) {
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), sessionId: String? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
+        self.sessionId = sessionId
     }
 }
 
@@ -29,30 +32,112 @@ private struct PersistedThread: Codable {
 
 // MARK: - IOSThreadStore
 
-/// Manages a list of local chat threads for iOS with JSON persistence via UserDefaults.
-/// Each thread owns an independent ChatViewModel instance so threads
-/// do not share message history or sending state.
+/// Manages a list of chat threads for iOS.
+///
+/// In Standalone mode: threads are persisted locally via UserDefaults.
+/// In Connected mode: threads are loaded from the daemon (shared with macOS).
+/// Each thread owns an independent ChatViewModel instance.
 @MainActor
 class IOSThreadStore: ObservableObject {
     @Published var threads: [IOSThread] = []
+    @Published var isConnectedMode: Bool = false
 
     /// ViewModels keyed by thread ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
     private let daemonClient: any DaemonClientProtocol
     private static let persistenceKey = "ios_threads_v1"
     private var cancellables: Set<AnyCancellable> = []
+    /// Maps daemon session IDs to thread IDs for history loading.
+    private var pendingHistoryBySessionId: [String: UUID] = [:]
 
     init(daemonClient: any DaemonClientProtocol) {
         self.daemonClient = daemonClient
-        let loaded = Self.load()
-        if loaded.isEmpty {
-            // First launch: create a default thread without persisting yet
-            let thread = IOSThread()
-            threads = [thread]
-            save()
+
+        if let daemon = daemonClient as? DaemonClient {
+            // Connected mode — load threads from daemon
+            isConnectedMode = true
+            let defaultThread = IOSThread()
+            threads = [defaultThread]
+            setupDaemonCallbacks(daemon)
         } else {
-            threads = loaded
+            // Standalone mode — load from local persistence
+            let loaded = Self.load()
+            if loaded.isEmpty {
+                let thread = IOSThread()
+                threads = [thread]
+                save()
+            } else {
+                threads = loaded
+            }
         }
+    }
+
+    // MARK: - Daemon Thread Sync
+
+    private func setupDaemonCallbacks(_ daemon: DaemonClient) {
+        daemon.onSessionListResponse = { [weak self] response in
+            self?.handleSessionListResponse(response)
+        }
+        daemon.onHistoryResponse = { [weak self] response in
+            self?.handleHistoryResponse(response)
+        }
+
+        // Fetch session list once connected
+        daemon.$isConnected
+            .removeDuplicates()
+            .filter { $0 }
+            .first()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                try? daemon.sendSessionList()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func handleSessionListResponse(_ response: SessionListResponseMessage) {
+        guard !response.sessions.isEmpty else { return }
+
+        let recentSessions = Array(response.sessions.filter { $0.threadType != "private" }.prefix(10))
+
+        var restoredThreads: [IOSThread] = []
+        for session in recentSessions {
+            let thread = IOSThread(
+                title: session.title,
+                createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
+                sessionId: session.id
+            )
+            let vm = ChatViewModel(daemonClient: daemonClient)
+            vm.sessionId = session.id
+            viewModels[thread.id] = vm
+            restoredThreads.append(thread)
+        }
+
+        // Replace the default empty thread with daemon threads
+        let defaultIsEmpty = threads.count == 1
+            && viewModels[threads[0].id]?.messages.isEmpty ?? true
+            && viewModels[threads[0].id]?.sessionId == nil
+        if defaultIsEmpty, let defaultThread = threads.first {
+            viewModels.removeValue(forKey: defaultThread.id)
+        }
+        threads = restoredThreads
+    }
+
+    private func handleHistoryResponse(_ response: HistoryResponseMessage) {
+        guard let threadId = pendingHistoryBySessionId.removeValue(forKey: response.sessionId) else { return }
+        guard let vm = viewModels[threadId] else { return }
+        vm.populateFromHistory(response.messages)
+    }
+
+    /// Load history for a daemon-backed thread when first selected.
+    func loadHistoryIfNeeded(for threadId: UUID) {
+        guard let thread = threads.first(where: { $0.id == threadId }),
+              let sessionId = thread.sessionId,
+              let daemon = daemonClient as? DaemonClient,
+              let vm = viewModels[threadId],
+              !vm.isHistoryLoaded else { return }
+
+        pendingHistoryBySessionId[sessionId] = threadId
+        try? daemon.sendHistoryRequest(sessionId: sessionId)
     }
 
     /// Return the ChatViewModel for the given thread, creating it if necessary.
@@ -128,6 +213,8 @@ class IOSThreadStore: ObservableObject {
     // MARK: - Persistence
 
     private func save() {
+        // Don't persist daemon-synced threads — they're loaded on connect.
+        guard !isConnectedMode else { return }
         let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt) }
         if let data = try? JSONEncoder().encode(persisted) {
             UserDefaults.standard.set(data, forKey: Self.persistenceKey)
@@ -206,6 +293,9 @@ struct ThreadListView: View {
         if let selectedId = selectedThreadId,
            store.threads.contains(where: { $0.id == selectedId }) {
             ThreadChatView(viewModel: store.viewModel(for: selectedId))
+                .onAppear {
+                    store.loadHistoryIfNeeded(for: selectedId)
+                }
         } else {
             Text("Select a chat")
                 .foregroundStyle(.secondary)
