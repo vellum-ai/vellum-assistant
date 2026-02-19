@@ -5,7 +5,6 @@ import { getLogger } from '../util/logger.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
 import { getConfig } from './loader.js';
 import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
-import { discoverCCCommands } from '../commands/cc-command-registry.js';
 
 const log = getLogger('system-prompt');
 
@@ -82,7 +81,7 @@ export function isOnboardingComplete(): boolean {
  *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
  *   4. Append skills catalog from ~/.vellum/workspace/skills
  */
-export function buildSystemPrompt(cwd?: string): string {
+export function buildSystemPrompt(): string {
   const soulPath = getWorkspacePromptPath('SOUL.md');
   const identityPath = getWorkspacePromptPath('IDENTITY.md');
   const userPath = getWorkspacePromptPath('USER.md');
@@ -125,8 +124,6 @@ export function buildSystemPrompt(cwd?: string): string {
   parts.push(buildWorkspaceReflectionSection());
   parts.push(buildLearningMemorySection());
   parts.push(buildPostToolResponseSection());
-
-  appendCCCommandsCatalog(parts, cwd);
 
   return appendSkillsCatalog(parts.join('\n\n'));
 }
@@ -950,25 +947,6 @@ function readPromptFile(path: string): string | null {
     log.warn({ err, path }, 'Failed to read prompt file');
     return null;
   }
-}
-
-function appendCCCommandsCatalog(parts: string[], cwd?: string): void {
-  if (!cwd) return;
-
-  const registry = discoverCCCommands(cwd);
-  if (registry.entries.size === 0) return;
-
-  const lines: string[] = [];
-  lines.push('## Claude Code Commands');
-  lines.push('');
-  lines.push('The following Claude Code commands are available via `.claude/commands/`. Users can invoke them with `/command-name` or you can execute them using the `claude_code` tool with the `command` parameter.');
-  lines.push('');
-
-  for (const [, entry] of registry.entries) {
-    lines.push(`- **${entry.name}**: ${entry.summary}`);
-  }
-
-  parts.push(lines.join('\n'));
 }
 
 function appendSkillsCatalog(basePrompt: string): string {

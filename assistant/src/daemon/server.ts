@@ -899,7 +899,7 @@ export class DaemonServer {
         }
         const workingDir = getSandboxWorkingDir();
 
-        const systemPrompt = storedOptions?.systemPromptOverride ?? buildSystemPrompt(workingDir);
+        const systemPrompt = storedOptions?.systemPromptOverride ?? buildSystemPrompt();
         const maxTokens = storedOptions?.maxResponseTokens ?? config.maxTokens;
 
         const memoryPolicy = this.deriveMemoryPolicy(conversationId);
