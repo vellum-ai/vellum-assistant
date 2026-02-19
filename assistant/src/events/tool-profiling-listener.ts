@@ -78,6 +78,14 @@ export class ToolProfiler {
     };
   }
 
+  /** Release all accumulated stats. */
+  clear(): void {
+    this.tools.clear();
+    this.requestStartMs = 0;
+    this.rssStartBytes = 0;
+    this.peakRssBytes = 0;
+  }
+
   emitSummary(traceEmitter: TraceEmitter, requestId?: string): void {
     const summary = this.getSummary();
     if (summary.toolCount === 0) return;

@@ -480,6 +480,18 @@ export class Session {
     unregisterSessionSender(this.conversationId);
     resetSkillToolProjection(this.skillProjectionState);
     this.eventBus.dispose();
+
+    // Release heavy in-memory data so GC can reclaim it even if stale
+    // closure references (e.g. from buildEventHandler / onCheckpoint)
+    // keep this Session object reachable.
+    this.messages = [];
+    this.profiler.clear();
+    this.surfaceUndoStacks.clear();
+    this.currentTurnSurfaces = [];
+    this.pendingSurfaceActions.clear();
+    this.surfaceState.clear();
+    this.lastSurfaceAction.clear();
+    this.workspaceTopLevelContext = null;
   }
 
   /**
