@@ -50,12 +50,12 @@ export function extractRemoteUrls(html: string): string[] {
     }
   }
 
-  // Match href="..." on any element except <a> tags (which are navigation links, not assets).
-  // Captures the tag name and href value so we can skip anchors.
+  // Match href="..." on any element except navigation/resolution tags (not assets).
+  // Captures the tag name and href value so we can skip them.
   const hrefRe = /<(\w+)\b[^>]*?\bhref\s*=\s*(?:"([^"]*?)"|'([^']*?)'|([^\s>]+))[^>]*?\/?>/gi;
   while ((m = hrefRe.exec(html)) !== null) {
     const tagName = m[1];
-    if (tagName.toLowerCase() === 'a') continue;
+    if (['a', 'base', 'area'].includes(tagName.toLowerCase())) continue;
     const url = m[2] ?? m[3] ?? m[4];
     if (url && /^https?:\/\//i.test(url)) {
       urls.add(url);
