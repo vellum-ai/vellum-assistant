@@ -159,17 +159,12 @@ export async function handleDiagnosticsExport(
       .orderBy(llmUsageEvents.createdAt)
       .all();
 
-    // 5b. Query raw LLM request/response logs in the range
+    // 5b. Query ALL raw LLM request/response logs for the conversation
+    // (not time-scoped — we want the full request history for debugging)
     const rangeRequestLogs = db
       .select()
       .from(llmRequestLogs)
-      .where(
-        and(
-          eq(llmRequestLogs.conversationId, conversationId),
-          gte(llmRequestLogs.createdAt, rangeStart),
-          lte(llmRequestLogs.createdAt, usageRangeEnd),
-        ),
-      )
+      .where(eq(llmRequestLogs.conversationId, conversationId))
       .orderBy(llmRequestLogs.createdAt)
       .all();
 
