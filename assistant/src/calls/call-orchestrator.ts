@@ -52,6 +52,13 @@ export class CallOrchestrator {
   }
 
   /**
+   * Returns the current orchestrator state.
+   */
+  getState(): OrchestratorState {
+    return this.state;
+  }
+
+  /**
    * Handle a final caller utterance from the ConversationRelay.
    */
   async handleCallerUtterance(transcript: string): Promise<void> {

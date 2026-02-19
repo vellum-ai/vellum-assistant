@@ -5,6 +5,7 @@ import { registerTool } from '../registry.js';
 import { getCallSession, updateCallSession } from '../../calls/call-store.js';
 import { getCallOrchestrator, unregisterCallOrchestrator } from '../../calls/call-state.js';
 import { activeRelayConnections } from '../../calls/relay-server.js';
+import { TwilioConversationRelayProvider } from '../../calls/twilio-provider.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('call-end');
@@ -60,6 +61,17 @@ class CallEndTool implements Tool {
       }
 
       log.info({ callSessionId, reason }, 'Ending call');
+
+      // Terminate the call via the provider API so Twilio hangs up,
+      // even if the relay WebSocket is not connected.
+      if (session.providerCallSid) {
+        try {
+          const provider = new TwilioConversationRelayProvider();
+          await provider.endCall(session.providerCallSid);
+        } catch (endErr) {
+          log.warn({ err: endErr, callSessionId, callSid: session.providerCallSid }, 'Failed to terminate call via provider API — proceeding with cleanup');
+        }
+      }
 
       // End the relay connection if active
       const relayConnection = activeRelayConnections.get(callSessionId);

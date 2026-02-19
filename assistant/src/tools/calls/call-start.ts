@@ -70,6 +70,10 @@ class CallStartTool implements Tool {
 
     const callContext = input.context as string | undefined;
 
+    // Create session outside the try block so it's available in the catch block
+    // for marking as failed if the provider call fails.
+    let sessionId: string | null = null;
+
     try {
       const config = getTwilioConfig();
       const provider = new TwilioConversationRelayProvider();
@@ -81,6 +85,7 @@ class CallStartTool implements Tool {
         toNumber: phoneNumber,
         task: callContext ? `${task}\n\nContext: ${callContext}` : task,
       });
+      sessionId = session.id;
 
       log.info({ callSessionId: session.id, to: phoneNumber, task }, 'Initiating outbound call');
 
@@ -111,6 +116,16 @@ class CallStartTool implements Tool {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error({ err, phoneNumber }, 'Failed to initiate call');
+
+      // Mark the session as failed so it doesn't stay in 'initiated' state
+      if (sessionId) {
+        updateCallSession(sessionId, {
+          status: 'failed',
+          endedAt: Date.now(),
+          lastError: msg,
+        });
+      }
+
       return { content: `Error initiating call: ${msg}`, isError: true };
     }
   }

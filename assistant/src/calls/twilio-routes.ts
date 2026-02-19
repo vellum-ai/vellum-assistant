@@ -218,7 +218,15 @@ export async function handleCallAnswer(req: Request, callSessionId: string): Pro
     return Response.json({ error: 'No active orchestrator for this call' }, { status: 409 });
   }
 
-  // Mark question as answered
+  if (orchestrator.getState() !== 'waiting_on_user') {
+    log.warn(
+      { callSessionId, state: orchestrator.getState() },
+      'handleCallAnswer: orchestrator is not in waiting_on_user state',
+    );
+    return Response.json({ error: 'Orchestrator is not waiting for an answer' }, { status: 409 });
+  }
+
+  // Mark question as answered — only after confirming the orchestrator is ready
   answerPendingQuestion(question.id, body.answer);
 
   // Route answer to the orchestrator
