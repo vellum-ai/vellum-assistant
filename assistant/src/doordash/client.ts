@@ -50,6 +50,14 @@ export class SessionExpiredError extends Error {
   }
 }
 
+/** Thrown when DoorDash returns HTTP 403 (rate limited). */
+export class RateLimitError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'RateLimitError';
+  }
+}
+
 function requireSession(): DoorDashSession {
   const session = loadSession();
   if (!session) {
@@ -152,8 +160,10 @@ async function cdpFetch(wsUrl: string, url: string, body: string): Promise<unkno
 
           const parsed = typeof value === 'string' ? JSON.parse(value) : value;
           if (parsed.__error) {
-            if (parsed.__status === 403 || parsed.__status === 401) {
+            if (parsed.__status === 401) {
               reject(new SessionExpiredError('DoorDash session has expired.'));
+            } else if (parsed.__status === 403) {
+              reject(new RateLimitError('DoorDash rate limit hit (HTTP 403).'));
             } else {
               reject(new Error(parsed.__message ?? `HTTP ${parsed.__status}: ${parsed.__body ?? ''}`));
             }
@@ -175,28 +185,54 @@ async function cdpFetch(wsUrl: string, url: string, body: string): Promise<unkno
   });
 }
 
+let lastRequestTime = 0;
+
 async function graphql<T = unknown>(
   operationName: string,
   query: string,
   variables: Record<string, unknown>,
   _session?: DoorDashSession,
 ): Promise<T> {
-  // Still require a session to exist (proves we've logged in)
   if (!_session) requireSession();
 
   const wsUrl = await findDoordashTab();
   const url = `${GRAPHQL_BASE}/${operationName}?operation=${operationName}`;
   const body = JSON.stringify({ operationName, variables, query });
 
-  const json = (await cdpFetch(wsUrl, url, body)) as GraphQLResponse<T>;
-  if (json.errors?.length) {
-    const msgs = json.errors.map(e => e.message || JSON.stringify(e)).join('; ');
-    throw new Error(`GraphQL errors: ${msgs}`);
+  const backoffSchedule = [5000, 10000, 20000];
+
+  for (let attempt = 0; ; attempt++) {
+    // Inter-request delay
+    const now = Date.now();
+    const elapsed = now - lastRequestTime;
+    if (lastRequestTime > 0 && elapsed < 2000) {
+      await new Promise(r => setTimeout(r, 2000 - elapsed));
+    }
+
+    try {
+      const json = (await cdpFetch(wsUrl, url, body)) as GraphQLResponse<T>;
+      lastRequestTime = Date.now();
+
+      if (json.errors?.length) {
+        const msgs = json.errors.map(e => e.message || JSON.stringify(e)).join('; ');
+        throw new Error(`Unexpected response from DoorDash API: ${msgs}`);
+      }
+      if (!json.data) {
+        throw new Error('Unexpected response format from DoorDash API');
+      }
+      return json.data;
+    } catch (err) {
+      if (err instanceof RateLimitError && attempt < backoffSchedule.length) {
+        const delay = backoffSchedule[attempt];
+        process.stderr.write(
+          `[doordash] Rate limited, retrying in ${delay / 1000}s... (attempt ${attempt + 1}/${backoffSchedule.length})\n`,
+        );
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
   }
-  if (!json.data) {
-    throw new Error('Empty response from DoorDash API');
-  }
-  return json.data;
 }
 
 // ---------------------------------------------------------------------------
