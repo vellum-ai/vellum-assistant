@@ -228,4 +228,5 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       denyCategories: [],
     },
   },
+  slashCollisionPreference: 'ask',
 };

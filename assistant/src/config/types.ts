@@ -34,4 +34,5 @@ export type {
   CallsConfig,
   CallsDisclosureConfig,
   CallsSafetyConfig,
+  SlashCollisionPreference,
 } from './schema.js';

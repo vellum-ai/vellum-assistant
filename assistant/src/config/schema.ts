@@ -9,6 +9,7 @@ const VALID_SANDBOX_BACKENDS = ['native', 'docker'] as const;
 const VALID_DOCKER_NETWORKS = ['none', 'bridge'] as const;
 const VALID_PERMISSIONS_MODES = ['legacy', 'strict'] as const;
 const VALID_CALL_PROVIDERS = ['twilio'] as const;
+const VALID_SLASH_COLLISION_PREFERENCES = ['ask', 'prefer_vellum', 'prefer_cc'] as const;
 
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
@@ -1163,6 +1164,11 @@ export const AssistantConfigSchema = z.object({
       denyCategories: [],
     },
   }),
+  slashCollisionPreference: z
+    .enum(VALID_SLASH_COLLISION_PREFERENCES, {
+      error: `slashCollisionPreference must be one of: ${VALID_SLASH_COLLISION_PREFERENCES.join(', ')}`,
+    })
+    .default('ask'),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
     ctx.addIssue({
@@ -1223,3 +1229,4 @@ export type WorkspaceGitConfig = z.infer<typeof WorkspaceGitConfigSchema>;
 export type CallsConfig = z.infer<typeof CallsConfigSchema>;
 export type CallsDisclosureConfig = z.infer<typeof CallsDisclosureConfigSchema>;
 export type CallsSafetyConfig = z.infer<typeof CallsSafetyConfigSchema>;
+export type SlashCollisionPreference = z.infer<typeof AssistantConfigSchema>['slashCollisionPreference'];
