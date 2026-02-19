@@ -274,6 +274,24 @@ struct HatchingStepView: View {
                         }
                     }
                 }
+
+                let lockfilePath = FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent(".vellum.lock.json").path
+                if let data = FileManager.default.contents(atPath: lockfilePath),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let assistants = json["assistants"] as? [[String: Any]] {
+                    let isoFormatter = ISO8601DateFormatter()
+                    isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    let sorted = assistants.sorted { a, b in
+                        let dateA = (a["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
+                        let dateB = (b["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
+                        return dateA > dateB
+                    }
+                    if let assistantId = sorted.first?["assistantId"] as? String {
+                        UserDefaults.standard.set(assistantId, forKey: "connectedAssistantId")
+                    }
+                }
+
                 await MainActor.run {
                     state.hatchCompleted = true
                 }

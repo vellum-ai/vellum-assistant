@@ -317,30 +317,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func performRetire() {
         let cliLauncher = CLILauncher()
-        let lockfilePath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum.lock.json").path
-
-        let hostingModeToCloud: [String: String] = [
-            "aws": "aws",
-            "customHardware": "custom",
-            "gcp": "gcp",
-        ]
-        let config = WorkspaceConfigIO.read()
-        let hostingMode = config["hostingMode"] as? String ?? "local"
-        let cloud = hostingModeToCloud[hostingMode] ?? "local"
-
-        var assistantName: String?
-        if let data = FileManager.default.contents(atPath: lockfilePath),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let assistants = json["assistants"] as? [[String: Any]] {
-            let match = assistants.first { entry in
-                (entry["cloud"] as? String ?? "local") == cloud
-            }
-            assistantName = match?["assistantId"] as? String
-        }
+        let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
         if assistantName == nil {
-            log.error("No lockfile entry found for cloud type '\(cloud)' — skipping retire")
+            log.error("No stored connected assistant ID found — skipping retire")
         }
 
         Task {
