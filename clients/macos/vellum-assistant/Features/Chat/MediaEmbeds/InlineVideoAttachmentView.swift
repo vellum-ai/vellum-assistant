@@ -245,7 +245,16 @@ struct InlineVideoAttachmentView: View {
 
 /// Fetch attachment base64 data from the daemon HTTP endpoint.
 private func fetchAttachmentData(port: Int, attachmentId: String) async throws -> String {
-    let tokenPath = NSHomeDirectory() + "/.vellum/http-token"
+    let tokenBase: String
+    if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !baseDir.isEmpty {
+        tokenBase = baseDir.hasPrefix("~/")
+            ? NSHomeDirectory() + "/" + String(baseDir.dropFirst(2))
+            : (baseDir == "~" ? NSHomeDirectory() : baseDir)
+    } else {
+        tokenBase = NSHomeDirectory()
+    }
+    let tokenPath = tokenBase + "/.vellum/http-token"
     guard let tokenData = try? Data(contentsOf: URL(fileURLWithPath: tokenPath)),
           let token = String(data: tokenData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
           !token.isEmpty else {
