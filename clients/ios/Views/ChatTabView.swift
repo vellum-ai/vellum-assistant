@@ -30,6 +30,9 @@ struct ChatTabView: View {
 
     var body: some View {
         ChatContentView(viewModel: viewModel)
+            .onAppear {
+                viewModel.consumeDeepLinkIfNeeded()
+            }
             .navigationTitle("Chat")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -60,7 +60,6 @@ public final class ChatViewModel: ObservableObject {
     let daemonClient: any DaemonClientProtocol
     public var sessionId: String?
     private var reconnectObserver: NSObjectProtocol?
-    private var deepLinkObserver: NSObjectProtocol?
     var pendingUserMessage: String?
     /// Optional callback for sending notifications when tool-use messages complete
     public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
@@ -207,19 +206,20 @@ public final class ChatViewModel: ObservableObject {
                 self?.pendingLocalDeletions.removeAll()
             }
         }
-        #if os(iOS)
-        deepLinkObserver = NotificationCenter.default.addObserver(
-            forName: Notification.Name("VellumDeepLinkMessage"),
-            object: nil,
-            queue: nil
-        ) { [weak self] notification in
-            Task { @MainActor [weak self] in
-                guard let message = notification.userInfo?["message"] as? String else { return }
-                self?.inputText = message
-            }
-        }
-        #endif
     }
+
+    // MARK: - Deep Link
+
+    /// Check for a buffered deep-link message and apply it to `inputText`.
+    /// Called by the iOS view layer when this `ChatViewModel` becomes the
+    /// active/visible thread, ensuring only one VM ever consumes the message.
+    #if os(iOS)
+    public func consumeDeepLinkIfNeeded() {
+        guard let message = DeepLinkManager.pendingMessage else { return }
+        DeepLinkManager.pendingMessage = nil
+        inputText = message
+    }
+    #endif
 
     // MARK: - Sending
 
@@ -1244,9 +1244,6 @@ public final class ChatViewModel: ObservableObject {
     deinit {
         messageLoopTask?.cancel()
         if let observer = reconnectObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = deepLinkObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }

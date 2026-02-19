@@ -33,18 +33,14 @@ struct VellumAssistantApp: App {
         }
     }
 
-    /// Handle `vellum://send?message=...` deep links by posting a notification
-    /// that the active ChatViewModel observes to pre-fill the input field.
+    /// Handle `vellum://send?message=...` deep links by buffering the message
+    /// in `DeepLinkManager` for the active `ChatViewModel` to consume.
     private func handleDeepLink(_ url: URL) {
         guard url.scheme == "vellum", url.host == "send" else { return }
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let messageItem = components.queryItems?.first(where: { $0.name == "message" }),
               let message = messageItem.value, !message.isEmpty else { return }
-        NotificationCenter.default.post(
-            name: .vellumDeepLinkMessage,
-            object: nil,
-            userInfo: ["message": message]
-        )
+        DeepLinkManager.pendingMessage = message
     }
 }
 #else

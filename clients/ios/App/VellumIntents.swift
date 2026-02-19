@@ -2,12 +2,16 @@
 import AppIntents
 import UIKit
 
-// MARK: - Notification for deep link messages
+// MARK: - Deep Link Manager
 
-extension Notification.Name {
-    /// Posted when a deep link or Siri Shortcut wants to pre-fill the chat input.
-    /// The notification's `userInfo` dictionary contains a "message" key with the text.
-    static let vellumDeepLinkMessage = Notification.Name("VellumDeepLinkMessage")
+/// Buffers a deep-link / Siri Shortcut message so it survives cold launch
+/// (where no `ChatViewModel` may exist yet) and is consumed only by the
+/// active thread's view model.
+enum DeepLinkManager {
+    /// The pending message text. Set by `SendMessageIntent` or the URL handler;
+    /// consumed (and cleared) by the active `ChatViewModel` via
+    /// `consumeDeepLinkIfNeeded()`.
+    @MainActor static var pendingMessage: String?
 }
 
 // MARK: - App Intent
@@ -27,11 +31,7 @@ struct SendMessageIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        NotificationCenter.default.post(
-            name: .vellumDeepLinkMessage,
-            object: nil,
-            userInfo: ["message": message]
-        )
+        DeepLinkManager.pendingMessage = message
         return .result()
     }
 }
