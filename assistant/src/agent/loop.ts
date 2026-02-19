@@ -172,8 +172,8 @@ export class AgentLoop {
             cacheReadInputTokens: response.usage.cacheReadInputTokens,
             contentBlocks: response.content.map((b) => ({
               type: b.type,
-              ...(b.type === 'text' ? { text: truncateForLog(b.text, 200) } : {}),
-              ...(b.type === 'tool_use' ? { name: b.name, input: truncateForLog(JSON.stringify(b.input), 200) } : {}),
+              ...(b.type === 'text' ? { text: truncateForLog(b.text, 1200) } : {}),
+              ...(b.type === 'tool_use' ? { name: b.name, input: truncateForLog(JSON.stringify(b.input), 1200) } : {}),
             })),
           }, 'Provider response received');
         }
