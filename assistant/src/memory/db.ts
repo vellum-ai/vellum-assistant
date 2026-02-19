@@ -1121,9 +1121,16 @@ function migrateMemoryItemsScopeSaltedFingerprints(database: ReturnType<typeof d
  *   - channel_inbound_events  UNIQUE (assistant_id, source_channel, external_chat_id, external_message_id)
  *   - message_runs        no unique constraint on assistant_id
  *
- * For tables with a unique constraint, rows that would collide with an already-existing
- * "self" row are deleted first (keeping the "self" copy), then the remaining rows are
- * updated.
+ * Data-safety guarantees:
+ *   - conversation_keys: when a key exists under both 'self' and a real assistantId, the
+ *     'self' row is updated to point to the real-assistantId conversation (which holds the
+ *     historical message thread). The 'self' conversation may be orphaned but is not deleted.
+ *   - attachments: message_attachments links are remapped to the surviving attachment before
+ *     any duplicate row is deleted, so no message loses its attachment metadata.
+ *   - channel_inbound_events: only delivery-tracking metadata, not user content; dedup
+ *     keeps one row per unique (channel, chat, message) tuple.
+ *   - All conversations and messages remain untouched — only assistant_id index columns
+ *     and key-lookup rows are modified.
  */
 function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof schema>>): void {
   const raw = (database as unknown as { $client: Database }).$client;
@@ -1137,6 +1144,7 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
     raw.exec('BEGIN');
 
     // conversation_keys: UNIQUE (assistant_id, conversation_key)
+    //
     // Step 1: Among non-self rows, keep only one per conversation_key so the
     //         bulk UPDATE cannot hit a (non-self-A, key) + (non-self-B, key) collision.
     raw.exec(/*sql*/ `
@@ -1148,7 +1156,30 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
           GROUP BY conversation_key
         )
     `);
-    // Step 2: Delete non-self rows that conflict with an existing 'self' row.
+    // Step 2: For 'self' rows that have a non-self counterpart with the same
+    //         conversation_key, update the 'self' row to use the non-self row's
+    //         conversation_id. This preserves the historical conversation (which
+    //         has the message history from before the route change) rather than
+    //         discarding it in favour of a potentially-empty 'self' conversation.
+    raw.exec(/*sql*/ `
+      UPDATE conversation_keys
+      SET conversation_id = (
+        SELECT ck_ns.conversation_id
+        FROM conversation_keys ck_ns
+        WHERE ck_ns.assistant_id != 'self'
+          AND ck_ns.conversation_key = conversation_keys.conversation_key
+        ORDER BY ck_ns.rowid
+        LIMIT 1
+      )
+      WHERE assistant_id = 'self'
+        AND EXISTS (
+          SELECT 1 FROM conversation_keys ck_ns
+          WHERE ck_ns.assistant_id != 'self'
+            AND ck_ns.conversation_key = conversation_keys.conversation_key
+        )
+    `);
+    // Step 3: Delete the now-redundant non-self rows (their conversation_ids
+    //         have been preserved in the 'self' rows above).
     raw.exec(/*sql*/ `
       DELETE FROM conversation_keys
       WHERE assistant_id != 'self'
@@ -1158,7 +1189,7 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
             AND ck2.conversation_key = conversation_keys.conversation_key
         )
     `);
-    // Step 3: Remaining non-self rows are now safe to bulk-update.
+    // Step 4: Remaining non-self rows have no 'self' counterpart — safe to bulk-update.
     raw.exec(/*sql*/ `
       UPDATE conversation_keys SET assistant_id = 'self' WHERE assistant_id != 'self'
     `);
