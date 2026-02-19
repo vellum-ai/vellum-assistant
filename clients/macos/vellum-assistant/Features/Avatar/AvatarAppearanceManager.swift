@@ -114,6 +114,7 @@ final class AvatarAppearanceManager {
 
     func clearCustomAvatar() {
         try? FileManager.default.removeItem(at: customAvatarURL)
+        try? FileManager.default.removeItem(at: Self.legacyAppSupportCustomAvatarURL())
         customAvatarImage = nil
     }
 
