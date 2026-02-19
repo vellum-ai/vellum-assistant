@@ -15,17 +15,19 @@ final class DocumentManager: ObservableObject {
     @Published var isSaving: Bool = false
     @Published var lastSaveError: String?
 
-    /// Current document content and metadata
-    private(set) var currentContent: String = ""
+    /// Current document content and metadata.
+    /// `nil` means the editor has not yet received any content (uninitialized).
+    /// `""` means the user intentionally deleted all text.
+    private(set) var currentContent: String? = nil
     @Published var wordCount: Int = 0
 
-    /// Initial content from daemon — persisted for panel reopen after the coordinator consumes pendingInitialContent
+    /// Initial content from daemon persisted for panel reopen after the coordinator consumes pendingInitialContent
     private(set) var initialContent: String = ""
 
     /// Pending initial content to be set when coordinator becomes ready
     private var pendingInitialContent: String?
 
-    /// Debounced auto-save task — cancelled and rescheduled on every content update
+    /// Debounced auto-save task cancelled and rescheduled on every content update
     private var autoSaveTask: Task<Void, Never>?
 
     /// Reference to daemon client for saving documents
@@ -62,10 +64,12 @@ final class DocumentManager: ObservableObject {
     }
 
     /// Returns the content the editor WebView should load when (re)created.
+    /// Uses `currentContent` when it has been initialized (including intentionally empty),
+    /// falling back to `initialContent` only when `currentContent` is `nil` (never set).
     /// Clears pendingInitialContent so the coordinator didSet won't double-load.
     func contentForEditorView() -> (title: String, content: String)? {
         guard hasActiveDocument else { return nil }
-        let content = currentContent.isEmpty ? initialContent : currentContent
+        let content = currentContent ?? initialContent
         pendingInitialContent = nil
         return (title: title, content: content)
     }
@@ -75,17 +79,18 @@ final class DocumentManager: ObservableObject {
         if mode == "replace" {
             currentContent = markdown
         } else {
-            let sep = currentContent.isEmpty ? "" : "\n\n"
-            currentContent += sep + markdown
+            let existing = currentContent ?? ""
+            let sep = existing.isEmpty ? "" : "\n\n"
+            currentContent = existing + sep + markdown
         }
 
         guard let coordinator = editorCoordinator else {
-            log.warning("⚠️ Cannot update document: editor coordinator not ready, content tracked for later")
-            print("⚠️ Cannot update document: editor coordinator not ready, content tracked for later")
+            log.warning("Cannot update document: editor coordinator not ready, content tracked for later")
+            print("Cannot update document: editor coordinator not ready, content tracked for later")
             return
         }
 
-        print("📝 Sending update to coordinator: mode=\(mode), length=\(markdown.count)")
+        print("Sending update to coordinator: mode=\(mode), length=\(markdown.count)")
         coordinator.sendContentUpdate(markdown: markdown, mode: mode)
         log.info("Document updated: mode=\(mode), length=\(markdown.count)")
 
@@ -116,7 +121,7 @@ final class DocumentManager: ObservableObject {
         surfaceId = nil
         sessionId = nil
         title = "Untitled Document"
-        currentContent = ""
+        currentContent = nil
         wordCount = 0
         initialContent = ""
         pendingInitialContent = nil
@@ -124,18 +129,19 @@ final class DocumentManager: ObservableObject {
     }
 
     func save() {
-        print("💾 save() called - surfaceId: \(surfaceId ?? "nil"), sessionId: \(sessionId ?? "nil"), daemonClient: \(daemonClient != nil)")
+        print("save() called - surfaceId: \(surfaceId ?? "nil"), sessionId: \(sessionId ?? "nil"), daemonClient: \(daemonClient != nil)")
 
         guard let surfaceId = surfaceId,
               let sessionId = sessionId,
               let daemonClient = daemonClient else {
             log.warning("Cannot save: missing surfaceId, sessionId, or daemonClient")
             lastSaveError = "Cannot save: missing document information"
-            print("💾 ❌ Save failed: missing information")
+            print("Save failed: missing information")
             return
         }
 
-        print("💾 Starting save: title=\(title), contentLength=\(currentContent.count), wordCount=\(wordCount)")
+        let contentToSave = currentContent ?? ""
+        print("Starting save: title=\(title), contentLength=\(contentToSave.count), wordCount=\(wordCount)")
         isSaving = true
         lastSaveError = nil
 
@@ -144,11 +150,11 @@ final class DocumentManager: ObservableObject {
                 surfaceId: surfaceId,
                 conversationId: sessionId,
                 title: title,
-                content: currentContent,
+                content: contentToSave,
                 wordCount: wordCount
             )
             log.info("Document save requested: \(surfaceId) - \(self.wordCount) words")
-            print("💾 ✅ IPC message sent successfully")
+            print("IPC message sent successfully")
         } catch {
             log.error("Failed to send document save: \(error.localizedDescription)")
             lastSaveError = error.localizedDescription
