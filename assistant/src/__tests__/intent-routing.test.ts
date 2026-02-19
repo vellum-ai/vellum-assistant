@@ -52,7 +52,7 @@ mock.module('../config/loader.js', () => ({
 // ── Import after mocks ───────────────────────────────────────────────
 const { buildSystemPrompt } = await import('../config/system-prompt.js');
 const { taskListAddTool } = await import('../tools/tasks/work-item-enqueue.js');
-const { reminderTool } = await import('../tools/reminder/reminder.js');
+const { reminderCreateTool } = await import('../tools/reminder/reminder.js');
 
 // schedule_create is registered via side-effect import; import the module
 // to access the tool description through the registry.
@@ -206,22 +206,22 @@ describe('schedule_create tool description', () => {
 
 describe('reminder tool description', () => {
   test('mentions time-based reminders', () => {
-    const def = reminderTool.getDefinition();
-    expect(def.description).toContain('time-based reminders');
+    const def = reminderCreateTool.getDefinition();
+    expect(def.description).toContain('time-based reminder');
   });
 
   test('scopes to time-triggered notifications only', () => {
-    const def = reminderTool.getDefinition();
+    const def = reminderCreateTool.getDefinition();
     expect(def.description).toContain('ONLY when the user wants a time-triggered notification');
   });
 
   test('warns against using for "add to my tasks" requests', () => {
-    const def = reminderTool.getDefinition();
+    const def = reminderCreateTool.getDefinition();
     expect(def.description).toContain('Do NOT use this for "add to my tasks"');
   });
 
   test('redirects to task_list_add for task queue items', () => {
-    const def = reminderTool.getDefinition();
+    const def = reminderCreateTool.getDefinition();
     expect(def.description).toContain('task_list_add');
   });
 });
@@ -235,7 +235,7 @@ describe('cross-tool routing consistency', () => {
     const enqueueDef = taskListAddTool.getDefinition();
     const scheduleTool = getTool('schedule_create')!;
     const scheduleDef = scheduleTool.getDefinition();
-    const reminderDef = reminderTool.getDefinition();
+    const reminderDef = reminderCreateTool.getDefinition();
 
     // task_list_add is the canonical name in all three descriptions
     expect(enqueueDef.name).toBe('task_list_add');
@@ -246,7 +246,7 @@ describe('cross-tool routing consistency', () => {
   test('schedule_create and reminder both reject "add to my queue" usage', () => {
     const scheduleTool = getTool('schedule_create')!;
     const scheduleDef = scheduleTool.getDefinition();
-    const reminderDef = reminderTool.getDefinition();
+    const reminderDef = reminderCreateTool.getDefinition();
 
     // Both should redirect away from task-queue requests
     expect(scheduleDef.description).toContain('add to my queue');

@@ -186,7 +186,9 @@ describe('tool manifest', () => {
     expect(names).toContain('memory_update');
     expect(names).toContain('credential_store');
     expect(names).toContain('account_manage');
-    expect(names).toContain('reminder');
+    expect(names).toContain('reminder_create');
+    expect(names).toContain('reminder_list');
+    expect(names).toContain('reminder_cancel');
   });
 
   test('registered tool count is at least eager + lazy + host', async () => {

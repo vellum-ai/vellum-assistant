@@ -12,7 +12,7 @@ import type { Tool } from './types.js';
 import { memorySearchTool, memorySaveTool, memoryUpdateTool } from './memory/register.js';
 import { credentialStoreTool } from './credentials/vault.js';
 import { accountManageTool } from './credentials/account-registry.js';
-import { reminderTool } from './reminder/reminder.js';
+import { reminderCreateTool, reminderListTool, reminderCancelTool } from './reminder/reminder.js';
 import { screenWatchTool } from './watch/screen-watch.js';
 import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
 import { documentCreateTool, documentUpdateTool } from './document/index.js';
@@ -112,7 +112,9 @@ export const explicitTools: Tool[] = [
   memoryUpdateTool,
   credentialStoreTool,
   accountManageTool,
-  reminderTool,
+  reminderCreateTool,
+  reminderListTool,
+  reminderCancelTool,
   screenWatchTool,
   vellumSkillsCatalogTool,
   documentCreateTool,
