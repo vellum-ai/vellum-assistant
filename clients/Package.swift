@@ -87,7 +87,7 @@ let package = Package(
             name: "vellum-assistant-ios",
             dependencies: ["VellumAssistantShared"],
             path: "ios",
-            exclude: ["Resources/Info.plist", "README.md"],
+            exclude: ["Resources/Info.plist", "README.md", "Tests"],
             resources: [
                 .process("Resources/Assets.xcassets"),
                 .process("Resources/background.png"),
@@ -96,6 +96,11 @@ let package = Package(
                 .linkedFramework("UIKit", .when(platforms: [.iOS])),
                 .linkedFramework("SwiftUI", .when(platforms: [.iOS]))
             ]
+        ),
+        .testTarget(
+            name: "vellum-assistant-iosTests",
+            dependencies: ["VellumAssistantShared"],
+            path: "ios/Tests"
         ),
         .testTarget(
             name: "VellumAssistantSharedTests",

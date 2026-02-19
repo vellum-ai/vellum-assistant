@@ -1,0 +1,347 @@
+import XCTest
+@testable import VellumAssistantShared
+
+/// Integration tests for ChatViewModel from the iOS perspective.
+/// Exercises the shared state machine: initialization, message send/receive flow,
+/// streaming deltas, session lifecycle, error handling, and attachment validation.
+@MainActor
+final class ChatViewModelIOSTests: XCTestCase {
+
+    private var mockClient: MockDaemonClient!
+    private var viewModel: ChatViewModel!
+
+    override func setUp() {
+        super.setUp()
+        mockClient = MockDaemonClient()
+        mockClient.isConnected = true
+        viewModel = ChatViewModel(daemonClient: mockClient)
+    }
+
+    override func tearDown() {
+        viewModel = nil
+        mockClient = nil
+        super.tearDown()
+    }
+
+    // MARK: - Initialization
+
+    func testInitStartsWithEmptyMessages() {
+        XCTAssertEqual(viewModel.messages.count, 0)
+    }
+
+    func testInitStartsWithEmptyInput() {
+        XCTAssertEqual(viewModel.inputText, "")
+    }
+
+    func testInitStartsNotSending() {
+        XCTAssertFalse(viewModel.isSending)
+    }
+
+    func testInitStartsNotThinking() {
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
+    func testInitStartsWithNoError() {
+        XCTAssertNil(viewModel.errorText)
+    }
+
+    func testInitStartsWithNoSessionId() {
+        XCTAssertNil(viewModel.sessionId)
+    }
+
+    func testInitStartsWithNoPendingAttachments() {
+        XCTAssertTrue(viewModel.pendingAttachments.isEmpty)
+    }
+
+    func testInitStartsWithDefaultModel() {
+        XCTAssertEqual(viewModel.selectedModel, "claude-opus-4-6")
+    }
+
+    // MARK: - Send Message
+
+    func testSendMessageAppendsUserMessage() {
+        viewModel.inputText = "Hello from iOS"
+        viewModel.sendMessage()
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].role, .user)
+        XCTAssertEqual(viewModel.messages[0].text, "Hello from iOS")
+    }
+
+    func testSendMessageClearsInput() {
+        viewModel.inputText = "Test message"
+        viewModel.sendMessage()
+        XCTAssertEqual(viewModel.inputText, "")
+    }
+
+    func testSendEmptyMessageDoesNothing() {
+        viewModel.inputText = "   "
+        viewModel.sendMessage()
+        XCTAssertEqual(viewModel.messages.count, 0)
+    }
+
+    func testSendWhileBootstrappingDoesNothing() {
+        viewModel.inputText = "First"
+        viewModel.sendMessage()
+
+        viewModel.inputText = "Second"
+        viewModel.sendMessage()
+
+        // Only first message should be present since bootstrapping blocks rapid-fire
+        XCTAssertEqual(viewModel.messages.count, 1)
+    }
+
+    func testSendWhileSendingWithSessionAppendsQueuedMessage() {
+        viewModel.sessionId = "test-session"
+        viewModel.isSending = true
+
+        viewModel.inputText = "Queued message"
+        viewModel.sendMessage()
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].role, .user)
+        XCTAssertEqual(viewModel.messages[0].text, "Queued message")
+        if case .queued = viewModel.messages[0].status {
+            // Expected
+        } else {
+            XCTFail("Expected message to have queued status")
+        }
+    }
+
+    func testSendMessageClearsExistingError() {
+        viewModel.errorText = "Previous error"
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+        XCTAssertNil(viewModel.errorText)
+    }
+
+    func testSendMessageRecordsInMockClient() throws {
+        viewModel.sessionId = "sess-abc"
+        viewModel.inputText = "Test"
+        viewModel.sendMessage()
+
+        // The mock client should have recorded the sent message
+        XCTAssertGreaterThanOrEqual(mockClient.sentMessages.count, 1)
+    }
+
+    // MARK: - Session Info
+
+    func testSessionInfoStoresSessionId() {
+        let info = SessionInfoMessage(sessionId: "ios-sess-123", title: "iOS Test")
+        viewModel.handleServerMessage(.sessionInfo(info))
+        XCTAssertEqual(viewModel.sessionId, "ios-sess-123")
+    }
+
+    func testSessionInfoDoesNotOverwriteExistingSession() {
+        viewModel.sessionId = "first-session"
+        let info = SessionInfoMessage(sessionId: "second-session", title: "Test")
+        viewModel.handleServerMessage(.sessionInfo(info))
+        XCTAssertEqual(viewModel.sessionId, "first-session")
+    }
+
+    func testSessionInfoClearsBootstrapState() {
+        // Simulate a bootstrap scenario
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+        XCTAssertTrue(viewModel.isSending)
+
+        // Session info arrives
+        let info = SessionInfoMessage(sessionId: "new-sess", title: "Test")
+        viewModel.handleServerMessage(.sessionInfo(info))
+
+        XCTAssertEqual(viewModel.sessionId, "new-sess")
+    }
+
+    // MARK: - Streaming Deltas
+
+    func testTextDeltaCreatesAssistantMessage() {
+        let delta = AssistantTextDeltaMessage(text: "Hello iOS user")
+        viewModel.handleServerMessage(.assistantTextDelta(delta))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].role, .assistant)
+        XCTAssertEqual(viewModel.messages[0].text, "Hello iOS user")
+        XCTAssertTrue(viewModel.messages[0].isStreaming)
+    }
+
+    func testTextDeltaClearsThinkingState() {
+        viewModel.isThinking = true
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Hi")))
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
+    func testTextDeltasAccumulateInSingleMessage() {
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Hel")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "lo ")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "world")))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].text, "Hello world")
+    }
+
+    func testTextDeltaAfterUserMessageCreatesNewAssistantMessage() {
+        viewModel.sessionId = "sess-1"
+        viewModel.inputText = "Question"
+        viewModel.sendMessage()
+
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Answer")))
+
+        XCTAssertEqual(viewModel.messages.count, 2)
+        XCTAssertEqual(viewModel.messages[0].role, .user)
+        XCTAssertEqual(viewModel.messages[1].role, .assistant)
+        XCTAssertEqual(viewModel.messages[1].text, "Answer")
+    }
+
+    // MARK: - Message Complete
+
+    func testMessageCompleteFinalizesState() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response")))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+        XCTAssertFalse(viewModel.messages[0].isStreaming)
+    }
+
+    func testMessageCompleteWithoutStreamingMessage() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
+    // MARK: - Generation Cancelled
+
+    func testGenerationCancelledClearsLoadingState() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
+        viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
+
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+        XCTAssertFalse(viewModel.messages[0].isStreaming)
+    }
+
+    // MARK: - Error Handling
+
+    func testErrorSetsErrorText() {
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.error(ErrorMessage(message: "Something failed")))
+
+        XCTAssertEqual(viewModel.errorText, "Something failed")
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.isThinking)
+    }
+
+    func testDismissErrorClearsErrorText() {
+        viewModel.errorText = "Some error"
+        viewModel.dismissError()
+        XCTAssertNil(viewModel.errorText)
+    }
+
+    // MARK: - Stop Generating
+
+    func testStopGeneratingSetsCancellingState() {
+        viewModel.sessionId = "sess-stop"
+        viewModel.isSending = true
+
+        viewModel.stopGenerating()
+
+        XCTAssertTrue(viewModel.isCancelling)
+    }
+
+    // MARK: - Full Send/Receive Cycle
+
+    func testFullMessageCycle() {
+        // 1. Send a user message
+        viewModel.inputText = "Tell me about iOS"
+        viewModel.sendMessage()
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].role, .user)
+        XCTAssertTrue(viewModel.isSending)
+
+        // 2. Session info arrives
+        let info = SessionInfoMessage(sessionId: "cycle-sess", title: "iOS Chat")
+        viewModel.handleServerMessage(.sessionInfo(info))
+        XCTAssertEqual(viewModel.sessionId, "cycle-sess")
+
+        // 3. Assistant starts streaming
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "iOS is ")))
+        XCTAssertEqual(viewModel.messages.count, 2)
+        XCTAssertTrue(viewModel.messages[1].isStreaming)
+        XCTAssertFalse(viewModel.isThinking)
+
+        // 4. More deltas arrive
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "great!")))
+        XCTAssertEqual(viewModel.messages[1].text, "iOS is great!")
+
+        // 5. Message completes
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+        XCTAssertFalse(viewModel.isSending)
+        XCTAssertFalse(viewModel.messages[1].isStreaming)
+    }
+
+    // MARK: - Callback Hooks
+
+    func testOnFirstUserMessageCallbackFires() {
+        var capturedText: String?
+        viewModel.onFirstUserMessage = { text in
+            capturedText = text
+        }
+
+        viewModel.inputText = "Hello callback"
+        viewModel.sendMessage()
+
+        XCTAssertEqual(capturedText, "Hello callback")
+    }
+
+    func testOnFirstUserMessageCallbackFiresOnlyOnce() {
+        var callCount = 0
+        viewModel.onFirstUserMessage = { _ in
+            callCount += 1
+        }
+
+        viewModel.sessionId = "sess-callback"
+        viewModel.inputText = "First"
+        viewModel.sendMessage()
+
+        viewModel.inputText = "Second"
+        viewModel.sendMessage()
+
+        XCTAssertEqual(callCount, 1, "onFirstUserMessage should fire only once")
+    }
+
+    func testOnSessionCreatedCallbackFires() {
+        var capturedSessionId: String?
+        viewModel.onSessionCreated = { sessionId in
+            capturedSessionId = sessionId
+        }
+
+        let info = SessionInfoMessage(sessionId: "callback-sess", title: "Test")
+        viewModel.handleServerMessage(.sessionInfo(info))
+
+        XCTAssertEqual(capturedSessionId, "callback-sess")
+    }
+
+    // MARK: - Cancelling Suppresses Deltas
+
+    func testCancellingSuppressesIncomingDeltas() {
+        viewModel.isCancelling = true
+        viewModel.sessionId = "sess-cancel"
+
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Should be suppressed")))
+
+        XCTAssertEqual(viewModel.messages.count, 0, "Deltas should be suppressed when cancelling")
+    }
+}
