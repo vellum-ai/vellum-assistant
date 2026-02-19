@@ -547,6 +547,7 @@ async function getInstanceIdByName(
 export async function retireInstance(
   name: string,
   region: string,
+  source?: string,
 ): Promise<void> {
   const instanceId = await getInstanceIdByName(name, region);
   if (!instanceId) {
@@ -554,6 +555,23 @@ export async function retireInstance(
       `\u26a0\ufe0f  Instance ${name} not found in AWS (region=${region}).`,
     );
     return;
+  }
+
+  if (source) {
+    try {
+      await exec("aws", [
+        "ec2",
+        "create-tags",
+        "--resources",
+        instanceId,
+        "--tags",
+        `Key=retired-by,Value=${source}`,
+        "--region",
+        region,
+      ]);
+    } catch {
+      console.warn(`\u26a0\ufe0f  Could not tag instance before termination`);
+    }
   }
 
   console.log(`\u{1F5D1}\ufe0f  Terminating AWS instance ${name} (${instanceId})\n`);
