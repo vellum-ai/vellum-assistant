@@ -260,9 +260,8 @@ describe('policyCallback credential injection', () => {
         `http://127.0.0.1:${echoPort}/test`,
       );
 
-      // Should allow through with empty headers (fail-safe)
-      expect(status).toBe(200);
-      expect(receivedHeaders['authorization']).toBeUndefined();
+      // Unresolvable credentials are blocked (fail-closed)
+      expect(status).toBe(403);
     } finally {
       echo.close();
     }

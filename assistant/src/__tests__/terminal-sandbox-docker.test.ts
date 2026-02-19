@@ -29,6 +29,7 @@ const { ToolError } = await import('../util/errors.js');
 const { DEFAULT_CONFIG } = await import('../config/defaults.js');
 
 const defaultImage = DEFAULT_CONFIG.sandbox.docker.image;
+const defaultShell = DEFAULT_CONFIG.sandbox.docker.shell;
 
 // Use a real temp dir so realpathSync resolves correctly.
 const sandboxRoot = realpathSync('/tmp');
@@ -496,6 +497,7 @@ describe('DockerBackend — preflight: image availability check', () => {
   });
 
   test('throws ToolError when auto-pull also fails', () => {
+    const customImage = 'node:20-slim';
     execFileSyncMock.mockImplementation(
       (file: string, args?: readonly string[]) => {
         if (
@@ -579,6 +581,7 @@ describe('DockerBackend — preflight: image availability check', () => {
   });
 
   test('caches successful auto-pull so subsequent calls skip pull', () => {
+    const customImage = 'node:20-slim';
     let inspectCallCount = 0;
     execFileSyncMock.mockImplementation(
       (file: string, args?: readonly string[]) => {
