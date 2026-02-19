@@ -13,8 +13,13 @@ export function handleSubagentAbort(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const manager = getSubagentManager();
   const callerSessionId = ctx.socketToSession.get(socket);
+  if (!callerSessionId) {
+    log.warn({ subagentId: msg.subagentId }, 'Abort rejected: socket has no bound session');
+    return;
+  }
+
+  const manager = getSubagentManager();
   const sendToClient = (m: unknown) => ctx.send(socket, m as Parameters<typeof ctx.send>[1]);
   const aborted = manager.abort(
     msg.subagentId,
@@ -35,10 +40,14 @@ export function handleSubagentStatus(
   const manager = getSubagentManager();
 
   const callerSessionId = ctx.socketToSession.get(socket);
+  if (!callerSessionId) {
+    log.warn('Status rejected: socket has no bound session');
+    return;
+  }
 
   if (msg.subagentId) {
     const state = manager.getState(msg.subagentId);
-    if (!state || (callerSessionId && state.config.parentSessionId !== callerSessionId)) {
+    if (!state || state.config.parentSessionId !== callerSessionId) {
       ctx.send(socket, {
         type: 'error',
         message: `Subagent "${msg.subagentId}" not found.`,
@@ -58,7 +67,7 @@ export function handleSubagentStatus(
   }
 
   // Return all subagents for the caller's session.
-  const sessionId = callerSessionId ?? msg.sessionId;
+  const sessionId = callerSessionId;
   const children = manager.getChildrenOf(sessionId);
   for (const child of children) {
     ctx.send(socket, {
@@ -77,12 +86,22 @@ export function handleSubagentMessage(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const manager = getSubagentManager();
   const callerSessionId = ctx.socketToSession.get(socket);
+  if (!callerSessionId) {
+    log.warn({ subagentId: msg.subagentId }, 'Message rejected: socket has no bound session');
+    ctx.send(socket, {
+      type: 'error',
+      message: 'No active session.',
+      category: 'subagent_not_found',
+    });
+    return;
+  }
+
+  const manager = getSubagentManager();
 
   // Ownership check: verify the caller owns this subagent.
   const state = manager.getState(msg.subagentId);
-  if (!state || (callerSessionId && state.config.parentSessionId !== callerSessionId)) {
+  if (!state || state.config.parentSessionId !== callerSessionId) {
     log.warn({ subagentId: msg.subagentId, callerSessionId }, 'Client sent message to unknown or unowned subagent');
     ctx.send(socket, {
       type: 'error',

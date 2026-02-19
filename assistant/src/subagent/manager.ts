@@ -191,7 +191,7 @@ export class SubagentManager {
     );
 
     // ── Kick off the agent loop (fire-and-forget) ───────────────────
-    this.runSubagent(subagentId, config.objective, parentSendToClient).catch((err) => {
+    this.runSubagent(subagentId, config.objective).catch((err) => {
       log.error({ subagentId, err }, 'Subagent run failed unexpectedly');
     });
 
@@ -203,12 +203,14 @@ export class SubagentManager {
   private async runSubagent(
     subagentId: string,
     objective: string,
-    parentSendToClient: (msg: ServerMessage) => void,
   ): Promise<void> {
     const managed = this.subagents.get(subagentId);
     if (!managed) return;
 
-    this.setStatus(subagentId, 'running', parentSendToClient);
+    // Read the current parent sender so reconnects are picked up.
+    const getSender = () => managed.parentSendToClient;
+
+    this.setStatus(subagentId, 'running', getSender());
     managed.state.startedAt = Date.now();
 
     const onEvent = managed.session.sendToClient;
@@ -227,12 +229,12 @@ export class SubagentManager {
         const summary = this.extractSummary(managed);
         managed.state.summary = summary;
         managed.state.completedAt = Date.now();
-        this.setStatus(subagentId, 'completed', parentSendToClient, summary);
+        this.setStatus(subagentId, 'completed', getSender(), summary);
 
         log.info({ subagentId, summary: summary.slice(0, 200) }, 'Subagent completed');
 
         // Notify the parent session so the LLM can inform the user.
-        this.notifyParent(managed, 'completed', parentSendToClient);
+        this.notifyParent(managed, 'completed', getSender());
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -241,8 +243,8 @@ export class SubagentManager {
 
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
-        this.setStatus(subagentId, 'failed', parentSendToClient, undefined, errorMsg);
-        this.notifyParent(managed, 'failed', parentSendToClient);
+        this.setStatus(subagentId, 'failed', getSender(), undefined, errorMsg);
+        this.notifyParent(managed, 'failed', getSender());
       }
 
       log.error({ subagentId, err }, 'Subagent failed');

@@ -22,7 +22,7 @@ interface FakeManagedSubagent {
 interface ManagerInternals {
   subagents: Map<string, FakeManagedSubagent>;
   parentToChildren: Map<string, Set<string>>;
-  runSubagent: (subagentId: string, objective: string, sendToClient: (msg: ServerMessage) => void) => Promise<void>;
+  runSubagent: (subagentId: string, objective: string) => Promise<void>;
 }
 
 function asInternals(manager: SubagentManager): ManagerInternals {
@@ -211,7 +211,7 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
     const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
 
     // Call private runSubagent directly.
-    await asInternals(manager).runSubagent(subagentId, 'Do something', sendToClient);
+    await asInternals(manager).runSubagent(subagentId, 'Do something');
 
     expect(state.status).toBe('completed');
     expect(notifications).toHaveLength(1);
@@ -243,7 +243,7 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
     const clientMessages: ServerMessage[] = [];
     const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
 
-    await asInternals(manager).runSubagent(subagentId, 'Do something', sendToClient);
+    await asInternals(manager).runSubagent(subagentId, 'Do something');
 
     expect(state.status).toBe('failed');
     expect(state.error).toBe('API rate limit exceeded');
@@ -271,7 +271,7 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
       notifications.push({ parentSessionId, message });
     };
 
-    await asInternals(manager).runSubagent(subagentId, 'Do something', () => {});
+    await asInternals(manager).runSubagent(subagentId, 'Do something');
 
     // Should NOT notify — status was already terminal (aborted).
     expect(notifications).toHaveLength(0);
@@ -346,7 +346,7 @@ describe('SubagentManager abort race guard', () => {
       notifications.push({ parentSessionId, message });
     };
 
-    await asInternals(manager).runSubagent(subagentId, 'Do something', () => {});
+    await asInternals(manager).runSubagent(subagentId, 'Do something');
 
     // Should NOT notify — status was already terminal (aborted) when loop finished.
     expect(notifications).toHaveLength(0);
