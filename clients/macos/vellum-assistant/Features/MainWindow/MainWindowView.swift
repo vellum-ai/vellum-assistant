@@ -665,13 +665,17 @@ struct MainWindowView: View {
     @ViewBuilder
     private var sidebarView: some View {
         VStack(spacing: 0) {
-            // Sidebar toggle in traffic-light row
+            // Top bar: sidebar toggle + new chat
             HStack {
                 Spacer()
                 VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true) {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                         sidebarOpen.toggle()
                     }
+                }
+                VIconButton(label: "New chat", icon: "square.and.pencil", iconOnly: true) {
+                    windowState.selection = nil
+                    threadManager.createThread()
                 }
             }
             .padding(.trailing, VSpacing.sm)
@@ -687,12 +691,8 @@ struct MainWindowView: View {
                         windowState.togglePanel(.identity)
                     }
 
-                    // MARK: New Chat Button
-                    NewChatButton(action: { windowState.selection = nil; threadManager.createThread() })
-                        .padding(.vertical, VSpacing.sm)
-
-                    // MARK: Recents
-                    SidebarSubheader(title: "Recents")
+                    // MARK: Chats
+                    SidebarSubheader(title: "Chats")
 
                     ForEach(displayedThreads) { thread in
                         threadItem(thread)
@@ -1360,35 +1360,6 @@ private struct ZoomIndicatorView: View {
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .stroke(VColor.surfaceBorder, lineWidth: 1)
             )
-    }
-}
-
-private struct NewChatButton: View {
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(VColor.textSecondary)
-                    .frame(width: 22, height: 22)
-                    .background(VColor.surfaceBorder.opacity(0.5))
-                    .clipShape(Circle())
-                Text("New chat")
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-            }
-            .padding(.leading, 20)
-            .padding(.trailing, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : .clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
     }
 }
 
