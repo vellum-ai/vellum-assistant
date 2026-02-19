@@ -1,6 +1,7 @@
 import XCTest
 import WebKit
 @testable import VellumAssistantLib
+@testable import VellumAssistantShared
 
 @MainActor
 final class InlineVideoWebViewFailureTests: XCTestCase {

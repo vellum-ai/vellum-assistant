@@ -1530,7 +1530,7 @@ final class ChatViewModelTests: XCTestCase {
         // Complete with attachments
         let attachment = IPCUserMessageAttachment(
             id: "att-1", filename: "photo.png", mimeType: "image/png",
-            data: "iVBORw0KGgo=", extractedText: nil
+            data: "iVBORw0KGgo=", extractedText: nil, sizeBytes: nil
         )
         viewModel.handleServerMessage(.messageComplete(
             MessageCompleteMessage(sessionId: nil, attachments: [attachment])
@@ -1550,7 +1550,7 @@ final class ChatViewModelTests: XCTestCase {
         // Complete with attachments but no prior text deltas (attachment-only turn)
         let attachment = IPCUserMessageAttachment(
             id: "att-1", filename: "report.pdf", mimeType: "application/pdf",
-            data: "JVBER", extractedText: nil
+            data: "JVBER", extractedText: nil, sizeBytes: nil
         )
         viewModel.handleServerMessage(.messageComplete(
             MessageCompleteMessage(sessionId: nil, attachments: [attachment])
@@ -1573,7 +1573,7 @@ final class ChatViewModelTests: XCTestCase {
         // Handoff with attachments
         let attachment = IPCUserMessageAttachment(
             id: "att-2", filename: "output.csv", mimeType: "text/csv",
-            data: "Y29sQQ==", extractedText: nil
+            data: "Y29sQQ==", extractedText: nil, sizeBytes: nil
         )
         viewModel.handleServerMessage(.generationHandoff(
             GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1, attachments: [attachment])
@@ -1613,7 +1613,7 @@ final class ChatViewModelTests: XCTestCase {
     func testPopulateFromHistoryHydratesAssistantAttachments() {
         let attachment = IPCUserMessageAttachment(
             id: "hist-att-1", filename: "chart.png", mimeType: "image/png",
-            data: "iVBORw0KGgo=", extractedText: nil
+            data: "iVBORw0KGgo=", extractedText: nil, sizeBytes: nil
         )
         let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
             IPCHistoryResponseMessage(id: nil, role: "user", text: "Show me a chart", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil),
@@ -1632,7 +1632,7 @@ final class ChatViewModelTests: XCTestCase {
     func testPopulateFromHistoryIncludesAttachmentOnlyMessages() {
         let attachment = IPCUserMessageAttachment(
             id: "hist-att-2", filename: "report.pdf", mimeType: "application/pdf",
-            data: "JVBER", extractedText: nil
+            data: "JVBER", extractedText: nil, sizeBytes: nil
         )
         let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
             IPCHistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil),

@@ -1600,7 +1600,7 @@ private struct ChatBubble: View {
 
     @ViewBuilder
     private func documentWidget(for toolCall: ToolCallData) -> some View {
-        let parsed = parseDocumentResult(from: toolCall)
+        let parsed = DocumentResultParser.parse(from: toolCall)
 
         if let surfaceId = parsed.surfaceId, !dismissedDocumentSurfaceIds.contains(surfaceId) {
             DocumentReopenWidget(
@@ -1618,29 +1618,6 @@ private struct ChatBubble: View {
             )
             .padding(.top, VSpacing.sm)
         }
-    }
-
-    /// Parse the document_create tool call result JSON for surface_id and title.
-    private func parseDocumentResult(from toolCall: ToolCallData) -> (surfaceId: String?, title: String) {
-        // The result is JSON: {"surface_id": "doc-...", "title": "...", ...}
-        if let result = toolCall.result,
-           let data = result.data(using: .utf8),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            let surfaceId = json["surface_id"] as? String
-            let title = json["title"] as? String ?? parseDocumentTitleFromSummary(toolCall.inputSummary)
-            return (surfaceId, title)
-        }
-        return (nil, parseDocumentTitleFromSummary(toolCall.inputSummary))
-    }
-
-    private func parseDocumentTitleFromSummary(_ summary: String) -> String {
-        if let colonIndex = summary.firstIndex(of: ":") {
-            let afterColon = summary[summary.index(after: colonIndex)...].trimmingCharacters(in: .whitespaces)
-            if !afterColon.isEmpty {
-                return String(afterColon)
-            }
-        }
-        return "Untitled Document"
     }
 
     private func attachmentImageGrid(_ images: [(ChatAttachment, NSImage)]) -> some View {

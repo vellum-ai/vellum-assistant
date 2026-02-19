@@ -1,5 +1,6 @@
 import XCTest
 @testable import VellumAssistantLib
+@testable import VellumAssistantShared
 
 @MainActor
 final class VideoEmbedURLBuilderTests: XCTestCase {
