@@ -41,6 +41,23 @@ export function handleModelSet(
   ctx: HandlerContext,
 ): void {
   try {
+    // If the requested model is already the current model, skip expensive
+    // reinitialization but still send model_info so the client confirms.
+    {
+      const current = getConfig();
+      if (msg.model === current.model) {
+        const configured = Object.keys(current.apiKeys).filter((k) => !!current.apiKeys[k]);
+        if (!configured.includes('ollama')) configured.push('ollama');
+        ctx.send(socket, {
+          type: 'model_info',
+          model: current.model,
+          provider: current.provider,
+          configuredProviders: configured,
+        });
+        return;
+      }
+    }
+
     // Validate API key before switching
     const provider = MODEL_TO_PROVIDER[msg.model];
     if (provider && provider !== 'ollama') {
