@@ -460,6 +460,13 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func activateThread(_ id: UUID) {
         activeThreadId = id
+
+        // Notify the daemon so it rebinds the socket to this thread's session.
+        // Without this, socketToSession stays stale after thread switches,
+        // causing ownership checks (e.g. subagent abort) to fail.
+        if let sessionId = chatViewModels[id]?.sessionId {
+            try? daemonClient.send(IPCSessionSwitchRequest(sessionId: sessionId))
+        }
     }
 
     /// Derive a short title from the first user message, truncated at a word boundary around 50 chars.
