@@ -1,6 +1,7 @@
 import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { createSchedule, isValidCronExpression, formatLocalDate, describeCronExpression } from '../../schedule/schedule-store.js';
 import { normalizeScheduleSyntax } from '../../schedule/recurrence-types.js';
+import { validateRruleSetLines } from '../../schedule/recurrence-engine.js';
 
 export async function executeScheduleCreate(
   input: Record<string, unknown>,
@@ -33,8 +34,14 @@ export async function executeScheduleCreate(
   if (resolved.syntax === 'cron' && !isValidCronExpression(resolved.expression)) {
     return { content: `Error: Invalid cron expression: "${resolved.expression}"`, isError: true };
   }
-  if (resolved.syntax === 'rrule' && !/^DTSTART/m.test(resolved.expression)) {
-    return { content: 'Error: RRULE expression must include DTSTART for deterministic scheduling', isError: true };
+  if (resolved.syntax === 'rrule') {
+    const setError = validateRruleSetLines(resolved.expression);
+    if (setError) {
+      return {
+        content: `Error: ${setError}. Supported line types: DTSTART, RRULE, RDATE, EXDATE, EXRULE.`,
+        isError: true,
+      };
+    }
   }
 
   try {
