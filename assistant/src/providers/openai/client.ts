@@ -16,6 +16,10 @@ export interface OpenAICompatibleProviderOptions {
   providerLabel?: string;
 }
 
+const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+]);
+
 export class OpenAIProvider implements Provider {
   public readonly name: string;
   private readonly providerLabel: string;
@@ -268,12 +272,16 @@ export class OpenAIProvider implements Provider {
           parts.push({ type: 'text', text: block.text });
           break;
         case 'image':
-          parts.push({
-            type: 'image_url',
-            image_url: {
-              url: `data:${block.source.media_type};base64,${block.source.data}`,
-            },
-          });
+          if (!OPENAI_SUPPORTED_IMAGE_TYPES.has(block.source.media_type)) {
+            parts.push({ type: 'text', text: `[Image: ${block.source.media_type} — format not supported by this provider]` });
+          } else {
+            parts.push({
+              type: 'image_url',
+              image_url: {
+                url: `data:${block.source.media_type};base64,${block.source.data}`,
+              },
+            });
+          }
           break;
         case 'file':
           parts.push({

@@ -14,6 +14,19 @@ const log = getLogger('anthropic-client');
 
 const TOOL_ID_RE = /[^a-wyzA-Z0-9_-]/g;
 
+const ANTHROPIC_SUPPORTED_IMAGE_TYPES = new Set([
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+]);
+
+function isTextBasedMimeType(mediaType: string): boolean {
+  return (
+    mediaType.startsWith('text/') ||
+    mediaType === 'application/json' ||
+    mediaType === 'application/xml' ||
+    mediaType === 'application/javascript'
+  );
+}
+
 /** Anthropic requires tool_use IDs to match ^[a-zA-Z0-9_-]+$ */
 function sanitizeToolId(id: string): string {
   if (!id) return 'empty';
@@ -571,6 +584,10 @@ export class AnthropicProvider implements Provider {
       case "redacted_thinking":
         return { type: "redacted_thinking", data: block.data };
       case "image":
+        if (!ANTHROPIC_SUPPORTED_IMAGE_TYPES.has(block.source.media_type)) {
+          log.warn(`Unsupported image MIME type for Anthropic: ${block.source.media_type}; replacing with text placeholder`);
+          return { type: "text", text: `[Image: ${block.source.media_type} — format not supported by this provider]` };
+        }
         return {
           type: "image",
           source: {
@@ -580,16 +597,32 @@ export class AnthropicProvider implements Provider {
             data: block.source.data,
           },
         };
-      case "file":
-        return {
-          type: "document",
-          source: {
-            type: "base64",
-            media_type: block.source.media_type,
-            data: block.source.data,
-          },
-          ...(block.source.filename ? { title: block.source.filename } : {}),
-        } as unknown as Anthropic.ContentBlockParam;
+      case "file": {
+        const { media_type, data, filename } = block.source;
+        if (media_type === 'application/pdf') {
+          // Only valid base64 document source for Anthropic
+          return {
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data },
+            ...(filename ? { title: filename } : {}),
+          } as unknown as Anthropic.ContentBlockParam;
+        }
+        if (isTextBasedMimeType(media_type)) {
+          // Decode base64 to UTF-8 text and send as PlainTextSource
+          const decodedText = Buffer.from(data, 'base64').toString('utf-8');
+          return {
+            type: "document",
+            source: { type: "text", media_type: "text/plain", data: decodedText },
+            ...(filename ? { title: filename } : {}),
+          } as unknown as Anthropic.ContentBlockParam;
+        }
+        // Binary non-text file: use extracted_text if available, otherwise a placeholder
+        log.warn(`Binary file type not natively supported by Anthropic: ${media_type}; falling back to text`);
+        const fallbackText = block.extracted_text?.trim()
+          ? block.extracted_text
+          : `[File: ${filename ?? 'unknown'} (${media_type}) — binary file]`;
+        return { type: "text", text: fallbackText };
+      }
       case "tool_use":
         return {
           type: "tool_use",
