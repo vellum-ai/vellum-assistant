@@ -150,10 +150,9 @@ extension ChatViewModel {
             if Self.isSensitiveKey(key) {
                 redacted[key] = "[redacted]"
             } else if let nested = val as? [String: Any] {
-                // Parse the redacted nested dict back as-is (store as string for encoding)
-                redacted[key] = redactDictionary(nested)
+                redacted[key] = redactDictionaryAsObject(nested)
             } else if let nested = val as? [Any] {
-                redacted[key] = redactArray(nested)
+                redacted[key] = redactArrayAsObject(nested)
             } else {
                 redacted[key] = val
             }
@@ -168,18 +167,24 @@ extension ChatViewModel {
 
     /// Recursively redact sensitive keys in array elements.
     private func redactArray(_ array: [Any]) -> String {
-        let redacted: [Any] = array.map { element in
-            if let dict = element as? [String: Any] {
-                // Return the redacted dict (not string) so JSONSerialization handles it
-                return redactDictionaryAsObject(dict)
-            }
-            return element
-        }
+        let redacted = redactArrayAsObject(array)
         if let data = try? JSONSerialization.data(withJSONObject: redacted, options: [.sortedKeys]),
            let json = String(data: data, encoding: .utf8) {
             return json
         }
         return String(describing: redacted)
+    }
+
+    /// Recursively redact sensitive keys in array elements, returning an array (not string) for nesting.
+    private func redactArrayAsObject(_ array: [Any]) -> [Any] {
+        return array.map { element -> Any in
+            if let dict = element as? [String: Any] {
+                return redactDictionaryAsObject(dict)
+            } else if let nested = element as? [Any] {
+                return redactArrayAsObject(nested)
+            }
+            return element
+        }
     }
 
     /// Recursively redact sensitive keys, returning a dictionary (not string) for nesting.
@@ -191,12 +196,7 @@ extension ChatViewModel {
             } else if let nested = val as? [String: Any] {
                 redacted[key] = redactDictionaryAsObject(nested)
             } else if let nested = val as? [Any] {
-                redacted[key] = nested.map { element -> Any in
-                    if let d = element as? [String: Any] {
-                        return redactDictionaryAsObject(d)
-                    }
-                    return element
-                }
+                redacted[key] = redactArrayAsObject(nested)
             } else {
                 redacted[key] = val
             }
