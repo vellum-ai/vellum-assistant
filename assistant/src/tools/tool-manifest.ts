@@ -48,9 +48,6 @@ export async function loadEagerModules(): Promise<void> {
   await import('./playbooks/playbook-list.js');
   await import('./playbooks/playbook-update.js');
   await import('./playbooks/playbook-delete.js');
-  await import('./contacts/contact-upsert.js');
-  await import('./contacts/contact-search.js');
-  await import('./contacts/contact-merge.js');
   await import('./assets/search.js');
   await import('./assets/materialize.js');
   await import('./filesystem/view-image.js');
@@ -82,9 +79,6 @@ export const eagerModuleToolNames: string[] = [
   'playbook_list',
   'playbook_update',
   'playbook_delete',
-  'contact_upsert',
-  'contact_search',
-  'contact_merge',
   'asset_search',
   'asset_materialize',
   'view_image',

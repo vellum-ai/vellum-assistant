@@ -1,9 +1,5 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { upsertContact } from '../../contacts/contact-store.js';
-import { CHANNEL_TYPES } from '../../contacts/types.js';
 
 function formatContact(c: ReturnType<typeof upsertContact>): string {
   const lines = [
@@ -24,64 +20,6 @@ function formatContact(c: ReturnType<typeof upsertContact>): string {
   }
   return lines.join('\n');
 }
-
-const definition: ToolDefinition = {
-  name: 'contact_upsert',
-  description: 'Create or update a contact in the relationship graph. Use this to track people the user interacts with across channels (email, Slack, etc.).',
-  input_schema: {
-    type: 'object',
-    properties: {
-      id: {
-        type: 'string',
-        description: 'Contact ID to update. Omit to create a new contact (or auto-match by channel address).',
-      },
-      display_name: {
-        type: 'string',
-        description: 'Display name for the contact',
-      },
-      relationship: {
-        type: 'string',
-        description: 'Relationship type (e.g. colleague, friend, manager, client, family)',
-      },
-      importance: {
-        type: 'number',
-        description: 'Importance score 0-1 (default 0.5). Higher = more important.',
-      },
-      response_expectation: {
-        type: 'string',
-        description: 'Expected response speed (e.g. immediate, within_hours, within_day, casual)',
-      },
-      preferred_tone: {
-        type: 'string',
-        description: 'Preferred communication tone (e.g. formal, casual, friendly, professional)',
-      },
-      channels: {
-        type: 'array',
-        description: 'Communication channels for this contact',
-        items: {
-          type: 'object',
-          properties: {
-            type: {
-              type: 'string',
-              enum: [...CHANNEL_TYPES],
-              description: 'Channel type',
-            },
-            address: {
-              type: 'string',
-              description: 'Channel address (email address, Slack handle, phone number, etc.)',
-            },
-            is_primary: {
-              type: 'boolean',
-              description: 'Whether this is the primary channel for this type',
-            },
-          },
-          required: ['type', 'address'],
-        },
-      },
-    },
-    required: ['display_name'],
-  },
-};
 
 export async function executeContactUpsert(
   input: Record<string, unknown>,
@@ -125,20 +63,3 @@ export async function executeContactUpsert(
     return { content: `Error: ${msg}`, isError: true };
   }
 }
-
-class ContactUpsertTool implements Tool {
-  name = 'contact_upsert';
-  description = definition.description;
-  category = 'contacts';
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  }
-
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
-    return executeContactUpsert(input, context);
-  }
-}
-
-registerTool(new ContactUpsertTool());
