@@ -23,7 +23,10 @@ import { exec, execOutput } from "../lib/step-runner";
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
 const INSTALL_SCRIPT_PATH = join(import.meta.dir, "..", "adapters", "install.sh");
 const MACHINE_TYPE = "e2-standard-4"; // 4 vCPUs, 16 GB memory
-const HATCH_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+const HATCH_TIMEOUT_MS: Record<Species, number> = {
+  vellum: 2 * 60 * 1000,
+  openclaw: 10 * 60 * 1000,
+};
 const DEFAULT_SPECIES: Species = "vellum";
 
 const DESIRED_FIREWALL_RULES: FirewallRuleSpec[] = [
@@ -385,7 +388,7 @@ export async function watchHatching(
       }
 
       const elapsed = Date.now() - startTime;
-      if (elapsed >= HATCH_TIMEOUT_MS) {
+      if (elapsed >= HATCH_TIMEOUT_MS[species]) {
         clearInterval(interval);
         console.log("");
         console.log(`   ⏰ Timed out after ${formatElapsed(elapsed)}. Instance is still running.`);
