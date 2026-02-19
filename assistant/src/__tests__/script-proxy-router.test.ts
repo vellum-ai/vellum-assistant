@@ -60,15 +60,15 @@ describe('routeConnection', () => {
     });
   });
 
-  test('returns tunnel:no_rewrite for bare domain when pattern requires subdomain', () => {
+  test('returns mitm for bare domain when wildcard pattern exists (apex-inclusive)', () => {
     const templates = new Map<string, CredentialInjectionTemplate[]>([
       ['cred-1', [headerTemplate('*.fal.ai')]],
     ]);
-    // minimatch: "*.fal.ai" does not match bare "fal.ai"
+    // Apex-inclusive: "*.fal.ai" now matches bare "fal.ai"
     const result = routeConnection('fal.ai', 443, ['cred-1'], templates);
     expect(result).toEqual<RouteDecision>({
-      action: 'tunnel',
-      reason: 'tunnel:no_rewrite',
+      action: 'mitm',
+      reason: 'mitm:credential_injection',
     });
   });
 
@@ -164,6 +164,17 @@ describe('routeConnection', () => {
     expect(result).toEqual<RouteDecision>({
       action: 'tunnel',
       reason: 'tunnel:no_rewrite',
+    });
+  });
+
+  test('regression: routeConnection fal.run with *.fal.run template => mitm', () => {
+    const templates = new Map<string, CredentialInjectionTemplate[]>([
+      ['cred-fal', [headerTemplate('*.fal.run')]],
+    ]);
+    const result = routeConnection('fal.run', 443, ['cred-fal'], templates);
+    expect(result).toEqual<RouteDecision>({
+      action: 'mitm',
+      reason: 'mitm:credential_injection',
     });
   });
 });

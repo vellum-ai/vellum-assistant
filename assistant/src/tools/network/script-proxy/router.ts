@@ -7,7 +7,7 @@
  * pay the cost of TLS termination, cert issuance, and request rewriting.
  */
 
-import { minimatch } from 'minimatch';
+import { matchHostPattern } from '../../credentials/host-pattern-match.js';
 import type { CredentialInjectionTemplate } from '../../credentials/policy-types.js';
 
 // ---- Public types ----------------------------------------------------------
@@ -49,7 +49,7 @@ export function routeConnection(
     if (!tpls) continue;
 
     for (const tpl of tpls) {
-      if (minimatch(hostname, tpl.hostPattern, { nocase: true })) {
+      if (matchHostPattern(hostname, tpl.hostPattern, { includeApexForWildcard: true }) !== 'none') {
         return { action: 'mitm', reason: 'mitm:credential_injection' };
       }
     }
