@@ -140,13 +140,17 @@ private struct TasksWindowRow: View {
             statusColumn
                 .frame(width: TasksTableContract.statusWidth)
 
-            // Actions column — fixed width
+            // Actions column — fixed width; sits above the row background
+            // in the hit-test stack so button clicks are never intercepted.
             actionsColumn
                 .frame(width: TasksTableContract.actionsWidth)
+                .contentShape(Rectangle())
+                .allowsHitTesting(true)
         }
         .frame(minHeight: 36)
         .padding(.vertical, VSpacing.sm)
         .padding(.horizontal, VSpacing.md)
+        .contentShape(Rectangle())
         .background(isHovered ? VColor.surface.opacity(0.8) : VColor.surface.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
@@ -248,6 +252,7 @@ private struct TasksWindowRow: View {
                     .padding(.vertical, VSpacing.xs)
                     .background(VColor.accent.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!runEnabled)
@@ -269,6 +274,7 @@ private struct TasksWindowRow: View {
                     .padding(.vertical, VSpacing.xs)
                     .background(VColor.success.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Mark task as reviewed")
@@ -282,6 +288,7 @@ private struct TasksWindowRow: View {
                         .frame(width: 20, height: 20)
                         .background(VColor.surfaceBorder.opacity(0.5))
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Remove task")
