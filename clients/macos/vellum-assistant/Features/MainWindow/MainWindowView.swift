@@ -1662,6 +1662,7 @@ private struct ActiveChatViewWrapper: View {
                 enabledSince: settingsStore.mediaEmbedsEnabledSince,
                 allowedDomains: settingsStore.mediaEmbedVideoAllowlistDomains
             ),
+            onDeleteQueuedMessage: { messageId in viewModel.deleteQueuedMessage(messageId: messageId) },
             isTemporaryChat: isTemporaryChat,
             activeSubagents: viewModel.activeSubagents
         )

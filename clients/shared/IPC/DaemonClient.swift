@@ -144,6 +144,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `message_dequeued` message.
     public var onMessageDequeued: ((MessageDequeuedMessage) -> Void)?
 
+    /// Called when the daemon sends a `message_queued_deleted` message.
+    public var onMessageQueuedDeleted: ((MessageQueuedDeletedMessage) -> Void)?
+
     /// Called when the daemon sends a `generation_handoff` message.
     public var onGenerationHandoff: ((GenerationHandoffMessage) -> Void)?
 
@@ -897,6 +900,13 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(SkillsConfigureMessage(name: name, env: env, apiKey: apiKey, config: config))
     }
 
+    // MARK: - Queue Management
+
+    /// Delete a specific queued message by its requestId.
+    public func sendDeleteQueuedMessage(sessionId: String, requestId: String) throws {
+        try send(DeleteQueuedMessageMessage(sessionId: sessionId, requestId: requestId))
+    }
+
     // MARK: - Regenerate
 
     /// Regenerate the last assistant response for a session.
@@ -1278,6 +1288,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onMessageQueued?(msg)
         case .messageDequeued(let msg):
             onMessageDequeued?(msg)
+        case .messageQueuedDeleted(let msg):
+            onMessageQueuedDeleted?(msg)
         case .generationHandoff(let msg):
             onGenerationHandoff?(msg)
         case .confirmationRequest(let msg):

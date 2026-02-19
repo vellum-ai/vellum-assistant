@@ -108,6 +108,12 @@ export interface CancelRequest {
   sessionId?: string;
 }
 
+export interface DeleteQueuedMessage {
+  type: 'delete_queued_message';
+  sessionId: string;
+  requestId: string;
+}
+
 export interface ModelGetRequest {
   type: 'model_get';
 }
@@ -793,6 +799,7 @@ export type ClientMessage =
   | SessionSwitchRequest
   | PingMessage
   | CancelRequest
+  | DeleteQueuedMessage
   | ModelGetRequest
   | ModelSetRequest
   | HistoryRequest
@@ -1275,6 +1282,12 @@ export interface MessageQueued {
 
 export interface MessageDequeued {
   type: 'message_dequeued';
+  sessionId: string;
+  requestId: string;
+}
+
+export interface MessageQueuedDeleted {
+  type: 'message_queued_deleted';
   sessionId: string;
   requestId: string;
 }
@@ -1961,6 +1974,7 @@ export type ServerMessage =
   | SuggestionResponse
   | MessageQueued
   | MessageDequeued
+  | MessageQueuedDeleted
   | ReminderFired
   | ScheduleComplete
   | WatcherNotification

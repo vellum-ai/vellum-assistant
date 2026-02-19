@@ -892,6 +892,26 @@ extension IPCMessageDequeued {
     }
 }
 
+/// Notifies client that a queued message was successfully deleted.
+/// Backed by generated `IPCMessageQueuedDeleted`.
+public typealias MessageQueuedDeletedMessage = IPCMessageQueuedDeleted
+
+extension IPCMessageQueuedDeleted {
+    public init(sessionId: String, requestId: String) {
+        self.init(type: "message_queued_deleted", sessionId: sessionId, requestId: requestId)
+    }
+}
+
+/// Client → Server request to delete a specific queued message.
+/// Backed by generated `IPCDeleteQueuedMessage`.
+public typealias DeleteQueuedMessageMessage = IPCDeleteQueuedMessage
+
+extension IPCDeleteQueuedMessage {
+    public init(sessionId: String, requestId: String) {
+        self.init(type: "delete_queued_message", sessionId: sessionId, requestId: requestId)
+    }
+}
+
 /// Server-level error message.
 /// Backed by generated `IPCErrorMessage`.
 public typealias ErrorMessage = IPCErrorMessage
@@ -1716,6 +1736,7 @@ public enum ServerMessage: Decodable, Sendable {
     case appDataResponse(AppDataResponseMessage)
     case messageQueued(MessageQueuedMessage)
     case messageDequeued(MessageDequeuedMessage)
+    case messageQueuedDeleted(MessageQueuedDeletedMessage)
     case skillsListResponse(SkillsListResponseMessage)
     case skillDetailResponse(SkillDetailResponseMessage)
     case skillStateChanged(SkillStateChangedMessage)
@@ -1889,6 +1910,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "message_dequeued":
             let message = try MessageDequeuedMessage(from: decoder)
             self = .messageDequeued(message)
+        case "message_queued_deleted":
+            let message = try MessageQueuedDeletedMessage(from: decoder)
+            self = .messageQueuedDeleted(message)
         case "skills_list_response":
             let message = try SkillsListResponseMessage(from: decoder)
             self = .skillsListResponse(message)

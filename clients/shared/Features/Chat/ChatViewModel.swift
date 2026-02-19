@@ -722,6 +722,36 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Delete a queued message by its local message ID.
+    /// Finds the daemon requestId for the message and sends a delete request.
+    public func deleteQueuedMessage(messageId: UUID) {
+        guard let sessionId else { return }
+
+        // Find the requestId for this message
+        guard let entry = requestIdToMessageId.first(where: { $0.value == messageId }) else {
+            // Message hasn't been assigned a requestId yet — remove it locally
+            removeQueuedMessageLocally(messageId: messageId)
+            return
+        }
+
+        do {
+            try daemonClient.send(DeleteQueuedMessageMessage(sessionId: sessionId, requestId: entry.key))
+        } catch {
+            log.error("Failed to send delete_queued_message: \(error.localizedDescription)")
+        }
+    }
+
+    /// Remove a queued message from local state without a daemon round-trip.
+    /// Used when the message hasn't been acknowledged by the daemon yet.
+    private func removeQueuedMessageLocally(messageId: UUID) {
+        pendingMessageIds.removeAll { $0 == messageId }
+        messages.removeAll { $0.id == messageId }
+        pendingQueuedCount = max(0, pendingQueuedCount - 1)
+        if pendingQueuedCount == 0 && !isThinking {
+            isSending = false
+        }
+    }
+
     /// Stop the active watch session and notify the macOS layer.
     public func stopWatchSession() {
         guard isWatchSessionActive else { return }

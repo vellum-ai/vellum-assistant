@@ -13,6 +13,7 @@ import type {
   SessionCreateRequest,
   SessionSwitchRequest,
   CancelRequest,
+  DeleteQueuedMessage,
   HistoryRequest,
   UndoRequest,
   RegenerateRequest,
@@ -452,4 +453,26 @@ export function handleSandboxSet(
     { enabled: msg.enabled },
     'Received deprecated sandbox_set message. Runtime sandbox overrides are ignored.',
   );
+}
+
+export function handleDeleteQueuedMessage(
+  msg: DeleteQueuedMessage,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const session = ctx.sessions.get(msg.sessionId);
+  if (!session) {
+    log.warn({ sessionId: msg.sessionId, requestId: msg.requestId }, 'No session found for delete_queued_message');
+    return;
+  }
+  const removed = session.removeQueuedMessage(msg.requestId);
+  if (removed) {
+    ctx.send(socket, {
+      type: 'message_queued_deleted',
+      sessionId: msg.sessionId,
+      requestId: msg.requestId,
+    });
+  } else {
+    log.warn({ sessionId: msg.sessionId, requestId: msg.requestId }, 'Queued message not found for deletion');
+  }
 }

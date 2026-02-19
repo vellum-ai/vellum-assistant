@@ -519,6 +519,14 @@ export class Session {
   }
 
   /**
+   * Remove a queued message by requestId. Returns true if the message was found
+   * and removed, false if the requestId was not in the queue.
+   */
+  removeQueuedMessage(requestId: string): boolean {
+    return this.queue.removeByRequestId(requestId) !== undefined;
+  }
+
+  /**
    * Returns true if the session is currently processing and there are queued
    * messages waiting. This is the predicate used to decide whether to yield
    * at a turn boundary (checkpoint handoff).

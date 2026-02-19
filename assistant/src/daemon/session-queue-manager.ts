@@ -65,6 +65,16 @@ export class MessageQueue {
     return this.items.length === 0;
   }
 
+  /**
+   * Remove a queued message by its requestId.
+   * Returns the removed message, or undefined if not found.
+   */
+  removeByRequestId(requestId: string): QueuedMessage | undefined {
+    const idx = this.items.findIndex((m) => m.requestId === requestId);
+    if (idx === -1) return undefined;
+    return this.items.splice(idx, 1)[0];
+  }
+
   [Symbol.iterator](): Iterator<QueuedMessage> {
     return this.items[Symbol.iterator]();
   }
