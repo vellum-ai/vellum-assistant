@@ -27,7 +27,7 @@ When a slash command name exists in both Vellum skills and CC commands, the `sla
 
 1. Create a `.claude/commands/` directory in your project (or any ancestor directory).
 2. Add a `.md` file with the command name as the filename (e.g., `review.md`).
-3. The first non-empty line (after optional YAML frontmatter) becomes the command summary shown in the system prompt.
+3. The first non-empty line (after optional YAML frontmatter) becomes the command summary shown in `/commands`.
 4. The full markdown content is used as the command template at execution time.
 
 Valid command names match `[A-Za-z0-9][A-Za-z0-9._-]*`.
