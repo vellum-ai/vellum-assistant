@@ -594,7 +594,7 @@ export class AnthropicProvider implements Provider {
         content: response.content.map((block) =>
           this.fromAnthropicBlock(block),
         ),
-        model: response.model,
+        model: this.fastMode ? `${response.model}-fast` : response.model,
         usage: {
           inputTokens: response.usage.input_tokens
             + (response.usage.cache_creation_input_tokens ?? 0)
