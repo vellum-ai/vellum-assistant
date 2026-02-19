@@ -590,10 +590,7 @@ private struct ChatBubble: View {
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
     @State private var isRegenerateHovered = false
-    @State private var isCopyHovered = false
 
-    @State private var showCopyConfirmation = false
-    @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
     @State private var stepsExpanded = false
 
@@ -712,10 +709,6 @@ private struct ChatBubble: View {
                 }
 
                 HStack(spacing: VSpacing.xs) {
-                    if !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        copyButton
-                    }
-
                     if showRegenerate {
                         regenerateButton
                     }
@@ -780,59 +773,6 @@ private struct ChatBubble: View {
     /// Whether all tool calls are complete and the message is done streaming.
     private var allToolCallsComplete: Bool {
         !message.toolCalls.isEmpty && message.toolCalls.allSatisfy { $0.isComplete } && !message.isStreaming
-    }
-
-    private var copyButton: some View {
-        Button {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(message.text, forType: .string)
-            copyConfirmationTimer?.cancel()
-            showCopyConfirmation = true
-            let timer = DispatchWorkItem { showCopyConfirmation = false }
-            copyConfirmationTimer = timer
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
-        } label: {
-            Image(systemName: showCopyConfirmation ? "checkmark" : "doc.on.doc")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(showCopyConfirmation ? VColor.success : VColor.textMuted)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Copy message")
-        .onHover { hovering in
-            isCopyHovered = hovering
-            if hovering {
-                NSCursor.pointingHand.set()
-            } else {
-                NSCursor.arrow.set()
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if isCopyHovered && !showCopyConfirmation {
-                Text("Copy")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textPrimary)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xs)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .fill(VColor.surface)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
-                    .vShadow(VShadow.sm)
-                    .fixedSize()
-                    .offset(y: 28)
-                    .transition(.opacity)
-                    .allowsHitTesting(false)
-            }
-        }
-        .opacity(isUser ? (isHovered ? 1 : 0) : 1)
-        .allowsHitTesting(isUser ? isHovered : true)
-        .animation(VAnimation.fast, value: isHovered)
     }
 
     private var regenerateButton: some View {
