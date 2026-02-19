@@ -102,7 +102,6 @@ struct TasksWindowView: View {
                                 timeoutIds: viewModel.runTimeoutIds,
                                 onTap: { viewModel.fetchOutput(for: item) },
                                 onRun: { viewModel.initiateRun(item: item) },
-                                onComplete: { viewModel.completeTask(id: item.id) },
                                 onRemove: { viewModel.removeTask(id: item.id) },
                                 onPriorityChange: { newTier in
                                     viewModel.updatePriority(id: item.id, tier: newTier)
@@ -157,11 +156,10 @@ private struct TasksWindowRow: View {
     let timeoutIds: Set<String>
     let onTap: () -> Void
     let onRun: () -> Void
-    let onComplete: () -> Void
     let onRemove: () -> Void
     let onPriorityChange: (Double) -> Void
     @State private var isHovered = false
-    @State private var isTitleHovered = false
+    @State private var isStatusHovered = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
@@ -201,29 +199,12 @@ private struct TasksWindowRow: View {
     // MARK: - Task Column
 
     private var taskColumn: some View {
-        Group {
-            if hasOutput {
-                Text(item.title)
-                    .font(VFont.body)
-                    .foregroundColor(isTitleHovered ? VColor.accent : VColor.textPrimary)
-                    .underline(isTitleHovered, color: VColor.accent)
-                    .lineLimit(TasksTableContract.titleLineLimit)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .onHover { hovering in isTitleHovered = hovering }
-                    .onTapGesture(perform: onTap)
-                    .accessibilityLabel("View output for \(item.title)")
-                    .accessibilityAddTraits(.isButton)
-            } else {
-                Text(item.title)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(TasksTableContract.titleLineLimit)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
+        Text(item.title)
+            .font(VFont.body)
+            .foregroundColor(VColor.textPrimary)
+            .lineLimit(TasksTableContract.titleLineLimit)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Priority Column
@@ -276,31 +257,37 @@ private struct TasksWindowRow: View {
             }
             Text(style.label)
                 .font(VFont.caption)
-                .foregroundColor(style.color)
+                .foregroundColor(hasOutput && isStatusHovered ? VColor.accent : style.color)
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, 2)
-        .background(style.color.opacity(0.12))
+        .background(hasOutput && isStatusHovered ? VColor.accent.opacity(0.18) : style.color.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-        .accessibilityLabel("Status \(style.label)")
+        .contentShape(Rectangle())
+        .onHover { hovering in isStatusHovered = hovering }
+        .onTapGesture { if hasOutput { onTap() } }
+        .accessibilityLabel(hasOutput ? "View output — \(style.label)" : "Status \(style.label)")
+        .accessibilityAddTraits(hasOutput ? .isButton : [])
     }
 
     // MARK: - Actions Column
 
     private var actionsColumn: some View {
         let status = WorkItemStatus(rawStatus: item.status)
-        let isRunning = runningIds.contains(item.id)
+        let isRunning = runningIds.contains(item.id) || status == .running
         let isTimedOut = timeoutIds.contains(item.id)
         let isFailed = status == .failed
+        let isRerun = status == .done || status == .awaitingReview
+        let showRun = status != .archived && !isRunning
         let runEnabled = !isRunning
-        let showRun = status == .queued || isFailed || isTimedOut
         let buttonColor = (isFailed || isTimedOut) ? VColor.warning : VColor.accent
         let buttonLabel: String = {
-            if isRunning { return "Starting..." }
+            if isRunning { return "Running..." }
             if isTimedOut || isFailed { return "Retry" }
+            if isRerun { return "Rerun" }
             return "Run"
         }()
-        let buttonIcon = (isFailed || isTimedOut) ? "arrow.clockwise" : "play.fill"
+        let buttonIcon = (isFailed || isTimedOut || isRerun) ? "arrow.clockwise" : "play.fill"
         return HStack(spacing: VSpacing.xs) {
             if showRun {
                 VStack(alignment: .center, spacing: 2) {
@@ -321,8 +308,8 @@ private struct TasksWindowRow: View {
                     .buttonStyle(.plain)
                     .disabled(!runEnabled)
                     .opacity(runEnabled ? 1.0 : 0.4)
-                    .accessibilityLabel(isRunning ? "Task is starting" : ((isFailed || isTimedOut) ? "Retry task" : "Run task"))
-                    .accessibilityHint(isRunning ? "Task is already starting" : (isTimedOut ? "No response received, tap to retry" : (isFailed ? "Retry running this failed task" : "")))
+                    .accessibilityLabel(isRunning ? "Task is running" : ((isFailed || isTimedOut) ? "Retry task" : (isRerun ? "Rerun task" : "Run task")))
+                    .accessibilityHint(isRunning ? "Task is already running" : (isTimedOut ? "No response received, tap to retry" : (isFailed ? "Retry running this failed task" : "")))
 
                     if isTimedOut {
                         Text("No response")
@@ -330,25 +317,6 @@ private struct TasksWindowRow: View {
                             .foregroundColor(VColor.warning)
                     }
                 }
-            }
-
-            if status == .awaitingReview {
-                Button(action: onComplete) {
-                    HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "checkmark.circle")
-                            .font(.system(size: 10))
-                        Text("Mark Reviewed")
-                            .font(VFont.caption)
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xs)
-                    .background(VColor.success)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Mark task as reviewed")
             }
 
             if isHovered {
