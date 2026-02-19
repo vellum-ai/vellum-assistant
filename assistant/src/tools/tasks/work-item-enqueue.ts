@@ -2,7 +2,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { getTask, listTasks, createTask } from '../../tasks/task-store.js';
-import { createWorkItem, findActiveWorkItemsByTitle, updateWorkItem } from '../../work-items/work-item-store.js';
+import { createWorkItem, findActiveWorkItemsByTitle, updateWorkItem, identifyEntityById, buildWorkItemMismatchError } from '../../work-items/work-item-store.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('task-list-add');
@@ -179,7 +179,14 @@ class TaskListAddTool implements Tool {
       if (taskId) {
         resolvedTask = getTask(taskId);
         if (!resolvedTask) {
-          return { content: `Error: No task definition found with ID "${taskId}".`, isError: true };
+          const entity = identifyEntityById(taskId);
+          if (entity.type === 'work_item') {
+            return {
+              content: `Error: ${buildWorkItemMismatchError(taskId, entity.title!, 'task_list_update to modify the existing work item, or task_list_add with just a title for a new ad-hoc item')}`,
+              isError: true,
+            };
+          }
+          return { content: `Error: No task definition found with ID "${taskId}". Use task_list to see available task templates, or provide just a title to create an ad-hoc work item.`, isError: true };
         }
       } else {
         // Search by name (case-insensitive substring match)

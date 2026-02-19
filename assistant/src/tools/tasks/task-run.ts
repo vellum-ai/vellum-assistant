@@ -3,6 +3,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { getTask, listTasks } from '../../tasks/task-store.js';
 import { renderTemplate } from '../../tasks/task-runner.js';
+import { identifyEntityById, buildWorkItemMismatchError } from '../../work-items/work-item-store.js';
 
 const definition: ToolDefinition = {
   name: 'task_run',
@@ -57,7 +58,14 @@ class TaskRunTool implements Tool {
       if (taskId) {
         task = getTask(taskId);
         if (!task) {
-          return { content: `Error: No task found with ID "${taskId}"`, isError: true };
+          const entity = identifyEntityById(taskId);
+          if (entity.type === 'work_item') {
+            return {
+              content: `Error: ${buildWorkItemMismatchError(taskId, entity.title!, 'task_list_show to view work items, or task_list_update to modify them')}`,
+              isError: true,
+            };
+          }
+          return { content: `Error: No task template found with ID "${taskId}". Use task_list to see available templates.`, isError: true };
         }
       } else if (taskName) {
         const allTasks = listTasks();
