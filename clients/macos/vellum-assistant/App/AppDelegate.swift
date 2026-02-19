@@ -1139,8 +1139,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showTasksWindow() {
         NSApp.setActivationPolicy(.regular)
+        // Always recreate the tasks window to ensure it has the latest
+        // ThreadManager reference (mainWindow may have been created after
+        // the previous TasksWindow instance).
         if tasksWindow == nil {
-            tasksWindow = TasksWindow(daemonClient: daemonClient)
+            tasksWindow = TasksWindow(daemonClient: daemonClient, threadManager: mainWindow?.threadManager)
         }
         tasksWindow?.show()
     }

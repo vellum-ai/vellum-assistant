@@ -810,6 +810,8 @@ export interface WorkItemDeleteRequest {
 export interface WorkItemRunTaskRequest {
   type: 'work_item_run_task';
   id: string;
+  /** When true, the daemon sets status to "running" but skips execution — the client routes task content through the active chat session instead. */
+  chatRouted?: boolean;
 }
 
 export interface WorkItemOutputRequest {
@@ -830,6 +832,11 @@ export interface WorkItemApprovePermissionsRequest {
 
 export interface WorkItemCancelRequest {
   type: 'work_item_cancel';
+  id: string;
+}
+
+export interface WorkItemRenderRequest {
+  type: 'work_item_render';
   id: string;
 }
 
@@ -931,6 +938,7 @@ export type ClientMessage =
   | WorkItemPreflightRequest
   | WorkItemApprovePermissionsRequest
   | WorkItemCancelRequest
+  | WorkItemRenderRequest
   | SubagentAbortRequest
   | SubagentStatusRequest
   | SubagentMessageRequest;
@@ -2017,6 +2025,15 @@ export interface WorkItemCancelResponse {
   error?: string;
 }
 
+export interface WorkItemRenderResponse {
+  type: 'work_item_render_response';
+  id: string;
+  success: boolean;
+  content?: string;
+  title?: string;
+  error?: string;
+}
+
 /** Server push — tells the client to open/focus the tasks window. */
 export interface OpenTasksWindow {
   type: 'open_tasks_window';
@@ -2148,6 +2165,7 @@ export type ServerMessage =
   | WorkItemPreflightResponse
   | WorkItemApprovePermissionsResponse
   | WorkItemCancelResponse
+  | WorkItemRenderResponse
   | WorkItemStatusChanged
   | TasksChanged
   | OpenTasksWindow

@@ -190,6 +190,8 @@ extension DaemonClient {
             onWorkItemApprovePermissionsResponse?(msg)
         case .workItemCancelResponse(let msg):
             onWorkItemCancelResponse?(msg)
+        case .workItemRenderResponse(let msg):
+            onWorkItemRenderResponse?(msg)
         case .openTasksWindow:
             onOpenTasksWindow?()
         case .subagentSpawned(let msg):
