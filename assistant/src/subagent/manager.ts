@@ -306,10 +306,13 @@ export class SubagentManager {
       }
     }
 
-    // Dispose all children (terminal or not) to free resources.
-    // Use snapshot since dispose mutates the set.
+    // Dispose only non-terminal children to free resources.
+    // Terminal subagents (completed/failed) stay readable via subagent_read.
     for (const childId of [...children]) {
-      this.dispose(childId);
+      const state = this.getState(childId);
+      if (!state || !TERMINAL_STATUSES.has(state.status)) {
+        this.dispose(childId);
+      }
     }
 
     return count;
