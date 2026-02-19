@@ -2,6 +2,9 @@
 export * from './ipc-contract.js';
 
 import type { ClientMessage, ServerMessage } from './ipc-contract.js';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('ipc-protocol');
 
 // === Serialization ===
 
@@ -43,8 +46,8 @@ export function createMessageParser(options?: { maxLineSize?: number }) {
             entry.rawByteLength = Buffer.byteLength(trimmed, 'utf8');
           }
           results.push(entry);
-        } catch {
-          // Skip malformed messages
+        } catch (err) {
+          log.warn({ lineLength: trimmed.length, err }, 'Skipping malformed IPC message');
         }
       }
     }
