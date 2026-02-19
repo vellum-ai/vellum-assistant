@@ -923,6 +923,7 @@ private struct ChatBubble: View {
     @State private var isHovered = false
     @State private var isRegenerateHovered = false
     @State private var isCopyHovered = false
+    @State private var isMoreHovered = false
     @State private var showCopyConfirmation = false
     @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
@@ -1082,6 +1083,30 @@ private struct ChatBubble: View {
                         .opacity(isUser ? (isHovered ? 1 : 0) : 1)
                         .allowsHitTesting(isUser ? isHovered : true)
                         .accessibilityLabel("Message actions")
+                        .onHover { isMoreHovered = $0 }
+                        .overlay(alignment: .bottom) {
+                            if isMoreHovered {
+                                Text("More")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textPrimary)
+                                    .padding(.horizontal, VSpacing.sm)
+                                    .padding(.vertical, VSpacing.xs)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: VRadius.sm)
+                                            .fill(VColor.surface)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: VRadius.sm)
+                                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                                    )
+                                    .vShadow(VShadow.sm)
+                                    .fixedSize()
+                                    .offset(y: 28)
+                                    .transition(.opacity)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                        .animation(VAnimation.fast, value: isMoreHovered)
                     }
                 }
             }
