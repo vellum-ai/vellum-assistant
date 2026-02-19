@@ -1034,7 +1034,9 @@ private struct ChatBubble: View {
                 }
 
                 HStack(spacing: VSpacing.xs) {
-                    copyButton
+                    if !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        copyButton
+                    }
 
                     if showRegenerate {
                         regenerateButton
