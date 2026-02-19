@@ -56,7 +56,7 @@ class TaskDeleteTool implements Tool {
             return { content: result.message, isError: false };
           }
           log.warn({ inputId: ids[0] }, 'no task or work item found for deletion');
-          return { content: `No task found with ID ${ids[0]}`, isError: true };
+          return { content: `No task template or work item found with ID "${ids[0]}". Use task_list to see task templates or task_list_show to see work items in the queue.`, isError: true };
         }
         log.info({ taskId: ids[0], title: task?.title, deletedCount: 1 }, 'task deleted');
         return { content: `Deleted task: ${task?.title ?? ids[0]}`, isError: false };

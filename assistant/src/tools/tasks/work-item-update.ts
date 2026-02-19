@@ -1,7 +1,7 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { resolveWorkItem, updateWorkItem, type WorkItemStatus } from '../../work-items/work-item-store.js';
+import { resolveWorkItem, updateWorkItem, identifyEntityById, buildTaskTemplateMismatchError, type WorkItemStatus } from '../../work-items/work-item-store.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('task-list-update');
@@ -81,6 +81,17 @@ class TaskListUpdateTool implements Tool {
       const result = resolveWorkItem(selector);
 
       if (result.status === 'not_found') {
+        // When the model passes an ID directly, check if it's a task template
+        if (selector.workItemId) {
+          const entity = identifyEntityById(selector.workItemId);
+          if (entity.type === 'task_template') {
+            log.warn({ selectorType, inputId: selector.workItemId }, 'task template ID passed as work_item_id');
+            return {
+              content: `Error: ${buildTaskTemplateMismatchError(selector.workItemId, entity.title!, 'task_delete to remove task templates, or task_list to view them')}`,
+              isError: true,
+            };
+          }
+        }
         log.warn({ selectorType, error: result.message }, 'work item not found for update');
         return { content: `Error: ${result.message}`, isError: true };
       }
