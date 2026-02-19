@@ -1071,18 +1071,20 @@ extension ChatViewModel {
                     }
                 }
             } else {
-                // Always clear sending state on error — even with queued messages.
-                // Leaving isSending=true with a non-zero pendingQueuedCount creates
-                // a deadlock: regenerate guards on !isSending, so the user can never
-                // recover.
+                // Always clear sending state so regenerate is unblocked.
                 isSending = false
-                pendingQueuedCount = 0
-                pendingMessageIds = []
-                requestIdToMessageId = [:]
-                for i in messages.indices {
-                    if case .queued = messages[i].status, messages[i].role == .user {
-                        messages[i].status = .sent
-                    }
+                if pendingQueuedCount == 0 {
+                    // No queued work remains — safe to tear down everything.
+                    pendingMessageIds = []
+                    requestIdToMessageId = [:]
+                } else {
+                    // The daemon drains queued work after a session_error
+                    // (session.ts calls drainQueue in `finally`), so preserve
+                    // pendingQueuedCount, pendingMessageIds, requestIdToMessageId,
+                    // and queued message statuses. Incoming message_dequeued events
+                    // need requestIdToMessageId to correlate to user messages.
+                    // messageDequeued will re-set isSending=true when the next
+                    // queued message starts processing.
                 }
             }
 
