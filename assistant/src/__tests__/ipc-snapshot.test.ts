@@ -453,6 +453,15 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'work_item_output',
     id: 'wi-001',
   },
+  work_item_preflight: {
+    type: 'work_item_preflight',
+    id: 'wi-001',
+  },
+  work_item_approve_permissions: {
+    type: 'work_item_approve_permissions',
+    id: 'wi-001',
+    approvedTools: ['bash', 'file_write'],
+  },
   document_save: {
     type: 'document_save',
     surfaceId: 'doc-001',
@@ -1345,6 +1354,19 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       summary: 'Report processed successfully.',
       highlights: ['- Key finding 1', '- Key finding 2'],
     },
+  },
+  work_item_preflight_response: {
+    type: 'work_item_preflight_response',
+    id: 'wi-001',
+    success: true,
+    permissions: [
+      { tool: 'bash', description: 'Run shell commands', riskLevel: 'medium', currentDecision: 'prompt' },
+    ],
+  },
+  work_item_approve_permissions_response: {
+    type: 'work_item_approve_permissions_response',
+    id: 'wi-001',
+    success: true,
   },
   work_item_status_changed: {
     type: 'work_item_status_changed',

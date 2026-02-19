@@ -716,6 +716,24 @@ exports[`IPC message snapshots ClientMessage types work_item_output serializes t
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types work_item_preflight serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "type": "work_item_preflight",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types work_item_approve_permissions serializes to expected JSON 1`] = `
+{
+  "approvedTools": [
+    "bash",
+    "file_write",
+  ],
+  "id": "wi-001",
+  "type": "work_item_approve_permissions",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types document_save serializes to expected JSON 1`] = `
 {
   "content": "# Hello",
@@ -2072,6 +2090,30 @@ exports[`IPC message snapshots ServerMessage types work_item_output_response ser
   },
   "success": true,
   "type": "work_item_output_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types work_item_preflight_response serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "permissions": [
+    {
+      "currentDecision": "prompt",
+      "description": "Run shell commands",
+      "riskLevel": "medium",
+      "tool": "bash",
+    },
+  ],
+  "success": true,
+  "type": "work_item_preflight_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types work_item_approve_permissions_response serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "success": true,
+  "type": "work_item_approve_permissions_response",
 }
 `;
 
