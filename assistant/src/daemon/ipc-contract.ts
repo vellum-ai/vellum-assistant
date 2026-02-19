@@ -1927,6 +1927,11 @@ export interface OpenTasksWindow {
   type: 'open_tasks_window';
 }
 
+/** Server push — lightweight invalidation signal: the task queue has been mutated, refetch your list. */
+export interface TasksChanged {
+  type: 'tasks_changed';
+}
+
 /** Server push — broadcast when a work item status changes (e.g. running -> awaiting_review). */
 export interface WorkItemStatusChanged {
   type: 'work_item_status_changed';
@@ -2044,6 +2049,7 @@ export type ServerMessage =
   | WorkItemUpdateResponse
   | WorkItemRunTaskResponse
   | WorkItemStatusChanged
+  | TasksChanged
   | OpenTasksWindow
   | SubagentSpawned
   | SubagentStatusChanged

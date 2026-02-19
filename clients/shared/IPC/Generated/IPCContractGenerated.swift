@@ -1541,6 +1541,11 @@ public struct IPCTaskRouted: Codable, Sendable {
     public let escalatedFrom: String?
 }
 
+/// Server push — lightweight invalidation signal: the task queue has been mutated, refetch your list.
+public struct IPCTasksChanged: Codable, Sendable {
+    public let type: String
+}
+
 public struct IPCTaskSubmit: Codable, Sendable {
     public let type: String
     public let task: String

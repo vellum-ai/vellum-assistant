@@ -1328,6 +1328,9 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       updatedAt: 1700001000,
     },
   },
+  tasks_changed: {
+    type: 'tasks_changed',
+  },
   open_tasks_window: {
     type: 'open_tasks_window',
   },
