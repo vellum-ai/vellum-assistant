@@ -14,6 +14,7 @@ import {
   updateCallSession,
   getPendingQuestion,
   answerPendingQuestion,
+  expirePendingQuestions,
 } from './call-store.js';
 import { getCallOrchestrator, unregisterCallOrchestrator } from './call-state.js';
 import { activeRelayConnections } from './relay-server.js';
@@ -122,6 +123,11 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, phoneNumber }, 'Failed to initiate call');
 
+    // FK constraint failure on conversation_id means the conversationId is invalid
+    if (err instanceof Error && msg.includes('FOREIGN KEY constraint failed') && !sessionId) {
+      return { ok: false, error: `Invalid conversationId: no conversation found with ID ${conversationId}`, status: 400 };
+    }
+
     if (sessionId) {
       updateCallSession(sessionId, {
         status: 'failed',
@@ -218,9 +224,19 @@ export async function cancelCall(input: CancelCallInput): Promise<{ ok: true; se
     endedAt: Date.now(),
   });
 
+  // Expire any pending questions so they don't linger
+  expirePendingQuestions(callSessionId);
+
+  // Re-check final status: a concurrent transition (e.g. Twilio callback) may have
+  // moved the session to a terminal state before our update, causing it to be skipped.
+  const updated = getCallSession(callSessionId);
+  if (updated && updated.status !== 'cancelled') {
+    log.warn({ callSessionId, finalStatus: updated.status }, 'Cancel lost race — session already transitioned to terminal state');
+    return { ok: false, error: `Call session ${callSessionId} transitioned to ${updated.status} before cancellation could be applied`, status: 409 };
+  }
+
   log.info({ callSessionId }, 'Call cancelled successfully');
 
-  const updated = getCallSession(callSessionId);
   return { ok: true, session: updated ?? { ...session, status: 'cancelled', endedAt: Date.now() } };
 }
 
