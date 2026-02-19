@@ -170,7 +170,7 @@ export function handleWorkItemOutput(
   }
 
   let summary = '';
-  let highlights: string[] = [];
+  const highlights: string[] = [];
 
   if (workItem.lastRunConversationId) {
     const msgs = getMessages(workItem.lastRunConversationId);

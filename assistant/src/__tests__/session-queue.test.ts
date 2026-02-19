@@ -1475,8 +1475,8 @@ describe('Regression: cancel semantics and error channel split', () => {
     const events1: ServerMessage[] = [];
     const events2: ServerMessage[] = [];
 
-    // Start first message
-    const p1 = session.processMessage('msg-1', [], (e) => events1.push(e), 'req-1');
+    // Start first message (promise intentionally not awaited — we test queue drain behavior)
+    const _p1 = session.processMessage('msg-1', [], (e) => events1.push(e), 'req-1');
     await waitForPendingRun(1);
 
     // Enqueue a second message while the first is processing

@@ -14,7 +14,6 @@ import {
   updateCallSession,
   recordCallEvent,
   createPendingQuestion,
-  getPendingQuestion,
   expirePendingQuestions,
 } from './call-store.js';
 import { MAX_CALL_DURATION_MS, USER_CONSULTATION_TIMEOUT_MS, SILENCE_TIMEOUT_MS } from './call-constants.js';
@@ -187,7 +186,7 @@ export class CallOrchestrator {
       // could be the start of a control marker.
       let ttsBuffer = '';
 
-      const flushSafeText = (force: boolean): void => {
+      const flushSafeText = (_force: boolean): void => {
         if (ttsBuffer.length === 0) return;
         const bracketIdx = ttsBuffer.indexOf('[');
         if (bracketIdx === -1) {
