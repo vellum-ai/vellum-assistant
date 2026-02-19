@@ -61,6 +61,7 @@ import { registerHooksCommand } from './hooks/cli.js';
 import { registerEmailCommand } from './cli/email.js';
 import { registerContactsCommand } from './cli/contacts.js';
 import { registerAutonomyCommand } from './cli/autonomy.js';
+import { registerDoordashCommand } from './cli/doordash.js';
 
 function sendOneMessage(
   msg: ClientMessage,
@@ -996,6 +997,9 @@ registerContactsCommand(program);
 
 // --- Autonomy commands ---
 registerAutonomyCommand(program);
+
+// --- DoorDash commands ---
+registerDoordashCommand(program);
 
 // --- Completions command ---
 program
