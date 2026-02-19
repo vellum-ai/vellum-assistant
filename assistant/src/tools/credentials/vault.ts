@@ -323,7 +323,9 @@ class CredentialStoreTool implements Tool {
         } catch (err) {
           log.warn({ service, field, err }, 'metadata write failed after storing credential');
         }
-        return { content: `Stored credential for ${service}/${field}.`, isError: false };
+        const metadata = getCredentialMetadata(service, field);
+        const credIdSuffix = metadata ? ` (credential_id: ${metadata.credentialId})` : '';
+        return { content: `Stored credential for ${service}/${field}.${credIdSuffix}`, isError: false };
       }
 
       case 'list': {
@@ -509,7 +511,9 @@ class CredentialStoreTool implements Tool {
         } catch (err) {
           log.warn({ service, field, err }, 'metadata write failed after storing credential');
         }
-        return { content: `Credential stored for ${service}/${field}.`, isError: false };
+        const promptMeta = getCredentialMetadata(service, field);
+        const promptCredIdSuffix = promptMeta ? ` (credential_id: ${promptMeta.credentialId})` : '';
+        return { content: `Credential stored for ${service}/${field}.${promptCredIdSuffix}`, isError: false };
       }
 
       case 'oauth2_connect': {
