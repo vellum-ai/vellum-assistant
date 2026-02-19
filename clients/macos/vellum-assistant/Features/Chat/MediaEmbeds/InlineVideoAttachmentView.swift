@@ -20,6 +20,7 @@ struct InlineVideoAttachmentView: View {
     @State private var failed = false
     @State private var videoAspectRatio: CGFloat = 3.0 / 4.0
     @State private var isHovering = false
+    @State private var isSaving = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -43,13 +44,19 @@ struct InlineVideoAttachmentView: View {
 
             if !failed && !isLoading && isHovering {
                 Button(action: saveVideo) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundStyle(.white)
-                        .shadow(radius: 2)
+                    if isSaving {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundStyle(.white)
+                            .shadow(radius: 2)
+                    }
                 }
                 .buttonStyle(.plain)
                 .padding(VSpacing.sm)
+                .disabled(isSaving)
                 .accessibilityLabel("Save video")
             }
         }
@@ -190,31 +197,35 @@ struct InlineVideoAttachmentView: View {
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let destURL = panel.url else { return }
 
+        isSaving = true
         if attachment.isLazyLoad {
-            guard let port = daemonHttpPort, let attachmentId = attachment.id.isEmpty ? nil : attachment.id else { return }
-            isLoading = true
+            guard let port = daemonHttpPort, let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
+                isSaving = false
+                return
+            }
             Task {
                 do {
                     let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
                     guard let data = Data(base64Encoded: base64) else {
-                        await MainActor.run {
-                            isLoading = false
-                            failed = true
-                        }
+                        await MainActor.run { isSaving = false }
                         return
                     }
                     try data.write(to: destURL)
-                    await MainActor.run { isLoading = false }
+                    await MainActor.run { isSaving = false }
                 } catch {
-                    await MainActor.run {
-                        isLoading = false
-                        failed = true
-                    }
+                    await MainActor.run { isSaving = false }
                 }
             }
         } else {
-            guard let data = Data(base64Encoded: attachment.data) else { return }
-            try? data.write(to: destURL)
+            let base64 = attachment.data
+            Task.detached {
+                guard let data = Data(base64Encoded: base64) else {
+                    await MainActor.run { isSaving = false }
+                    return
+                }
+                try? data.write(to: destURL)
+                await MainActor.run { isSaving = false }
+            }
         }
     }
 
