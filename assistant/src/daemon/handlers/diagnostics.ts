@@ -45,6 +45,36 @@ function truncateAndRedact(text: string): string {
   return redact(truncated);
 }
 
+/** Keys whose values should always be fully redacted in LLM request/response payloads. */
+const SENSITIVE_KEYS = new Set([
+  'api_key', 'apikey', 'api-key',
+  'authorization', 'x-api-key',
+  'secret', 'password', 'token',
+  'credential', 'credentials',
+]);
+
+/**
+ * Recursively walk a parsed JSON value and apply redaction to all string
+ * leaves. Object keys matching known sensitive field names have their
+ * entire value replaced with '[REDACTED]'.
+ */
+function redactDeep(value: unknown): unknown {
+  if (typeof value === 'string') return redact(value);
+  if (Array.isArray(value)) return value.map(redactDeep);
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (SENSITIVE_KEYS.has(k.toLowerCase())) {
+        out[k] = '[REDACTED]';
+      } else {
+        out[k] = redactDeep(v);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
 export async function handleDiagnosticsExport(
   msg: DiagnosticsExportRequest,
   socket: net.Socket,
@@ -159,12 +189,17 @@ export async function handleDiagnosticsExport(
       .orderBy(llmUsageEvents.createdAt)
       .all();
 
-    // 5b. Query ALL raw LLM request/response logs for the conversation
-    // (not time-scoped — we want the full request history for debugging)
+    // 5b. Query raw LLM request/response logs in the range
     const rangeRequestLogs = db
       .select()
       .from(llmRequestLogs)
-      .where(eq(llmRequestLogs.conversationId, conversationId))
+      .where(
+        and(
+          eq(llmRequestLogs.conversationId, conversationId),
+          gte(llmRequestLogs.createdAt, rangeStart),
+          lte(llmRequestLogs.createdAt, usageRangeEnd),
+        ),
+      )
       .orderBy(llmRequestLogs.createdAt)
       .all();
 
@@ -231,15 +266,19 @@ export async function handleDiagnosticsExport(
       writeFileSync(join(tempDir, 'usage.jsonl'), usageLines.join('\n') + (usageLines.length > 0 ? '\n' : ''));
 
       // llm_requests.jsonl — raw request/response payloads sent to the LLM provider
-      const requestLogLines = rangeRequestLogs.map((r) =>
-        JSON.stringify({
+      const requestLogLines = rangeRequestLogs.map((r) => {
+        let request: unknown;
+        let response: unknown;
+        try { request = JSON.parse(r.requestPayload); } catch { request = r.requestPayload; }
+        try { response = JSON.parse(r.responsePayload); } catch { response = r.responsePayload; }
+        return JSON.stringify({
           id: r.id,
           conversationId: r.conversationId,
-          request: JSON.parse(r.requestPayload),
-          response: JSON.parse(r.responsePayload),
+          request: redactDeep(request),
+          response: redactDeep(response),
           createdAt: r.createdAt,
-        }),
-      );
+        });
+      });
       writeFileSync(join(tempDir, 'llm_requests.jsonl'), requestLogLines.join('\n') + (requestLogLines.length > 0 ? '\n' : ''));
 
       // 7. Zip the temp directory
