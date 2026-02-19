@@ -89,7 +89,7 @@ export class RunOrchestrator {
 
     const requestId = crypto.randomUUID();
     const messageId = session.persistUserMessage(content, attachments, requestId);
-    const run = runsStore.createRun('self', conversationId, messageId);
+    const run = runsStore.createRun(conversationId, messageId);
 
     // Runs are always HTTP-originated; set channel capabilities so the attachment
     // scope heuristic resolves to 'self' rather than 'local-assistant'.

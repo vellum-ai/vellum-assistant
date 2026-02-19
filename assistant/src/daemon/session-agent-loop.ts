@@ -707,7 +707,6 @@ export async function runAgentLoopImpl(
       ctx.workingDir,
       async (filePath) => approveHostAttachmentRead(filePath, ctx.workingDir, ctx.prompter, ctx.conversationId, ctx.hasNoClient),
       lastAssistantMessageId,
-      ctx.channelCapabilities != null ? 'self' : 'local-assistant',
     );
     const { assistantAttachments, emittedAttachments } = attachmentResult;
 

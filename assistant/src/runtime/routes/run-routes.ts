@@ -38,7 +38,7 @@ export async function handleCreateRun(
   }
 
   if (hasAttachments) {
-    const resolved = attachmentsStore.getAttachmentsByIds("self", attachmentIds);
+    const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
     if (resolved.length !== attachmentIds.length) {
       const resolvedIds = new Set(resolved.map((a) => a.id));
       const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
@@ -49,7 +49,7 @@ export async function handleCreateRun(
     }
   }
 
-  const mapping = getOrCreateConversation("self", conversationKey);
+  const mapping = getOrCreateConversation(conversationKey);
 
   try {
     const run = await runOrchestrator.startRun(

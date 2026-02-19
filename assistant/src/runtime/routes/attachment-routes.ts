@@ -56,7 +56,6 @@ export async function handleUploadAttachment(req: Request): Promise<Response> {
   let attachment: attachmentsStore.StoredAttachment;
   try {
     attachment = attachmentsStore.uploadAttachment(
-      "self",
       filename,
       mimeType,
       data,
@@ -98,7 +97,7 @@ export async function handleDeleteAttachment(req: Request): Promise<Response> {
     );
   }
 
-  const result = attachmentsStore.deleteAttachment("self", attachmentId);
+  const result = attachmentsStore.deleteAttachment(attachmentId);
 
   if (result === 'not_found') {
     return Response.json(
@@ -118,7 +117,7 @@ export async function handleDeleteAttachment(req: Request): Promise<Response> {
 }
 
 export function handleGetAttachment(attachmentId: string): Response {
-  const attachment = attachmentsStore.getAttachmentByIdUnscoped(attachmentId);
+  const attachment = attachmentsStore.getAttachmentById(attachmentId);
   if (!attachment) {
     return Response.json({ error: 'Attachment not found' }, { status: 404 });
   }

@@ -333,6 +333,7 @@ export class Session {
     return runAgentLoopImpl(this, content, userMessageId, onEvent, options);
   }
 
+
   drainQueue(reason: QueueDrainReason = 'loop_complete'): void {
     drainQueueImpl(this as ProcessSessionContext, reason);
   }

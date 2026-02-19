@@ -5,14 +5,13 @@
  * data. Provides upload, delete, and message-linkage operations.
  */
 
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { attachments, messageAttachments } from './schema.js';
 
 export interface StoredAttachment {
   id: string;
-  assistantId: string;
   originalFilename: string;
   mimeType: string;
   sizeBytes: number;
@@ -153,7 +152,6 @@ function computeContentHash(dataBase64: string): string {
 }
 
 export function uploadAttachment(
-  assistantId: string,
   filename: string,
   mimeType: string,
   dataBase64: string,
@@ -174,12 +172,11 @@ export function uploadAttachment(
   const db = getDb();
   const contentHash = computeContentHash(dataBase64);
 
-  // Dedup: if an attachment with the same content already exists for this
-  // assistant, return it instead of storing a duplicate.
+  // Dedup: if an attachment with the same content already exists, return it
+  // instead of storing a duplicate.
   const existing = db
     .select({
       id: attachments.id,
-      assistantId: attachments.assistantId,
       originalFilename: attachments.originalFilename,
       mimeType: attachments.mimeType,
       sizeBytes: attachments.sizeBytes,
@@ -188,12 +185,7 @@ export function uploadAttachment(
       createdAt: attachments.createdAt,
     })
     .from(attachments)
-    .where(
-      and(
-        eq(attachments.assistantId, assistantId),
-        eq(attachments.contentHash, contentHash),
-      ),
-    )
+    .where(eq(attachments.contentHash, contentHash))
     .get();
 
   if (existing) {
@@ -205,7 +197,7 @@ export function uploadAttachment(
 
   const record = {
     id: uuid(),
-    assistantId,
+    assistantId: 'self',
     originalFilename: filename,
     mimeType,
     sizeBytes,
@@ -219,7 +211,6 @@ export function uploadAttachment(
 
   return {
     id: record.id,
-    assistantId,
     originalFilename: filename,
     mimeType,
     sizeBytes,
@@ -242,17 +233,12 @@ export function setAttachmentThumbnail(attachmentId: string, thumbnailBase64: st
 
 export type DeleteAttachmentResult = 'deleted' | 'not_found' | 'still_referenced';
 
-export function deleteAttachment(assistantId: string, attachmentId: string): DeleteAttachmentResult {
+export function deleteAttachment(attachmentId: string): DeleteAttachmentResult {
   const db = getDb();
   const existing = db
     .select({ id: attachments.id })
     .from(attachments)
-    .where(
-      and(
-        eq(attachments.id, attachmentId),
-        eq(attachments.assistantId, assistantId),
-      ),
-    )
+    .where(eq(attachments.id, attachmentId))
     .get();
 
   if (!existing) return 'not_found';
@@ -277,7 +263,6 @@ export function deleteAttachment(assistantId: string, attachmentId: string): Del
 }
 
 export function getAttachmentsByIds(
-  assistantId: string,
   ids: string[],
 ): Array<StoredAttachment & { dataBase64: string }> {
   if (ids.length === 0) return [];
@@ -287,17 +272,11 @@ export function getAttachmentsByIds(
     const row = db
       .select()
       .from(attachments)
-      .where(
-        and(
-          eq(attachments.id, id),
-          eq(attachments.assistantId, assistantId),
-        ),
-      )
+      .where(eq(attachments.id, id))
       .get();
     if (row) {
       results.push({
         id: row.id,
-        assistantId: row.assistantId,
         originalFilename: row.originalFilename,
         mimeType: row.mimeType,
         sizeBytes: row.sizeBytes,
@@ -333,7 +312,6 @@ export function linkAttachmentToMessage(
  */
 export function getAttachmentsForMessage(
   messageId: string,
-  assistantId: string,
 ): Array<StoredAttachment & { dataBase64: string }> {
   const db = getDb();
   const links = db
@@ -346,7 +324,7 @@ export function getAttachmentsForMessage(
   if (links.length === 0) return [];
 
   const ids = links.map((l) => l.attachmentId).filter((id): id is string => id !== null);
-  return getAttachmentsByIds(assistantId, ids);
+  return getAttachmentsByIds(ids);
 }
 
 /**
@@ -357,7 +335,6 @@ export function getAttachmentsForMessage(
  */
 export function getAttachmentMetadataForMessage(
   messageId: string,
-  assistantId: string,
 ): StoredAttachment[] {
   const db = getDb();
   const links = db
@@ -375,7 +352,6 @@ export function getAttachmentMetadataForMessage(
     const row = db
       .select({
         id: attachments.id,
-        assistantId: attachments.assistantId,
         originalFilename: attachments.originalFilename,
         mimeType: attachments.mimeType,
         sizeBytes: attachments.sizeBytes,
@@ -384,12 +360,7 @@ export function getAttachmentMetadataForMessage(
         createdAt: attachments.createdAt,
       })
       .from(attachments)
-      .where(
-        and(
-          eq(attachments.id, link.attachmentId),
-          eq(attachments.assistantId, assistantId),
-        ),
-      )
+      .where(eq(attachments.id, link.attachmentId))
       .get();
     if (row) results.push(row);
   }
@@ -397,83 +368,13 @@ export function getAttachmentMetadataForMessage(
 }
 
 /**
- * Return all attachments linked to a message without assistant scoping.
- * Used by the desktop IPC history handler where tenant isolation is not needed.
- */
-export function getAttachmentsForMessageUnscoped(
-  messageId: string,
-): Array<StoredAttachment & { dataBase64: string }> {
-  const db = getDb();
-  const links = db
-    .select({ attachmentId: messageAttachments.attachmentId, position: messageAttachments.position })
-    .from(messageAttachments)
-    .where(eq(messageAttachments.messageId, messageId))
-    .orderBy(messageAttachments.position)
-    .all();
-
-  if (links.length === 0) return [];
-
-  const results: Array<StoredAttachment & { dataBase64: string }> = [];
-  for (const link of links) {
-    if (!link.attachmentId) continue;
-    const row = db
-      .select()
-      .from(attachments)
-      .where(eq(attachments.id, link.attachmentId))
-      .get();
-    if (row) {
-      results.push({
-        id: row.id,
-        assistantId: row.assistantId,
-        originalFilename: row.originalFilename,
-        mimeType: row.mimeType,
-        sizeBytes: row.sizeBytes,
-        kind: row.kind,
-        thumbnailBase64: row.thumbnailBase64,
-        dataBase64: row.dataBase64,
-        createdAt: row.createdAt,
-      });
-    }
-  }
-  return results;
-}
-
-/**
- * Retrieve a single attachment by ID, scoped to an assistant.
+ * Retrieve a single attachment by ID.
  */
 export function getAttachmentById(
-  assistantId: string,
   attachmentId: string,
 ): (StoredAttachment & { dataBase64: string }) | null {
-  const results = getAttachmentsByIds(assistantId, [attachmentId]);
+  const results = getAttachmentsByIds([attachmentId]);
   return results[0] ?? null;
-}
-
-/**
- * Retrieve a single attachment by ID without assistant scoping.
- * Used by the desktop HTTP endpoint where tenant isolation is not needed.
- */
-export function getAttachmentByIdUnscoped(
-  attachmentId: string,
-): (StoredAttachment & { dataBase64: string }) | null {
-  const db = getDb();
-  const row = db
-    .select()
-    .from(attachments)
-    .where(eq(attachments.id, attachmentId))
-    .get();
-  if (!row) return null;
-  return {
-    id: row.id,
-    assistantId: row.assistantId,
-    originalFilename: row.originalFilename,
-    mimeType: row.mimeType,
-    sizeBytes: row.sizeBytes,
-    kind: row.kind,
-    thumbnailBase64: row.thumbnailBase64,
-    dataBase64: row.dataBase64,
-    createdAt: row.createdAt,
-  };
 }
 
 /**

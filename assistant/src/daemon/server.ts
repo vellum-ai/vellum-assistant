@@ -1011,7 +1011,7 @@ export class DaemonServer {
 
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds
-      ? attachmentsStore.getAttachmentsByIds('self', attachmentIds).map((a) => ({
+      ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
           id: a.id,
           filename: a.originalFilename,
           mimeType: a.mimeType,
@@ -1084,7 +1084,7 @@ export class DaemonServer {
 
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds
-      ? attachmentsStore.getAttachmentsByIds('self', attachmentIds).map((a) => ({
+      ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
           id: a.id,
           filename: a.originalFilename,
           mimeType: a.mimeType,
@@ -1132,7 +1132,7 @@ export class DaemonServer {
       getOrCreateSession: (conversationId) =>
         this.getOrCreateSession(conversationId),
       resolveAttachments: (attachmentIds) =>
-        attachmentsStore.getAttachmentsByIds('self', attachmentIds).map((a) => ({
+        attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
           id: a.id,
           filename: a.originalFilename,
           mimeType: a.mimeType,

@@ -82,7 +82,7 @@ describe('Runtime attachment metadata', () => {
     const conversationKey = 'test-conv-1';
 
     // Set up conversation and messages using "self" as the assistantId
-    const mapping = getOrCreateConversation("self", conversationKey);
+    const mapping = getOrCreateConversation(conversationKey);
     conversationStore.addMessage(mapping.conversationId, 'user', 'Hello');
     const assistantMsg = conversationStore.addMessage(
       mapping.conversationId,
@@ -91,7 +91,7 @@ describe('Runtime attachment metadata', () => {
     );
 
     // Upload and link an attachment using "self" as the assistantId
-    const stored = uploadAttachment("self", 'chart.png', 'image/png', 'iVBOR');
+    const stored = uploadAttachment('chart.png', 'image/png', 'iVBOR');
     linkAttachmentToMessage(assistantMsg.id, stored.id, 0);
 
     const res = await fetch(
@@ -121,7 +121,7 @@ describe('Runtime attachment metadata', () => {
   test('GET /messages returns empty attachments when none linked', async () => {
     const conversationKey = 'test-conv-2';
 
-    const mapping = getOrCreateConversation("self", conversationKey);
+    const mapping = getOrCreateConversation(conversationKey);
     conversationStore.addMessage(mapping.conversationId, 'user', 'Hello');
     conversationStore.addMessage(
       mapping.conversationId,
@@ -142,7 +142,7 @@ describe('Runtime attachment metadata', () => {
   });
 
   test('GET /attachments/:id returns attachment with payload', async () => {
-    const stored = uploadAttachment("self", 'report.pdf', 'application/pdf', 'JVBER');
+    const stored = uploadAttachment('report.pdf', 'application/pdf', 'JVBER');
 
     const res = await fetch(
       `http://127.0.0.1:${port}/v1/attachments/${stored.id}`,
@@ -162,7 +162,7 @@ describe('Runtime attachment metadata', () => {
   });
 
   test('GET /attachments/:id returns attachment stored under "self"', async () => {
-    const stored = uploadAttachment("self", 'shared.txt', 'text/plain', 'c2hhcmVk');
+    const stored = uploadAttachment('shared.txt', 'text/plain', 'c2hhcmVk');
 
     const res = await fetch(
       `http://127.0.0.1:${port}/v1/attachments/${stored.id}`,

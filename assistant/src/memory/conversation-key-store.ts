@@ -1,49 +1,42 @@
 /**
- * Maps (assistant_id, conversation_key) pairs to internal conversation IDs.
+ * Maps conversation keys to internal conversation IDs.
  *
  * The web UI identifies conversations by an opaque `conversationKey` (e.g.
  * a user ID, a channel thread ID).  This store resolves those keys to the
- * assistant's internal conversation IDs, creating new conversations on
+ * daemon's internal conversation IDs, creating new conversations on
  * first contact.
  */
 
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { conversations, conversationKeys } from './schema.js';
 
 export interface ConversationKeyMapping {
   id: string;
-  assistantId: string;
   conversationKey: string;
   conversationId: string;
   createdAt: number;
 }
 
 /**
- * Look up the conversation ID for a given (assistantId, conversationKey).
+ * Look up the conversation ID for a given conversationKey.
  * Returns `null` if no mapping exists yet.
  */
 export function getConversationByKey(
-  assistantId: string,
   conversationKey: string,
 ): ConversationKeyMapping | null {
   const db = getDb();
   const result = db
     .select()
     .from(conversationKeys)
-    .where(
-      and(
-        eq(conversationKeys.assistantId, assistantId),
-        eq(conversationKeys.conversationKey, conversationKey),
-      ),
-    )
+    .where(eq(conversationKeys.conversationKey, conversationKey))
     .get();
   return result ?? null;
 }
 
 /**
- * Delete the conversation-key mapping for a given (assistantId, conversationKey).
+ * Delete the conversation-key mapping for a given conversationKey.
  *
  * This is a soft reset: the old conversation data remains in the database,
  * but it is no longer reachable via this key.  The next message with the
@@ -51,29 +44,22 @@ export function getConversationByKey(
  *
  */
 export function deleteConversationKey(
-  assistantId: string,
   conversationKey: string,
 ): void {
   const db = getDb();
   db.delete(conversationKeys)
-    .where(
-      and(
-        eq(conversationKeys.assistantId, assistantId),
-        eq(conversationKeys.conversationKey, conversationKey),
-      ),
-    )
+    .where(eq(conversationKeys.conversationKey, conversationKey))
     .run();
 }
 
 /**
- * Get or create a conversation for the given (assistantId, conversationKey).
+ * Get or create a conversation for the given conversationKey.
  *
  * If a mapping already exists, returns the existing conversation ID.
  * Otherwise, creates a new conversation and mapping atomically within a
  * single transaction to prevent race conditions and orphaned rows.
  */
 export function getOrCreateConversation(
-  assistantId: string,
   conversationKey: string,
 ): { conversationId: string; created: boolean } {
   const db = getDb();
@@ -82,12 +68,7 @@ export function getOrCreateConversation(
     const existing = tx
       .select()
       .from(conversationKeys)
-      .where(
-        and(
-          eq(conversationKeys.assistantId, assistantId),
-          eq(conversationKeys.conversationKey, conversationKey),
-        ),
-      )
+      .where(eq(conversationKeys.conversationKey, conversationKey))
       .get();
 
     if (existing) {
@@ -115,7 +96,7 @@ export function getOrCreateConversation(
     tx.insert(conversationKeys)
       .values({
         id: uuid(),
-        assistantId,
+        assistantId: 'self',
         conversationKey,
         conversationId,
         createdAt: now,
