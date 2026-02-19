@@ -118,6 +118,26 @@ describe('Task/Schedule/Reminder routing section in system prompt', () => {
     expect(prompt).toContain('ONLY when the user explicitly wants');
   });
 
+  test('routing section documents supported RRULE set constructs', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('#### RRULE Set Constructs');
+    expect(prompt).toContain('**RDATE**');
+    expect(prompt).toContain('**EXDATE**');
+    expect(prompt).toContain('**EXRULE**');
+    expect(prompt).toContain('multiple RRULE lines form a union');
+  });
+
+  test('routing section documents bounded recurrence patterns', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('Bounded recurrence');
+    expect(prompt).toContain('COUNT or UNTIL');
+  });
+
+  test('routing section states exclusion precedence', () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain('Exclusions (EXDATE, EXRULE) take precedence over inclusions (RRULE, RDATE)');
+  });
+
   test('routing section clarifies reminders are for time-triggered notifications', () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain('one-time time-triggered notifications');

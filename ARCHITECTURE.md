@@ -2929,7 +2929,21 @@ Media embed preferences live in the workspace config file (`~/.vellum/workspace/
 The scheduler supports two recurrence syntaxes for recurring tasks:
 
 - **Cron** — Standard 5-field cron expressions (e.g., `0 9 * * 1-5` for weekday mornings). Evaluated via the `croner` library.
-- **RRULE** — iCalendar recurrence rules (RFC 5545). Supports `DTSTART`, `RRULE:`, `RDATE`, `EXDATE`, and `EXRULE` lines. RRULE sets (multiple `RRULE` lines, `RDATE`/`EXDATE` exclusions) are parsed via `rrulestr` with `forceset: true`.
+- **RRULE** — iCalendar recurrence rules (RFC 5545). RRULE sets (multiple `RRULE` lines, `RDATE`/`EXDATE` exclusions) are parsed via `rrulestr` with `forceset: true`.
+
+### Supported RRULE Lines
+
+| Line | Purpose | Example |
+|------|---------|---------|
+| `DTSTART` | Start date/time anchor (required) | `DTSTART:20250101T090000Z` |
+| `RRULE:` | Recurrence rule (one or more; multiple lines form a union) | `RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR` |
+| `RDATE` | Add one-off dates not covered by the RRULE pattern | `RDATE:20250704T090000Z` |
+| `EXDATE` | Exclude specific dates from the recurrence set | `EXDATE:20251225T090000Z` |
+| `EXRULE` | Exclude an entire series defined by a recurrence pattern | `EXRULE:FREQ=YEARLY;BYMONTH=12;BYMONTHDAY=25` |
+
+Bounded recurrence is supported via `COUNT` (e.g., `RRULE:FREQ=DAILY;COUNT=30`) and `UNTIL` (e.g., `RRULE:FREQ=WEEKLY;UNTIL=20250331T235959Z`) parameters on `RRULE` lines.
+
+**Exclusion precedence:** EXDATE and EXRULE exclusions always take precedence over RRULE and RDATE inclusions. A date that matches both an inclusion and an exclusion is excluded.
 
 ### Syntax Detection
 
