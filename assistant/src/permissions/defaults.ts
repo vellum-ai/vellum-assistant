@@ -114,7 +114,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   const managedSkillsDir = join(getRootDir(), 'workspace', 'skills').replaceAll('\\', '/');
   const bundledSkillsDir = getBundledSkillsDir().replaceAll('\\', '/');
   const SKILL_MUTATION_TOOLS = ['file_write', 'file_edit'] as const;
-  const HOST_SKILL_MUTATION_TOOLS = ['host_file_write', 'host_file_edit'] as const;
   const skillDirs: { dir: string; label: string }[] = [
     { dir: managedSkillsDir, label: 'managed' },
     { dir: bundledSkillsDir, label: 'bundled' },
@@ -127,8 +126,8 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     skillDirs.push({ dir: extraDirs[i].replaceAll('\\', '/'), label: `extra-${i}` });
   }
 
-  const skillSourceMutationRules = skillDirs.flatMap(({ dir, label }) => [
-    ...SKILL_MUTATION_TOOLS.map((tool) => ({
+  const skillSourceMutationRules = skillDirs.flatMap(({ dir, label }) =>
+    SKILL_MUTATION_TOOLS.map((tool) => ({
       id: `default:ask-${tool}-${label}-skills`,
       tool,
       pattern: `${tool}:${dir}/**`,
@@ -136,15 +135,7 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
       decision: 'ask' as const,
       priority: 50,
     })),
-    ...HOST_SKILL_MUTATION_TOOLS.map((tool) => ({
-      id: `default:ask-${tool}-${label}-skills`,
-      tool,
-      pattern: `${tool}:${dir}/**`,
-      scope: 'everywhere',
-      decision: 'ask' as const,
-      priority: 50,
-    })),
-  ]);
+  );
 
   const skillLoadRule: DefaultRuleTemplate = {
     id: 'default:allow-skill_load-global',
