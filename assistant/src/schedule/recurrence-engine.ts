@@ -27,11 +27,12 @@ function validateRruleLines(lines: string[]): string | null {
   let hasDtstart = false;
 
   for (const line of lines) {
-    if (!SUPPORTED_RRULE_PREFIXES.some(p => line.startsWith(p))) {
+    const upper = line.toUpperCase();
+    if (!SUPPORTED_RRULE_PREFIXES.some(p => upper.startsWith(p))) {
       return `Unsupported recurrence line: ${line}`;
     }
-    if (line.startsWith('DTSTART')) hasDtstart = true;
-    if (line.startsWith('RRULE:') || line.startsWith('RDATE')) hasInclusion = true;
+    if (upper.startsWith('DTSTART')) hasDtstart = true;
+    if (upper.startsWith('RRULE:') || upper.startsWith('RDATE')) hasInclusion = true;
   }
 
   if (!hasDtstart) return 'RRULE expression must include DTSTART for deterministic scheduling';
@@ -47,8 +48,9 @@ export function hasSetConstructs(expression: string): boolean {
   const lines = parseRruleLines(expression);
   let rruleCount = 0;
   for (const line of lines) {
-    if (line.startsWith('RDATE') || line.startsWith('EXDATE') || line.startsWith('EXRULE')) return true;
-    if (line.startsWith('RRULE:')) rruleCount++;
+    const upper = line.toUpperCase();
+    if (upper.startsWith('RDATE') || upper.startsWith('EXDATE') || upper.startsWith('EXRULE')) return true;
+    if (upper.startsWith('RRULE:')) rruleCount++;
   }
   return rruleCount > 1;
 }
