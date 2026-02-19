@@ -52,7 +52,11 @@ actor TitleGenerator {
                 return nil
             }
             let title = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return title.isEmpty ? nil : title
+            if title.isEmpty {
+                titledThreads.remove(threadId)
+                return nil
+            }
+            return title
         } catch {
             titledThreads.remove(threadId)
             return nil
