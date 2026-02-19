@@ -4,6 +4,7 @@ import type {
   ServerMessage,
   SurfaceType,
   SurfaceData,
+  CardSurfaceData,
   DynamicPageSurfaceData,
   FileUploadSurfaceData,
   UiSurfaceShow,
@@ -20,6 +21,74 @@ import {
 const log = getLogger('session-surfaces');
 
 const MAX_UNDO_DEPTH = 10;
+const TASK_PROGRESS_TEMPLATE_FIELDS = ['title', 'status', 'steps'] as const;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeCardShowData(input: Record<string, unknown>, rawData: Record<string, unknown>): CardSurfaceData {
+  const normalized: Record<string, unknown> = { ...rawData };
+
+  // Older prompt examples sent template/templateData at the top level.
+  if (typeof normalized.template !== 'string' && typeof input.template === 'string') {
+    normalized.template = input.template;
+  }
+  if (!isPlainObject(normalized.templateData) && isPlainObject(input.templateData)) {
+    normalized.templateData = input.templateData;
+  }
+
+  // task_progress cards need a title for Swift parsing; fall back when missing.
+  if (normalized.template === 'task_progress' && typeof normalized.title !== 'string') {
+    if (typeof input.title === 'string' && input.title.trim().length > 0) {
+      normalized.title = input.title;
+    } else if (isPlainObject(normalized.templateData) && typeof normalized.templateData.title === 'string') {
+      normalized.title = normalized.templateData.title;
+    } else {
+      normalized.title = 'Task Progress';
+    }
+  }
+
+  if (normalized.template === 'task_progress' && typeof normalized.body !== 'string') {
+    normalized.body = '';
+  }
+
+  return normalized as CardSurfaceData;
+}
+
+function normalizeTaskProgressCardPatch(existingCard: CardSurfaceData, patch: Record<string, unknown>): Record<string, unknown> {
+  if (existingCard.template !== 'task_progress') {
+    return patch;
+  }
+
+  const normalizedPatch: Record<string, unknown> = { ...patch };
+  const mergedTemplateData: Record<string, unknown> = isPlainObject(existingCard.templateData)
+    ? { ...existingCard.templateData }
+    : {};
+
+  let updatedTemplateData = false;
+
+  if (isPlainObject(normalizedPatch.templateData)) {
+    Object.assign(mergedTemplateData, normalizedPatch.templateData);
+    updatedTemplateData = true;
+  }
+
+  // Accept top-level task_progress fields from older prompt examples and
+  // move them into templateData where the Swift client expects them.
+  for (const key of TASK_PROGRESS_TEMPLATE_FIELDS) {
+    if (key in normalizedPatch) {
+      mergedTemplateData[key] = normalizedPatch[key];
+      delete normalizedPatch[key];
+      updatedTemplateData = true;
+    }
+  }
+
+  if (updatedTemplateData) {
+    normalizedPatch.templateData = mergedTemplateData;
+  }
+
+  return normalizedPatch;
+}
 
 /**
  * Subset of Session state that surface helpers need access to.
@@ -447,7 +516,10 @@ export async function surfaceProxyResolver(
     const surfaceId = uuid();
     const surfaceType = input.surface_type as SurfaceType;
     const title = typeof input.title === 'string' ? input.title : undefined;
-    const data = input.data as SurfaceData;
+    const rawData = isPlainObject(input.data) ? input.data : {};
+    const data = (surfaceType === 'card'
+      ? normalizeCardShowData(input, rawData)
+      : rawData) as SurfaceData;
     const actions = input.actions as Array<{ id: string; label: string; style?: string }> | undefined;
     // Interactive surfaces default to awaiting user action.
     const hasActions = Array.isArray(actions) && actions.length > 0;
@@ -502,12 +574,15 @@ export async function surfaceProxyResolver(
 
   if (toolName === 'ui_update') {
     const surfaceId = input.surface_id as string;
-    const patch = input.data as Record<string, unknown>;
+    let patch = (isPlainObject(input.data) ? input.data : {}) as Record<string, unknown>;
 
     // Merge the partial patch into the stored full surface data
     const stored = ctx.surfaceState.get(surfaceId);
     let mergedData: SurfaceData;
     if (stored) {
+      if (stored.surfaceType === 'card') {
+        patch = normalizeTaskProgressCardPatch(stored.data as CardSurfaceData, patch);
+      }
       // Push current HTML to undo stack for dynamic pages
       if (stored.surfaceType === 'dynamic_page') {
         const currentHtml = (stored.data as DynamicPageSurfaceData).html;

@@ -120,7 +120,9 @@ export const uiShowTool: Tool = {
 
 export const uiUpdateTool: Tool = {
   name: 'ui_update',
-  description: "Update an existing surface's data. The provided data object is merged into the surface's current data.",
+  description:
+    "Update an existing surface's data. The provided data object is merged into the surface's current data.\n" +
+    'For card templates (for example `task_progress`), update nested fields under `data.templateData` rather than sending template fields at the top level.',
   category: 'ui-surface',
   defaultRiskLevel: RiskLevel.Low,
   executionMode: 'proxy',

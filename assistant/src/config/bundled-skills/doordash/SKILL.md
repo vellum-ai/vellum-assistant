@@ -13,21 +13,25 @@ When executing a food ordering flow, show live progress using the `task_progress
 ```json
 {
   "surface_type": "card",
-  "template": "task_progress",
-  "templateData": {
+  "data": {
     "title": "Ordering from DoorDash",
-    "status": "in_progress",
-    "steps": [
-      { "label": "Check session", "status": "in_progress" },
-      { "label": "Search restaurants", "status": "pending" },
-      { "label": "Browse menu", "status": "pending" },
-      { "label": "Add to cart", "status": "pending" },
-      { "label": "Place order", "status": "pending" }
-    ]
+    "body": "",
+    "template": "task_progress",
+    "templateData": {
+      "title": "Ordering from DoorDash",
+      "status": "in_progress",
+      "steps": [
+        { "label": "Check session", "status": "in_progress" },
+        { "label": "Search restaurants", "status": "pending" },
+        { "label": "Browse menu", "status": "pending" },
+        { "label": "Add to cart", "status": "pending" },
+        { "label": "Place order", "status": "pending" }
+      ]
+    }
   }
 }
 ```
-As each step completes, call `ui_update` with the same surface ID to update step statuses. Add `detail` to completed steps (e.g. `"detail": "Found Andiamo's"`). Adapt the steps to the actual flow (e.g. skip "Search restaurants" if the user named a specific store).
+As each step completes, call `ui_update` with the same surface ID and patch `data.templateData` (not top-level `status`/`steps`) to update step statuses. Add `detail` to completed steps (e.g. `"detail": "Found Andiamo's"`). Adapt the steps to the actual flow (e.g. skip "Search restaurants" if the user named a specific store).
 
 ## Typical Flow
 
