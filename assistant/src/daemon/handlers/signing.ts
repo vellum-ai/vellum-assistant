@@ -1,6 +1,6 @@
-import { log, pendingSignBundlePayload, pendingSigningIdentity, type DispatchMap } from './shared.js';
+import { log, pendingSignBundlePayload, pendingSigningIdentity, defineHandlers } from './shared.js';
 
-export const signingHandlers: Partial<DispatchMap> = {
+export const signingHandlers = defineHandlers({
   sign_bundle_payload_response: (msg) => {
     const pending = pendingSignBundlePayload.get(msg.requestId);
     if (pending) {
@@ -34,4 +34,4 @@ export const signingHandlers: Partial<DispatchMap> = {
       log.warn({ requestId: msg.requestId }, 'Received get_signing_identity_response with no pending request');
     }
   },
-};
+});

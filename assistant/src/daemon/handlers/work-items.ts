@@ -11,7 +11,7 @@ import type {
   WorkItemApprovePermissionsRequest,
   WorkItemCancelRequest,
 } from '../ipc-protocol.js';
-import { log, type HandlerContext, type DispatchMap } from './shared.js';
+import { log, defineHandlers, type HandlerContext } from './shared.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import {
   deleteWorkItem,
@@ -441,7 +441,7 @@ export function handleWorkItemCancel(
   ctx.broadcast({ type: 'tasks_changed' });
 }
 
-export const workItemHandlers: Partial<DispatchMap> = {
+export const workItemHandlers = defineHandlers({
   work_items_list: handleWorkItemsList,
   work_item_get: handleWorkItemGet,
   work_item_update: handleWorkItemUpdate,
@@ -452,4 +452,4 @@ export const workItemHandlers: Partial<DispatchMap> = {
   work_item_preflight: handleWorkItemPreflight,
   work_item_approve_permissions: handleWorkItemApprovePermissions,
   work_item_cancel: handleWorkItemCancel,
-};
+});

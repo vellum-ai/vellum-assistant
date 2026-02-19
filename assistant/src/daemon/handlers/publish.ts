@@ -10,7 +10,7 @@ import type {
   PublishPageRequest,
   UnpublishPageRequest,
 } from '../ipc-protocol.js';
-import { log, requestSecretStandalone, type HandlerContext, type DispatchMap } from './shared.js';
+import { log, requestSecretStandalone, defineHandlers, type HandlerContext } from './shared.js';
 
 export async function handlePublishPage(
   msg: PublishPageRequest,
@@ -181,7 +181,7 @@ export async function handleUnpublishPage(
   }
 }
 
-export const publishHandlers: Partial<DispatchMap> = {
+export const publishHandlers = defineHandlers({
   publish_page: handlePublishPage,
   unpublish_page: handleUnpublishPage,
-};
+});
