@@ -310,8 +310,8 @@ export function recordProcessedCallback(
   const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
 
   raw.query(
-    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
-  ).run(uuid(), dedupeKey, callSessionId, Date.now());
+    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, claim_token, created_at) VALUES (?, ?, ?, ?, ?)`,
+  ).run(uuid(), dedupeKey, callSessionId, uuid(), Date.now());
 }
 
 /**
@@ -332,26 +332,30 @@ export function tryRecordProcessedCallback(
   const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
 
   raw.query(
-    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
-  ).run(uuid(), dedupeKey, callSessionId, Date.now());
+    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, claim_token, created_at) VALUES (?, ?, ?, ?, ?)`,
+  ).run(uuid(), dedupeKey, callSessionId, uuid(), Date.now());
 
   const changes = raw.query('SELECT changes() as c').get() as { c: number };
   return changes.c > 0;
 }
 
 /**
- * Atomically claim a callback for processing. Returns true if this caller
- * won the claim (INSERT succeeded). Returns false if another caller already
- * claimed it (dedupe_key conflict).
+ * Atomically claim a callback for processing. Returns a unique claim token
+ * if this caller won the claim (INSERT succeeded), or null if another caller
+ * already claimed it (dedupe_key conflict).
  *
  * Expired orphaned claims (older than CLAIM_EXPIRY_MS) are automatically
  * cleared before attempting the insert, so crashes mid-processing don't
  * permanently block retries.
  *
- * If processing fails, call `releaseCallbackClaim(dedupeKey)` to allow retries.
- * On success, call `finalizeCallbackClaim(dedupeKey)` to make the claim permanent.
+ * The returned claim token scopes subsequent lifecycle operations: only the
+ * holder of the token can release or finalize the claim, preventing a stale
+ * handler from accidentally releasing a claim that was reclaimed by another.
+ *
+ * If processing fails, call `releaseCallbackClaim(dedupeKey, claimToken)` to allow retries.
+ * On success, call `finalizeCallbackClaim(dedupeKey, claimToken)` to make the claim permanent.
  */
-export function claimCallback(dedupeKey: string, callSessionId: string): boolean {
+export function claimCallback(dedupeKey: string, callSessionId: string): string | null {
   const db = getDb();
   const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
 
@@ -360,34 +364,44 @@ export function claimCallback(dedupeKey: string, callSessionId: string): boolean
     `DELETE FROM processed_callbacks WHERE dedupe_key = ? AND created_at < ?`,
   ).run(dedupeKey, Date.now() - CLAIM_EXPIRY_MS);
 
+  const claimToken = uuid();
   raw.query(
-    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
-  ).run(uuid(), dedupeKey, callSessionId, Date.now());
+    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, claim_token, created_at) VALUES (?, ?, ?, ?, ?)`,
+  ).run(uuid(), dedupeKey, callSessionId, claimToken, Date.now());
   const changes = raw.query('SELECT changes() as c').get() as { c: number };
-  return changes.c > 0;
+  return changes.c > 0 ? claimToken : null;
 }
 
 /**
  * Release a callback claim so that retries can reprocess it.
  * Called when processing fails after a successful claim.
+ *
+ * Only deletes the claim if the provided claimToken matches, so a stale
+ * handler that outlived the expiry window cannot release a claim that was
+ * subsequently reclaimed by another handler.
  */
-export function releaseCallbackClaim(dedupeKey: string): void {
+export function releaseCallbackClaim(dedupeKey: string, claimToken: string): void {
   const db = getDb();
   const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-  raw.query(`DELETE FROM processed_callbacks WHERE dedupe_key = ?`).run(dedupeKey);
+  raw.query(
+    `DELETE FROM processed_callbacks WHERE dedupe_key = ? AND claim_token = ?`,
+  ).run(dedupeKey, claimToken);
 }
 
 /**
  * Finalize a callback claim after successful processing.
  * Sets the created_at to a far-future value so the claim never expires,
  * distinguishing it from in-flight claims that may need to be reclaimed.
+ *
+ * Only updates the claim if the provided claimToken matches, preventing
+ * a stale handler from finalizing a claim it no longer owns.
  */
-export function finalizeCallbackClaim(dedupeKey: string): void {
+export function finalizeCallbackClaim(dedupeKey: string, claimToken: string): void {
   const db = getDb();
   const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
   // Set created_at far in the future so expiry check never matches
   const NEVER_EXPIRE = Date.now() + 100 * 365 * 24 * 60 * 60 * 1000; // ~100 years
   raw.query(
-    `UPDATE processed_callbacks SET created_at = ? WHERE dedupe_key = ?`,
-  ).run(NEVER_EXPIRE, dedupeKey);
+    `UPDATE processed_callbacks SET created_at = ? WHERE dedupe_key = ? AND claim_token = ?`,
+  ).run(NEVER_EXPIRE, dedupeKey, claimToken);
 }

@@ -169,7 +169,8 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
   const sequenceNumber = formBody.get('SequenceNumber');
   const dedupeKey = buildCallbackDedupeKey(callSid, callStatus, timestamp, sequenceNumber);
 
-  if (!claimCallback(dedupeKey, session.id)) {
+  const claimToken = claimCallback(dedupeKey, session.id);
+  if (!claimToken) {
     log.info({ callSid, callStatus, dedupeKey }, 'Duplicate status callback — skipping');
     return new Response(null, { status: 200 });
   }
@@ -207,10 +208,10 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
     }
 
     // Mark the claim as permanently processed so it never expires
-    finalizeCallbackClaim(dedupeKey);
+    finalizeCallbackClaim(dedupeKey, claimToken);
   } catch (err) {
     // Release claim so Twilio retries can reprocess
-    releaseCallbackClaim(dedupeKey);
+    releaseCallbackClaim(dedupeKey, claimToken);
     throw err;
   }
 

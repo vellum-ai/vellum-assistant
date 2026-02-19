@@ -173,7 +173,7 @@ mock.module('../calls/call-store.js', () => ({
   isCallbackProcessed: () => false,
   recordProcessedCallback: () => {},
   tryRecordProcessedCallback: () => true,
-  claimCallback: () => true,
+  claimCallback: () => 'mock-claim-token',
   releaseCallbackClaim: () => {},
 }));
 

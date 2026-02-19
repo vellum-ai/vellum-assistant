@@ -740,9 +740,13 @@ export function initializeDb(): void {
       id TEXT PRIMARY KEY,
       dedupe_key TEXT NOT NULL UNIQUE,
       call_session_id TEXT NOT NULL REFERENCES call_sessions(id) ON DELETE CASCADE,
+      claim_token TEXT NOT NULL DEFAULT '',
       created_at INTEGER NOT NULL
     )
   `);
+
+  // Migration: add claim_token column for owner-scoped claim lifecycle
+  migrateProcessedCallbacksClaimToken(database);
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_call_sessions_conversation_id ON call_sessions(conversation_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_call_sessions_provider_call_sid ON call_sessions(provider_call_sid)`);
@@ -1455,4 +1459,24 @@ function migrateCallSessionsProviderSidDedup(database: ReturnType<typeof drizzle
     try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
     throw e;
   }
+}
+
+/**
+ * One-shot migration: add the claim_token column to processed_callbacks
+ * for existing databases that pre-date owner-scoped claim lifecycle.
+ */
+function migrateProcessedCallbacksClaimToken(database: ReturnType<typeof drizzle<typeof schema>>): void {
+  const raw = (database as unknown as { $client: Database }).$client;
+
+  const tableExists = raw.query(
+    `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'processed_callbacks'`,
+  ).get();
+  if (!tableExists) return;
+
+  const colExists = raw.query(
+    `SELECT 1 FROM pragma_table_info('processed_callbacks') WHERE name = 'claim_token'`,
+  ).get();
+  if (colExists) return;
+
+  raw.exec(`ALTER TABLE processed_callbacks ADD COLUMN claim_token TEXT NOT NULL DEFAULT ''`);
 }

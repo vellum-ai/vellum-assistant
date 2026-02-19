@@ -481,7 +481,7 @@ describe('call-store', () => {
 
   // ── Callback Claim ──────────────────────────────────────────────
 
-  test('claimCallback returns true on first call', () => {
+  test('claimCallback returns a claim token on first call', () => {
     const session = createTestCallSession({
       conversationId: 'conv-22',
       provider: 'twilio',
@@ -489,11 +489,12 @@ describe('call-store', () => {
       toNumber: '+15552222222',
     });
 
-    const result = claimCallback('test-dedupe-key-1', session.id);
-    expect(result).toBe(true);
+    const token = claimCallback('test-dedupe-key-1', session.id);
+    expect(token).not.toBeNull();
+    expect(typeof token).toBe('string');
   });
 
-  test('claimCallback returns false on duplicate key', () => {
+  test('claimCallback returns null on duplicate key', () => {
     const session = createTestCallSession({
       conversationId: 'conv-23',
       provider: 'twilio',
@@ -504,8 +505,8 @@ describe('call-store', () => {
     const first = claimCallback('test-dedupe-key-2', session.id);
     const second = claimCallback('test-dedupe-key-2', session.id);
 
-    expect(first).toBe(true);
-    expect(second).toBe(false);
+    expect(first).not.toBeNull();
+    expect(second).toBeNull();
   });
 
   test('releaseCallbackClaim allows re-claim', () => {
@@ -516,13 +517,66 @@ describe('call-store', () => {
       toNumber: '+15552222222',
     });
 
-    const first = claimCallback('test-dedupe-key-3', session.id);
-    expect(first).toBe(true);
+    const firstToken = claimCallback('test-dedupe-key-3', session.id);
+    expect(firstToken).not.toBeNull();
 
-    releaseCallbackClaim('test-dedupe-key-3');
+    releaseCallbackClaim('test-dedupe-key-3', firstToken!);
 
-    const second = claimCallback('test-dedupe-key-3', session.id);
-    expect(second).toBe(true);
+    const secondToken = claimCallback('test-dedupe-key-3', session.id);
+    expect(secondToken).not.toBeNull();
+  });
+
+  test('releaseCallbackClaim with wrong token does not release', () => {
+    const session = createTestCallSession({
+      conversationId: 'conv-24b',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    const token = claimCallback('test-dedupe-key-3b', session.id);
+    expect(token).not.toBeNull();
+
+    // Attempt release with a wrong token — should be a no-op
+    releaseCallbackClaim('test-dedupe-key-3b', 'wrong-token');
+
+    // Claim should still be held, so re-claiming should fail
+    const second = claimCallback('test-dedupe-key-3b', session.id);
+    expect(second).toBeNull();
+  });
+
+  test('stale handler cannot release a reclaimed callback', () => {
+    const session = createTestCallSession({
+      conversationId: 'conv-race',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    // Handler A claims
+    const tokenA = claimCallback('test-dedupe-key-race', session.id);
+    expect(tokenA).not.toBeNull();
+
+    // Simulate handler A's claim expiring by backdating created_at
+    const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const oldTimestamp = Date.now() - 120_000;
+    raw.query('UPDATE processed_callbacks SET created_at = ? WHERE dedupe_key = ?').run(oldTimestamp, 'test-dedupe-key-race');
+
+    // Handler B reclaims the expired key and finalizes
+    const tokenB = claimCallback('test-dedupe-key-race', session.id);
+    expect(tokenB).not.toBeNull();
+    finalizeCallbackClaim('test-dedupe-key-race', tokenB!);
+
+    // Handler A tries to release with its stale token — should be a no-op
+    releaseCallbackClaim('test-dedupe-key-race', tokenA!);
+
+    // The finalized claim should still exist
+    const row = raw.query('SELECT 1 FROM processed_callbacks WHERE dedupe_key = ?').get('test-dedupe-key-race');
+    expect(row).not.toBeNull();
+
+    // And re-claiming should fail because it's finalized (far-future timestamp)
+    const tokenC = claimCallback('test-dedupe-key-race', session.id);
+    expect(tokenC).toBeNull();
   });
 
   test('claimCallback INSERT OR IGNORE pattern is safe for same key', () => {
@@ -535,11 +589,11 @@ describe('call-store', () => {
 
     // Claim the key
     const first = claimCallback('test-dedupe-key-4', session.id);
-    expect(first).toBe(true);
+    expect(first).not.toBeNull();
 
-    // Subsequent claims with the same key should all return false without throwing
-    expect(claimCallback('test-dedupe-key-4', session.id)).toBe(false);
-    expect(claimCallback('test-dedupe-key-4', session.id)).toBe(false);
+    // Subsequent claims with the same key should all return null without throwing
+    expect(claimCallback('test-dedupe-key-4', session.id)).toBeNull();
+    expect(claimCallback('test-dedupe-key-4', session.id)).toBeNull();
 
     // Only one row should exist in the table for this key
     const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
@@ -557,7 +611,7 @@ describe('call-store', () => {
 
     // Claim the key
     const first = claimCallback('test-dedupe-key-expired', session.id);
-    expect(first).toBe(true);
+    expect(first).not.toBeNull();
 
     // Simulate an orphaned claim by backdating the created_at to well past expiry
     const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
@@ -566,7 +620,7 @@ describe('call-store', () => {
 
     // Reclaim should succeed because the old claim has expired
     const second = claimCallback('test-dedupe-key-expired', session.id);
-    expect(second).toBe(true);
+    expect(second).not.toBeNull();
   });
 
   test('claimCallback does not reclaim finalized claims', () => {
@@ -578,14 +632,14 @@ describe('call-store', () => {
     });
 
     // Claim and finalize
-    const first = claimCallback('test-dedupe-key-finalized', session.id);
-    expect(first).toBe(true);
-    finalizeCallbackClaim('test-dedupe-key-finalized');
+    const token = claimCallback('test-dedupe-key-finalized', session.id);
+    expect(token).not.toBeNull();
+    finalizeCallbackClaim('test-dedupe-key-finalized', token!);
 
     // Attempting to reclaim a finalized key should fail because the far-future
     // timestamp means it will never be considered expired
     const second = claimCallback('test-dedupe-key-finalized', session.id);
-    expect(second).toBe(false);
+    expect(second).toBeNull();
   });
 
   test('finalizeCallbackClaim makes claim permanent', () => {
@@ -597,8 +651,8 @@ describe('call-store', () => {
     });
 
     // Claim and finalize
-    claimCallback('test-dedupe-key-permanent', session.id);
-    finalizeCallbackClaim('test-dedupe-key-permanent');
+    const token = claimCallback('test-dedupe-key-permanent', session.id)!;
+    finalizeCallbackClaim('test-dedupe-key-permanent', token);
 
     // Verify the created_at is set far in the future
     const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
@@ -606,5 +660,26 @@ describe('call-store', () => {
     // Should be at least 50 years in the future from now
     const fiftyYearsMs = 50 * 365 * 24 * 60 * 60 * 1000;
     expect(row.created_at).toBeGreaterThan(Date.now() + fiftyYearsMs);
+  });
+
+  test('finalizeCallbackClaim with wrong token does not finalize', () => {
+    const session = createTestCallSession({
+      conversationId: 'conv-29',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    const token = claimCallback('test-dedupe-key-wrong-finalize', session.id);
+    expect(token).not.toBeNull();
+
+    // Try to finalize with a wrong token
+    finalizeCallbackClaim('test-dedupe-key-wrong-finalize', 'wrong-token');
+
+    // The created_at should NOT have been moved to the far future
+    const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const row = raw.query('SELECT created_at FROM processed_callbacks WHERE dedupe_key = ?').get('test-dedupe-key-wrong-finalize') as { created_at: number };
+    // Should still be near "now", not far in the future
+    expect(row.created_at).toBeLessThan(Date.now() + 60_000);
   });
 });
