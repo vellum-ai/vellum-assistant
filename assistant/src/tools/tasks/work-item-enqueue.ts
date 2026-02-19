@@ -1,6 +1,6 @@
 import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { getTask, listTasks, createTask } from '../../tasks/task-store.js';
-import { createWorkItem, findActiveWorkItemsByTitle, updateWorkItem, identifyEntityById, buildWorkItemMismatchError } from '../../work-items/work-item-store.js';
+import { createWorkItemWithPermissions, findActiveWorkItemsByTitle, updateWorkItem, identifyEntityById, buildWorkItemMismatchError } from '../../work-items/work-item-store.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('task-list-add');
@@ -89,7 +89,7 @@ export async function executeTaskListAdd(
         template: titleOverride,
       });
 
-      const workItem = createWorkItem({
+      const workItem = createWorkItemWithPermissions({
         taskId: adHocTask.id,
         title: titleOverride,
         notes,
@@ -171,7 +171,7 @@ export async function executeTaskListAdd(
     log.debug({ title: finalTitle }, 'task_list_add: creating new item');
 
     const selectorType = taskId ? 'task_id' : 'task_name';
-    const workItem = createWorkItem({
+    const workItem = createWorkItemWithPermissions({
       taskId: resolvedTask.id,
       title: finalTitle,
       notes,

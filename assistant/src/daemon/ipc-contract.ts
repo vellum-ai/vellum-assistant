@@ -778,15 +778,6 @@ export interface WorkItemGetRequest {
   id: string;
 }
 
-export interface WorkItemCreateRequest {
-  type: 'work_item_create';
-  taskId: string;
-  title?: string;   // defaults to task title
-  notes?: string;
-  priorityTier?: number;
-  sortIndex?: number;
-}
-
 export interface WorkItemUpdateRequest {
   type: 'work_item_update';
   id: string;
@@ -922,7 +913,6 @@ export type ClientMessage =
   | BrowserInteractiveMode
   | WorkItemsListRequest
   | WorkItemGetRequest
-  | WorkItemCreateRequest
   | WorkItemUpdateRequest
   | WorkItemCompleteRequest
   | WorkItemDeleteRequest
@@ -1918,26 +1908,6 @@ export interface WorkItemGetResponse {
   } | null;
 }
 
-export interface WorkItemCreateResponse {
-  type: 'work_item_create_response';
-  item: {
-    id: string;
-    taskId: string;
-    title: string;
-    notes: string | null;
-    status: string;
-    priorityTier: number;
-    sortIndex: number | null;
-    lastRunId: string | null;
-    lastRunConversationId: string | null;
-    lastRunStatus: string | null;
-    sourceType: string | null;
-    sourceId: string | null;
-    createdAt: number;
-    updatedAt: number;
-  };
-}
-
 export interface WorkItemUpdateResponse {
   type: 'work_item_update_response';
   item: {
@@ -2142,7 +2112,6 @@ export type ServerMessage =
   | BrowserHandoffRequest
   | WorkItemsListResponse
   | WorkItemGetResponse
-  | WorkItemCreateResponse
   | WorkItemUpdateResponse
   | WorkItemDeleteResponse
   | WorkItemRunTaskResponse
