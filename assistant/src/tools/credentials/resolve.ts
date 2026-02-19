@@ -66,6 +66,36 @@ export function resolveById(
 }
 
 /**
+ * Resolve a credential reference that may be either a UUID or a "service/field" string.
+ *
+ * Resolution order:
+ * 1. Try as UUID via resolveById
+ * 2. If not found, try parsing as "service/field" via resolveByServiceField
+ *
+ * Returns undefined for malformed refs (e.g. no slash, too many slashes, empty segments)
+ * and for refs that don't match any stored credential.
+ */
+export function resolveCredentialRef(
+  ref: string,
+): ResolvedCredential | undefined {
+  if (!ref || ref.trim().length === 0) return undefined;
+
+  // Try as UUID first
+  const byId = resolveById(ref);
+  if (byId) return byId;
+
+  // Try as service/field
+  const slashIndex = ref.indexOf('/');
+  if (slashIndex <= 0 || slashIndex >= ref.length - 1) return undefined;
+  // Reject refs with more than one slash (e.g. "fal/api/key")
+  if (ref.indexOf('/', slashIndex + 1) !== -1) return undefined;
+
+  const service = ref.slice(0, slashIndex);
+  const field = ref.slice(slashIndex + 1);
+  return resolveByServiceField(service, field);
+}
+
+/**
  * Find all credentials whose injection templates match a given hostname.
  * Returns resolved credentials with their `injectionTemplates` filtered
  * to only the matching entries.

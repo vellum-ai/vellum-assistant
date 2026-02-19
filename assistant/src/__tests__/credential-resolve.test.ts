@@ -19,6 +19,7 @@ import {
   resolveByServiceField,
   resolveById,
   resolveForDomain,
+  resolveCredentialRef,
 } from '../tools/credentials/resolve.js';
 
 const TEST_DIR = join(tmpdir(), `vellum-credresolve-test-${randomBytes(4).toString('hex')}`);
@@ -264,6 +265,64 @@ describe('credential resolver', () => {
       expect(resolveForDomain('api.example.com')).toHaveLength(1);
       expect(resolveForDomain('API.EXAMPLE.COM')).toHaveLength(1);
       expect(resolveForDomain('Api.Example.Com')).toHaveLength(1);
+    });
+  });
+
+  describe('resolveCredentialRef', () => {
+    test('resolves by UUID', () => {
+      const created = upsertCredentialMetadata('github', 'token');
+      const result = resolveCredentialRef(created.credentialId);
+      expect(result).toBeDefined();
+      expect(result!.credentialId).toBe(created.credentialId);
+      expect(result!.service).toBe('github');
+    });
+
+    test('resolves by service/field', () => {
+      upsertCredentialMetadata('fal', 'api_key');
+      const result = resolveCredentialRef('fal/api_key');
+      expect(result).toBeDefined();
+      expect(result!.service).toBe('fal');
+      expect(result!.field).toBe('api_key');
+    });
+
+    test('returns undefined for unknown UUID', () => {
+      expect(resolveCredentialRef('00000000-0000-0000-0000-000000000000')).toBeUndefined();
+    });
+
+    test('returns undefined for unknown service/field', () => {
+      expect(resolveCredentialRef('nonexistent/field')).toBeUndefined();
+    });
+
+    test('returns undefined for empty string', () => {
+      expect(resolveCredentialRef('')).toBeUndefined();
+    });
+
+    test('returns undefined for whitespace-only string', () => {
+      expect(resolveCredentialRef('   ')).toBeUndefined();
+    });
+
+    test('returns undefined for malformed ref with no slash', () => {
+      expect(resolveCredentialRef('fal')).toBeUndefined();
+    });
+
+    test('returns undefined for malformed ref with too many slashes', () => {
+      expect(resolveCredentialRef('fal/api/key')).toBeUndefined();
+    });
+
+    test('returns undefined for ref with empty service segment', () => {
+      expect(resolveCredentialRef('/api_key')).toBeUndefined();
+    });
+
+    test('returns undefined for ref with empty field segment', () => {
+      expect(resolveCredentialRef('fal/')).toBeUndefined();
+    });
+
+    test('UUID takes precedence when both UUID and service/field would match', () => {
+      const created = upsertCredentialMetadata('github', 'token');
+      // The credentialId is a UUID, not a service/field, so resolveById finds it first
+      const result = resolveCredentialRef(created.credentialId);
+      expect(result).toBeDefined();
+      expect(result!.credentialId).toBe(created.credentialId);
     });
   });
 });
