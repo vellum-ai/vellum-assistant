@@ -668,17 +668,6 @@ exports[`IPC message snapshots ClientMessage types work_item_get serializes to e
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types work_item_create serializes to expected JSON 1`] = `
-{
-  "notes": "High priority",
-  "priorityTier": 1,
-  "sortIndex": 0,
-  "taskId": "task-001",
-  "title": "Process report",
-  "type": "work_item_create",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types work_item_update serializes to expected JSON 1`] = `
 {
   "id": "wi-001",
@@ -2025,28 +2014,6 @@ exports[`IPC message snapshots ServerMessage types work_item_get_response serial
     "updatedAt": 1700000000,
   },
   "type": "work_item_get_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types work_item_create_response serializes to expected JSON 1`] = `
-{
-  "item": {
-    "createdAt": 1700000000,
-    "id": "wi-001",
-    "lastRunConversationId": null,
-    "lastRunId": null,
-    "lastRunStatus": null,
-    "notes": null,
-    "priorityTier": 1,
-    "sortIndex": null,
-    "sourceId": null,
-    "sourceType": null,
-    "status": "queued",
-    "taskId": "task-001",
-    "title": "Process report",
-    "updatedAt": 1700000000,
-  },
-  "type": "work_item_create_response",
 }
 `;
 

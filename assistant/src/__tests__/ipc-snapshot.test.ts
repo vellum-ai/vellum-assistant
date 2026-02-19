@@ -423,14 +423,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'work_item_get',
     id: 'wi-001',
   },
-  work_item_create: {
-    type: 'work_item_create',
-    taskId: 'task-001',
-    title: 'Process report',
-    notes: 'High priority',
-    priorityTier: 1,
-    sortIndex: 0,
-  },
   work_item_update: {
     type: 'work_item_update',
     id: 'wi-001',
@@ -1281,25 +1273,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   work_item_get_response: {
     type: 'work_item_get_response',
-    item: {
-      id: 'wi-001',
-      taskId: 'task-001',
-      title: 'Process report',
-      notes: null,
-      status: 'queued',
-      priorityTier: 1,
-      sortIndex: null,
-      lastRunId: null,
-      lastRunConversationId: null,
-      lastRunStatus: null,
-      sourceType: null,
-      sourceId: null,
-      createdAt: 1700000000,
-      updatedAt: 1700000000,
-    },
-  },
-  work_item_create_response: {
-    type: 'work_item_create_response',
     item: {
       id: 'wi-001',
       taskId: 'task-001',

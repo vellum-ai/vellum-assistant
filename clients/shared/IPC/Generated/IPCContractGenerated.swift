@@ -1956,37 +1956,6 @@ public struct IPCWorkItemCompleteRequest: Codable, Sendable {
     public let id: String
 }
 
-public struct IPCWorkItemCreateRequest: Codable, Sendable {
-    public let type: String
-    public let taskId: String
-    public let title: String?
-    public let notes: String?
-    public let priorityTier: Double?
-    public let sortIndex: Int?
-}
-
-public struct IPCWorkItemCreateResponse: Codable, Sendable {
-    public let type: String
-    public let item: IPCWorkItemCreateResponseItem
-}
-
-public struct IPCWorkItemCreateResponseItem: Codable, Sendable {
-    public let id: String
-    public let taskId: String
-    public let title: String
-    public let notes: String?
-    public let status: String
-    public let priorityTier: Double
-    public let sortIndex: Int?
-    public let lastRunId: String?
-    public let lastRunConversationId: String?
-    public let lastRunStatus: String?
-    public let sourceType: String?
-    public let sourceId: String?
-    public let createdAt: Int
-    public let updatedAt: Int
-}
-
 public struct IPCWorkItemDeleteRequest: Codable, Sendable {
     public let type: String
     public let id: String

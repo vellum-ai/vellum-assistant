@@ -2,7 +2,6 @@ import * as net from 'node:net';
 import type {
   WorkItemsListRequest,
   WorkItemGetRequest,
-  WorkItemCreateRequest,
   WorkItemUpdateRequest,
   WorkItemCompleteRequest,
   WorkItemDeleteRequest,
@@ -15,7 +14,6 @@ import type {
 import { log, type HandlerContext, type DispatchMap } from './shared.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import {
-  createWorkItem,
   deleteWorkItem,
   getWorkItem,
   listWorkItems,
@@ -44,45 +42,6 @@ export function handleWorkItemGet(
 ): void {
   const item = getWorkItem(msg.id) ?? null;
   ctx.send(socket, { type: 'work_item_get_response', item });
-}
-
-export function handleWorkItemCreate(
-  msg: WorkItemCreateRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const task = getTask(msg.taskId);
-  if (!task) {
-    ctx.send(socket, { type: 'error', message: `Task not found: ${msg.taskId}` });
-    return;
-  }
-  const item = createWorkItem({
-    taskId: msg.taskId,
-    title: msg.title ?? task.title,
-    notes: msg.notes,
-    priorityTier: msg.priorityTier,
-    sortIndex: msg.sortIndex,
-  });
-
-  // Bundle the task's required tools as pre-approved permissions so the
-  // run-time preflight check can be skipped — the user implicitly approves
-  // these tools by adding the task to their queue.
-  const requiredTools: string[] = task.requiredTools ? JSON.parse(task.requiredTools) : [];
-  if (requiredTools.length > 0) {
-    updateWorkItem(item.id, {
-      approvedTools: JSON.stringify(requiredTools),
-      approvalStatus: 'approved',
-    });
-    // Reflect the update in the response
-    item.approvedTools = JSON.stringify(requiredTools);
-    item.approvalStatus = 'approved';
-  }
-
-  ctx.send(socket, { type: 'work_item_create_response', item });
-
-  // Notify all connected clients so open Task Queue views refresh immediately
-  broadcastWorkItemStatus(ctx, item.id);
-  ctx.broadcast({ type: 'tasks_changed' });
 }
 
 export function handleWorkItemUpdate(
@@ -485,7 +444,6 @@ export function handleWorkItemCancel(
 export const workItemHandlers: Partial<DispatchMap> = {
   work_items_list: handleWorkItemsList,
   work_item_get: handleWorkItemGet,
-  work_item_create: handleWorkItemCreate,
   work_item_update: handleWorkItemUpdate,
   work_item_complete: handleWorkItemComplete,
   work_item_delete: handleWorkItemDelete,
