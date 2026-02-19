@@ -90,15 +90,24 @@ function main() {
         return handleTelegramWebhook(req);
       }
 
-      if (url.pathname === "/webhooks/twilio/voice") {
+      if (
+        url.pathname === "/webhooks/twilio/voice" ||
+        url.pathname === "/v1/calls/twilio/voice-webhook"
+      ) {
         return handleTwilioVoiceWebhook(req);
       }
 
-      if (url.pathname === "/webhooks/twilio/status") {
+      if (
+        url.pathname === "/webhooks/twilio/status" ||
+        url.pathname === "/v1/calls/twilio/status"
+      ) {
         return handleTwilioStatusWebhook(req);
       }
 
-      if (url.pathname === "/webhooks/twilio/connect-action") {
+      if (
+        url.pathname === "/webhooks/twilio/connect-action" ||
+        url.pathname === "/v1/calls/twilio/connect-action"
+      ) {
         return handleTwilioConnectActionWebhook(req);
       }
 

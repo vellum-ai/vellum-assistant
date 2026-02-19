@@ -149,7 +149,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Twilio voice webhook",
           description:
-            "Receives inbound Twilio voice webhooks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
+            "Receives inbound Twilio voice webhooks, validates the X-Twilio-Signature, and forwards to the assistant runtime. Also available at /v1/calls/twilio/voice-webhook for backward compatibility.",
           operationId: "twilioVoiceWebhook",
           security: [{ TwilioSignature: [] }],
           requestBody: {
@@ -203,7 +203,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Twilio status webhook",
           description:
-            "Receives Twilio call status callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
+            "Receives Twilio call status callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime. Also available at /v1/calls/twilio/status for backward compatibility.",
           operationId: "twilioStatusWebhook",
           security: [{ TwilioSignature: [] }],
           requestBody: {
@@ -257,7 +257,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Twilio connect-action webhook",
           description:
-            "Receives Twilio ConversationRelay connect-action callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
+            "Receives Twilio ConversationRelay connect-action callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime. Also available at /v1/calls/twilio/connect-action for backward compatibility.",
           operationId: "twilioConnectActionWebhook",
           security: [{ TwilioSignature: [] }],
           requestBody: {
