@@ -32,7 +32,7 @@ export interface EvictionResult {
 
 const DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const DEFAULT_MAX_SESSIONS = 100;
-const DEFAULT_MEMORY_THRESHOLD_BYTES = 512 * 1024 * 1024; // 512 MB
+const DEFAULT_MEMORY_THRESHOLD_BYTES = 1536 * 1024 * 1024; // 1.5 GB
 const DEFAULT_SWEEP_INTERVAL_MS = 60 * 1000; // 60 seconds
 
 export class SessionEvictor {
