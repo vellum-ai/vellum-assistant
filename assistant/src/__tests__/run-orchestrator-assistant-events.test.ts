@@ -128,7 +128,7 @@ describe('HTTP run → confirmation_request mirrors to assistant-events hub', ()
       resolveAttachments: () => [],
     });
 
-    await orchestrator.startRun(conversation.id, 'Do something');
+    await orchestrator.startRun('self', conversation.id, 'Do something');
     // Wait for the async hub chain to flush.
     await new Promise((r) => setTimeout(r, 20));
 
@@ -174,7 +174,7 @@ describe('HTTP run → message flow mirrors to assistant-events hub', () => {
       resolveAttachments: () => [],
     });
 
-    await orchestrator.startRun(conversation.id, 'Hello');
+    await orchestrator.startRun('self', conversation.id, 'Hello');
     await new Promise((r) => setTimeout(r, 20));
 
     sub.dispose();
@@ -207,7 +207,7 @@ describe('HTTP run → message flow mirrors to assistant-events hub', () => {
       resolveAttachments: () => [],
     });
 
-    await orchestrator.startRun(conversation.id, 'ping');
+    await orchestrator.startRun('self', conversation.id, 'ping');
     await new Promise((r) => setTimeout(r, 20));
 
     sub.dispose();
