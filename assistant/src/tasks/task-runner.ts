@@ -9,6 +9,8 @@ export interface TaskRunOptions {
   taskId: string;
   inputs?: Record<string, string>;
   workingDir: string;
+  /** Pre-approved tools from the permission preflight flow. When set, only these tools get ephemeral allow rules. */
+  approvedTools?: string[];
 }
 
 export interface TaskRunResult {
@@ -47,9 +49,11 @@ export async function runTask(
     memoryScopeId: `task:${task.id}`,
   });
 
-  // Build and register ephemeral permission rules from the task's required tools
+  // Build and register ephemeral permission rules. If the user pre-approved
+  // specific tools via the preflight flow, use those instead of all requiredTools.
   const requiredTools: string[] = task.requiredTools ? JSON.parse(task.requiredTools) : [];
-  const rules = buildTaskRules(run.id, requiredTools, opts.workingDir);
+  const toolsForRules = opts.approvedTools ?? requiredTools;
+  const rules = buildTaskRules(run.id, toolsForRules, opts.workingDir);
   setTaskRunRules(run.id, rules);
 
   try {

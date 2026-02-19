@@ -1919,6 +1919,19 @@ public struct IPCWatchStarted: Codable, Sendable {
     public let intervalSeconds: Double
 }
 
+public struct IPCWorkItemApprovePermissionsRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+    public let approvedTools: [String]
+}
+
+public struct IPCWorkItemApprovePermissionsResponse: Codable, Sendable {
+    public let type: String
+    public let id: String
+    public let success: Bool
+    public let error: String?
+}
+
 public struct IPCWorkItemCompleteRequest: Codable, Sendable {
     public let type: String
     public let id: String
@@ -2014,6 +2027,26 @@ public struct IPCWorkItemOutputResponseOutput: Codable, Sendable {
     public let completedAt: Int?
     public let summary: String
     public let highlights: [String]
+}
+
+public struct IPCWorkItemPreflightRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
+public struct IPCWorkItemPreflightResponse: Codable, Sendable {
+    public let type: String
+    public let id: String
+    public let success: Bool
+    public let error: String?
+    public let permissions: [IPCWorkItemPreflightResponsePermission]?
+}
+
+public struct IPCWorkItemPreflightResponsePermission: Codable, Sendable {
+    public let tool: String
+    public let description: String
+    public let riskLevel: String
+    public let currentDecision: String
 }
 
 public struct IPCWorkItemRunTaskRequest: Codable, Sendable {
