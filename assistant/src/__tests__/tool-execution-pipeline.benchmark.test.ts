@@ -3,7 +3,7 @@
  *
  * Measures the overhead of each phase in the permission/security pipeline:
  * 1. classifyRisk — risk classification
- * 2. check — trust rule matching
+ * 2. check — trust rule matching (both no-rule fallback and matched-rule paths)
  * 3. scanText — secret scanning on output
  * 4. ToolExecutor.execute() — full pipeline overhead with noop/slow tools
  *
@@ -15,8 +15,8 @@
  * - Secret scanning < 50ms for large outputs (100KB)
  * - ToolExecutor overhead < 20ms regardless of tool execution time
  */
-import { describe, test, expect, beforeAll, mock } from 'bun:test';
-import { mkdtempSync } from 'node:fs';
+import { describe, test, expect, beforeAll, afterAll, mock } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -47,9 +47,12 @@ mock.module('../util/logger.js', () => ({
   isDebug: () => false,
 }));
 
+// Allow toggling between no-rule and matched-rule paths
+let mockRuleResponse: import('../permissions/types.js').TrustRule | null = null;
+
 mock.module('../permissions/trust-store.js', () => ({
   addRule: () => {},
-  findHighestPriorityRule: () => null,
+  findHighestPriorityRule: () => mockRuleResponse,
   clearCache: () => {},
 }));
 
@@ -168,6 +171,14 @@ describe('Tool execution pipeline benchmark', () => {
     }
   });
 
+  afterAll(() => {
+    try {
+      rmSync(testDir, { recursive: true });
+    } catch {
+      // best effort cleanup
+    }
+  });
+
   test('classifyRisk: low-risk tool (file_read) is fast', async () => {
     const { timings } = await benchmarkAsync(
       () => classifyRisk('file_read', { path: '/tmp/test.ts' }, '/tmp'),
@@ -240,29 +251,59 @@ describe('Tool execution pipeline benchmark', () => {
     expect(results[0].decision).toBe('allow');
   });
 
-  test('pipeline overhead is constant regardless of simulated tool execution time', async () => {
-    // Measure just the permission check overhead
-    const fastTimings: number[] = [];
-    const slowTimings: number[] = [];
+  test('check: matched allow-rule path for medium-risk tool', async () => {
+    // Exercise the code path where findHighestPriorityRule returns a matching
+    // allow rule, rather than always falling through to the no-rule default.
+    mockRuleResponse = {
+      id: 'bench:allow-file_write',
+      tool: 'file_write',
+      pattern: '**',
+      scope: '/tmp',
+      decision: 'allow',
+      priority: 90,
+      createdAt: Date.now(),
+    };
+
+    try {
+      const { timings, results } = await benchmarkAsync(
+        () => check('file_write', { path: '/tmp/out.txt' }, '/tmp'),
+        ITERATIONS,
+      );
+
+      const p50 = percentile(timings, 50);
+      const p95 = percentile(timings, 95);
+
+      expect(p50).toBeLessThan(10);
+      expect(p95).toBeLessThan(20);
+      // Medium-risk with a matching allow rule should auto-allow
+      expect(results[0].decision).toBe('allow');
+      expect(results[0].matchedRule?.id).toBe('bench:allow-file_write');
+    } finally {
+      mockRuleResponse = null;
+    }
+  });
+
+  test('check: permission cost is stable across different input paths', async () => {
+    // Verify that the permission check cost doesn't vary with input path length/complexity.
+    // Actual tool-execution-time independence is tested in the ToolExecutor section below.
+    const shortPathTimings: number[] = [];
+    const longPathTimings: number[] = [];
 
     for (let i = 0; i < ITERATIONS; i++) {
-      // "Fast tool" — just the permission check
       const start1 = performance.now();
       await check('file_read', { path: '/tmp/fast.ts' }, '/tmp');
-      fastTimings.push(performance.now() - start1);
+      shortPathTimings.push(performance.now() - start1);
 
-      // "Slow tool" — same permission check, different input
       const start2 = performance.now();
       await check('file_read', { path: '/tmp/slow-complex-deeply-nested-file.ts' }, '/tmp');
-      slowTimings.push(performance.now() - start2);
+      longPathTimings.push(performance.now() - start2);
     }
 
-    const fastP50 = percentile(fastTimings, 50);
-    const slowP50 = percentile(slowTimings, 50);
+    const shortP50 = percentile(shortPathTimings, 50);
+    const longP50 = percentile(longPathTimings, 50);
 
-    // The overhead should be roughly the same — within 5x of each other
-    // (both are just permission checks, tool execution time is not involved)
-    const ratio = Math.max(fastP50, slowP50) / Math.max(Math.min(fastP50, slowP50), 0.001);
+    // Permission check cost should be roughly the same regardless of path length
+    const ratio = Math.max(shortP50, longP50) / Math.max(Math.min(shortP50, longP50), 0.001);
     expect(ratio).toBeLessThan(5);
   });
 
