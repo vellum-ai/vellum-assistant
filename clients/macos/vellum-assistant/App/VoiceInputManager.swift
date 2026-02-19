@@ -217,6 +217,7 @@ final class VoiceInputManager {
                             self.onTranscription?(text)
                         }
                         self.recognitionTask = nil
+                        self.stopRecording()
                     } else {
                         self.onPartialTranscription?(text)
                     }
