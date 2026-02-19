@@ -16,6 +16,7 @@ import {
 } from './call-store.js';
 import type { CallStatus } from './types.js';
 import { answerCall } from './call-domain.js';
+import { logDeadLetterEvent } from './call-recovery.js';
 
 const log = getLogger('twilio-routes');
 
@@ -124,7 +125,8 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
   const callStatus = formBody.get('CallStatus');
 
   if (!callSid || !callStatus) {
-    log.warn({ callSid, callStatus }, 'Status callback missing CallSid or CallStatus');
+    const rawPayload = Object.fromEntries(formBody.entries());
+    logDeadLetterEvent('Status callback missing CallSid or CallStatus', rawPayload, log);
     return new Response(null, { status: 200 });
   }
 
@@ -138,7 +140,8 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
 
   const mappedStatus = mapTwilioStatus(callStatus);
   if (!mappedStatus) {
-    log.warn({ callSid, callStatus }, 'Status callback: unknown Twilio status');
+    const rawPayload = Object.fromEntries(formBody.entries());
+    logDeadLetterEvent(`Unknown Twilio status: ${callStatus}`, rawPayload, log);
     return new Response(null, { status: 200 });
   }
 
