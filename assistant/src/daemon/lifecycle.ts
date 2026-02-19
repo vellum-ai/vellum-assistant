@@ -43,6 +43,7 @@ import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
 import { HeartbeatService } from '../workspace/heartbeat-service.js';
+import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
 
 const log = getLogger('lifecycle');
 
@@ -477,6 +478,15 @@ export async function runDaemon(): Promise<void> {
     } catch (err) {
       log.warn({ err, phase: 'post_stop' }, 'Post-stop workspace commit failed');
     }
+
+    // Flush in-flight enrichment jobs so shutdown commit notes are not dropped.
+    // The enrichment service's shutdown() drains active jobs and discards pending ones.
+    try {
+      await getEnrichmentService().shutdown();
+    } catch (err) {
+      log.warn({ err }, 'Enrichment service shutdown failed (non-fatal)');
+    }
+
     if (runtimeHttp) await runtimeHttp.stop();
     await browserManager.closeAllPages();
     scheduler.stop();

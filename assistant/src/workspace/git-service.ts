@@ -387,9 +387,12 @@ export class WorkspaceGitService {
    */
   async commitIfDirty(
     decide: (status: GitStatus) => { message: string; metadata?: GitCommitMetadata } | null,
+    options?: { bypassBreaker?: boolean },
   ): Promise<{ committed: boolean; status: GitStatus }> {
-    // Circuit breaker: skip expensive git work if recent attempts have been failing
-    if (this.isBreakerOpen()) {
+    // Circuit breaker: skip expensive git work if recent attempts have been failing.
+    // Shutdown commits bypass the breaker because the process is about to exit and
+    // this is the last chance to persist workspace state.
+    if (!options?.bypassBreaker && this.isBreakerOpen()) {
       log.debug(
         { workspaceDir: this.workspaceDir, consecutiveFailures: this.consecutiveFailures },
         'Circuit breaker open, skipping commit attempt',

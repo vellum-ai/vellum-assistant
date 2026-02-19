@@ -213,7 +213,7 @@ export class HeartbeatService {
           };
 
           return this.commitMessageProvider.buildImmediateMessage(ctx);
-        });
+        }, { bypassBreaker: true });
 
         if (committed) {
           firstSeenDirty.delete(workspaceDir);
