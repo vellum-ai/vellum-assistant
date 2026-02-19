@@ -12,60 +12,55 @@ struct IdentityPanel: View {
     @State private var workspaceFiles: [WorkspaceFileNode] = []
     @State private var skills: [SkillInfo] = []
 
+    private let maxContentWidth: CGFloat = 1100
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
-            HStack {
+            HStack(alignment: .center) {
                 Text("Assistant ID")
-                    .font(.system(size: 18, weight: .medium))
+                    .font(VFont.panelTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close Assistant ID")
             }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.lg)
+            .padding(.top, VSpacing.xxl)
+            .padding(.bottom, VSpacing.xl)
+            .padding(.horizontal, VSpacing.xxl)
 
-            Divider()
-                .background(VColor.surfaceBorder)
+            Divider().background(VColor.surfaceBorder)
+                .padding(.horizontal, VSpacing.xxl)
 
-            // Avatar + ID card side by side
+            // Avatar + ID card + CTA
             HStack(alignment: .center, spacing: VSpacing.lg) {
                 DinoSceneView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
                     .frame(width: 180, height: 200)
 
-                if let identity {
-                    idCardSection(identity: identity)
-                }
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.lg)
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    if let identity {
+                        idCardSection(identity: identity)
+                    }
 
-            // Customize Avatar CTA
-            Button(action: onCustomizeAvatar) {
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "paintpalette")
-                        .font(.system(size: 12, weight: .medium))
-                    Text("Customize Avatar")
-                        .font(VFont.bodyMedium)
+                    // Customize Avatar CTA
+                    Button(action: onCustomizeAvatar) {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "paintpalette")
+                                .font(.system(size: 12, weight: .medium))
+                            Text("Customize Avatar")
+                                .font(VFont.bodyMedium)
+                        }
+                        .foregroundColor(VColor.accent)
+                        .padding(.horizontal, VSpacing.lg)
+                        .padding(.vertical, VSpacing.sm)
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.accent.opacity(0.3), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .foregroundColor(VColor.accent)
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.vertical, VSpacing.sm)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.accent.opacity(0.3), lineWidth: 1)
-                )
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.xl)
+            .padding(.horizontal, VSpacing.xxl)
 
             // Constellation fills remaining space
             ConstellationView(

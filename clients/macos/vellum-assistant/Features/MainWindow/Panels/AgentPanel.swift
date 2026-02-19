@@ -906,7 +906,7 @@ struct AgentPanel: View {
                 .padding(.bottom, VSpacing.xl)
 
                 Divider().background(VColor.surfaceBorder)
-                    .padding(.bottom, VSpacing.md)
+                    .padding(.bottom, VSpacing.xl)
 
                 AgentPanelContent(onInvokeSkill: onInvokeSkill, daemonClient: daemonClient)
             }

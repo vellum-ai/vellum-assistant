@@ -46,36 +46,36 @@ struct AppDirectoryView: View {
 
                     Spacer()
 
-                    // Search bar
+                    // Search bar (compact, fits within title line height)
                     if !displayItems.isEmpty || !searchText.isEmpty {
-                        HStack(spacing: VSpacing.sm) {
+                        HStack(spacing: VSpacing.xs) {
                             Image(systemName: "magnifyingglass")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(VColor.textMuted)
 
                             TextField("Search apps...", text: $searchText)
                                 .textFieldStyle(.plain)
-                                .font(VFont.body)
+                                .font(VFont.caption)
                                 .foregroundColor(VColor.textPrimary)
 
                             if !searchText.isEmpty {
                                 Button(action: { searchText = "" }) {
                                     Image(systemName: "xmark.circle.fill")
-                                        .font(.system(size: 12))
+                                        .font(.system(size: 10))
                                         .foregroundColor(VColor.textMuted)
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
+                        .padding(.horizontal, VSpacing.sm)
+                        .frame(height: 26)
                         .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
+                            RoundedRectangle(cornerRadius: VRadius.sm)
                                 .stroke(VColor.surfaceBorder, lineWidth: 1)
                         )
-                        .frame(maxWidth: 260)
+                        .frame(maxWidth: 220)
                     }
                 }
                 .padding(.top, VSpacing.xxl)
