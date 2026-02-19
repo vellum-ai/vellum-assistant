@@ -31,7 +31,7 @@ import {
   mergeToolResults,
   pendingStandaloneSecrets,
   type HandlerContext,
-  type DispatchMap,
+  defineHandlers,
   type HistoryToolCall,
   type HistorySurface,
   type ParsedHistoryMessage,
@@ -499,7 +499,7 @@ export function handleDeleteQueuedMessage(
   }
 }
 
-export const sessionHandlers: Partial<DispatchMap> = {
+export const sessionHandlers = defineHandlers({
   user_message: handleUserMessage,
   confirmation_response: handleConfirmationResponse,
   secret_response: handleSecretResponse,
@@ -514,4 +514,4 @@ export const sessionHandlers: Partial<DispatchMap> = {
   regenerate: handleRegenerate,
   usage_request: handleUsageRequest,
   sandbox_set: handleSandboxSet,
-};
+});

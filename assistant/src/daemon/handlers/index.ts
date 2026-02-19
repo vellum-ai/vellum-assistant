@@ -3,7 +3,7 @@ import type { ClientMessage } from '../ipc-protocol.js';
 import { handleRideShotgunStart, handleRideShotgunStop } from '../ride-shotgun-handler.js';
 import { handleWatchObservation } from '../watch-handler.js';
 import { handleOpenBundle } from './open-bundle-handler.js';
-import { log, type HandlerContext, type DispatchMap } from './shared.js';
+import { log, defineHandlers, type HandlerContext, type DispatchMap } from './shared.js';
 
 import { sessionHandlers } from './sessions.js';
 import { skillHandlers } from './skills.js';
@@ -37,29 +37,13 @@ export {
 
 // ─── Typed dispatch ──────────────────────────────────────────────────────────
 
-const handlers: DispatchMap = {
-  ...sessionHandlers,
-  ...skillHandlers,
-  ...appHandlers,
-  ...configHandlers,
-  ...computerUseHandlers,
-  ...publishHandlers,
-  ...homeBaseHandlers,
-  ...diagnosticsHandlers,
-  ...miscHandlers,
-  ...documentHandlers,
-  ...workItemHandlers,
-  ...subagentHandlers,
-  ...browserHandlers,
-  ...signingHandlers,
-
-  // Handlers imported from outside the handlers/ directory
+// Inline handlers for messages not owned by any feature group
+const inlineHandlers = defineHandlers({
   ride_shotgun_start: handleRideShotgunStart,
   ride_shotgun_stop: handleRideShotgunStop,
   watch_observation: handleWatchObservation,
   open_bundle: handleOpenBundle,
 
-  // UI surface dispatch
   ui_surface_action: (msg, _socket, ctx) => {
     const cuSession = ctx.cuSessions.get(msg.sessionId);
     if (cuSession) {
@@ -99,7 +83,25 @@ const handlers: DispatchMap = {
     });
   },
   integration_disconnect: () => { /* no-op — integration registry removed */ },
-} as DispatchMap;
+});
+
+const handlers = {
+  ...sessionHandlers,
+  ...skillHandlers,
+  ...appHandlers,
+  ...configHandlers,
+  ...computerUseHandlers,
+  ...publishHandlers,
+  ...homeBaseHandlers,
+  ...diagnosticsHandlers,
+  ...miscHandlers,
+  ...documentHandlers,
+  ...workItemHandlers,
+  ...subagentHandlers,
+  ...browserHandlers,
+  ...signingHandlers,
+  ...inlineHandlers,
+} satisfies DispatchMap;
 
 export function handleMessage(
   msg: ClientMessage,

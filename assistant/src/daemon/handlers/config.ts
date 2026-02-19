@@ -22,7 +22,7 @@ import type {
   VercelApiConfigRequest,
   TwitterIntegrationConfigRequest,
 } from '../ipc-protocol.js';
-import { log, CONFIG_RELOAD_DEBOUNCE_MS, type HandlerContext, type DispatchMap } from './shared.js';
+import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
 
 export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
@@ -598,7 +598,7 @@ export function handleEnvVarsRequest(socket: net.Socket, ctx: HandlerContext): v
   ctx.send(socket, { type: 'env_vars_response', vars });
 }
 
-export const configHandlers: Partial<DispatchMap> = {
+export const configHandlers = defineHandlers({
   model_get: (_msg, socket, ctx) => handleModelGet(socket, ctx),
   model_set: handleModelSet,
   image_gen_model_set: handleImageGenModelSet,
@@ -617,4 +617,4 @@ export const configHandlers: Partial<DispatchMap> = {
   vercel_api_config: handleVercelApiConfig,
   twitter_integration_config: handleTwitterIntegrationConfig,
   env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
-};
+});
