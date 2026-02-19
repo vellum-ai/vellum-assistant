@@ -1001,7 +1001,7 @@ public final class ChatViewModel: ObservableObject {
             if let historyToolCalls = item.toolCalls {
                 toolCalls = historyToolCalls.map { tc in
                     ToolCallData(
-                        toolName: toolDisplayName(tc.name),
+                        toolName: tc.name,
                         inputSummary: summarizeToolInput(tc.input),
                         inputFull: extractToolInput(tc.input),
                         result: tc.result,

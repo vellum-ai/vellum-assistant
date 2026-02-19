@@ -893,6 +893,7 @@ private struct ChatBubble: View {
     @State private var showCopyConfirmation = false
     @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
+    @State private var stepsExpanded = false
 
     private var isUser: Bool { message.role == .user }
     private var canReportMessage: Bool {
@@ -1224,12 +1225,11 @@ private struct ChatBubble: View {
 
         if hasStreamingCode {
             let rawName = message.streamingCodeToolName ?? ""
-            let displayName = rawName.replacingOccurrences(of: "_", with: " ")
             let activeBuildingStatus = message.toolCalls.last(where: { !$0.isComplete })?.buildingStatus
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 RunningIndicator(
-                    label: Self.friendlyRunningLabel(displayName, buildingStatus: activeBuildingStatus),
-                    onTap: {}
+                    label: Self.friendlyRunningLabel(rawName, buildingStatus: activeBuildingStatus),
+                    onTap: nil
                 )
                 CodePreviewView(code: message.streamingCodePreview!)
             }
@@ -1255,20 +1255,29 @@ private struct ChatBubble: View {
             )
                 .frame(maxWidth: 520, alignment: .leading)
         } else if hasCompletedTools || hasPermission || showRegenerate || (hasInProgressTools && permissionWasDenied) {
-            // All done (or denied) — steps pill + permission chip + regenerate on one row
-            let onlyPermissionTools = message.toolCalls.allSatisfy { $0.toolName.lowercased() == "request system permission" }
-            HStack(alignment: .center, spacing: VSpacing.sm) {
-                if hasCompletedTools && !(onlyPermissionTools && decidedConfirmation != nil) {
-                    UsedToolsList(toolCalls: message.toolCalls)
-                } else if hasInProgressTools && permissionWasDenied {
-                    compactFailedToolChip
+            // All done (or denied) — steps pill + permission chip + regenerate on one row,
+            // with the expanded steps list in the row below.
+            let onlyPermissionTools = message.toolCalls.allSatisfy { $0.toolName == "request_system_permission" }
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center, spacing: VSpacing.sm) {
+                    if hasCompletedTools && !(onlyPermissionTools && decidedConfirmation != nil) {
+                        UsedToolsList(toolCalls: message.toolCalls, isExpanded: $stepsExpanded)
+                    } else if hasInProgressTools && permissionWasDenied {
+                        compactFailedToolChip
+                    }
+                    if let confirmation = decidedConfirmation {
+                        compactPermissionChip(confirmation)
+                    }
+                    if showRegenerate { regenerateButton }
+                    Spacer()
                 }
-                if let confirmation = decidedConfirmation {
-                    compactPermissionChip(confirmation)
+
+                if stepsExpanded && hasCompletedTools {
+                    StepsSection(toolCalls: message.toolCalls)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                if showRegenerate { regenerateButton }
-                Spacer()
             }
+            .animation(VAnimation.fast, value: stepsExpanded)
             .padding(.top, VSpacing.xxs)
         }
     }
@@ -1355,39 +1364,41 @@ private struct ChatBubble: View {
     private static func friendlyRunningLabel(_ toolName: String, inputSummary: String? = nil, buildingStatus: String? = nil) -> String {
         // For app file tools, prefer the descriptive building status from tool input
         if let status = buildingStatus {
-            let lower = toolName.lowercased()
-            if lower == "app file edit" || lower == "app file write" || lower == "app create" || lower == "app update" {
+            if toolName == "app_file_edit" || toolName == "app_file_write" || toolName == "app_create" || toolName == "app_update" {
                 return status
             }
         }
-        switch toolName.lowercased() {
-        case "run command":            return "Running a command"
-        case "read file":              return "Reading a file"
-        case "write file":             return "Writing a file"
-        case "edit file":              return "Editing a file"
-        case "search files":           return "Searching files"
-        case "find files":             return "Finding files"
-        case "web search":             return "Searching the web"
-        case "fetch url":              return "Fetching a webpage"
-        case "browser navigate":       return "Opening a page"
-        case "browser click":          return "Clicking on the page"
-        case "browser screenshot":     return "Taking a screenshot"
-        case "app create":             return "Building your app"
-        case "app update":             return "Updating your app"
-        case "skill load":
+        switch toolName {
+        case "bash", "host_bash":               return "Running a command"
+        case "file_read", "host_file_read":     return "Reading a file"
+        case "file_write", "host_file_write":   return "Writing a file"
+        case "file_edit", "host_file_edit":     return "Editing a file"
+        case "grep":                            return "Searching files"
+        case "glob":                            return "Finding files"
+        case "web_search":                      return "Searching the web"
+        case "web_fetch":                       return "Fetching a webpage"
+        case "browser_navigate":                return "Opening a page"
+        case "browser_click":                   return "Clicking on the page"
+        case "browser_screenshot":              return "Taking a screenshot"
+        case "app_create":                      return "Building your app"
+        case "app_update":                      return "Updating your app"
+        case "skill_load":
             if let name = inputSummary, !name.isEmpty {
                 let display = name.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ")
                 return "Loading \(display)"
             }
             return "Loading a skill"
-        default:                       return "Running \(toolName)"
+        default:
+            // Convert raw snake_case name to a readable fallback
+            let display = toolName.replacingOccurrences(of: "_", with: " ")
+            return "Running \(display)"
         }
     }
 
     /// Progressive labels for long-running tools. Cycles through these over time.
     private static func progressiveLabels(for toolName: String) -> [String] {
-        switch toolName.lowercased() {
-        case "app create":
+        switch toolName {
+        case "app_create":
             return [
                 "Choosing a visual direction",
                 "Designing the layout",
@@ -1397,7 +1408,7 @@ private struct ChatBubble: View {
                 "Polishing the details",
                 "Almost there",
             ]
-        case "app update":
+        case "app_update":
             return [
                 "Reviewing your app",
                 "Applying changes",
@@ -1411,17 +1422,17 @@ private struct ChatBubble: View {
 
     /// Icon for a tool category.
     private static func friendlyToolIcon(_ toolName: String) -> String {
-        switch toolName.lowercased() {
-        case "run command":                                 return "terminal"
-        case "read file":                                   return "doc.text"
-        case "write file":                                  return "doc.badge.plus"
-        case "edit file":                                   return "pencil"
-        case "search files", "find files", "web search":    return "magnifyingglass"
-        case "fetch url":                                   return "globe"
-        case "browser navigate", "browser click":           return "safari"
-        case "browser screenshot":                          return "camera"
-        case "request system permission":                   return "lock.shield"
-        default:                                            return "gearshape"
+        switch toolName {
+        case "bash", "host_bash":                               return "terminal"
+        case "file_read", "host_file_read":                     return "doc.text"
+        case "file_write", "host_file_write":                   return "doc.badge.plus"
+        case "file_edit", "host_file_edit":                     return "pencil"
+        case "grep", "glob", "web_search":                      return "magnifyingglass"
+        case "web_fetch":                                       return "globe"
+        case "browser_navigate", "browser_click":               return "safari"
+        case "browser_screenshot":                              return "camera"
+        case "request_system_permission":                       return "lock.shield"
+        default:                                                return "gearshape"
         }
     }
 
