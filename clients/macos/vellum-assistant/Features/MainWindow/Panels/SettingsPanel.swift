@@ -4,7 +4,6 @@ import VellumAssistantShared
 enum SettingsTab: String, CaseIterable {
     case integrations = "Integrations"
     case trust = "Trust"
-    case tasks = "Tasks"
     case reminders = "Reminders"
     case appearance = "Appearance"
     case advanced = "Advanced"
@@ -22,7 +21,6 @@ struct SettingsPanel: View {
     @State private var perplexityKeyText: String = ""
     @State private var imageGenKeyText: String = ""
     @State private var showingTrustRules = false
-    @State private var showingScheduledTasks = false
     @State private var showingReminders = false
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
     @State private var connectingIntegration: String?
@@ -138,11 +136,6 @@ struct SettingsPanel: View {
                 TrustRulesView(daemonClient: daemonClient)
             }
         }
-        .sheet(isPresented: $showingScheduledTasks) {
-            if let daemonClient {
-                ScheduledTasksView(daemonClient: daemonClient)
-            }
-        }
         .sheet(isPresented: $showingReminders) {
             if let daemonClient {
                 RemindersView(daemonClient: daemonClient)
@@ -173,8 +166,6 @@ struct SettingsPanel: View {
             integrationsContent
         case .trust:
             trustContent
-        case .tasks:
-            tasksContent
         case .reminders:
             remindersContent
         case .appearance:
@@ -597,37 +588,6 @@ struct SettingsPanel: View {
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
-        }
-    }
-
-    // MARK: - Tasks Tab
-
-    private var tasksContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xl) {
-            if daemonClient != nil {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Scheduled Tasks")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    HStack {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Manage Scheduled Tasks")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Text("View and manage recurring tasks created by the assistant")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        VButton(label: "Manage...", style: .ghost) {
-                            showingScheduledTasks = true
-                        }
-                    }
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-            }
         }
     }
 
