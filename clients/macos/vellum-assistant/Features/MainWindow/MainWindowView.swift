@@ -684,14 +684,11 @@ struct MainWindowView: View {
                         .padding(.bottom, VSpacing.sm)
 
                     // MARK: Nav Items
-                    SidebarNavRow(icon: "square.grid.2x2", label: "App Directory") {
+                    SidebarNavRow(icon: "house.fill", label: "Home Base") {
                         windowState.togglePanel(.directory)
                     }
                     SidebarNavRow(icon: "person.crop.circle", label: "Identity") {
                         windowState.togglePanel(.identity)
-                    }
-                    SidebarNavRow(icon: "wand.and.stars", label: "Skills") {
-                        windowState.togglePanel(.agent)
                     }
 
                     // MARK: Recents
@@ -1006,7 +1003,22 @@ struct MainWindowView: View {
         case .threadList:
             sidebarView
         case .identity:
-            IdentityPanel(onClose: { windowState.selection = nil }, daemonClient: daemonClient)
+            IdentityPanel(onClose: { windowState.selection = nil }, onInvokeSkill: { skill in
+                if threadManager.activeViewModel == nil {
+                    threadManager.createThread()
+                }
+                if let viewModel = threadManager.activeViewModel {
+                    viewModel.pendingSkillInvocation = SkillInvocationData(
+                        name: skill.name,
+                        emoji: skill.emoji,
+                        description: skill.description
+                    )
+                    viewModel.inputText = "Use the \(skill.name) skill"
+                    viewModel.sendMessage()
+                    viewModel.pendingSkillInvocation = nil
+                }
+                windowState.selection = nil
+            }, daemonClient: daemonClient)
         }
     }
 
@@ -1164,7 +1176,7 @@ struct MainWindowView: View {
                     }
                 )
             } else {
-                // Full-window panels: settings, skills, debug, doctor, identity
+                // Full-window panels: settings, debug, doctor, identity
                 fullWindowPanel(panelType)
             }
         case nil:
@@ -1243,7 +1255,22 @@ struct MainWindowView: View {
             DoctorPanel(onClose: { windowState.dismissOverlay() })
                 .overlay(alignment: .topTrailing) { panelDismissButton }
         case .identity:
-            IdentityPanel(onClose: { windowState.dismissOverlay() }, daemonClient: daemonClient)
+            IdentityPanel(onClose: { windowState.dismissOverlay() }, onInvokeSkill: { skill in
+                if threadManager.activeViewModel == nil {
+                    threadManager.createThread()
+                }
+                if let viewModel = threadManager.activeViewModel {
+                    viewModel.pendingSkillInvocation = SkillInvocationData(
+                        name: skill.name,
+                        emoji: skill.emoji,
+                        description: skill.description
+                    )
+                    viewModel.inputText = "Use the \(skill.name) skill"
+                    viewModel.sendMessage()
+                    viewModel.pendingSkillInvocation = nil
+                }
+                windowState.dismissOverlay()
+            }, daemonClient: daemonClient)
                 .overlay(alignment: .topTrailing) { panelDismissButton }
         case .generated:
             // Generated panel is handled inline in chatContentView when expanded;

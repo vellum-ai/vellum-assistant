@@ -3,6 +3,7 @@ import VellumAssistantShared
 
 struct IdentityPanel: View {
     let onClose: () -> Void
+    var onInvokeSkill: ((SkillInfo) -> Void)?
     let daemonClient: DaemonClient
     private let appearance = AvatarAppearanceManager.shared
 
@@ -35,26 +36,39 @@ struct IdentityPanel: View {
             Divider()
                 .background(VColor.surfaceBorder)
 
-            // Avatar + ID card side by side
-            HStack(alignment: .center, spacing: VSpacing.lg) {
-                DinoSceneView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
-                    .frame(width: 180, height: 200)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Avatar + ID card side by side
+                    HStack(alignment: .center, spacing: VSpacing.lg) {
+                        DinoSceneView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
+                            .frame(width: 180, height: 200)
 
-                if let identity {
-                    idCardSection(identity: identity)
+                        if let identity {
+                            idCardSection(identity: identity)
+                        }
+                    }
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.lg)
+
+                    // Constellation
+                    ConstellationView(
+                        identity: identity,
+                        skills: skills,
+                        workspaceFiles: workspaceFiles
+                    )
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 300)
+                    .background(VColor.background)
+
+                    // Skills management
+                    AgentPanelContent(
+                        onInvokeSkill: onInvokeSkill,
+                        daemonClient: daemonClient
+                    )
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.lg)
                 }
             }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.lg)
-
-            // Constellation — full width, fills remaining space
-            ConstellationView(
-                identity: identity,
-                skills: skills,
-                workspaceFiles: workspaceFiles
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(VColor.background)
         }
         .background(VColor.backgroundSubtle)
         .onAppear {

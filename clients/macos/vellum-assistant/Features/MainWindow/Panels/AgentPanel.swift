@@ -1,10 +1,11 @@
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - Agent Panel
+// MARK: - Agent Panel Content (embeddable)
 
-struct AgentPanel: View {
-    var onClose: () -> Void
+/// The skills management content, usable standalone (e.g. inside IdentityPanel)
+/// or wrapped in a VSidePanel via AgentPanel.
+struct AgentPanelContent: View {
     var onInvokeSkill: ((SkillInfo) -> Void)?
     let daemonClient: DaemonClient
 
@@ -17,15 +18,14 @@ struct AgentPanel: View {
     @State private var hoveredDetailInstall = false
     @State private var skillToDelete: SkillInfo?
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient) {
-        self.onClose = onClose
+    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, daemonClient: DaemonClient) {
         self.onInvokeSkill = onInvokeSkill
         self.daemonClient = daemonClient
         _skillsManager = StateObject(wrappedValue: SkillsManager(daemonClient: daemonClient))
     }
 
     var body: some View {
-        VSidePanel(title: "Skills", onClose: onClose) {
+        VStack(alignment: .leading, spacing: 0) {
             // Installed skills section
             sectionHeader("Installed", count: userSkills.count)
 
@@ -998,6 +998,20 @@ struct AgentPanel: View {
                 .font(.system(size: 13))
                 .foregroundColor(VColor.textMuted)
                 .frame(width: 24, height: 24)
+        }
+    }
+}
+
+// MARK: - Agent Panel (standalone, wrapped in VSidePanel)
+
+struct AgentPanel: View {
+    var onClose: () -> Void
+    var onInvokeSkill: ((SkillInfo) -> Void)?
+    let daemonClient: DaemonClient
+
+    var body: some View {
+        VSidePanel(title: "Skills", onClose: onClose) {
+            AgentPanelContent(onInvokeSkill: onInvokeSkill, daemonClient: daemonClient)
         }
     }
 }
