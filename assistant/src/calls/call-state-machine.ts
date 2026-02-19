@@ -15,8 +15,8 @@ import type { CallStatus } from './types.js';
  * Terminal states map to an empty set.
  */
 const ALLOWED_TRANSITIONS: Record<CallStatus, Set<CallStatus>> = {
-  initiated: new Set<CallStatus>(['ringing', 'in_progress', 'completed', 'failed', 'cancelled']),
-  ringing: new Set<CallStatus>(['in_progress', 'completed', 'failed', 'cancelled']),
+  initiated: new Set<CallStatus>(['ringing', 'in_progress', 'waiting_on_user', 'completed', 'failed', 'cancelled']),
+  ringing: new Set<CallStatus>(['in_progress', 'waiting_on_user', 'completed', 'failed', 'cancelled']),
   in_progress: new Set<CallStatus>(['waiting_on_user', 'completed', 'failed', 'cancelled']),
   waiting_on_user: new Set<CallStatus>(['in_progress', 'completed', 'failed', 'cancelled']),
   // Terminal states — no further transitions allowed
