@@ -30,6 +30,10 @@ struct HatchingStepView: View {
 
             logOutput
 
+            if state.hatchFailed {
+                restartButton
+            }
+
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -158,6 +162,40 @@ struct HatchingStepView: View {
         }
         .padding(.horizontal, VSpacing.xxl)
         .padding(.top, VSpacing.md)
+    }
+
+    // MARK: - Restart Button
+
+    private var restartButton: some View {
+        Button(action: { restartSetup() }) {
+            Text("Start over")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(VColor.textPrimary)
+                .frame(maxWidth: 380)
+                .padding(.vertical, VSpacing.lg)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, VSpacing.xxl)
+        .onHover { hovering in
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+
+    private func restartSetup() {
+        state.isHatching = false
+        state.hatchFailed = false
+        state.hatchCompleted = false
+        state.hatchLogLines = []
+        hatchStarted = false
+        eggCracked = false
+        eggHatched = false
+        withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
+            state.currentStep = 0
+        }
     }
 
     // MARK: - Wobble
