@@ -1,5 +1,10 @@
 import { getLogger } from '../util/logger.js';
 import { getAllWorkspaceGitServices, type WorkspaceGitService } from './git-service.js';
+import {
+  DefaultCommitMessageProvider,
+  type CommitContext,
+  type CommitMessageProvider,
+} from './commit-message-provider.js';
 
 const log = getLogger('heartbeat');
 
@@ -23,6 +28,8 @@ export interface HeartbeatServiceOptions {
   getServices?: () => ReadonlyMap<string, WorkspaceGitService>;
   /** Override for getting the current timestamp (for testing). */
   now?: () => number;
+  /** Custom commit message provider. */
+  commitMessageProvider?: CommitMessageProvider;
 }
 
 /**
@@ -61,6 +68,7 @@ export class HeartbeatService {
   private readonly intervalMs: number;
   private readonly getServices: () => ReadonlyMap<string, WorkspaceGitService>;
   private readonly now: () => number;
+  private readonly commitMessageProvider: CommitMessageProvider;
   private timer: ReturnType<typeof setInterval> | null = null;
   /** Tracks the currently in-flight check to prevent overlapping runs and allow clean shutdown. */
   private activeCheck: Promise<HeartbeatCheckResult> | null = null;
@@ -71,6 +79,7 @@ export class HeartbeatService {
     this.intervalMs = options?.intervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
     this.getServices = options?.getServices ?? getAllWorkspaceGitServices;
     this.now = options?.now ?? Date.now;
+    this.commitMessageProvider = options?.commitMessageProvider ?? new DefaultCommitMessageProvider();
   }
 
   /**
@@ -139,7 +148,7 @@ export class HeartbeatService {
         result.checked++;
 
         try {
-          const committed = await this.checkWorkspace(workspaceDir, service, 'heartbeat');
+          const committed = await this.checkWorkspace(workspaceDir, service);
           if (committed) {
             result.committed++;
           } else {
@@ -190,12 +199,17 @@ export class HeartbeatService {
       try {
         const now = this.now();
         const { committed } = await service.commitIfDirty((status) => {
-          const totalChanges = new Set([...status.staged, ...status.modified, ...status.untracked]).size;
-          log.info({ workspaceDir, totalChanges }, 'Committing pending changes on shutdown');
-          return {
-            message: `auto-commit: shutdown safety net (${totalChanges} files)`,
-            metadata: { trigger: 'shutdown', timestamp: now },
+          const uniqueFiles = [...new Set([...status.staged, ...status.modified, ...status.untracked])];
+          log.info({ workspaceDir, totalChanges: uniqueFiles.length }, 'Committing pending changes on shutdown');
+
+          const ctx: CommitContext = {
+            workspaceDir,
+            trigger: 'shutdown',
+            changedFiles: uniqueFiles,
+            timestampMs: now,
           };
+
+          return this.commitMessageProvider.buildImmediateMessage(ctx);
         });
 
         if (committed) {
@@ -225,13 +239,13 @@ export class HeartbeatService {
   private async checkWorkspace(
     workspaceDir: string,
     service: WorkspaceGitService,
-    trigger: string,
   ): Promise<boolean> {
     const now = this.now();
 
     // Atomic status check + conditional commit within a single mutex lock.
     const { committed, status } = await service.commitIfDirty((st) => {
-      const totalChanges = new Set([...st.staged, ...st.modified, ...st.untracked]).size;
+      const uniqueFiles = [...new Set([...st.staged, ...st.modified, ...st.untracked])];
+      const totalChanges = uniqueFiles.length;
 
       // Track when we first saw this workspace as dirty
       if (!firstSeenDirty.has(workspaceDir)) {
@@ -261,10 +275,15 @@ export class HeartbeatService {
         'Heartbeat auto-committing workspace changes',
       );
 
-      return {
-        message: `auto-commit: ${trigger} safety net (${totalChanges} files, ${reason})`,
-        metadata: { trigger, timestamp: now },
+      const ctx: CommitContext = {
+        workspaceDir,
+        trigger: 'heartbeat',
+        changedFiles: uniqueFiles,
+        timestampMs: now,
+        reason,
       };
+
+      return this.commitMessageProvider.buildImmediateMessage(ctx);
     });
 
     if (committed) {
