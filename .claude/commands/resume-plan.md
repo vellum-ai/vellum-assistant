@@ -79,7 +79,7 @@ git fetch origin main
 #### 8b. Implement
 
 Read the next PR section from the plan. Implement all changes in the worktree.
-- Follow the project conventions described in CLAUDE.md.
+- Follow the project conventions described in AGENTS.md.
 
 #### 8c. Validate
 

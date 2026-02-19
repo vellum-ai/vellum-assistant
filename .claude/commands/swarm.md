@@ -48,7 +48,7 @@ For each task being handed off:
 You are working on a single task in an isolated git worktree.
 
 ## Project context
-Read CLAUDE.md in the repo root for project conventions and structure.
+Read AGENTS.md in the repo root for project conventions and structure.
 
 ## Repo-specific gotchas
 - `gh pr view` does NOT support a `merged` --json field. Use `state` and `mergedAt`: `gh pr view <N> --json state,mergedAt,title,url`

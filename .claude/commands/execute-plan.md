@@ -28,7 +28,7 @@ For each PR in order:
 
 Read the PR section carefully. Implement all the changes described:
 - Create/modify the listed files according to the steps.
-- Follow the project conventions described in CLAUDE.md.
+- Follow the project conventions described in AGENTS.md.
 
 #### 3b. Validate
 

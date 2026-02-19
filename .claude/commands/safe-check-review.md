@@ -121,4 +121,4 @@ If all reviewers have responded, none requested changes (all approved), and CI i
 
 ## Repo-specific gotchas
 
-Follow the project conventions described in CLAUDE.md.
+Follow the project conventions described in AGENTS.md.
