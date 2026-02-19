@@ -248,8 +248,8 @@ describe('AssetMaterializeTool size limit', () => {
     const db = getDb();
     const fakeId = 'oversized-attachment';
     db.run(
-      `INSERT INTO attachments (id, assistant_id, original_filename, mime_type, size_bytes, kind, data_base64, created_at)
-       VALUES ('${fakeId}', 'ast-1', 'huge.bin', 'application/octet-stream', ${51 * 1024 * 1024}, 'document', 'AAAA', ${Date.now()})`,
+      `INSERT INTO attachments (id, original_filename, mime_type, size_bytes, kind, data_base64, created_at)
+       VALUES ('${fakeId}', 'huge.bin', 'application/octet-stream', ${51 * 1024 * 1024}, 'document', 'AAAA', ${Date.now()})`,
     );
 
     const result = await assetMaterializeTool.execute(
