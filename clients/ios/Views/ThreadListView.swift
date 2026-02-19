@@ -382,7 +382,7 @@ struct ThreadListView: View {
                     } label: {
                         Label("Rename", systemImage: "pencil")
                     }
-                    .tint(VColor.accent)
+                    .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                 }
             }
 
@@ -408,7 +408,7 @@ struct ThreadListView: View {
                                 } label: {
                                     Label("Unarchive", systemImage: "tray.and.arrow.up")
                                 }
-                                .tint(VColor.accent)
+                                .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                             }
                         }
                     }

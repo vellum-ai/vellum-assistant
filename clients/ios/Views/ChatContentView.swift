@@ -244,7 +244,7 @@ struct ChatContentView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .background(VColor.surfaceBorder)
+                        .background(Color.white.opacity(0.25)) // Intentional: translucent contrast on VColor.error banner
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 }
             } else if viewModel.isRetryableError {
@@ -254,7 +254,7 @@ struct ChatContentView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .background(VColor.surfaceBorder)
+                        .background(Color.white.opacity(0.25)) // Intentional: translucent contrast on VColor.error banner
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 }
             }
