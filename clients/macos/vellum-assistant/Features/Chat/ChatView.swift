@@ -626,11 +626,12 @@ struct ChatView: View {
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
-                    let hasPendingConfirmation = messages.last?.confirmation?.state == .pending
-                    let hasActiveToolCall = messages.last?.toolCalls.contains(where: { !$0.isComplete }) == true
-                    if isSending && !(messages.last?.isStreaming == true) && !hasPendingConfirmation && !hasActiveToolCall {
+                    let lastVisible = displayMessages.last
+                    let hasPendingConfirmation = lastVisible?.confirmation?.state == .pending
+                    let hasActiveToolCall = lastVisible?.toolCalls.contains(where: { !$0.isComplete }) == true
+                    if isSending && !(lastVisible?.isStreaming == true) && !hasPendingConfirmation && !hasActiveToolCall {
                         RunningIndicator(
-                            label: !hasEverSentMessage && messages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
+                            label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
                             showIcon: false
                         )
                         .frame(maxWidth: 520, alignment: .leading)
