@@ -80,13 +80,13 @@ export class CallOrchestrator {
   /**
    * Called when the user (in the chat UI) answers a pending question.
    */
-  async handleUserAnswer(answerText: string): Promise<void> {
+  async handleUserAnswer(answerText: string): Promise<boolean> {
     if (this.state !== 'waiting_on_user') {
       log.warn(
         { callSessionId: this.callSessionId, state: this.state },
         'handleUserAnswer called but orchestrator is not in waiting_on_user state',
       );
-      return;
+      return false;
     }
 
     // Clear the consultation timeout
@@ -102,6 +102,7 @@ export class CallOrchestrator {
     this.conversationHistory.push({ role: 'user', content: `[USER_ANSWERED: ${answerText}]` });
 
     await this.runLlm();
+    return true;
   }
 
   /**
