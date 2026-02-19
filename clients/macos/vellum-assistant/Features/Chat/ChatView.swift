@@ -1055,27 +1055,33 @@ private struct ChatBubble: View {
 
             if canReportMessage {
                 VStack {
-                    Menu {
-                        if let onReportMessage {
-                            Button("Export response for diagnostics") {
-                                onReportMessage(message.daemonMessageId)
+                    // Use conditional rendering instead of opacity(0) so the NSPopUpButton
+                    // is only in the view hierarchy while hovered — avoiding per-message
+                    // SF Symbol and accessibility-string lookups on every scroll update.
+                    ZStack {
+                        Color.clear.frame(width: 24, height: 24)
+                        if isHovered {
+                            Menu {
+                                if let onReportMessage {
+                                    Button("Export response for diagnostics") {
+                                        onReportMessage(message.daemonMessageId)
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(VColor.textSecondary)
+                                    .rotationEffect(.degrees(90))
+                                    .frame(width: 24, height: 24)
+                                    .contentShape(Rectangle())
                             }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
-                            .rotationEffect(.degrees(90))
+                            .menuStyle(.borderlessButton)
+                            .menuIndicator(.hidden)
                             .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
+                            .accessibilityLabel("Message actions")
+                            .transition(.opacity.animation(VAnimation.fast))
+                        }
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .frame(width: 24, height: 24)
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
-                    .accessibilityLabel("Message actions")
-                    .animation(VAnimation.fast, value: isHovered)
 
                     Spacer(minLength: 0)
                 }
@@ -1629,7 +1635,7 @@ private struct ChatBubble: View {
     /// Render a single text segment as a styled bubble, with table and image support.
     @ViewBuilder
     private func textBubble(for segmentText: String) -> some View {
-        let segments = parseMarkdownSegments(segmentText)
+        let segments = Self.cachedSegments(for: segmentText)
         let hasRichContent = segments.contains(where: {
             switch $0 {
             case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
@@ -1789,7 +1795,7 @@ private struct ChatBubble: View {
             }
 
             if hasText {
-                let segments = parseMarkdownSegments(message.text)
+                let segments = Self.cachedSegments(for: message.text)
                 let hasRichContent = segments.contains(where: {
                     switch $0 {
                     case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
@@ -2004,6 +2010,11 @@ private struct ChatBubble: View {
     }
 
     private func nsImage(for attachment: ChatAttachment) -> NSImage? {
+        // Use pre-decoded thumbnail image — avoids NSImage(data:) during layout, which
+        // can trigger re-entrant AppKit constraint invalidation and crash on scroll.
+        if let img = attachment.thumbnailImage {
+            return img
+        }
         if let thumbnailData = attachment.thumbnailData, let img = NSImage(data: thumbnailData) {
             return img
         }
@@ -2040,6 +2051,20 @@ private struct ChatBubble: View {
         if kb < 1024 { return String(format: "%.1f KB", kb) }
         let mb = kb / 1024
         return String(format: "%.1f MB", mb)
+    }
+
+    /// Cached markdown segment parser to avoid re-parsing on every render.
+    private static var segmentCache = [Int: [MarkdownSegment]]()
+
+    private static func cachedSegments(for text: String) -> [MarkdownSegment] {
+        let key = text.hashValue
+        if let cached = segmentCache[key] { return cached }
+        let result = parseMarkdownSegments(text)
+        if segmentCache.count >= maxCacheSize {
+            if let first = segmentCache.keys.first { segmentCache.removeValue(forKey: first) }
+        }
+        segmentCache[key] = result
+        return result
     }
 
     /// Cached markdown parser to avoid re-parsing on every render.
