@@ -38,7 +38,21 @@ afterEach(() => {
 });
 
 describe("runtime proxy handler", () => {
-  test("forwards request to upstream with correct path and query", async () => {
+  test("rewrites /v1/assistants/:assistantId/... to /v1/... for upstream", async () => {
+    const captured: { url: string }[] = [];
+    globalThis.fetch = mock(async (input: any) => {
+      captured.push({ url: String(input) });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as any;
+
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const req = new Request("http://localhost:7830/v1/assistants/test-assistant/channels/inbound");
+    await handler(req);
+
+    expect(captured[0].url).toBe("http://localhost:7821/v1/channels/inbound");
+  });
+
+  test("forwards request to upstream with correct path and query (assistant-scoped rewrite)", async () => {
     const captured: { url: string; method: string }[] = [];
     globalThis.fetch = mock(async (input: any, init?: any) => {
       captured.push({ url: String(input), method: init?.method ?? "GET" });
@@ -53,7 +67,8 @@ describe("runtime proxy handler", () => {
     const res = await handler(req);
 
     expect(res.status).toBe(200);
-    expect(captured[0].url).toBe("http://localhost:7821/v1/assistants/test/health?foo=bar");
+    // /v1/assistants/test/health is rewritten to /v1/health
+    expect(captured[0].url).toBe("http://localhost:7821/v1/health?foo=bar");
     expect(captured[0].method).toBe("GET");
     const body = await res.json();
     expect(body).toEqual({ ok: true });

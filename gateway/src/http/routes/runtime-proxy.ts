@@ -57,7 +57,14 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       }
     }
 
-    const upstream = `${config.assistantRuntimeBaseUrl}${url.pathname}${url.search}`;
+    // Rewrite /v1/assistants/:assistantId/... → /v1/... for the upstream daemon
+    let upstreamPath = url.pathname;
+    const assistantScopedMatch = url.pathname.match(/^\/v1\/assistants\/[^/]+\/(.+)$/);
+    if (assistantScopedMatch) {
+      upstreamPath = `/v1/${assistantScopedMatch[1]}`;
+    }
+
+    const upstream = `${config.assistantRuntimeBaseUrl}${upstreamPath}${url.search}`;
 
     const reqHeaders = stripHopByHop(new Headers(req.headers));
     reqHeaders.delete("host");

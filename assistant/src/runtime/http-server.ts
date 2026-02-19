@@ -247,7 +247,7 @@ export class RuntimeHttpServer {
     // Paths already handled above (/v1/apps/..., /v1/secrets) will never reach here.
     const newRouteMatch = path.match(/^\/v1\/(?!assistants\/)(.+)$/);
     if (newRouteMatch) {
-      return this.dispatchEndpoint('local-assistant', newRouteMatch[1], req, url);
+      return this.dispatchEndpoint(newRouteMatch[1], req, url);
     }
 
     // Legacy: /v1/assistants/:assistantId/<endpoint>
@@ -259,7 +259,7 @@ export class RuntimeHttpServer {
     const assistantId = match[1];
     const endpoint = match[2];
     log.warn({ endpoint, assistantId }, '[deprecated] /v1/assistants/:assistantId/... route used; migrate to /v1/...');
-    return this.dispatchEndpoint(assistantId, endpoint, req, url);
+    return this.dispatchEndpoint(endpoint, req, url);
   }
 
   /**
@@ -268,7 +268,6 @@ export class RuntimeHttpServer {
    * legacy assistant-scoped routes (/v1/assistants/:assistantId/<endpoint>).
    */
   private async dispatchEndpoint(
-    assistantId: string,
     endpoint: string,
     req: Request,
     url: URL,
@@ -279,32 +278,32 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'messages' && req.method === 'GET') {
-        return handleListMessages(assistantId, url, this.interfacesDir);
+        return handleListMessages(url, this.interfacesDir);
       }
 
       if (endpoint === 'messages' && req.method === 'POST') {
-        return await handleSendMessage(assistantId, req, {
+        return await handleSendMessage(req, {
           processMessage: this.processMessage,
           persistAndProcessMessage: this.persistAndProcessMessage,
         });
       }
 
       if (endpoint === 'attachments' && req.method === 'POST') {
-        return await handleUploadAttachment(assistantId, req);
+        return await handleUploadAttachment(req);
       }
 
       if (endpoint === 'attachments' && req.method === 'DELETE') {
-        return await handleDeleteAttachment(assistantId, req);
+        return await handleDeleteAttachment(req);
       }
 
       // Match attachments/:attachmentId
       const attachmentMatch = endpoint.match(/^attachments\/([^/]+)$/);
       if (attachmentMatch && req.method === 'GET') {
-        return handleGetAttachment(assistantId, attachmentMatch[1]);
+        return handleGetAttachment(attachmentMatch[1]);
       }
 
       if (endpoint === 'suggestion' && req.method === 'GET') {
-        return await handleGetSuggestion(assistantId, url, {
+        return await handleGetSuggestion(url, {
           suggestionCache: this.suggestionCache,
           suggestionInFlight: this.suggestionInFlight,
         });
@@ -314,7 +313,7 @@ export class RuntimeHttpServer {
         if (!this.runOrchestrator) {
           return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
         }
-        return await handleCreateRun(assistantId, req, this.runOrchestrator);
+        return await handleCreateRun(req, this.runOrchestrator);
       }
 
       // Match runs/:runId, runs/:runId/decision, runs/:runId/trust-rule
@@ -325,17 +324,17 @@ export class RuntimeHttpServer {
         }
         const runId = runsMatch[1];
         if (runsMatch[2] === '/decision' && req.method === 'POST') {
-          return await handleRunDecision(assistantId, runId, req, this.runOrchestrator);
+          return await handleRunDecision(runId, req, this.runOrchestrator);
         }
         if (runsMatch[2] === '/trust-rule' && req.method === 'POST') {
           const run = this.runOrchestrator.getRun(runId);
-          if (!run || run.assistantId !== assistantId) {
+          if (!run) {
             return Response.json({ error: 'Run not found' }, { status: 404 });
           }
           return await handleAddTrustRule(runId, req);
         }
         if (req.method === 'GET') {
-          return handleGetRun(assistantId, runId, this.runOrchestrator);
+          return handleGetRun(runId, this.runOrchestrator);
         }
       }
 
@@ -345,36 +344,36 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'channels/conversation' && req.method === 'DELETE') {
-        return await handleDeleteConversation(assistantId, req);
+        return await handleDeleteConversation(req);
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
-        return await handleChannelInbound(assistantId, req, this.processMessage);
+        return await handleChannelInbound(req, this.processMessage);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {
-        return await handleChannelDeliveryAck(assistantId, req);
+        return await handleChannelDeliveryAck(req);
       }
 
       if (endpoint === 'channels/dead-letters' && req.method === 'GET') {
-        return handleListDeadLetters(assistantId);
+        return handleListDeadLetters();
       }
 
       if (endpoint === 'channels/replay' && req.method === 'POST') {
-        return await handleReplayDeadLetters(assistantId, req);
+        return await handleReplayDeadLetters(req);
       }
 
       return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });
     } catch (err) {
       if (err instanceof IngressBlockedError) {
-        log.warn({ endpoint, assistantId, detectedTypes: err.detectedTypes }, 'Blocked HTTP request containing secrets');
+        log.warn({ endpoint, detectedTypes: err.detectedTypes }, 'Blocked HTTP request containing secrets');
         return Response.json({ error: err.message, code: err.code }, { status: 422 });
       }
       if (err instanceof ConfigError) {
-        log.warn({ err, endpoint, assistantId }, 'Runtime HTTP config error');
+        log.warn({ err, endpoint }, 'Runtime HTTP config error');
         return Response.json({ error: err.message, code: err.code }, { status: 422 });
       }
-      log.error({ err, endpoint, assistantId }, 'Runtime HTTP handler error');
+      log.error({ err, endpoint }, 'Runtime HTTP handler error');
       const message = err instanceof Error ? err.message : 'Internal server error';
       return Response.json({ error: message }, { status: 500 });
     }

@@ -7,7 +7,7 @@ import { validateAttachmentUpload, AttachmentUploadError } from '../../memory/at
 /** 30 MB — base64-encoded 20 MB attachment ≈ 27 MB plus JSON wrapper overhead. */
 const MAX_UPLOAD_BODY_BYTES = 30 * 1024 * 1024;
 
-export async function handleUploadAttachment(assistantId: string, req: Request): Promise<Response> {
+export async function handleUploadAttachment(req: Request): Promise<Response> {
   const rawBody = await req.arrayBuffer();
   if (rawBody.byteLength > MAX_UPLOAD_BODY_BYTES) {
     return Response.json(
@@ -56,7 +56,7 @@ export async function handleUploadAttachment(assistantId: string, req: Request):
   let attachment: attachmentsStore.StoredAttachment;
   try {
     attachment = attachmentsStore.uploadAttachment(
-      assistantId,
+      "self",
       filename,
       mimeType,
       data,
@@ -78,7 +78,7 @@ export async function handleUploadAttachment(assistantId: string, req: Request):
   });
 }
 
-export async function handleDeleteAttachment(assistantId: string, req: Request): Promise<Response> {
+export async function handleDeleteAttachment(req: Request): Promise<Response> {
   let body: { attachmentId?: string };
   try {
     body = await req.json() as { attachmentId?: string };
@@ -98,7 +98,7 @@ export async function handleDeleteAttachment(assistantId: string, req: Request):
     );
   }
 
-  const result = attachmentsStore.deleteAttachment(assistantId, attachmentId);
+  const result = attachmentsStore.deleteAttachment("self", attachmentId);
 
   if (result === 'not_found') {
     return Response.json(
@@ -117,8 +117,8 @@ export async function handleDeleteAttachment(assistantId: string, req: Request):
   return new Response(null, { status: 204 });
 }
 
-export function handleGetAttachment(assistantId: string, attachmentId: string): Response {
-  const attachment = attachmentsStore.getAttachmentById(assistantId, attachmentId);
+export function handleGetAttachment(attachmentId: string): Response {
+  const attachment = attachmentsStore.getAttachmentById("self", attachmentId);
   if (!attachment) {
     return Response.json({ error: 'Attachment not found' }, { status: 404 });
   }

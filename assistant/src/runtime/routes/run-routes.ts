@@ -11,7 +11,6 @@ import type { RunOrchestrator } from '../run-orchestrator.js';
 const log = getLogger('runtime-http');
 
 export async function handleCreateRun(
-  assistantId: string,
   req: Request,
   runOrchestrator: RunOrchestrator,
 ): Promise<Response> {
@@ -39,7 +38,7 @@ export async function handleCreateRun(
   }
 
   if (hasAttachments) {
-    const resolved = attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds);
+    const resolved = attachmentsStore.getAttachmentsByIds("self", attachmentIds);
     if (resolved.length !== attachmentIds.length) {
       const resolvedIds = new Set(resolved.map((a) => a.id));
       const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
@@ -50,11 +49,11 @@ export async function handleCreateRun(
     }
   }
 
-  const mapping = getOrCreateConversation(assistantId, conversationKey);
+  const mapping = getOrCreateConversation("self", conversationKey);
 
   try {
     const run = await runOrchestrator.startRun(
-      assistantId,
+      "self",
       mapping.conversationId,
       content ?? '',
       hasAttachments ? attachmentIds : undefined,
@@ -77,12 +76,11 @@ export async function handleCreateRun(
 }
 
 export function handleGetRun(
-  assistantId: string,
   runId: string,
   runOrchestrator: RunOrchestrator,
 ): Response {
   const run = runOrchestrator.getRun(runId);
-  if (!run || run.assistantId !== assistantId) {
+  if (!run) {
     return Response.json({ error: 'Run not found' }, { status: 404 });
   }
 
@@ -98,13 +96,12 @@ export function handleGetRun(
 }
 
 export async function handleRunDecision(
-  assistantId: string,
   runId: string,
   req: Request,
   runOrchestrator: RunOrchestrator,
 ): Promise<Response> {
   const run = runOrchestrator.getRun(runId);
-  if (!run || run.assistantId !== assistantId) {
+  if (!run) {
     return Response.json({ error: 'Run not found' }, { status: 404 });
   }
 

@@ -127,7 +127,6 @@ function makeHangingSession(): Session {
 // Tests
 // ---------------------------------------------------------------------------
 
-const ASSISTANT_ID = 'ast-run-http';
 const TEST_TOKEN = 'test-bearer-token-runs';
 const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
 
@@ -164,7 +163,7 @@ describe('runtime runs — HTTP layer', () => {
   }
 
   function runsUrl(path = ''): string {
-    return `http://127.0.0.1:${port}/v1/assistants/${ASSISTANT_ID}/runs${path}`;
+    return `http://127.0.0.1:${port}/v1/runs${path}`;
   }
 
   // ── Auth ────────────────────────────────────────────────────────────
@@ -358,23 +357,6 @@ describe('runtime runs — HTTP layer', () => {
     await startServer(() => makeCompletingSession());
 
     const res = await fetch(runsUrl('/nonexistent'), { headers: AUTH_HEADERS });
-    expect(res.status).toBe(404);
-
-    await stopServer();
-  });
-
-  test('GET /runs/:id returns 404 for different assistant', async () => {
-    await startServer(() => makeCompletingSession());
-
-    const createRes = await fetch(runsUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-scope', content: 'Test' }),
-    });
-    const { id } = await createRes.json() as { id: string };
-
-    // Try to access via a different assistant
-    const res = await fetch(`http://127.0.0.1:${port}/v1/assistants/other-assistant/runs/${id}`, { headers: AUTH_HEADERS });
     expect(res.status).toBe(404);
 
     await stopServer();

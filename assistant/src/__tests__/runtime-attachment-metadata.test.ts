@@ -79,11 +79,10 @@ describe('Runtime attachment metadata', () => {
   });
 
   test('GET /messages includes attachment metadata for assistant messages', async () => {
-    const assistantId = 'ast-test-1';
     const conversationKey = 'test-conv-1';
 
-    // Set up conversation and messages
-    const mapping = getOrCreateConversation(assistantId, conversationKey);
+    // Set up conversation and messages using "self" as the assistantId
+    const mapping = getOrCreateConversation("self", conversationKey);
     conversationStore.addMessage(mapping.conversationId, 'user', 'Hello');
     const assistantMsg = conversationStore.addMessage(
       mapping.conversationId,
@@ -91,12 +90,12 @@ describe('Runtime attachment metadata', () => {
       JSON.stringify([{ type: 'text', text: 'Here is a chart' }]),
     );
 
-    // Upload and link an attachment
-    const stored = uploadAttachment(assistantId, 'chart.png', 'image/png', 'iVBOR');
+    // Upload and link an attachment using "self" as the assistantId
+    const stored = uploadAttachment("self", 'chart.png', 'image/png', 'iVBOR');
     linkAttachmentToMessage(assistantMsg.id, stored.id, 0);
 
     const res = await fetch(
-      `http://127.0.0.1:${port}/v1/assistants/${assistantId}/messages?conversationKey=${conversationKey}`,
+      `http://127.0.0.1:${port}/v1/messages?conversationKey=${conversationKey}`,
       { headers: AUTH_HEADERS },
     );
     const body = await res.json() as { messages: Array<{ role: string; content: string; attachments: Array<{ id: string; filename: string; mimeType: string; sizeBytes: number; kind: string }> }> };
@@ -120,10 +119,9 @@ describe('Runtime attachment metadata', () => {
   });
 
   test('GET /messages returns empty attachments when none linked', async () => {
-    const assistantId = 'ast-test-2';
     const conversationKey = 'test-conv-2';
 
-    const mapping = getOrCreateConversation(assistantId, conversationKey);
+    const mapping = getOrCreateConversation("self", conversationKey);
     conversationStore.addMessage(mapping.conversationId, 'user', 'Hello');
     conversationStore.addMessage(
       mapping.conversationId,
@@ -132,7 +130,7 @@ describe('Runtime attachment metadata', () => {
     );
 
     const res = await fetch(
-      `http://127.0.0.1:${port}/v1/assistants/${assistantId}/messages?conversationKey=${conversationKey}`,
+      `http://127.0.0.1:${port}/v1/messages?conversationKey=${conversationKey}`,
       { headers: AUTH_HEADERS },
     );
     const body = await res.json() as { messages: Array<{ role: string; attachments: unknown[] }> };
@@ -144,11 +142,10 @@ describe('Runtime attachment metadata', () => {
   });
 
   test('GET /attachments/:id returns attachment with payload', async () => {
-    const assistantId = 'ast-test-3';
-    const stored = uploadAttachment(assistantId, 'report.pdf', 'application/pdf', 'JVBER');
+    const stored = uploadAttachment("self", 'report.pdf', 'application/pdf', 'JVBER');
 
     const res = await fetch(
-      `http://127.0.0.1:${port}/v1/assistants/${assistantId}/attachments/${stored.id}`,
+      `http://127.0.0.1:${port}/v1/attachments/${stored.id}`,
       { headers: AUTH_HEADERS },
     );
     const body = await res.json() as {
@@ -164,22 +161,23 @@ describe('Runtime attachment metadata', () => {
     expect(body.sizeBytes).toBeGreaterThan(0);
   });
 
-  test('GET /attachments/:id returns 404 for wrong assistant', async () => {
-    const stored = uploadAttachment('ast-owner', 'secret.txt', 'text/plain', 'c2VjcmV0');
+  test('GET /attachments/:id returns attachment stored under "self"', async () => {
+    const stored = uploadAttachment("self", 'shared.txt', 'text/plain', 'c2hhcmVk');
 
     const res = await fetch(
-      `http://127.0.0.1:${port}/v1/assistants/ast-other/attachments/${stored.id}`,
+      `http://127.0.0.1:${port}/v1/attachments/${stored.id}`,
       { headers: AUTH_HEADERS },
     );
-    const body = await res.json() as { error: string };
+    const body = await res.json() as { id: string; filename: string };
 
-    expect(res.status).toBe(404);
-    expect(body.error).toBe('Attachment not found');
+    expect(res.status).toBe(200);
+    expect(body.id).toBe(stored.id);
+    expect(body.filename).toBe('shared.txt');
   });
 
   test('GET /attachments/:id returns 404 for nonexistent attachment', async () => {
     const res = await fetch(
-      `http://127.0.0.1:${port}/v1/assistants/ast-test-4/attachments/nonexistent-id`,
+      `http://127.0.0.1:${port}/v1/attachments/nonexistent-id`,
       { headers: AUTH_HEADERS },
     );
     const body = await res.json() as { error: string };

@@ -43,7 +43,6 @@ function getInterfaceFilesWithMtimes(interfacesDir: string | null): Array<{ path
 }
 
 export function handleListMessages(
-  assistantId: string,
   url: URL,
   interfacesDir: string | null,
 ): Response {
@@ -55,7 +54,7 @@ export function handleListMessages(
     );
   }
 
-  const mapping = getConversationByKey(assistantId, conversationKey);
+  const mapping = getConversationByKey("self", conversationKey);
   if (!mapping) {
     return Response.json({ messages: [] });
   }
@@ -90,7 +89,7 @@ export function handleListMessages(
   const messages: RuntimeMessagePayload[] = merged.map((m) => {
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
     if (m.role === 'assistant' && m.id) {
-      const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id, assistantId);
+      const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id, "self");
       if (linked.length > 0) {
         msgAttachments = linked.map((a) => ({
           id: a.id,
@@ -129,7 +128,6 @@ export function handleListMessages(
 }
 
 export async function handleSendMessage(
-  assistantId: string,
   req: Request,
   deps: {
     processMessage?: MessageProcessor;
@@ -172,7 +170,7 @@ export async function handleSendMessage(
 
   // Validate that all attachment IDs resolve
   if (hasAttachments) {
-    const resolved = attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds);
+    const resolved = attachmentsStore.getAttachmentsByIds("self", attachmentIds);
     if (resolved.length !== attachmentIds.length) {
       const resolvedIds = new Set(resolved.map((a) => a.id));
       const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
@@ -183,7 +181,7 @@ export async function handleSendMessage(
     }
   }
 
-  const mapping = getOrCreateConversation(assistantId, conversationKey);
+  const mapping = getOrCreateConversation("self", conversationKey);
 
   const processor = deps.persistAndProcessMessage ?? deps.processMessage;
   if (!processor) {
@@ -192,7 +190,7 @@ export async function handleSendMessage(
 
   try {
     const result = await processor(
-      assistantId,
+      "self",
       mapping.conversationId,
       content ?? '',
       hasAttachments ? attachmentIds : undefined,
@@ -236,7 +234,6 @@ async function generateLlmSuggestion(provider: Provider, assistantText: string):
 }
 
 export async function handleGetSuggestion(
-  assistantId: string,
   url: URL,
   deps: {
     suggestionCache: Map<string, string>;
@@ -251,7 +248,7 @@ export async function handleGetSuggestion(
     );
   }
 
-  const mapping = getConversationByKey(assistantId, conversationKey);
+  const mapping = getConversationByKey("self", conversationKey);
   if (!mapping) {
     return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
   }

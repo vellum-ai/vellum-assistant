@@ -18,7 +18,7 @@ import type {
 
 const log = getLogger('runtime-http');
 
-export async function handleDeleteConversation(assistantId: string, req: Request): Promise<Response> {
+export async function handleDeleteConversation(req: Request): Promise<Response> {
   const body = await req.json() as {
     sourceChannel?: string;
     externalChatId?: string;
@@ -34,13 +34,12 @@ export async function handleDeleteConversation(assistantId: string, req: Request
   }
 
   const conversationKey = `${sourceChannel}:${externalChatId}`;
-  deleteConversationKey(assistantId, conversationKey);
+  deleteConversationKey("self", conversationKey);
 
   return Response.json({ ok: true });
 }
 
 export async function handleChannelInbound(
-  assistantId: string,
   req: Request,
   processMessage?: MessageProcessor,
 ): Promise<Response> {
@@ -90,7 +89,7 @@ export async function handleChannelInbound(
   }
 
   if (hasAttachments) {
-    const resolved = attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds);
+    const resolved = attachmentsStore.getAttachmentsByIds("self", attachmentIds);
     if (resolved.length !== attachmentIds.length) {
       const resolvedIds = new Set(resolved.map((a) => a.id));
       const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
@@ -113,7 +112,7 @@ export async function handleChannelInbound(
   if (isEdit && sourceMessageId) {
     // Dedup the edit event itself (retried edited_message webhooks)
     const editResult = channelDeliveryStore.recordInbound(
-      assistantId,
+      "self",
       sourceChannel,
       externalChatId,
       externalMessageId,
@@ -137,7 +136,7 @@ export async function handleChannelInbound(
     let original: { messageId: string; conversationId: string } | null = null;
     for (let attempt = 0; attempt <= EDIT_LOOKUP_RETRIES; attempt++) {
       original = channelDeliveryStore.findMessageBySourceId(
-        assistantId,
+        "self",
         sourceChannel,
         externalChatId,
         sourceMessageId,
@@ -145,7 +144,7 @@ export async function handleChannelInbound(
       if (original) break;
       if (attempt < EDIT_LOOKUP_RETRIES) {
         log.info(
-          { assistantId, sourceMessageId, attempt: attempt + 1, maxAttempts: EDIT_LOOKUP_RETRIES },
+          { assistantId: "self", sourceMessageId, attempt: attempt + 1, maxAttempts: EDIT_LOOKUP_RETRIES },
           'Original message not linked yet, retrying edit lookup',
         );
         await new Promise((resolve) => setTimeout(resolve, EDIT_LOOKUP_DELAY_MS));
@@ -155,12 +154,12 @@ export async function handleChannelInbound(
     if (original) {
       conversationStore.updateMessageContent(original.messageId, content ?? '');
       log.info(
-        { assistantId, sourceMessageId, messageId: original.messageId },
+        { assistantId: "self", sourceMessageId, messageId: original.messageId },
         'Updated message content from edited_message',
       );
     } else {
       log.warn(
-        { assistantId, sourceChannel, externalChatId, sourceMessageId },
+        { assistantId: "self", sourceChannel, externalChatId, sourceMessageId },
         'Could not find original message for edit after retries, ignoring',
       );
     }
@@ -174,7 +173,7 @@ export async function handleChannelInbound(
 
   // ── New message path ──
   const result = channelDeliveryStore.recordInbound(
-    assistantId,
+    "self",
     sourceChannel,
     externalChatId,
     externalMessageId,
@@ -221,7 +220,7 @@ export async function handleChannelInbound(
       }
 
       const { messageId: userMessageId } = await processMessage(
-        assistantId,
+        "self",
         result.conversationId,
         content ?? '',
         hasAttachments ? attachmentIds : undefined,
@@ -259,7 +258,7 @@ export async function handleChannelInbound(
         try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
         const rendered = renderHistoryContent(parsed);
 
-        const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id, assistantId);
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id, "self");
         const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({
           id: a.id,
           filename: a.originalFilename,
@@ -291,12 +290,12 @@ export async function handleChannelInbound(
   });
 }
 
-export function handleListDeadLetters(assistantId: string): Response {
-  const events = channelDeliveryStore.getDeadLetterEvents(assistantId);
+export function handleListDeadLetters(): Response {
+  const events = channelDeliveryStore.getDeadLetterEvents("self");
   return Response.json({ events });
 }
 
-export async function handleReplayDeadLetters(assistantId: string, req: Request): Promise<Response> {
+export async function handleReplayDeadLetters(req: Request): Promise<Response> {
   const body = await req.json() as { eventIds?: string[] };
   const eventIds = body.eventIds;
 
@@ -304,11 +303,11 @@ export async function handleReplayDeadLetters(assistantId: string, req: Request)
     return Response.json({ error: 'eventIds array is required' }, { status: 400 });
   }
 
-  const replayed = channelDeliveryStore.replayDeadLetters(assistantId, eventIds);
+  const replayed = channelDeliveryStore.replayDeadLetters("self", eventIds);
   return Response.json({ replayed });
 }
 
-export async function handleChannelDeliveryAck(assistantId: string, req: Request): Promise<Response> {
+export async function handleChannelDeliveryAck(req: Request): Promise<Response> {
   const body = await req.json() as {
     sourceChannel?: string;
     externalChatId?: string;
@@ -328,7 +327,7 @@ export async function handleChannelDeliveryAck(assistantId: string, req: Request
   }
 
   const acked = channelDeliveryStore.acknowledgeDelivery(
-    assistantId,
+    "self",
     sourceChannel,
     externalChatId,
     externalMessageId,
