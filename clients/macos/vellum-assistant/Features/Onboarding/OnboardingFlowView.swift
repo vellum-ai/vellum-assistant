@@ -119,6 +119,11 @@ struct OnboardingFlowView: View {
                 onComplete()
             }
         }
+        .onChange(of: state.hatchCompleted) { _, completed in
+            if completed {
+                onComplete()
+            }
+        }
     }
 
 }
