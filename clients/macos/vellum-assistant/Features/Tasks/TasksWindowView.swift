@@ -115,7 +115,7 @@ struct TasksWindowView: View {
         .background(VColor.background)
         .onAppear {
             fetchWorkItems()
-            listenForStatusChanges()
+            listenForChanges()
         }
     }
 
@@ -138,10 +138,10 @@ struct TasksWindowView: View {
         }
     }
 
-    private func listenForStatusChanges() {
-        daemonClient.onWorkItemStatusChanged = { _ in
-            // Debounce rapid broadcasts so multiple priority edits coalesce
-            // into a single re-fetch instead of N overlapping calls.
+    private func listenForChanges() {
+        // Debounce rapid broadcasts so multiple mutations coalesce
+        // into a single re-fetch instead of N overlapping calls.
+        let scheduleRefresh = {
             refreshTask?.cancel()
             refreshTask = Task {
                 try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
@@ -149,9 +149,17 @@ struct TasksWindowView: View {
                 do {
                     try daemonClient.sendWorkItemsList()
                 } catch {
-                    // Silently ignore; the list will refresh on next status change
+                    // Silently ignore; the list will refresh on next change
                 }
             }
+        }
+
+        daemonClient.onWorkItemStatusChanged = { _ in
+            scheduleRefresh()
+        }
+
+        daemonClient.onTasksChanged = { _ in
+            scheduleRefresh()
         }
     }
 
