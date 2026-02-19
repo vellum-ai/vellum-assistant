@@ -517,6 +517,43 @@ describe('WorkspaceGitService', () => {
       expect(branchAfter).toBe('main');
     });
 
+    test('existing repo on feature branch with dirty working tree switches to main', async () => {
+      // Set up a pre-existing git repo on a feature branch with uncommitted changes.
+      // This exercises the --discard-changes fallback in ensureOnMainLocked().
+      execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
+      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
+      execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
+      writeFileSync(join(testDir, 'file.txt'), 'original content');
+      execFileSync('git', ['add', '-A'], { cwd: testDir });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: testDir });
+      execFileSync('git', ['checkout', '-b', 'feature-branch'], { cwd: testDir });
+
+      // Create uncommitted changes that would block a normal `git switch main`
+      writeFileSync(join(testDir, 'file.txt'), 'modified on feature branch');
+
+      // Verify we're on feature-branch with dirty working tree
+      const branchBefore = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      }).trim();
+      expect(branchBefore).toBe('feature-branch');
+      const statusBefore = execFileSync('git', ['status', '--porcelain'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      }).trim();
+      expect(statusBefore).toContain('file.txt');
+
+      // Initialize the service — should auto-switch to main despite dirty tree
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const branchAfter = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      }).trim();
+      expect(branchAfter).toBe('main');
+    });
+
     test('existing repo gets .gitignore rules appended on init', async () => {
       // Set up a pre-existing git repo without our gitignore rules
       execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });

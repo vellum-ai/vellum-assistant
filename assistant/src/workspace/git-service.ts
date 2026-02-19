@@ -215,16 +215,10 @@ export class WorkspaceGitService {
           // init (e.g. git init succeeded but the initial commit failed)
           // leaves .git present with an undefined HEAD. In that case,
           // fall through to the initial commit logic below.
+          let headExists = false;
           try {
             await this.execGit(['rev-parse', 'HEAD']);
-            // HEAD resolves — repo is fully initialized.
-            // Run normalization for existing repos that may have been
-            // created before these helpers existed, or by external tools.
-            this.ensureGitignoreRulesLocked();
-            await this.ensureCommitIdentityLocked();
-            await this.ensureOnMainLocked();
-            this.initialized = true;
-            return;
+            headExists = true;
           } catch (err: unknown) {
             // Distinguish transient failures from genuine "no commits".
             // Transient errors (timeouts, permissions, missing git binary)
@@ -247,6 +241,19 @@ export class WorkspaceGitService {
             }
             // Genuine "no commits" (unborn HEAD) — fall through to
             // create the initial commit.
+          }
+
+          if (headExists) {
+            // HEAD resolves — repo is fully initialized.
+            // Run normalization for existing repos that may have been
+            // created before these helpers existed, or by external tools.
+            // These calls are OUTSIDE the rev-parse try/catch so that
+            // normalization errors are not misclassified as "no commits".
+            this.ensureGitignoreRulesLocked();
+            await this.ensureCommitIdentityLocked();
+            await this.ensureOnMainLocked();
+            this.initialized = true;
+            return;
           }
         }
         // Otherwise fall through to reinitialize / create initial commit
@@ -474,11 +481,30 @@ export class WorkspaceGitService {
       `Workspace repo is on ${state}; auto-switching to main`,
     );
 
-    // Try switching to existing main branch first, fall back to creating it
+    // Try switching to existing main branch first.
+    // If the switch fails, distinguish "main doesn't exist" from
+    // "local changes would be overwritten" to pick the right recovery.
     try {
       await this.execGit(['switch', 'main']);
     } catch {
-      await this.execGit(['switch', '-c', 'main']);
+      // Check whether `main` already exists as a branch.
+      let mainExists = false;
+      try {
+        await this.execGit(['rev-parse', '--verify', 'main']);
+        mainExists = true;
+      } catch {
+        // main branch does not exist
+      }
+
+      if (mainExists) {
+        // `main` exists but switch failed — likely due to uncommitted
+        // local changes that would be overwritten. Discard them so we
+        // can land on main.
+        await this.execGit(['switch', 'main', '--discard-changes']);
+      } else {
+        // `main` doesn't exist yet — create it.
+        await this.execGit(['switch', '-c', 'main']);
+      }
     }
   }
 
