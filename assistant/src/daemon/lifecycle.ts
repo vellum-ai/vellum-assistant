@@ -185,11 +185,15 @@ export async function startDaemon(): Promise<{
   );
 }
 
-export async function stopDaemon(): Promise<{ stopped: boolean }> {
+export type StopResult =
+  | { stopped: true }
+  | { stopped: false; reason: 'not_running' | 'stop_failed' };
+
+export async function stopDaemon(): Promise<StopResult> {
   const pid = readPid();
   if (pid === null || !isProcessRunning(pid)) {
     cleanupPidFile();
-    return { stopped: false };
+    return { stopped: false, reason: 'not_running' };
   }
 
   process.kill(pid, 'SIGTERM');
@@ -235,7 +239,7 @@ export async function stopDaemon(): Promise<{ stopped: boolean }> {
   }
 
   log.warn({ pid }, 'Daemon process still running after SIGKILL + timeout, leaving socket and PID file intact');
-  return { stopped: false };
+  return { stopped: false, reason: 'stop_failed' };
 }
 
 export async function ensureDaemonRunning(): Promise<void> {
