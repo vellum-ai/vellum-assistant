@@ -49,6 +49,7 @@ final class OnboardingState {
 
     // Cloud credentials held in memory during onboarding (never written to .vellum)
     var gcpProjectId: String = ""
+    var gcpZone: String = "us-central1-a"
     var gcpServiceAccountKey: String = ""
     var awsRoleArn: String = ""
     var sshHost: String = ""

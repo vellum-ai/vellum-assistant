@@ -176,6 +176,14 @@ struct CloudCredentialsStepView: View {
         }
     }
 
+    private static let gcpZones = [
+        "us-central1-a",
+        "us-east1-b",
+        "us-east4-a",
+        "us-west1-a",
+        "us-west2-a",
+    ]
+
     // MARK: - GCP Fields
 
     private var gcpFields: some View {
@@ -197,6 +205,28 @@ struct CloudCredentialsStepView: View {
                             .stroke(VColor.surfaceBorder, lineWidth: 1)
                     )
                     .focused($projectIdFieldFocused)
+            }
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Zone")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(VColor.textSecondary)
+                Picker("", selection: $state.gcpZone) {
+                    ForEach(Self.gcpZones, id: \.self) { zone in
+                        Text(zone).tag(zone)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                .foregroundColor(VColor.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                )
             }
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {

@@ -182,6 +182,7 @@ struct HatchingStepView: View {
         let config = CLILauncher.RemoteHatchConfig(
             remote: state.cloudProvider,
             gcpProjectId: state.gcpProjectId,
+            gcpZone: state.gcpZone,
             gcpServiceAccountKey: state.gcpServiceAccountKey,
             awsRoleArn: state.awsRoleArn,
             sshHost: state.sshHost,

@@ -66,6 +66,7 @@ final class CLILauncher {
     struct RemoteHatchConfig {
         let remote: String
         var gcpProjectId: String = ""
+        var gcpZone: String = ""
         var gcpServiceAccountKey: String = ""
         var awsRoleArn: String = ""
         var sshHost: String = ""
@@ -104,6 +105,9 @@ final class CLILauncher {
         if config.remote == "gcp" {
             if !config.gcpProjectId.isEmpty {
                 env["GCP_PROJECT"] = config.gcpProjectId
+            }
+            if !config.gcpZone.isEmpty {
+                env["GCP_DEFAULT_ZONE"] = config.gcpZone
             }
             if !config.gcpServiceAccountKey.isEmpty {
                 let tmpKeyPath = FileManager.default.temporaryDirectory
