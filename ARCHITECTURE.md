@@ -2673,6 +2673,16 @@ All proxy logging passes through sanitization helpers (`logging.ts`) that redact
 4. **No persistent trust rules for proxied bash** — `persistentDecisionsAllowed: false` prevents saving trust rules that could auto-allow proxied commands across sessions with different credential scopes.
 5. **Auditable routing** — Every CONNECT routing decision carries a deterministic `RouteReason` code (`mitm:credential_injection`, `tunnel:no_rewrite`, `tunnel:no_credentials`) for audit and testing.
 
+### Credential Proxy Injection
+
+The proxy subsystem intercepts outbound HTTPS requests and injects stored credentials via header injection. Key behaviors:
+
+- **Wildcard host patterns** (`*.example.com`) match both subdomains and the bare apex domain (`example.com`)
+- **Specificity selection**: When one credential has both exact and wildcard templates for the same host, the most specific match wins (exact > wildcard)
+- **Cross-credential ambiguity**: When multiple credentials match the same host, injection is blocked (fail-closed)
+- **Credential references**: The shell tool accepts both UUIDs and `service/field` format (e.g., `fal/api_key`); unknown references fail fast before command execution
+- **Diagnostic logging**: Policy and rewrite decisions are logged with structured traces that never include secret values
+
 ### Key Source Files
 
 | File | Role |
