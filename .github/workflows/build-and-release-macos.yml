@@ -379,11 +379,9 @@ jobs:
           (cd cli && zip -r ../cli.zip .)
           ls -lh cli.zip
 
-      - name: Download install.sh from velly repo
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+      - name: Copy install.sh from repo
         run: |
-          gh api repos/vellum-ai/velly/contents/install.sh --jq '.content' | base64 -d > install.sh
+          cp cli/src/adapters/install.sh install.sh
           chmod +x install.sh
 
       - name: Download macOS build artifacts
