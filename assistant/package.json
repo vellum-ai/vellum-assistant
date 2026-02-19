@@ -1,6 +1,6 @@
 {
   "name": "vellum",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "type": "module",
   "bin": {
     "vellum": "./src/index.ts"
