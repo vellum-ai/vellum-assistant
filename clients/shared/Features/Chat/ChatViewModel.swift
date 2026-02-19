@@ -137,6 +137,8 @@ public final class ChatViewModel: ObservableObject {
     var pendingSendDirectText: String?
     /// Saved attachments from a queued message that should be auto-sent after cancellation completes.
     var pendingSendDirectAttachments: [ChatAttachment]?
+    /// Saved skill invocation from a queued message for send-direct dispatch.
+    var pendingSendDirectSkillInvocation: SkillInvocationData?
 
     /// Timestamp of the most recent `toolUseStart` event received by this view model.
     /// Used by ThreadManager to route `confirmationRequest` messages to the correct
@@ -834,6 +836,7 @@ public final class ChatViewModel: ObservableObject {
         // Save content before stop clears everything
         let text = messages[index].text
         let attachments = messages[index].attachments
+        let skillInvocation = messages[index].skillInvocation
 
         // Remove this message from local state (it will be re-added by sendMessage)
         messages.remove(at: index)
@@ -843,6 +846,7 @@ public final class ChatViewModel: ObservableObject {
         guard isSending else {
             inputText = text
             pendingAttachments = attachments
+            pendingSkillInvocation = skillInvocation
             sendMessage()
             return
         }
@@ -852,6 +856,7 @@ public final class ChatViewModel: ObservableObject {
         // (bootstrap, disconnected, send-failure) dispatch immediately.
         pendingSendDirectText = text
         pendingSendDirectAttachments = attachments
+        pendingSendDirectSkillInvocation = skillInvocation
 
         // Stop current generation — this clears all queued messages on the daemon
         stopGenerating()
@@ -862,10 +867,13 @@ public final class ChatViewModel: ObservableObject {
     func dispatchPendingSendDirect() {
         guard let directText = pendingSendDirectText else { return }
         let directAttachments = pendingSendDirectAttachments ?? []
+        let directSkillInvocation = pendingSendDirectSkillInvocation
         pendingSendDirectText = nil
         pendingSendDirectAttachments = nil
+        pendingSendDirectSkillInvocation = nil
         inputText = directText
         pendingAttachments = directAttachments
+        pendingSkillInvocation = directSkillInvocation
         sendMessage()
     }
 

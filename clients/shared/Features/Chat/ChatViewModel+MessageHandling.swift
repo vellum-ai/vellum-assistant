@@ -450,8 +450,21 @@ extension ChatViewModel {
             cancelTimeoutTask = nil
             isCancelling = false
             isThinking = false
-            // Only clear isSending if no messages are still queued
-            if pendingQueuedCount == 0 {
+            // When a send-direct is pending, this messageComplete is the
+            // cancel acknowledgment. Reset all queue state so the follow-up
+            // sendMessage() starts a fresh send instead of re-queuing.
+            if pendingSendDirectText != nil {
+                isSending = false
+                pendingQueuedCount = 0
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
+                for i in messages.indices {
+                    if case .queued = messages[i].status, messages[i].role == .user {
+                        messages[i].status = .sent
+                    }
+                }
+            } else if pendingQueuedCount == 0 {
+                // Only clear isSending if no messages are still queued
                 isSending = false
                 #if os(iOS)
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
