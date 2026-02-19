@@ -1676,7 +1676,7 @@ async function raceWithTimeout<T>(
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const result = await Promise.race([
-      promise.then(() => 'completed' as const),
+      promise.then(() => 'completed' as const, () => 'completed' as const),
       new Promise<'timed_out'>((resolve) => {
         timer = setTimeout(() => resolve('timed_out'), timeoutMs);
       }),
