@@ -184,7 +184,10 @@ struct InlineVideoAttachmentView: View {
 
 /// Fetch attachment base64 data from the daemon HTTP endpoint.
 private func fetchAttachmentData(port: Int, attachmentId: String) async throws -> String {
-    guard let token = readHttpToken() else {
+    let tokenPath = NSHomeDirectory() + "/.vellum/http-token"
+    guard let tokenData = try? Data(contentsOf: URL(fileURLWithPath: tokenPath)),
+          let token = String(data: tokenData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !token.isEmpty else {
         throw URLError(.userAuthenticationRequired)
     }
     let url = URL(string: "http://localhost:\(port)/v1/attachments/\(attachmentId)")!

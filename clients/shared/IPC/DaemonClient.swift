@@ -52,17 +52,6 @@ func readSessionToken(environment: [String: String]? = nil) -> String? {
     return token
 }
 
-/// Read the daemon HTTP bearer token from disk (~/.vellum/http-token).
-func readHttpToken() -> String? {
-    let tokenPath = NSHomeDirectory() + "/.vellum/http-token"
-    guard let data = try? Data(contentsOf: URL(fileURLWithPath: tokenPath)),
-          let token = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-          !token.isEmpty else {
-        return nil
-    }
-    return token
-}
 #endif
 
 /// Protocol for daemon client communication, enabling dependency injection and testing.
