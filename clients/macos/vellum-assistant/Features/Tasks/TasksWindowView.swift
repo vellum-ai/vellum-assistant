@@ -98,6 +98,7 @@ struct TasksWindowView: View {
                             TasksWindowRow(
                                 item: item,
                                 runningIds: viewModel.runInFlightIds,
+                                timeoutIds: viewModel.runTimeoutIds,
                                 onRun: { viewModel.runTask(id: item.id) },
                                 onComplete: { viewModel.completeTask(id: item.id) },
                                 onRemove: { viewModel.removeTask(id: item.id) },
@@ -123,6 +124,7 @@ struct TasksWindowView: View {
 private struct TasksWindowRow: View {
     let item: IPCWorkItemsListResponseItem
     let runningIds: Set<String>
+    let timeoutIds: Set<String>
     let onRun: () -> Void
     let onComplete: () -> Void
     let onRemove: () -> Void
@@ -239,32 +241,46 @@ private struct TasksWindowRow: View {
     private var actionsColumn: some View {
         let status = WorkItemStatus(rawStatus: item.status)
         let isRunning = runningIds.contains(item.id)
+        let isTimedOut = timeoutIds.contains(item.id)
         let isFailed = status == .failed
         let runEnabled = !isRunning
-        let showRun = status == .queued || isFailed
-        let buttonColor = isFailed ? VColor.warning : VColor.accent
-        let buttonLabel = isRunning ? "Starting..." : (isFailed ? "Retry" : "Run")
+        let showRun = status == .queued || isFailed || isTimedOut
+        let buttonColor = (isFailed || isTimedOut) ? VColor.warning : VColor.accent
+        let buttonLabel: String = {
+            if isRunning { return "Starting..." }
+            if isTimedOut || isFailed { return "Retry" }
+            return "Run"
+        }()
+        let buttonIcon = (isFailed || isTimedOut) ? "arrow.clockwise" : "play.fill"
         return HStack(spacing: VSpacing.xs) {
             if showRun {
-                Button(action: onRun) {
-                    HStack(spacing: VSpacing.xs) {
-                        Image(systemName: isFailed ? "arrow.clockwise" : "play.fill")
-                            .font(.system(size: 10))
-                        Text(buttonLabel)
-                            .font(VFont.caption)
+                VStack(alignment: .center, spacing: 2) {
+                    Button(action: onRun) {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: buttonIcon)
+                                .font(.system(size: 10))
+                            Text(buttonLabel)
+                                .font(VFont.caption)
+                        }
+                        .foregroundColor(buttonColor)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .background(buttonColor.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        .contentShape(Rectangle())
                     }
-                    .foregroundColor(buttonColor)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xs)
-                    .background(buttonColor.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .disabled(!runEnabled)
+                    .opacity(runEnabled ? 1.0 : 0.4)
+                    .accessibilityLabel(isRunning ? "Task is starting" : ((isFailed || isTimedOut) ? "Retry task" : "Run task"))
+                    .accessibilityHint(isRunning ? "Task is already starting" : (isTimedOut ? "No response received, tap to retry" : (isFailed ? "Retry running this failed task" : "")))
+
+                    if isTimedOut {
+                        Text("No response")
+                            .font(VFont.small)
+                            .foregroundColor(VColor.warning)
+                    }
                 }
-                .buttonStyle(.plain)
-                .disabled(!runEnabled)
-                .opacity(runEnabled ? 1.0 : 0.4)
-                .accessibilityLabel(isRunning ? "Task is starting" : (isFailed ? "Retry task" : "Run task"))
-                .accessibilityHint(isRunning ? "Task is already starting" : (isFailed ? "Retry running this failed task" : ""))
             }
 
             if status == .awaitingReview {

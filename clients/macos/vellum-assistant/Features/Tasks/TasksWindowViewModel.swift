@@ -16,6 +16,18 @@ class TasksWindowViewModel: ObservableObject {
     /// Tracks work item IDs with an in-flight run request so we can
     /// detect duplicate taps and disable the Run button in the view.
     @Published var runInFlightIds: Set<String> = []
+    /// Tracks IDs where the run request timed out without a daemon response,
+    /// so the view can show a recoverable "no response" warning.
+    @Published var runTimeoutIds: Set<String> = []
+
+    /// Handles for pending timeout tasks keyed by work item ID, so we can
+    /// cancel the timer when the daemon responds before the deadline.
+    private var runTimeoutTasks: [String: Task<Void, Never>] = [:]
+
+    /// How long to wait for a daemon run-task response before treating
+    /// the request as timed out. 10 seconds is generous enough to cover
+    /// normal latency while still recovering from connection drops quickly.
+    private static let runTimeoutSeconds: UInt64 = 10
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -30,6 +42,9 @@ class TasksWindowViewModel: ObservableObject {
         daemonClient.onWorkItemsListResponse = { [weak self] response in
             self?.items = response.items
             self?.isLoading = false
+            // A fresh list response means the daemon is alive — clear any
+            // stale timeout warnings since the user can now retry.
+            self?.runTimeoutIds.removeAll()
         }
 
         // Debounce rapid broadcasts so multiple mutations coalesce
@@ -46,7 +61,9 @@ class TasksWindowViewModel: ObservableObject {
         daemonClient.onWorkItemStatusChanged = { [weak self] notification in
             // The daemon confirmed a status transition — clear in-flight tracking
             // so subsequent run requests for this item are allowed.
-            self?.runInFlightIds.remove(notification.item.id)
+            let id = notification.item.id
+            self?.runInFlightIds.remove(id)
+            self?.cancelRunTimeout(id: id)
             scheduleRefresh()
         }
         daemonClient.onTasksChanged = { _ in scheduleRefresh() }
@@ -54,6 +71,7 @@ class TasksWindowViewModel: ObservableObject {
         daemonClient.onWorkItemRunTaskResponse = { [weak self] response in
             guard let self else { return }
             self.runInFlightIds.remove(response.id)
+            self.cancelRunTimeout(id: response.id)
             if !response.success {
                 self.logger.error("onWorkItemRunTaskResponse: run failed for id=\(response.id, privacy: .public) errorCode=\(response.errorCode ?? "none", privacy: .public) error=\(response.error ?? "none", privacy: .public)")
                 self.fetchItems()
@@ -93,14 +111,45 @@ class TasksWindowViewModel: ObservableObject {
             return
         }
 
+        // Clear any previous timeout warning for this item before retrying.
+        runTimeoutIds.remove(id)
+
         runInFlightIds.insert(id)
+        startRunTimeout(id: id)
         do {
             try daemonClient.sendWorkItemRunTask(id: id)
         } catch {
             logger.error("runTask: transport error for id=\(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             runInFlightIds.remove(id)
+            cancelRunTimeout(id: id)
             errorMessage = error.localizedDescription
         }
+    }
+
+    // MARK: - Run Timeout
+
+    /// Starts a delayed task that fires after `runTimeoutSeconds`. If the ID
+    /// is still in `runInFlightIds` when the timer expires, we treat it as a
+    /// dropped response: remove the in-flight state and mark it as timed out
+    /// so the view can show a recoverable warning.
+    private func startRunTimeout(id: String) {
+        cancelRunTimeout(id: id)
+        runTimeoutTasks[id] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.runTimeoutSeconds * 1_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            guard self.runInFlightIds.contains(id) else { return }
+            self.logger.warning("runTask timeout: no response after \(Self.runTimeoutSeconds)s for id=\(id, privacy: .public)")
+            self.runInFlightIds.remove(id)
+            self.runTimeoutIds.insert(id)
+            self.runTimeoutTasks.removeValue(forKey: id)
+        }
+    }
+
+    /// Cancels a pending timeout task and clears its tracking state.
+    private func cancelRunTimeout(id: String) {
+        runTimeoutTasks[id]?.cancel()
+        runTimeoutTasks.removeValue(forKey: id)
+        runTimeoutIds.remove(id)
     }
 
     func completeTask(id: String) {
