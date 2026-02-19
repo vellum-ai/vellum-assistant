@@ -100,7 +100,11 @@ export class CallOrchestrator {
     // Append the user's answer as a special message the model recognizes
     this.conversationHistory.push({ role: 'user', content: `[USER_ANSWERED: ${answerText}]` });
 
-    await this.runLlm();
+    // Fire-and-forget: unblock the caller so the HTTP response and answer
+    // persistence happen immediately, before LLM streaming begins.
+    this.runLlm().catch((err) =>
+      log.error({ err, callSessionId: this.callSessionId }, 'runLlm failed after user answer'),
+    );
     return true;
   }
 

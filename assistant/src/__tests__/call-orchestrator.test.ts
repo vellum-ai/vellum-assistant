@@ -266,7 +266,7 @@ describe('call-orchestrator', () => {
 
   // ── handleUserAnswer ──────────────────────────────────────────────
 
-  test('handleUserAnswer: appends USER_ANSWERED to history and runs LLM', async () => {
+  test('handleUserAnswer: returns true immediately and fires LLM asynchronously', async () => {
     // First utterance triggers ASK_USER
     mockStreamFn.mockImplementation(() =>
       createMockStream(['Hold on. [ASK_USER: Preferred time?]']),
@@ -284,7 +284,12 @@ describe('call-orchestrator', () => {
       return createMockStream(['Great, I have scheduled for 3pm tomorrow.']);
     });
 
-    await orchestrator.handleUserAnswer('3pm tomorrow');
+    const accepted = await orchestrator.handleUserAnswer('3pm tomorrow');
+    expect(accepted).toBe(true);
+
+    // handleUserAnswer fires runLlm without awaiting, so give the
+    // microtask queue a tick to let the async LLM work complete.
+    await new Promise((r) => setTimeout(r, 50));
 
     // Should have streamed a response for the answer
     const tokensAfterAnswer = relay.sentTokens.filter((t) => t.token.includes('3pm'));
