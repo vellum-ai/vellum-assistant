@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "twitter_post_tweet",
+      "description": "Post a tweet to Twitter/X using the authenticated session",
+      "category": "twitter",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweet_text": {
+            "type": "string",
+            "description": "The text content of the tweet (max 280 characters)"
+          }
+        },
+        "required": ["tweet_text"]
+      },
+      "executor": "tools/post-tweet.ts",
+      "execution_target": "host"
+    }
+  ]
+}
