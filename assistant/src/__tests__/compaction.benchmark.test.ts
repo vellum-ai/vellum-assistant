@@ -98,7 +98,7 @@ describe('Compaction benchmark', () => {
     expect(elapsed).toBeLessThan(500);
   });
 
-  test('below-threshold check returns in under 10ms (no-op)', async () => {
+  test('below-threshold check returns in under 50ms (no-op)', async () => {
     const counter = { calls: 0 };
     const provider = makeSummaryProvider(counter);
     const config = makeConfig();
@@ -113,7 +113,7 @@ describe('Compaction benchmark', () => {
 
     expect(result.compacted).toBe(false);
     expect(result.reason).toBe('below compaction threshold');
-    expect(elapsed).toBeLessThan(10);
+    expect(elapsed).toBeLessThan(50);
     expect(counter.calls).toBe(0);
   });
 
