@@ -311,13 +311,18 @@ struct SettingsView: View {
         }
         clientProvider.client = newClient
         Task {
-            try? await clientProvider.client.connect()
-            // Reload Connected-mode data after establishing connection
-            if mode == ConnectionMode.connected.rawValue {
-                loadIntegrations()
-                loadTrustRules()
-                loadSchedules()
-                loadReminders()
+            do {
+                try await clientProvider.client.connect()
+                // Reload Connected-mode data after establishing connection
+                if mode == ConnectionMode.connected.rawValue {
+                    loadIntegrations()
+                    loadTrustRules()
+                    loadSchedules()
+                    loadReminders()
+                }
+            } catch {
+                // Connection failed — skip reloading connected-mode data
+                // to avoid setting loading flags that never get cleared.
             }
         }
     }
