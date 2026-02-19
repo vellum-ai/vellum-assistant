@@ -57,6 +57,7 @@ export function handleWorkItemCreate(
 
   // Notify all connected clients so open Task Queue views refresh immediately
   broadcastWorkItemStatus(ctx, item.id);
+  ctx.broadcast({ type: 'tasks_changed' });
 }
 
 export function handleWorkItemUpdate(
@@ -78,6 +79,7 @@ export function handleWorkItemUpdate(
   // (e.g. priority/sort changes made by one client are reflected everywhere)
   if (item) {
     broadcastWorkItemStatus(ctx, item.id);
+    ctx.broadcast({ type: 'tasks_changed' });
   }
 }
 
@@ -102,6 +104,7 @@ export function handleWorkItemComplete(
         updatedAt: item.updatedAt,
       },
     });
+    ctx.broadcast({ type: 'tasks_changed' });
   }
 }
 
@@ -143,6 +146,7 @@ export async function handleWorkItemRunTask(
 
   // Broadcast the running state
   broadcastWorkItemStatus(ctx, msg.id);
+  ctx.broadcast({ type: 'tasks_changed' });
 
   // Execute task asynchronously — create a session and wire processMessage
   try {
@@ -165,6 +169,7 @@ export async function handleWorkItemRunTask(
     });
 
     broadcastWorkItemStatus(ctx, msg.id);
+    ctx.broadcast({ type: 'tasks_changed' });
   } catch (err) {
     log.error({ err, workItemId: msg.id }, 'work_item_run_task failed');
     updateWorkItem(msg.id, {
@@ -172,5 +177,6 @@ export async function handleWorkItemRunTask(
       lastRunStatus: 'failed',
     });
     broadcastWorkItemStatus(ctx, msg.id);
+    ctx.broadcast({ type: 'tasks_changed' });
   }
 }
