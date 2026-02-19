@@ -10,6 +10,7 @@
 
 import type { Message, ToolDefinition } from '../providers/types.js';
 import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
+import type { ActiveSkillEntry } from '../skills/active-skill-tools.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import { deriveActiveSkills } from '../skills/active-skill-tools.js';
 
@@ -38,6 +39,28 @@ export interface SkillToolProjection {
   allowedToolNames: Set<string>;
 }
 
+/**
+ * Session-scoped cache for skill projection. Avoids re-scanning the entire
+ * conversation history and re-reading the filesystem on every agent turn.
+ *
+ * Each session should own its own cache instance to prevent cross-session
+ * state bleed.
+ */
+export interface SkillProjectionCache {
+  /** Cached deriveActiveSkills result. */
+  derived?: {
+    /** Number of messages in history when this cache was last computed. */
+    messageCount: number;
+    /** IDs already seen — used for deduplication during incremental scans. */
+    seenIds: Set<string>;
+    /** The accumulated active skill entries. */
+    entries: ActiveSkillEntry[];
+  };
+  /** Cached skill catalog. Stable for the session lifetime because the
+   *  server watcher evicts sessions when skills change on disk. */
+  catalog?: SkillSummary[];
+}
+
 export interface ProjectSkillToolsOptions {
   /** Skill IDs that should be treated as active regardless of history markers. */
   preactivatedSkillIds?: string[];
@@ -49,6 +72,12 @@ export interface ProjectSkillToolsOptions {
    * unregistered and re-registered with the updated definitions.
    */
   previouslyActiveSkillIds?: Map<string, string>;
+  /**
+   * Session-scoped projection cache. When provided, projectSkillTools will
+   * avoid redundant deriveActiveSkills scans and loadSkillCatalog filesystem
+   * reads across agent turns.
+   */
+  cache?: SkillProjectionCache;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,6 +103,80 @@ function loadManifestForSkill(skill: SkillSummary): SkillToolManifest | null {
 }
 
 // ---------------------------------------------------------------------------
+// Cache helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Return active skill entries, using the projection cache when available.
+ *
+ * History is append-only within a session (messages are only added, never
+ * mutated in place). If history.length hasn't changed since the last scan,
+ * the cached result is returned immediately. If new messages were appended,
+ * only the delta is scanned and merged. If history shrank (e.g. compression
+ * replaced earlier messages), the cache is invalidated and a full rescan
+ * is performed.
+ */
+function getCachedActiveSkills(
+  history: Message[],
+  cache?: SkillProjectionCache,
+): ActiveSkillEntry[] {
+  if (!cache) return deriveActiveSkills(history);
+
+  const cached = cache.derived;
+
+  // Fast path: history unchanged since last scan.
+  if (cached && cached.messageCount === history.length) {
+    return cached.entries;
+  }
+
+  // History grew — scan only the new messages.
+  if (cached && cached.messageCount < history.length) {
+    const delta = history.slice(cached.messageCount);
+    const newEntries = deriveActiveSkills(delta);
+
+    // Merge: add any entries not already seen.
+    let changed = false;
+    for (const entry of newEntries) {
+      if (!cached.seenIds.has(entry.id)) {
+        cached.seenIds.add(entry.id);
+        cached.entries.push(entry);
+        changed = true;
+      }
+    }
+
+    cached.messageCount = history.length;
+    if (changed) {
+      log.debug(
+        { newEntries: newEntries.length, total: cached.entries.length },
+        'Incremental skill derivation found new entries',
+      );
+    }
+    return cached.entries;
+  }
+
+  // History shrank or no cache yet — full rescan.
+  const entries = deriveActiveSkills(history);
+  const seenIds = new Set(entries.map((e) => e.id));
+  cache.derived = { messageCount: history.length, seenIds, entries };
+  return entries;
+}
+
+/**
+ * Return the skill catalog, caching it for the session lifetime.
+ *
+ * The server's filesystem watcher evicts sessions when skill directories
+ * change on disk, so within a single session the catalog is stable.
+ */
+function getCachedCatalog(cache?: SkillProjectionCache): SkillSummary[] {
+  if (!cache) return loadSkillCatalog();
+
+  if (!cache.catalog) {
+    cache.catalog = loadSkillCatalog();
+  }
+  return cache.catalog;
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 
@@ -90,7 +193,7 @@ export function projectSkillTools(
   history: Message[],
   options?: ProjectSkillToolsOptions,
 ): SkillToolProjection {
-  const contextEntries = deriveActiveSkills(history);
+  const contextEntries = getCachedActiveSkills(history, options?.cache);
   const preactivated = options?.preactivatedSkillIds ?? [];
   const prevActive = options?.previouslyActiveSkillIds ?? new Map<string, string>();
 
@@ -128,8 +231,8 @@ export function projectSkillTools(
     return { toolDefinitions: [], allowedToolNames: new Set() };
   }
 
-  // Load the catalog once and index by ID for efficient lookup
-  const catalog = loadSkillCatalog();
+  // Load the catalog (cached for session lifetime) and index by ID
+  const catalog = getCachedCatalog(options?.cache);
   const catalogById = new Map<string, SkillSummary>();
   for (const skill of catalog) {
     catalogById.set(skill.id, skill);

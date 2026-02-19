@@ -103,7 +103,7 @@ import {
   type ToolSetupContext,
 } from './session-tool-setup.js';
 import { unregisterSessionSender } from '../tools/browser/browser-screencast.js';
-import { projectSkillTools, resetSkillToolProjection } from './session-skill-tools.js';
+import { projectSkillTools, resetSkillToolProjection, type SkillProjectionCache } from './session-skill-tools.js';
 import { commitTurnChanges } from '../workspace/turn-commit.js';
 import { getWorkspaceGitService } from '../workspace/git-service.js';
 
@@ -158,6 +158,8 @@ export class Session {
   private coreToolNames: Set<string>;
   /** Per-session tracking of previously active skill IDs and their version hashes for projection diffing. */
   private readonly skillProjectionState = new Map<string, string>();
+  /** Per-session cache for skill projection (avoids redundant history scans and catalog reads). */
+  private readonly skillProjectionCache: SkillProjectionCache = {};
   /** @internal — exposed for session-usage.ts module functions. */
   usageStats: UsageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
   private readonly systemPrompt: string;
@@ -357,6 +359,7 @@ export class Session {
           const projection = projectSkillTools(history, {
             preactivatedSkillIds: this.preactivatedSkillIds,
             previouslyActiveSkillIds: this.skillProjectionState,
+            cache: this.skillProjectionCache,
           });
           const turnAllowed = new Set(this.coreToolNames);
           for (const name of projection.allowedToolNames) {

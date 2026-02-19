@@ -21,7 +21,7 @@ import { registerSkillTools } from '../tools/registry.js';
 import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
 import { getSandboxWorkingDir } from '../util/platform.js';
 import { getConfig } from '../config/loader.js';
-import { projectSkillTools, resetSkillToolProjection } from './session-skill-tools.js';
+import { projectSkillTools, resetSkillToolProjection, type SkillProjectionCache } from './session-skill-tools.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('computer-use-session');
@@ -60,6 +60,7 @@ export class ComputerUseSession {
   private readonly onTerminal?: (sessionId: string) => void;
   private readonly preactivatedSkillIds: string[];
   private readonly skillProjectionState = new Map<string, string>();
+  private readonly skillProjectionCache: SkillProjectionCache = {};
 
   private state: SessionState = 'idle';
   private stepCount = 0;
@@ -235,6 +236,7 @@ export class ComputerUseSession {
       const projection = projectSkillTools([], {
         preactivatedSkillIds: this.preactivatedSkillIds,
         previouslyActiveSkillIds: this.skillProjectionState,
+        cache: this.skillProjectionCache,
       });
 
       if (projection.toolDefinitions.length === 0) {
