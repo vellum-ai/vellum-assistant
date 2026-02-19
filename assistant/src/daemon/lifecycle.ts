@@ -213,6 +213,20 @@ export async function stopDaemon(): Promise<{ stopped: boolean }> {
   } catch (err) {
     log.debug({ err, pid }, 'SIGKILL failed, process already exited');
   }
+
+  // Wait for the process to actually die after SIGKILL. Without this,
+  // startDaemon() can race with the dying process's shutdown handler,
+  // which removes the socket file and bricks the new daemon.
+  const killMaxWait = 2000;
+  let killWaited = 0;
+  while (killWaited < killMaxWait && isProcessRunning(pid)) {
+    await new Promise((r) => setTimeout(r, 100));
+    killWaited += 100;
+  }
+
+  // Clean up socket file — the old daemon's shutdown handler may have
+  // already removed it, or it may still point to the old process.
+  removeSocketFile(getSocketPath());
   cleanupPidFile();
   return { stopped: true };
 }
