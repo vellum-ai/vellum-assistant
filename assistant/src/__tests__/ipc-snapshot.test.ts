@@ -491,7 +491,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   subagent_status: {
     type: 'subagent_status',
     subagentId: 'sub-001',
-    sessionId: 'sess-001',
   },
   subagent_message: {
     type: 'subagent_message',
