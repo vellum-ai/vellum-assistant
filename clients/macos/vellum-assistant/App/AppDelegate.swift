@@ -323,10 +323,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         var assistantName: String?
         if let data = FileManager.default.contents(atPath: lockfilePath),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let assistants = json["assistants"] as? [[String: Any]],
-           let first = assistants.first,
-           let name = first["assistantId"] as? String {
-            assistantName = name
+           let assistants = json["assistants"] as? [[String: Any]] {
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let sorted = assistants.sorted { a, b in
+                let dateA = (a["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
+                let dateB = (b["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
+                return dateA > dateB
+            }
+            assistantName = sorted.first?["assistantId"] as? String
         }
 
         Task {
