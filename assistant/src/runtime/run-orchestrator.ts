@@ -18,6 +18,8 @@ import type { UserDecision } from '../permissions/types.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
+import { assistantEventHub } from './assistant-event-hub.js';
+import { buildAssistantEvent } from './assistant-event.js';
 
 const log = getLogger('run-orchestrator');
 
@@ -92,6 +94,23 @@ export class RunOrchestrator {
     // Set the assistant ID so attachments are scoped correctly.
     session.setAssistantId(assistantId);
 
+    // Serialized publish chain so hub subscribers observe events in order.
+    let hubChain: Promise<void> = Promise.resolve();
+    const publishToHub = (msg: ServerMessage): void => {
+      const msgRecord = msg as unknown as Record<string, unknown>;
+      const msgSessionId =
+        'sessionId' in msg && typeof msgRecord.sessionId === 'string'
+          ? (msgRecord.sessionId as string)
+          : undefined;
+      const resolvedSessionId = msgSessionId ?? conversationId;
+      const event = buildAssistantEvent(assistantId, msg, resolvedSessionId);
+      hubChain = hubChain
+        .then(() => assistantEventHub.publish(event))
+        .catch((err: unknown) => {
+          log.warn({ err }, 'assistant-events hub subscriber threw during HTTP run');
+        });
+    };
+
     // Hook into session to intercept confirmation_request events.
     // When the prompter sends a confirmation_request, we record it in the
     // run store so the web UI can poll and submit a decision.
@@ -118,6 +137,9 @@ export class RunOrchestrator {
           session,
         });
       }
+      // Mirror every outbound message to the assistant-events hub so SSE
+      // subscribers receive the same payload parity as IPC clients.
+      publishToHub(msg);
     });
 
     // Fire-and-forget the agent loop
