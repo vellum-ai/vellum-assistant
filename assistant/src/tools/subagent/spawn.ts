@@ -73,7 +73,7 @@ export const subagentSpawnTool: Tool = {
           subagentId,
           label,
           status: 'pending',
-          message: `Subagent "${label}" spawned. It will work autonomously and report back when complete.`,
+          message: `Subagent "${label}" spawned. You will be notified automatically when it completes or fails — do NOT poll subagent_status. Continue the conversation normally.`,
         }),
         isError: false,
       };

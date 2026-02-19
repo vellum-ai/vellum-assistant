@@ -9,7 +9,7 @@ import { getSubagentManager } from '../../subagent/index.js';
 
 const definition: ToolDefinition = {
   name: 'subagent_status',
-  description: 'Get the status of a specific subagent or list all subagents for the current session.',
+  description: 'Get the status of a specific subagent or list all subagents for the current session. Only use this when the user explicitly asks about subagent status — do NOT poll automatically, as you will be notified when subagents complete.',
   input_schema: {
     type: 'object',
     properties: {
