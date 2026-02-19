@@ -45,6 +45,13 @@ import {
   handleDeleteSharedApp,
 } from './routes/app-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
+import {
+  handleVoiceWebhook,
+  handleStatusCallback,
+  handleConnectAction,
+} from '../calls/twilio-routes.js';
+import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
+import type { RelayWebSocketData } from '../calls/relay-server.js';
 
 // Re-export shared types so existing consumers don't need to update imports
 export type {
@@ -120,11 +127,37 @@ export class RuntimeHttpServer {
   }
 
   async start(): Promise<void> {
-    this.server = Bun.serve({
+    this.server = Bun.serve<RelayWebSocketData>({
       port: this.port,
       hostname: this.hostname,
       maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
-      fetch: (req) => this.handleRequest(req),
+      fetch: (req, server) => this.handleRequest(req, server),
+      websocket: {
+        open(ws) {
+          const callSessionId = ws.data?.callSessionId;
+          log.info({ callSessionId }, 'ConversationRelay WebSocket opened');
+          if (callSessionId) {
+            const connection = new RelayConnection(ws, callSessionId);
+            activeRelayConnections.set(callSessionId, connection);
+          }
+        },
+        message(ws, message) {
+          const callSessionId = ws.data?.callSessionId;
+          if (callSessionId) {
+            const connection = activeRelayConnections.get(callSessionId);
+            connection?.handleMessage(typeof message === 'string' ? message : new TextDecoder().decode(message));
+          }
+        },
+        close(ws, code, reason) {
+          const callSessionId = ws.data?.callSessionId;
+          log.info({ callSessionId, code, reason: reason?.toString() }, 'ConversationRelay WebSocket closed');
+          if (callSessionId) {
+            const connection = activeRelayConnections.get(callSessionId);
+            connection?.destroy();
+            activeRelayConnections.delete(callSessionId);
+          }
+        },
+      },
     });
 
     // Sweep failed channel inbound events for retry every 30 seconds
@@ -162,13 +195,30 @@ export class RuntimeHttpServer {
     return timingSafeEqual(a, b);
   }
 
-  private async handleRequest(req: Request): Promise<Response> {
+  private async handleRequest(req: Request, server: ReturnType<typeof Bun.serve>): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
 
     // Health checks are unauthenticated — they expose no sensitive data.
     if (path === '/healthz' && req.method === 'GET') {
       return this.handleHealth();
+    }
+
+    // WebSocket upgrade for ConversationRelay — before auth check because
+    // Twilio WebSocket connections don't use bearer tokens.
+    if (path.startsWith('/v1/calls/relay') && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      const wsUrl = new URL(req.url);
+      const callSessionId = wsUrl.searchParams.get('callSessionId');
+      if (!callSessionId) {
+        return new Response('Missing callSessionId', { status: 400 });
+      }
+      const upgraded = server.upgrade<RelayWebSocketData>(req, { data: { callSessionId } });
+      if (!upgraded) {
+        return new Response('WebSocket upgrade failed', { status: 500 });
+      }
+      // Bun handles the response after a successful upgrade.
+      // The RelayConnection is created in the websocket.open handler.
+      return undefined as unknown as Response;
     }
 
     // Require bearer token when configured
@@ -361,6 +411,20 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'channels/replay' && req.method === 'POST') {
         return await handleReplayDeadLetters(req);
+      }
+
+      // ── Call/Twilio endpoints ─────────────────────────────────────────
+      const voiceWebhookMatch = endpoint.match(/^calls\/twilio\/voice-webhook$/);
+      if (voiceWebhookMatch && req.method === 'POST') {
+        return await handleVoiceWebhook(req);
+      }
+
+      if (endpoint === 'calls/twilio/status' && req.method === 'POST') {
+        return await handleStatusCallback(req);
+      }
+
+      if (endpoint === 'calls/twilio/connect-action' && req.method === 'POST') {
+        return await handleConnectAction(req);
       }
 
       return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });
