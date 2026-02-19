@@ -2,15 +2,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { DENIED_NUMBERS } from '../../calls/call-constants.js';
-import { createCallSession, updateCallSession } from '../../calls/call-store.js';
-import { TwilioConversationRelayProvider } from '../../calls/twilio-provider.js';
-import { getTwilioConfig } from '../../calls/twilio-config.js';
-import { getLogger } from '../../util/logger.js';
-
-const log = getLogger('call-start');
-
-const E164_REGEX = /^\+\d+$/;
+import { startCall } from '../../calls/call-domain.js';
 
 const definition: ToolDefinition = {
   name: 'call_start',
@@ -47,87 +39,29 @@ class CallStartTool implements Tool {
   }
 
   async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
-    const phoneNumber = input.phone_number as string | undefined;
-    if (!phoneNumber || typeof phoneNumber !== 'string') {
-      return { content: 'Error: phone_number is required and must be a string', isError: true };
+    const result = await startCall({
+      phoneNumber: input.phone_number as string,
+      task: input.task as string,
+      context: input.context as string | undefined,
+      conversationId: context.conversationId,
+    });
+
+    if (!result.ok) {
+      return { content: `Error: ${result.error}`, isError: true };
     }
 
-    if (!E164_REGEX.test(phoneNumber)) {
-      return {
-        content: 'Error: phone_number must be in E.164 format (starts with + followed by digits, e.g. +14155551234)',
-        isError: true,
-      };
-    }
-
-    const task = input.task as string | undefined;
-    if (!task || typeof task !== 'string' || task.trim().length === 0) {
-      return { content: 'Error: task is required and must be a non-empty string', isError: true };
-    }
-
-    if (DENIED_NUMBERS.has(phoneNumber)) {
-      return { content: 'Error: this phone number is not allowed to be called', isError: true };
-    }
-
-    const callContext = input.context as string | undefined;
-
-    // Create session outside the try block so it's available in the catch block
-    // for marking as failed if the provider call fails.
-    let sessionId: string | null = null;
-
-    try {
-      const config = getTwilioConfig();
-      const provider = new TwilioConversationRelayProvider();
-
-      const session = createCallSession({
-        conversationId: context.conversationId,
-        provider: 'twilio',
-        fromNumber: config.phoneNumber,
-        toNumber: phoneNumber,
-        task: callContext ? `${task}\n\nContext: ${callContext}` : task,
-      });
-      sessionId = session.id;
-
-      log.info({ callSessionId: session.id, to: phoneNumber, task }, 'Initiating outbound call');
-
-      const baseUrl = config.webhookBaseUrl.replace(/\/$/, '');
-      const { callSid } = await provider.initiateCall({
-        from: config.phoneNumber,
-        to: phoneNumber,
-        webhookUrl: `${baseUrl}/v1/calls/twilio/voice-webhook?callSessionId=${session.id}`,
-        statusCallbackUrl: `${baseUrl}/v1/calls/twilio/status`,
-      });
-
-      updateCallSession(session.id, { providerCallSid: callSid });
-
-      log.info({ callSessionId: session.id, callSid }, 'Call initiated successfully');
-
-      return {
-        content: [
-          'Call initiated successfully.',
-          `  Call Session ID: ${session.id}`,
-          `  Call SID: ${callSid}`,
-          `  To: ${phoneNumber}`,
-          `  Status: initiated`,
-          '',
-          'The AI voice assistant is now placing the call. Use call_status to check progress.',
-        ].join('\n'),
-        isError: false,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      log.error({ err, phoneNumber }, 'Failed to initiate call');
-
-      // Mark the session as failed so it doesn't stay in 'initiated' state
-      if (sessionId) {
-        updateCallSession(sessionId, {
-          status: 'failed',
-          endedAt: Date.now(),
-          lastError: msg,
-        });
-      }
-
-      return { content: `Error initiating call: ${msg}`, isError: true };
-    }
+    return {
+      content: [
+        'Call initiated successfully.',
+        `  Call Session ID: ${result.session.id}`,
+        `  Call SID: ${result.callSid}`,
+        `  To: ${result.session.toNumber}`,
+        `  Status: initiated`,
+        '',
+        'The AI voice assistant is now placing the call. Use call_status to check progress.',
+      ].join('\n'),
+      isError: false,
+    };
   }
 }
 

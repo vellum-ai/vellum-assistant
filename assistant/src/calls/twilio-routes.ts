@@ -13,11 +13,9 @@ import {
   updateCallSession,
   recordCallEvent,
   expirePendingQuestions,
-  getPendingQuestion,
-  answerPendingQuestion,
 } from './call-store.js';
 import type { CallStatus } from './types.js';
-import { getCallOrchestrator } from './call-state.js';
+import { answerCall } from './call-domain.js';
 
 const log = getLogger('twilio-routes');
 
@@ -200,37 +198,15 @@ export async function handleConnectAction(_req: Request): Promise<Response> {
  */
 export async function handleCallAnswer(req: Request, callSessionId: string): Promise<Response> {
   const body = await req.json() as { answer?: string };
-  if (!body.answer) {
-    return Response.json({ error: 'Missing answer' }, { status: 400 });
+
+  const result = await answerCall({
+    callSessionId,
+    answer: body.answer ?? '',
+  });
+
+  if (!result.ok) {
+    return Response.json({ error: result.error }, { status: result.status ?? 500 });
   }
 
-  const question = getPendingQuestion(callSessionId);
-  if (!question) {
-    return Response.json({ error: 'No pending question found' }, { status: 404 });
-  }
-
-  // Verify the orchestrator exists before attempting to route the answer.
-  const orchestrator = getCallOrchestrator(callSessionId);
-  if (!orchestrator) {
-    log.warn({ callSessionId }, 'handleCallAnswer: no active orchestrator for call session');
-    return Response.json({ error: 'No active orchestrator for this call' }, { status: 409 });
-  }
-
-  // Route answer to the orchestrator FIRST — it atomically checks whether it is
-  // in the `waiting_on_user` state and transitions to `processing`. Only persist
-  // the answer to the DB if the orchestrator actually accepted it, preventing a
-  // race where the consultation timer expires between our check and the persist.
-  const accepted = await orchestrator.handleUserAnswer(body.answer);
-  if (!accepted) {
-    log.warn(
-      { callSessionId },
-      'handleCallAnswer: orchestrator rejected the answer (not in waiting_on_user state)',
-    );
-    return Response.json({ error: 'Orchestrator is not waiting for an answer' }, { status: 409 });
-  }
-
-  // Mark question as answered — only after the orchestrator has accepted
-  answerPendingQuestion(question.id, body.answer);
-
-  return Response.json({ ok: true, questionId: question.id });
+  return Response.json({ ok: true, questionId: result.questionId });
 }
