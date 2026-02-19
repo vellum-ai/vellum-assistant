@@ -10,6 +10,13 @@ export type PathResult =
   | { ok: true; resolved: string }
   | { ok: false; reason: PathFailureReason; error: string };
 
+// The Docker sandbox mounts the host workspace at /workspace inside the
+// container. The model generates container-scoped paths (e.g.
+// "/workspace/scratch/file.png") that need to be remapped to the host
+// boundary directory before validation.
+const CONTAINER_WORKSPACE_PREFIX = '/workspace/';
+const CONTAINER_WORKSPACE_EXACT = '/workspace';
+
 // ---------------------------------------------------------------------------
 // Sandbox policy
 // ---------------------------------------------------------------------------
@@ -22,6 +29,10 @@ export type PathResult =
  * pointing outside the boundary is caught. For new paths (e.g. file_write),
  * pass `mustExist: false` — the nearest existing ancestor directory is
  * resolved via realpathSync to catch symlinks in parent dirs.
+ *
+ * Paths starting with `/workspace/` are treated as container-scoped and
+ * remapped relative to the boundary directory (the Docker sandbox mounts
+ * the host workspace at /workspace).
  */
 export function sandboxPolicy(
   rawPath: string,
@@ -30,7 +41,15 @@ export function sandboxPolicy(
 ): PathResult {
   const mustExist = options?.mustExist ?? true;
 
-  const resolved = resolve(boundaryDir, rawPath);
+  // Remap container-scoped /workspace paths to the host boundary dir.
+  let effectivePath = rawPath;
+  if (rawPath.startsWith(CONTAINER_WORKSPACE_PREFIX)) {
+    effectivePath = rawPath.slice(CONTAINER_WORKSPACE_PREFIX.length);
+  } else if (rawPath === CONTAINER_WORKSPACE_EXACT) {
+    effectivePath = '.';
+  }
+
+  const resolved = resolve(boundaryDir, effectivePath);
 
   // Resolve symlinks to catch symlink-based escapes.
   // For mustExist=false, walk up to the nearest existing ancestor and
