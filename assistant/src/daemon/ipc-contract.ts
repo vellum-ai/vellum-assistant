@@ -428,16 +428,18 @@ export interface OpenBundleRequest {
 export interface SignBundlePayloadResponse {
   type: 'sign_bundle_payload_response';
   requestId: string;
-  signature: string;
-  keyId: string;
-  publicKey: string;
+  signature?: string;
+  keyId?: string;
+  publicKey?: string;
+  error?: string;
 }
 
 export interface GetSigningIdentityResponse {
   type: 'get_signing_identity_response';
   requestId: string;
-  keyId: string;
-  publicKey: string;
+  keyId?: string;
+  publicKey?: string;
+  error?: string;
 }
 
 export interface GalleryListRequest {

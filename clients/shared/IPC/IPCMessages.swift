@@ -642,7 +642,11 @@ public typealias SignBundlePayloadResponseMessage = IPCSignBundlePayloadResponse
 
 extension IPCSignBundlePayloadResponse {
     public init(requestId: String, signature: String, keyId: String, publicKey: String) {
-        self.init(type: "sign_bundle_payload_response", requestId: requestId, signature: signature, keyId: keyId, publicKey: publicKey)
+        self.init(type: "sign_bundle_payload_response", requestId: requestId, signature: signature, keyId: keyId, publicKey: publicKey, error: nil)
+    }
+
+    public init(requestId: String, error: String) {
+        self.init(type: "sign_bundle_payload_response", requestId: requestId, signature: nil, keyId: nil, publicKey: nil, error: error)
     }
 }
 
@@ -652,7 +656,11 @@ public typealias GetSigningIdentityResponseMessage = IPCGetSigningIdentityRespon
 
 extension IPCGetSigningIdentityResponse {
     public init(requestId: String, keyId: String, publicKey: String) {
-        self.init(type: "get_signing_identity_response", requestId: requestId, keyId: keyId, publicKey: publicKey)
+        self.init(type: "get_signing_identity_response", requestId: requestId, keyId: keyId, publicKey: publicKey, error: nil)
+    }
+
+    public init(requestId: String, error: String) {
+        self.init(type: "get_signing_identity_response", requestId: requestId, keyId: nil, publicKey: nil, error: error)
     }
 }
 

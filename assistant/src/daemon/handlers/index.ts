@@ -209,7 +209,13 @@ const handlers: DispatchMap = {
     if (pending) {
       clearTimeout(pending.timer);
       pendingSignBundlePayload.delete(msg.requestId);
-      pending.resolve({ signature: msg.signature, keyId: msg.keyId, publicKey: msg.publicKey });
+      if (msg.error) {
+        pending.reject(new Error(msg.error));
+      } else if (msg.signature && msg.keyId && msg.publicKey) {
+        pending.resolve({ signature: msg.signature, keyId: msg.keyId, publicKey: msg.publicKey });
+      } else {
+        pending.reject(new Error('Missing required fields in sign_bundle_payload_response'));
+      }
     } else {
       log.warn({ requestId: msg.requestId }, 'Received sign_bundle_payload_response with no pending request');
     }
@@ -219,7 +225,13 @@ const handlers: DispatchMap = {
     if (pending) {
       clearTimeout(pending.timer);
       pendingSigningIdentity.delete(msg.requestId);
-      pending.resolve({ keyId: msg.keyId, publicKey: msg.publicKey });
+      if (msg.error) {
+        pending.reject(new Error(msg.error));
+      } else if (msg.keyId && msg.publicKey) {
+        pending.resolve({ keyId: msg.keyId, publicKey: msg.publicKey });
+      } else {
+        pending.reject(new Error('Missing required fields in get_signing_identity_response'));
+      }
     } else {
       log.warn({ requestId: msg.requestId }, 'Received get_signing_identity_response with no pending request');
     }

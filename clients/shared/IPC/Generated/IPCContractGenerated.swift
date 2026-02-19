@@ -671,8 +671,9 @@ public struct IPCGetSigningIdentityRequest: Codable, Sendable {
 public struct IPCGetSigningIdentityResponse: Codable, Sendable {
     public let type: String
     public let requestId: String
-    public let keyId: String
-    public let publicKey: String
+    public let keyId: String?
+    public let publicKey: String?
+    public let error: String?
 }
 
 public struct IPCHistoryRequest: Codable, Sendable {
@@ -1282,9 +1283,10 @@ public struct IPCSignBundlePayloadRequest: Codable, Sendable {
 public struct IPCSignBundlePayloadResponse: Codable, Sendable {
     public let type: String
     public let requestId: String
-    public let signature: String
-    public let keyId: String
-    public let publicKey: String
+    public let signature: String?
+    public let keyId: String?
+    public let publicKey: String?
+    public let error: String?
 }
 
 public struct IPCSkillDetailRequest: Codable, Sendable {
