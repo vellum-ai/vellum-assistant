@@ -101,6 +101,7 @@ class BrowserManager {
   private _browserMode: 'headless' | 'cdp' = 'headless';
   private cdpUrl: string = 'http://localhost:9222';
   private cdpBrowser: unknown = null; // Store CDP browser reference separately
+  private _browserLaunched = false; // true when browser was launched (vs connected via CDP)
   private browserCdpSession: CDPSession | null = null;
   private browserWindowId: number | null = null;
   private cdpRequestResolvers = new Map<string, (response: { success: boolean; declined?: boolean }) => void>();
@@ -110,6 +111,11 @@ class BrowserManager {
 
   get browserMode(): 'headless' | 'cdp' {
     return this._browserMode;
+  }
+
+  /** Whether page.route() is supported. False only for connectOverCDP browsers. */
+  get supportsRouteInterception(): boolean {
+    return this._browserMode !== 'cdp' || this._browserLaunched;
   }
 
   registerSender(sessionId: string, sendToClient: (msg: { type: string; sessionId: string }) => void): void {
@@ -215,6 +221,7 @@ class BrowserManager {
           const pw = await import('playwright');
           const browser = await pw.chromium.connectOverCDP(this.cdpUrl, { timeout: 10_000 });
           this.cdpBrowser = browser;
+          this._browserLaunched = false;
           const contexts = browser.contexts();
           const ctx = contexts[0] || await browser.newContext();
           this.setBrowserMode('cdp');
@@ -245,6 +252,7 @@ class BrowserManager {
           });
           const ctx = headedBrowser.contexts()[0] || await headedBrowser.newContext();
           this.cdpBrowser = headedBrowser as unknown as typeof this.cdpBrowser;
+          this._browserLaunched = true;
           this.setBrowserMode('cdp');
           await this.initBrowserCdpSession();
           log.info('Launched headed Chromium (minimized) for interactive handoff support');
@@ -313,6 +321,7 @@ class BrowserManager {
           this.browserCdpSession = null;
           this.browserWindowId = null;
           this.cdpBrowser = null;
+          this._browserLaunched = false;
           // Resolve any pending handoffs before clearing state
           for (const resolver of this.handoffResolvers.values()) {
             resolver();
@@ -429,14 +438,22 @@ class BrowserManager {
       this.browserWindowId = null;
     }
 
-    // Disconnect CDP browser connection if present
+    // Close or disconnect CDP browser connection if present
     if (this.cdpBrowser) {
-      const b = this.cdpBrowser as { disconnect?: () => Promise<void> };
+      const b = this.cdpBrowser as { close?: () => Promise<void>; disconnect?: () => Promise<void> };
+      const wasLaunched = this._browserLaunched;
       this.cdpBrowser = null;
+      this._browserLaunched = false;
       try {
-        await b.disconnect?.();
+        if (wasLaunched) {
+          // Launched browsers must be closed to terminate the process
+          await b.close?.();
+        } else {
+          // CDP-connected browsers should be disconnected, not closed
+          await b.disconnect?.();
+        }
       } catch (err) {
-        log.warn({ err }, 'Failed to disconnect CDP browser');
+        log.warn({ err }, 'Failed to close/disconnect CDP browser');
       }
     }
   }
