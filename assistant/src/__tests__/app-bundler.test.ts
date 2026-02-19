@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { createHash } from 'node:crypto';
 
 // Mock the logger before importing the module under test
@@ -162,7 +162,7 @@ describe('materializeAssets', () => {
         return Promise.resolve(new Response(imageData, { status: 200 }));
       }
       return Promise.resolve(new Response(null, { status: 404 }));
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const html = `<img src="${imageUrl}">`;
     const result = await materializeAssets(html);
@@ -183,7 +183,7 @@ describe('materializeAssets', () => {
 
     globalThis.fetch = mock((url: string) => {
       return Promise.resolve(new Response(Buffer.from(`data-for-${url}`), { status: 200 }));
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const html = `
       <img src="${urls[0]}">
@@ -205,7 +205,7 @@ describe('materializeAssets', () => {
 
     globalThis.fetch = mock(() => {
       return Promise.resolve(new Response(null, { status: 404 }));
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const html = `<img src="${imageUrl}">`;
     const result = await materializeAssets(html);
@@ -219,7 +219,7 @@ describe('materializeAssets', () => {
 
     globalThis.fetch = mock(() => {
       return Promise.reject(new Error('Network error'));
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const html = `<img src="${imageUrl}">`;
     const result = await materializeAssets(html);
@@ -237,7 +237,7 @@ describe('materializeAssets', () => {
         return Promise.resolve(new Response(Buffer.from('good-data'), { status: 200 }));
       }
       return Promise.resolve(new Response(null, { status: 500 }));
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const html = `<img src="${goodUrl}"><img src="${badUrl}">`;
     const result = await materializeAssets(html);
@@ -255,7 +255,7 @@ describe('materializeAssets', () => {
     globalThis.fetch = mock(() => {
       fetchCount++;
       return Promise.resolve(new Response(Buffer.from('icon-data'), { status: 200 }));
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const html = `<img src="${imageUrl}"><div style="background: url(${imageUrl})"></div>`;
     const result = await materializeAssets(html);
@@ -278,7 +278,7 @@ describe('materializeAssets', () => {
 
     globalThis.fetch = mock(() => {
       return Promise.resolve(new Response(Buffer.from('data'), { status: 200 }));
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const html = `<img src="${pngUrl}"><link href="${cssUrl}"><img src="${noExtUrl}">`;
     const result = await materializeAssets(html);
@@ -301,7 +301,7 @@ describe('materializeAssets', () => {
 
     globalThis.fetch = mock(() => {
       return Promise.resolve(new Response(Buffer.from('jpg-data'), { status: 200 }));
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const html = '<style>body { background: url("https://cdn.example.com/bg.jpg"); }</style>';
     const result = await materializeAssets(html);

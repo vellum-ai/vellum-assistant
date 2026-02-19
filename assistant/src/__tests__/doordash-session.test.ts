@@ -3,9 +3,6 @@ import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
-  loadSession,
-  saveSession,
-  clearSession,
   importFromRecording,
   getCookieHeader,
   getCsrfToken,
@@ -14,8 +11,6 @@ import {
 
 // Override getDataDir to use a temp directory during tests
 const TEST_DIR = join(tmpdir(), `vellum-dd-test-${process.pid}`);
-const SESSION_DIR = join(TEST_DIR, 'doordash');
-const SESSION_PATH = join(SESSION_DIR, 'session.json');
 
 // We mock getDataDir by patching the module at the fs level:
 // session.ts calls getSessionDir() -> join(getDataDir(), 'doordash')
@@ -28,8 +23,9 @@ function makeCookie(name: string, value: string): {
   domain: string;
   path: string;
   httpOnly: boolean;
+  secure: boolean;
 } {
-  return { name, value, domain: '.doordash.com', path: '/', httpOnly: false };
+  return { name, value, domain: '.doordash.com', path: '/', httpOnly: false, secure: false };
 }
 
 function makeSession(overrides?: Partial<DoorDashSession>): DoorDashSession {
@@ -83,8 +79,6 @@ describe('DoorDash session persistence', () => {
   // by writing to the actual session path. We need to mock getDataDir.
   // Since the module uses a private function we can't easily mock,
   // we test via importFromRecording which exercises save+load.
-
-  let originalDataDir: string | undefined;
 
   beforeEach(() => {
     // Ensure test dir exists
