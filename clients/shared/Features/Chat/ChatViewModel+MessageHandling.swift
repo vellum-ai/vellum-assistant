@@ -1045,6 +1045,7 @@ extension ChatViewModel {
             if !wasCancelling {
                 let typedError = SessionError(from: msg)
                 sessionError = typedError
+                errorText = msg.userMessage
                 // Remove empty assistant message left over from the interrupted stream
                 if let existingId = messages.last?.id,
                    messages.last?.role == .assistant,
