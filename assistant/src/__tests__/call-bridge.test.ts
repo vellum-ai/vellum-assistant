@@ -33,6 +33,14 @@ mock.module('../config/loader.js', () => ({
   getConfig: () => ({
     apiKeys: { anthropic: 'test-key' },
     memory: { enabled: false },
+    calls: {
+      enabled: true,
+      provider: 'twilio',
+      maxDurationSeconds: 3600,
+      userConsultTimeoutSeconds: 120,
+      disclosure: { enabled: false, text: '' },
+      safety: { denyCategories: [] },
+    },
   }),
 }));
 
@@ -72,7 +80,7 @@ mock.module('@anthropic-ai/sdk', () => ({
 
 // ── Import source modules after all mocks ───────────────────────────
 
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { conversations, messages } from '../memory/schema.js';
 import {
   createCallSession,
@@ -80,6 +88,7 @@ import {
   getPendingQuestion,
   updateCallSession,
   recordCallEvent,
+  createPendingQuestion,
 } from '../calls/call-store.js';
 import {
   registerCallQuestionNotifier,
@@ -98,6 +107,7 @@ import type { RelayConnection } from '../calls/relay-server.js';
 initializeDb();
 
 afterAll(() => {
+  resetDb();
   try {
     rmSync(testDir, { recursive: true });
   } catch {
@@ -188,7 +198,7 @@ describe('call-bridge', () => {
     expect(result.reason).toBe('no_pending_question');
   });
 
-  test('returns handled:false when orchestrator is not found (call ended)', async () => {
+  test('returns handled:false when orchestrator is not found (call still active but no orchestrator)', async () => {
     ensureConversation('conv-ended');
     const callSession = createCallSession({
       conversationId: 'conv-ended',
@@ -196,26 +206,33 @@ describe('call-bridge', () => {
       fromNumber: '+15551111111',
       toNumber: '+15552222222',
     });
-    // Mark the call as completed
-    updateCallSession(callSession.id, { status: 'completed', endedAt: Date.now() });
+    // Leave the session in an active (non-terminal) state but do NOT register an orchestrator.
+    // This simulates a race where the orchestrator was destroyed but the session hasn't
+    // been marked terminal yet.
+    updateCallSession(callSession.id, { status: 'in_progress' });
 
     // Create a pending question without an orchestrator
-    const db = getDb();
-    const questionId = 'q-ended';
-    db.run(
-      'INSERT INTO call_pending_questions (id, callSessionId, questionText, status, askedAt) VALUES (?, ?, ?, ?, ?)',
-      questionId, callSession.id, 'What time?', 'pending', Date.now(),
-    );
+    createPendingQuestion(callSession.id, 'What time?');
 
     const result = await tryHandlePendingCallAnswer('conv-ended', 'Too late');
     expect(result.handled).toBe(false);
     expect(result.reason).toBe('orchestrator_not_found');
+  });
 
-    // Should have persisted a follow-up message about the call ending
-    const msgs = getMessagesForConversation('conv-ended');
-    const assistantMsgs = msgs.filter((m) => m.role === 'assistant');
-    expect(assistantMsgs.length).toBe(1);
-    expect(assistantMsgs[0].content).toContain('call ended');
+  test('returns no_active_call when call has already completed', async () => {
+    ensureConversation('conv-completed');
+    const callSession = createCallSession({
+      conversationId: 'conv-completed',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+    // Mark the call as completed — getActiveCallSessionForConversation will return null
+    updateCallSession(callSession.id, { status: 'completed', endedAt: Date.now() });
+
+    const result = await tryHandlePendingCallAnswer('conv-completed', 'Too late');
+    expect(result.handled).toBe(false);
+    expect(result.reason).toBe('no_active_call');
   });
 
   test('returns handled:false when orchestrator is not in waiting_on_user state', async () => {
@@ -232,11 +249,7 @@ describe('call-bridge', () => {
     const orchestrator = new CallOrchestrator(callSession.id, relay as unknown as RelayConnection, null);
 
     // Create a pending question in the DB but orchestrator is idle, not waiting_on_user
-    const db = getDb();
-    db.run(
-      'INSERT INTO call_pending_questions (id, callSessionId, questionText, status, askedAt) VALUES (?, ?, ?, ?, ?)',
-      'q-not-waiting', callSession.id, 'What time?', 'pending', Date.now(),
-    );
+    createPendingQuestion(callSession.id, 'What time?');
 
     const result = await tryHandlePendingCallAnswer('conv-not-waiting', 'answer');
     expect(result.handled).toBe(false);

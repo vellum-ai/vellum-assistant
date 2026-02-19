@@ -3176,12 +3176,13 @@ The Calls subsystem enables the assistant to place outgoing phone calls on behal
 ```mermaid
 sequenceDiagram
     participant User as User (Chat UI)
+    participant Bridge as CallBridge
     participant Session as Session / Tool Executor
     participant CallStore as CallStore (SQLite)
     participant TwilioProvider as TwilioProvider
     participant TwilioAPI as Twilio REST API
-    participant TwilioWH as Twilio Webhooks
-    participant Routes as twilio-routes.ts
+    participant Gateway as Gateway (public)
+    participant Routes as twilio-routes.ts (runtime)
     participant WS as RelayConnection (WebSocket)
     participant Orch as CallOrchestrator
     participant LLM as Anthropic Claude
@@ -3194,9 +3195,12 @@ sequenceDiagram
     TwilioAPI-->>TwilioProvider: { callSid }
     Session->>CallStore: updateCallSession(providerCallSid)
 
-    TwilioAPI->>Routes: POST /v1/calls/voice-webhook
+    TwilioAPI->>Gateway: POST /webhooks/twilio/voice
+    Gateway->>Gateway: validateTwilioWebhookRequest()
+    Gateway->>Routes: forward to runtime /v1/calls/voice-webhook
     Routes->>CallStore: getCallSession()
-    Routes-->>TwilioAPI: TwiML (ConversationRelay connect)
+    Routes-->>Gateway: TwiML (ConversationRelay connect)
+    Gateway-->>TwilioAPI: TwiML response
 
     TwilioAPI->>WS: WebSocket /v1/calls/relay
     WS->>WS: setup message (callSid)
@@ -3216,10 +3220,10 @@ sequenceDiagram
         Orch->>CallStore: createPendingQuestion()
         Orch->>State: fireCallQuestionNotifier()
         State->>Session: question callback
-        Session->>User: display question in chat
-        User->>Routes: POST /v1/calls/:id/answer
-        Routes->>CallStore: answerPendingQuestion()
-        Routes->>Orch: handleUserAnswer()
+        Session->>User: display question in chat thread
+        User->>Bridge: next message in thread
+        Bridge->>Orch: handleUserAnswer()
+        Bridge->>CallStore: answerPendingQuestion()
         Orch->>LLM: continue with [USER_ANSWERED: ...]
     end
 
@@ -3229,7 +3233,9 @@ sequenceDiagram
         Orch->>State: fireCallCompletionNotifier()
     end
 
-    TwilioAPI->>Routes: POST /v1/calls/status-callback
+    TwilioAPI->>Gateway: POST /webhooks/twilio/status
+    Gateway->>Gateway: validateTwilioWebhookRequest()
+    Gateway->>Routes: forward to runtime /v1/calls/status-callback
     Routes->>CallStore: updateCallSession(status)
 ```
 
@@ -3238,37 +3244,102 @@ sequenceDiagram
 | File | Role |
 |------|------|
 | `assistant/src/calls/call-store.ts` | CRUD operations for call sessions, call events, and pending questions in SQLite via Drizzle ORM |
+| `assistant/src/calls/call-domain.ts` | Shared domain functions (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`) used by both tools and HTTP routes |
+| `assistant/src/calls/call-bridge.ts` | Auto-routes user chat replies as answers to pending call questions, intercepting messages before the agent loop |
+| `assistant/src/calls/call-state-machine.ts` | Deterministic state transition validator with allowed-transition table and terminal-state enforcement |
+| `assistant/src/calls/call-recovery.ts` | Startup reconciliation of non-terminal calls: fetches provider status and transitions stale sessions |
 | `assistant/src/calls/twilio-provider.ts` | Twilio Voice REST API integration (initiateCall, endCall, getCallStatus) using direct fetch — no Twilio SDK dependency |
-| `assistant/src/calls/twilio-routes.ts` | HTTP webhook handlers: voice webhook (returns TwiML), status callback, connect action, and user answer endpoint |
+| `assistant/src/calls/twilio-routes.ts` | HTTP webhook handlers: voice webhook (returns TwiML), status callback, connect action |
 | `assistant/src/calls/relay-server.ts` | WebSocket handler for the Twilio ConversationRelay protocol; manages RelayConnection instances per call |
 | `assistant/src/calls/call-orchestrator.ts` | LLM-driven conversation manager: receives caller utterances, streams responses via Anthropic Claude, detects ASK_USER and END_CALL control markers |
 | `assistant/src/calls/call-state.ts` | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and orchestrator registry |
-| `assistant/src/calls/call-constants.ts` | Configuration constants: MAX_CALL_DURATION_MS (12 min), USER_CONSULTATION_TIMEOUT_MS (90 s), SILENCE_TIMEOUT_MS (30 s), denied emergency numbers |
+| `assistant/src/calls/call-constants.ts` | Config-backed constants: max call duration, user consultation timeout, silence timeout, denied emergency numbers |
 | `assistant/src/calls/voice-provider.ts` | Abstract VoiceProvider interface for provider-agnostic call initiation |
 | `assistant/src/calls/twilio-config.ts` | Twilio credential and configuration resolution from secure key store and environment |
 | `assistant/src/calls/types.ts` | TypeScript type definitions: CallSession, CallEvent, CallPendingQuestion, CallStatus, CallEventType |
+| `gateway/src/http/routes/twilio-voice-webhook.ts` | Gateway route: validates Twilio signature, forwards voice webhook to runtime |
+| `gateway/src/http/routes/twilio-status-webhook.ts` | Gateway route: validates Twilio signature, forwards status callback to runtime |
+| `gateway/src/http/routes/twilio-connect-action-webhook.ts` | Gateway route: validates Twilio signature, forwards connect-action to runtime |
+| `gateway/src/twilio/validate-webhook.ts` | Twilio webhook validation: HMAC-SHA1 signature verification, payload size limits, fail-closed when auth token missing |
 
-### New SQLite Tables
+### Call State Machine
+
+All call status transitions are validated by a deterministic state machine (`call-state-machine.ts`). Terminal states are immutable — once a call reaches `completed`, `failed`, or `cancelled`, no further transitions are permitted.
+
+```
+initiated ──> ringing ──> in_progress ──> waiting_on_user ──> in_progress (loop)
+    │             │            │                │
+    │             │            │                ├──> completed
+    │             │            │                ├──> failed
+    │             │            │                └──> cancelled
+    │             │            ├──> completed
+    │             │            ├──> failed
+    │             │            └──> cancelled
+    │             ├──> completed
+    │             ├──> failed
+    │             └──> cancelled
+    ├──> completed
+    ├──> failed
+    └──> cancelled
+```
+
+The `validateTransition(current, next)` function is called by `updateCallSession()` in the call store. Same-state transitions (no-ops) are always valid. Invalid transitions are rejected with an explanatory reason string.
+
+### Call Bridge — In-Thread User Consultation
+
+The call bridge (`call-bridge.ts`) enables seamless user consultation during a live call without requiring out-of-band API calls. The flow is:
+
+1. **Question emission**: When the LLM emits `[ASK_USER: question]`, the orchestrator creates a pending question in SQLite, fires the question notifier, and transitions to `waiting_on_user` state.
+
+2. **In-thread display**: The Session's registered question notifier callback persists an assistant message in the conversation thread (via `conversationStore.addMessage()`) and emits `assistant_text_delta` + `message_complete` events to connected clients.
+
+3. **Auto-consumption**: When the user sends their next message in the same thread, `DaemonServer.processMessage()` and `DaemonServer.persistAndProcessMessage()` call `tryHandlePendingCallAnswer()` before launching the agent loop. If there is an active call with a pending question and the orchestrator is in `waiting_on_user` state, the message is routed directly to the orchestrator and the agent loop is skipped.
+
+4. **Orchestrator resume**: The orchestrator receives the answer via `handleUserAnswer()`, injects `[USER_ANSWERED: answer]` into the LLM context, and resumes the conversation with the callee.
+
+The bridge returns a `{ handled: boolean; reason?: string }` result so callers can determine whether the message was consumed:
+- `no_active_call` — no non-terminal call session exists for this conversation
+- `no_pending_question` — call is active but no question is pending
+- `orchestrator_not_found` — the orchestrator was destroyed (call ended between question and answer)
+- `orchestrator_not_waiting` — the orchestrator is not in `waiting_on_user` state
+- `orchestrator_rejected` — the orchestrator's `handleUserAnswer()` returned false
+
+### SQLite Tables
 
 All three tables live in `~/.vellum/workspace/data/db/assistant.db` alongside existing tables:
 
 - **`call_sessions`** — One row per outgoing call. Tracks conversation association, provider info (Twilio CallSid), phone numbers, task description, status lifecycle (`initiated` -> `ringing` -> `in_progress` -> `waiting_on_user` -> `completed`/`failed`), and timestamps. Foreign key to `conversations(id)` with cascade delete.
 
-- **`call_events`** — Append-only event log for each call session. Event types include `call_started`, `call_connected`, `caller_spoke`, `assistant_spoke`, `user_question_asked`, `user_answered`, `call_ended`, `call_failed`. Each event carries a JSON payload. Foreign key to `call_sessions(id)` with cascade delete.
+- **`call_events`** — Append-only event log for each call session. Event types include `call_started`, `call_connected`, `caller_spoke`, `assistant_spoke`, `user_question_asked`, `user_answered`, `call_ended`, `call_failed`. Each event carries a JSON payload. Foreign key to `call_sessions(id)` with cascade delete. Includes a unique index on `(call_session_id, dedupe_key)` for callback idempotency.
 
 - **`call_pending_questions`** — Tracks questions the AI asks the user during a call (via the `[ASK_USER: ...]` pattern). Status lifecycle: `pending` -> `answered`/`expired`/`cancelled`. Foreign key to `call_sessions(id)` with cascade delete.
 
-### New HTTP Endpoints
+### Gateway Twilio Webhook Ingress
+
+Internet-facing Twilio callbacks terminate at the gateway, which validates signatures before forwarding to the runtime. This keeps the runtime behind the gateway's bearer-auth boundary.
+
+| Gateway Route | Validates | Forwards To (Runtime) |
+|---------------|-----------|----------------------|
+| `POST /webhooks/twilio/voice` | HMAC-SHA1 signature, payload size | `POST /v1/calls/voice-webhook` |
+| `POST /webhooks/twilio/status` | HMAC-SHA1 signature, payload size | `POST /v1/calls/status-callback` |
+| `POST /webhooks/twilio/connect-action` | HMAC-SHA1 signature, payload size | `POST /v1/calls/connect-action` |
+
+Signature validation is **fail-closed**: if the Twilio auth token is not configured, all webhook requests are rejected with `403`. Missing or invalid `X-Twilio-Signature` headers are also rejected with `403`. Payload size is capped by `maxWebhookPayloadBytes` (checked via both `Content-Length` header and actual body size).
+
+### Runtime HTTP Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
+| POST | `/v1/calls/start` | Initiate a new outgoing call (gated by `calls.enabled` config) |
+| GET | `/v1/calls/:callSessionId` | Get call status, including any pending question |
+| POST | `/v1/calls/:callSessionId/cancel` | Cancel an active call |
+| POST | `/v1/calls/:callSessionId/answer` | Answer a pending question via HTTP (alternative to in-thread bridge) |
 | POST | `/v1/calls/voice-webhook` | Twilio voice webhook; returns TwiML with ConversationRelay connect |
 | POST | `/v1/calls/status-callback` | Twilio status callback (ringing, in-progress, completed, failed) |
 | POST | `/v1/calls/connect-action` | TwiML connect action callback when ConversationRelay ends |
-| POST | `/v1/calls/:callSessionId/answer` | User answers a pending question from the chat UI |
 | WS | `/v1/calls/relay` | ConversationRelay WebSocket (bidirectional: prompt/interrupt/dtmf from Twilio, text tokens/end to Twilio) |
 
-### New Tools
+### Tools
 
 | Tool | Description |
 |------|-------------|
@@ -3276,14 +3347,41 @@ All three tables live in `~/.vellum/workspace/data/db/assistant.db` alongside ex
 | `call_status` | Retrieves the current status of a call session |
 | `call_end` | Terminates an active call |
 
+Both tools and HTTP routes delegate to the same domain functions in `call-domain.ts` (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`), ensuring consistent validation and behavior.
+
 ### Control Markers
 
 The CallOrchestrator detects two special markers in the LLM's response text:
 
-- **`[ASK_USER: question]`** — The AI needs to consult the user. The orchestrator creates a pending question, notifies the session via `fireCallQuestionNotifier`, puts the caller on hold, and waits up to 90 seconds for a user answer.
+- **`[ASK_USER: question]`** — The AI needs to consult the user. The orchestrator creates a pending question, notifies the session via `fireCallQuestionNotifier`, puts the caller on hold, and waits for a user answer (timeout configured via `calls.userConsultTimeoutSeconds`).
 - **`[END_CALL]`** — The AI has determined the call's purpose is fulfilled. The orchestrator sends a goodbye, closes the ConversationRelay session, and marks the call as completed.
 
 Both markers are stripped from the TTS output so the callee never hears the raw control text.
+
+### Call Recovery on Startup
+
+When the daemon restarts, any calls left in non-terminal states (initiated, ringing, in_progress, waiting_on_user) may be stale. The `reconcileCallsOnStartup()` function in `call-recovery.ts` runs during daemon lifecycle initialization and handles each recoverable session:
+
+1. **No provider SID** — The call never connected. It is transitioned to `failed` with an explanatory `lastError`.
+2. **Has provider SID** — The actual status is fetched from Twilio via `provider.getCallStatus()`. If the provider reports a terminal state (completed, failed, busy, no-answer, canceled), the session is transitioned accordingly. If the call is still active on the provider side, it is left for subsequent webhooks to handle.
+3. **Provider fetch failure** — If the provider API call fails, the session is transitioned to `failed` with the error message recorded in `lastError`.
+4. **Pending questions** — Any pending questions for sessions that transition to a terminal state are expired.
+
+Malformed or unprocessable provider callback payloads are logged as dead-letter events via `logDeadLetterEvent()` for investigation.
+
+### Calls Configuration
+
+Call behavior is controlled via the `calls` config block in the assistant configuration (`config/schema.ts`). All values have sensible defaults and are validated via Zod:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `calls.enabled` | boolean | `true` | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors. |
+| `calls.provider` | enum | `'twilio'` | Voice provider to use (currently only Twilio is supported). |
+| `calls.maxDurationSeconds` | int | `3600` | Maximum allowed duration per call. |
+| `calls.userConsultTimeoutSeconds` | int | `120` | How long to wait for a user answer before timing out a pending question. |
+| `calls.disclosure.enabled` | boolean | `true` | Whether the AI should disclose it is an AI at the start of the call. |
+| `calls.disclosure.text` | string | *(default disclosure prompt)* | The disclosure instruction included in the system prompt. |
+| `calls.safety.denyCategories` | string[] | `[]` | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting). |
 
 ---
 
