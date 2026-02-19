@@ -172,6 +172,18 @@ class ShellTool implements Tool {
         child.kill('SIGKILL');
       }, timeoutMs);
 
+      // Cooperative cancellation via AbortSignal
+      const onAbort = () => {
+        child.kill('SIGKILL');
+      };
+      if (context.signal) {
+        if (context.signal.aborted) {
+          child.kill('SIGKILL');
+        } else {
+          context.signal.addEventListener('abort', onAbort, { once: true });
+        }
+      }
+
       child.stdout.on('data', (data: Buffer) => {
         stdoutChunks.push(data);
         context.onOutput?.(data.toString());
@@ -184,6 +196,7 @@ class ShellTool implements Tool {
 
       child.on('close', (code) => {
         clearTimeout(timer);
+        context.signal?.removeEventListener('abort', onAbort);
 
         const stdout = Buffer.concat(stdoutChunks).toString();
         const stderr = Buffer.concat(stderrChunks).toString();
@@ -198,6 +211,7 @@ class ShellTool implements Tool {
 
       child.on('error', (err) => {
         clearTimeout(timer);
+        context.signal?.removeEventListener('abort', onAbort);
         resolve({
           content: `Error spawning command: ${err.message}${(err as NodeJS.ErrnoException).code === 'ENOENT' ? '. The command was not found — check that it is installed and in PATH.' : ''}`,
           isError: true,
