@@ -37,27 +37,23 @@ This is the most important step. Delivery sites block browsing and ordering with
 - Take a fresh snapshot after dismissing to confirm the modal is gone.
 - Common DoorDash blocker modals: "NYC & NY law update" (click "Got It"), cookie banners, promotional popups.
 
-### Step 2: Set Delivery Address
+### Step 2: Navigate Directly to the Restaurant
 
-1. Find the address input field in the snapshot.
-2. Type the delivery address.
-3. Use `browser_press_key` with `ArrowDown` then `Enter` to select from the address suggestion dropdown.
-4. Do NOT click dropdown items directly — they are dynamic overlays and clicks are unreliable.
+Skip the homepage entirely — it has modals that block interaction.
 
-### Step 3: Search for the Restaurant
+1. **For DoorDash**, navigate directly to `https://www.doordash.com/search/store/{restaurant_name}/` (e.g. `https://www.doordash.com/search/store/andiamo%20pizza/`). URL-encode the restaurant name. This bypasses all homepage modals.
+2. **For other services**, navigate to their search or restaurant page directly if possible.
+3. If any modals appear (regulatory notices, cookie banners), dismiss them immediately by clicking "Got It", "Accept", or "Close".
+4. Click the correct restaurant from the search results.
 
-1. Find the search bar in `browser_snapshot`.
-2. Type the restaurant name using `browser_type`.
-3. Use `browser_press_key` with `ArrowDown` then `Enter` to select from search suggestions.
-
-### Step 4: Find and Add the Item
+### Step 3: Find and Add the Item
 
 1. Browse the restaurant's menu page.
 2. Click the desired menu item.
 3. If there are required customizations (size, toppings, quantity), select them.
 4. Click "Add to Order" / "Add to Cart".
 
-### Step 5: Checkout
+### Step 4: Checkout
 
 1. Navigate to the cart / checkout.
 2. Review order details with the user before placing.

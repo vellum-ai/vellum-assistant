@@ -184,13 +184,16 @@ class BrowserManager {
     if (this.contextCreating) return this.contextCreating;
 
     this.contextCreating = (async () => {
-      // CDP is opt-in. We only attempt it when explicitly configured,
-      // otherwise default to headless to avoid stealing desktop focus.
+      // Try to detect or negotiate CDP before falling back to headless.
+      // This auto-detects an existing Chrome with --remote-debugging-port,
+      // or asks the client to restart Chrome with CDP enabled.
       let useCdp = this._browserMode === 'cdp';
       const sender = invokingSessionId ? this.sessionSenders.get(invokingSessionId) : undefined;
-      if (useCdp) {
+      if (!useCdp) {
         const cdpAvailable = await this.detectCDP();
-        if (!cdpAvailable && invokingSessionId && sender) {
+        if (cdpAvailable) {
+          useCdp = true;
+        } else if (invokingSessionId && sender) {
           log.info({ sessionId: invokingSessionId }, 'Requesting CDP from client');
           const accepted = await this.requestCDPFromClient(invokingSessionId, sender);
           if (accepted) {
@@ -199,17 +202,10 @@ class BrowserManager {
               useCdp = true;
             } else {
               log.warn('Client accepted CDP request but CDP not detected');
-              useCdp = false;
-              this._browserMode = 'headless';
             }
           } else {
             log.info('Client declined CDP request');
-            useCdp = false;
-            this._browserMode = 'headless';
           }
-        } else if (!cdpAvailable) {
-          useCdp = false;
-          this._browserMode = 'headless';
         }
       }
 
@@ -227,6 +223,33 @@ class BrowserManager {
         } catch (err) {
           log.warn({ err }, 'CDP connectOverCDP failed');
           this._browserMode = 'headless';
+        }
+      }
+
+      // If a client is connected, launch headed Chromium (minimized) so the user
+      // can interact directly when handoff triggers (e.g. CAPTCHAs).
+      // The window stays offscreen until bringToFront() is called during handoff.
+      const hasSender = !!(invokingSessionId && this.sessionSenders.get(invokingSessionId));
+      if (hasSender && this._browserMode === 'headless') {
+        try {
+          const pw2 = await import('playwright');
+          const headedBrowser = await pw2.chromium.launch({
+            channel: 'chrome',
+            headless: false,
+            args: [
+              '--window-position=-32000,-32000',
+              '--window-size=1,1',
+              '--disable-blink-features=AutomationControlled',
+            ],
+          });
+          const ctx = headedBrowser.contexts()[0] || await headedBrowser.newContext();
+          this.cdpBrowser = headedBrowser as unknown as typeof this.cdpBrowser;
+          this.setBrowserMode('cdp');
+          await this.initBrowserCdpSession();
+          log.info('Launched headed Chromium (minimized) for interactive handoff support');
+          return ctx as unknown as BrowserContext;
+        } catch (err2) {
+          log.warn({ err: err2 }, 'Headed Chromium launch failed, falling back to headless');
         }
       }
 
