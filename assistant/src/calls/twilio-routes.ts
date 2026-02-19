@@ -20,6 +20,7 @@ import {
 import type { CallStatus } from './types.js';
 import { answerCall } from './call-domain.js';
 import { logDeadLetterEvent } from './call-recovery.js';
+import { isTerminalState } from './call-state-machine.js';
 
 const log = getLogger('twilio-routes');
 
@@ -93,6 +94,11 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   if (!session) {
     log.warn({ callSessionId }, 'Voice webhook: call session not found');
     return new Response('Call session not found', { status: 404 });
+  }
+
+  if (isTerminalState(session.status)) {
+    log.warn({ callSessionId, status: session.status }, 'Voice webhook: call session is in terminal state');
+    return new Response('Call session is no longer active', { status: 410 });
   }
 
   // Parse the Twilio POST body to capture CallSid immediately, so status
