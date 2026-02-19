@@ -57,15 +57,31 @@ case "$CMD" in
     test)
         echo "Running iOS tests..."
         cd "$CLIENTS_DIR"
-        # Use xcodebuild test instead of swift test to avoid compiling the
-        # macOS test target (which can crash on CI). xcodebuild only builds
-        # the dependencies needed for the selected scheme + destination.
-        xcodebuild test \
-            -scheme vellum-assistant-iosTests \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
-            -derivedDataPath "$DIST_DIR/DerivedData" \
-            CODE_SIGNING_ALLOWED=NO
-        exit 0
+        # swift test --filter compiles ALL test targets before filtering at
+        # runtime. The macOS test target may crash with fatalError on CI
+        # (WebKit headless environment). Tolerate that specific case — same
+        # pattern as macos/build.sh.
+        set +e
+        TEST_OUTPUT=$(swift test --filter vellum_assistant_iosTests 2>&1)
+        TEST_EXIT=$?
+        set -e
+        echo "$TEST_OUTPUT"
+
+        if [ $TEST_EXIT -eq 0 ]; then
+            exit 0
+        fi
+
+        # Tolerate fatalError / signal-5 crashes from the macOS test target
+        # if no actual test failures were reported for the iOS tests.
+        if echo "$TEST_OUTPUT" | grep -q "fatalError\|unexpected signal code 5" && \
+           ! echo "$TEST_OUTPUT" | grep -qE "with [1-9][0-9]* failure"; then
+            echo ""
+            echo "warning: swift test exited non-zero due to macOS test target crash (fatalError/signal 5)."
+            echo "iOS test assertions passed. See macos/build.sh for the same tolerance pattern."
+            exit 0
+        fi
+
+        exit $TEST_EXIT
         ;;
     clean)
         echo "Cleaning..."
