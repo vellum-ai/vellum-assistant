@@ -280,10 +280,8 @@ struct APIKeyStepView: View {
             saveModelToConfig("claude-opus-4-6")
             if userHostedEnabled && hostingMode != .local {
                 state.advance()
-            } else if userHostedEnabled {
-                state.isHatching = true
             } else {
-                state.advance()
+                state.isHatching = true
             }
     }
 
