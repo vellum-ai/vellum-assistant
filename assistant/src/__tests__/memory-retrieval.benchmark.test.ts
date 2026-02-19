@@ -30,6 +30,36 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+// Simulated network delay for semantic search (ms). When > 0, the mock
+// semantic search sleeps for this duration before returning, simulating the
+// Qdrant network round-trip that early termination is designed to skip.
+let semanticSearchDelayMs = 0;
+
+mock.module('../memory/search/semantic.js', () => ({
+  semanticSearch: async () => {
+    if (semanticSearchDelayMs > 0) {
+      await Bun.sleep(semanticSearchDelayMs);
+    }
+    return [];
+  },
+  isQdrantConnectionError: () => false,
+}));
+
+mock.module('../memory/embedding-backend.js', () => ({
+  getMemoryBackendStatus: (config: { memory: { enabled: boolean } }) => ({
+    enabled: config.memory.enabled,
+    degraded: false,
+    provider: 'openai',
+    model: 'text-embedding-3-small',
+    reason: null,
+  }),
+  embedWithBackend: async () => ({
+    provider: 'openai' as const,
+    model: 'text-embedding-3-small',
+    vectors: [new Array(1536).fill(0)],
+  }),
+}));
+
 import { DEFAULT_CONFIG } from '../config/defaults.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { buildMemoryRecall } from '../memory/retriever.js';
@@ -271,5 +301,120 @@ describe('Memory retrieval benchmark', () => {
     // Semantic search should be skipped when early termination fires
     expect(recall.semanticHits).toBe(0);
     expect(recall.selectedCount).toBeGreaterThan(0);
+  });
+
+  test('early termination is at least 30% faster than baseline', async () => {
+    const conversationId = 'conv-bench-et-delta';
+    const now = 1_700_500_000_000;
+    seedMemoryItems(conversationId, 500, now);
+
+    // Simulate the Qdrant network round-trip that ET is designed to skip
+    semanticSearchDelayMs = 50;
+
+    const query = 'What do we know about topic-5 and keyword-3?';
+
+    const etConfig: AssistantConfig = {
+      ...DEFAULT_CONFIG,
+      memory: {
+        ...DEFAULT_CONFIG.memory,
+        embeddings: {
+          ...DEFAULT_CONFIG.memory.embeddings,
+          provider: 'openai' as const,
+          required: false,
+        },
+        retrieval: {
+          ...DEFAULT_CONFIG.memory.retrieval,
+          lexicalTopK: 50,
+          semanticTopK: 20,
+          maxInjectTokens: 750,
+          reranking: { ...DEFAULT_CONFIG.memory.retrieval.reranking, enabled: false },
+          dynamicBudget: {
+            enabled: false,
+            minInjectTokens: 160,
+            maxInjectTokens: 750,
+            targetHeadroomTokens: 900,
+          },
+          earlyTermination: {
+            enabled: true,
+            minCandidates: 5,
+            minHighConfidence: 3,
+            confidenceThreshold: 0.3,
+          },
+        },
+      },
+    };
+
+    const noEtConfig: AssistantConfig = {
+      ...etConfig,
+      memory: {
+        ...etConfig.memory,
+        retrieval: {
+          ...etConfig.memory.retrieval,
+          earlyTermination: {
+            enabled: false,
+            minCandidates: 5,
+            minHighConfidence: 3,
+            confidenceThreshold: 0.3,
+          },
+        },
+      },
+    };
+
+    try {
+      // Warm up to avoid cold-start bias
+      await buildMemoryRecall(query, conversationId, etConfig);
+      await buildMemoryRecall(query, conversationId, noEtConfig);
+
+      const iterations = 5;
+      const etTimes: number[] = [];
+      const baselineTimes: number[] = [];
+
+      for (let i = 0; i < iterations; i++) {
+        const t0 = performance.now();
+        const etRecall = await buildMemoryRecall(query, conversationId, etConfig);
+        etTimes.push(performance.now() - t0);
+        expect(etRecall.earlyTerminated).toBe(true);
+
+        const t1 = performance.now();
+        const baselineRecall = await buildMemoryRecall(query, conversationId, noEtConfig);
+        baselineTimes.push(performance.now() - t1);
+        expect(baselineRecall.earlyTerminated).toBe(false);
+      }
+
+      etTimes.sort((a, b) => a - b);
+      baselineTimes.sort((a, b) => a - b);
+      const medianEt = etTimes[Math.floor(iterations / 2)];
+      const medianBaseline = baselineTimes[Math.floor(iterations / 2)];
+
+      // Early termination should be at least 30% faster
+      const speedup = 1 - medianEt / medianBaseline;
+      expect(speedup).toBeGreaterThanOrEqual(0.3);
+    } finally {
+      semanticSearchDelayMs = 0;
+    }
+  });
+
+  test('recall.latencyMs tracks wall-clock within 20% tolerance', async () => {
+    const conversationId = 'conv-bench-wallclock';
+    const now = 1_700_500_000_000;
+    seedMemoryItems(conversationId, 500, now);
+
+    const config = makeConfig();
+
+    const wallStart = performance.now();
+    const recall = await buildMemoryRecall(
+      'What do we know about topic-5 and keyword-3?',
+      conversationId,
+      config,
+    );
+    const wallMs = performance.now() - wallStart;
+
+    expect(recall.enabled).toBe(true);
+    expect(recall.latencyMs).toBeGreaterThan(0);
+
+    // Self-reported latencyMs should agree with wall-clock within 20%
+    const ratio = recall.latencyMs / wallMs;
+    expect(ratio).toBeGreaterThanOrEqual(0.8);
+    expect(ratio).toBeLessThanOrEqual(1.2);
   });
 });
