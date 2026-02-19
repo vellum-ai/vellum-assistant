@@ -43,7 +43,9 @@ async function completeSession(session: WatchSession): Promise<void> {
   // In learn mode, stop recording and save — skip the LLM summary (not needed)
   if (session.isLearnMode && session.recordingId) {
     session.savedRecordingPath = await finalizeLearnRecording(watchId, session, session.recordingId);
-    lastSummaryBySession.set(sessionId, 'Learn session completed — recording saved.');
+    lastSummaryBySession.set(sessionId, session.savedRecordingPath
+      ? 'Learn session completed — recording saved.'
+      : 'Learn session completed — recording failed to save.');
     session.status = 'completed';
     log.info({ watchId, sessionId }, 'Learn session complete — firing completion notifier');
     fireWatchCompletionNotifier(sessionId, session);

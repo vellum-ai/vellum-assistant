@@ -294,7 +294,19 @@ extension AppDelegate {
         alert.window.initialFirstResponder = input
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let domain = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        var domain = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // Strip URL scheme if user entered a full URL
+        if let url = URL(string: domain), let host = url.host {
+            domain = host
+        } else if domain.hasPrefix("https://") {
+            domain = String(domain.dropFirst("https://".count))
+        } else if domain.hasPrefix("http://") {
+            domain = String(domain.dropFirst("http://".count))
+        }
+        // Strip trailing slash/path
+        if let slashIdx = domain.firstIndex(of: "/") {
+            domain = String(domain[domain.startIndex..<slashIdx])
+        }
         guard !domain.isEmpty else { return }
 
         ambientAgent.startLearnSession(targetDomain: domain, durationSeconds: 300)
