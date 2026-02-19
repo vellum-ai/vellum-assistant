@@ -1,5 +1,7 @@
-import { readFileSync, statSync } from 'node:fs';
-import { extname, resolve } from 'node:path';
+import { execSync } from 'node:child_process';
+import { readFileSync, statSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { extname, join, resolve } from 'node:path';
 import { RiskLevel } from '../../permissions/types.js';
 import type { ImageContent, ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
@@ -14,6 +16,29 @@ const SUPPORTED_EXTENSIONS: Record<string, string> = {
 };
 
 const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+
+// Images above this threshold get auto-optimized via sips (macOS) to avoid
+// sending multi-MB base64 payloads to the LLM API.
+const OPTIMIZE_THRESHOLD_BYTES = 1 * 1024 * 1024; // 1 MB
+const OPTIMIZE_MAX_DIMENSION = 1568; // Anthropic's recommended max
+const OPTIMIZE_JPEG_QUALITY = 80;
+
+/**
+ * Use macOS `sips` to resize and convert an image to JPEG.
+ * Returns the path to the optimized temp file, or null if sips is unavailable.
+ */
+function optimizeWithSips(srcPath: string): string | null {
+  const tmpPath = join(tmpdir(), `vellum-view-image-${Date.now()}.jpg`);
+  try {
+    execSync(
+      `sips --resampleHeightWidthMax ${OPTIMIZE_MAX_DIMENSION} -s format jpeg -s formatOptions ${OPTIMIZE_JPEG_QUALITY} ${JSON.stringify(srcPath)} --out ${JSON.stringify(tmpPath)}`,
+      { stdio: 'pipe', timeout: 15_000 },
+    );
+    return tmpPath;
+  } catch {
+    return null;
+  }
+}
 
 class ViewImageTool implements Tool {
   name = 'view_image';
@@ -81,11 +106,30 @@ class ViewImageTool implements Tool {
     }
 
     let buffer: Buffer;
+    let finalMediaType = mediaType;
+    let optimized = false;
+    let tmpPath: string | null = null;
+
     try {
-      buffer = readFileSync(resolved) as Buffer;
+      if (stat.size > OPTIMIZE_THRESHOLD_BYTES) {
+        tmpPath = optimizeWithSips(resolved);
+        if (tmpPath) {
+          buffer = readFileSync(tmpPath) as Buffer;
+          finalMediaType = 'image/jpeg';
+          optimized = true;
+        } else {
+          buffer = readFileSync(resolved) as Buffer;
+        }
+      } else {
+        buffer = readFileSync(resolved) as Buffer;
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { content: `Error reading file: ${msg}`, isError: true };
+    } finally {
+      if (tmpPath) {
+        try { unlinkSync(tmpPath); } catch { /* ignore cleanup errors */ }
+      }
     }
 
     const base64Data = buffer.toString('base64');
@@ -94,13 +138,17 @@ class ViewImageTool implements Tool {
       type: 'image' as const,
       source: {
         type: 'base64' as const,
-        media_type: mediaType,
+        media_type: finalMediaType,
         data: base64Data,
       },
     };
 
+    const sizeSuffix = optimized
+      ? ` (optimized from ${(stat.size / 1024).toFixed(0)} KB to ${(buffer.length / 1024).toFixed(0)} KB)`
+      : '';
+
     return {
-      content: `Image loaded: ${resolved} (${stat.size} bytes, ${mediaType})`,
+      content: `Image loaded: ${resolved} (${buffer.length} bytes, ${finalMediaType})${sizeSuffix}`,
       isError: false,
       contentBlocks: [imageBlock],
     };
