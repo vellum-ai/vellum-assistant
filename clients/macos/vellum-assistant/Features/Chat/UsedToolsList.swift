@@ -186,6 +186,11 @@ private struct UsedToolsRow: View {
                             .frame(maxWidth: .infinity)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                             .padding(.horizontal, VSpacing.md)
+                            .onTapGesture(count: 2) { openImageInPreview(img) }
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.push() }
+                                else { NSCursor.pop() }
+                            }
                     } else if let img = toolCall.cachedImage {
                         Image(nsImage: img)
                             .resizable()
@@ -193,6 +198,11 @@ private struct UsedToolsRow: View {
                             .frame(maxWidth: .infinity)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                             .padding(.horizontal, VSpacing.md)
+                            .onTapGesture(count: 2) { openImageInPreview(img) }
+                            .onHover { hovering in
+                                if hovering { NSCursor.pointingHand.push() }
+                                else { NSCursor.pop() }
+                            }
                     }
 
                     // Output
@@ -248,6 +258,29 @@ private struct UsedToolsRow: View {
             }
         }
         .animation(VAnimation.fast, value: isExpanded)
+    }
+
+    /// Open the image in Preview.app. Tries the original file path first; falls
+    /// back to writing the NSImage to a temp file when the path is unavailable.
+    private func openImageInPreview(_ image: NSImage) {
+        // Try opening the original file if inputFull points to a real file
+        let path = toolCall.inputFull.components(separatedBy: "\n").first ?? ""
+        if !path.isEmpty && FileManager.default.fileExists(atPath: path) {
+            NSWorkspace.shared.open(URL(fileURLWithPath: path))
+            return
+        }
+        // Fallback: write cached image to a temp file and open it
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:]) else { return }
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vellum-preview-\(UUID().uuidString).png")
+        do {
+            try png.write(to: tempURL)
+            NSWorkspace.shared.open(tempURL)
+        } catch {
+            // Not critical — silently fail
+        }
     }
 
     private func diffLineColor(_ line: String, result: String, isError: Bool) -> Color {
