@@ -138,7 +138,8 @@ struct InlineVideoAttachmentView: View {
     private func safeTempURL() -> URL {
         let sanitized = (attachment.filename as NSString).lastPathComponent
         let safeName = sanitized.isEmpty ? "video" : sanitized
-        let uniqueName = attachment.id.isEmpty ? safeName : "\(attachment.id)-\(safeName)"
+        let sanitizedId = (attachment.id as NSString).lastPathComponent
+        let uniqueName = sanitizedId.isEmpty ? safeName : "\(sanitizedId)-\(safeName)"
         return FileManager.default.temporaryDirectory.appendingPathComponent(uniqueName)
     }
 
