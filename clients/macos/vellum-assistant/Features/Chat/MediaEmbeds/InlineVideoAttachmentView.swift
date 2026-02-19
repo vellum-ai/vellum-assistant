@@ -399,6 +399,7 @@ private struct VideoPlayerView: NSViewRepresentable {
         let view = AVPlayerView()
         view.player = player
         view.controlsStyle = .inline
+        view.videoGravity = .resizeAspectFill
         view.showsFullScreenToggleButton = true
         return view
     }
