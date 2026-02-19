@@ -31,6 +31,7 @@ mock.module('../tools/browser/browser-manager.js', () => {
     browserManager: {
       getOrCreateSessionPage: getOrCreateSessionPageMock,
       clearSnapshotMap: mock(() => {}),
+      supportsRouteInterception: true,
     },
   };
 });
