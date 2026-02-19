@@ -24,7 +24,17 @@ Route to the appropriate Linear team based on the report's domain:
 
 If the domain is ambiguous, default to **Jarvis**. As new teams are added, update this table.
 
-## Step 3: Search for duplicates
+## Step 3: Check if already implemented
+
+For feature requests that describe migrations, refactors, or architectural changes, **search the codebase first** before creating an issue. Use the Explore agent or Grep/Glob tools to check whether the requested work has already been done. Look for:
+
+- Relevant code in the expected location (e.g., if the request is "move X to Y", check if X already exists in Y)
+- Recent commits or PR references related to the request
+- Comments or documentation describing the completed work
+
+If the work is already done, tell the user it's already implemented, cite the evidence (file paths, commit hashes, PRs), and **do not create an issue**. Skip to Step 5.
+
+## Step 4: Search for duplicates
 
 Search existing issues on the target team for potential duplicates. Cast a wide net — use multiple keyword searches if needed to avoid false negatives.
 
@@ -34,7 +44,7 @@ list_issues(team: "<target team>", query: "<relevant keywords>")
 
 Try 2-3 different keyword variations to be thorough. Check issues in ALL statuses (Backlog, Todo, In Progress, In Review) — not just open ones.
 
-## Step 4a: If a duplicate or closely related issue exists
+## Step 5a: If a duplicate or closely related issue exists
 
 1. **Tell the user** which issue(s) you found and why you think they match.
 2. **Add a comment** to the existing issue with:
@@ -52,7 +62,7 @@ Try 2-3 different keyword variations to be thorough. Check issues in ALL statuse
 4. **Link related issues** if you found multiple related-but-not-duplicate issues.
 5. Tell the user the issue identifier (e.g., JAR-XX) and current status so they know if it's already being worked on.
 
-## Step 4b: If no duplicate exists
+## Step 5b: If no duplicate exists
 
 Create a new issue:
 
@@ -110,7 +120,7 @@ For **feature requests**:
 
 Default to **3 (Normal)** unless there's a clear reason to go higher or lower.
 
-## Step 5: Report back
+## Step 6: Report back
 
 Tell the user:
 - The issue identifier (e.g., JAR-XX)
@@ -118,7 +128,7 @@ Tell the user:
 - Current status and priority
 - If duplicate: how many times it's been reported (check comments for previous "Additional report" entries)
 
-## Step 6: Improve this command
+## Step 7: Improve this command
 
 After filing the issue, reflect on whether you learned something that should be captured in this command file for future runs. Proactively suggest edits to **this file** (`.claude/commands/report.md`) when:
 
