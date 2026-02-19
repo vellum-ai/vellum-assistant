@@ -1793,6 +1793,7 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemsListResponse(IPCWorkItemsListResponse)
     case workItemStatusChanged(IPCWorkItemStatusChanged)
     case workItemRunTaskResponse(IPCWorkItemRunTaskResponse)
+    case openTasksWindow(OpenTasksWindowMessage)
     case subagentSpawned(IPCSubagentSpawned)
     case subagentStatusChanged(IPCSubagentStatusChanged)
     indirect case subagentEvent(SubagentEventMessage)
@@ -2066,6 +2067,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "work_item_run_task_response":
             let message = try IPCWorkItemRunTaskResponse(from: decoder)
             self = .workItemRunTaskResponse(message)
+        case "open_tasks_window":
+            let message = try OpenTasksWindowMessage(from: decoder)
+            self = .openTasksWindow(message)
         case "subagent_spawned":
             let message = try IPCSubagentSpawned(from: decoder)
             self = .subagentSpawned(message)
@@ -2109,6 +2113,12 @@ public struct BrowserCDPResponseMessage: Encodable, Sendable {
 // MARK: - App Files Changed
 
 public typealias AppFilesChangedMessage = IPCAppFilesChanged
+
+// MARK: - Open Tasks Window
+
+/// Server push — tells the client to open/focus the tasks window.
+/// Backed by generated `IPCOpenTasksWindow`.
+public typealias OpenTasksWindowMessage = IPCOpenTasksWindow
 
 // MARK: - Layout Config Wire Types
 // Defined here temporarily; canonical home is LayoutConfig.swift (M1 / #2973)

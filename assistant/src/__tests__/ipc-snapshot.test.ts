@@ -1324,6 +1324,9 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       updatedAt: 1700001000,
     },
   },
+  open_tasks_window: {
+    type: 'open_tasks_window',
+  },
   subagent_spawned: {
     type: 'subagent_spawned',
     subagentId: 'sub-001',

@@ -964,6 +964,11 @@ public struct IPCOpenBundleResponseSignatureResult: Codable, Sendable {
     public let signerAccount: String?
 }
 
+/// Server push — tells the client to open/focus the tasks window.
+public struct IPCOpenTasksWindow: Codable, Sendable {
+    public let type: String
+}
+
 public struct IPCOpenUrl: Codable, Sendable {
     public let type: String
     public let url: String

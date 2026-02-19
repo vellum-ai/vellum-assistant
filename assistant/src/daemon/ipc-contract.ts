@@ -1910,6 +1910,11 @@ export interface WorkItemRunTaskResponse {
   error?: string;
 }
 
+/** Server push — tells the client to open/focus the tasks window. */
+export interface OpenTasksWindow {
+  type: 'open_tasks_window';
+}
+
 /** Server push — broadcast when a work item status changes (e.g. running -> awaiting_review). */
 export interface WorkItemStatusChanged {
   type: 'work_item_status_changed';
@@ -2027,6 +2032,7 @@ export type ServerMessage =
   | WorkItemUpdateResponse
   | WorkItemRunTaskResponse
   | WorkItemStatusChanged
+  | OpenTasksWindow
   | SubagentSpawned
   | SubagentStatusChanged
   | SubagentEvent;
