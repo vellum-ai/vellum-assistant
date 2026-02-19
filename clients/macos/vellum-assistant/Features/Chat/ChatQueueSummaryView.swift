@@ -1,0 +1,94 @@
+import SwiftUI
+import VellumAssistantShared
+
+/// Expandable summary of queued (pending) messages shown above the composer.
+///
+/// Queued messages are kept out of the main chat feed to preserve
+/// chronological order — they appear here as a collapsible stack so
+/// the user knows their messages are waiting.
+struct ChatQueueSummaryView: View {
+    let queuedMessages: [ChatMessage]
+    var onDeleteQueuedMessage: ((UUID) -> Void)?
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        if !queuedMessages.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                // Header
+                Button {
+                    withAnimation(VAnimation.fast) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(VColor.textMuted)
+                        Text("\(queuedMessages.count) Queued")
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                // Message list
+                if isExpanded {
+                    VStack(spacing: VSpacing.xs) {
+                        ForEach(queuedMessages, id: \.id) { message in
+                            HStack(spacing: VSpacing.sm) {
+                                Circle()
+                                    .fill(VColor.textMuted)
+                                    .frame(width: 5, height: 5)
+                                if message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    // Attachment-only message — show filenames
+                                    let names = message.attachments.map(\.filename).joined(separator: ", ")
+                                    Label(names.isEmpty ? "Attachment" : names, systemImage: "paperclip")
+                                        .font(VFont.body)
+                                        .foregroundColor(VColor.textMuted)
+                                        .lineLimit(1)
+                                } else {
+                                    Text(message.text)
+                                        .font(VFont.body)
+                                        .foregroundColor(VColor.textSecondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                if let onDelete = onDeleteQueuedMessage {
+                                    Button {
+                                        onDelete(message.id)
+                                    } label: {
+                                        Image(systemName: "trash")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(VColor.textMuted)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Delete queued message")
+                                }
+                            }
+                            .padding(.horizontal, VSpacing.lg)
+                        }
+                    }
+                    .padding(.bottom, VSpacing.sm)
+                    .transition(.opacity)
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(VColor.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.bottom, VSpacing.xs)
+            .frame(maxWidth: 700)
+            .frame(maxWidth: .infinity)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
+    }
+}

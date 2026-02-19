@@ -2,53 +2,6 @@ import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
 
-private enum ChatTimestampTimeZone {
-    private static var cachedZone: TimeZone?
-    private static var cacheTimestamp: Date?
-    private static let cacheInterval: TimeInterval = 60
-    private static var observer: NSObjectProtocol?
-
-    /// Prefer the host's configured timezone over process-level TZ overrides
-    /// so chat dividers stay in the user's real local timezone.
-    /// Caches the result to avoid repeated filesystem reads in hot rendering paths.
-    static func resolve() -> TimeZone {
-        // Check if we have a valid cached value
-        if let cached = cachedZone,
-           let timestamp = cacheTimestamp,
-           Date().timeIntervalSince(timestamp) < cacheInterval {
-            return cached
-        }
-
-        // Register for timezone change notifications if not already registered
-        if observer == nil {
-            observer = NotificationCenter.default.addObserver(
-                forName: NSNotification.Name.NSSystemTimeZoneDidChange,
-                object: nil,
-                queue: .main
-            ) { _ in
-                cachedZone = nil
-                cacheTimestamp = nil
-            }
-        }
-
-        // Resolve timezone from /etc/localtime
-        let resolved: TimeZone
-        if let symlink = try? FileManager.default.destinationOfSymbolicLink(atPath: "/etc/localtime"),
-           let markerRange = symlink.range(of: "/zoneinfo/") {
-            let identifier = String(symlink[markerRange.upperBound...])
-            resolved = TimeZone(identifier: identifier) ?? .autoupdatingCurrent
-        } else {
-            resolved = .autoupdatingCurrent
-        }
-
-        // Update cache
-        cachedZone = resolved
-        cacheTimestamp = Date()
-
-        return resolved
-    }
-}
-
 struct ChatView: View {
     let messages: [ChatMessage]
     @Binding var inputText: String
@@ -112,6 +65,7 @@ struct ChatView: View {
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
     @State private var isComposerExpanded = false
+    @State private var isQueueExpanded = true
     @State private var identity: IdentityInfo? = IdentityInfo.load()
     @State private var appearance = AvatarAppearanceManager.shared
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
@@ -266,7 +220,11 @@ struct ChatView: View {
                     onDismissError: onDismissError
                 )
             }
-            queueSummary
+            ChatQueueSummaryView(
+                queuedMessages: queuedMessages,
+                onDeleteQueuedMessage: onDeleteQueuedMessage,
+                isExpanded: $isQueueExpanded
+            )
             ComposerView(
                 inputText: $inputText,
                 hasAPIKey: hasAPIKey,
@@ -582,91 +540,6 @@ struct ChatView: View {
         messages.filter { msg in
             if case .queued = msg.status { return true }
             return false
-        }
-    }
-
-    @State private var isQueueExpanded = true
-
-    @ViewBuilder
-    private var queueSummary: some View {
-        let queued = queuedMessages
-        if !queued.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                // Header
-                Button {
-                    withAnimation(VAnimation.fast) {
-                        isQueueExpanded.toggle()
-                    }
-                } label: {
-                    HStack(spacing: VSpacing.xs) {
-                        Image(systemName: isQueueExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(VColor.textMuted)
-                        Text("\(queued.count) Queued")
-                            .font(VFont.captionMedium)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                    }
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.sm)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                // Message list
-                if isQueueExpanded {
-                    VStack(spacing: VSpacing.xs) {
-                        ForEach(queued, id: \.id) { message in
-                            HStack(spacing: VSpacing.sm) {
-                                Circle()
-                                    .fill(VColor.textMuted)
-                                    .frame(width: 5, height: 5)
-                                if message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    // Attachment-only message — show filenames
-                                    let names = message.attachments.map(\.filename).joined(separator: ", ")
-                                    Label(names.isEmpty ? "Attachment" : names, systemImage: "paperclip")
-                                        .font(VFont.body)
-                                        .foregroundColor(VColor.textMuted)
-                                        .lineLimit(1)
-                                } else {
-                                    Text(message.text)
-                                        .font(VFont.body)
-                                        .foregroundColor(VColor.textSecondary)
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-                                if let onDelete = onDeleteQueuedMessage {
-                                    Button {
-                                        onDelete(message.id)
-                                    } label: {
-                                        Image(systemName: "trash")
-                                            .font(.system(size: 11))
-                                            .foregroundColor(VColor.textMuted)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .accessibilityLabel("Delete queued message")
-                                }
-                            }
-                            .padding(.horizontal, VSpacing.lg)
-                        }
-                    }
-                    .padding(.bottom, VSpacing.sm)
-                    .transition(.opacity)
-                }
-            }
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(VColor.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
-            )
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.bottom, VSpacing.xs)
-            .frame(maxWidth: 700)
-            .frame(maxWidth: .infinity)
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
     }
 
@@ -2340,49 +2213,6 @@ private struct CodePreviewView: View {
             return lines.suffix(30).joined(separator: "\n")
         }
         return code
-    }
-}
-
-// MARK: - Timestamp Divider
-
-private struct TimestampDivider: View {
-    let date: Date
-
-    private var formattedTime: String {
-        let tz = ChatTimestampTimeZone.resolve()
-        var calendar = Calendar.current
-        calendar.timeZone = tz
-        let formatter = DateFormatter()
-        formatter.timeZone = tz
-        formatter.dateFormat = "h:mm a"
-        let timeString = formatter.string(from: date)
-        if calendar.isDateInToday(date) {
-            return "Today at \(timeString)"
-        } else if calendar.isDateInYesterday(date) {
-            return "Yesterday at \(timeString)"
-        } else {
-            let dayFormatter = DateFormatter()
-            dayFormatter.timeZone = tz
-            dayFormatter.dateFormat = "MMM d"
-            return "\(dayFormatter.string(from: date)) at \(timeString)"
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: VSpacing.sm) {
-            line
-            Text(formattedTime)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-            line
-        }
-        .padding(.vertical, VSpacing.xs)
-    }
-
-    private var line: some View {
-        Rectangle()
-            .fill(VColor.surfaceBorder.opacity(0.3))
-            .frame(height: 0.5)
     }
 }
 
