@@ -55,10 +55,10 @@ struct DocumentEditorView: NSViewRepresentable {
 
         // Register coordinator with DocumentManager (after loading so no double-load)
         documentManager.editorCoordinator = context.coordinator
-        print("🔧 Coordinator registered with DocumentManager")
+        print("\u{1F527} Coordinator registered with DocumentManager")
 
         log.info("DocumentEditorView created")
-        print("📄 DocumentEditorView created, loading HTML...")
+        print("\u{1F4C4} DocumentEditorView created, loading HTML...")
         return webView
     }
 
@@ -121,11 +121,11 @@ struct DocumentEditorView: NSViewRepresentable {
 
         func sendContentUpdate(markdown: String, mode: String) {
             guard let webView = webView, isInitialized else {
-                log.warning("⚠️ Cannot send content update: editor not initialized (isInitialized=\(self.isInitialized))")
-                print("⚠️ Cannot send content update: editor not initialized (isInitialized=\(self.isInitialized))")
+                log.warning("\u{26A0}\u{FE0F} Cannot send content update: editor not initialized (isInitialized=\(self.isInitialized))")
+                print("\u{26A0}\u{FE0F} Cannot send content update: editor not initialized (isInitialized=\(self.isInitialized))")
                 return
             }
-            print("✅ Sending content update to WebView: mode=\(mode), length=\(markdown.count)")
+            print("\u{2705} Sending content update to WebView: mode=\(mode), length=\(markdown.count)")
 
             let escapedMarkdown = escapeForJS(markdown)
             let js: String
@@ -179,11 +179,10 @@ struct DocumentEditorView: NSViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             isInitialized = true
             log.info("Document editor loaded")
-            print("✅ WebView finished loading - editor initialized!")
+            print("\u{2705} WebView finished loading - editor initialized!")
             // Apply any content that accumulated while the WebView was loading
             // (document_editor_update messages that arrived before isInitialized was set)
-            let tracked = documentManager.currentContent
-            if !tracked.isEmpty {
+            if let tracked = documentManager.currentContent, !tracked.isEmpty {
                 setInitialContent(title: documentManager.title, markdown: tracked)
             }
         }
