@@ -36,6 +36,11 @@ while IFS= read -r test_file; do
       continue
     fi
   fi
+  # Always exclude benchmark files — run them with `bun run test:bench` instead
+  if [[ "$(basename "${test_file}")" == *.benchmark.test.ts ]]; then
+    continue
+  fi
+
   test_files+=("${test_file}")
 done < <(find src/__tests__ -maxdepth 1 -type f -name '*.test.ts' | sort)
 
