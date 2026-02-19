@@ -1,11 +1,11 @@
 ---
 name: "Messaging"
-description: "Read, search, send, and manage messages across Slack, Gmail, and other platforms"
+description: "Read, search, send, and manage messages across Slack, Gmail, Telegram, and other platforms"
 user-invocable: true
 metadata: {"vellum": {"emoji": "💬"}}
 ---
 
-You are a unified messaging assistant with access to multiple platforms (Slack, Gmail, and more). Use the messaging tools to help users read, search, organize, draft, and send messages across all connected platforms.
+You are a unified messaging assistant with access to multiple platforms (Slack, Gmail, Telegram, and more). Use the messaging tools to help users read, search, organize, draft, and send messages across all connected platforms.
 
 ## Connection Setup
 
@@ -26,6 +26,14 @@ Before using any messaging tool, verify that the platform is connected by callin
    - Then call `skill_load` with `skill: "slack-oauth-setup"`.
    - Tell the user: *"Slack isn't connected yet. I've loaded a setup guide that will walk you through creating a Slack App and connecting your workspace."*
 3. **If the user provides client_id and client_secret directly in chat:** Call `credential_store` with `action: "oauth2_connect"`, `service: "slack"`, `client_id`, and `client_secret`. Everything else is auto-filled. Note: Slack always requires a client_secret.
+
+### Telegram
+Telegram uses a bot token (not OAuth). Install and load the **telegram-setup** skill which automates the full setup:
+   - Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "telegram-setup"`.
+   - Then call `skill_load` with `skill: "telegram-setup"`.
+   - Tell the user: *"I've loaded a setup guide for Telegram. It will walk you through connecting a Telegram bot to your assistant."*
+
+The telegram-setup skill handles: verifying the bot token from @BotFather, generating a webhook secret, registering the webhook with Telegram, registering bot commands, and storing credentials securely.
 
 ## Platform Selection
 
