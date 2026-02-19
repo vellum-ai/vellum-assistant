@@ -37,12 +37,12 @@ import type { Database } from 'bun:sqlite';
 import { initializeDb, getDb } from '../memory/db.js';
 import { createTask, createTaskRun } from '../tasks/task-store.js';
 import { createWorkItem } from '../work-items/work-item-store.js';
-import { taskSaveTool } from '../tools/tasks/task-save.js';
-import { taskRunTool } from '../tools/tasks/task-run.js';
-import { taskListTool } from '../tools/tasks/task-list.js';
-import { taskListShowTool } from '../tools/tasks/work-item-list.js';
-import { taskListAddTool } from '../tools/tasks/work-item-enqueue.js';
-import { taskDeleteTool } from '../tools/tasks/task-delete.js';
+import { executeTaskSave } from '../tools/tasks/task-save.js';
+import { executeTaskRun } from '../tools/tasks/task-run.js';
+import { executeTaskList } from '../tools/tasks/task-list.js';
+import { executeTaskListShow } from '../tools/tasks/work-item-list.js';
+import { executeTaskListAdd } from '../tools/tasks/work-item-enqueue.js';
+import { executeTaskDelete } from '../tools/tasks/task-delete.js';
 import type { ToolContext } from '../tools/types.js';
 
 initializeDb();
@@ -104,7 +104,7 @@ describe('task_save tool', () => {
     );
     addTestMessage(convId, 'assistant', 'Here is the summary...');
 
-    const result = await taskSaveTool.execute(
+    const result = await executeTaskSave(
       { conversation_id: convId },
       stubContext,
     );
@@ -120,7 +120,7 @@ describe('task_save tool', () => {
     addTestMessage(convId, 'user', 'Read and analyze the logs');
     addTestMessage(convId, 'assistant', 'Done!');
 
-    const result = await taskSaveTool.execute(
+    const result = await executeTaskSave(
       { conversation_id: convId, title: 'My Custom Title' },
       stubContext,
     );
@@ -134,7 +134,7 @@ describe('task_save tool', () => {
     addTestMessage(convId, 'user', 'Summarize the report');
     addTestMessage(convId, 'assistant', 'Done.');
 
-    const result = await taskSaveTool.execute({}, stubContext);
+    const result = await executeTaskSave({}, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Task saved successfully');
@@ -142,7 +142,7 @@ describe('task_save tool', () => {
   });
 
   test('returns error for nonexistent conversation', async () => {
-    const result = await taskSaveTool.execute(
+    const result = await executeTaskSave(
       { conversation_id: 'nonexistent' },
       stubContext,
     );
@@ -171,7 +171,7 @@ describe('task_run tool', () => {
       requiredTools: ['file_read'],
     });
 
-    const result = await taskRunTool.execute(
+    const result = await executeTaskRun(
       { task_name: 'summarize', inputs: { file_path: '/tmp/report.txt' } },
       stubContext,
     );
@@ -188,7 +188,7 @@ describe('task_run tool', () => {
       inputSchema: { type: 'object', properties: { url: { type: 'string', description: 'URL' } } },
     });
 
-    const result = await taskRunTool.execute(
+    const result = await executeTaskRun(
       { task_id: task.id, inputs: { url: 'https://prod.example.com' } },
       stubContext,
     );
@@ -204,7 +204,7 @@ describe('task_run tool', () => {
       template: 'Do something',
     });
 
-    const result = await taskRunTool.execute(
+    const result = await executeTaskRun(
       { task_name: 'nonexistent' },
       stubContext,
     );
@@ -215,7 +215,7 @@ describe('task_run tool', () => {
   });
 
   test('returns error when task not found by ID', async () => {
-    const result = await taskRunTool.execute(
+    const result = await executeTaskRun(
       { task_id: 'bad-id' },
       stubContext,
     );
@@ -237,7 +237,7 @@ describe('task_run tool', () => {
       },
     });
 
-    const result = await taskRunTool.execute(
+    const result = await executeTaskRun(
       {
         task_name: 'multi-input',
         inputs: { file_path: '/home/user/data.csv', url: 'https://api.example.com/upload' },
@@ -259,7 +259,7 @@ describe('task_run tool', () => {
       },
     });
 
-    const result = await taskRunTool.execute(
+    const result = await executeTaskRun(
       { task_name: 'input required' },
       stubContext,
     );
@@ -269,14 +269,14 @@ describe('task_run tool', () => {
   });
 
   test('returns error when neither task_name nor task_id provided', async () => {
-    const result = await taskRunTool.execute({}, stubContext);
+    const result = await executeTaskRun({}, stubContext);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('At least one of task_name or task_id must be provided');
   });
 
   test('returns error with helpful message when no tasks exist', async () => {
-    const result = await taskRunTool.execute(
+    const result = await executeTaskRun(
       { task_name: 'anything' },
       stubContext,
     );
@@ -292,7 +292,7 @@ describe('task_run tool', () => {
       requiredTools: ['file_read', 'bash'],
     });
 
-    const result = await taskRunTool.execute(
+    const result = await executeTaskRun(
       { task_name: 'tools' },
       stubContext,
     );
@@ -329,7 +329,7 @@ describe('task_list tool', () => {
       requiredTools: ['file_read', 'file_write'],
     });
 
-    const result = await taskListTool.execute({}, stubContext);
+    const result = await executeTaskList({}, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Found 2 task template(s)');
@@ -342,7 +342,7 @@ describe('task_list tool', () => {
   });
 
   test('returns empty message when no tasks exist', async () => {
-    const result = await taskListTool.execute({}, stubContext);
+    const result = await executeTaskList({}, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('No task templates found');
@@ -355,7 +355,7 @@ describe('task_list tool', () => {
       template: 'Something',
     });
 
-    const result = await taskListTool.execute({}, stubContext);
+    const result = await executeTaskList({}, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Status: active');
@@ -378,14 +378,14 @@ describe('task_list_show tool', () => {
     createWorkItem({ taskId: task.id, title: 'Work Item Alpha', priorityTier: 0 });
     createWorkItem({ taskId: task.id, title: 'Work Item Beta', notes: 'some notes', priorityTier: 1 });
 
-    const result = await taskListShowTool.execute({}, stubContext);
+    const result = await executeTaskListShow({}, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Opened Tasks window (2 items)');
   });
 
   test('returns empty message when no work items', async () => {
-    const result = await taskListShowTool.execute({}, stubContext);
+    const result = await executeTaskListShow({}, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('no tasks queued');
@@ -399,11 +399,11 @@ describe('task_list_show tool', () => {
     const doneItem = createWorkItem({ taskId: task.id, title: 'Done Item', priorityTier: 1 });
     raw.query('UPDATE work_items SET status = ? WHERE id = ?').run('done', doneItem.id);
 
-    const resultQueued = await taskListShowTool.execute({ status: 'queued' }, stubContext);
+    const resultQueued = await executeTaskListShow({ status: 'queued' }, stubContext);
     expect(resultQueued.isError).toBe(false);
     expect(resultQueued.content).toContain('1 queued item');
 
-    const resultDone = await taskListShowTool.execute({ status: 'done' }, stubContext);
+    const resultDone = await executeTaskListShow({ status: 'done' }, stubContext);
     expect(resultDone.isError).toBe(false);
     expect(resultDone.content).toContain('1 done item');
   });
@@ -422,7 +422,7 @@ describe('task_list_add tool', () => {
   test('successfully enqueues by task_id', async () => {
     const task = createTask({ title: 'Deploy Service', template: 'deploy it' });
 
-    const result = await taskListAddTool.execute({ task_id: task.id }, stubContext);
+    const result = await executeTaskListAdd({ task_id: task.id }, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Enqueued work item');
@@ -433,7 +433,7 @@ describe('task_list_add tool', () => {
   test('successfully enqueues by task_name (case-insensitive match)', async () => {
     createTask({ title: 'Run Database Migration', template: 'migrate' });
 
-    const result = await taskListAddTool.execute({ task_name: 'database migration' }, stubContext);
+    const result = await executeTaskListAdd({ task_name: 'database migration' }, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Enqueued work item');
@@ -444,7 +444,7 @@ describe('task_list_add tool', () => {
     createTask({ title: 'Deploy Frontend', template: 'deploy fe' });
     createTask({ title: 'Deploy Backend', template: 'deploy be' });
 
-    const result = await taskListAddTool.execute({ task_name: 'deploy' }, stubContext);
+    const result = await executeTaskListAdd({ task_name: 'deploy' }, stubContext);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Multiple task definitions match');
@@ -455,21 +455,21 @@ describe('task_list_add tool', () => {
   test('returns error when no matching task found', async () => {
     createTask({ title: 'Existing Task', template: 'do something' });
 
-    const result = await taskListAddTool.execute({ task_name: 'nonexistent' }, stubContext);
+    const result = await executeTaskListAdd({ task_name: 'nonexistent' }, stubContext);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('No task definition found matching "nonexistent"');
   });
 
   test('returns error when no identifiers provided at all', async () => {
-    const result = await taskListAddTool.execute({}, stubContext);
+    const result = await executeTaskListAdd({}, stubContext);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('You must provide either task_id, task_name, or title');
   });
 
   test('creates ad-hoc work item with just title (no task_id or task_name)', async () => {
-    const result = await taskListAddTool.execute(
+    const result = await executeTaskListAdd(
       { title: 'Check Gmail' },
       stubContext,
     );
@@ -483,7 +483,7 @@ describe('task_list_add tool', () => {
   });
 
   test('ad-hoc work item with notes and priority', async () => {
-    const result = await taskListAddTool.execute(
+    const result = await executeTaskListAdd(
       {
         title: 'Buy groceries',
         notes: 'Milk, eggs, bread',
@@ -499,12 +499,12 @@ describe('task_list_add tool', () => {
   });
 
   test('ad-hoc work item shows up in task_list_show', async () => {
-    await taskListAddTool.execute(
+    await executeTaskListAdd(
       { title: 'Call dentist' },
       stubContext,
     );
 
-    const listResult = await taskListShowTool.execute({}, stubContext);
+    const listResult = await executeTaskListShow({}, stubContext);
 
     expect(listResult.isError).toBe(false);
     expect(listResult.content).toContain('Opened Tasks window (1 item)');
@@ -513,7 +513,7 @@ describe('task_list_add tool', () => {
   test('applies optional overrides (title, notes, priority_tier)', async () => {
     const task = createTask({ title: 'Generic Task', template: 'do it' });
 
-    const result = await taskListAddTool.execute(
+    const result = await executeTaskListAdd(
       {
         task_id: task.id,
         title: 'Custom Title Override',
@@ -543,7 +543,7 @@ describe('task_delete tool', () => {
   test('successfully deletes a single task', async () => {
     const task = createTask({ title: 'Doomed Task', template: 'bye' });
 
-    const result = await taskDeleteTool.execute({ task_ids: [task.id] }, stubContext);
+    const result = await executeTaskDelete({ task_ids: [task.id] }, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Deleted task: Doomed Task');
@@ -553,7 +553,7 @@ describe('task_delete tool', () => {
     const t1 = createTask({ title: 'Task One', template: 'one' });
     const t2 = createTask({ title: 'Task Two', template: 'two' });
 
-    const result = await taskDeleteTool.execute({ task_ids: [t1.id, t2.id] }, stubContext);
+    const result = await executeTaskDelete({ task_ids: [t1.id, t2.id] }, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Deleted 2 task(s)');
@@ -562,7 +562,7 @@ describe('task_delete tool', () => {
   });
 
   test('returns error for non-existent task ID', async () => {
-    const result = await taskDeleteTool.execute({ task_ids: ['nonexistent-id'] }, stubContext);
+    const result = await executeTaskDelete({ task_ids: ['nonexistent-id'] }, stubContext);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('No task template or work item found with ID "nonexistent-id"');
@@ -580,7 +580,7 @@ describe('task_delete tool', () => {
     expect(runsBefore.count).toBe(1);
     expect(itemsBefore.count).toBe(1);
 
-    const result = await taskDeleteTool.execute({ task_ids: [task.id] }, stubContext);
+    const result = await executeTaskDelete({ task_ids: [task.id] }, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Deleted task: Parent Task');

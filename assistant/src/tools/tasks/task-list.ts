@@ -1,16 +1,5 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { listTasks } from '../../tasks/task-store.js';
-
-const definition: ToolDefinition = {
-  name: 'task_list',
-  description: 'List saved task templates (reusable definitions). To see your active Tasks (work items), use task_list_show instead.',
-  input_schema: {
-    type: 'object',
-    properties: {},
-  },
-};
 
 export async function executeTaskList(
   _input: Record<string, unknown>,
@@ -53,20 +42,3 @@ export async function executeTaskList(
     return { content: `Error: ${msg}`, isError: true };
   }
 }
-
-class TaskListTool implements Tool {
-  name = 'task_list';
-  description = definition.description;
-  category = 'tasks';
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  }
-
-  async execute(_input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeTaskList(_input, _context);
-  }
-}
-
-export const taskListTool = new TaskListTool();

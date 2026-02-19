@@ -15,7 +15,6 @@ import { accountManageTool } from './credentials/account-registry.js';
 import { screenWatchTool } from './watch/screen-watch.js';
 import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
 import { cliDiscoverTool } from './host-terminal/cli-discover.js';
-import { taskSaveTool, taskRunTool, taskListTool, taskDeleteTool, taskListShowTool, taskListAddTool, taskListUpdateTool, taskListRemoveTool } from './tasks/index.js';
 import {
   subagentSpawnTool,
   subagentStatusTool,
@@ -88,14 +87,6 @@ export const explicitTools: Tool[] = [
   screenWatchTool,
   vellumSkillsCatalogTool,
   cliDiscoverTool,
-  taskSaveTool,
-  taskRunTool,
-  taskListTool,
-  taskDeleteTool,
-  taskListShowTool,
-  taskListAddTool,
-  taskListUpdateTool,
-  taskListRemoveTool,
   subagentSpawnTool,
   subagentStatusTool,
   subagentAbortTool,
