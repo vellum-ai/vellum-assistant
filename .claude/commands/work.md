@@ -28,21 +28,19 @@ If you need to break it down into multiple PRs:
 
 If you can implement it in a single PR:
 
-- Create a PR for it using `.claude/ship`. Build the body with a heredoc so task text with special characters doesn't break quoting:
+- Create a PR for it using `.claude/ship`. Build the body in a variable first (BODY_EOF delimiter MUST be at column 0), then ship:
 
-  ```bash
-  PR_BODY=$(cat <<'BODY_EOF'
-  ## Summary
-  <1-3 bullet points>
+PR_BODY=$(cat <<'BODY_EOF'
+## Summary
+<1-3 bullet points>
 
-  ## Task
-  <the verbatim task — from $ARGUMENTS if provided, or the exact TODO item text>
+## Task
+<the verbatim task — from $ARGUMENTS if provided, or the exact TODO item text>
 
-  🤖 Generated with [Claude Code](https://claude.com/claude-code)
-  BODY_EOF
-  )
-  .claude/ship --commit-msg "<message>" --title "<title>" --body "$PR_BODY" --base main --merge --track-unreviewed --pull-base
-  ```
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+BODY_EOF
+)
+.claude/ship --commit-msg "<message>" --title "<title>" --body "$PR_BODY" --base main --merge --track-unreviewed --pull-base
 
   Output the PR link.
 - Append the link to only this new PR to .private/UNREVIEWED_PRS.md

@@ -88,7 +88,7 @@ Read the next PR section from the plan. Implement all changes in the worktree.
 
 #### 8d. Ship (do NOT merge)
 
-**Run from the worktree root** (not `assistant/` or the main repo):
+**Run these commands from the main repo** (`.private/` only exists there, not in worktrees):
 
 ```bash
 PLAN_CONTENT=$(cat ".private/plans/<plan-filename>")
@@ -105,6 +105,11 @@ Part of plan: <plan filename> (PR <X> of <total>)
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 VELLUM_PR_BODY
 )
+```
+
+**Then ship from the worktree root** (`.claude/ship` must run from the worktree, not `assistant/`):
+
+```bash
 cd <worktree> && .claude/ship \
   --commit-msg "<commit message>" \
   --title "<title from plan>" \
