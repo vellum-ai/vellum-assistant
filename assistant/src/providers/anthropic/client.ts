@@ -340,11 +340,13 @@ export class AnthropicProvider implements Provider {
   private client: Anthropic;
   private model: string;
   private useNativeWebSearch: boolean;
+  private streamTimeoutMs: number;
 
-  constructor(apiKey: string, model: string, options: { useNativeWebSearch?: boolean } = {}) {
+  constructor(apiKey: string, model: string, options: { useNativeWebSearch?: boolean; streamTimeoutMs?: number } = {}) {
     this.client = new Anthropic({ apiKey });
     this.model = model;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
+    this.streamTimeoutMs = options.streamTimeoutMs ?? 300_000;
   }
 
   async sendMessage(
@@ -484,7 +486,27 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      const stream = this.client.messages.stream(params, { signal });
+      // Create a local AbortController that aborts after streamTimeoutMs.
+      // If the caller already provided a signal, link it so external
+      // cancellation also aborts the stream.
+      const timeoutController = new AbortController();
+      const timeoutHandle = setTimeout(() => {
+        timeoutController.abort(new Error(`Provider stream timed out after ${this.streamTimeoutMs / 1000}s`));
+      }, this.streamTimeoutMs);
+
+      const onExternalAbort = () => {
+        timeoutController.abort(signal!.reason);
+      };
+      if (signal) {
+        if (signal.aborted) {
+          clearTimeout(timeoutHandle);
+          timeoutController.abort(signal.reason);
+        } else {
+          signal.addEventListener('abort', onExternalAbort, { once: true });
+        }
+      }
+
+      const stream = this.client.messages.stream(params, { signal: timeoutController.signal });
 
       stream.on("text", (text) => {
         onEvent?.({ type: "text_delta", text });
@@ -542,7 +564,13 @@ export class AnthropicProvider implements Provider {
         }
       });
 
-      const response = await stream.finalMessage();
+      let response: Anthropic.Message;
+      try {
+        response = await stream.finalMessage();
+      } finally {
+        clearTimeout(timeoutHandle);
+        signal?.removeEventListener('abort', onExternalAbort);
+      }
 
       return {
         content: response.content.map((block) =>

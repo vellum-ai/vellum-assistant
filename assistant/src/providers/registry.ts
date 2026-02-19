@@ -80,6 +80,7 @@ export interface ProvidersConfig {
   provider: string;
   model: string;
   webSearchProvider?: string;
+  timeouts?: { providerStreamTimeoutSec?: number };
 }
 
 function resolveModel(config: ProvidersConfig, providerName: keyof typeof DEFAULT_MODELS): string {
@@ -104,6 +105,7 @@ export function initializeProviders(config: ProvidersConfig): void {
     registerProvider('anthropic', new RetryProvider(
       wrapWithLogfire(new AnthropicProvider(config.apiKeys.anthropic, model, {
         useNativeWebSearch: config.webSearchProvider === 'anthropic-native',
+        streamTimeoutMs: (config.timeouts?.providerStreamTimeoutSec ?? 300) * 1000,
       })),
     ));
   }
