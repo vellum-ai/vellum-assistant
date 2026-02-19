@@ -19,9 +19,10 @@ struct InlineVideoAttachmentView: View {
     @State private var isLoading = false
     @State private var failed = false
     @State private var videoAspectRatio: CGFloat = 3.0 / 4.0
+    @State private var isHovering = false
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topTrailing) {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(VColor.surface)
                 .overlay(
@@ -39,9 +40,22 @@ struct InlineVideoAttachmentView: View {
             } else {
                 placeholderView
             }
+
+            if !failed && !isLoading && isHovering {
+                Button(action: saveVideo) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.white)
+                        .shadow(radius: 2)
+                }
+                .buttonStyle(.plain)
+                .padding(VSpacing.sm)
+                .accessibilityLabel("Save video")
+            }
         }
         .frame(maxWidth: 360)
         .aspectRatio(videoAspectRatio, contentMode: .fit)
+        .onHover { isHovering = $0 }
         .onDisappear {
             player?.pause()
             player = nil
@@ -159,6 +173,34 @@ struct InlineVideoAttachmentView: View {
                     failed = true
                 }
             }
+        }
+    }
+
+    private func saveVideo() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = (attachment.filename as NSString).lastPathComponent
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let destURL = panel.url else { return }
+
+        if attachment.isLazyLoad {
+            guard let port = daemonHttpPort, let attachmentId = attachment.id.isEmpty ? nil : attachment.id else { return }
+            isLoading = true
+            Task {
+                do {
+                    let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
+                    guard let data = Data(base64Encoded: base64) else {
+                        await MainActor.run { isLoading = false }
+                        return
+                    }
+                    try data.write(to: destURL)
+                    await MainActor.run { isLoading = false }
+                } catch {
+                    await MainActor.run { isLoading = false }
+                }
+            }
+        } else {
+            guard let data = Data(base64Encoded: attachment.data) else { return }
+            try? data.write(to: destURL)
         }
     }
 
