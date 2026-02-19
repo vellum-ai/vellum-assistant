@@ -243,6 +243,10 @@ extension DaemonClient {
             ))
         } catch {
             log.error("Failed to sign bundle payload: \(error.localizedDescription)")
+            try? send(SignBundlePayloadResponseMessage(
+                requestId: msg.requestId,
+                error: error.localizedDescription
+            ))
         }
     }
 
@@ -259,6 +263,10 @@ extension DaemonClient {
             ))
         } catch {
             log.error("Failed to get signing identity: \(error.localizedDescription)")
+            try? send(GetSigningIdentityResponseMessage(
+                requestId: msg.requestId,
+                error: error.localizedDescription
+            ))
         }
     }
     #endif
