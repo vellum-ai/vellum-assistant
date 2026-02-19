@@ -10,6 +10,7 @@ class SceneDelegate: NSObject, UIWindowSceneDelegate {
         guard !provider.client.isConnected else { return }
         Task {
             do {
+                await MainActor.run { provider.isConnected = false }
                 try await provider.client.connect()
                 await MainActor.run { provider.isConnected = true }
             } catch {
