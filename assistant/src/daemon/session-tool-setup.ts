@@ -181,6 +181,12 @@ export function createToolExecutor(
       ctx.sendToClient({ type: 'open_tasks_window' });
     }
 
+    // Broadcast tasks_changed so connected clients (e.g. macOS Tasks window)
+    // auto-refresh when the LLM mutates the task queue via tools
+    if ((name === 'task_list_add' || name === 'task_list_update' || name === 'task_list_remove') && !result.isError) {
+      broadcastToAllClients?.({ type: 'tasks_changed' });
+    }
+
     // Auto-refresh workspace surfaces when app files are edited
     if ((name === 'app_file_edit' || name === 'app_file_write') && !result.isError) {
       const appId = input.app_id as string | undefined;
