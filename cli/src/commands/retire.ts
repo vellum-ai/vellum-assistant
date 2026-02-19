@@ -92,12 +92,22 @@ async function retireCustom(entry: AssistantEntry): Promise<void> {
   console.log(`\u2705 Custom instance retired.`);
 }
 
+function parseSource(): string | undefined {
+  const args = process.argv.slice(4);
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--source" && args[i + 1]) {
+      return args[i + 1];
+    }
+  }
+  return undefined;
+}
+
 export async function retire(): Promise<void> {
   const name = process.argv[3];
 
   if (!name) {
     console.error("Error: Instance name is required.");
-    console.error("Usage: vellum-cli retire <name>");
+    console.error("Usage: vellum-cli retire <name> [--source <source>]");
     process.exit(1);
   }
 
@@ -108,6 +118,7 @@ export async function retire(): Promise<void> {
     process.exit(1);
   }
 
+  const source = parseSource();
   const cloud = resolveCloud(entry);
 
   if (cloud === "gcp") {
@@ -117,14 +128,14 @@ export async function retire(): Promise<void> {
       console.error("Error: GCP project and zone not found in assistant config.");
       process.exit(1);
     }
-    await retireGcpInstance(name, project, zone);
+    await retireGcpInstance(name, project, zone, source);
   } else if (cloud === "aws") {
     const region = entry.region;
     if (!region) {
       console.error("Error: AWS region not found in assistant config.");
       process.exit(1);
     }
-    await retireAwsInstance(name, region);
+    await retireAwsInstance(name, region, source);
   } else if (cloud === "local") {
     await retireLocal();
   } else if (cloud === "custom") {

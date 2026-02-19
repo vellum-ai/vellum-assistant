@@ -278,6 +278,7 @@ export async function retireInstance(
   name: string,
   project: string,
   zone: string,
+  source?: string,
 ): Promise<void> {
   const exists = await instanceExists(name, project, zone);
   if (!exists) {
@@ -285,6 +286,22 @@ export async function retireInstance(
       `\u26a0\ufe0f  Instance ${name} not found in GCP (project=${project}, zone=${zone}).`,
     );
     return;
+  }
+
+  if (source) {
+    try {
+      await exec("gcloud", [
+        "compute",
+        "instances",
+        "add-labels",
+        name,
+        `--project=${project}`,
+        `--zone=${zone}`,
+        `--labels=retired-by=${source}`,
+      ]);
+    } catch {
+      console.warn(`\u26a0\ufe0f  Could not label instance before deletion`);
+    }
   }
 
   console.log(`\u{1F5D1}\ufe0f  Deleting GCP instance ${name}\n`);
