@@ -722,9 +722,9 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
   console.log("");
 
   console.log("🔨 Starting local daemon...");
-  const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
 
-  if (existsSync(daemonBinary)) {
+  if (process.env.VELLUM_DESKTOP_APP) {
+    const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
     const child = spawn(daemonBinary, [], {
       detached: true,
       stdio: "ignore",
