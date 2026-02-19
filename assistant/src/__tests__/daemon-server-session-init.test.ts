@@ -93,6 +93,13 @@ class MockSession {
   }
 }
 
+// Mock child_process to prevent getScreenDimensions() from running Swift on Linux CI
+// where CoreGraphics is not available and the execSync call hangs for 10s.
+mock.module('node:child_process', () => ({
+  execSync: () => '1920x1080',
+  execFileSync: () => '',
+}));
+
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
     get: () => () => {},
