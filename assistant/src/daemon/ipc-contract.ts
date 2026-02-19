@@ -501,6 +501,29 @@ export interface TwitterIntegrationConfigResponse {
   error?: string;
 }
 
+export interface TwitterAuthStartRequest {
+  type: 'twitter_auth_start';
+}
+
+export interface TwitterAuthStatusRequest {
+  type: 'twitter_auth_status';
+}
+
+export interface TwitterAuthResult {
+  type: 'twitter_auth_result';
+  success: boolean;
+  accountInfo?: string;
+  error?: string;
+}
+
+export interface TwitterAuthStatusResponse {
+  type: 'twitter_auth_status_response';
+  connected: boolean;
+  accountInfo?: string;
+  mode?: 'local_byo' | 'managed';
+  error?: string;
+}
+
 export interface LinkOpenRequest {
   type: 'link_open_request';
   url: string;
@@ -911,6 +934,8 @@ export type ClientMessage =
   | SlackWebhookConfigRequest
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
+  | TwitterAuthStartRequest
+  | TwitterAuthStatusRequest
   | SessionsClearRequest
   | GalleryListRequest
   | GalleryInstallRequest
@@ -2112,6 +2137,8 @@ export type ServerMessage =
   | SlackWebhookConfigResponse
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse
+  | TwitterAuthResult
+  | TwitterAuthStatusResponse
   | OpenUrl
   | AppUpdatePreviewResponse
   | AppPreviewResponse
