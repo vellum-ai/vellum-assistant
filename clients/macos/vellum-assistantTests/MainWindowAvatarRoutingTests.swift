@@ -45,6 +45,28 @@ final class MainWindowAvatarRoutingTests: XCTestCase {
         daemonClient.disconnect()
     }
 
+    // MARK: - Callback Contract Tests
+
+    /// Verifies that IdentityPanel's init signature requires an onCustomizeAvatar callback.
+    /// Instantiates a real IdentityPanel so the test fails to compile if the parameter is removed.
+    func testIdentityPanelRequiresCustomizeAvatarCallback() {
+        var customizeCalled = false
+        var closeCalled = false
+
+        let panel = IdentityPanel(
+            onClose: { closeCalled = true },
+            onCustomizeAvatar: { customizeCalled = true },
+            daemonClient: DaemonClient()
+        )
+
+        // Verify callbacks are wired — invoke them directly to confirm the closures passed through
+        panel.onClose()
+        panel.onCustomizeAvatar()
+
+        XCTAssertTrue(closeCalled)
+        XCTAssertTrue(customizeCalled)
+    }
+
     // MARK: - State Transition Tests
 
     func testAvatarCustomizationIsDistinctFromIdentity() {
