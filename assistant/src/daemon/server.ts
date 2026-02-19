@@ -36,6 +36,7 @@ import { assistantEventHub } from '../runtime/assistant-event-hub.js';
 import { buildAssistantEvent } from '../runtime/assistant-event.js';
 import { SessionEvictor } from './session-evictor.js';
 import { getSubagentManager } from '../subagent/index.js';
+import { tryHandlePendingCallAnswer } from '../calls/call-bridge.js';
 
 const log = getLogger('server');
 
@@ -1006,6 +1007,23 @@ export class DaemonServer {
     const requestId = crypto.randomUUID();
     const messageId = session.persistUserMessage(content, attachments, requestId);
 
+    // Attempt the call-answer bridge before launching the agent loop.
+    // If the message is consumed as a call answer, skip the agent loop.
+    try {
+      const bridgeResult = await tryHandlePendingCallAnswer(conversationId, content, messageId);
+      if (bridgeResult.handled) {
+        // The message was consumed by the call system. Release the
+        // processing lock so the session can accept subsequent messages.
+        // runAgentLoop normally does this in its finally block, but we
+        // skipped it entirely.
+        resetSessionProcessingState(session);
+        log.info({ conversationId, messageId }, 'User message consumed by call-answer bridge, skipping agent loop');
+        return { messageId };
+      }
+    } catch (err) {
+      log.warn({ err, conversationId }, 'Call-answer bridge check failed (non-fatal), proceeding with agent loop');
+    }
+
     // Fire-and-forget the agent loop. Errors are logged but do not
     // affect the HTTP response (the client polls GET /messages).
     session.runAgentLoop(content, messageId, () => {}).catch((err) => {
@@ -1054,7 +1072,23 @@ export class DaemonServer {
         }))
       : [];
 
-    const messageId = await session.processMessage(content, attachments, () => {}, crypto.randomUUID());
+    // Persist user message first so we can check the call bridge
+    const requestId = crypto.randomUUID();
+    const messageId = session.persistUserMessage(content, attachments, requestId);
+
+    // Attempt the call-answer bridge before launching the agent loop.
+    try {
+      const bridgeResult = await tryHandlePendingCallAnswer(conversationId, content, messageId);
+      if (bridgeResult.handled) {
+        resetSessionProcessingState(session);
+        log.info({ conversationId, messageId }, 'User message consumed by call-answer bridge, skipping agent loop');
+        return { messageId };
+      }
+    } catch (err) {
+      log.warn({ err, conversationId }, 'Call-answer bridge check failed (non-fatal), proceeding with agent loop');
+    }
+
+    await session.runAgentLoop(content, messageId, () => {});
 
     if (!messageId) {
       throw new Error('Failed to persist user message');
@@ -1080,4 +1114,19 @@ export class DaemonServer {
     });
   }
 
+}
+
+/**
+ * Reset the processing state set by `persistUserMessage` when the agent loop
+ * is intentionally skipped (e.g. call-answer bridge consumed the message).
+ */
+function resetSessionProcessingState(session: Session): void {
+  const s = session as unknown as {
+    processing: boolean;
+    abortController: AbortController | null;
+    currentRequestId: string | undefined;
+  };
+  s.processing = false;
+  s.abortController = null;
+  s.currentRequestId = undefined;
 }

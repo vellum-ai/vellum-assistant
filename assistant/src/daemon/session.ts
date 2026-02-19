@@ -28,6 +28,13 @@ import {
 } from '../tools/watch/watch-state.js';
 import type { WatchSession } from '../tools/watch/watch-state.js';
 import { lastCommentaryBySession, lastSummaryBySession } from './watch-handler.js';
+import {
+  registerCallQuestionNotifier,
+  unregisterCallQuestionNotifier,
+  registerCallCompletionNotifier,
+  unregisterCallCompletionNotifier,
+} from '../calls/call-state.js';
+import { getCallSession, getCallEvents } from '../calls/call-store.js';
 import { createToolDomainEventPublisher } from '../events/tool-domain-event-publisher.js';
 import { registerToolMetricsLoggingListener } from '../events/tool-metrics-listener.js';
 import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
@@ -259,6 +266,59 @@ export class Session {
       }
     });
 
+    // ── Call notifiers (same pattern as watch notifiers) ──
+    registerCallQuestionNotifier(conversationId, (callSessionId: string, question: string) => {
+      const callSession = getCallSession(callSessionId);
+      const callee = callSession?.toNumber ?? 'the caller';
+      const questionText = `**Live call question** (to ${callee}):\n\n${question}\n\n_Reply in this thread to answer._`;
+
+      // Persist as an assistant message so it appears in history
+      conversationStore.addMessage(
+        conversationId,
+        'assistant',
+        JSON.stringify([{ type: 'text', text: questionText }]),
+      );
+
+      // Emit to active clients in real-time
+      this.sendToClient({
+        type: 'assistant_text_delta',
+        text: questionText,
+        sessionId: conversationId,
+      });
+      this.sendToClient({
+        type: 'message_complete',
+        sessionId: conversationId,
+      });
+    });
+
+    registerCallCompletionNotifier(conversationId, (callSessionId: string) => {
+      const callSession = getCallSession(callSessionId);
+      const events = getCallEvents(callSessionId);
+      const duration = callSession?.endedAt && callSession?.startedAt
+        ? Math.round((callSession.endedAt - callSession.startedAt) / 1000)
+        : null;
+      const durationStr = duration !== null ? ` (${duration}s)` : '';
+      const summaryText = `**Call completed**${durationStr}. ${events.length} event(s) recorded.`;
+
+      // Persist as an assistant message
+      conversationStore.addMessage(
+        conversationId,
+        'assistant',
+        JSON.stringify([{ type: 'text', text: summaryText }]),
+      );
+
+      // Emit to active clients
+      this.sendToClient({
+        type: 'assistant_text_delta',
+        text: summaryText,
+        sessionId: conversationId,
+      });
+      this.sendToClient({
+        type: 'message_complete',
+        sessionId: conversationId,
+      });
+    });
+
     this.executor = new ToolExecutor(this.prompter);
     this.profiler = new ToolProfiler();
     registerToolMetricsLoggingListener(this.eventBus);
@@ -461,6 +521,8 @@ export class Session {
       unregisterWatchCommentaryNotifier(this.conversationId);
       unregisterWatchCompletionNotifier(this.conversationId);
       pruneWatchSessions(this.conversationId);
+      unregisterCallQuestionNotifier(this.conversationId);
+      unregisterCallCompletionNotifier(this.conversationId);
 
       // Clear queued messages and notify each caller with a session-scoped
       // cancel event so other sessions do not receive cross-thread errors.
@@ -477,6 +539,11 @@ export class Session {
       sessionId: this.conversationId,
     });
     this.abort();
+    // Unconditionally unregister call notifiers (abort() only cleans up
+    // when processing is true, but notifiers are registered in the
+    // constructor regardless of processing state).
+    unregisterCallQuestionNotifier(this.conversationId);
+    unregisterCallCompletionNotifier(this.conversationId);
     unregisterSessionSender(this.conversationId);
     resetSkillToolProjection(this.skillProjectionState);
     this.eventBus.dispose();
