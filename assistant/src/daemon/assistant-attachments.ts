@@ -640,21 +640,30 @@ export function cleanAssistantContent(
 // ---------------------------------------------------------------------------
 
 /**
- * De-duplicate drafts by content hash alone.
+ * De-duplicate drafts by filename + content hash.
  *
- * Uses a fast hash of the entire base64 payload so that identical file
- * content is only attached once — even when the same data appears under
- * different filenames (e.g. a directive tag with an explicit name vs. an
- * auto-converted tool block named "tool-output.png").  The first
- * occurrence wins, which is the directive draft when directives are
- * listed before tool blocks, preserving the user-chosen filename.
+ * Exact duplicates (same name, same bytes) are always collapsed.
+ * Additionally, tool_block drafts whose content already appeared from a
+ * non-tool source (directive) are dropped — this prevents the same file
+ * data from being attached twice when it appears as both a directive tag
+ * (user-chosen name) and an auto-converted tool block ("tool-output.png").
  */
 export function deduplicateDrafts(drafts: AssistantAttachmentDraft[]): AssistantAttachmentDraft[] {
-  const seen = new Set<string>();
+  const seenKeys = new Set<string>();
+  const seenDirectiveHashes = new Set<string>();
   return drafts.filter((d) => {
     const hash = Bun.hash(d.dataBase64).toString(36);
-    if (seen.has(hash)) return false;
-    seen.add(hash);
+    const key = `${d.filename}:${hash}`;
+
+    // Exact duplicate (same filename + same content): always skip.
+    if (seenKeys.has(key)) return false;
+
+    // Tool-block draft whose content was already attached via a directive:
+    // drop the tool-block copy so the directive's user-chosen name wins.
+    if (d.sourceType === 'tool_block' && seenDirectiveHashes.has(hash)) return false;
+
+    seenKeys.add(key);
+    if (d.sourceType !== 'tool_block') seenDirectiveHashes.add(hash);
     return true;
   });
 }

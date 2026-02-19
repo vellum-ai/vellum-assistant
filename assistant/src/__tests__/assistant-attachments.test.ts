@@ -385,7 +385,7 @@ describe('deduplicateDrafts', () => {
     expect(result[1].filename).toBe('other.txt');
   });
 
-  test('removes duplicates with different filenames but identical content', () => {
+  test('drops tool_block duplicate when directive has same content', () => {
     // Simulates directive tag ("chart.png") + auto-converted tool block
     // ("tool-output.png") for the same file data — the directive draft
     // should win because it appears first in the merged array.
@@ -396,6 +396,20 @@ describe('deduplicateDrafts', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].filename).toBe('chart.png');
+  });
+
+  test('keeps non-tool drafts with different filenames but identical content', () => {
+    // Two distinct files that happen to have the same bytes (e.g. empty
+    // files, or before.json / after.json with identical content) should
+    // both be kept.
+    const data = 'AAAA'.repeat(20);
+    const d1 = makeDraft({ sourceType: 'sandbox_file', filename: 'before.json', dataBase64: data });
+    const d2 = makeDraft({ sourceType: 'sandbox_file', filename: 'after.json', dataBase64: data });
+    const result = deduplicateDrafts([d1, d2]);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].filename).toBe('before.json');
+    expect(result[1].filename).toBe('after.json');
   });
 
   test('keeps drafts with same filename but different content', () => {
