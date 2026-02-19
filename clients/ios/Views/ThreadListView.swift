@@ -187,7 +187,9 @@ struct ThreadListView: View {
                     store.viewModel(for: selectedId).consumeDeepLinkIfNeeded()
                 }
                 .onOpenURL { _ in
-                    store.viewModel(for: selectedId).consumeDeepLinkIfNeeded()
+                    DispatchQueue.main.async {
+                        store.viewModel(for: selectedId).consumeDeepLinkIfNeeded()
+                    }
                 }
         } else {
             Text("Select a chat")
