@@ -1724,6 +1724,12 @@ extension IPCEnvVarsRequest {
 /// Backed by generated `IPCEnvVarsResponse`.
 public typealias EnvVarsResponseMessage = IPCEnvVarsResponse
 
+extension IPCSessionSwitchRequest {
+    public init(sessionId: String) {
+        self.init(type: "session_switch", sessionId: sessionId)
+    }
+}
+
 /// Wraps any ServerMessage emitted by a subagent session for routing to the client.
 /// Hand-maintained because `event` is a recursive `ServerMessage` reference (codegen skips ServerMessage).
 /// Wire type: `"subagent_event"`
