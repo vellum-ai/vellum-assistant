@@ -211,8 +211,8 @@ async function graphql<T = unknown>(
     }
 
     try {
-      const json = (await cdpFetch(wsUrl, url, body)) as GraphQLResponse<T>;
       lastRequestTime = Date.now();
+      const json = (await cdpFetch(wsUrl, url, body)) as GraphQLResponse<T>;
 
       if (json.errors?.length) {
         const msgs = json.errors.map(e => e.message || JSON.stringify(e)).join('; ');
