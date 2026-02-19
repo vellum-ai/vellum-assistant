@@ -28,6 +28,7 @@ struct ChatBubble: View {
     @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
     @State private var stepsExpanded = false
+    @ObservedObject private var taskProgressOverlay = TaskProgressOverlayManager.shared
 
     private var isUser: Bool { message.role == .user }
     private var canReportMessage: Bool {
@@ -83,9 +84,11 @@ struct ChatBubble: View {
     /// that should not appear above the rendered dynamic UI surface.
     private var shouldShowBubble: Bool {
         if isUser { return true }
-        if !message.inlineSurfaces.isEmpty {
-            // Show bubble text when all surfaces are completed (collapsed to chips)
-            let allCompleted = message.inlineSurfaces.allSatisfy { $0.completionState != nil }
+        // Filter out the surface shown in the floating overlay
+        let visibleSurfaces = message.inlineSurfaces.filter { $0.id != taskProgressOverlay.activeSurfaceId }
+        if !visibleSurfaces.isEmpty {
+            // Show bubble text when all visible surfaces are completed (collapsed to chips)
+            let allCompleted = visibleSurfaces.allSatisfy { $0.completionState != nil }
             if !allCompleted { return false }
         }
         return hasText || !message.attachments.isEmpty
@@ -114,8 +117,9 @@ struct ChatBubble: View {
                     }
 
                     // Inline surfaces render below the bubble as full-width cards
+                    // Skip surfaces that are currently shown in the floating overlay
                     if !message.inlineSurfaces.isEmpty {
-                        ForEach(message.inlineSurfaces) { surface in
+                        ForEach(message.inlineSurfaces.filter { $0.id != taskProgressOverlay.activeSurfaceId }) { surface in
                             InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
                         }
                     }
@@ -670,7 +674,8 @@ struct ChatBubble: View {
                 // Tool calls are rendered by trailingStatus below the message
                 EmptyView()
             case .surface(let i):
-                if i < message.inlineSurfaces.count {
+                if i < message.inlineSurfaces.count,
+                   message.inlineSurfaces[i].id != taskProgressOverlay.activeSurfaceId {
                     InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction)
                 }
             }

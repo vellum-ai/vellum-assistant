@@ -920,6 +920,16 @@ extension ChatViewModel {
                 break
             }
 
+            // Show floating overlay for task_progress cards (macOS only)
+            #if os(macOS)
+            if case .card(let cardData) = surface.data,
+               cardData.template == "task_progress",
+               let templateData = cardData.templateData,
+               let progressData = TaskProgressData.parse(from: templateData, fallbackTitle: cardData.title) {
+                TaskProgressOverlayManager.shared.show(data: progressData, surfaceId: msg.surfaceId)
+            }
+            #endif
+
             // On macOS, dynamic pages with no explicit display mode (or "panel")
             // are routed to the workspace by SurfaceManager. If the dynamic page
             // has a preview, also render a compact preview card inline in chat.
@@ -1004,6 +1014,15 @@ extension ChatViewModel {
                             actions: updated.actions,
                             surfaceMessage: existing.surfaceMessage
                         )
+                        // Update floating overlay for task_progress cards (macOS only)
+                        #if os(macOS)
+                        if case .card(let cardData) = updated.data,
+                           cardData.template == "task_progress",
+                           let templateData = cardData.templateData,
+                           let progressData = TaskProgressData.parse(from: templateData, fallbackTitle: cardData.title) {
+                            TaskProgressOverlayManager.shared.update(data: progressData, surfaceId: msg.surfaceId)
+                        }
+                        #endif
                     }
                     return
                 }
@@ -1021,6 +1040,10 @@ extension ChatViewModel {
 
         case .uiSurfaceComplete(let msg):
             guard belongsToSession(msg.sessionId) else { return }
+            // Dismiss floating overlay for task_progress cards (macOS only)
+            #if os(macOS)
+            TaskProgressOverlayManager.shared.dismiss(surfaceId: msg.surfaceId)
+            #endif
             // Find the inline surface across all messages and set its completionState
             for msgIndex in messages.indices {
                 if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {
