@@ -1019,34 +1019,33 @@ export class DaemonServer {
         }))
       : [];
 
-    // persistUserMessage throws if the session is busy or persistence fails
-    const requestId = crypto.randomUUID();
-    const messageId = session.persistUserMessage(content, attachments, requestId);
-
     // Attempt the call-answer bridge before launching the agent loop.
-    // The bridge check is in its own try/catch so that a bridge failure
-    // (non-fatal) falls through to the agent loop, but post-bridge cleanup
-    // errors propagate to the caller.
+    // The bridge check doesn't require persistence (the messageId param
+    // is reserved for future use), so we can check it before delegating
+    // to session.processMessage().
     let bridgeHandled = false;
     try {
-      const bridgeResult = await tryHandlePendingCallAnswer(conversationId, content, messageId);
+      const bridgeResult = await tryHandlePendingCallAnswer(conversationId, content);
       bridgeHandled = bridgeResult.handled;
     } catch (err) {
       log.warn({ err, conversationId }, 'Call-answer bridge check failed (non-fatal), proceeding with agent loop');
     }
 
     if (bridgeHandled) {
-      // The message was consumed by the call system. Release the
-      // processing lock so the session can accept subsequent messages.
-      // runAgentLoop normally does this in its finally block, but we
-      // skipped it entirely.
+      // The message was consumed by the call system. Persist it so the
+      // conversation history is accurate, then release the session.
+      const requestId = crypto.randomUUID();
+      const messageId = session.persistUserMessage(content, attachments, requestId);
       resetSessionProcessingState(session);
       // Drain any queued messages that arrived while processing was true.
-      // runAgentLoop normally drains in its finally block, but we skipped it.
       session.drainQueue('loop_complete');
       log.info({ conversationId, messageId }, 'User message consumed by call-answer bridge, skipping agent loop');
       return { messageId };
     }
+
+    // persistUserMessage throws if the session is busy or persistence fails
+    const requestId = crypto.randomUUID();
+    const messageId = session.persistUserMessage(content, attachments, requestId);
 
     // Fire-and-forget the agent loop. Errors are logged but do not
     // affect the HTTP response (the client polls GET /messages).
@@ -1093,27 +1092,23 @@ export class DaemonServer {
         }))
       : [];
 
-    // Persist the user message first so that processing=true is set before
-    // any async work.  This prevents two concurrent requests from both
-    // passing the isProcessing() guard and racing through bridge handling.
-    const requestId = crypto.randomUUID();
-    const messageId = session.persistUserMessage(content, attachments, requestId);
-
     // Check the call-answer bridge before launching the agent loop.
-    // The bridge check is in its own try/catch so that a bridge failure
-    // (non-fatal) falls through to the agent loop, but post-bridge cleanup
-    // errors propagate to the caller.
+    // The bridge check doesn't require persistence (the messageId param
+    // is reserved for future use), so we can check it before delegating
+    // to session.processMessage().
     let bridgeHandled = false;
     try {
-      const bridgeResult = await tryHandlePendingCallAnswer(conversationId, content, messageId);
+      const bridgeResult = await tryHandlePendingCallAnswer(conversationId, content);
       bridgeHandled = bridgeResult.handled;
     } catch (err) {
       log.warn({ err, conversationId }, 'Call-answer bridge check failed (non-fatal), proceeding with agent loop');
     }
 
     if (bridgeHandled) {
-      // The message was consumed by the call system. Release the
-      // processing lock so the session can accept subsequent messages.
+      // The message was consumed by the call system. Persist it so the
+      // conversation history is accurate, then release the session.
+      const requestId = crypto.randomUUID();
+      const messageId = session.persistUserMessage(content, attachments, requestId);
       resetSessionProcessingState(session);
       // Drain any queued messages that arrived while processing was true.
       session.drainQueue('loop_complete');
@@ -1121,8 +1116,10 @@ export class DaemonServer {
       return { messageId };
     }
 
-    // Run the agent loop directly — persistence already happened above.
-    await session.runAgentLoop(content, messageId, () => {});
+    // Delegate to session.processMessage() which handles slash-command
+    // resolution, skill preactivation, message persistence, and the
+    // agent loop in the correct order.
+    const messageId = await session.processMessage(content, attachments, () => {});
 
     return { messageId };
   }
