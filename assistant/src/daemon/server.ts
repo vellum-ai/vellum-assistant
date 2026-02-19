@@ -1129,12 +1129,19 @@ export class DaemonServer {
     // window that previously existed between the guard and the async bridge
     // check.
     const requestId = crypto.randomUUID();
-    const messageId = session.persistUserMessage(resolvedContent, attachments, requestId);
+    let messageId: string;
+    try {
+      messageId = session.persistUserMessage(resolvedContent, attachments, requestId);
+    } catch (err) {
+      // runAgentLoop never ran, so its finally block won't clear this
+      (session as unknown as { preactivatedSkillIds?: string[] }).preactivatedSkillIds = undefined;
+      throw err;
+    }
 
     // Now that the processing lock is held, check the call-answer bridge.
     let bridgeHandled = false;
     try {
-      const bridgeResult = await tryHandlePendingCallAnswer(conversationId, resolvedContent, messageId);
+      const bridgeResult = await tryHandlePendingCallAnswer(conversationId, content, messageId);
       bridgeHandled = bridgeResult.handled;
     } catch (err) {
       log.warn({ err, conversationId }, 'Call-answer bridge check failed (non-fatal), proceeding with agent loop');
