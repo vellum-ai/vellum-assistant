@@ -1508,7 +1508,6 @@ public struct IPCSubagentStatusRequest: Codable, Sendable {
     public let type: String
     /// If omitted, returns all subagents for the session.
     public let subagentId: String?
-    public let sessionId: String
 }
 
 public struct IPCSuggestionRequest: Codable, Sendable {
@@ -1980,11 +1979,6 @@ public struct IPCWorkItemCancelResponse: Codable, Sendable {
 }
 
 public struct IPCWorkItemCompleteRequest: Codable, Sendable {
-    public let type: String
-    public let id: String
-}
-
-public struct IPCWorkItemRenderRequest: Codable, Sendable {
     public let type: String
     public let id: String
 }
