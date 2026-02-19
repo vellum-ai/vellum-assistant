@@ -191,8 +191,8 @@ struct SettingsView: View {
                                 trustRuleRow(rule)
                             }
                             .onDelete { indexSet in
-                                for index in indexSet {
-                                    let rule = trustRules[index]
+                                let rulesToDelete = indexSet.map { trustRules[$0] }
+                                for rule in rulesToDelete {
                                     deleteRule(rule)
                                 }
                             }
@@ -287,6 +287,16 @@ struct SettingsView: View {
         .onAppear {
             loadSettings()
         }
+        .onDisappear {
+            // Clean up daemon callbacks to prevent stale closures on the shared singleton
+            if let daemon = clientProvider.client as? DaemonClient {
+                daemon.onIntegrationListResponse = nil
+                daemon.onIntegrationConnectResult = nil
+                daemon.onTrustRulesListResponse = nil
+                daemon.onSchedulesListResponse = nil
+                daemon.onRemindersListResponse = nil
+            }
+        }
     }
 
     private func switchClient(to mode: String) {
@@ -298,7 +308,16 @@ struct SettingsView: View {
             newClient = DirectClaudeClient()
         }
         clientProvider.client = newClient
-        Task { try? await clientProvider.client.connect() }
+        Task {
+            try? await clientProvider.client.connect()
+            // Reload Connected-mode data after establishing connection
+            if mode == ConnectionMode.connected.rawValue {
+                loadIntegrations()
+                loadTrustRules()
+                loadSchedules()
+                loadReminders()
+            }
+        }
     }
 
     private func loadSettings() {
@@ -350,7 +369,11 @@ struct SettingsView: View {
                 loadIntegrations()
             }
         }
-        try? daemon.sendIntegrationConnect(integrationId: id)
+        do {
+            try daemon.sendIntegrationConnect(integrationId: id)
+        } catch {
+            connectingIntegrationId = nil
+        }
     }
 
     private func disconnectIntegration(_ id: String) {
@@ -425,7 +448,9 @@ struct SettingsView: View {
     private func deleteRule(_ rule: TrustRuleItem) {
         guard let daemon = clientProvider.client as? DaemonClient else { return }
         try? daemon.send(RemoveTrustRuleMessage(id: rule.id))
-        trustRules.removeAll { $0.id == rule.id }
+        // Refresh from daemon instead of optimistic removal,
+        // in case the delete was rejected (e.g. default/immutable rules)
+        loadTrustRules()
     }
 
     // MARK: - Scheduled Tasks
