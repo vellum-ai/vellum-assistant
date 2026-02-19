@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "followup_create",
+      "description": "Create a follow-up tracker for a sent message. Tracks conversations awaiting a response across channels (email, Slack, WhatsApp, etc.).",
+      "category": "followups",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "description": "Communication channel (e.g. email, slack, whatsapp)"
+          },
+          "thread_id": {
+            "type": "string",
+            "description": "External thread or conversation identifier on that channel"
+          },
+          "contact_id": {
+            "type": "string",
+            "description": "Optional contact ID from the contact graph. Used for grace period context."
+          },
+          "expected_response_hours": {
+            "type": "number",
+            "description": "Hours to wait for a response before marking as overdue. If omitted, no deadline is set."
+          },
+          "reminder_cron_id": {
+            "type": "string",
+            "description": "Optional cron job ID to fire a reminder when overdue"
+          }
+        },
+        "required": ["channel", "thread_id"]
+      },
+      "executor": "tools/followup-create.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "followup_list",
+      "description": "List follow-ups with optional filters by status, channel, or contact. Can also show only overdue follow-ups.",
+      "category": "followups",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["pending", "resolved", "overdue", "nudged"],
+            "description": "Filter by status (pending, resolved, overdue, nudged)"
+          },
+          "channel": {
+            "type": "string",
+            "description": "Filter by communication channel (e.g. email, slack)"
+          },
+          "contact_id": {
+            "type": "string",
+            "description": "Filter by contact ID"
+          },
+          "overdue_only": {
+            "type": "boolean",
+            "description": "When true, return only pending follow-ups past their expected response deadline"
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/followup-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "followup_resolve",
+      "description": "Manually resolve a follow-up by ID, or auto-resolve by channel + thread ID when a response is received.",
+      "category": "followups",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Follow-up ID to resolve directly"
+          },
+          "channel": {
+            "type": "string",
+            "description": "Channel to match (used with thread_id for auto-resolution)"
+          },
+          "thread_id": {
+            "type": "string",
+            "description": "Thread ID to match (used with channel for auto-resolution)"
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/followup-resolve.ts",
+      "execution_target": "host"
+    }
+  ]
+}

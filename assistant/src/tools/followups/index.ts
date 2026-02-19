@@ -1,3 +1,3 @@
-export { followupCreateTool } from './followup_create.js';
-export { followupListTool } from './followup_list.js';
-export { followupResolveTool } from './followup_resolve.js';
+export { executeFollowupCreate } from './followup_create.js';
+export { executeFollowupList } from './followup_list.js';
+export { executeFollowupResolve } from './followup_resolve.js';
