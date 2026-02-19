@@ -418,13 +418,13 @@ export class Session {
       if (result.delivery === 'transient_send') {
         const { credentialBroker } = await import('../tools/credentials/broker.js');
         credentialBroker.injectTransient(service, field, result.value);
-        try { upsertCredentialMetadata(service, field, {}); } catch {}
+        try { upsertCredentialMetadata(service, field, {}); } catch (e) { log.debug({ err: e, service, field }, 'Non-critical credential metadata upsert failed'); }
         log.info({ service, field, delivery: 'transient_send' }, 'Ingress redirect: transient credential injected');
       } else {
         const key = `credential:${service}:${field}`;
         const stored = setSecureKey(key, result.value);
         if (stored) {
-          try { upsertCredentialMetadata(service, field, {}); } catch {}
+          try { upsertCredentialMetadata(service, field, {}); } catch (e) { log.debug({ err: e, service, field }, 'Non-critical credential metadata upsert failed'); }
           log.info({ service, field }, 'Ingress redirect: credential stored');
         } else {
           log.warn({ service, field }, 'Ingress redirect: secure storage write failed');

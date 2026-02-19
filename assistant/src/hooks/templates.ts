@@ -45,7 +45,7 @@ export function installTemplates(): void {
       log.info({ hook: entry.name }, 'Installed hook template (disabled by default)');
     } catch (err) {
       // Clean up partially-copied directory so the next restart can retry
-      try { rmSync(targetDir, { recursive: true, force: true }); } catch {}
+      try { rmSync(targetDir, { recursive: true, force: true }); } catch (e) { log.debug({ err: e }, 'Cleanup of partial hook template directory failed'); }
       log.warn({ err, hook: entry.name }, 'Failed to install hook template');
     }
   }

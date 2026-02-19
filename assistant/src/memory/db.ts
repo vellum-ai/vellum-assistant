@@ -3,6 +3,9 @@ import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { computeMemoryFingerprint } from './fingerprint.js';
 import * as schema from './schema.js';
 import { getDbPath, ensureDataDir, migrateToDataLayout, migrateToWorkspaceLayout } from '../util/platform.js';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('memory-db');
 
 let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 
@@ -337,8 +340,8 @@ export function initializeDb(): void {
     )
   `);
 
-  try { database.run(/*sql*/ `ALTER TABLE published_pages ADD COLUMN app_id TEXT`); } catch {}
-  try { database.run(/*sql*/ `ALTER TABLE published_pages ADD COLUMN project_slug TEXT`); } catch {}
+  try { database.run(/*sql*/ `ALTER TABLE published_pages ADD COLUMN app_id TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE published_pages ADD COLUMN app_id (likely already exists)'); }
+  try { database.run(/*sql*/ `ALTER TABLE published_pages ADD COLUMN project_slug TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE published_pages ADD COLUMN project_slug (likely already exists)'); }
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS shared_app_links (
@@ -824,8 +827,8 @@ export function initializeDb(): void {
   `);
 
   // Work item permission preflight columns
-  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approved_tools TEXT`); } catch {}
-  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approval_status TEXT DEFAULT 'none'`); } catch {}
+  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approved_tools TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE work_items ADD COLUMN approved_tools (likely already exists)'); }
+  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approval_status TEXT DEFAULT 'none'`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE work_items ADD COLUMN approval_status (likely already exists)'); }
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_status ON work_items(status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_task_id ON work_items(task_id)`);

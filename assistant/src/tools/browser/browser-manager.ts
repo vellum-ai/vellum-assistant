@@ -433,7 +433,7 @@ class BrowserManager {
     if (this.browserCdpSession) {
       try {
         await this.browserCdpSession.detach();
-      } catch {}
+      } catch (e) { log.debug({ err: e }, 'CDP session detach failed during shutdown'); }
       this.browserCdpSession = null;
       this.browserWindowId = null;
     }
@@ -489,7 +489,7 @@ class BrowserManager {
       try {
         await cdp.send('Page.stopScreencast');
         await cdp.detach();
-      } catch {}
+      } catch (e) { log.debug({ err: e }, 'Screencast stop / CDP detach failed during cleanup'); }
       this.cdpSessions.delete(sessionId);
       this.screencastCallbacks.delete(sessionId);
     }

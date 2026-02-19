@@ -54,7 +54,7 @@ class DirectCDPClient {
               for (const h of handlers) h(msg.params ?? {});
             }
           }
-        } catch {}
+        } catch (e) { log.debug({ err: e }, 'Failed to parse CDP WebSocket message'); }
       };
     });
   }
@@ -195,7 +195,7 @@ export class NetworkRecorder {
     for (const client of this.pageClients) {
       try {
         await client.send('Network.disable');
-      } catch {}
+      } catch (e) { log.debug({ err: e }, 'Network.disable failed during cleanup'); }
       client.close();
     }
     this.pageClients = [];
