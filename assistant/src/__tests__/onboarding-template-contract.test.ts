@@ -20,10 +20,10 @@ describe('onboarding template contracts', () => {
       expect(bootstrap).not.toMatch(/what is my (character|vibe)/i);
     });
 
-    test('contains emoji self-selection with change-anytime instruction', () => {
+    test('contains emoji auto-selection with change-later instruction', () => {
       const lower = bootstrap.toLowerCase();
       expect(lower).toContain('emoji');
-      expect(lower).toContain('you can change it');
+      expect(lower).toContain('change it later');
     });
 
     test('contains the Home Base handoff format', () => {
