@@ -40,7 +40,6 @@ struct ChatContentView: View {
                                     models: ModelListBubble.anthropicModels.map { (id: $0.model, name: $0.display) },
                                     selectedModelId: viewModel.selectedModel,
                                     onSelect: { modelId in
-                                        guard modelId != viewModel.selectedModel else { return }
                                         viewModel.setModel(modelId)
                                     }
                                 )
