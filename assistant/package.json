@@ -1,6 +1,6 @@
 {
-  "name": "vellum-assistant",
-  "version": "0.1.29",
+  "name": "vellum",
+  "version": "0.1.30",
   "type": "module",
   "bin": {
     "vellum": "./src/index.ts"
@@ -21,13 +21,14 @@
     "test:filesystem-tools": "bash scripts/test-filesystem-tools.sh"
   },
   "dependencies": {
-    "agentmail": "^0.1.0",
     "@anthropic-ai/claude-agent-sdk": "^0.2.42",
     "@anthropic-ai/sdk": "^0.39.0",
     "@google/genai": "^1.40.0",
     "@huggingface/transformers": "^3.8.1",
     "@qdrant/js-client-rest": "^1.16.2",
     "@sentry/node": "^10.38.0",
+    "@vellumai/vellum-gateway": "^0.1.7",
+    "agentmail": "^0.1.0",
     "archiver": "^7.0.1",
     "commander": "^13.1.0",
     "croner": "^10.0.1",
