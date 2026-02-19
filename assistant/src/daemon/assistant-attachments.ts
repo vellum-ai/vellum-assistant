@@ -640,19 +640,21 @@ export function cleanAssistantContent(
 // ---------------------------------------------------------------------------
 
 /**
- * De-duplicate drafts by filename + full content hash.
+ * De-duplicate drafts by content hash alone.
  *
- * Uses a fast hash of the entire base64 payload so that files with shared
- * prefixes (common for image formats, tool screenshots named identically)
- * are not incorrectly treated as duplicates.
+ * Uses a fast hash of the entire base64 payload so that identical file
+ * content is only attached once — even when the same data appears under
+ * different filenames (e.g. a directive tag with an explicit name vs. an
+ * auto-converted tool block named "tool-output.png").  The first
+ * occurrence wins, which is the directive draft when directives are
+ * listed before tool blocks, preserving the user-chosen filename.
  */
 export function deduplicateDrafts(drafts: AssistantAttachmentDraft[]): AssistantAttachmentDraft[] {
   const seen = new Set<string>();
   return drafts.filter((d) => {
     const hash = Bun.hash(d.dataBase64).toString(36);
-    const key = `${d.filename}:${hash}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
+    if (seen.has(hash)) return false;
+    seen.add(hash);
     return true;
   });
 }
