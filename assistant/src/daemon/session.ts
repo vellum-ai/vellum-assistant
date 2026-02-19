@@ -242,6 +242,9 @@ export class Session {
 
   markStale(): void {
     this.stale = true;
+    // Invalidate the cached skill catalog so the next projection picks up
+    // filesystem changes (e.g. a skill created during this run).
+    this.skillProjectionCache.catalog = undefined;
   }
 
   isStale(): boolean {

@@ -51,13 +51,17 @@ export interface SkillProjectionCache {
   derived?: {
     /** Number of messages in history when this cache was last computed. */
     messageCount: number;
+    /** Reference to the first message when cache was computed. Compaction
+     *  replaces the first message with a new summary object, so a reference
+     *  mismatch signals that history was rewritten even if the count matches. */
+    firstMessage: Message | undefined;
     /** IDs already seen — used for deduplication during incremental scans. */
     seenIds: Set<string>;
     /** The accumulated active skill entries. */
     entries: ActiveSkillEntry[];
   };
-  /** Cached skill catalog. Stable for the session lifetime because the
-   *  server watcher evicts sessions when skills change on disk. */
+  /** Cached skill catalog. Invalidated when the session is marked stale
+   *  (e.g. skill directories changed on disk while a run is in progress). */
   catalog?: SkillSummary[];
 }
 
@@ -124,13 +128,15 @@ function getCachedActiveSkills(
 
   const cached = cache.derived;
 
-  // Fast path: history unchanged since last scan.
-  if (cached && cached.messageCount === history.length) {
+  // Fast path: history unchanged since last scan. Both the count and the
+  // first message reference must match — compaction can rewrite history
+  // without changing the total count.
+  if (cached && cached.messageCount === history.length && cached.firstMessage === history[0]) {
     return cached.entries;
   }
 
-  // History grew — scan only the new messages.
-  if (cached && cached.messageCount < history.length) {
+  // History grew (and first message is unchanged) — scan only the new messages.
+  if (cached && cached.messageCount < history.length && cached.firstMessage === history[0]) {
     const delta = history.slice(cached.messageCount);
     const newEntries = deriveActiveSkills(delta);
 
@@ -154,18 +160,18 @@ function getCachedActiveSkills(
     return cached.entries;
   }
 
-  // History shrank or no cache yet — full rescan.
+  // History shrank, compaction rewrote it, or no cache yet — full rescan.
   const entries = deriveActiveSkills(history);
   const seenIds = new Set(entries.map((e) => e.id));
-  cache.derived = { messageCount: history.length, seenIds, entries };
+  cache.derived = { messageCount: history.length, firstMessage: history[0], seenIds, entries };
   return entries;
 }
 
 /**
- * Return the skill catalog, caching it for the session lifetime.
+ * Return the skill catalog, caching it across agent turns.
  *
- * The server's filesystem watcher evicts sessions when skill directories
- * change on disk, so within a single session the catalog is stable.
+ * The cache is invalidated when the session is marked stale (e.g. skill
+ * directories changed on disk while the session is still processing).
  */
 function getCachedCatalog(cache?: SkillProjectionCache): SkillSummary[] {
   if (!cache) return loadSkillCatalog();
