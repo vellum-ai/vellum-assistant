@@ -3,9 +3,6 @@ import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
-  loadSession,
-  saveSession,
-  clearSession,
   importFromRecording,
   getCookieHeader,
   getCsrfToken,
@@ -87,11 +84,19 @@ describe('DoorDash session persistence', () => {
   let originalDataDir: string | undefined;
 
   beforeEach(() => {
+    originalDataDir = process.env.BASE_DATA_DIR;
+    process.env.BASE_DATA_DIR = TEST_DIR;
     // Ensure test dir exists
     mkdirSync(TEST_DIR, { recursive: true });
   });
 
   afterEach(() => {
+    // Restore original BASE_DATA_DIR
+    if (originalDataDir === undefined) {
+      delete process.env.BASE_DATA_DIR;
+    } else {
+      process.env.BASE_DATA_DIR = originalDataDir;
+    }
     // Clean up test dir
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });
