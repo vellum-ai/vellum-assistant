@@ -532,6 +532,7 @@ extension ChatViewModel {
                     messages[i].status = .sent
                 }
             }
+            dispatchPendingSendDirect()
             // Skip follow-up suggestions for workspace refinements
             if !isSending && !wasRefinement {
                 fetchSuggestion()
@@ -761,6 +762,7 @@ extension ChatViewModel {
                         messages[i].status = .sent
                     }
                 }
+                dispatchPendingSendDirect()
             } else if pendingQueuedCount == 0 {
                 // The daemon drains queued work after a non-cancellation
                 // error, so preserve queue bookkeeping when messages are
