@@ -2,8 +2,8 @@ import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.j
 import { executeReminderList } from '../../../../tools/reminder/reminder.js';
 
 export async function run(
-  input: Record<string, unknown>,
-  context: ToolContext,
+  _input: Record<string, unknown>,
+  _context: ToolContext,
 ): Promise<ToolExecutionResult> {
   return executeReminderList();
 }
