@@ -14,7 +14,7 @@ Extract all PR numbers from UNREVIEWED_PRS.md and check them in a single call:
 .claude/check-pr-reviews <number1> <number2> <number3> ...
 ```
 
-With multiple PR numbers, this outputs a JSON array of results. Each element has `codex.status` and `devin.status` fields (each one of: `approved`, `changes_requested`, `rate_limited`, `skipped`, `pending`), plus the raw review data (`reviews`, `inline_comments`) for contextual assessment. It also includes `age_seconds` for computing the age column. All PRs are fetched in parallel for speed.
+With multiple PR numbers, this outputs a JSON array of results. Each element has `title`, `codex.status` and `devin.status` fields (each one of: `approved`, `changes_requested`, `rate_limited`, `skipped`, `pending`), plus the raw review data (`reviews`, `inline_comments`) for contextual assessment. It also includes `age_seconds` for computing the age column. All PRs are fetched in parallel for speed.
 
 ## Contextual review assessment
 
@@ -64,9 +64,10 @@ Examples of feedback that would cause a regression:
 
 Display a table with these columns:
 
-| PR  | Age | Codex | Devin | Verdict | Added to TODO | Removed from Unreviewed |
-| --- | --- | ----- | ----- | ------- | ------------- | ----------------------- |
+| PR  | Title | Age | Codex | Devin | Verdict | TODO | Removed |
+| --- | ----- | --- | ----- | ----- | ------- | ---- | ------- |
 
+- **Title**: PR title, truncated to 30 characters with "..." if longer.
 - **Age**: How long ago the PR was created (e.g., "2h 15m", "45m").
 - **Codex/Devin columns**: Use emoji prefixes for quick scanning:
   - ✅ Approved
@@ -80,7 +81,7 @@ Display a table with these columns:
   - 📝 Valid feedback
   - ⚠️ Regression risk
   - ⏳ Pending
-- **Added to TODO / Removed from Unreviewed**: Use ✅ for yes, — for no.
+- **TODO / Removed**: Use ✅ for yes, — for no.
 
 ### Regression risk flagging
 

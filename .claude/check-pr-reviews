@@ -16,6 +16,7 @@ With multiple PR numbers, outputs a JSON array.
 Output per PR:
 {
   "pr_number": 123,
+  "title": "Fix login validation",
   "created_at": "2024-01-15T10:00:00Z",
   "age_seconds": 3600,
   "codex": {
@@ -74,7 +75,7 @@ check_pr() {
   mkdir -p "$pr_dir"
 
   # Fetch all data in parallel
-  gh pr view "$pr_number" --json comments,reviews,createdAt > "$pr_dir/pr.json" &
+  gh pr view "$pr_number" --json comments,reviews,createdAt,title > "$pr_dir/pr.json" &
   local pid1=$!
 
   gh api "repos/$REPO_SLUG/issues/$pr_number/reactions" \
@@ -86,6 +87,10 @@ check_pr() {
   local pid3=$!
 
   wait $pid1 $pid2 $pid3
+
+  # Parse title and creation time
+  local title
+  title=$(jq -r '.title // ""' "$pr_dir/pr.json")
 
   # Parse creation time and compute age
   local created_at
@@ -165,6 +170,7 @@ check_pr() {
 
   jq -n \
     --argjson pr_number "$pr_number" \
+    --arg title "$title" \
     --arg created_at "$created_at" \
     --argjson age_seconds "$age_seconds" \
     --arg codex_status "$codex_status" \
@@ -176,6 +182,7 @@ check_pr() {
     --argjson devin_inline "$devin_inline" \
     '{
       pr_number: $pr_number,
+      title: $title,
       created_at: $created_at,
       age_seconds: $age_seconds,
       codex: {
