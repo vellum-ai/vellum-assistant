@@ -2,7 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import * as schema from '../memory/schema.js';
-import { cronJobs } from '../memory/schema.js';
+import { scheduleJobs } from '../memory/schema.js';
 import { eq } from 'drizzle-orm';
 
 function createTestDb() {
@@ -41,7 +41,7 @@ describe('schedule_syntax column migration', () => {
     `);
 
     const now = Date.now();
-    db.insert(cronJobs).values({
+    db.insert(scheduleJobs).values({
       id: 'test-1',
       name: 'Test Job',
       enabled: true,
@@ -57,7 +57,7 @@ describe('schedule_syntax column migration', () => {
       updatedAt: now,
     }).run();
 
-    const row = db.select().from(cronJobs).where(eq(cronJobs.id, 'test-1')).get();
+    const row = db.select().from(scheduleJobs).where(eq(scheduleJobs.id, 'test-1')).get();
     expect(row).toBeTruthy();
     expect(row!.scheduleSyntax).toBe('cron');
   });
@@ -91,7 +91,7 @@ describe('schedule_syntax column migration', () => {
     // Run the migration
     try { raw.exec(`ALTER TABLE cron_jobs ADD COLUMN schedule_syntax TEXT NOT NULL DEFAULT 'cron'`); } catch { /* already exists */ }
 
-    const row = db.select().from(cronJobs).where(eq(cronJobs.id, 'old-1')).get();
+    const row = db.select().from(scheduleJobs).where(eq(scheduleJobs.id, 'old-1')).get();
     expect(row).toBeTruthy();
     expect(row!.scheduleSyntax).toBe('cron');
   });
@@ -123,7 +123,7 @@ describe('schedule_syntax column migration', () => {
 
     const now = Date.now();
     raw.exec(`INSERT INTO cron_jobs (id, name, enabled, cron_expression, timezone, message, next_run_at, retry_count, created_by, created_at, updated_at) VALUES ('idem-1', 'Test', 1, '0 9 * * *', NULL, 'hi', ${now + 60000}, 0, 'agent', ${now}, ${now})`);
-    const row = db.select().from(cronJobs).where(eq(cronJobs.id, 'idem-1')).get();
+    const row = db.select().from(scheduleJobs).where(eq(scheduleJobs.id, 'idem-1')).get();
     expect(row!.scheduleSyntax).toBe('cron');
   });
 });

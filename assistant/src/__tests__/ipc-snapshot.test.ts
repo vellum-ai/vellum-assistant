@@ -423,14 +423,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'work_item_get',
     id: 'wi-001',
   },
-  work_item_create: {
-    type: 'work_item_create',
-    taskId: 'task-001',
-    title: 'Process report',
-    notes: 'High priority',
-    priorityTier: 1,
-    sortIndex: 0,
-  },
   work_item_update: {
     type: 'work_item_update',
     id: 'wi-001',
@@ -464,10 +456,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   work_item_cancel: {
     type: 'work_item_cancel',
-    id: 'wi-001',
-  },
-  work_item_render: {
-    type: 'work_item_render',
     id: 'wi-001',
   },
   document_save: {
@@ -1302,25 +1290,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       updatedAt: 1700000000,
     },
   },
-  work_item_create_response: {
-    type: 'work_item_create_response',
-    item: {
-      id: 'wi-001',
-      taskId: 'task-001',
-      title: 'Process report',
-      notes: null,
-      status: 'queued',
-      priorityTier: 1,
-      sortIndex: null,
-      lastRunId: null,
-      lastRunConversationId: null,
-      lastRunStatus: null,
-      sourceType: null,
-      sourceId: null,
-      createdAt: 1700000000,
-      updatedAt: 1700000000,
-    },
-  },
   work_item_update_response: {
     type: 'work_item_update_response',
     item: {
@@ -1382,13 +1351,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'work_item_cancel_response',
     id: 'wi-001',
     success: true,
-  },
-  work_item_render_response: {
-    type: 'work_item_render_response',
-    id: 'wi-001',
-    success: true,
-    content: '# Rendered Work Item',
-    title: 'Process report',
   },
   work_item_status_changed: {
     type: 'work_item_status_changed',

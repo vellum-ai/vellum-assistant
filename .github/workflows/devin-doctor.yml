@@ -1,0 +1,244 @@
+name: Devin Doctor
+
+on:
+  workflow_run:
+    workflows:
+      - "Push Gateway Image to GCP"
+      - "Build and Release macOS App"
+      - "Publish Assistant to npm"
+      - "Publish CLI to npm"
+      - "Publish Gateway to npm"
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: devin-doctor
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  clear-lock-on-success:
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    steps:
+      - name: Close active lock issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WR_NAME: ${{ github.event.workflow_run.name }}
+          RUN_HTML_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          ISSUE_NUMBERS="$(gh issue list -R "$REPO" --search "[devin-doctor-lock] ${WR_NAME} in:title" --state open --json number --jq '.[].number')"
+          for ISSUE in $ISSUE_NUMBERS; do
+            gh issue close "$ISSUE" -R "$REPO" --comment "Closing lock: monitored main CI recovered in ${RUN_HTML_URL}"
+          done
+
+  start-devin:
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'failure' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.run_attempt == 1
+      )
+    steps:
+      - name: Check for Devin API key
+        id: key_check
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+        run: |
+          if [ -z "$DEVIN_API_KEY" ]; then
+            echo "DEVIN_API_KEY secret is not set. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set context
+        if: steps.key_check.outputs.skip != 'true'
+        id: ctx
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SERVER_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          WR_NAME: ${{ github.event.workflow_run.name }}
+          WR_HTML_URL: ${{ github.event.workflow_run.html_url }}
+          WR_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WR_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WR_EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "workflow_name=manual-test" >> "$GITHUB_OUTPUT"
+            echo "run_url=${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "head_sha=${SHA}" >> "$GITHUB_OUTPUT"
+            echo "head_branch=${REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "event_name=workflow_dispatch" >> "$GITHUB_OUTPUT"
+          else
+            echo "workflow_name=${WR_NAME}" >> "$GITHUB_OUTPUT"
+            echo "run_url=${WR_HTML_URL}" >> "$GITHUB_OUTPUT"
+            echo "head_sha=${WR_HEAD_SHA}" >> "$GITHUB_OUTPUT"
+            echo "head_branch=${WR_HEAD_BRANCH}" >> "$GITHUB_OUTPUT"
+            echo "event_name=${WR_EVENT}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for active lock
+        if: steps.key_check.outputs.skip != 'true'
+        id: lock
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WR_NAME: ${{ steps.ctx.outputs.workflow_name }}
+        run: |
+          LOCK_ISSUE="$(gh issue list -R "$REPO" --search "[devin-doctor-lock] ${WR_NAME} in:title" --state open --json number --jq '.[0].number // empty')"
+          echo "lock_issue=$LOCK_ISSUE" >> "$GITHUB_OUTPUT"
+
+      - name: Skip because lock is active
+        if: steps.key_check.outputs.skip != 'true' && steps.lock.outputs.lock_issue != ''
+        env:
+          LOCK_ISSUE: ${{ steps.lock.outputs.lock_issue }}
+        run: |
+          {
+            echo "## Devin Doctor"
+            echo "- Skipped: active lock issue #${LOCK_ISSUE} already exists."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Resolve original failing PR and author
+        if: steps.key_check.outputs.skip != 'true' && steps.lock.outputs.lock_issue == ''
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.ctx.outputs.head_sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          PR_NUMBER=""
+          PR_AUTHORS=""
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            PR_JSON="$(gh api "/repos/${REPO}/commits/${HEAD_SHA}/pulls" -H "Accept: application/vnd.github+json" || echo '[]')"
+            PR_NUMBER="$(echo "$PR_JSON" | jq -r 'map(select(.merged_at != null)) | first.number // empty')"
+            PRIMARY_AUTHOR="$(echo "$PR_JSON" | jq -r 'map(select(.merged_at != null)) | first.user.login // empty')"
+            ALL_AUTHORS="$(echo "$PR_JSON" | jq -r 'map(select(.merged_at != null)) | map(.user.login) | unique | join(", @")')"
+            if [ -n "$ALL_AUTHORS" ]; then
+              PR_AUTHORS="@${ALL_AUTHORS}"
+            elif [ -n "$PRIMARY_AUTHOR" ]; then
+              PR_AUTHORS="@${PRIMARY_AUTHOR}"
+            fi
+          fi
+          if [ -z "$PR_AUTHORS" ]; then
+            PR_AUTHORS="@${ACTOR}"
+          fi
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "pr_authors=$PR_AUTHORS" >> "$GITHUB_OUTPUT"
+
+      - name: Build prompt
+        if: steps.key_check.outputs.skip != 'true' && steps.lock.outputs.lock_issue == ''
+        id: prompt
+        env:
+          REPO: ${{ github.repository }}
+          CTX_WORKFLOW_NAME: ${{ steps.ctx.outputs.workflow_name }}
+          CTX_RUN_URL: ${{ steps.ctx.outputs.run_url }}
+          CTX_HEAD_SHA: ${{ steps.ctx.outputs.head_sha }}
+          CTX_HEAD_BRANCH: ${{ steps.ctx.outputs.head_branch }}
+          CTX_EVENT_NAME: ${{ steps.ctx.outputs.event_name }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          PR_AUTHORS: ${{ steps.pr.outputs.pr_authors }}
+        run: |
+          {
+            echo "prompt<<EOF"
+            echo "CI failure doctor request for repo ${REPO}."
+            echo ""
+            echo "Failed workflow: ${CTX_WORKFLOW_NAME}"
+            echo "Run URL: ${CTX_RUN_URL}"
+            echo "SHA: ${CTX_HEAD_SHA}"
+            echo "Branch: ${CTX_HEAD_BRANCH}"
+            echo "Triggered event: ${CTX_EVENT_NAME}"
+            echo "Original merged PR: #${PR_NUMBER}"
+            echo "Original PR author(s): ${PR_AUTHORS}"
+            echo ""
+            echo "Tasks:"
+            echo "1) Investigate why this run failed."
+            echo "2) Propose the minimal safe fix."
+            echo "3) Create a PR with the fix and explanation. If confidence is low, create a draft PR with diagnosis, attempted fix, and blockers."
+            echo "4) Request review from ${PR_AUTHORS} and @-mention them in the PR body."
+            echo "5) Include verification steps and residual risk."
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Start Devin session
+        if: steps.key_check.outputs.skip != 'true' && steps.lock.outputs.lock_issue == ''
+        id: session
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          PROMPT: ${{ steps.prompt.outputs.prompt }}
+          CTX_WORKFLOW_NAME: ${{ steps.ctx.outputs.workflow_name }}
+          CTX_RUN_URL: ${{ steps.ctx.outputs.run_url }}
+          CTX_HEAD_SHA: ${{ steps.ctx.outputs.head_sha }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          PR_AUTHORS: ${{ steps.pr.outputs.pr_authors }}
+        run: |
+          payload="$(jq -n --arg prompt "$PROMPT" '{prompt: $prompt, idempotent: true}')"
+          response="$(curl --silent --show-error --fail-with-body \
+            --request POST \
+            --url https://api.devin.ai/v1/sessions \
+            --header "Authorization: Bearer ${DEVIN_API_KEY}" \
+            --header "Content-Type: application/json" \
+            --data "$payload")"
+
+          session_id="$(echo "$response" | jq -r '.session_id // .id // empty')"
+          if [ -z "$session_id" ]; then
+            echo "Could not parse session id from Devin response"
+            echo "$response"
+            exit 1
+          fi
+
+          session_url="$(echo "$response" | jq -r '.url // .session_url // empty')"
+          echo "session_id=$session_id" >> "$GITHUB_OUTPUT"
+          echo "session_url=$session_url" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Devin Doctor"
+            echo "- **Workflow**: ${CTX_WORKFLOW_NAME}"
+            echo "- **Run URL**: ${CTX_RUN_URL}"
+            echo "- **SHA**: \`${CTX_HEAD_SHA}\`"
+            echo "- **Original PR**: #${PR_NUMBER}"
+            echo "- **Reviewer(s)**: ${PR_AUTHORS}"
+            echo "- **Session ID**: \`$session_id\`"
+            echo "- **Session URL**: $session_url"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create lock issue
+        if: >
+          success() &&
+          steps.key_check.outputs.skip != 'true' &&
+          steps.lock.outputs.lock_issue == '' &&
+          github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CTX_WORKFLOW_NAME: ${{ steps.ctx.outputs.workflow_name }}
+          CTX_RUN_URL: ${{ steps.ctx.outputs.run_url }}
+          SESSION_ID: ${{ steps.session.outputs.session_id }}
+          SESSION_URL: ${{ steps.session.outputs.session_url }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          PR_AUTHORS: ${{ steps.pr.outputs.pr_authors }}
+        run: |
+          gh issue create -R "$REPO" \
+            --title "[devin-doctor-lock] ${CTX_WORKFLOW_NAME} failure in progress" \
+            --body "Lock created for failing run: ${CTX_RUN_URL}
+          Devin Session ID: \`${SESSION_ID}\`
+          Devin Session URL: ${SESSION_URL}
+          Original PR: #${PR_NUMBER}
+          Reviewer(s): ${PR_AUTHORS}"

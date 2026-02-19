@@ -50,7 +50,6 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   // Browser handoff — not yet consumed by the macOS client
   'browser_handoff_request',
   // Work item messages — not yet consumed by the macOS client
-  'work_item_create_response',
   'work_item_get_response',
   'work_item_run_task_response',
   'work_item_status_changed',

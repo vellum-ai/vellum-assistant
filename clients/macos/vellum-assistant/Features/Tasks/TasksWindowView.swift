@@ -5,10 +5,8 @@ import VellumAssistantShared
 struct TasksWindowView: View {
     @StateObject private var viewModel: TasksWindowViewModel
 
-    init(daemonClient: DaemonClient, onRunTaskInChat: ((String, String, String) -> Bool)? = nil) {
-        let vm = TasksWindowViewModel(daemonClient: daemonClient)
-        vm.onRunTaskInChat = onRunTaskInChat
-        _viewModel = StateObject(wrappedValue: vm)
+    init(daemonClient: DaemonClient) {
+        _viewModel = StateObject(wrappedValue: TasksWindowViewModel(daemonClient: daemonClient))
     }
 
     var body: some View {

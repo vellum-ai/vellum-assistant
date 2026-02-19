@@ -2,7 +2,6 @@ import * as net from 'node:net';
 import type {
   WorkItemsListRequest,
   WorkItemGetRequest,
-  WorkItemCreateRequest,
   WorkItemUpdateRequest,
   WorkItemCompleteRequest,
   WorkItemDeleteRequest,
@@ -11,12 +10,10 @@ import type {
   WorkItemPreflightRequest,
   WorkItemApprovePermissionsRequest,
   WorkItemCancelRequest,
-  WorkItemRenderRequest,
 } from '../ipc-protocol.js';
 import { log, type HandlerContext, type DispatchMap } from './shared.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import {
-  createWorkItem,
   deleteWorkItem,
   getWorkItem,
   listWorkItems,
@@ -24,7 +21,7 @@ import {
   type WorkItemStatus,
 } from '../../work-items/work-item-store.js';
 import { getTask, getTaskRun } from '../../tasks/task-store.js';
-import { runTask, renderTemplate } from '../../tasks/task-runner.js';
+import { runTask } from '../../tasks/task-runner.js';
 import { getMessages } from '../../memory/conversation-store.js';
 import { classifyRisk, check } from '../../permissions/checker.js';
 import { truncate } from '../../util/truncate.js';
@@ -45,45 +42,6 @@ export function handleWorkItemGet(
 ): void {
   const item = getWorkItem(msg.id) ?? null;
   ctx.send(socket, { type: 'work_item_get_response', item });
-}
-
-export function handleWorkItemCreate(
-  msg: WorkItemCreateRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const task = getTask(msg.taskId);
-  if (!task) {
-    ctx.send(socket, { type: 'error', message: `Task not found: ${msg.taskId}` });
-    return;
-  }
-  const item = createWorkItem({
-    taskId: msg.taskId,
-    title: msg.title ?? task.title,
-    notes: msg.notes,
-    priorityTier: msg.priorityTier,
-    sortIndex: msg.sortIndex,
-  });
-
-  // Bundle the task's required tools as pre-approved permissions so the
-  // run-time preflight check can be skipped — the user implicitly approves
-  // these tools by adding the task to their queue.
-  const requiredTools: string[] = task.requiredTools ? JSON.parse(task.requiredTools) : [];
-  if (requiredTools.length > 0) {
-    updateWorkItem(item.id, {
-      approvedTools: JSON.stringify(requiredTools),
-      approvalStatus: 'approved',
-    });
-    // Reflect the update in the response
-    item.approvedTools = JSON.stringify(requiredTools);
-    item.approvalStatus = 'approved';
-  }
-
-  ctx.send(socket, { type: 'work_item_create_response', item });
-
-  // Notify all connected clients so open Task Queue views refresh immediately
-  broadcastWorkItemStatus(ctx, item.id);
-  ctx.broadcast({ type: 'tasks_changed' });
 }
 
 export function handleWorkItemUpdate(
@@ -313,13 +271,6 @@ export async function handleWorkItemRunTask(
   broadcastWorkItemStatus(ctx, msg.id);
   ctx.broadcast({ type: 'tasks_changed' });
 
-  // When chatRouted is true, the client handles execution by injecting
-  // the task content into the active chat session. The daemon only
-  // tracks status — it does NOT create a session or run the task.
-  if (msg.chatRouted) {
-    return;
-  }
-
   // Execute task asynchronously — lazily create a session inside the callback
   // using the conversationId provided by runTask, so the session references
   // the conversation that was actually inserted into the database.
@@ -490,31 +441,9 @@ export function handleWorkItemCancel(
   ctx.broadcast({ type: 'tasks_changed' });
 }
 
-export function handleWorkItemRender(
-  msg: WorkItemRenderRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const workItem = getWorkItem(msg.id);
-  if (!workItem) {
-    ctx.send(socket, { type: 'work_item_render_response', id: msg.id, success: false, error: 'Work item not found' });
-    return;
-  }
-
-  const task = getTask(workItem.taskId);
-  if (!task) {
-    ctx.send(socket, { type: 'work_item_render_response', id: msg.id, success: false, error: `Associated task not found: ${workItem.taskId}` });
-    return;
-  }
-
-  const content = renderTemplate(task.template, {});
-  ctx.send(socket, { type: 'work_item_render_response', id: msg.id, success: true, content, title: workItem.title });
-}
-
 export const workItemHandlers: Partial<DispatchMap> = {
   work_items_list: handleWorkItemsList,
   work_item_get: handleWorkItemGet,
-  work_item_create: handleWorkItemCreate,
   work_item_update: handleWorkItemUpdate,
   work_item_complete: handleWorkItemComplete,
   work_item_delete: handleWorkItemDelete,
@@ -523,5 +452,4 @@ export const workItemHandlers: Partial<DispatchMap> = {
   work_item_preflight: handleWorkItemPreflight,
   work_item_approve_permissions: handleWorkItemApprovePermissions,
   work_item_cancel: handleWorkItemCancel,
-  work_item_render: handleWorkItemRender,
 };

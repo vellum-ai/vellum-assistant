@@ -527,6 +527,9 @@ struct ActiveChatViewWrapper: View {
             ),
             isTemporaryChat: isTemporaryChat,
             activeSubagents: viewModel.activeSubagents,
+            onAbortSubagent: { subagentId in
+                try? daemonClient.sendSubagentAbort(subagentId: subagentId)
+            },
             daemonHttpPort: daemonClient.httpPort,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
             onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) }

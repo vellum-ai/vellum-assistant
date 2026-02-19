@@ -173,6 +173,8 @@ mock.module('../calls/call-store.js', () => ({
   isCallbackProcessed: () => false,
   recordProcessedCallback: () => {},
   tryRecordProcessedCallback: () => true,
+  claimCallback: () => true,
+  releaseCallbackClaim: () => {},
 }));
 
 mock.module('../daemon/watch-handler.js', () => ({

@@ -225,6 +225,22 @@ describe('runtime call routes — HTTP layer', () => {
     await stopServer();
   });
 
+  test('POST /v1/calls/start returns 400 for malformed JSON', async () => {
+    await startServer();
+
+    const res = await fetch(callsUrl('/start'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: 'not-json{{',
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain('Invalid JSON');
+
+    await stopServer();
+  });
+
   // ── GET /v1/calls/:id ───────────────────────────────────────────────
 
   test('GET /v1/calls/:id returns call status', async () => {
@@ -343,6 +359,30 @@ describe('runtime call routes — HTTP layer', () => {
   });
 
   // ── POST /v1/calls/:id/answer ──────────────────────────────────────
+
+  test('POST /v1/calls/:id/answer returns 400 for malformed JSON', async () => {
+    await startServer();
+    ensureConversation('conv-answer-badjson');
+
+    const session = createCallSession({
+      conversationId: 'conv-answer-badjson',
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15559998888',
+    });
+
+    const res = await fetch(callsUrl(`/${session.id}/answer`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: 'not-json{{',
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain('Invalid JSON');
+
+    await stopServer();
+  });
 
   test('POST /v1/calls/:id/answer returns 404 when no pending question', async () => {
     await startServer();

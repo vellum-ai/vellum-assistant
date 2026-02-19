@@ -1,5 +1,14 @@
 import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { listSchedules, getSchedule, getScheduleRuns, formatLocalDate, describeCronExpression } from '../../schedule/schedule-store.js';
+import { hasSetConstructs } from '../../schedule/recurrence-engine.js';
+
+function describeSchedule(job: { syntax: string; expression: string; cronExpression: string }): string {
+  if (job.syntax === 'rrule') {
+    const label = hasSetConstructs(job.expression) ? '[RRULE set] ' : '';
+    return `${label}${job.expression}`;
+  }
+  return describeCronExpression(job.cronExpression);
+}
 
 export async function executeScheduleList(
   input: Record<string, unknown>,
@@ -18,7 +27,9 @@ export async function executeScheduleList(
     const runs = getScheduleRuns(jobId, 5);
     const lines = [
       `Schedule: ${job.name}`,
-      `  Schedule: ${describeCronExpression(job.cronExpression)}${job.timezone ? ` (${job.timezone})` : ''}`,
+      `  Syntax: ${job.syntax}`,
+      `  Expression: ${job.expression}`,
+      `  Schedule: ${describeSchedule(job)}${job.timezone ? ` (${job.timezone})` : ''}`,
       `  Enabled: ${job.enabled}`,
       `  Message: ${job.message}`,
       `  Next run: ${formatLocalDate(job.nextRunAt)}`,
@@ -51,7 +62,7 @@ export async function executeScheduleList(
   for (const job of jobs) {
     const status = job.enabled ? 'enabled' : 'disabled';
     const next = job.enabled ? formatLocalDate(job.nextRunAt) : 'n/a';
-    lines.push(`  - [${status}] ${job.name} (${describeCronExpression(job.cronExpression)}) — next: ${next}`);
+    lines.push(`  - [${status}] ${job.name} ([${job.syntax}] ${describeSchedule(job)}) — next: ${next}`);
   }
 
   return { content: lines.join('\n'), isError: false };

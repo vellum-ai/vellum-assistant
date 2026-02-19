@@ -15,7 +15,7 @@ function formatFollowUp(f: FollowUp): string {
   if (f.expectedResponseBy) {
     lines.push(`  Expected response by: ${new Date(f.expectedResponseBy).toISOString()}`);
   }
-  if (f.reminderCronId) lines.push(`  Reminder cron: ${f.reminderCronId}`);
+  if (f.reminderScheduleId) lines.push(`  Reminder schedule: ${f.reminderScheduleId}`);
   return lines.join('\n');
 }
 
@@ -35,7 +35,8 @@ export async function executeFollowupCreate(
 
   const contactId = input.contact_id as string | undefined;
   const expectedResponseHours = input.expected_response_hours as number | undefined;
-  const reminderCronId = input.reminder_cron_id as string | undefined;
+  // Canonical: reminder_schedule_id; deprecated alias: reminder_cron_id
+  const reminderScheduleId = (input.reminder_schedule_id ?? input.reminder_cron_id) as string | undefined;
 
   // Validate contact exists if provided
   if (contactId) {
@@ -61,7 +62,7 @@ export async function executeFollowupCreate(
       contactId: contactId ?? null,
       sentAt: now,
       expectedResponseBy,
-      reminderCronId: reminderCronId ?? null,
+      reminderScheduleId: reminderScheduleId ?? null,
     });
 
     return {

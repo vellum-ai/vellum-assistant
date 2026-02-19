@@ -23,12 +23,17 @@ export async function handleStartCall(req: Request): Promise<Response> {
     );
   }
 
-  const body = await req.json() as {
+  let body: {
     phoneNumber?: string;
     task?: string;
     context?: string;
     conversationId?: string;
   };
+  try {
+    body = await req.json() as typeof body;
+  } catch {
+    return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+  }
 
   if (!body.conversationId) {
     return Response.json({ error: 'conversationId is required' }, { status: 400 });
@@ -115,7 +120,12 @@ export async function handleCancelCall(req: Request, callSessionId: string): Pro
  * Body: { answer: string }
  */
 export async function handleAnswerCall(req: Request, callSessionId: string): Promise<Response> {
-  const body = await req.json() as { answer?: string };
+  let body: { answer?: string };
+  try {
+    body = await req.json() as typeof body;
+  } catch {
+    return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+  }
 
   const result = await answerCall({
     callSessionId,

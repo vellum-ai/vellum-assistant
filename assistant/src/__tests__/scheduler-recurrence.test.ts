@@ -218,6 +218,86 @@ describe('scheduler RRULE execution', () => {
     expect(runs[0].status).toBe('ok');
   });
 
+  test('RRULE set with EXDATE skips excluded occurrence and advances to next valid date', async () => {
+    // Build an RRULE set that fires every minute but excludes the next immediate occurrence.
+    // The scheduler should skip the excluded date and advance to the one after.
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+
+    // DTSTART one hour ago so there are plenty of past occurrences
+    const pastDate = new Date(now.getTime() - 3_600_000);
+    const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}${pad(pastDate.getUTCSeconds())}Z`;
+
+    // Exclude the current minute's occurrence
+    const currentMinuteDate = new Date(now);
+    currentMinuteDate.setUTCSeconds(0);
+    currentMinuteDate.setUTCMilliseconds(0);
+    // Round to the previous minute boundary relative to dtstart
+    const exDate = `${currentMinuteDate.getUTCFullYear()}${pad(currentMinuteDate.getUTCMonth() + 1)}${pad(currentMinuteDate.getUTCDate())}T${pad(currentMinuteDate.getUTCHours())}${pad(currentMinuteDate.getUTCMinutes())}00Z`;
+
+    const expression = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1\nEXDATE:${exDate}`;
+
+    const schedule = createSchedule({
+      name: 'RRULE set EXDATE test',
+      cronExpression: expression,
+      message: 'Set exclusion test',
+      syntax: 'rrule',
+      expression,
+    });
+
+    // Force the schedule to be due
+    forceScheduleDue(schedule.id);
+
+    const processedMessages: string[] = [];
+    const processMessage = async (_conversationId: string, message: string) => {
+      processedMessages.push(message);
+    };
+
+    const scheduler = startScheduler(processMessage, () => {}, () => {});
+    await new Promise(resolve => setTimeout(resolve, 500));
+    scheduler.stop();
+
+    // The schedule should have been claimed and nextRunAt advanced
+    const after = getSchedule(schedule.id);
+    expect(after).not.toBeNull();
+    expect(after!.lastRunAt).not.toBeNull();
+    // nextRunAt should be in the future (not the excluded date)
+    expect(after!.nextRunAt).toBeGreaterThan(Date.now() - 5000);
+  });
+
+  test('RRULE set schedule fires and creates cron_runs entry', async () => {
+    const expression = [
+      'DTSTART:20250101T000000Z',
+      'RRULE:FREQ=MINUTELY;INTERVAL=1',
+      'EXDATE:20250101T000100Z',
+    ].join('\n');
+
+    const schedule = createSchedule({
+      name: 'Set schedule fire test',
+      cronExpression: expression,
+      message: 'Set fire test',
+      syntax: 'rrule',
+      expression,
+    });
+
+    forceScheduleDue(schedule.id);
+
+    const processedMessages: string[] = [];
+    const processMessage = async (_conversationId: string, message: string) => {
+      processedMessages.push(message);
+    };
+
+    const scheduler = startScheduler(processMessage, () => {}, () => {});
+    await new Promise(resolve => setTimeout(resolve, 500));
+    scheduler.stop();
+
+    expect(processedMessages).toContain('Set fire test');
+
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs.length).toBeGreaterThanOrEqual(1);
+    expect(runs[0].status).toBe('ok');
+  });
+
   test('RRULE schedule advances nextRunAt after firing', async () => {
     const rruleExpr = buildEveryMinuteRrule();
     const schedule = createSchedule({

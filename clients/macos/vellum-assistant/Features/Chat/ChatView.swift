@@ -47,6 +47,7 @@ struct ChatView: View {
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
     var activeSubagents: [SubagentInfo] = []
+    var onAbortSubagent: ((String) -> Void)?
     var daemonHttpPort: Int?
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
@@ -466,7 +467,9 @@ struct ChatView: View {
 
                         // Subagent chips anchored to the message that spawned them
                         ForEach(activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
-                            SubagentStatusChip(subagent: subagent)
+                            SubagentStatusChip(subagent: subagent) {
+                                onAbortSubagent?(subagent.id)
+                            }
                                 .frame(maxWidth: 520, alignment: .leading)
                                 .id("subagent-\(subagent.id)")
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -475,7 +478,9 @@ struct ChatView: View {
 
                     // Subagents with no parent message (e.g. from history load)
                     ForEach(activeSubagents.filter { $0.parentMessageId == nil }) { subagent in
-                        SubagentStatusChip(subagent: subagent)
+                        SubagentStatusChip(subagent: subagent) {
+                            onAbortSubagent?(subagent.id)
+                        }
                             .frame(maxWidth: 520, alignment: .leading)
                             .id("subagent-\(subagent.id)")
                             .transition(.opacity.combined(with: .move(edge: .bottom)))

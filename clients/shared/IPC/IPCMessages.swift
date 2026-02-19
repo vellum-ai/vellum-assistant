@@ -1730,6 +1730,16 @@ extension IPCSessionSwitchRequest {
     }
 }
 
+/// Sent by the client to abort a running subagent.
+public struct SubagentAbortMessage: Encodable, Sendable {
+    public let type: String = "subagent_abort"
+    public let subagentId: String
+
+    public init(subagentId: String) {
+        self.subagentId = subagentId
+    }
+}
+
 /// Wraps any ServerMessage emitted by a subagent session for routing to the client.
 /// Hand-maintained because `event` is a recursive `ServerMessage` reference (codegen skips ServerMessage).
 /// Wire type: `"subagent_event"`
@@ -1834,7 +1844,6 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemPreflightResponse(IPCWorkItemPreflightResponse)
     case workItemApprovePermissionsResponse(IPCWorkItemApprovePermissionsResponse)
     case workItemCancelResponse(IPCWorkItemCancelResponse)
-    case workItemRenderResponse(IPCWorkItemRenderResponse)
     case openTasksWindow(OpenTasksWindowMessage)
     case subagentSpawned(IPCSubagentSpawned)
     case subagentStatusChanged(IPCSubagentStatusChanged)
@@ -2130,9 +2139,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "work_item_cancel_response":
             let message = try IPCWorkItemCancelResponse(from: decoder)
             self = .workItemCancelResponse(message)
-        case "work_item_render_response":
-            let message = try IPCWorkItemRenderResponse(from: decoder)
-            self = .workItemRenderResponse(message)
         case "open_tasks_window":
             let message = try OpenTasksWindowMessage(from: decoder)
             self = .openTasksWindow(message)

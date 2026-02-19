@@ -239,7 +239,7 @@ export const reminders = sqliteTable('reminders', {
   updatedAt: integer('updated_at').notNull(),
 });
 
-// ── Cron / Deferred Tasks ────────────────────────────────────────────
+// ── Recurrence Schedules ─────────────────────────────────────────────
 
 export const cronJobs = sqliteTable('cron_jobs', {
   id: text('id').primaryKey(),
@@ -285,6 +285,11 @@ export const cronRuns = sqliteTable('cron_runs', {
   conversationId: text('conversation_id'),
   createdAt: integer('created_at').notNull(),
 });
+
+// Recurrence-centric aliases — prefer these in new code.
+// Physical table names remain `cron_jobs` / `cron_runs` for migration compatibility.
+export const scheduleJobs = cronJobs;
+export const scheduleRuns = cronRuns;
 
 // ── LLM Usage Events (cost tracking ledger) ─────────────────────────
 
