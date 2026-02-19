@@ -6,7 +6,7 @@ import { getDb } from '../../memory/db.js';
 import { memoryItems } from '../../memory/schema.js';
 import { parsePlaybookStatement } from '../../playbooks/types.js';
 
-async function execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+export async function executePlaybookList(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
   const scopeId = context.memoryScopeId ?? 'default';
   const channelFilter = typeof input.channel === 'string' ? input.channel : null;
   const categoryFilter = typeof input.category === 'string' ? input.category : null;
@@ -97,5 +97,5 @@ registerTool({
       },
     },
   }),
-  execute,
+  execute: executePlaybookList,
 });

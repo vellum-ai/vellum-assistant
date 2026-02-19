@@ -12,7 +12,7 @@ import { truncate } from '../../util/truncate.js';
 
 const VALID_AUTONOMY_LEVELS = new Set<string>(['auto', 'draft', 'notify']);
 
-async function execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+export async function executePlaybookUpdate(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
   const playbookId = input.playbook_id as string;
   if (!playbookId || typeof playbookId !== 'string') {
     return { content: 'Error: playbook_id is required and must be a string', isError: true };
@@ -156,5 +156,5 @@ registerTool({
       required: ['playbook_id'],
     },
   }),
-  execute,
+  execute: executePlaybookUpdate,
 });

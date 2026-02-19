@@ -6,7 +6,7 @@ import { getDb } from '../../memory/db.js';
 import { memoryItems } from '../../memory/schema.js';
 import { parsePlaybookStatement } from '../../playbooks/types.js';
 
-async function execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+export async function executePlaybookDelete(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
   const playbookId = input.playbook_id as string;
   if (!playbookId || typeof playbookId !== 'string') {
     return { content: 'Error: playbook_id is required and must be a string', isError: true };
@@ -72,5 +72,5 @@ registerTool({
       required: ['playbook_id'],
     },
   }),
-  execute,
+  execute: executePlaybookDelete,
 });

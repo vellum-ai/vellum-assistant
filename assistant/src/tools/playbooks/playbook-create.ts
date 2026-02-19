@@ -12,7 +12,7 @@ import { truncate } from '../../util/truncate.js';
 
 const VALID_AUTONOMY_LEVELS = new Set<string>(['auto', 'draft', 'notify']);
 
-async function execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+export async function executePlaybookCreate(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
   const trigger = input.trigger as string;
   const action = input.action as string;
 
@@ -137,5 +137,5 @@ registerTool({
       required: ['trigger', 'action'],
     },
   }),
-  execute,
+  execute: executePlaybookCreate,
 });
