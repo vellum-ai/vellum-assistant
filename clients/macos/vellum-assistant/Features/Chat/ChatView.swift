@@ -74,7 +74,7 @@ struct ChatView: View {
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
     private var isEmptyState: Bool {
-        messages.isEmpty && !isSending
+        messages.isEmpty
     }
 
     private let composerMinHeight: CGFloat = 34
