@@ -366,9 +366,9 @@ struct MainWindowView: View {
                         }
                         .help(sidebarOpen ? "Hide sidebar" : "Show sidebar")
                         if !sidebarOpen,
-                           let vm = threadManager.activeViewModel,
-                           threadManager.activeThread?.kind == .private
-                            || vm.messages.contains(where: { $0.role == .user }) {
+                           !windowState.isShowingChat
+                            || threadManager.activeThread?.kind == .private
+                            || threadManager.activeViewModel?.messages.contains(where: { $0.role == .user }) == true {
                             Spacer().frame(width: VSpacing.xs)
                             VIconButton(label: "New Chat", icon: "plus.circle", iconOnly: true) {
                                 windowState.selection = nil
