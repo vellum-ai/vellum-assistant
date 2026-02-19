@@ -105,8 +105,8 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
     const { callSid } = await provider.initiateCall({
       from: config.phoneNumber,
       to: phoneNumber,
-      webhookUrl: `${baseUrl}/v1/calls/twilio/voice-webhook?callSessionId=${session.id}`,
-      statusCallbackUrl: `${baseUrl}/v1/calls/twilio/status`,
+      webhookUrl: `${baseUrl}/webhooks/twilio/voice?callSessionId=${session.id}`,
+      statusCallbackUrl: `${baseUrl}/webhooks/twilio/status`,
     });
 
     updateCallSession(session.id, { providerCallSid: callSid });

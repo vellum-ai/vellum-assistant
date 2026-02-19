@@ -119,6 +119,20 @@ function getDiskSpaceInfo(): DiskSpaceInfo | null {
 const TWILIO_WEBHOOK_RE = /^\/v1\/(?:assistants\/[^/]+\/)?calls\/twilio\/(.+)$/;
 
 /**
+ * Gateway-compatible Twilio webhook paths:
+ *   /webhooks/twilio/<subpath>
+ *
+ * Maps gateway path segments to the internal subpath names used by the
+ * dispatcher below (e.g. "voice" -> "voice-webhook").
+ */
+const TWILIO_GATEWAY_WEBHOOK_RE = /^\/webhooks\/twilio\/(.+)$/;
+const GATEWAY_SUBPATH_MAP: Record<string, string> = {
+  voice: 'voice-webhook',
+  status: 'status',
+  'connect-action': 'connect-action',
+};
+
+/**
  * Validate a Twilio webhook request's X-Twilio-Signature header.
  *
  * Returns the raw body text on success so callers can reconstruct the Request
@@ -319,11 +333,18 @@ export class RuntimeHttpServer {
 
     // ── Twilio webhook endpoints — before auth check because Twilio
     //    webhook POSTs don't include bearer tokens.
-    //    Supports both /v1/calls/twilio/* and /v1/assistants/:id/calls/twilio/*
+    //    Supports /v1/calls/twilio/*, /v1/assistants/:id/calls/twilio/*,
+    //    and gateway-compatible /webhooks/twilio/* paths.
     //    Validates X-Twilio-Signature to prevent unauthorized access. ──
     const twilioMatch = path.match(TWILIO_WEBHOOK_RE);
-    if (twilioMatch && req.method === 'POST') {
-      const twilioSubpath = twilioMatch[1];
+    const gatewayTwilioMatch = !twilioMatch ? path.match(TWILIO_GATEWAY_WEBHOOK_RE) : null;
+    const resolvedTwilioSubpath = twilioMatch
+      ? twilioMatch[1]
+      : gatewayTwilioMatch
+        ? GATEWAY_SUBPATH_MAP[gatewayTwilioMatch[1]]
+        : null;
+    if (resolvedTwilioSubpath && req.method === 'POST') {
+      const twilioSubpath = resolvedTwilioSubpath;
 
       // Validate Twilio request signature before dispatching
       const validation = await validateTwilioWebhook(req);
