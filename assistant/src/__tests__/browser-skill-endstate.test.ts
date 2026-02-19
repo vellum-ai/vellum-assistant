@@ -6,7 +6,7 @@
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 
-import { eagerModules, eagerModuleToolNames } from '../tools/tool-manifest.js';
+import { eagerModuleToolNames } from '../tools/tool-manifest.js';
 import {
   initializeTools,
   getAllTools,
@@ -50,10 +50,6 @@ describe('browser skill migration end-state', () => {
     for (const name of BROWSER_TOOLS) {
       expect(toolNames).not.toContain(name);
     }
-  });
-
-  test('browser module is NOT in eagerModules', () => {
-    expect(eagerModules).not.toContain('./browser/headless-browser.js');
   });
 
   test('browser tool names are NOT in eagerModuleToolNames', () => {

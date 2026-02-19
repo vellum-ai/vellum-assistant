@@ -30,39 +30,39 @@ import {
 // ── Eager side-effect modules ───────────────────────────────────────
 // Importing these modules triggers a top-level `registerTool()` call.
 
-export const eagerModules: string[] = [
-  './filesystem/read.js',
-  './filesystem/write.js',
-  './filesystem/edit.js',
-  './network/web-search.js',
-  './network/web-fetch.js',
-  './skills/load.js',
-  './skills/scaffold-managed.js',
-  './skills/delete-managed.js',
-  './system/request-permission.js',
-  './schedule/create.js',
-  './schedule/list.js',
-  './schedule/update.js',
-  './schedule/delete.js',
-  './watcher/create.js',
-  './watcher/list.js',
-  './watcher/update.js',
-  './watcher/delete.js',
-  './watcher/digest.js',
-  './playbooks/playbook-create.js',
-  './playbooks/playbook-list.js',
-  './playbooks/playbook-update.js',
-  './playbooks/playbook-delete.js',
-  './contacts/contact-upsert.js',
-  './contacts/contact-search.js',
-  './contacts/contact-merge.js',
-  './assets/search.js',
-  './assets/materialize.js',
-  './filesystem/view-image.js',
-  './calls/call-start.js',
-  './calls/call-status.js',
-  './calls/call-end.js',
-];
+export async function loadEagerModules(): Promise<void> {
+  await import('./filesystem/read.js');
+  await import('./filesystem/write.js');
+  await import('./filesystem/edit.js');
+  await import('./network/web-search.js');
+  await import('./network/web-fetch.js');
+  await import('./skills/load.js');
+  await import('./skills/scaffold-managed.js');
+  await import('./skills/delete-managed.js');
+  await import('./system/request-permission.js');
+  await import('./schedule/create.js');
+  await import('./schedule/list.js');
+  await import('./schedule/update.js');
+  await import('./schedule/delete.js');
+  await import('./watcher/create.js');
+  await import('./watcher/list.js');
+  await import('./watcher/update.js');
+  await import('./watcher/delete.js');
+  await import('./watcher/digest.js');
+  await import('./playbooks/playbook-create.js');
+  await import('./playbooks/playbook-list.js');
+  await import('./playbooks/playbook-update.js');
+  await import('./playbooks/playbook-delete.js');
+  await import('./contacts/contact-upsert.js');
+  await import('./contacts/contact-search.js');
+  await import('./contacts/contact-merge.js');
+  await import('./assets/search.js');
+  await import('./assets/materialize.js');
+  await import('./filesystem/view-image.js');
+  await import('./calls/call-start.js');
+  await import('./calls/call-status.js');
+  await import('./calls/call-end.js');
+}
 
 // Tool names registered by the eager modules above.  Listed explicitly so
 // initializeTools() can recognise ESM-cached eager-module tools that were
