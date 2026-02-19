@@ -82,6 +82,7 @@ export function buildStartupScript(
   sshUser: string,
   anthropicApiKey: string,
 ): string {
+  const platformUrl = process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai";
   const timestampRedirect = buildTimestampRedirect();
   const userSetup = buildUserSetup(sshUser);
   const ownershipFixup = buildOwnershipFixup();
@@ -130,7 +131,7 @@ CONFIG_EOF
 ${ownershipFixup}
 
 export VELLUM_SSH_USER="\$SSH_USER"
-curl -fsSL https://assistant.vellum.ai/install.sh -o ${INSTALL_SCRIPT_REMOTE_PATH}
+curl -fsSL ${platformUrl}/install.sh -o ${INSTALL_SCRIPT_REMOTE_PATH}
 chmod +x ${INSTALL_SCRIPT_REMOTE_PATH}
 source ${INSTALL_SCRIPT_REMOTE_PATH}
 `;
