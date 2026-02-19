@@ -19,6 +19,7 @@ import {
 import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
 import type { RelayConnection } from './relay-server.js';
 import { registerCallOrchestrator, unregisterCallOrchestrator, fireCallQuestionNotifier, fireCallCompletionNotifier } from './call-state.js';
+import type { PromptSpeakerContext } from './speaker-identification.js';
 
 const log = getLogger('call-orchestrator');
 
@@ -60,7 +61,7 @@ export class CallOrchestrator {
   /**
    * Handle a final caller utterance from the ConversationRelay.
    */
-  async handleCallerUtterance(transcript: string): Promise<void> {
+  async handleCallerUtterance(transcript: string, speaker?: PromptSpeakerContext): Promise<void> {
     // If we're already processing or speaking, abort the in-flight generation
     if (this.state === 'processing' || this.state === 'speaking') {
       this.abortController.abort();
@@ -71,7 +72,10 @@ export class CallOrchestrator {
     this.resetSilenceTimer();
 
     // Append caller utterance
-    this.conversationHistory.push({ role: 'user', content: transcript });
+    this.conversationHistory.push({
+      role: 'user',
+      content: this.formatCallerUtterance(transcript, speaker),
+    });
 
     await this.runLlm();
   }
@@ -154,9 +158,18 @@ export class CallOrchestrator {
       '5. When the call\'s purpose is fulfilled, include [END_CALL] in your response along with a polite goodbye.',
       '6. Do not make up information — ask the user if unsure.',
       '7. Keep responses short — 1-3 sentences is ideal for phone conversation.',
+      '8. When caller text includes [SPEAKER id="..." label="..."], treat each speaker as a distinct person and personalize responses using that speaker\'s prior context in this call.',
     ]
       .filter(Boolean)
       .join('\n');
+  }
+
+  private formatCallerUtterance(transcript: string, speaker?: PromptSpeakerContext): string {
+    if (!speaker) return transcript;
+    const safeId = speaker.speakerId.replaceAll('"', '\'');
+    const safeLabel = speaker.speakerLabel.replaceAll('"', '\'');
+    const confidencePart = speaker.speakerConfidence !== null ? ` confidence="${speaker.speakerConfidence.toFixed(2)}"` : '';
+    return `[SPEAKER id="${safeId}" label="${safeLabel}" source="${speaker.source}"${confidencePart}] ${transcript}`;
   }
 
   /**
