@@ -13,6 +13,7 @@ import {
 } from './daemon/ipc-protocol.js';
 import { formatDiff, formatNewFileDiff } from './util/diff.js';
 import { Spinner } from './util/spinner.js';
+import { truncate } from './util/truncate.js';
 import { copyToClipboard, extractLastCodeBlock, formatSessionForExport } from './util/clipboard.js';
 import { timeAgo } from './util/time.js';
 import { ensureDaemonRunning } from './daemon/lifecycle.js';
@@ -331,7 +332,7 @@ export async function startCli(): Promise<void> {
     for (let i = 0; i < sessions.length; i++) {
       const s = sessions[i];
       const ago = timeAgo(s.updatedAt);
-      const title = s.title.length > 50 ? s.title.slice(0, 47) + '...' : s.title;
+      const title = truncate(s.title, 50);
       const padding = ' '.repeat(Math.max(1, 55 - title.length));
       process.stdout.write(`  [${i + 1}] ${title}${padding}${ago}\n`);
     }
@@ -585,7 +586,7 @@ export async function startCli(): Promise<void> {
         } else {
           for (const m of msg.messages) {
             const label = m.role === 'user' ? 'you' : 'assistant';
-            const preview = m.text.length > 120 ? m.text.slice(0, 117) + '...' : m.text;
+            const preview = truncate(m.text, 120);
             process.stdout.write(`  ${label}> ${preview.replace(/\n/g, ' ')}\n`);
           }
         }

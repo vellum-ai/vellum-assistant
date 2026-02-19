@@ -3,6 +3,7 @@ import { getDb } from '../memory/db.js';
 import { messages as messagesTable } from '../memory/schema.js';
 import { createTask } from './task-store.js';
 import type { Task } from './task-store.js';
+import { truncate } from '../util/truncate.js';
 
 /** Output schema for the task compiler. */
 export interface CompiledTask {
@@ -193,6 +194,5 @@ function buildTemplate(text: string): {
 function deriveTitle(text: string): string {
   // Take the first line and trim whitespace
   const firstLine = text.split('\n')[0].trim();
-  if (firstLine.length <= 60) return firstLine;
-  return firstLine.slice(0, 57) + '...';
+  return truncate(firstLine, 60);
 }

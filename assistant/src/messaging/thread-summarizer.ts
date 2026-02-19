@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
+import { truncate } from '../util/truncate.js';
 import type { ThreadMessage, ThreadSummary } from './types.js';
 
 const log = getLogger('thread-summarizer');
@@ -172,14 +173,10 @@ function extractParticipants(messages: ThreadMessage[]): Array<{ name: string }>
 
 function summarizeSingleMessage(message: ThreadMessage): ThreadSummary {
   return {
-    summary: message.body.length > 200
-      ? message.body.slice(0, 197) + '...'
-      : message.body,
+    summary: truncate(message.body, 200),
     participants: [{ name: message.sender }],
     openQuestions: [],
-    lastAction: message.body.length > 200
-      ? message.body.slice(0, 197) + '...'
-      : message.body,
+    lastAction: truncate(message.body, 200),
     sentiment: 'neutral',
     messageCount: 1,
   };
@@ -280,9 +277,7 @@ function buildFallbackSummary(messages: ThreadMessage[]): ThreadSummary {
     summary: `Thread with ${messages.length} message(s) from ${extractParticipants(messages).map((p) => p.name).join(', ')}.`,
     participants: extractParticipants(messages),
     openQuestions: [],
-    lastAction: lastMsg.body.length > 200
-      ? lastMsg.body.slice(0, 197) + '...'
-      : lastMsg.body,
+    lastAction: truncate(lastMsg.body, 200),
     sentiment: 'neutral',
     messageCount: messages.length,
   };
