@@ -71,10 +71,11 @@ describe('browser skill migration end-state', () => {
       expect(defNames).not.toContain(name);
     }
 
-    // Payload ceiling: browser tools contribute ~4 640 chars.  If they leak
-    // back into startup definitions the payload would exceed 38 000.
+    // Payload ceiling: startup payload is ~45 034 chars.  Browser tools
+    // contribute ~4 640 chars — if they leak back in, the total would exceed
+    // 47 000.  The 2 000-char margin absorbs minor tool additions.
     const payloadSize = JSON.stringify(definitions).length;
-    expect(payloadSize).toBeLessThan(48_000);
+    expect(payloadSize).toBeLessThan(47_000);
   });
 
   // ── 2. Browser skill exists and is active ──────────────────────────
