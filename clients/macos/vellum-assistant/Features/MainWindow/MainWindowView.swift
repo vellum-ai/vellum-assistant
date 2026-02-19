@@ -741,6 +741,7 @@ struct MainWindowView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     // MARK: Nav Items
+                    Spacer().frame(height: VSpacing.md)
                     SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: windowState.activePanel == .directory) {
                         windowState.togglePanel(.directory)
                     }
@@ -749,7 +750,7 @@ struct MainWindowView: View {
                     }
 
                     // MARK: Chats
-                    SidebarSubheader(title: "Chats")
+                    SidebarSubheader(title: "Recent Chats")
 
                     ForEach(displayedThreads) { thread in
                         threadItem(thread)

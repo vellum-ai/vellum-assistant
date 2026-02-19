@@ -938,6 +938,7 @@ private struct ComposerActionButtonStyle: ButtonStyle {
                     )
             )
             .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .focusEffectDisabled()
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(VAnimation.fast, value: configuration.isPressed)
             .animation(VAnimation.fast, value: isHovered)
