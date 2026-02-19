@@ -12,12 +12,14 @@ struct IOSThread: Identifiable {
     let createdAt: Date
     /// When non-nil, this thread is backed by a daemon session (Connected mode).
     var sessionId: String?
+    var isArchived: Bool
 
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), sessionId: String? = nil) {
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.sessionId = sessionId
+        self.isArchived = isArchived
     }
 }
 
@@ -28,6 +30,7 @@ private struct PersistedThread: Codable {
     var id: UUID
     var title: String
     var createdAt: Date
+    var isArchived: Bool?
 }
 
 // MARK: - IOSThreadStore
@@ -210,12 +213,33 @@ class IOSThreadStore: ObservableObject {
         save()
     }
 
+    func archiveThread(_ thread: IOSThread) {
+        guard let idx = threads.firstIndex(where: { $0.id == thread.id }) else { return }
+        threads[idx].isArchived = true
+        save()
+    }
+
+    func unarchiveThread(_ thread: IOSThread) {
+        guard let idx = threads.firstIndex(where: { $0.id == thread.id }) else { return }
+        threads[idx].isArchived = false
+        save()
+    }
+
+    /// Returns the last message text for a thread, if available.
+    func lastMessagePreview(for threadId: UUID) -> String? {
+        guard let vm = viewModels[threadId],
+              let last = vm.messages.last else { return nil }
+        let text = last.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        return String(text.prefix(80))
+    }
+
     // MARK: - Persistence
 
     private func save() {
         // Don't persist daemon-synced threads — they're loaded on connect.
         guard !isConnectedMode else { return }
-        let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt) }
+        let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, isArchived: $0.isArchived) }
         if let data = try? JSONEncoder().encode(persisted) {
             UserDefaults.standard.set(data, forKey: Self.persistenceKey)
         }
@@ -226,7 +250,7 @@ class IOSThreadStore: ObservableObject {
               let persisted = try? JSONDecoder().decode([PersistedThread].self, from: data) else {
             return []
         }
-        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt) }
+        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, isArchived: $0.isArchived ?? false) }
     }
 }
 
@@ -235,9 +259,31 @@ class IOSThreadStore: ObservableObject {
 struct ThreadListView: View {
     @StateObject private var store: IOSThreadStore
     @State private var selectedThreadId: UUID?
+    @State private var searchText: String = ""
+    @State private var renamingThreadId: UUID?
+    @State private var renameText: String = ""
+    @State private var showArchived: Bool = false
 
     init(daemonClient: any DaemonClientProtocol) {
         _store = StateObject(wrappedValue: IOSThreadStore(daemonClient: daemonClient))
+    }
+
+    private var activeThreads: [IOSThread] {
+        store.threads.filter { !$0.isArchived }
+    }
+
+    private var archivedThreads: [IOSThread] {
+        store.threads.filter { $0.isArchived }
+    }
+
+    private var filteredActiveThreads: [IOSThread] {
+        guard !searchText.isEmpty else { return activeThreads }
+        return activeThreads.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    private var filteredArchivedThreads: [IOSThread] {
+        guard !searchText.isEmpty else { return archivedThreads }
+        return archivedThreads.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
     }
 
     var body: some View {
@@ -251,27 +297,72 @@ struct ThreadListView: View {
     // MARK: - Sidebar
 
     private var threadList: some View {
-        List(store.threads, selection: $selectedThreadId) { thread in
-            NavigationLink(value: thread.id) {
-                Label(thread.title, systemImage: "bubble.left")
-            }
-            .swipeActions(edge: .trailing) {
-                Button(role: .destructive) {
-                    store.deleteThread(thread)
-                    if selectedThreadId == thread.id {
-                        selectedThreadId = store.threads.first?.id
+        List(selection: $selectedThreadId) {
+            ForEach(filteredActiveThreads) { thread in
+                NavigationLink(value: thread.id) {
+                    threadRow(thread)
+                }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        store.deleteThread(thread)
+                        if selectedThreadId == thread.id {
+                            selectedThreadId = activeThreads.first?.id
+                        }
+                    } label: {
+                        Label("Delete", systemImage: "trash")
                     }
-                } label: {
-                    Label("Delete", systemImage: "trash")
+                    Button {
+                        store.archiveThread(thread)
+                        if selectedThreadId == thread.id {
+                            selectedThreadId = activeThreads.first?.id
+                        }
+                    } label: {
+                        Label("Archive", systemImage: "archivebox")
+                    }
+                    .tint(.orange)
+                }
+                .swipeActions(edge: .leading) {
+                    Button {
+                        renamingThreadId = thread.id
+                        renameText = thread.title
+                    } label: {
+                        Label("Rename", systemImage: "pencil")
+                    }
+                    .tint(.blue)
+                }
+            }
+
+            if !archivedThreads.isEmpty {
+                Section {
+                    DisclosureGroup("Archived", isExpanded: $showArchived) {
+                        ForEach(filteredArchivedThreads) { thread in
+                            NavigationLink(value: thread.id) {
+                                threadRow(thread)
+                            }
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) {
+                                    store.deleteThread(thread)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                Button {
+                                    store.unarchiveThread(thread)
+                                } label: {
+                                    Label("Unarchive", systemImage: "tray.and.arrow.up")
+                                }
+                                .tint(.blue)
+                            }
+                        }
+                    }
                 }
             }
         }
+        .searchable(text: $searchText, prompt: "Search chats")
         .navigationTitle("Chats")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     store.newThread()
-                    // Auto-select the newly created thread.
                     selectedThreadId = store.threads.last?.id
                 } label: {
                     Image(systemName: "square.and.pencil")
@@ -279,11 +370,55 @@ struct ThreadListView: View {
             }
         }
         .onAppear {
-            // Select the first thread automatically on launch.
             if selectedThreadId == nil {
-                selectedThreadId = store.threads.first?.id
+                selectedThreadId = activeThreads.first?.id
             }
         }
+        .alert("Rename Chat", isPresented: Binding(
+            get: { renamingThreadId != nil },
+            set: { if !$0 { renamingThreadId = nil } }
+        )) {
+            TextField("Title", text: $renameText)
+            Button("Cancel", role: .cancel) { renamingThreadId = nil }
+            Button("Save") {
+                if let id = renamingThreadId, !renameText.isEmpty {
+                    store.updateTitle(renameText, for: id)
+                }
+                renamingThreadId = nil
+            }
+        } message: {
+            Text("Enter a new name for this chat")
+        }
+    }
+
+    // MARK: - Thread Row
+
+    private func threadRow(_ thread: IOSThread) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Image(systemName: "bubble.left")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                Text(thread.title)
+                    .lineLimit(1)
+                Spacer()
+                Text(relativeDate(thread.createdAt))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            if let preview = store.lastMessagePreview(for: thread.id) {
+                Text(preview)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func relativeDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 
     // MARK: - Detail
