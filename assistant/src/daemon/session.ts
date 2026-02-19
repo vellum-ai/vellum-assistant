@@ -1276,13 +1276,8 @@ export class Session {
         sessionId: this.conversationId,
       });
 
-      // Turn-boundary commit: awaited so it completes before the next turn starts.
-      // Without awaiting, the next turn could begin (via drainQueue in finally)
-      // and its file writes could be attributed to this turn's commit.
-      this.turnCount++;
-      await commitTurnChanges(this.workingDir, this.conversationId, this.turnCount);
-
       // Resolve accumulated attachment directives and tool content blocks
+      // BEFORE emitting the completion event so attachments are included.
       const attachmentResult = await resolveAssistantAttachments(
         accumulatedDirectives,
         accumulatedToolContentBlocks,
@@ -1302,6 +1297,11 @@ export class Session {
         onEvent({ type: 'assistant_text_delta', text: warningText, sessionId: this.conversationId });
       }
 
+      // Emit the completion event BEFORE the turn-boundary commit so the
+      // client's thinking/streaming indicators clear immediately.  The git
+      // commit can take 0.5–2 s on large workspaces and has no dependency
+      // on the completion signal — it only needs to finish before
+      // drainQueue (which runs in `finally`).
       if (yieldedForHandoff) {
         this.traceEmitter.emit('generation_handoff', 'Handing off to next queued message', {
           requestId: reqId,
@@ -1332,6 +1332,12 @@ export class Session {
           ...(emittedAttachments.length > 0 ? { attachments: emittedAttachments } : {}),
         });
       }
+
+      // Turn-boundary commit: awaited so it completes before the next turn
+      // starts (drainQueue runs in `finally`).  Runs after the completion
+      // event so the client isn't blocked on git operations.
+      this.turnCount++;
+      await commitTurnChanges(this.workingDir, this.conversationId, this.turnCount);
 
       // Auto-generate conversation title after first exchange
       if (isFirstMessage) {
