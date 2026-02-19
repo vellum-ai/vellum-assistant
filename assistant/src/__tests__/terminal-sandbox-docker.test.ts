@@ -111,13 +111,13 @@ describe('DockerBackend — argument construction', () => {
     expect(result.args).toContain(defaultImage);
   });
 
-  test('wraps command with sh -c by default', () => {
+  test('wraps command with bash -c by default', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     const cmd = 'cat /etc/passwd | wc -l';
     const result = backend.wrap(cmd, sandboxRoot);
-    const shIdx = result.args.indexOf('sh');
-    expect(shIdx).toBeGreaterThan(0);
-    expect(result.args.slice(shIdx)).toEqual(['sh', '-c', cmd]);
+    const bashIdx = result.args.indexOf('bash');
+    expect(bashIdx).toBeGreaterThan(0);
+    expect(result.args.slice(bashIdx)).toEqual(['bash', '-c', cmd]);
   });
 });
 
@@ -465,6 +465,7 @@ describe('DockerBackend — preflight: Docker daemon check', () => {
 
 describe('DockerBackend — preflight: image availability check', () => {
   test('auto-pulls image when not available locally', () => {
+    const pullImage = 'alpine:3.19';
     execFileSyncMock.mockImplementation(
       (file: string, args?: readonly string[]) => {
         if (
@@ -478,7 +479,7 @@ describe('DockerBackend — preflight: image availability check', () => {
       },
     );
 
-    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const backend = new DockerBackend(sandboxRoot, { image: pullImage }, 1000, 1000);
     // Should succeed — auto-pull kicks in after inspect fails.
     const result = backend.wrap('ls', sandboxRoot);
     expect(result.command).toBe('docker');
@@ -491,7 +492,7 @@ describe('DockerBackend — preflight: image availability check', () => {
         (args[1] as string[]).includes('pull'),
     );
     expect(pullCalls.length).toBe(1);
-    expect((pullCalls[0]![1] as string[])).toContain(defaultImage);
+    expect((pullCalls[0]![1] as string[])).toContain(pullImage);
   });
 
   test('throws ToolError when auto-pull also fails', () => {
@@ -508,7 +509,7 @@ describe('DockerBackend — preflight: image availability check', () => {
       },
     );
 
-    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const backend = new DockerBackend(sandboxRoot, { image: 'alpine:3.19' }, 1000, 1000);
     expect(() => backend.wrap('ls', sandboxRoot)).toThrow(ToolError);
     expect(() => backend.wrap('ls', sandboxRoot)).toThrow(
       'Failed to pull Docker image',
@@ -595,7 +596,7 @@ describe('DockerBackend — preflight: image availability check', () => {
       },
     );
 
-    const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
+    const backend = new DockerBackend(sandboxRoot, { image: 'alpine:3.19' }, 1000, 1000);
     backend.wrap('ls', sandboxRoot); // triggers inspect → pull → cache
     backend.wrap('ls', sandboxRoot); // should use cache, no inspect or pull
 
@@ -755,7 +756,7 @@ describe('DockerBackend — preflight: shell resolution', () => {
     const backend = new DockerBackend(sandboxRoot, undefined, 1000, 1000);
     expect(() => backend.wrap('ls', sandboxRoot)).toThrow(ToolError);
     expect(() => backend.wrap('ls', sandboxRoot)).toThrow(
-      'is not available in Docker image',
+      'is available in Docker image',
     );
   });
 

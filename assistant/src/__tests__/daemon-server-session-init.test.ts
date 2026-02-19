@@ -198,6 +198,7 @@ function createFakeSocket() {
   const writes: string[] = [];
   const socket = {
     destroyed: false,
+    writable: true,
     write(chunk: string): boolean {
       writes.push(chunk);
       return true;

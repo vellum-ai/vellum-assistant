@@ -66,6 +66,14 @@ exports[`IPC message snapshots ClientMessage types cancel serializes to expected
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types delete_queued_message serializes to expected JSON 1`] = `
+{
+  "requestId": "req-001",
+  "sessionId": "sess-001",
+  "type": "delete_queued_message",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types model_get serializes to expected JSON 1`] = `
 {
   "type": "model_get",
@@ -154,6 +162,13 @@ exports[`IPC message snapshots ClientMessage types ride_shotgun_start serializes
   "durationSeconds": 300,
   "intervalSeconds": 10,
   "type": "ride_shotgun_start",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types ride_shotgun_stop serializes to expected JSON 1`] = `
+{
+  "type": "ride_shotgun_stop",
+  "watchId": "watch-001",
 }
 `;
 
@@ -1339,6 +1354,14 @@ exports[`IPC message snapshots ServerMessage types message_dequeued serializes t
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types message_queued_deleted serializes to expected JSON 1`] = `
+{
+  "requestId": "req-queue-001",
+  "sessionId": "sess-001",
+  "type": "message_queued_deleted",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types reminder_fired serializes to expected JSON 1`] = `
 {
   "label": "Call Sidd",
@@ -2016,6 +2039,12 @@ exports[`IPC message snapshots ServerMessage types work_item_status_changed seri
     "updatedAt": 1700001000,
   },
   "type": "work_item_status_changed",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types open_tasks_window serializes to expected JSON 1`] = `
+{
+  "type": "open_tasks_window",
 }
 `;
 

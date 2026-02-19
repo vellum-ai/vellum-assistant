@@ -840,56 +840,8 @@ describe('Permission Checker', () => {
     });
   });
 
-  // ── default protected directory ask rules ─────────────────────
-
-  describe('default protected directory ask rules', () => {
-    test('file_read of protected file prompts', async () => {
-      const protectedPath = join(checkerTestDir, 'protected', 'trust.json');
-      const result = await check('file_read', { path: protectedPath }, '/tmp');
-      expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('ask rule');
-    });
-
-    test('file_write to protected file prompts', async () => {
-      const protectedPath = join(checkerTestDir, 'protected', 'keys.enc');
-      const result = await check('file_write', { path: protectedPath }, '/tmp');
-      expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('ask rule');
-    });
-
-    test('file_edit of protected file prompts', async () => {
-      const protectedPath = join(checkerTestDir, 'protected', 'secret-allowlist.json');
-      const result = await check('file_edit', { path: protectedPath }, '/tmp');
-      expect(result.decision).toBe('prompt');
-      expect(result.reason).toContain('ask rule');
-    });
-
-    test('file_read of non-protected file is not affected', async () => {
-      const safePath = join(checkerTestDir, 'data', 'assistant.db');
-      const result = await check('file_read', { path: safePath }, '/tmp');
-      expect(result.decision).toBe('allow');
-    });
-
-    test('file_write to non-protected file is not auto-denied', async () => {
-      const safePath = '/tmp/safe-file.txt';
-      const result = await check('file_write', { path: safePath }, '/tmp');
-      // Medium risk with no matching rule → prompt (not deny)
-      expect(result.decision).not.toBe('deny');
-    });
-
-    test('relative path to protected file still prompts', async () => {
-      // Simulate a relative path that resolves to the protected directory.
-      // The default ask pattern uses an absolute path, so the checker
-      // must resolve relative paths against workingDir before matching.
-      const workingDir = '/tmp';
-      const protectedPath = join(checkerTestDir, 'protected', 'trust.json');
-      // Build a relative path from workingDir to the protected file
-      const { relative } = await import('node:path');
-      const relPath = relative(workingDir, protectedPath);
-      const result = await check('file_read', { path: relPath }, workingDir);
-      expect(result.decision).toBe('prompt');
-    });
-  });
+  // Protected directory ask rules were removed in #4851 (sandbox-scoped file tools
+  // make them redundant). The corresponding default rules no longer exist.
 
   // ── default workspace prompt file allow rules ──────────────────
 
@@ -3551,8 +3503,8 @@ describe('Permission Checker', () => {
       withExtraDirs(() => {
         const templates = getDefaultRuleTemplates();
         const extraRules = templates.filter((t) => t.id.includes('extra-0'));
-        // Should have rules for file_write, file_edit, host_file_write, host_file_edit
-        expect(extraRules.length).toBe(4);
+        // Should have rules for file_write, file_edit
+        expect(extraRules.length).toBe(2);
         for (const rule of extraRules) {
           expect(rule.decision).toBe('ask');
           expect(rule.pattern).toContain(extraSkillDir);

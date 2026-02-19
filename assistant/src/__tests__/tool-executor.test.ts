@@ -1871,9 +1871,9 @@ describe('E2E: proxied bash activation vs proxy approval persistence', () => {
     );
 
     expect(result.isError).toBe(true);
-    // Since no rule was saved, the message should NOT include "(rule saved)"
-    expect(result.content).toBe('Permission denied by user');
-    expect(result.content).not.toContain('rule saved');
+    // Since no rule was saved, the message should NOT include "rule was saved"
+    expect(result.content).toContain('Permission denied by user');
+    expect(result.content).not.toContain('rule was saved');
   });
 
   test('non-proxied bash denied result message includes "rule saved" suffix', async () => {
@@ -1888,7 +1888,8 @@ describe('E2E: proxied bash activation vs proxy approval persistence', () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toBe('Permission denied by user (rule saved)');
+    expect(result.content).toContain('Permission denied by user');
+    expect(result.content).toContain('rule was saved');
   });
 });
 

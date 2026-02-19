@@ -201,7 +201,8 @@ describe('ToolExecutor lifecycle events', () => {
 
     const result = await executor.execute('bash', { command: 'ls -la' }, makeContext(events));
 
-    expect(result).toEqual({ content: 'Permission denied by user', isError: true });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Permission denied by user');
     expect(events.map((event) => event.type)).toEqual([
       'start',
       'permission_prompt',
