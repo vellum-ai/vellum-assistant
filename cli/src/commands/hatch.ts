@@ -748,7 +748,17 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
       console.warn("⚠️  Daemon socket did not appear within 10s — continuing anyway");
     }
   } else {
-    const child = spawn("bunx", ["vellum", "daemon", "start"], {
+    const assistantDir = join(import.meta.dir, "..", "..", "..", "assistant");
+    const assistantIndex = join(assistantDir, "src", "index.ts");
+
+    if (!existsSync(assistantIndex)) {
+      throw new Error(
+        "vellum-daemon binary not found and assistant source not available.\n" +
+          "  Ensure the daemon binary is bundled alongside the CLI, or run from the source tree.",
+      );
+    }
+
+    const child = spawn("bun", ["run", assistantIndex, "daemon", "start"], {
       stdio: "inherit",
       env: { ...process.env },
     });
