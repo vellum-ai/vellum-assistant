@@ -1,9 +1,11 @@
 import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { listSchedules, getSchedule, getScheduleRuns, formatLocalDate, describeCronExpression } from '../../schedule/schedule-store.js';
+import { hasSetConstructs } from '../../schedule/recurrence-engine.js';
 
 function describeSchedule(job: { syntax: string; expression: string; cronExpression: string }): string {
   if (job.syntax === 'rrule') {
-    return job.expression;
+    const label = hasSetConstructs(job.expression) ? '[RRULE set] ' : '';
+    return `${label}${job.expression}`;
   }
   return describeCronExpression(job.cronExpression);
 }

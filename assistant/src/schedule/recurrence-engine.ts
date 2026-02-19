@@ -43,7 +43,7 @@ function validateRruleLines(lines: string[]): string | null {
  * Detect whether an RRULE expression contains set constructs (RDATE, EXDATE,
  * EXRULE, or multiple RRULE lines) that require RRuleSet parsing.
  */
-function hasSetConstructs(expression: string): boolean {
+export function hasSetConstructs(expression: string): boolean {
   const lines = parseRruleLines(expression);
   let rruleCount = 0;
   for (const line of lines) {
@@ -51,6 +51,17 @@ function hasSetConstructs(expression: string): boolean {
     if (line.startsWith('RRULE:')) rruleCount++;
   }
   return rruleCount > 1;
+}
+
+/**
+ * Validate RRULE set lines in an expression. Returns null if valid, or an
+ * actionable error string describing the problem. This is intended for tool
+ * layers that want to surface a specific error message before calling the
+ * store.
+ */
+export function validateRruleSetLines(expression: string): string | null {
+  const lines = parseRruleLines(expression);
+  return validateRruleLines(lines);
 }
 
 /**

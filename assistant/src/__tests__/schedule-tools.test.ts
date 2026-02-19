@@ -474,6 +474,188 @@ describe('schedule_list with RRULE', () => {
   });
 });
 
+// ── RRULE set support in schedule tools ──────────────────────────────
+
+describe('schedule_create with RRULE set (EXDATE)', () => {
+  beforeEach(() => {
+    getRawDb().run('DELETE FROM cron_runs');
+    getRawDb().run('DELETE FROM cron_jobs');
+  });
+
+  test('creates a schedule with RRULE + EXDATE', async () => {
+    const expression = [
+      'DTSTART:20250101T090000Z',
+      'RRULE:FREQ=DAILY;INTERVAL=1',
+      'EXDATE:20250102T090000Z',
+    ].join('\n');
+
+    const result = await executeScheduleCreate({
+      name: 'Daily with exclusion',
+      syntax: 'rrule',
+      expression,
+      message: 'RRULE set test',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Schedule created successfully');
+    expect(result.content).toContain('Syntax: rrule');
+  });
+
+  test('creates a schedule with RRULE + RDATE', async () => {
+    const expression = [
+      'DTSTART:20250101T090000Z',
+      'RRULE:FREQ=WEEKLY;BYDAY=MO',
+      'RDATE:20250115T090000Z',
+    ].join('\n');
+
+    const result = await executeScheduleCreate({
+      name: 'Weekly with extra date',
+      syntax: 'rrule',
+      expression,
+      message: 'RDATE test',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Schedule created successfully');
+  });
+
+  test('rejects unsupported line types in RRULE set', async () => {
+    const expression = [
+      'DTSTART:20250101T090000Z',
+      'RRULE:FREQ=DAILY',
+      'VTIMEZONE:America/New_York',
+    ].join('\n');
+
+    const result = await executeScheduleCreate({
+      name: 'Bad set line',
+      syntax: 'rrule',
+      expression,
+      message: 'Should fail',
+    }, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Unsupported recurrence line');
+    expect(result.content).toContain('Supported line types');
+  });
+
+  test('rejects RRULE set missing DTSTART', async () => {
+    const expression = [
+      'RRULE:FREQ=DAILY',
+      'EXDATE:20250102T090000Z',
+    ].join('\n');
+
+    const result = await executeScheduleCreate({
+      name: 'Set without DTSTART',
+      syntax: 'rrule',
+      expression,
+      message: 'Should fail',
+    }, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('DTSTART');
+  });
+});
+
+describe('schedule_update with RRULE set', () => {
+  beforeEach(() => {
+    getRawDb().run('DELETE FROM cron_runs');
+    getRawDb().run('DELETE FROM cron_jobs');
+  });
+
+  test('updates a cron schedule to RRULE set with EXDATE', async () => {
+    await executeScheduleCreate({
+      name: 'Cron to set',
+      cron_expression: '0 9 * * *',
+      message: 'test',
+    }, ctx);
+
+    const row = getRawDb().query('SELECT id FROM cron_jobs LIMIT 1').get() as { id: string };
+
+    const expression = [
+      'DTSTART:20250101T090000Z',
+      'RRULE:FREQ=DAILY;INTERVAL=1',
+      'EXDATE:20250102T090000Z',
+    ].join('\n');
+
+    const result = await executeScheduleUpdate({
+      job_id: row.id,
+      syntax: 'rrule',
+      expression,
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Schedule updated successfully');
+    expect(result.content).toContain('Syntax: rrule');
+  });
+
+  test('rejects update with unsupported set lines', async () => {
+    await executeScheduleCreate({
+      name: 'Bad set update',
+      cron_expression: '0 9 * * *',
+      message: 'test',
+    }, ctx);
+
+    const row = getRawDb().query('SELECT id FROM cron_jobs LIMIT 1').get() as { id: string };
+
+    const expression = [
+      'DTSTART:20250101T090000Z',
+      'RRULE:FREQ=DAILY',
+      'VCALENDAR:BEGIN',
+    ].join('\n');
+
+    const result = await executeScheduleUpdate({
+      job_id: row.id,
+      syntax: 'rrule',
+      expression,
+    }, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Unsupported recurrence line');
+    expect(result.content).toContain('Supported line types');
+  });
+});
+
+describe('schedule_list with RRULE set', () => {
+  beforeEach(() => {
+    getRawDb().run('DELETE FROM cron_runs');
+    getRawDb().run('DELETE FROM cron_jobs');
+  });
+
+  test('shows [RRULE set] label for schedules with EXDATE', async () => {
+    const expression = [
+      'DTSTART:20250101T090000Z',
+      'RRULE:FREQ=DAILY;INTERVAL=1',
+      'EXDATE:20250102T090000Z',
+    ].join('\n');
+
+    await executeScheduleCreate({
+      name: 'Set Schedule',
+      syntax: 'rrule',
+      expression,
+      message: 'set test',
+    }, ctx);
+
+    const result = await executeScheduleList({}, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('[RRULE set]');
+  });
+
+  test('does not show [RRULE set] label for simple RRULE', async () => {
+    await executeScheduleCreate({
+      name: 'Simple RRULE',
+      syntax: 'rrule',
+      expression: 'DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY',
+      message: 'simple test',
+    }, ctx);
+
+    const result = await executeScheduleList({}, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain('[RRULE set]');
+  });
+});
+
 // ── schedule_delete ─────────────────────────────────────────────────
 
 describe('schedule_delete tool', () => {
