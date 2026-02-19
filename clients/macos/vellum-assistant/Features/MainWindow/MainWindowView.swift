@@ -362,6 +362,12 @@ struct MainWindowView: View {
                                 sidebarOpen.toggle()
                             }
                         }
+                        if !sidebarOpen {
+                            VIconButton(label: "New Chat", icon: "plus.circle", iconOnly: true) {
+                                windowState.selection = nil
+                                threadManager.createThread()
+                            }
+                        }
                         Spacer()
                         if windowState.isShowingChat {
                             // Copy Thread button
