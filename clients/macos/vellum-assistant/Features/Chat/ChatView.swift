@@ -48,6 +48,8 @@ struct ChatView: View {
     var isTemporaryChat: Bool = false
     var activeSubagents: [SubagentInfo] = []
     var daemonHttpPort: Int?
+    var dismissedDocumentSurfaceIds: Set<String> = []
+    var onDismissDocumentWidget: ((String) -> Void)?
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     /// Sums utf8.count over each segment (O(1) per contiguous segment) instead of joining first,
@@ -68,7 +70,6 @@ struct ChatView: View {
     @State private var isQueueExpanded = true
     @State private var identity: IdentityInfo? = IdentityInfo.load()
     @State private var appearance = AvatarAppearanceManager.shared
-    @State private var dismissedDocumentSurfaceIds: Set<String> = []
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
     private var isEmptyState: Bool {
@@ -452,7 +453,7 @@ struct ChatView: View {
                                 onRegenerate: onRegenerate,
                                 onSurfaceAction: onSurfaceAction,
                                 onDismissDocumentWidget: { surfaceId in
-                                    dismissedDocumentSurfaceIds.insert(surfaceId)
+                                    onDismissDocumentWidget?(surfaceId)
                                 },
                                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                                 onReportMessage: onReportMessage,

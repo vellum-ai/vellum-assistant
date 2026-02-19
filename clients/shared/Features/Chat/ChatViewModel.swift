@@ -43,6 +43,8 @@ public final class ChatViewModel: ObservableObject {
     @Published public var pendingSkillInvocation: SkillInvocationData?
     @Published public var isWatchSessionActive: Bool = false
     @Published public var activeSubagents: [SubagentInfo] = []
+    /// Widget IDs dismissed by the user, persisted across view recreation.
+    @Published public var dismissedDocumentSurfaceIds: Set<String> = []
 
     /// The currently active model ID, updated via `model_info` IPC messages.
     @Published public var selectedModel: String = "claude-opus-4-6"
@@ -805,6 +807,10 @@ public final class ChatViewModel: ObservableObject {
         guard isWatchSessionActive else { return }
         isWatchSessionActive = false
         onStopWatch?()
+    }
+
+    public func dismissDocumentSurface(id: String) {
+        dismissedDocumentSurfaceIds.insert(id)
     }
 
     public func dismissError() {
