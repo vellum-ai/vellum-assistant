@@ -207,7 +207,8 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
 
   const claimed: ScheduleJob[] = [];
   for (const row of candidates) {
-    let newNextRunAt: number;
+    let newNextRunAt: number | null;
+    let exhausted = false;
     try {
       const syntax = (row.scheduleSyntax as ScheduleSyntax) ?? 'cron';
       newNextRunAt = computeNextRunAtEngine({
@@ -216,18 +217,27 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
         timezone: row.timezone,
       });
     } catch {
-      // Expression has no future runs — skip
-      continue;
+      // Finite schedule with no future runs — still claim the current due
+      // run but disable the schedule so it doesn't fire again.
+      newNextRunAt = null;
+      exhausted = true;
     }
 
     // Optimistic lock: only update if nextRunAt hasn't changed
+    const updates: Record<string, unknown> = {
+      lastRunAt: now,
+      updatedAt: now,
+    };
+    if (exhausted) {
+      updates.nextRunAt = 0;
+      updates.enabled = false;
+    } else {
+      updates.nextRunAt = newNextRunAt!;
+    }
+
     const result = db
       .update(scheduleJobs)
-      .set({
-        nextRunAt: newNextRunAt,
-        lastRunAt: now,
-        updatedAt: now,
-      })
+      .set(updates)
       .where(and(eq(scheduleJobs.id, row.id), eq(scheduleJobs.nextRunAt, row.nextRunAt)))
       .run() as unknown as { changes?: number };
 
@@ -235,9 +245,10 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
 
     claimed.push(parseJobRow({
       ...row,
-      nextRunAt: newNextRunAt,
+      nextRunAt: exhausted ? 0 : newNextRunAt!,
       lastRunAt: now,
       updatedAt: now,
+      enabled: exhausted ? false : row.enabled,
     }));
   }
   return claimed;

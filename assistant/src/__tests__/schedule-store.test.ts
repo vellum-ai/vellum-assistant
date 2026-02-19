@@ -434,6 +434,35 @@ describe('claimDueSchedules', () => {
     expect(claimed.length).toBe(0);
   });
 
+  test('claims exhausted RRULE schedule and disables it', () => {
+    // COUNT=1 means only one occurrence — the DTSTART itself
+    const rrule = 'DTSTART:20250101T000000Z\nRRULE:FREQ=DAILY;COUNT=1';
+    const job = createSchedule({
+      name: 'Finite RRULE',
+      cronExpression: rrule,
+      message: 'one-shot',
+      syntax: 'rrule',
+      expression: rrule,
+    });
+
+    // Force the schedule to be due (past the only occurrence)
+    getRawDb().run('UPDATE cron_jobs SET next_run_at = ? WHERE id = ?', [Date.now() - 1000, job.id]);
+
+    const claimed = claimDueSchedules(Date.now());
+    expect(claimed.length).toBe(1);
+    expect(claimed[0].id).toBe(job.id);
+    expect(claimed[0].enabled).toBe(false);
+    expect(claimed[0].nextRunAt).toBe(0);
+
+    // Verify the schedule is disabled in the DB
+    const persisted = getSchedule(job.id);
+    expect(persisted!.enabled).toBe(false);
+
+    // A subsequent claim should not pick it up
+    const again = claimDueSchedules(Date.now());
+    expect(again.length).toBe(0);
+  });
+
   test('optimistic lock prevents double-claiming', () => {
     const job = createSchedule({
       name: 'Double claim',
