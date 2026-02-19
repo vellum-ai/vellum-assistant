@@ -735,7 +735,7 @@ export const SwarmConfigSchema = z.object({
     .default('claude-haiku-4-5-20251001'),
   synthesizerModel: z
     .string({ error: 'swarm.synthesizerModel must be a string' })
-    .default('claude-sonnet-4-5-20250929'),
+    .default('claude-sonnet-4-6'),
 });
 
 export const SkillsConfigSchema = z.object({
@@ -939,7 +939,7 @@ export const AssistantConfigSchema = z.object({
     maxRetriesPerTask: 1,
     workerTimeoutSec: 900,
     plannerModel: 'claude-haiku-4-5-20251001',
-    synthesizerModel: 'claude-sonnet-4-5-20250929',
+    synthesizerModel: 'claude-sonnet-4-6',
   }),
   skills: SkillsConfigSchema.default({
     entries: {},

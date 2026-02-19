@@ -175,7 +175,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     maxRetriesPerTask: 1,
     workerTimeoutSec: 900,
     plannerModel: 'claude-haiku-4-5-20251001',
-    synthesizerModel: 'claude-sonnet-4-5-20250929',
+    synthesizerModel: 'claude-sonnet-4-6',
   },
   skills: {
     entries: {},

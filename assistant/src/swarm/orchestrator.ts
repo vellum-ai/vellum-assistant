@@ -213,7 +213,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       objective: plan.objective,
       results: allResults,
       provider: opts.synthesisProvider,
-      model: opts.synthesisModel ?? 'claude-sonnet-4-5-20250929',
+      model: opts.synthesisModel ?? 'claude-sonnet-4-6',
     });
   } else {
     if (!signal?.aborted) onStatus?.({ kind: 'synthesis_started' });

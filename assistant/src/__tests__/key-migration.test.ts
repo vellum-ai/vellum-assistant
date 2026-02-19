@@ -95,7 +95,7 @@ describe('key migration', () => {
     const configPath = CONFIG_PATH;
     writeFileSync(configPath, JSON.stringify({
       provider: 'anthropic',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
     }));
 
     const config = loadConfig();
@@ -104,7 +104,7 @@ describe('key migration', () => {
     // Config file should be unchanged
     const rawJson = JSON.parse(readFileSync(configPath, 'utf-8'));
     expect(rawJson.provider).toBe('anthropic');
-    expect(rawJson.model).toBe('claude-sonnet-4-5-20250929');
+    expect(rawJson.model).toBe('claude-sonnet-4-6');
   });
 
   test('does not migrate empty apiKeys object', () => {

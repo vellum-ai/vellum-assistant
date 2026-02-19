@@ -53,7 +53,7 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
           prompt: input.prompt,
           options: {
             cwd: input.workingDir,
-            model: input.model ?? 'claude-sonnet-4-5-20250929',
+            model: input.model ?? 'claude-sonnet-4-6',
             canUseTool,
             permissionMode: 'default',
             maxTurns: 30,

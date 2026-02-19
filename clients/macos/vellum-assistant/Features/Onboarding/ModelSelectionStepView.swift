@@ -11,11 +11,11 @@ struct ModelSelectionStepView: View {
 
     @State private var showTitle = false
     @State private var showContent = false
-    @State private var selectedModel = "claude-sonnet-4-5-20250929"
+    @State private var selectedModel = "claude-sonnet-4-6"
 
     private static let models: [(id: String, name: String, detail: String)] = [
         ("claude-opus-4-6", "Opus 4.6", "Most capable"),
-        ("claude-sonnet-4-5-20250929", "Sonnet 4.5", "Balanced"),
+        ("claude-sonnet-4-6", "Sonnet 4.6", "Balanced"),
         ("claude-haiku-4-5-20251001", "Haiku 4.5", "Fastest"),
     ]
 

@@ -49,7 +49,7 @@ export const claudeCodeTool: Tool = {
           },
           model: {
             type: 'string',
-            description: 'Model to use (defaults to claude-sonnet-4-5-20250929)',
+            description: 'Model to use (defaults to claude-sonnet-4-6)',
           },
           profile: {
             type: 'string',
@@ -70,7 +70,7 @@ export const claudeCodeTool: Tool = {
     const prompt = input.prompt as string;
     const workingDir = (input.working_dir as string) || context.workingDir;
     const resumeSessionId = input.resume as string | undefined;
-    const model = (input.model as string) || 'claude-sonnet-4-5-20250929';
+    const model = (input.model as string) || 'claude-sonnet-4-6';
     const profileName = (input.profile as WorkerProfile | undefined) ?? 'general';
 
     // Validate profile
