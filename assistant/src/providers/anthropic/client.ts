@@ -12,6 +12,16 @@ import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('anthropic-client');
 
+/**
+ * The Anthropic API returns block types (server_tool_use, web_search_tool_result)
+ * that are not yet in the installed SDK's ContentBlock union (SDK 0.39.x).
+ * This extended type allows the switch statement to handle them without casting.
+ */
+type AnthropicContentBlock =
+  | Anthropic.ContentBlock
+  | { type: "server_tool_use" }
+  | { type: "web_search_tool_result" };
+
 const TOOL_ID_RE = /[^a-wyzA-Z0-9_-]/g;
 
 const ANTHROPIC_SUPPORTED_IMAGE_TYPES = new Set([
@@ -727,7 +737,7 @@ export class AnthropicProvider implements Provider {
   }
 
   private fromAnthropicBlock(
-    block: Anthropic.ContentBlock,
+    block: AnthropicContentBlock,
   ): ContentBlock {
     const blockType = block.type as string;
     switch (blockType) {
