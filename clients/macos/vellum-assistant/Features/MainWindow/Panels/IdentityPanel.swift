@@ -62,7 +62,7 @@ struct IdentityPanel: View {
             .padding(.vertical, VSpacing.xl)
             .padding(.horizontal, VSpacing.xxl)
 
-            // Constellation fills remaining space
+            // Constellation fills remaining space (pan + zoom to navigate)
             ConstellationView(
                 identity: identity,
                 skills: skills,
