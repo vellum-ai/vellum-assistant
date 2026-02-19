@@ -320,18 +320,27 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let lockfilePath = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".vellum.lock.json").path
 
+        let hostingModeToCloud: [String: String] = [
+            "aws": "aws",
+            "customHardware": "custom",
+            "gcp": "gcp",
+        ]
+        let config = WorkspaceConfigIO.read()
+        let hostingMode = config["hostingMode"] as? String ?? "local"
+        let cloud = hostingModeToCloud[hostingMode] ?? "local"
+
         var assistantName: String?
         if let data = FileManager.default.contents(atPath: lockfilePath),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let assistants = json["assistants"] as? [[String: Any]] {
-            let isoFormatter = ISO8601DateFormatter()
-            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let sorted = assistants.sorted { a, b in
-                let dateA = (a["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
-                let dateB = (b["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
-                return dateA > dateB
+            let match = assistants.first { entry in
+                (entry["cloud"] as? String ?? "local") == cloud
             }
-            assistantName = sorted.first?["assistantId"] as? String
+            assistantName = match?["assistantId"] as? String
+        }
+
+        if assistantName == nil {
+            log.error("No lockfile entry found for cloud type '\(cloud)' — skipping retire")
         }
 
         Task {
