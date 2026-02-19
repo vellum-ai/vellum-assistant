@@ -1,9 +1,10 @@
 /**
- * Sanitization utilities for proxy log entries.
+ * Safe diagnostic logging helpers for the proxy subsystem.
  *
- * All proxy logging must pass through these helpers so that secrets
- * injected via credential templates (Authorization headers, API key
- * query params, etc.) are never persisted or printed in plaintext.
+ * All sanitizers and trace builders are designed to NEVER include secret
+ * values by construction — sanitizers redact sensitive header/query values,
+ * and trace builders only reference host patterns, decision kinds, and
+ * candidate counts.
  */
 
 const REDACTED = '[REDACTED]';
@@ -88,4 +89,98 @@ export function createSafeLogEntry(
     url: sanitizeUrl(req.url, sensitiveKeys),
     headers: sanitizeHeaders(req.headers, sensitiveKeys),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Policy/rewrite decision trace
+// ---------------------------------------------------------------------------
+
+import type { PolicyDecision } from './types.js';
+
+export interface ProxyDecisionTrace {
+  /** Target hostname. */
+  host: string;
+  /** Target port (null = default for scheme). */
+  port: number | null;
+  /** Request path. */
+  path: string;
+  /** Protocol scheme. */
+  scheme: 'http' | 'https';
+  /** The decision kind emitted by the policy engine. */
+  decisionKind: PolicyDecision['kind'];
+  /** Number of candidate templates that matched before disambiguation. */
+  candidateCount: number;
+  /** The host pattern of the selected template, if any. */
+  selectedPattern: string | null;
+  /** The credential ID of the selected credential, if any. */
+  selectedCredentialId: string | null;
+}
+
+/**
+ * Build a structured trace record from a policy decision.
+ *
+ * Intentionally excludes all secret-bearing fields (header values,
+ * storage keys, injected tokens) — only patterns, counts, and
+ * decision metadata are included.
+ */
+export function buildDecisionTrace(
+  host: string,
+  port: number | null,
+  path: string,
+  scheme: 'http' | 'https',
+  decision: PolicyDecision,
+): ProxyDecisionTrace {
+  let candidateCount = 0;
+  let selectedPattern: string | null = null;
+  let selectedCredentialId: string | null = null;
+
+  switch (decision.kind) {
+    case 'matched':
+      candidateCount = 1;
+      selectedPattern = decision.template.hostPattern;
+      selectedCredentialId = decision.credentialId;
+      break;
+    case 'ambiguous':
+      candidateCount = decision.candidates.length;
+      break;
+    case 'ask_missing_credential':
+      candidateCount = decision.matchingPatterns.length;
+      break;
+    // 'missing', 'unauthenticated', 'ask_unauthenticated' — no candidates
+  }
+
+  return {
+    host,
+    port,
+    path,
+    scheme,
+    decisionKind: decision.kind,
+    candidateCount,
+    selectedPattern,
+    selectedCredentialId,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Credential ref resolution trace
+// ---------------------------------------------------------------------------
+
+export interface CredentialRefTrace {
+  /** The raw refs provided by the caller. */
+  rawRefs: string[];
+  /** The resolved canonical UUIDs. */
+  resolvedIds: string[];
+  /** Any refs that could not be resolved. */
+  unresolvedRefs: string[];
+}
+
+/**
+ * Build a credential ref resolution trace for diagnostic logging.
+ */
+export function buildCredentialRefTrace(
+  rawRefs: string[],
+  resolvedIds: string[],
+  unresolvedRefs: string[],
+): CredentialRefTrace {
+  return { rawRefs, resolvedIds, unresolvedRefs };
 }
