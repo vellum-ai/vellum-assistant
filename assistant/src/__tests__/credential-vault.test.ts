@@ -211,6 +211,22 @@ describe('credential_store tool', () => {
       expect(result.isError).toBe(true);
       expect(result.content).toContain('value is required');
     });
+
+    test('store success includes credential_id via credentialStoreTool', async () => {
+      const result = await credentialStoreTool.execute({
+        action: 'store',
+        service: 'test-cred-id',
+        field: 'api_key',
+        value: 'test-value',
+      }, _ctx);
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('credential_id:');
+      expect(result.content).toContain('test-cred-id/api_key');
+      // Verify the credential_id in the output matches the metadata
+      const metadata = getCredentialMetadata('test-cred-id', 'api_key');
+      expect(metadata).toBeDefined();
+      expect(result.content).toContain(metadata!.credentialId);
+    });
   });
 
   // -----------------------------------------------------------------------
