@@ -341,7 +341,6 @@ struct ChatView: View {
         let base: CGFloat = VSpacing.sm + VSpacing.md + topPad + bottomPad + contentHeight + buttonRow
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
         let error: CGFloat = sessionError != nil ? 60 : (errorText != nil ? 36 : 0)
-        // Queue container: header (~28pt) + per-message row (~24pt each) + padding
         let queueCount = CGFloat(queuedMessages.count)
         let queue: CGFloat = queueCount > 0 ? (28 + (isQueueExpanded ? queueCount * 24 : 0) + VSpacing.xs) : 0
         return base + attachments + error + queue
