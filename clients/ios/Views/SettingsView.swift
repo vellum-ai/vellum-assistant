@@ -444,7 +444,7 @@ struct SettingsView: View {
                     Text(schedule.cronExpression)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
-                    if let nextRun = formatTimestamp(schedule.nextRunAt) {
+                    if schedule.enabled, schedule.nextRunAt > 0, let nextRun = formatTimestamp(schedule.nextRunAt) {
                         Text("Next: \(nextRun)")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
@@ -467,7 +467,11 @@ struct SettingsView: View {
             schedules = items
             schedulesLoading = false
         }
-        try? daemon.sendListSchedules()
+        do {
+            try daemon.sendListSchedules()
+        } catch {
+            schedulesLoading = false
+        }
     }
 
     private func toggleSchedule(_ id: String, enabled: Bool) {
@@ -535,7 +539,11 @@ struct SettingsView: View {
             reminders = items
             remindersLoading = false
         }
-        try? daemon.sendListReminders()
+        do {
+            try daemon.sendListReminders()
+        } catch {
+            remindersLoading = false
+        }
     }
 
     private func cancelReminder(_ id: String) {
