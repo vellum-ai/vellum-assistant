@@ -203,14 +203,31 @@ export class CallOrchestrator {
           // Only hold the buffer if the bracket text could be the start of a
           // known control marker. Otherwise flush immediately so ordinary
           // bracketed text (e.g. "[A]", "[note]") doesn't stall TTS.
+          //
+          // The check must be bidirectional:
+          //  - When the buffer is shorter than the prefix (e.g. "[ASK"), the
+          //    buffer is a prefix of the control tag → hold it.
+          //  - When the buffer is longer than the prefix (e.g. "[ASK_USER: what"),
+          //    the buffer starts with the control tag prefix → hold it (the
+          //    variable-length payload hasn't been closed yet).
           const afterBracket = ttsBuffer;
           const couldBeControl =
-            '[ASK_USER:'.startsWith(afterBracket) || '[END_CALL]'.startsWith(afterBracket);
+            '[ASK_USER:'.startsWith(afterBracket) ||
+            '[END_CALL]'.startsWith(afterBracket) ||
+            afterBracket.startsWith('[ASK_USER:') ||
+            afterBracket.startsWith('[END_CALL');
 
           if (!couldBeControl) {
-            // Not a control marker prefix — flush everything
-            this.relay.sendTextToken(ttsBuffer, false);
-            ttsBuffer = '';
+            // Not a control marker prefix — flush up to the next '[' (if any)
+            // so we don't accidentally flush a later partial control marker.
+            const nextBracket = ttsBuffer.indexOf('[', 1);
+            if (nextBracket === -1) {
+              this.relay.sendTextToken(ttsBuffer, false);
+              ttsBuffer = '';
+            } else {
+              this.relay.sendTextToken(ttsBuffer.slice(0, nextBracket), false);
+              ttsBuffer = ttsBuffer.slice(nextBracket);
+            }
           }
           // Otherwise hold it — might be a control marker still being streamed
         }
