@@ -749,13 +749,11 @@ private final class ComposerNativeTextView: NSTextView {
         let x = textContainerInset.width + linePadding
         let width = max(0, bounds.width - x - textContainerInset.width - linePadding)
 
-        // Measure placeholder height to vertically center it
-        let measureSize = NSSize(width: width, height: .greatestFiniteMagnitude)
-        let placeholderSize = (placeholderText as NSString).boundingRect(
-            with: measureSize, options: .usesLineFragmentOrigin, attributes: attributes
-        ).size
-        let y = max(0, (bounds.height - placeholderSize.height) / 2)
-        let rect = NSRect(x: x, y: y, width: width, height: placeholderSize.height)
+        // Draw at the standard text insertion position and let
+        // CenteringClipView handle vertical centering of the whole
+        // scroll content — avoids double-centering misalignment.
+        let y = textContainerInset.height
+        let rect = NSRect(x: x, y: y, width: width, height: bounds.height - y)
 
         (placeholderText as NSString).draw(in: rect, withAttributes: attributes)
     }
