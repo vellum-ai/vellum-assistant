@@ -279,9 +279,12 @@ This is the key difference from `/blitz`. Instead of closing the epic, we create
 2. Create the final PR from the feature branch into main. **Do NOT merge it.**
 
 ```bash
-gh pr create --base main --head <feature-branch-name> --title "<Feature Title>" --body "$(cat <<'EOF'
+gh pr create --base main --head <feature-branch-name> --title "<Feature Title>" --body "$(cat <<'PR_BODY_DELIM'
 ## Summary
 <1-3 sentence overview of the feature>
+
+## Original feature request
+<the verbatim feature description passed as $ARGUMENTS>
 
 ## Changes
 <bulleted list of all milestone changes>
@@ -298,7 +301,7 @@ Closes #<project-issue-number>
 - [ ] <verification steps>
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
+PR_BODY_DELIM
 )" --assignee @me
 ```
 
