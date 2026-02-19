@@ -104,6 +104,7 @@ import {
   handleWorkItemCreate,
   handleWorkItemUpdate,
   handleWorkItemComplete,
+  handleWorkItemDelete,
   handleWorkItemRunTask,
 } from './work-items.js';
 
@@ -331,6 +332,7 @@ const handlers: DispatchMap = {
   work_item_create: handleWorkItemCreate,
   work_item_update: handleWorkItemUpdate,
   work_item_complete: handleWorkItemComplete,
+  work_item_delete: handleWorkItemDelete,
   work_item_run_task: handleWorkItemRunTask,
 
   subagent_abort: handleSubagentAbort,

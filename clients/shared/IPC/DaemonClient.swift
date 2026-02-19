@@ -275,6 +275,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `tasks_changed` broadcast.
     public var onTasksChanged: ((IPCTasksChanged) -> Void)?
 
+    /// Called when the daemon sends a `work_item_delete_response` message.
+    public var onWorkItemDeleteResponse: ((IPCWorkItemDeleteResponse) -> Void)?
+
     /// Called when the daemon sends a `work_item_run_task_response` message.
     public var onWorkItemRunTaskResponse: ((IPCWorkItemRunTaskResponse) -> Void)?
 
@@ -869,6 +872,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(IPCWorkItemCompleteRequest(type: "work_item_complete", id: id))
     }
 
+    /// Delete a work item.
+    public func sendWorkItemDelete(id: String) throws {
+        try send(IPCWorkItemDeleteRequest(type: "work_item_delete", id: id))
+    }
+
     /// Run the task associated with a work item.
     public func sendWorkItemRunTask(id: String) throws {
         try send(IPCWorkItemRunTaskRequest(type: "work_item_run_task", id: id))
@@ -1426,6 +1434,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onWorkItemStatusChanged?(msg)
         case .tasksChanged(let msg):
             onTasksChanged?(msg)
+        case .workItemDeleteResponse(let msg):
+            onWorkItemDeleteResponse?(msg)
         case .workItemRunTaskResponse(let msg):
             onWorkItemRunTaskResponse?(msg)
         case .workItemUpdateResponse(let msg):

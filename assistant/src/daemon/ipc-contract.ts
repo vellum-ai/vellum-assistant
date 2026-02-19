@@ -798,6 +798,11 @@ export interface WorkItemCompleteRequest {
   id: string;
 }
 
+export interface WorkItemDeleteRequest {
+  type: 'work_item_delete';
+  id: string;
+}
+
 export interface WorkItemRunTaskRequest {
   type: 'work_item_run_task';
   id: string;
@@ -895,6 +900,7 @@ export type ClientMessage =
   | WorkItemCreateRequest
   | WorkItemUpdateRequest
   | WorkItemCompleteRequest
+  | WorkItemDeleteRequest
   | WorkItemRunTaskRequest
   | SubagentAbortRequest
   | SubagentStatusRequest
@@ -1920,6 +1926,12 @@ export interface WorkItemUpdateResponse {
   } | null;
 }
 
+export interface WorkItemDeleteResponse {
+  type: 'work_item_delete_response';
+  id: string;
+  success: boolean;
+}
+
 export interface WorkItemRunTaskResponse {
   type: 'work_item_run_task_response';
   id: string;
@@ -2053,6 +2065,7 @@ export type ServerMessage =
   | WorkItemGetResponse
   | WorkItemCreateResponse
   | WorkItemUpdateResponse
+  | WorkItemDeleteResponse
   | WorkItemRunTaskResponse
   | WorkItemStatusChanged
   | TasksChanged

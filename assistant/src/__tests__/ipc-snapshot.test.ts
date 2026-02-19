@@ -441,6 +441,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'work_item_complete',
     id: 'wi-001',
   },
+  work_item_delete: {
+    type: 'work_item_delete',
+    id: 'wi-001',
+  },
   work_item_run_task: {
     type: 'work_item_run_task',
     id: 'wi-001',
@@ -1312,6 +1316,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       createdAt: 1700000000,
       updatedAt: 1700001000,
     },
+  },
+  work_item_delete_response: {
+    type: 'work_item_delete_response',
+    id: 'wi-001',
+    success: true,
   },
   work_item_run_task_response: {
     type: 'work_item_run_task_response',
