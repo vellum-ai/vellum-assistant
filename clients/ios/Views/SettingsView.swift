@@ -232,8 +232,9 @@ struct SettingsView: View {
                                 scheduleRow(schedule)
                             }
                             .onDelete { indexSet in
-                                for index in indexSet {
-                                    deleteSchedule(schedules[index].id)
+                                let schedulesToDelete = indexSet.map { schedules[$0] }
+                                for schedule in schedulesToDelete {
+                                    deleteSchedule(schedule.id)
                                 }
                             }
                         }
@@ -256,8 +257,9 @@ struct SettingsView: View {
                                 reminderRow(reminder)
                             }
                             .onDelete { indexSet in
-                                for index in indexSet {
-                                    cancelReminder(reminders[index].id)
+                                let remindersToCancel = indexSet.map { reminders[$0] }
+                                for reminder in remindersToCancel {
+                                    cancelReminder(reminder.id)
                                 }
                             }
                         }
