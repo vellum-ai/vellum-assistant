@@ -447,6 +447,7 @@ export const workItems = sqliteTable('work_items', {
   lastRunStatus: text('last_run_status'),  // 'completed' | 'failed' | null
   sourceType: text('source_type'),  // reserved for future bridge (e.g. 'followup', 'triage')
   sourceId: text('source_id'),      // reserved for future bridge
+  requiredTools: text('required_tools'),  // JSON array snapshot of tools needed for this run (null=unknown, []=none, ["bash",...]=specific)
   approvedTools: text('approved_tools'),  // JSON array of pre-approved tool names
   approvalStatus: text('approval_status').default('none'),  // 'none' | 'approved' | 'denied'
   createdAt: integer('created_at').notNull(),

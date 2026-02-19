@@ -850,6 +850,9 @@ export function initializeDb(): void {
     )
   `);
 
+  // Work item run contract snapshot
+  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN required_tools TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE work_items ADD COLUMN required_tools (likely already exists)'); }
+
   // Work item permission preflight columns
   try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approved_tools TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE work_items ADD COLUMN approved_tools (likely already exists)'); }
   try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approval_status TEXT DEFAULT 'none'`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE work_items ADD COLUMN approval_status (likely already exists)'); }
