@@ -1,5 +1,5 @@
-export { subagentSpawnTool } from './spawn.js';
-export { subagentStatusTool } from './status.js';
-export { subagentAbortTool } from './abort.js';
-export { subagentMessageTool } from './message.js';
-export { subagentReadTool } from './read.js';
+export { executeSubagentSpawn } from './spawn.js';
+export { executeSubagentStatus } from './status.js';
+export { executeSubagentAbort } from './abort.js';
+export { executeSubagentMessage } from './message.js';
+export { executeSubagentRead } from './read.js';
