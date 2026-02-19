@@ -97,11 +97,24 @@ export async function resolveAssistantAttachments(
   let assistantAttachments: AssistantAttachmentDraft[] = [];
   const emittedAttachments: UserMessageAttachment[] = [];
 
+  log.info(
+    { directiveCount: accumulatedDirectives.length, toolBlockCount: accumulatedToolContentBlocks.length, workingDir },
+    'Resolving assistant attachments',
+  );
+
   if (accumulatedDirectives.length > 0 || accumulatedToolContentBlocks.length > 0) {
     const directiveDrafts = accumulatedDirectives.length > 0
       ? await resolveDirectives(accumulatedDirectives, workingDir, approveHostRead)
       : { drafts: [], warnings: [] };
     directiveWarnings.push(...directiveDrafts.warnings);
+
+    if (directiveDrafts.warnings.length > 0) {
+      log.warn({ warnings: directiveDrafts.warnings }, 'Directive resolution warnings');
+    }
+    log.info(
+      { resolvedDrafts: directiveDrafts.drafts.length, directives: accumulatedDirectives.map(d => ({ source: d.source, path: d.path, filename: d.filename, mimeType: d.mimeType })) },
+      'Directive resolution complete',
+    );
 
     const toolDrafts = contentBlocksToDrafts(accumulatedToolContentBlocks);
 
@@ -109,6 +122,13 @@ export async function resolveAssistantAttachments(
     const validated = validateDrafts(merged);
     directiveWarnings.push(...validated.warnings);
     assistantAttachments = validated.accepted;
+
+    log.info(
+      { merged: merged.length, accepted: validated.accepted.length, validationWarnings: validated.warnings },
+      'Attachment validation complete',
+    );
+  } else {
+    log.info('No directives or tool content blocks to resolve');
   }
 
   // Persist resolved attachments and link to the last assistant message

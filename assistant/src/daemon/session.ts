@@ -983,6 +983,12 @@ export class Session {
               cleanAssistantContent(event.message.content);
             accumulatedDirectives.push(...msgDirectives);
             directiveWarnings.push(...msgWarnings);
+            if (msgDirectives.length > 0) {
+              rlog.info(
+                { parsedDirectives: msgDirectives.map(d => ({ source: d.source, path: d.path, mimeType: d.mimeType })), totalAccumulated: accumulatedDirectives.length },
+                'Parsed attachment directives from assistant message',
+              );
+            }
 
             // Add surface blocks to content for persistence
             const contentWithSurfaces: ContentBlock[] = [...cleanedContent as ContentBlock[]];
