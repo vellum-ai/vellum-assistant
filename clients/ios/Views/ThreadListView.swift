@@ -184,6 +184,7 @@ struct ThreadListView: View {
             )
                 .onAppear {
                     store.loadHistoryIfNeeded(for: selectedId)
+                    store.viewModel(for: selectedId).consumeDeepLinkIfNeeded()
                 }
         } else {
             Text("Select a chat")
