@@ -170,6 +170,17 @@ if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
     fi
 fi
 
+# Auto-build CLI binary for local dev if missing and bun is available
+CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
+if [ ! -f "$SCRIPT_DIR/cli-bin/vellum-cli" ] && [ -d "$CLI_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+    echo "Building CLI binary from source..."
+    mkdir -p "$SCRIPT_DIR/cli-bin"
+    (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    bun build --compile "$CLI_SRC_DIR/src/index.ts" --outfile "$SCRIPT_DIR/cli-bin/vellum-cli"
+    chmod +x "$SCRIPT_DIR/cli-bin/vellum-cli"
+    echo "CLI binary built: $SCRIPT_DIR/cli-bin/vellum-cli"
+fi
+
 # Also rebuild if CLI binary changed or newly added
 if [ -f "$SCRIPT_DIR/cli-bin/vellum-cli" ]; then
     if [ ! -f "$MACOS_DIR/vellum-cli" ] || [ "$SCRIPT_DIR/cli-bin/vellum-cli" -nt "$MACOS_DIR/vellum-cli" ]; then
