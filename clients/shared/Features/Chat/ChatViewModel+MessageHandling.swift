@@ -546,6 +546,7 @@ extension ChatViewModel {
                 // agent's response to the previous message, preserving chronological order.
                 var message = messages.remove(at: index)
                 message.status = .processing
+                message.timestamp = Date()
                 messages.append(message)
                 currentTurnUserText = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
             }
