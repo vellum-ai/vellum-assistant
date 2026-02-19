@@ -1054,47 +1054,40 @@ private struct ChatBubble: View {
                         .foregroundColor(VColor.textMuted)
                 }
 
-                copyButton
+                HStack(spacing: VSpacing.xs) {
+                    copyButton
+
+                    if showRegenerate {
+                        regenerateButton
+                    }
+
+                    if canReportMessage {
+                        Menu {
+                            if let onReportMessage {
+                                Button("Export response for diagnostics") {
+                                    onReportMessage(message.daemonMessageId)
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(VColor.textMuted)
+                                .frame(width: 24, height: 24)
+                                .contentShape(Rectangle())
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .frame(width: 24, height: 24)
+                        .opacity(isUser ? (isHovered ? 1 : 0) : 1)
+                        .allowsHitTesting(isUser ? isHovered : true)
+                        .accessibilityLabel("Message actions")
+                    }
+                }
             }
             // Prevent LazyVStack from compressing the bubble height, which causes the
             // trailing tool-chip to overlap long text content.
             .fixedSize(horizontal: false, vertical: true)
             .contextMenu {}
-
-            if canReportMessage {
-                VStack {
-                    // Use conditional rendering instead of opacity(0) so the NSPopUpButton
-                    // is only in the view hierarchy while hovered — avoiding per-message
-                    // SF Symbol and accessibility-string lookups on every scroll update.
-                    ZStack {
-                        Color.clear.frame(width: 24, height: 24)
-                        if isHovered {
-                            Menu {
-                                if let onReportMessage {
-                                    Button("Export response for diagnostics") {
-                                        onReportMessage(message.daemonMessageId)
-                                    }
-                                }
-                            } label: {
-                                Image(systemName: "ellipsis")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(VColor.textSecondary)
-                                    .rotationEffect(.degrees(90))
-                                    .frame(width: 24, height: 24)
-                                    .contentShape(Rectangle())
-                            }
-                            .menuStyle(.borderlessButton)
-                            .menuIndicator(.hidden)
-                            .frame(width: 24, height: 24)
-                            .accessibilityLabel("Message actions")
-                            .transition(.opacity.animation(VAnimation.fast))
-                        }
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .frame(width: 24)
-            }
 
             if !isUser { Spacer(minLength: 0) }
         }
@@ -1169,8 +1162,8 @@ private struct ChatBubble: View {
                     .allowsHitTesting(false)
             }
         }
-        .opacity(isHovered ? 1 : 0)
-        .allowsHitTesting(isHovered)
+        .opacity(isUser ? (isHovered ? 1 : 0) : 1)
+        .allowsHitTesting(isUser ? isHovered : true)
         .animation(VAnimation.fast, value: isHovered)
     }
 
@@ -1259,8 +1252,8 @@ private struct ChatBubble: View {
                 onTap: { onOpenActivity(message.id) }
             )
                 .frame(maxWidth: 520, alignment: .leading)
-        } else if hasCompletedTools || hasPermission || showRegenerate || (hasInProgressTools && permissionWasDenied) {
-            // All done (or denied) — show chips + regenerate on one line
+        } else if hasCompletedTools || hasPermission || (hasInProgressTools && permissionWasDenied) {
+            // All done (or denied) — show chips on one line
             let onlyPermissionTools = message.toolCalls.allSatisfy { $0.toolName.lowercased() == "request system permission" }
             HStack(spacing: VSpacing.sm) {
                 if hasCompletedTools && !(onlyPermissionTools && decidedConfirmation != nil) {
@@ -1270,9 +1263,6 @@ private struct ChatBubble: View {
                 }
                 if let confirmation = decidedConfirmation {
                     compactPermissionChip(confirmation)
-                }
-                if showRegenerate {
-                    regenerateButton
                 }
                 Spacer()
             }
