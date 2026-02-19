@@ -117,6 +117,34 @@ describe('classifySessionError', () => {
     }
   });
 
+  describe('timeout errors (generic, not network/gateway)', () => {
+    const cases = [
+      'timeout',
+      'deadline exceeded',
+      'request timed out',
+    ];
+
+    for (const msg of cases) {
+      it(`classifies "${msg}" as PROVIDER_API with timeout message`, () => {
+        const result = classifySessionError(new Error(msg), baseCtx);
+        expect(result.code).toBe('PROVIDER_API');
+        expect(result.userMessage).toContain('took too long');
+        expect(result.retryable).toBe(true);
+      });
+    }
+
+    it('does not steal "connection timeout" from PROVIDER_NETWORK', () => {
+      const result = classifySessionError(new Error('connection timeout'), baseCtx);
+      expect(result.code).toBe('PROVIDER_NETWORK');
+    });
+
+    it('does not steal "Gateway timeout" from PROVIDER_API', () => {
+      const result = classifySessionError(new Error('Gateway timeout'), baseCtx);
+      expect(result.code).toBe('PROVIDER_API');
+      expect(result.userMessage).toContain('returned an error');
+    });
+  });
+
   describe('context-too-large errors', () => {
     const cases = [
       'context_length_exceeded',
