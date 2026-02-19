@@ -95,15 +95,19 @@ function findStoredOAuthField(service: string, fieldNames: string[]): string | u
     }
   }
 
-  // Fallback: check credential metadata on the access_token record, where
-  // oauth2_connect persists the client config after a successful flow.
+  // Legacy fallback: check credential metadata on the access_token record.
+  // Older OAuth2 flows stored client_id/client_secret only in metadata JSON.
+  // New flows persist them in the keychain (checked above) for defense in depth.
   const metadataKey = fieldNames.some((f) => f.includes('client_id'))
     ? 'oauth2ClientId' as const
     : 'oauth2ClientSecret' as const;
   for (const svc of servicesToCheck) {
     const meta = getCredentialMetadata(svc, 'access_token');
     const value = meta?.[metadataKey];
-    if (value) return value;
+    if (value) {
+      log.debug({ service: svc, field: metadataKey }, 'OAuth client credential resolved from metadata (legacy fallback)');
+      return value;
+    }
   }
 
   return undefined;
@@ -584,6 +588,12 @@ class CredentialStoreTool implements Tool {
             } catch {
               // Non-fatal
             }
+          }
+
+          // Persist client credentials in keychain for defense in depth
+          setSecureKey(`credential:${service}:client_id`, clientId);
+          if (clientSecret) {
+            setSecureKey(`credential:${service}:client_secret`, clientSecret);
           }
 
           upsertCredentialMetadata(service, 'access_token', {
