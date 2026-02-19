@@ -159,6 +159,22 @@ The assistant can store and use credentials (API keys, tokens, passwords) withou
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full security model and data flow diagrams.
 
+#### Credential References
+
+When using `credential_ids` in proxied shell commands, you can use either format:
+- **UUID**: The canonical credential ID (shown in `credential_store list` output and `store`/`prompt` success messages)
+- **service/field**: A human-readable reference like `fal/api_key`
+
+Unknown references fail immediately with a clear error before the command executes.
+
+#### Wildcard Host Matching
+
+Wildcard patterns like `*.fal.run` match:
+- Subdomains: `api.fal.run`, `queue.fal.run`
+- The bare domain: `fal.run`
+
+When one credential has both an exact pattern (`api.fal.run`) and a wildcard pattern (`*.fal.run`), the exact match takes precedence.
+
 ## Dynamic Skill Authoring
 
 The assistant can create, test, and persist new skills at runtime. This is useful when no existing tool or skill covers a user's need.
