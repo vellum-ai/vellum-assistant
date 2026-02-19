@@ -67,10 +67,8 @@ Read the PR section carefully. Implement all the changes described:
 **Run from the worktree root** (not `assistant/` or the main repo):
 
 ```bash
-cd <worktree> && .claude/ship \
-  --commit-msg "<commit message>" \
-  --title "<title from plan>" \
-  --body "## Summary
+PR_BODY=$(cat <<'BODY_EOF'
+## Summary
 <1-3 bullet points>
 
 ## Plan section
@@ -78,7 +76,13 @@ cd <worktree> && .claude/ship \
 
 Part of plan: <plan filename> (PR <X> of <total>)
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+BODY_EOF
+)
+cd <worktree> && .claude/ship \
+  --commit-msg "<commit message>" \
+  --title "<title from plan>" \
+  --body "$PR_BODY" \
   --base main \
   --track-unreviewed
 ```

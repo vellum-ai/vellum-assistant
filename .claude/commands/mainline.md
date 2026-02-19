@@ -34,16 +34,20 @@ git stash pop
 Review the changes, draft a commit message and PR title (use `$ARGUMENTS` as the title if provided), then ship:
 
 ```bash
-.claude/ship \
-  --commit-msg "<commit message>" \
-  --title "<PR title>" \
-  --body "## Summary
+PR_BODY=$(cat <<'BODY_EOF'
+## Summary
 <1-3 bullet points>
 
 ## Context
-<if $ARGUMENTS was provided, include it here as the original prompt; otherwise describe what prompted these changes>
+<if $ARGUMENTS was provided, paste it here; otherwise briefly describe what prompted these changes>
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+BODY_EOF
+)
+.claude/ship \
+  --commit-msg "<commit message>" \
+  --title "<PR title>" \
+  --body "$PR_BODY" \
   --base main \
   --merge \
   --track-unreviewed \

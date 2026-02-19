@@ -200,14 +200,21 @@ ALL work happens here. Do NOT touch the main repo.
 ## Workflow
 1. Make the changes in your worktree.
 2. Do NOT run tests, type-checking (tsc), or linting unless the task specifically requires it (e.g., "fix the type errors", "make the tests pass").
-3. cd back to worktree root, then ship (.claude/ship MUST run from the repo root, not assistant/):
-   cd <worktree> && .claude/ship --commit-msg "<message>" --title "<title>" --body "## Summary
-<1-3 bullet points>
+3. cd back to worktree root, then ship (.claude/ship MUST run from the repo root, not assistant/).
+   First build the PR body in a variable so task text with special characters doesn't break quoting:
+   ```bash
+   PR_BODY=$(cat <<'BODY_EOF'
+   ## Summary
+   <1-3 bullet points>
 
-## Task
-<the exact TODO item text you were given>
+   ## Task
+   <the exact TODO item text you were given>
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)" --base <feature-branch-name> --merge --assignee @me
+   🤖 Generated with [Claude Code](https://claude.com/claude-code)
+   BODY_EOF
+   )
+   cd <worktree> && .claude/ship --commit-msg "<message>" --title "<title>" --body "$PR_BODY" --base <feature-branch-name> --merge --assignee @me
+   ```
 4. Send a message to "lead" with:
    - The PR link (printed by .claude/ship)
    - A summary of what you changed and why

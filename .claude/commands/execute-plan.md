@@ -40,16 +40,20 @@ Read the PR section carefully. Implement all the changes described:
 Create a branch from the plan (or derive one from the PR title), then ship:
 
 ```bash
-.claude/ship \
-  --commit-msg "<commit message>" \
-  --title "<title from plan>" \
-  --body "## Summary
+PR_BODY=$(cat <<'BODY_EOF'
+## Summary
 <1-3 bullet points>
 
 ## Plan section
 <paste the full text of this PR's section from the plan file, verbatim>
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+BODY_EOF
+)
+.claude/ship \
+  --commit-msg "<commit message>" \
+  --title "<title from plan>" \
+  --body "$PR_BODY" \
   --base main \
   --merge \
   --track-unreviewed \

@@ -40,16 +40,20 @@ Review what changed, draft a commit message and PR title, then ship everything i
 **Run from the worktree root** (not `assistant/` or the main repo):
 
 ```bash
-cd <worktree> && .claude/ship \
-  --commit-msg "<commit message>" \
-  --title "<PR title>" \
-  --body "## Summary
+PR_BODY=$(cat <<'BODY_EOF'
+## Summary
 <1-3 bullet points>
 
 ## Original task
-$ARGUMENTS
+<paste verbatim task text from $ARGUMENTS here>
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+BODY_EOF
+)
+cd <worktree> && .claude/ship \
+  --commit-msg "<commit message>" \
+  --title "<PR title>" \
+  --body "$PR_BODY" \
   --base main \
   --merge \
   --track-unreviewed \
