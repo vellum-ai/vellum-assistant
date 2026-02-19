@@ -89,3 +89,65 @@ export function deleteWorkItem(id: string): void {
   const db = getDb();
   db.delete(workItems).where(eq(workItems.id, id)).run();
 }
+
+// ── Selectors / Helpers ─────────────────────────────────────────────
+
+export interface WorkItemSelector {
+  workItemId?: string;
+  taskId?: string;
+  title?: string;
+}
+
+/** Find all active work items for a given task ID */
+export function findActiveWorkItemsByTaskId(taskId: string): WorkItem[] {
+  return listWorkItems().filter(
+    i => i.taskId === taskId && i.status !== 'done' && i.status !== 'archived'
+  );
+}
+
+/** Find all active work items matching a title (case-insensitive exact match) */
+export function findActiveWorkItemsByTitle(title: string): WorkItem[] {
+  const normalized = title.trim().toLowerCase();
+  return listWorkItems().filter(
+    i => i.title.trim().toLowerCase() === normalized && i.status !== 'done' && i.status !== 'archived'
+  );
+}
+
+/**
+ * Resolve a single active work item from a selector.
+ * Tries fields in priority order: workItemId > taskId > title.
+ * Only considers active items (status not 'done' or 'archived').
+ * Throws if no match or ambiguous match.
+ */
+export function resolveWorkItem(selector: WorkItemSelector): WorkItem {
+  if (selector.workItemId) {
+    const item = getWorkItem(selector.workItemId);
+    if (!item) throw new Error(`No work item found with ID "${selector.workItemId}"`);
+    if (item.status === 'done' || item.status === 'archived') {
+      throw new Error(`Work item "${selector.workItemId}" is ${item.status}`);
+    }
+    return item;
+  }
+
+  if (selector.taskId) {
+    const items = findActiveWorkItemsByTaskId(selector.taskId);
+    if (items.length === 0) throw new Error(`No active work item found for task "${selector.taskId}"`);
+    if (items.length > 1) {
+      // Deterministic tie-break: lowest priorityTier, then earliest createdAt
+      items.sort((a, b) => a.priorityTier - b.priorityTier || a.createdAt - b.createdAt);
+    }
+    return items[0];
+  }
+
+  if (selector.title) {
+    const items = findActiveWorkItemsByTitle(selector.title);
+    if (items.length === 0) throw new Error(`No active work item found with title "${selector.title}"`);
+    if (items.length > 1) {
+      // Deterministic tie-break: lowest priorityTier, then earliest createdAt
+      items.sort((a, b) => a.priorityTier - b.priorityTier || a.createdAt - b.createdAt);
+    }
+    return items[0];
+  }
+
+  throw new Error('At least one selector field (workItemId, taskId, or title) must be provided');
+}
