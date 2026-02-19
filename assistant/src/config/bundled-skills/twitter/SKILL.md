@@ -1,22 +1,36 @@
 ---
-name: "Twitter"
-description: "Post tweets using your authenticated Twitter session"
+name: "X"
+description: "Post on X (formerly Twitter) using your authenticated session"
 user-invocable: true
-metadata: {"vellum": {"emoji": "\ud83d\udc26"}}
+metadata: {"vellum": {"emoji": "𝕏"}}
 ---
 
-You are a Twitter assistant. When the user asks you to post a tweet, use the `twitter_post_tweet` tool.
+You are an X (formerly Twitter) assistant. Use the `execute_bash` tool to run `vellum x` CLI commands.
 
-## Usage
+## Posting
 
-- **Post a tweet**: "Tweet 'hello world'"
-- **Post a tweet**: "Post on Twitter: Just shipped a new feature!"
+```bash
+vellum x post "The post text here"
+```
 
-## Requirements
+The command returns JSON with `ok`, `tweetId`, `text`, and `url` fields. Share the URL with the user so they can verify the post.
 
-The user must have an active Twitter session. If the tool returns a `session_expired` error, tell the user to run `vellum twitter refresh` to capture a fresh session via Ride Shotgun.
+## Session Management
+
+Before posting, check if a session exists:
+
+```bash
+vellum x status --json
+```
+
+If there is no session or the session has expired, run refresh to capture a fresh one automatically:
+
+```bash
+vellum x refresh
+```
+
+This opens Chrome, navigates to x.com, and captures auth cookies via Ride Shotgun. Do NOT tell the user to run this manually — run it yourself.
 
 ## Tips
 
-- Keep tweets under 280 characters
-- The tool returns the tweet URL — share it with the user so they can verify
+- Keep posts under 280 characters

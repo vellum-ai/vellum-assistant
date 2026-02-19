@@ -243,9 +243,14 @@ export async function postTweet(text: string): Promise<PostTweetResult> {
     throw new Error(`Twitter API errors: ${msgs}`);
   }
 
-  const result = json.data?.create_tweet?.tweet_results?.result;
+  const tweetResults = json.data?.create_tweet?.tweet_results;
+  const result = tweetResults?.result;
   if (!result?.rest_id) {
-    throw new Error('Unexpected response: no tweet ID returned');
+    // Empty tweet_results (no result key) typically means X rejected a duplicate tweet
+    if (tweetResults && !result) {
+      throw new Error('X rejected this post — it may be a duplicate of a recent post. Try different text.');
+    }
+    throw new Error(`Unexpected response from X API. Response: ${JSON.stringify(json).slice(0, 500)}`);
   }
 
   const screenName =
