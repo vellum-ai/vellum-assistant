@@ -43,7 +43,12 @@ Kill the running Vellum app, delete all persistent data so the next launch behav
    defaults delete com.vellum.vellum-assistant
    ```
 
-7. Reset workspace prompt files to templates so the BOOTSTRAP.md onboarding ritual runs again:
+7. Remove workspace config (contains model selection that triggers onboarding skip):
+   ```bash
+   rm -f ~/.vellum/workspace/config.json
+   ```
+
+8. Reset workspace prompt files to templates so the BOOTSTRAP.md onboarding ritual runs again:
    ```bash
    cp assistant/src/config/templates/IDENTITY.md ~/.vellum/workspace/IDENTITY.md
    cp assistant/src/config/templates/USER.md ~/.vellum/workspace/USER.md
@@ -51,23 +56,23 @@ Kill the running Vellum app, delete all persistent data so the next launch behav
    cp assistant/src/config/templates/BOOTSTRAP.md ~/.vellum/workspace/BOOTSTRAP.md
    ```
 
-8. Confirm everything is clean by listing what remains (if anything) in `~/Library/Application Support/vellum-assistant/`.
+9. Confirm everything is clean by listing what remains (if anything) in `~/Library/Application Support/vellum-assistant/`.
 
-9. Start the daemon fresh from the repo root (in background):
-   ```bash
-   cd assistant && bun run src/index.ts daemon start > ~/.vellum/daemon-stdout.log 2>&1 &
-   ```
-   Wait a moment for the daemon to initialize:
-   ```bash
-   sleep 3
-   ```
+10. Start the daemon fresh from the repo root (in background):
+    ```bash
+    cd assistant && bun run src/index.ts daemon start > ~/.vellum/daemon-stdout.log 2>&1 &
+    ```
+    Wait a moment for the daemon to initialize:
+    ```bash
+    sleep 3
+    ```
 
-10. Build and launch the macOS app (from the repo root):
+11. Build and launch the macOS app (from the repo root):
     ```bash
     cd clients/macos && ./build.sh run &
     ```
 
-11. Wait for the app to launch and verify both processes are running:
+12. Wait for the app to launch and verify both processes are running:
     ```bash
     sleep 5
     ps aux | grep -E "(Vellum|bun.*daemon)" | grep -v grep

@@ -20,16 +20,29 @@ enum AvatarEvolutionResolver {
         var heldItem = "none"
 
         // Layer 1: Model-driven traits (only if enough features unlocked)
+        // Skip fields the user has locked — those should not be auto-evolved.
         if state.unlockedFeatures.contains(.baseBody) {
-            bodyColor = colorFromWarmth(state.traits.warmth)
-            cheekColor = cheekColorFromWarmth(state.traits.warmth)
+            if !state.lockedFields.contains(.bodyColor) {
+                bodyColor = colorFromWarmth(state.traits.warmth)
+            }
+            if !state.lockedFields.contains(.cheekColor) {
+                cheekColor = cheekColorFromWarmth(state.traits.warmth)
+            }
         }
 
         if state.unlockedFeatures.contains(.accessories) {
-            hat = hatFromTraits(state.traits)
-            shirt = shirtFromTraits(state.traits)
-            accessory = accessoryFromTraits(state.traits)
-            heldItem = heldItemFromTraits(state.traits)
+            if !state.lockedFields.contains(.hat) {
+                hat = hatFromTraits(state.traits)
+            }
+            if !state.lockedFields.contains(.shirt) {
+                shirt = shirtFromTraits(state.traits)
+            }
+            if !state.lockedFields.contains(.accessory) {
+                accessory = accessoryFromTraits(state.traits)
+            }
+            if !state.lockedFields.contains(.heldItem) {
+                heldItem = heldItemFromTraits(state.traits)
+            }
         }
 
         // Layer 2: User overrides (always win for unlocked fields)
@@ -88,9 +101,9 @@ enum AvatarEvolutionResolver {
         case 0.0..<0.2: return "slate"
         case 0.2..<0.35: return "cyan"
         case 0.35..<0.45: return "blue"
-        case 0.45..<0.55: return "violet"
-        case 0.55..<0.65: return "indigo"
-        case 0.65..<0.75: return "emerald"
+        case 0.45..<0.55: return "indigo"
+        case 0.55..<0.65: return "violet"
+        case 0.65..<0.75: return "pink"
         case 0.75..<0.85: return "amber"
         case 0.85..<0.95: return "rose"
         default: return "orange"
@@ -131,7 +144,6 @@ enum AvatarEvolutionResolver {
     private static func heldItemFromTraits(_ traits: AvatarEvolutionState.TraitScores) -> String {
         if traits.energy > 0.7 && traits.playfulness > 0.5 { return "balloon" }
         if traits.formality > 0.7 { return "staff" }
-        if traits.playfulness > 0.7 { return "balloon" }
         return "none"
     }
 }

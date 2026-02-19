@@ -131,7 +131,13 @@ final class AvatarAppearanceManager {
         """
 
         try? content.write(toFile: looksPath, atomically: true, encoding: .utf8)
-        // File watcher will pick up the change and call reload()
+
+        // Apply in-process immediately instead of waiting for the file watcher round-trip.
+        // The file watcher still handles external edits to LOOKS.md.
+        config = newConfig
+        palette = newConfig.toPalette()
+        outfit = newConfig.toOutfit()
+        rebuildCachedChatAvatar()
     }
 
     private func formatOutfitField(_ item: String, color: String?) -> String {

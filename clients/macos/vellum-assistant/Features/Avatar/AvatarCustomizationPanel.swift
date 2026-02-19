@@ -8,7 +8,7 @@ import VellumAssistantShared
 struct AvatarCustomizationPanel: View {
     let onClose: () -> Void
 
-    private let appearance = AvatarAppearanceManager.shared
+    @State private var appearance = AvatarAppearanceManager.shared
     @State private var evolutionState = AvatarEvolutionState()
     @State private var identity: IdentityInfo?
 

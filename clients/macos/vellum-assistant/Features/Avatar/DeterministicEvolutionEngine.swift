@@ -16,12 +16,10 @@ enum OnboardingMilestone: String, CaseIterable {
 struct MilestoneContext {
     var personalityText: String?
     var emoji: String?
-    var assistantName: String?
 
-    init(personalityText: String? = nil, emoji: String? = nil, assistantName: String? = nil) {
+    init(personalityText: String? = nil, emoji: String? = nil) {
         self.personalityText = personalityText
         self.emoji = emoji
-        self.assistantName = assistantName
     }
 }
 

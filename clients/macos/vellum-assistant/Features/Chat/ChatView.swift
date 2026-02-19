@@ -111,7 +111,7 @@ struct ChatView: View {
     @State private var emptyStatePlaceholder: String = placeholderTexts.randomElement()!
     @State private var emptyStateVisible = false
     @State private var identity: IdentityInfo? = IdentityInfo.load()
-    private let appearance = AvatarAppearanceManager.shared
+    @State private var appearance = AvatarAppearanceManager.shared
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
     private static let defaultGreetings = [
@@ -898,7 +898,7 @@ private struct ChatBubble: View {
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
 
-    private let appearance = AvatarAppearanceManager.shared
+    @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
     @State private var isRegenerateHovered = false
     @State private var isCopyHovered = false

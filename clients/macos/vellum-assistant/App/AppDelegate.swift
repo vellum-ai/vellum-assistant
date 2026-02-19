@@ -759,8 +759,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // Priority 2: Route to active TextResponseWindow conversation
             if let textSession = self?.currentTextSession, textSession.state == .ready {
                 self?.textResponseWindow?.updatePartialTranscription(text)
-            } else {
-                self?.voiceTranscriptionWindow?.updateText(text)
             }
         }
         voiceInput?.onRecordingStateChanged = { [weak self] isRecording in

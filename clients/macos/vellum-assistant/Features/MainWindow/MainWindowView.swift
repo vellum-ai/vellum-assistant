@@ -800,7 +800,6 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private func sidebarAppItem(_ app: AppListManager.AppItem) -> some View {
-        let isSelected = false
         Button(action: {
             // Clicking a different app exits edit mode; same app stays in .app mode
             windowState.selection = .app(app.id)
@@ -816,7 +815,7 @@ struct MainWindowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
-            .background(isSelected || isHoveredApp == app.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
+            .background(isHoveredApp == app.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
         }

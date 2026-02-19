@@ -164,8 +164,7 @@ struct FirstMeetingIntroductionView: View {
         if turnCount >= 2 {
             DeterministicEvolutionEngine.applyMilestone(
                 .nameChosen,
-                to: evo,
-                context: MilestoneContext(assistantName: state.assistantName)
+                to: evo
             )
         }
         if turnCount >= 4 {

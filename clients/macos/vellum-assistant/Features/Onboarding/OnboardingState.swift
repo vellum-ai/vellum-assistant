@@ -140,11 +140,6 @@ final class OnboardingState {
         if shouldPersist { persist() }
     }
 
-    /// Load persisted avatar evolution state from UserDefaults.
-    func loadAvatarEvolution() {
-        avatarEvolutionState.load()
-    }
-
     /// Persist progress so we can resume after a forced restart.
     private func persist() {
         UserDefaults.standard.set(currentStep, forKey: "onboarding.step")

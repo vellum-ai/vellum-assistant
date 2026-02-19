@@ -7,13 +7,14 @@ struct EvolvingAvatarView: View {
     let evolutionState: AvatarEvolutionState
     var animated: Bool = true
 
-    private let appearance = AvatarAppearanceManager.shared
+    @State private var appearance = AvatarAppearanceManager.shared
 
     @State private var appeared = false
     @State private var breatheScaleY: CGFloat = 1.0
     @State private var breatheScaleX: CGFloat = 1.0
     @State private var glowOpacity: Double = 0.0
-    @State private var previousUnlockCount: Int = 0
+    @State private var cachedBlobImage: NSImage?
+    @State private var cachedPalette: DinoPalette?
 
     var body: some View {
         ZStack {
@@ -44,7 +45,6 @@ struct EvolvingAvatarView: View {
             }
         }
         .onAppear {
-            previousUnlockCount = evolutionState.unlockedFeatures.count
             if animated {
                 withAnimation(.spring(response: 0.6, dampingFraction: 0.5)) {
                     appeared = true
@@ -58,15 +58,29 @@ struct EvolvingAvatarView: View {
 
     @ViewBuilder
     private var avatarImage: some View {
-        let palette = currentPalette
-        let image = PixelSpriteBuilder.buildBlobNSImage(pixelSize: Meadow.artPixelSize, palette: palette)
-        Image(nsImage: image)
+        Image(nsImage: blobImage)
             .interpolation(.none)
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(width: 400, height: 360)
             .shadow(radius: 8)
             .opacity(avatarOpacity)
+            .onChange(of: currentPalette) { _, newPalette in
+                rebuildBlobImage(palette: newPalette)
+            }
+            .onAppear {
+                rebuildBlobImage(palette: currentPalette)
+            }
+    }
+
+    private var blobImage: NSImage {
+        cachedBlobImage ?? PixelSpriteBuilder.buildBlobNSImage(pixelSize: Meadow.artPixelSize, palette: currentPalette)
+    }
+
+    private func rebuildBlobImage(palette: DinoPalette) {
+        guard palette != cachedPalette else { return }
+        cachedPalette = palette
+        cachedBlobImage = PixelSpriteBuilder.buildBlobNSImage(pixelSize: Meadow.artPixelSize, palette: palette)
     }
 
     /// Determine palette based on evolution state.
