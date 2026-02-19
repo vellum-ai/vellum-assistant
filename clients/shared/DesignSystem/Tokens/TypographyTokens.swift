@@ -67,6 +67,7 @@ public enum VFont {
 
     public static let cardTitle  = Font.custom("Inter-Medium", size: 17)
     public static let cardEmoji  = Font.system(size: 32)
+    public static let onboardingEmoji = Font.system(size: 80)
     public static let mono       = dmMono("DMMono-Regular", size: 13)
     public static let monoSmall  = dmMono("DMMono-Regular", size: 11)
     public static let monoMedium = dmMono("DMMono-Medium", size: 16)
