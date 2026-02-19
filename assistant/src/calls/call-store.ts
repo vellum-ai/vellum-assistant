@@ -207,10 +207,10 @@ export function answerPendingQuestion(id: string, answerText: string): void {
       ),
     )
     .run();
-  // Drizzle's .run() returns void for bun:sqlite, so verify via raw client.
+  // Drizzle's .run() returns void for bun:sqlite, so check affected rows via raw client.
   const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-  const check = raw.query('SELECT status FROM call_pending_questions WHERE id = ?').get(id) as { status: string } | null;
-  if (!check || check.status !== 'answered') {
+  const changes = raw.query('SELECT changes() as c').get() as { c: number };
+  if (changes.c === 0) {
     log.warn({ questionId: id }, 'answerPendingQuestion: no rows updated — question may have already been answered or expired');
   }
 }
