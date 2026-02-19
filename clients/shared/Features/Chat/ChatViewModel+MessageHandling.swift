@@ -899,9 +899,34 @@ extension ChatViewModel {
                 messages.append(newMsg)
             }
 
-        case .toolOutputChunk:
-            // Streaming output — ignore for now, we show the final result
-            break
+        case .toolOutputChunk(let msg):
+            guard !isCancelling else { return }
+            // Handle structured progress events from claude_code sub-tools
+            if let subType = msg.subType, !subType.isEmpty,
+               let existingId = currentAssistantMessageId,
+               let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
+               let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete && $0.toolName == "claude_code" }) {
+                switch subType {
+                case "tool_start":
+                    if let toolName = msg.subToolName {
+                        let step = ClaudeCodeSubStep(
+                            toolName: toolName,
+                            inputSummary: msg.subToolInput ?? ""
+                        )
+                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.append(step)
+                    }
+                case "tool_complete":
+                    if let toolName = msg.subToolName,
+                       let stepIndex = messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.lastIndex(where: { $0.toolName == toolName && !$0.isComplete }) {
+                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIndex].isComplete = true
+                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIndex].isError = msg.subToolIsError ?? false
+                    }
+                case "status":
+                    messages[msgIndex].toolCalls[tcIndex].buildingStatus = msg.chunk
+                default:
+                    break
+                }
+            }
 
         case .toolResult(let msg):
             guard belongsToSession(msg.sessionId) else { return }
