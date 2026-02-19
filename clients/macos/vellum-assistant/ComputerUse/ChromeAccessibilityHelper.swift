@@ -103,10 +103,59 @@ final class ChromeAccessibilityHelper {
         return await restartChromeWithFlags(app: app, flags: ["--force-renderer-accessibility"])
     }
 
+    /// Launch a separate Chrome instance for CDP mode alongside any existing Chrome.
+    /// Uses a dedicated user-data-dir so the user's normal Chrome is untouched.
+    /// Launches via the binary directly (not NSWorkspace/Launch Services) to ensure
+    /// a second instance is created instead of activating the existing one.
+    @MainActor
+    static func launchChromeForCDP() async -> Bool {
+        // Chrome 145+ requires a non-default --user-data-dir for CDP to bind the debugging port.
+        let chromeDataDir = NSHomeDirectory() + "/Library/Application Support/Google/Chrome-CDP"
+        let chromeBinary = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+        guard FileManager.default.fileExists(atPath: chromeBinary) else {
+            log.error("Chrome binary not found at \(chromeBinary)")
+            return false
+        }
+
+        log.info("Launching separate Chrome instance for CDP with user-data-dir: \(chromeDataDir, privacy: .public)")
+
+        do {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: chromeBinary)
+            process.arguments = [
+                "--remote-debugging-port=9222",
+                "--force-renderer-accessibility",
+                "--user-data-dir=\(chromeDataDir)",
+            ]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            log.info("CDP Chrome instance launched (pid \(process.processIdentifier))")
+        } catch {
+            log.error("Failed to launch CDP Chrome: \(error.localizedDescription)")
+            return false
+        }
+
+        // Poll CDP endpoint to confirm it's ready
+        for _ in 0..<30 {
+            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+            if let url = URL(string: "http://localhost:9222/json/version"),
+               let (_, response) = try? await URLSession.shared.data(from: url),
+               let httpResponse = response as? HTTPURLResponse,
+               httpResponse.statusCode == 200 {
+                log.info("CDP endpoint confirmed ready")
+                return true
+            }
+        }
+        log.warning("CDP endpoint not responding after Chrome launch")
+        return false
+    }
+
     /// Restart Chrome for CDP mode with both remote debugging and accessibility flags.
+    /// Deprecated: prefer launchChromeForCDP() which doesn't kill the user's browser.
     @MainActor
     static func restartChromeForCDP(app: NSRunningApplication) async -> Bool {
-        // Chrome 145+ requires a non-default --user-data-dir for CDP to bind the debugging port.
         let chromeDataDir = NSHomeDirectory() + "/Library/Application Support/Google/Chrome-CDP"
         let success = await restartChromeWithFlags(app: app, flags: [
             "--remote-debugging-port=9222",
