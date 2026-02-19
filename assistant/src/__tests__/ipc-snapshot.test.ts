@@ -1325,7 +1325,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'subagent_status_changed',
     subagentId: 'sub-001',
     status: 'completed',
-    summary: 'Found 3 relevant documents',
   },
   subagent_event: {
     type: 'subagent_event',

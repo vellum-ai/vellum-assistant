@@ -51,8 +51,6 @@ export interface SubagentState {
   status: SubagentStatus;
   /** The subagent's own conversationId (different from parentSessionId). */
   conversationId: string;
-  /** Summary of work done, populated on completion or failure. */
-  summary?: string;
   /** Error message if status is 'failed'. */
   error?: string;
   /** Timestamps (epoch ms). */

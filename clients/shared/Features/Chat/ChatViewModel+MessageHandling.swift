@@ -906,7 +906,6 @@ extension ChatViewModel {
         case .subagentStatusChanged(let msg):
             if let index = activeSubagents.firstIndex(where: { $0.id == msg.subagentId }) {
                 activeSubagents[index].status = SubagentStatus(wire: msg.status)
-                activeSubagents[index].summary = msg.summary
                 activeSubagents[index].error = msg.error
             }
 

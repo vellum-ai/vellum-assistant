@@ -49,12 +49,7 @@ struct SubagentStatusChip: View {
                     }
                 }
 
-                if let summary = subagent.summary, !summary.isEmpty {
-                    Text(summary)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                        .lineLimit(2)
-                } else if let error = subagent.error, !error.isEmpty {
+                if let error = subagent.error, !error.isEmpty {
                     Text(error)
                         .font(VFont.caption)
                         .foregroundColor(Rose._400)

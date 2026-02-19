@@ -59,7 +59,6 @@ export function handleSubagentStatus(
       type: 'subagent_status_changed',
       subagentId: msg.subagentId,
       status: state.status,
-      summary: state.summary,
       error: state.error,
       usage: state.usage,
     });
@@ -74,7 +73,6 @@ export function handleSubagentStatus(
       type: 'subagent_status_changed',
       subagentId: child.config.id,
       status: child.status,
-      summary: child.summary,
       error: child.error,
       usage: child.usage,
     });

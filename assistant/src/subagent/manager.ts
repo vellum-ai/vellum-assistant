@@ -216,9 +216,6 @@ export class SubagentManager {
     const onEvent = managed.session.sendToClient;
 
     try {
-      // Load any existing history (should be empty for a new conversation).
-      await managed.session.loadFromDb();
-
       // Send the objective as the first user message and process it.
       const messageId = managed.session.persistUserMessage(objective, []);
       await managed.session.runAgentLoop(objective, messageId, onEvent);
@@ -226,14 +223,12 @@ export class SubagentManager {
       // Agent loop completed successfully.
       // Only update state + notify if still non-terminal (guards against abort race).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
-        const summary = this.extractSummary(managed);
-        managed.state.summary = summary;
         managed.state.completedAt = Date.now();
-        this.setStatus(subagentId, 'completed', getSender(), summary);
+        this.setStatus(subagentId, 'completed', getSender());
 
-        log.info({ subagentId, summary: summary.slice(0, 200) }, 'Subagent completed');
+        log.info({ subagentId }, 'Subagent completed');
 
-        // Notify the parent session so the LLM can inform the user.
+        // Notify the parent session so the LLM can call subagent_read.
         this.notifyParent(managed, 'completed', getSender());
       }
     } catch (err) {
@@ -243,7 +238,7 @@ export class SubagentManager {
 
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
-        this.setStatus(subagentId, 'failed', getSender(), undefined, errorMsg);
+        this.setStatus(subagentId, 'failed', getSender(), errorMsg);
         this.notifyParent(managed, 'failed', getSender());
       }
 
@@ -421,7 +416,6 @@ export class SubagentManager {
     subagentId: string,
     status: SubagentStatus,
     parentSendToClient: (msg: ServerMessage) => void,
-    summary?: string,
     error?: string,
   ): void {
     const managed = this.subagents.get(subagentId);
@@ -433,40 +427,15 @@ export class SubagentManager {
     }
 
     managed.state.status = status;
-    if (summary !== undefined) managed.state.summary = summary;
     if (error !== undefined) managed.state.error = error;
 
     parentSendToClient({
       type: 'subagent_status_changed',
       subagentId,
       status,
-      summary,
       error,
       usage: managed.state.usage,
     } as ServerMessage);
-  }
-
-  private extractSummary(managed: ManagedSubagent): string {
-    // Extract a brief summary from the last assistant message (first paragraph or ~500 chars).
-    const { messages } = managed.session;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg.role !== 'assistant') continue;
-      const content = msg.content;
-      if (Array.isArray(content)) {
-        const textBlocks = content
-          .filter((b) => b.type === 'text' && 'text' in b)
-          .map((b) => (b as { type: 'text'; text: string }).text);
-        if (textBlocks.length > 0) {
-          const fullText = textBlocks.join('\n');
-          // Take the first paragraph or first 500 chars, whichever is shorter.
-          const firstParagraph = fullText.split('\n\n')[0] ?? fullText;
-          if (firstParagraph.length <= 500) return firstParagraph;
-          return firstParagraph.slice(0, 500) + '…';
-        }
-      }
-    }
-    return '(No summary available)';
   }
 
   /**
@@ -484,10 +453,8 @@ export class SubagentManager {
     let message: string;
 
     if (outcome === 'completed') {
-      const summary = managed.state.summary ?? '(No summary available)';
       message =
         `[Subagent "${config.label}" completed]\n\n` +
-        `Summary: ${summary}\n\n` +
         `Use subagent_read with subagent_id "${config.id}" to retrieve the full output.`;
     } else {
       const error = managed.state.error ?? 'Unknown error';

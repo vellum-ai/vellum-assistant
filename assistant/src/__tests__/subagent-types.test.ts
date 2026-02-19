@@ -71,7 +71,6 @@ describe('SubagentState type shape', () => {
       usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     };
     expect(state.status).toBe('pending');
-    expect(state.summary).toBeUndefined();
     expect(state.error).toBeUndefined();
     expect(state.startedAt).toBeUndefined();
     expect(state.completedAt).toBeUndefined();

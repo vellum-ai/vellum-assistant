@@ -509,7 +509,6 @@ public struct SubagentInfo: Equatable, Identifiable {
     public let id: String
     public let label: String
     public var status: SubagentStatus
-    public var summary: String?
     public var error: String?
     /// The chat message ID that was active when this subagent was spawned.
     /// Used to render the subagent chip inline after the spawning message.

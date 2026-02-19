@@ -2031,7 +2031,6 @@ export interface SubagentStatusChanged {
   type: 'subagent_status_changed';
   subagentId: string;
   status: import('../subagent/types.js').SubagentStatus;
-  summary?: string;
   error?: string;
   usage?: UsageStats;
 }

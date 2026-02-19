@@ -2033,7 +2033,6 @@ exports[`IPC message snapshots ServerMessage types subagent_status_changed seria
 {
   "status": "completed",
   "subagentId": "sub-001",
-  "summary": "Found 3 relevant documents",
   "type": "subagent_status_changed",
 }
 `;

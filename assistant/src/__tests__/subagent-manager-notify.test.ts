@@ -187,7 +187,7 @@ describe('SubagentManager abort notification', () => {
 });
 
 describe('SubagentManager notifyParent (via runSubagent)', () => {
-  test('completed subagent notifies parent with summary', async () => {
+  test('completed subagent notifies parent to use subagent_read', async () => {
     const manager = new SubagentManager();
     const subagentId = 'sub-1';
     const state = makeState(subagentId);
@@ -195,29 +195,20 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
 
     // Patch the fake session to simulate a successful agent loop.
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.session.loadFromDb = async () => {};
     managed.session.persistUserMessage = () => 'msg-1';
     managed.session.runAgentLoop = async () => {};
-    managed.session.messages = [
-      { role: 'assistant', content: [{ type: 'text', text: 'Task completed successfully.' }] },
-    ];
 
     const notifications: { parentSessionId: string; message: string }[] = [];
     manager.onSubagentFinished = (parentSessionId, message) => {
       notifications.push({ parentSessionId, message });
     };
 
-    const clientMessages: ServerMessage[] = [];
-    const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
-
-    // Call private runSubagent directly.
     await asInternals(manager).runSubagent(subagentId, 'Do something');
 
     expect(state.status).toBe('completed');
     expect(notifications).toHaveLength(1);
     expect(notifications[0].parentSessionId).toBe('parent-sess-1');
     expect(notifications[0].message).toContain('[Subagent "Test subagent" completed]');
-    expect(notifications[0].message).toContain('Task completed successfully.');
     expect(notifications[0].message).toContain('subagent_read');
   });
 
@@ -229,7 +220,7 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
 
     // Patch the fake session to simulate a failure.
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.session.loadFromDb = async () => {};
+
     managed.session.persistUserMessage = () => 'msg-1';
     managed.session.runAgentLoop = async () => {
       throw new Error('API rate limit exceeded');
@@ -260,7 +251,7 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
     injectFakeSubagent(manager, subagentId, state);
 
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.session.loadFromDb = async () => {};
+
     managed.session.persistUserMessage = () => 'msg-1';
     managed.session.runAgentLoop = async () => {
       throw new Error('Session aborted');
@@ -334,7 +325,7 @@ describe('SubagentManager abort race guard', () => {
 
     // Patch session to simulate successful completion after abort.
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.session.loadFromDb = async () => {};
+
     managed.session.persistUserMessage = () => 'msg-1';
     managed.session.runAgentLoop = async () => {};
     managed.session.messages = [

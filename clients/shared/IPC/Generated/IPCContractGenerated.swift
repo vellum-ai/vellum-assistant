@@ -1455,7 +1455,6 @@ public struct IPCSubagentStatusChanged: Codable, Sendable {
     public let type: String
     public let subagentId: String
     public let status: String
-    public let summary: String?
     public let error: String?
     public let usage: IPCUsageStats?
 }

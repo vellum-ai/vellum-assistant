@@ -46,7 +46,6 @@ export const subagentStatusTool: Tool = {
           subagentId: state.config.id,
           label: state.config.label,
           status: state.status,
-          summary: state.summary,
           error: state.error,
           createdAt: state.createdAt,
           startedAt: state.startedAt,
@@ -67,7 +66,6 @@ export const subagentStatusTool: Tool = {
       subagentId: s.config.id,
       label: s.config.label,
       status: s.status,
-      summary: s.summary,
       error: s.error,
     }));
 
