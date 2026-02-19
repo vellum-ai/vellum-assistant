@@ -647,9 +647,9 @@ export class WorkspaceGitService {
    * enrichment jobs use their own dedicated timeout.
    */
   private async execGit(args: string[]): Promise<{ stdout: string; stderr: string }> {
+    const config = getConfig();
+    const timeoutMs = config.workspaceGit?.interactiveGitTimeoutMs ?? 10_000;
     try {
-      const config = getConfig();
-      const timeoutMs = config.workspaceGit?.interactiveGitTimeoutMs ?? 10_000;
       const { stdout, stderr } = await execFileAsync('git', args, {
         cwd: this.workspaceDir,
         encoding: 'utf-8',
