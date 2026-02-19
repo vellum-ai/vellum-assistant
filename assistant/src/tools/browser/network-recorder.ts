@@ -82,6 +82,9 @@ class DirectCDPClient {
       this.ws.close();
       this.ws = null;
     }
+    for (const cb of this.callbacks.values()) {
+      cb.reject(new Error('CDP client closed'));
+    }
     this.callbacks.clear();
     this.eventHandlers.clear();
   }
@@ -96,8 +99,11 @@ export class NetworkRecorder {
   private attachedTargetIds = new Set<string>();
   private targetPollTimer?: ReturnType<typeof setInterval>;
 
-  /** Called when a successful postLoginQuery response is detected. */
+  /** Called when a successful login-indicating response is detected. */
   onLoginDetected?: () => void;
+
+  /** URL patterns that indicate a successful login (checked via `includes`). */
+  loginSignals: string[] = [];
 
   constructor(targetDomain?: string) {
     this.targetDomain = targetDomain;
@@ -151,6 +157,7 @@ export class NetworkRecorder {
             await this.attachToTarget(page.webSocketDebuggerUrl);
             log.info({ targetId: page.id }, 'Attached to new tab');
           } catch (err) {
+            this.attachedTargetIds.delete(page.id);
             log.warn({ err, targetId: page.id }, 'Failed to attach to page target');
           }
         }
@@ -202,6 +209,7 @@ export class NetworkRecorder {
     const result = Array.from(this.entries.values());
     this.entries.clear();
     this.attachedTargetIds.clear();
+    this.loginDetectedFired = false;
     log.info({ entryCount: result.length }, 'Network recording stopped');
     return result;
   }
@@ -250,13 +258,6 @@ export class NetworkRecorder {
     }
   }
 
-  /** Patterns that indicate a successful login. */
-  private static readonly LOGIN_SIGNALS = [
-    '/graphql/postLoginQuery',
-    '/graphql/homePageFacetFeed',
-    '/graphql/getConsumerOrdersWithDetails',
-  ];
-
   private loginDetectedFired = false;
 
   private handleRequestWillBeSent(params: Record<string, unknown>): void {
@@ -302,7 +303,8 @@ export class NetworkRecorder {
       status === 200 &&
       this.onLoginDetected &&
       !this.loginDetectedFired &&
-      NetworkRecorder.LOGIN_SIGNALS.some(sig => entry.request.url.includes(sig))
+      this.loginSignals.length > 0 &&
+      this.loginSignals.some(sig => entry.request.url.includes(sig))
     ) {
       this.loginDetectedFired = true;
       log.info({ url: entry.request.url.slice(0, 120) }, 'Login detected — will auto-stop in 5s');
