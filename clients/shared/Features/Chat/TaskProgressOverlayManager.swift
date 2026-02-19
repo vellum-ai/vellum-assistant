@@ -32,6 +32,8 @@ public final class TaskProgressOverlayManager: ObservableObject {
         if panel == nil {
             createPanel()
         }
+        // Reset alpha in case we're racing with a fade-out animation from closePanel()
+        panel?.alphaValue = 0.9
         panel?.orderFront(nil)
         log.info("Showing task progress overlay: surfaceId=\(surfaceId, privacy: .public)")
     }
@@ -75,15 +77,18 @@ public final class TaskProgressOverlayManager: ObservableObject {
     }
 
     private func closePanel() {
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.3
-            panel?.animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
-            self?.panel?.close()
-            self?.panel = nil
-        })
+        // Capture and nil the panel reference synchronously to prevent
+        // show() from reusing a panel that's mid-fade-out.
+        let closingPanel = panel
+        panel = nil
         activeSurfaceId = nil
         data = nil
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.3
+            closingPanel?.animator().alphaValue = 0
+        }, completionHandler: {
+            closingPanel?.close()
+        })
         log.info("Dismissed task progress overlay")
     }
 
