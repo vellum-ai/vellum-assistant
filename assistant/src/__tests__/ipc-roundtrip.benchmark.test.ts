@@ -8,7 +8,11 @@
  * - Rapid-fire: no message loss across 100 messages
  * - Round-trip: content preserved exactly
  */
-import { describe, expect, mock, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
+import * as net from 'node:net';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
 
 mock.module('../util/logger.js', () => ({
   getLogger: () =>
@@ -119,5 +123,119 @@ describe('IPC round-trip benchmark', () => {
       expect(roundTripped.attachments).toHaveLength(1);
       expect(roundTripped.attachments![0].filename).toBe('test.txt');
     }
+  });
+});
+
+describe('IPC Unix socket round-trip benchmark', () => {
+  let server: net.Server;
+  let client: net.Socket;
+  let tmpDir: string;
+  let socketPath: string;
+
+  beforeAll(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ipc-bench-'));
+    socketPath = path.join(tmpDir, 'bench.sock');
+
+    // Server: parse incoming messages, echo back a session_list_response for each
+    server = net.createServer((socket) => {
+      const parser = createMessageParser();
+      socket.on('data', (data) => {
+        const msgs = parser.feed(data.toString());
+        for (const _msg of msgs) {
+          const response: ServerMessage = {
+            type: 'session_list_response',
+            sessions: [],
+          };
+          socket.write(serialize(response));
+        }
+      });
+    });
+
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+
+    client = net.createConnection(socketPath);
+    await new Promise<void>((resolve) => client.on('connect', resolve));
+  });
+
+  afterAll(async () => {
+    client?.destroy();
+    await new Promise<void>((resolve) => server?.close(() => resolve()));
+    try {
+      fs.unlinkSync(socketPath);
+      fs.rmdirSync(tmpDir);
+    } catch {
+      // cleanup best-effort
+    }
+  });
+
+  test('session_list round-trip p50 < 5ms, p99 < 50ms', async () => {
+    const clientParser = createMessageParser();
+    const timings: number[] = [];
+    const iterations = 50;
+
+    for (let i = 0; i < iterations; i++) {
+      const start = performance.now();
+
+      const responsePromise = new Promise<ServerMessage>((resolve) => {
+        const handler = (data: Buffer) => {
+          const msgs = clientParser.feed(data.toString());
+          if (msgs.length > 0) {
+            client.removeListener('data', handler);
+            resolve(msgs[0] as ServerMessage);
+          }
+        };
+        client.on('data', handler);
+      });
+
+      const request: ClientMessage = { type: 'session_list' };
+      client.write(serialize(request));
+
+      const response = await responsePromise;
+      const elapsed = performance.now() - start;
+      timings.push(elapsed);
+
+      expect(response.type).toBe('session_list_response');
+    }
+
+    const p50 = percentile(timings, 50);
+    const p99 = percentile(timings, 99);
+    expect(p50).toBeLessThan(5);
+    expect(p99).toBeLessThan(50);
+  });
+
+  test('rapid-fire: 100 messages over socket without loss', async () => {
+    const clientParser = createMessageParser();
+    const messageCount = 100;
+    const received: ServerMessage[] = [];
+
+    const allReceived = new Promise<void>((resolve) => {
+      const handler = (data: Buffer) => {
+        const msgs = clientParser.feed(data.toString());
+        for (const msg of msgs) {
+          received.push(msg as ServerMessage);
+        }
+        if (received.length >= messageCount) {
+          client.removeListener('data', handler);
+          resolve();
+        }
+      };
+      client.on('data', handler);
+    });
+
+    const start = performance.now();
+    for (let i = 0; i < messageCount; i++) {
+      const request: ClientMessage = { type: 'session_list' };
+      client.write(serialize(request));
+    }
+
+    await allReceived;
+    const elapsed = performance.now() - start;
+
+    expect(received).toHaveLength(messageCount);
+    for (const msg of received) {
+      expect(msg.type).toBe('session_list_response');
+    }
+    // All 100 messages should complete well within 100ms on a local socket
+    expect(elapsed).toBeLessThan(100);
   });
 });
