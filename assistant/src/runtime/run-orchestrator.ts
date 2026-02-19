@@ -14,6 +14,7 @@ import * as runsStore from '../memory/runs-store.js';
 import type { Run } from '../memory/runs-store.js';
 import type { Session } from '../daemon/session.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
 import type { UserDecision } from '../permissions/types.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { IngressBlockedError } from '../util/errors.js';

@@ -40,6 +40,7 @@ function makeSessionWithConfirmation(message: ServerMessage): Session {
     // Return undefined so createRun stores messageId as null and avoids
     // a foreign-key dependency on the conversation-store message table.
     persistUserMessage: () => undefined as unknown as string,
+    setChannelCapabilities: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
     },
