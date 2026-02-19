@@ -145,7 +145,7 @@ describe('runtime runs — swarm lifecycle', () => {
       resolveAttachments: () => [],
     });
 
-    const run = await orchestrator.startRun('assistant-1', conversation.id, 'Build a feature');
+    const run = await orchestrator.startRun(conversation.id, 'Build a feature');
     expect(run.status).toBe('running');
 
     // Wait for agent loop to complete
@@ -162,7 +162,7 @@ describe('runtime runs — swarm lifecycle', () => {
       resolveAttachments: () => [],
     });
 
-    const run = await orchestrator.startRun('assistant-1', conversation.id, 'Run swarm');
+    const run = await orchestrator.startRun(conversation.id, 'Run swarm');
 
     await new Promise((r) => setTimeout(r, 50));
 
@@ -178,7 +178,7 @@ describe('runtime runs — swarm lifecycle', () => {
       resolveAttachments: () => [],
     });
 
-    const run = await orchestrator.startRun('assistant-1', conversation.id, 'Delegate a swarm task');
+    const run = await orchestrator.startRun(conversation.id, 'Delegate a swarm task');
 
     // Give agent loop time to emit confirmation_request
     await new Promise((r) => setTimeout(r, 50));
@@ -195,7 +195,7 @@ describe('runtime runs — swarm lifecycle', () => {
       resolveAttachments: () => [],
     });
 
-    const run = await orchestrator.startRun('assistant-1', conversation.id, 'Run with approval');
+    const run = await orchestrator.startRun(conversation.id, 'Run with approval');
     await new Promise((r) => setTimeout(r, 50));
 
     // Verify pending state
@@ -220,12 +220,12 @@ describe('runtime runs — swarm lifecycle', () => {
     });
 
     // First run starts and hangs
-    await orchestrator.startRun('assistant-1', conversation.id, 'First run');
+    await orchestrator.startRun(conversation.id, 'First run');
     await new Promise((r) => setTimeout(r, 20));
 
     // Second run on the same session should be rejected
     try {
-      await orchestrator.startRun('assistant-1', conversation.id, 'Second run');
+      await orchestrator.startRun(conversation.id, 'Second run');
       // Should not reach here
       expect(true).toBe(false);
     } catch (err) {
@@ -252,7 +252,7 @@ describe('runtime runs — swarm lifecycle', () => {
       resolveAttachments: () => [],
     });
 
-    const run = await orchestrator.startRun('assistant-1', conversation.id, 'Run with principal');
+    const run = await orchestrator.startRun(conversation.id, 'Run with principal');
     await new Promise((r) => setTimeout(r, 50));
 
     const stored = orchestrator.getRun(run.id);
