@@ -53,7 +53,7 @@ function normalizeCardShowData(input: Record<string, unknown>, rawData: Record<s
     normalized.body = '';
   }
 
-  return normalized as CardSurfaceData;
+  return normalized as unknown as CardSurfaceData;
 }
 
 function normalizeTaskProgressCardPatch(existingCard: CardSurfaceData, patch: Record<string, unknown>): Record<string, unknown> {

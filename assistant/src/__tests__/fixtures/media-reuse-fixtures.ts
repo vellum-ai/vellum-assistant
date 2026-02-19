@@ -36,6 +36,7 @@ export const FAKE_SELFIE_ATTACHMENT: StoredAttachment = {
   mimeType: 'image/png',
   sizeBytes: Buffer.from(TINY_PNG_BASE64, 'base64').length,
   kind: 'image',
+  thumbnailBase64: null,
   createdAt: NOW,
 };
 
@@ -47,6 +48,7 @@ export const FAKE_DOCUMENT_ATTACHMENT: StoredAttachment = {
   mimeType: 'application/pdf',
   sizeBytes: 4096,
   kind: 'document',
+  thumbnailBase64: null,
   createdAt: NOW,
 };
 
@@ -58,6 +60,7 @@ export const FAKE_PHOTO_ATTACHMENT: StoredAttachment = {
   mimeType: 'image/jpeg',
   sizeBytes: Buffer.from(TINY_JPEG_BASE64, 'base64').length,
   kind: 'image',
+  thumbnailBase64: null,
   createdAt: NOW,
 };
 

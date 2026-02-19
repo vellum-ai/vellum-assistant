@@ -103,6 +103,7 @@ describe('tool audit listener', () => {
       durationMs: 9,
       errorMessage: 'boom',
       isExpected: false,
+      errorCategory: 'tool_failure',
     });
 
     expect(records).toHaveLength(1);

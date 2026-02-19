@@ -18,6 +18,17 @@ import { requestComputerControlTool } from '../tools/computer-use/request-comput
 import { forwardComputerUseProxyTool } from '../tools/computer-use/skill-proxy-bridge.js';
 import type { ToolContext } from '../tools/types.js';
 
+interface JsonSchema {
+  type?: string;
+  required?: string[];
+  properties?: Record<string, unknown>;
+}
+
+/** Cast a tool definition's input_schema to a usable JSON Schema shape. */
+function schema(tool: { getDefinition(): { input_schema: object } }): JsonSchema {
+  return tool.getDefinition().input_schema as JsonSchema;
+}
+
 const ctx: ToolContext = {
   workingDir: '/tmp',
   sessionId: 'test-session',
@@ -70,12 +81,11 @@ describe('click tool variants', () => {
     });
 
     test(`${tool.name} schema requires reasoning`, () => {
-      const def = tool.getDefinition();
-      expect(def.input_schema.required).toContain('reasoning');
+      expect(schema(tool).required).toContain('reasoning');
     });
 
     test(`${tool.name} schema supports element_id and coordinates`, () => {
-      const props = tool.getDefinition().input_schema.properties as Record<string, { type: string }>;
+      const props = schema(tool).properties as Record<string, { type: string }>;
       expect(props.element_id.type).toBe('integer');
       expect(props.x.type).toBe('integer');
       expect(props.y.type).toBe('integer');
@@ -91,9 +101,8 @@ describe('click tool variants', () => {
 
 describe('computer_use_type_text', () => {
   test('requires text and reasoning', () => {
-    const def = computerUseTypeTextTool.getDefinition();
-    expect(def.input_schema.required).toContain('text');
-    expect(def.input_schema.required).toContain('reasoning');
+    expect(schema(computerUseTypeTextTool).required).toContain('text');
+    expect(schema(computerUseTypeTextTool).required).toContain('reasoning');
   });
 
   test('execute throws proxy error', () => {
@@ -105,9 +114,8 @@ describe('computer_use_type_text', () => {
 
 describe('computer_use_key', () => {
   test('requires key and reasoning', () => {
-    const def = computerUseKeyTool.getDefinition();
-    expect(def.input_schema.required).toContain('key');
-    expect(def.input_schema.required).toContain('reasoning');
+    expect(schema(computerUseKeyTool).required).toContain('key');
+    expect(schema(computerUseKeyTool).required).toContain('reasoning');
   });
 
   test('execute throws proxy error', () => {
@@ -119,14 +127,13 @@ describe('computer_use_key', () => {
 
 describe('computer_use_scroll', () => {
   test('requires direction, amount, and reasoning', () => {
-    const def = computerUseScrollTool.getDefinition();
-    expect(def.input_schema.required).toContain('direction');
-    expect(def.input_schema.required).toContain('amount');
-    expect(def.input_schema.required).toContain('reasoning');
+    expect(schema(computerUseScrollTool).required).toContain('direction');
+    expect(schema(computerUseScrollTool).required).toContain('amount');
+    expect(schema(computerUseScrollTool).required).toContain('reasoning');
   });
 
   test('direction enum includes up, down, left, right', () => {
-    const props = computerUseScrollTool.getDefinition().input_schema.properties as Record<string, { enum?: string[] }>;
+    const props = schema(computerUseScrollTool).properties as Record<string, { enum?: string[] }>;
     expect(props.direction.enum).toEqual(['up', 'down', 'left', 'right']);
   });
 });
@@ -135,7 +142,7 @@ describe('computer_use_scroll', () => {
 
 describe('computer_use_drag', () => {
   test('supports source and destination coordinates', () => {
-    const props = computerUseDragTool.getDefinition().input_schema.properties as Record<string, { type: string }>;
+    const props = schema(computerUseDragTool).properties as Record<string, { type: string }>;
     expect(props.element_id.type).toBe('integer');
     expect(props.to_element_id.type).toBe('integer');
     expect(props.x.type).toBe('integer');
@@ -145,8 +152,7 @@ describe('computer_use_drag', () => {
   });
 
   test('requires reasoning only', () => {
-    const def = computerUseDragTool.getDefinition();
-    expect(def.input_schema.required).toEqual(['reasoning']);
+    expect(schema(computerUseDragTool).required).toEqual(['reasoning']);
   });
 });
 
@@ -154,9 +160,8 @@ describe('computer_use_drag', () => {
 
 describe('computer_use_wait', () => {
   test('requires duration_ms and reasoning', () => {
-    const def = computerUseWaitTool.getDefinition();
-    expect(def.input_schema.required).toContain('duration_ms');
-    expect(def.input_schema.required).toContain('reasoning');
+    expect(schema(computerUseWaitTool).required).toContain('duration_ms');
+    expect(schema(computerUseWaitTool).required).toContain('reasoning');
   });
 });
 
@@ -164,9 +169,8 @@ describe('computer_use_wait', () => {
 
 describe('computer_use_open_app', () => {
   test('requires app_name and reasoning', () => {
-    const def = computerUseOpenAppTool.getDefinition();
-    expect(def.input_schema.required).toContain('app_name');
-    expect(def.input_schema.required).toContain('reasoning');
+    expect(schema(computerUseOpenAppTool).required).toContain('app_name');
+    expect(schema(computerUseOpenAppTool).required).toContain('reasoning');
   });
 });
 
@@ -174,9 +178,8 @@ describe('computer_use_open_app', () => {
 
 describe('computer_use_run_applescript', () => {
   test('requires script and reasoning', () => {
-    const def = computerUseRunAppleScriptTool.getDefinition();
-    expect(def.input_schema.required).toContain('script');
-    expect(def.input_schema.required).toContain('reasoning');
+    expect(schema(computerUseRunAppleScriptTool).required).toContain('script');
+    expect(schema(computerUseRunAppleScriptTool).required).toContain('reasoning');
   });
 
   test('description warns against do shell script', () => {
@@ -189,8 +192,7 @@ describe('computer_use_run_applescript', () => {
 
 describe('computer_use_done', () => {
   test('requires summary', () => {
-    const def = computerUseDoneTool.getDefinition();
-    expect(def.input_schema.required).toContain('summary');
+    expect(schema(computerUseDoneTool).required).toContain('summary');
   });
 });
 
@@ -198,9 +200,8 @@ describe('computer_use_done', () => {
 
 describe('computer_use_respond', () => {
   test('requires answer and reasoning', () => {
-    const def = computerUseRespondTool.getDefinition();
-    expect(def.input_schema.required).toContain('answer');
-    expect(def.input_schema.required).toContain('reasoning');
+    expect(schema(computerUseRespondTool).required).toContain('answer');
+    expect(schema(computerUseRespondTool).required).toContain('reasoning');
   });
 });
 
@@ -208,8 +209,7 @@ describe('computer_use_respond', () => {
 
 describe('computer_use_request_control', () => {
   test('requires task parameter', () => {
-    const def = requestComputerControlTool.getDefinition();
-    expect(def.input_schema.required).toContain('task');
+    expect(schema(requestComputerControlTool).required).toContain('task');
   });
 
   test('execute throws proxy error', () => {
