@@ -96,10 +96,8 @@ struct ChatContentView: View {
             }
             } // end else (messages non-empty)
 
-            // Session error banner
-            if let sessionError = viewModel.sessionError {
-                sessionErrorBanner(sessionError)
-            } else if let errorText = viewModel.errorText {
+            // Generic error banner (session errors are shown inline in messages)
+            if viewModel.sessionError == nil, let errorText = viewModel.errorText {
                 genericErrorBanner(errorText)
             }
 

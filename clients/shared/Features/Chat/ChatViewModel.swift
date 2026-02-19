@@ -700,6 +700,11 @@ public final class ChatViewModel: ObservableObject {
             return
         }
 
+        // Remove inline error messages before regenerating so they don't
+        // linger above the new response.
+        while messages.last?.isError == true {
+            messages.removeLast()
+        }
         errorText = nil
         sessionError = nil
         isSending = true

@@ -342,7 +342,7 @@ struct ChatView: View {
         let buttonRow: CGFloat = expanded ? 34 + VSpacing.xs : 0
         let base: CGFloat = VSpacing.sm + VSpacing.md + topPad + bottomPad + contentHeight + buttonRow
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
-        let error: CGFloat = sessionError != nil ? 60 : (errorText != nil ? 36 : 0)
+        let error: CGFloat = (sessionError == nil && errorText != nil) ? 36 : 0
         let queueCount = CGFloat(queuedMessages.count)
         let queue: CGFloat = queueCount > 0 ? (28 + (isQueueExpanded ? queueCount * 24 : 0) + VSpacing.xs) : 0
         return base + attachments + error + queue
@@ -373,9 +373,7 @@ struct ChatView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            if let sessionError {
-                sessionErrorToast(sessionError)
-            } else if let errorText {
+            if let errorText, sessionError == nil {
                 errorBanner(errorText)
             }
             queueSummary
@@ -1019,6 +1017,8 @@ private struct ChatBubble: View {
     private var bubbleFill: AnyShapeStyle {
         if isUser {
             AnyShapeStyle(VColor.userBubble)
+        } else if message.isError {
+            AnyShapeStyle(VColor.error.opacity(0.1))
         } else {
             AnyShapeStyle(Color.clear)
         }
@@ -1820,7 +1820,19 @@ private struct ChatBubble: View {
                 SkillInvocationChip(data: skillInvocation)
             }
 
-            if hasText {
+            if message.isError && hasText {
+                HStack(alignment: .top, spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(VColor.error)
+                        .padding(.top, 1)
+                    Text(message.text)
+                        .font(.system(size: 13))
+                        .foregroundColor(VColor.textPrimary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else if hasText {
                 let segments = Self.cachedSegments(for: message.text)
                 let hasRichContent = segments.contains(where: {
                     switch $0 {
@@ -1954,11 +1966,17 @@ private struct ChatBubble: View {
                 }
             }
         }
-        .padding(.horizontal, isUser ? VSpacing.lg : 0)
-        .padding(.vertical, isUser ? VSpacing.md : 0)
+        .padding(.horizontal, isUser || message.isError ? VSpacing.lg : 0)
+        .padding(.vertical, isUser || message.isError ? VSpacing.md : 0)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .fill(bubbleFill)
+        )
+        .overlay(
+            message.isError
+                ? RoundedRectangle(cornerRadius: VRadius.lg)
+                    .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
+                : nil
         )
         .frame(maxWidth: 520, alignment: isUser ? .trailing : .leading)
     }

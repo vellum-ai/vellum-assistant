@@ -844,6 +844,9 @@ public struct ChatMessage: Identifiable {
     public var streamingCodePreview: String?
     /// Tool name associated with the streaming code preview.
     public var streamingCodeToolName: String?
+    /// When true, this message represents a session error (rate limit, network failure, etc.)
+    /// and should be rendered with distinct error styling (red box) instead of a normal bubble.
+    public var isError: Bool
     /// The daemon's persisted message ID, populated from history responses.
     /// Nil for freshly streamed messages that haven't been loaded from history.
     /// Used for anchoring diagnostics exports so the daemon can locate the message.
@@ -854,7 +857,7 @@ public struct ChatMessage: Identifiable {
         textSegments.joined()
     }
 
-    public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = []) {
+    public init(id: UUID = UUID(), role: ChatRole, text: String, timestamp: Date = Date(), isStreaming: Bool = false, status: ChatMessageStatus = .sent, confirmation: ToolConfirmationData? = nil, skillInvocation: SkillInvocationData? = nil, attachments: [ChatAttachment] = [], toolCalls: [ToolCallData] = [], inlineSurfaces: [InlineSurfaceData] = [], isError: Bool = false) {
         self.id = id
         self.role = role
         self.textSegments = text.isEmpty ? [] : [text]
@@ -867,6 +870,7 @@ public struct ChatMessage: Identifiable {
         self.attachments = attachments
         self.toolCalls = toolCalls
         self.inlineSurfaces = inlineSurfaces
+        self.isError = isError
     }
 
     /// Build a default content order from the legacy `arrivedBeforeText` flag.
