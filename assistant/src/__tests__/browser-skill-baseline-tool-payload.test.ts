@@ -50,11 +50,12 @@ describe('browser skill cutover — startup tool payload', () => {
   test('serialized tool definitions payload still exceeds a reasonable floor', () => {
     const definitions = getAllToolDefinitions();
     const serialized = JSON.stringify(definitions);
-    // Startup payload is ~32 771 chars without browser tools.
-    // Floor at 30 000 catches accidental wholesale removal; ceiling ensures
-    // browser tools (~4 640 chars) haven't leaked back in.
+    // Startup payload is ~45 034 chars without browser tools.
+    // Floor at 30 000 catches accidental wholesale removal; ceiling at 47 000
+    // gives ~2 000 char headroom while still catching browser tool leakage
+    // (~4 640 chars would push it past the ceiling).
     expect(serialized.length).toBeGreaterThan(30_000);
-    expect(serialized.length).toBeLessThan(48_000);
+    expect(serialized.length).toBeLessThan(47_000);
   });
 
   test('no browser-categorised tools remain in startup registry', () => {
