@@ -213,6 +213,15 @@ public struct MessageBubbleView: View {
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
             )
+            .contextMenu {
+                if let onRegenerate {
+                    Button {
+                        onRegenerate()
+                    } label: {
+                        Label("Regenerate", systemImage: "arrow.trianglehead.counterclockwise")
+                    }
+                }
+            }
         } else {
             MarkdownRenderer(text: text)
                 .padding(VSpacing.md)

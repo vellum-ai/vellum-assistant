@@ -1068,10 +1068,20 @@ extension ChatViewModel {
                         messages[i].status = .sent
                     }
                 }
-            } else if pendingQueuedCount == 0 {
+            } else {
+                // Always clear sending state on error — even with queued messages.
+                // Leaving isSending=true with a non-zero pendingQueuedCount creates
+                // a deadlock: regenerate guards on !isSending, so the user can never
+                // recover.
                 isSending = false
+                pendingQueuedCount = 0
                 pendingMessageIds = []
                 requestIdToMessageId = [:]
+                for i in messages.indices {
+                    if case .queued = messages[i].status, messages[i].role == .user {
+                        messages[i].status = .sent
+                    }
+                }
             }
 
         case .watchStarted(let msg):
