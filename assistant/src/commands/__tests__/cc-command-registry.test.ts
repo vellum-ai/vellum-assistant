@@ -7,7 +7,6 @@ import {
   getCCCommand,
   loadCCCommandTemplate,
   invalidateCCCommandCache,
-  type CCCommandEntry,
 } from '../cc-command-registry.js';
 
 let tmpDir: string;
