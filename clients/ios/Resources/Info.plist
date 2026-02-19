@@ -26,5 +26,16 @@
     <string>Vellum Assistant needs access to speech recognition to transcribe your voice input.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Select photos to attach to your message</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.vellum.vellum-assistant-ios</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>vellum</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
