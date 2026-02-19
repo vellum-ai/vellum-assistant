@@ -294,7 +294,7 @@ private struct TasksWindowRow: View {
         let isRunning = runningIds.contains(item.id) || status == .running
         let isCancelling = cancelInFlightIds.contains(item.id)
         let isTimedOut = timeoutIds.contains(item.id)
-        let isFailed = status == .failed
+        let isFailed = status == .failed || status == .cancelled
         let isRerun = status == .done || status == .awaitingReview
         let showRun = status != .archived && !isRunning
         let runEnabled = !isRunning

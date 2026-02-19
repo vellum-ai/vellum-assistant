@@ -5,7 +5,7 @@ import { getTask } from '../tasks/task-store.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
-export type WorkItemStatus = 'queued' | 'running' | 'awaiting_review' | 'failed' | 'done' | 'archived';
+export type WorkItemStatus = 'queued' | 'running' | 'awaiting_review' | 'failed' | 'cancelled' | 'done' | 'archived';
 
 export interface WorkItem {
   id: string;

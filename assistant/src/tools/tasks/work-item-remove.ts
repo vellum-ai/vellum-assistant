@@ -35,7 +35,7 @@ const definition: ToolDefinition = {
       },
       status: {
         type: 'string',
-        enum: ['queued', 'running', 'awaiting_review', 'failed'],
+        enum: ['queued', 'running', 'awaiting_review', 'failed', 'cancelled'],
         description: 'Disambiguator: filter by work item status',
       },
       created_order: {

@@ -91,6 +91,15 @@ export function handleWorkItemUpdate(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
+  // Don't allow overwriting a cancelled status (e.g. from a late chat-completion observer)
+  if (msg.status !== undefined) {
+    const existing = getWorkItem(msg.id);
+    if (existing?.status === 'cancelled' && msg.status !== 'cancelled') {
+      ctx.send(socket, { type: 'work_item_update_response', item: existing });
+      return;
+    }
+  }
+
   const updates: Record<string, unknown> = {};
   if (msg.title !== undefined) updates.title = msg.title;
   if (msg.notes !== undefined) updates.notes = msg.notes;
@@ -333,13 +342,17 @@ export async function handleWorkItemRunTask(
       },
     );
 
-    const finalStatus: WorkItemStatus = result.status === 'completed' ? 'awaiting_review' : 'failed';
-    updateWorkItem(msg.id, {
-      status: finalStatus,
-      lastRunId: result.taskRunId,
-      lastRunConversationId: result.conversationId,
-      lastRunStatus: result.status,
-    });
+    // Don't overwrite cancelled status — the cancel handler already set it
+    const current = getWorkItem(msg.id);
+    if (current?.status !== 'cancelled') {
+      const finalStatus: WorkItemStatus = result.status === 'completed' ? 'awaiting_review' : 'failed';
+      updateWorkItem(msg.id, {
+        status: finalStatus,
+        lastRunId: result.taskRunId,
+        lastRunConversationId: result.conversationId,
+        lastRunStatus: result.status,
+      });
+    }
 
     broadcastWorkItemStatus(ctx, msg.id);
     ctx.broadcast({ type: 'tasks_changed' });
@@ -467,8 +480,8 @@ export function handleWorkItemCancel(
   }
 
   updateWorkItem(msg.id, {
-    status: 'failed',
-    lastRunStatus: 'failed',
+    status: 'cancelled',
+    lastRunStatus: 'cancelled',
   });
 
   ctx.send(socket, { type: 'work_item_cancel_response', id: msg.id, success: true });

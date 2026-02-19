@@ -45,7 +45,7 @@ const definition: ToolDefinition = {
       },
       status: {
         type: 'string',
-        enum: ['queued', 'running', 'awaiting_review', 'failed', 'archived'],
+        enum: ['queued', 'running', 'awaiting_review', 'failed', 'cancelled', 'archived'],
         description: 'New status for the work item',
       },
       sort_index: {
@@ -59,7 +59,7 @@ const definition: ToolDefinition = {
       },
       filter_status: {
         type: 'string',
-        enum: ['queued', 'running', 'awaiting_review', 'failed', 'done', 'archived'],
+        enum: ['queued', 'running', 'awaiting_review', 'failed', 'cancelled', 'done', 'archived'],
         description:
           'Disambiguation filter: narrow by current status when multiple items share the same title/task_id.',
       },

@@ -433,7 +433,7 @@ export const workItems = sqliteTable('work_items', {
   taskId: text('task_id').notNull().references(() => tasks.id),
   title: text('title').notNull(),
   notes: text('notes'),
-  status: text('status').notNull().default('queued'),  // queued | running | awaiting_review | failed | done | archived
+  status: text('status').notNull().default('queued'),  // queued | running | awaiting_review | failed | cancelled | done | archived
   priorityTier: integer('priority_tier').notNull().default(1), // 0=high, 1=medium, 2=low
   sortIndex: integer('sort_index'),  // manual ordering within same priority tier; null = fall back to updated_at
   lastRunId: text('last_run_id'),

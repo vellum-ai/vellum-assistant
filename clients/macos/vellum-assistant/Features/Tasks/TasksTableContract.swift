@@ -10,6 +10,7 @@ enum WorkItemStatus: Equatable {
     case running
     case awaitingReview
     case failed
+    case cancelled
     case done
     case archived
     case unknown(String)
@@ -21,6 +22,7 @@ enum WorkItemStatus: Equatable {
         case "running":         self = .running
         case "awaiting_review": self = .awaitingReview
         case "failed":          self = .failed
+        case "cancelled":       self = .cancelled
         case "done":            self = .done
         case "archived":        self = .archived
         default:                self = .unknown(rawStatus)
@@ -97,6 +99,7 @@ enum TasksTableContract {
         case .running:         return StatusStyle(label: "Running",   color: VColor.warning)
         case .awaitingReview:  return StatusStyle(label: "Awaiting Review", color: VColor.accent)
         case .failed:          return StatusStyle(label: "Failed",    color: VColor.error)
+        case .cancelled:       return StatusStyle(label: "Cancelled", color: VColor.textMuted)
         case .done:            return StatusStyle(label: "Done",      color: VColor.success)
         case .archived:        return StatusStyle(label: "Archived",  color: VColor.textMuted)
         case .unknown(let raw): return StatusStyle(label: raw,        color: VColor.textMuted)
