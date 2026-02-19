@@ -111,7 +111,13 @@ final class ChromeAccessibilityHelper {
     static func launchChromeForCDP() async -> Bool {
         // Chrome 145+ requires a non-default --user-data-dir for CDP to bind the debugging port.
         let chromeDataDir = NSHomeDirectory() + "/Library/Application Support/Google/Chrome-CDP"
-        let chromeBinary = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+        // Resolve Chrome binary dynamically via bundle ID to support non-standard install locations
+        guard let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") else {
+            log.error("Google Chrome not found via bundle ID")
+            return false
+        }
+        let chromeBinary = chromeURL.appendingPathComponent("Contents/MacOS/Google Chrome").path
 
         guard FileManager.default.fileExists(atPath: chromeBinary) else {
             log.error("Chrome binary not found at \(chromeBinary)")

@@ -1192,6 +1192,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func createChromeDebugLaunchAgent() {
+        let chromeDataDir = NSHomeDirectory() + "/Library/Application Support/Google/Chrome-CDP"
+
+        guard let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") else {
+            return // Chrome not installed
+        }
+        let chromeBinary = chromeURL.appendingPathComponent("Contents/MacOS/Google Chrome").path
+
         let plistContent = """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -1201,9 +1208,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             <string>com.vellum.chrome-debug</string>
             <key>ProgramArguments</key>
             <array>
-                <string>/Applications/Google Chrome.app/Contents/MacOS/Google Chrome</string>
+                <string>\(chromeBinary)</string>
                 <string>--remote-debugging-port=9222</string>
                 <string>--force-renderer-accessibility</string>
+                <string>--user-data-dir=\(chromeDataDir)</string>
             </array>
             <key>RunAtLoad</key>
             <true/>
