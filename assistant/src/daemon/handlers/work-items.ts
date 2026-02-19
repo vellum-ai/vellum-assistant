@@ -263,7 +263,7 @@ export async function handleWorkItemRunTask(
     return;
   }
 
-  const NON_RUNNABLE_STATUSES: readonly string[] = ['done', 'archived'];
+  const NON_RUNNABLE_STATUSES: readonly string[] = ['archived'];
   if (NON_RUNNABLE_STATUSES.includes(workItem.status)) {
     ctx.send(socket, { type: 'work_item_run_task_response', id: msg.id, lastRunId: workItem.lastRunId ?? '', success: false, error: `Work item has status '${workItem.status}' and cannot be run`, errorCode: 'invalid_status' });
     return;
@@ -299,7 +299,7 @@ export async function handleWorkItemRunTask(
       },
     );
 
-    const finalStatus: WorkItemStatus = result.status === 'completed' ? 'awaiting_review' : 'failed';
+    const finalStatus: WorkItemStatus = result.status === 'completed' ? 'done' : 'failed';
     updateWorkItem(msg.id, {
       status: finalStatus,
       lastRunId: result.taskRunId,
