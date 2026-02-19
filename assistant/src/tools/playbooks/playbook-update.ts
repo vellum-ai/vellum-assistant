@@ -8,6 +8,7 @@ import { memoryItems } from '../../memory/schema.js';
 import { enqueueMemoryJob } from '../../memory/jobs-store.js';
 import { parsePlaybookStatement } from '../../playbooks/types.js';
 import type { Playbook, PlaybookAutonomyLevel } from '../../playbooks/types.js';
+import { truncate } from '../../util/truncate.js';
 
 const VALID_AUTONOMY_LEVELS = new Set<string>(['auto', 'draft', 'notify']);
 
@@ -55,7 +56,7 @@ async function execute(input: Record<string, unknown>, context: ToolContext): Pr
     };
 
     const statement = JSON.stringify(updated);
-    const subject = `Playbook: ${updated.trigger}`.slice(0, 80);
+    const subject = truncate(`Playbook: ${updated.trigger}`, 80, '');
     const now = Date.now();
 
     const fingerprint = computeMemoryFingerprint(scopeId, 'playbook', subject, statement);

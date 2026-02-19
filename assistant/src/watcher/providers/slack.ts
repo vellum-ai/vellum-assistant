@@ -8,6 +8,7 @@
  */
 
 import { withValidToken } from '../../security/token-manager.js';
+import { truncate } from '../../util/truncate.js';
 import * as slack from '../../messaging/providers/slack/client.js';
 import type { WatcherProvider, WatcherItem, FetchResult } from '../provider-types.js';
 import { getLogger } from '../../util/logger.js';
@@ -22,7 +23,7 @@ function messageToItem(
   return {
     externalId: `${msg.channel}:${msg.ts}`,
     eventType,
-    summary: `Slack ${eventType.replace('slack_', '')}: ${msg.text.slice(0, 100)}`,
+    summary: `Slack ${eventType.replace('slack_', '')}: ${truncate(msg.text, 100)}`,
     payload: {
       channel: msg.channel,
       channelName,

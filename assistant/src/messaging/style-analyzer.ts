@@ -8,6 +8,7 @@
 
 import type { Message as ProviderMessage } from './provider-types.js';
 import type { Message, ToolDefinition } from '../providers/types.js';
+import { truncate } from '../util/truncate.js';
 import { getProvider } from '../providers/registry.js';
 import { getConfig } from '../config/loader.js';
 
@@ -97,7 +98,7 @@ function buildCorpus(messages: ProviderMessage[]): string[] {
   for (const msg of messages) {
     if (!msg.text.trim()) continue;
     const to = msg.conversationId;
-    const truncatedBody = msg.text.slice(0, 500);
+    const truncatedBody = truncate(msg.text, 500, '');
     entries.push(`To: ${to}\n\n${truncatedBody}`);
   }
   return entries;
@@ -143,7 +144,7 @@ export async function extractStylePatterns(
 
   const stylePatterns: StylePattern[] = (result.style_patterns ?? []).map((p) => ({
     aspect: p.aspect,
-    summary: p.summary.slice(0, 500),
+    summary: truncate(p.summary, 500, ''),
     importance: p.importance,
     examples: p.examples,
   }));

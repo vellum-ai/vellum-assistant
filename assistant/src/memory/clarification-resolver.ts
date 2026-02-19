@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getConfig } from '../config/loader.js';
+import { truncate } from '../util/truncate.js';
 
 const DEFAULT_RESOLVER_MODEL = 'claude-haiku-4-5-20251001';
 const DEFAULT_RESOLVER_TIMEOUT_MS = 12_000;
@@ -85,7 +86,7 @@ export async function resolveConflictClarification(
       resolution: 'still_unclear',
       strategy: 'llm_error',
       resolvedStatement: null,
-      explanation: `Clarification resolver failed: ${message.slice(0, 300)}`,
+      explanation: `Clarification resolver failed: ${truncate(message, 300, '')}`,
     };
   }
 }
@@ -243,7 +244,7 @@ async function resolveWithLlm(
       resolution: parsed.resolution,
       strategy: 'llm',
       resolvedStatement,
-      explanation: normalize(parsed.explanation ?? 'Resolved via LLM fallback.').slice(0, 500),
+      explanation: truncate(normalize(parsed.explanation ?? 'Resolved via LLM fallback.'), 500, ''),
     };
   } catch (err) {
     clearTimeout(timer);
@@ -291,7 +292,7 @@ function buildMergedStatement(input: ClarificationResolverInput): string {
   if (normalizedUserMessage.length >= 8 && normalizedUserMessage.length <= 320) {
     return normalizedUserMessage;
   }
-  const existing = normalize(input.existingStatement).slice(0, 140);
-  const candidate = normalize(input.candidateStatement).slice(0, 140);
-  return `Merged clarification: ${existing}; ${candidate}`.slice(0, 320);
+  const existing = truncate(normalize(input.existingStatement), 140, '');
+  const candidate = truncate(normalize(input.candidateStatement), 140, '');
+  return truncate(`Merged clarification: ${existing}; ${candidate}`, 320, '');
 }

@@ -8,6 +8,7 @@ import { computeMemoryFingerprint } from '../../memory/fingerprint.js';
 import { memoryItems } from '../../memory/schema.js';
 import { enqueueMemoryJob } from '../../memory/jobs-store.js';
 import type { Playbook, PlaybookAutonomyLevel } from '../../playbooks/types.js';
+import { truncate } from '../../util/truncate.js';
 
 const VALID_AUTONOMY_LEVELS = new Set<string>(['auto', 'draft', 'notify']);
 
@@ -32,7 +33,7 @@ async function execute(input: Record<string, unknown>, context: ToolContext): Pr
 
   const playbook: Playbook = { trigger, channel, category, action, autonomyLevel, priority };
   const statement = JSON.stringify(playbook);
-  const subject = `Playbook: ${trigger}`.slice(0, 80);
+  const subject = truncate(`Playbook: ${trigger}`, 80, '');
   const scopeId = context.memoryScopeId ?? 'default';
 
   const fingerprint = computeMemoryFingerprint(scopeId, 'playbook', subject, statement);

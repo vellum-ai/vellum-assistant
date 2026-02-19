@@ -1,4 +1,5 @@
 import type { SwarmRole, SwarmTaskResult } from './types.js';
+import { truncate } from '../util/truncate.js';
 
 /**
  * Build a role-specific worker prompt for a swarm task.
@@ -70,7 +71,7 @@ export function parseWorkerOutput(raw: string): Pick<SwarmTaskResult, 'summary' 
   }
 
   return {
-    summary: raw.slice(0, 500),
+    summary: truncate(raw, 500, ''),
     artifacts: [],
     issues: [],
     nextSteps: [],

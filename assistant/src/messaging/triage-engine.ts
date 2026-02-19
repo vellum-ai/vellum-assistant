@@ -8,6 +8,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import { truncate } from '../util/truncate.js';
 import { v4 as uuid } from 'uuid';
 import { and, eq, isNull, desc } from 'drizzle-orm';
 import { getConfig } from '../config/loader.js';
@@ -283,7 +284,7 @@ async function classifyWithLLM(
     category: typeof input.category === 'string' ? input.category : 'needs_response',
     confidence,
     suggestedAction: typeof input.suggestedAction === 'string'
-      ? input.suggestedAction.slice(0, 500)
+      ? truncate(input.suggestedAction, 500, '')
       : 'Review manually',
     matchedPlaybooks,
   };

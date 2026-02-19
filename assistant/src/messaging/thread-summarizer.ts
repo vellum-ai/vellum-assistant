@@ -247,7 +247,7 @@ async function summarizeWithLLM(
       : 'neutral';
 
     return {
-      summary: String(input.summary ?? '').slice(0, 2000),
+      summary: truncate(String(input.summary ?? ''), 2000, ''),
       participants: Array.isArray(input.participants)
         ? input.participants.map((p) => ({
             name: String(p.name),
@@ -257,7 +257,7 @@ async function summarizeWithLLM(
       openQuestions: Array.isArray(input.openQuestions)
         ? input.openQuestions.map((q) => String(q))
         : [],
-      lastAction: String(input.lastAction ?? '').slice(0, 500),
+      lastAction: truncate(String(input.lastAction ?? ''), 500, ''),
       sentiment,
       messageCount: messages.length,
     };

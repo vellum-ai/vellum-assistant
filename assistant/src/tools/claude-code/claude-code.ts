@@ -3,6 +3,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
+import { truncate } from '../../util/truncate.js';
 import { getProfilePolicy } from '../../swarm/worker-backend.js';
 import type { WorkerProfile } from '../../swarm/worker-backend.js';
 
@@ -108,7 +109,7 @@ export const claudeCodeTool: Tool = {
 
     const { query } = sdkModule;
 
-    log.info({ prompt: prompt.slice(0, 100), workingDir, model, resume: !!resumeSessionId }, 'Starting Claude Code session');
+    log.info({ prompt: truncate(prompt, 100, ''), workingDir, model, resume: !!resumeSessionId }, 'Starting Claude Code session');
 
     // Build the canUseTool callback, enforcing profile-based restrictions
     const canUseTool: import('@anthropic-ai/claude-agent-sdk').CanUseTool = async (toolName, toolInput, _options) => {

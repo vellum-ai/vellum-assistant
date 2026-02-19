@@ -2,6 +2,8 @@
  * Conversation export formatters for markdown and JSON.
  */
 
+import { truncate } from '../util/truncate.js';
+
 interface ContentBlock {
   type: string;
   text?: string;
@@ -44,7 +46,7 @@ function extractText(blocks: ContentBlock[]): string {
         if (block.is_error) {
           parts.push(`[Error: ${block.content ?? ''}]`);
         } else {
-          parts.push(`[Result: ${(block.content ?? '').slice(0, 500)}]`);
+          parts.push(`[Result: ${truncate(block.content ?? '', 500)}]`);
         }
         break;
     }

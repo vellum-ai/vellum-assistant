@@ -1,6 +1,7 @@
 import type { ToolContext, ToolExecutionResult } from '../types.js';
 import type { ImageContent } from '../../providers/types.js';
 import { getLogger } from '../../util/logger.js';
+import { truncate } from '../../util/truncate.js';
 import {
   parseUrl,
   isPrivateOrLocalHost,
@@ -826,7 +827,7 @@ export async function executeBrowserWaitFor(
         `document.body?.innerText?.includes(${escaped})`,
         { timeout },
       );
-      return { content: `Text "${text.slice(0, 80)}" appeared on page.`, isError: false };
+      return { content: `Text "${truncate(text, 80)}" appeared on page.`, isError: false };
     }
 
     // duration mode (milliseconds)

@@ -35,6 +35,7 @@ import {
   type HistorySurface,
   type ParsedHistoryMessage,
 } from './shared.js';
+import { truncate } from '../../util/truncate.js';
 
 export async function handleUserMessage(
   msg: UserMessage,
@@ -327,7 +328,7 @@ export function handleHistoryRequest(
       contentOrder = rendered.contentOrder;
       surfaces = rendered.surfaces;
       if (m.role === 'assistant' && toolCalls.length > 0) {
-        log.info({ messageId: m.id, toolCallCount: toolCalls.length, text: text.substring(0, 100) }, 'History message with tool calls');
+        log.info({ messageId: m.id, toolCallCount: toolCalls.length, text: truncate(text, 100, '') }, 'History message with tool calls');
       }
     } catch (err) {
       log.debug({ err, messageId: m.id }, 'Failed to parse message content as JSON, using raw text');
@@ -433,10 +434,10 @@ export async function handleRegenerate(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, sessionId: msg.sessionId }, 'Error regenerating message');
-    session.traceEmitter.emit('request_error', message.slice(0, 200), {
+    session.traceEmitter.emit('request_error', truncate(message, 200, ''), {
       requestId,
       status: 'error',
-      attributes: { errorClass: err instanceof Error ? err.constructor.name : 'Error', message: message.slice(0, 500) },
+      attributes: { errorClass: err instanceof Error ? err.constructor.name : 'Error', message: truncate(message, 500, '') },
     });
     ctx.send(socket, { type: 'error', message: `Failed to regenerate: ${message}` });
     const classified = classifySessionError(err, { phase: 'regenerate' });

@@ -2,6 +2,7 @@ import { and, asc, eq, lte, notInArray, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { memoryJobs } from './schema.js';
+import { truncate } from '../util/truncate.js';
 
 export type MemoryJobType =
   | 'embed_segment'
@@ -331,7 +332,7 @@ export function failMemoryJob(
         status: 'failed',
         attempts,
         updatedAt: now,
-        lastError: error.slice(0, 2000),
+        lastError: truncate(error, 2000, ''),
       })
       .where(eq(memoryJobs.id, id))
       .run();
@@ -343,7 +344,7 @@ export function failMemoryJob(
       attempts,
       runAfter: now + retryDelayMs,
       updatedAt: now,
-      lastError: error.slice(0, 2000),
+      lastError: truncate(error, 2000, ''),
     })
     .where(eq(memoryJobs.id, id))
     .run();

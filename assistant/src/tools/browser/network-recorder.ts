@@ -6,6 +6,7 @@
  */
 
 import { getLogger } from '../../util/logger.js';
+import { truncate } from '../../util/truncate.js';
 import type { NetworkRecordedEntry, NetworkRecordedRequest, ExtractedCredential } from './network-recording-types.js';
 
 const log = getLogger('network-recorder');
@@ -273,7 +274,7 @@ export class NetworkRecorder {
     const method = (request.method as string) ?? 'GET';
     const postData = request.postData as string | undefined;
 
-    log.debug({ url: url.slice(0, 120), method, requestId }, 'Request captured');
+    log.debug({ url: truncate(url, 120, ''), method, requestId }, 'Request captured');
 
     const recordedRequest: NetworkRecordedRequest = { method, url, headers, postData };
     const entry: NetworkRecordedEntry = {
@@ -307,7 +308,7 @@ export class NetworkRecorder {
       this.loginSignals.some(sig => entry.request.url.includes(sig))
     ) {
       this.loginDetectedFired = true;
-      log.info({ url: entry.request.url.slice(0, 120) }, 'Login detected — will auto-stop in 5s');
+      log.info({ url: truncate(entry.request.url, 120, '') }, 'Login detected — will auto-stop in 5s');
       // Delay to let remaining network requests (cookies, session data) settle
       setTimeout(() => this.onLoginDetected?.(), 5000);
     }

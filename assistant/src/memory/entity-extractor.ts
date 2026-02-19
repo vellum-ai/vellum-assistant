@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { getConfig } from '../config/loader.js';
 import type { MemoryEntityConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
+import { truncate } from '../util/truncate.js';
 import { getDb } from './db.js';
 import { memoryEntities, memoryEntityRelations, memoryItemEntities } from './schema.js';
 
@@ -462,12 +463,12 @@ function dedupeAliasList(rawAliases: string[], canonicalName: string): string[] 
 
 function normalizeEntityName(value: string | null | undefined): string | null {
   if (!value) return null;
-  const normalized = String(value).trim().slice(0, 200);
+  const normalized = truncate(String(value).trim(), 200, '');
   return normalized.length > 0 ? normalized : null;
 }
 
 function normalizeEvidence(value: string | null | undefined): string | null {
   if (!value) return null;
-  const normalized = String(value).trim().slice(0, 500);
+  const normalized = truncate(String(value).trim(), 500, '');
   return normalized.length > 0 ? normalized : null;
 }
