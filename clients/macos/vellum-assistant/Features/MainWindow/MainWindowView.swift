@@ -322,7 +322,7 @@ struct MainWindowView: View {
                         }
                     }()
                     if shouldClose {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        withAnimation(.easeInOut(duration: 0.35)) {
                             sidebarOpen = false
                         }
                     }
@@ -354,83 +354,88 @@ struct MainWindowView: View {
     private var coreLayoutView: some View {
         GeometryReader { geometry in
             Group {
-                HStack(spacing: 0) {
-                    // Left: Full-height sidebar (extends behind traffic lights)
-                    sidebarView
-                        .frame(width: sidebarOpen && windowState.layoutConfig.left.visible ? threadDrawerWidth : 0, alignment: .leading)
-                        .clipped()
-                        .allowsHitTesting(sidebarOpen && windowState.layoutConfig.left.visible)
-                        .animation(isDrawerDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: sidebarOpen)
-                        .animation(nil, value: threadDrawerWidth)
-
-                    if sidebarOpen && windowState.layoutConfig.left.visible {
-                        drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
-                    }
-
-                    // Right: Top bar + main content
-                    VStack(spacing: 0) {
-                        // Top bar — sidebar toggle always visible when sidebar is closed;
-                        // TemporaryChatToggle only shown on chat views.
-                        if !(sidebarOpen && windowState.layoutConfig.left.visible) || windowState.isShowingChat {
-                            HStack(spacing: 0) {
-                                if !(sidebarOpen && windowState.layoutConfig.left.visible) {
-                                    VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true) {
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                            sidebarOpen.toggle()
-                                        }
-                                    }
-                                }
-                                Spacer()
-                                if windowState.isShowingChat {
-                                    // Copy Thread button
-                                    Button {
-                                        let messages = threadManager.activeViewModel?.messages ?? []
-                                        let title = threadManager.activeThread?.title
-                                        let names = resolveParticipantNames()
-                                        let markdown = ChatTranscriptFormatter.threadMarkdown(
-                                            messages: messages,
-                                            threadTitle: title,
-                                            participantNames: names
-                                        )
-                                        guard !markdown.isEmpty else { return }
-                                        NSPasteboard.general.clearContents()
-                                        NSPasteboard.general.setString(markdown, forType: .string)
-                                        copyThreadConfirmationTimer?.cancel()
-                                        showCopyThreadConfirmation = true
-                                        let timer = DispatchWorkItem { showCopyThreadConfirmation = false }
-                                        copyThreadConfirmationTimer = timer
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
-                                    } label: {
-                                        Image(systemName: showCopyThreadConfirmation ? "checkmark" : "list.clipboard")
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundColor(showCopyThreadConfirmation ? VColor.success : VColor.textMuted)
-                                            .frame(width: 28, height: 28)
-                                            .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .accessibilityLabel("Copy thread")
-                                    .disabled({
-                                        let messages = threadManager.activeViewModel?.messages ?? []
-                                        return !messages.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                                    }())
-                                    .help(showCopyThreadConfirmation ? "Copied!" : "Copy thread")
-
-                                    TemporaryChatToggle(
-                                        isActive: threadManager.activeThread?.kind == .private,
-                                        onToggle: { toggleTemporaryChat() }
-                                    )
-                                }
+                VStack(spacing: 0) {
+                    // Top bar (always visible, above sidebar)
+                    HStack(spacing: 0) {
+                        VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true) {
+                            withAnimation(.easeInOut(duration: 0.35)) {
+                                sidebarOpen.toggle()
                             }
-                            .padding(.leading, (sidebarOpen && windowState.layoutConfig.left.visible) ? VSpacing.sm : trafficLightPadding)
-                            .padding(.trailing, VSpacing.lg)
-                            .frame(height: 36)
                         }
+                        Spacer()
+                        if windowState.isShowingChat {
+                            // Copy Thread button
+                            Button {
+                                let messages = threadManager.activeViewModel?.messages ?? []
+                                let title = threadManager.activeThread?.title
+                                let names = resolveParticipantNames()
+                                let markdown = ChatTranscriptFormatter.threadMarkdown(
+                                    messages: messages,
+                                    threadTitle: title,
+                                    participantNames: names
+                                )
+                                guard !markdown.isEmpty else { return }
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(markdown, forType: .string)
+                                copyThreadConfirmationTimer?.cancel()
+                                showCopyThreadConfirmation = true
+                                let timer = DispatchWorkItem { showCopyThreadConfirmation = false }
+                                copyThreadConfirmationTimer = timer
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
+                            } label: {
+                                Image(systemName: showCopyThreadConfirmation ? "checkmark" : "list.clipboard")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(showCopyThreadConfirmation ? VColor.success : VColor.textMuted)
+                                    .frame(width: 28, height: 28)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Copy thread")
+                            .disabled({
+                                let messages = threadManager.activeViewModel?.messages ?? []
+                                return !messages.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                            }())
+                            .help(showCopyThreadConfirmation ? "Copied!" : "Copy thread")
 
-                        // Main content
-                        chatContentView(geometry: geometry)
+                            TemporaryChatToggle(
+                                isActive: threadManager.activeThread?.kind == .private,
+                                onToggle: { toggleTemporaryChat() }
+                            )
+                        }
                     }
+                    .padding(.leading, trafficLightPadding)
+                    .padding(.trailing, VSpacing.lg)
+                    .frame(height: 36)
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    // Content area with sidebar drawer overlay
+                    ZStack(alignment: .leading) {
+                        chatContentView(geometry: geometry)
+
+                        // Sidebar drawer overlay
+                        if sidebarOpen && windowState.layoutConfig.left.visible {
+                            // Scrim — click to dismiss
+                            Color.black.opacity(0.15)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    withAnimation(.easeInOut(duration: 0.35)) {
+                                        sidebarOpen = false
+                                    }
+                                }
+
+                            // Sidebar panel + resize handle
+                            HStack(spacing: 0) {
+                                sidebarView
+                                drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
+                            }
+                            .shadow(color: .black.opacity(0.2), radius: 8, x: 2, y: 0)
+                            .transition(.move(edge: .leading))
+                            .animation(nil, value: threadDrawerWidth)
+                        }
+                    }
+                    .coordinateSpace(name: drawerDragCoordinateSpaceName)
                 }
-                .coordinateSpace(name: drawerDragCoordinateSpaceName)
                 .overlay {
                     // Click-outside-to-dismiss background for control center drawer
                     if showControlCenterDrawer {
@@ -769,18 +774,6 @@ struct MainWindowView: View {
     @ViewBuilder
     private var sidebarView: some View {
         VStack(spacing: 0) {
-            // Top bar: sidebar toggle
-            HStack {
-                Spacer()
-                VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        sidebarOpen.toggle()
-                    }
-                }
-            }
-            .padding(.trailing, VSpacing.sm)
-            .frame(height: 36)
-
             ScrollView {
                 VStack(spacing: 0) {
                     // MARK: New Chat
@@ -1182,10 +1175,8 @@ struct MainWindowView: View {
             // VSplitView: ChatView (left) + workspace (right)
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
-                // Compute content area width accounting for sidebar, divider, padding, and zoom
-                let sidebarVisible = sidebarOpen && windowState.layoutConfig.left.visible
-                let sidebarW = sidebarVisible ? threadDrawerWidth + Double(VSpacing.xs) : 0
-                let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - sidebarW - Double(VSpacing.sm)
+                // Compute content area width (sidebar is an overlay, doesn't reduce content width)
+                let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - Double(VSpacing.sm)
                 let effectiveWidth = Binding<Double>(
                     get: { appPanelWidth > 0 ? appPanelWidth : contentWidth * 0.7 },
                     set: { appPanelWidth = $0 }
@@ -1840,7 +1831,7 @@ private struct DynamicWorkspaceWrapper: View {
                         .accessibilityLabel("Close workspace")
                     }
                 }
-                .padding(.leading, (isSidebarOpen || isChatDockOpen) ? VSpacing.lg : trafficLightPadding)
+                .padding(.leading, isChatDockOpen ? VSpacing.lg : trafficLightPadding)
                 .padding(.trailing, VSpacing.xl)
                 .padding(.top, VSpacing.md)
 

@@ -188,7 +188,7 @@ public enum VColor {
     public static let surfaceSubtle = adaptiveColor(light: Stone._50, dark: Moss._900)
 
     // Text
-    public static let textPrimary = adaptiveColor(light: Stone._900, dark: Moss._200)
+    public static let textPrimary = adaptiveColor(light: Stone._900, dark: Moss._50)
     public static let textSecondary = adaptiveColor(light: Stone._600, dark: Moss._400)
     public static let textMuted = adaptiveColor(light: Stone._500, dark: Moss._500)
 

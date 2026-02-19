@@ -13,6 +13,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
     @State private var dragStartWidth: Double?
     @State private var dragStartAvailableWidth: CGFloat?
     @State private var isDragging: Bool = false
+    @State private var isDividerHovered: Bool = false
     private let dragCoordinateSpaceName = "VSplitViewDragCoordinateSpace"
 
     // MARK: - Body
@@ -25,7 +26,8 @@ public struct VSplitView<Main: View, Panel: View>: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(VColor.backgroundSubtle)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                    .padding([.bottom, .leading, .trailing], VSpacing.xs)
+                    .padding([.bottom, .leading], VSpacing.xs)
+                    .padding(.trailing, showPanel ? 0 : VSpacing.xs)
 
                 // Panel slides in from right, pushing content
                 if showPanel, let panel = panel {
@@ -36,8 +38,10 @@ public struct VSplitView<Main: View, Panel: View>: View {
                         .frame(width: panelWidth)
                         .animation(nil, value: panelWidth)  // Disable animation on width changes
                         .background(VColor.backgroundSubtle)
-                        .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.lg))
-                        .padding([.bottom, .trailing], VSpacing.xs)
+                        .overlay(alignment: .top) {
+                            VColor.surfaceBorder.frame(height: 1)
+                        }
+                        .padding(.bottom, VSpacing.xs)
                         .transition(.move(edge: .trailing))
                 }
             }
@@ -47,31 +51,47 @@ public struct VSplitView<Main: View, Panel: View>: View {
     }
 
     private func dragDivider(availableWidth: CGFloat) -> some View {
-        Rectangle()
-            .fill(Color.clear)
-            .frame(width: VSpacing.xs)
-            .contentShape(Rectangle())
-            #if os(macOS)
-            .onHover { hovering in
-                if hovering {
-                    NSCursor.resizeLeftRight.set()
-                } else {
-                    NSCursor.arrow.set()
+        ZStack {
+            // Thin vertical line
+            Rectangle()
+                .fill(isDividerHovered || isDragging ? VColor.accent : VColor.surfaceBorder)
+                .frame(width: 1)
+
+            // Pill handle centered vertically
+            Capsule()
+                .fill(isDividerHovered || isDragging ? VColor.accent : VColor.surfaceBorder)
+                .frame(width: 6, height: 48)
+                .overlay(
+                    Capsule()
+                        .stroke(isDividerHovered || isDragging ? VColor.accent : VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                )
+        }
+        .frame(width: 12)
+        .contentShape(Rectangle())
+        .animation(VAnimation.fast, value: isDividerHovered)
+        .animation(VAnimation.fast, value: isDragging)
+        #if os(macOS)
+        .onHover { hovering in
+            isDividerHovered = hovering
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        #endif
+        .gesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .named(dragCoordinateSpaceName))
+                .onChanged { value in
+                    self.handleDragChanged(value, availableWidth: availableWidth)
                 }
-            }
-            #endif
-            .gesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .named(dragCoordinateSpaceName))
-                    .onChanged { value in
-                        self.handleDragChanged(value, availableWidth: availableWidth)
-                    }
-                    .onEnded { _ in
-                        self.resetDragState()
-                    }
-            )
-            .onDisappear {
-                self.resetDragState()
-            }
+                .onEnded { _ in
+                    self.resetDragState()
+                }
+        )
+        .onDisappear {
+            self.resetDragState()
+        }
     }
 
     // MARK: - Drag Helpers
@@ -98,8 +118,8 @@ public struct VSplitView<Main: View, Panel: View>: View {
         // Calculate constraints
         let minPanelWidth: CGFloat = 300
         let minMainContentWidth: CGFloat = 300
-        // main leading + main trailing + divider + panel trailing
-        let dividerAndPadding = VSpacing.xs * 4
+        // main leading + divider (no trailing padding on main or panel when panel is shown)
+        let dividerAndPadding = VSpacing.xs + 12
         let maxAllowed = initialAvailableWidth - minMainContentWidth - dividerAndPadding
 
         // Update width without animation to prevent jitter

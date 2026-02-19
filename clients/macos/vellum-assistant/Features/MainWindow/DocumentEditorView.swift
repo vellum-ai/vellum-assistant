@@ -225,29 +225,34 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
   <style>
     :root {
       --v-bg: #FFFFFF;
-      --v-surface: #F5F5F7;
-      --v-surface-border: #D2D2D7;
-      --v-text: #1D1D1F;
-      --v-text-secondary: #86868B;
-      --v-text-muted: #AEAEB2;
-      --v-accent: #8A5BE0;
+      --v-surface: #FFFFFF;
+      --v-surface-border: #E7E5E4;
+      --v-text: #292524;
+      --v-text-secondary: #78716C;
+      --v-text-muted: #97918B;
+      --v-accent: #262624;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --v-bg: #070D19;
-        --v-surface: #1E293B;
-        --v-surface-border: #334155;
-        --v-text: #F8FAFC;
-        --v-text-secondary: #94A3B8;
-        --v-text-muted: #64748B;
-        --v-accent: #8A5BE0;
+        --v-bg: #262624;
+        --v-surface: #2F2F2D;
+        --v-surface-border: #3A3A37;
+        --v-text: #F5F3EB;
+        --v-text-secondary: #A1A096;
+        --v-text-muted: #6B6B65;
+        --v-accent: #216C37;
       }
+    }
+    /* Invert toolbar icons in dark mode — target both the JS-applied class and the media query */
+    .toastui-editor-dark .toastui-editor-toolbar-icons { filter: invert(1) brightness(0.85) !important; }
+    @media (prefers-color-scheme: dark) {
+      .toastui-editor-toolbar-icons { filter: invert(1) brightness(0.85) !important; }
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
       background: var(--v-bg);
       color: var(--v-text);
       height: 100vh;
@@ -259,6 +264,7 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
     .header { display: none; }
 
     .title-input {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
       font-size: 20px;
       font-weight: 600;
       background: transparent;
@@ -288,24 +294,37 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
     }
 
     /* Override Toast UI Editor theme colors to match Vellum */
-    .toastui-editor-defaultUI { border: none !important; }
-    .toastui-editor-toolbar { background: var(--v-surface) !important; border-bottom: 1px solid var(--v-surface-border) !important; }
-    .toastui-editor-toolbar-icons { color: var(--v-text-secondary) !important; }
-    .toastui-editor-toolbar-icons:hover { background: var(--v-surface-border) !important; }
+    .toastui-editor-defaultUI { border: none !important; background: var(--v-bg) !important; }
+    .toastui-editor-defaultUI-toolbar { background: var(--v-surface) !important; border-bottom: 1px solid var(--v-surface-border) !important; }
+    .toastui-editor-toolbar { background: var(--v-surface) !important; border-top: 1px solid var(--v-surface-border) !important; border-bottom: 1px solid var(--v-surface-border) !important; }
+    .toastui-editor-toolbar-icons { color: var(--v-text) !important; background-color: transparent !important; border: none !important; }
+    .toastui-editor-toolbar-icons:hover { background-color: var(--v-surface-border) !important; }
+    .toastui-editor-toolbar-icons.active { background-color: var(--v-surface-border) !important; }
+    .toastui-editor-toolbar-divider { background: var(--v-surface-border) !important; }
+    .toastui-editor-toolbar-group { border-right-color: var(--v-surface-border) !important; }
+    .toastui-editor-popup { background: var(--v-surface) !important; border-color: var(--v-surface-border) !important; }
+    .toastui-editor-popup-body { background: var(--v-surface) !important; }
     .toastui-editor-md-container,
     .toastui-editor-ww-container { background: var(--v-bg) !important; color: var(--v-text) !important; }
-    .toastui-editor-contents { color: var(--v-text) !important; padding: 0 !important; }
-    .toastui-editor-ww-content { padding: 0 !important; }
-    .ProseMirror { padding: 0 !important; }
-    .toastui-editor-md-container .toastui-editor { padding: 0 !important; }
-    .toastui-editor-contents h1,
-    .toastui-editor-contents h2,
-    .toastui-editor-contents h3 { color: var(--v-text) !important; border-bottom-color: var(--v-surface-border) !important; }
-    .toastui-editor-contents pre { background: var(--v-surface) !important; }
-    .toastui-editor-contents code { background: var(--v-surface) !important; color: var(--v-text) !important; }
+    .toastui-editor-contents { color: var(--v-text) !important; font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 14px !important; line-height: 1.7 !important; padding: 24px 32px !important; }
+    .toastui-editor-ww-content { padding: 24px 32px !important; }
+    .ProseMirror { padding: 24px 32px !important; }
+    .toastui-editor-md-container .toastui-editor { padding: 24px 32px !important; }
+    .toastui-editor-contents h1 { font-family: "Fraunces", Georgia, serif !important; font-size: 28px !important; font-weight: 400 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 32px !important; margin-bottom: 12px !important; }
+    .toastui-editor-contents h2 { font-family: "Fraunces", Georgia, serif !important; font-size: 22px !important; font-weight: 400 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 28px !important; margin-bottom: 10px !important; }
+    .toastui-editor-contents h3 { font-family: "Fraunces", Georgia, serif !important; font-size: 18px !important; font-weight: 400 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 24px !important; margin-bottom: 8px !important; }
+    .toastui-editor-contents p { margin-bottom: 12px !important; }
+    .toastui-editor-contents pre { background: var(--v-surface) !important; border-radius: 8px !important; padding: 12px 16px !important; }
+    .toastui-editor-contents code { background: var(--v-surface) !important; color: var(--v-text) !important; font-family: "DMMono-Regular", "SF Mono", monospace !important; border-radius: 4px !important; padding: 2px 5px !important; font-size: 13px !important; }
     .toastui-editor-contents blockquote { border-left-color: var(--v-accent) !important; color: var(--v-text-secondary) !important; }
     .toastui-editor-contents table td,
     .toastui-editor-contents table th { border-color: var(--v-surface-border) !important; }
+    /* Hide mode switch (Markdown / WYSIWYG toggle) */
+    .toastui-editor-mode-switch { display: none !important; }
+    /* Scrollbar styling */
+    .toastui-editor-contents::-webkit-scrollbar { width: 6px; }
+    .toastui-editor-contents::-webkit-scrollbar-track { background: transparent; }
+    .toastui-editor-contents::-webkit-scrollbar-thumb { background: var(--v-surface-border); border-radius: 3px; }
   </style>
 </head>
 <body>
