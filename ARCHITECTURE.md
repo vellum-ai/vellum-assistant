@@ -831,7 +831,7 @@ graph TB
    - job queue counts for `cleanup_resolved_conflicts` / `cleanup_stale_superseded_items`
 6. Before tuning ranking or relation settings, run:
    - `cd assistant && bun test src/__tests__/context-memory-e2e.test.ts`
-   - `cd assistant && bun test src/__tests__/memory-context-benchmark.test.ts`
+   - `cd assistant && bun test src/__tests__/memory-context-benchmark.benchmark.test.ts`
    - `cd assistant && bun test src/__tests__/memory-recall-quality.test.ts`
    - `cd assistant && bun test src/__tests__/memory-regressions.test.ts -t "relation"`
 7. After tuning, rerun the same suite and compare:
