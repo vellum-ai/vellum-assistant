@@ -1932,12 +1932,16 @@ export interface WorkItemDeleteResponse {
   success: boolean;
 }
 
+export type WorkItemRunTaskErrorCode = 'not_found' | 'already_running' | 'invalid_status' | 'no_task';
+
 export interface WorkItemRunTaskResponse {
   type: 'work_item_run_task_response';
   id: string;
   lastRunId: string;
   success: boolean;
   error?: string;
+  /** Structured error code so the client can deterministically re-enable buttons or show contextual UI. */
+  errorCode?: WorkItemRunTaskErrorCode;
 }
 
 /** Server push — tells the client to open/focus the tasks window. */
