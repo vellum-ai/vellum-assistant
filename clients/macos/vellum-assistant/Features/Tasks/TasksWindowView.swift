@@ -5,7 +5,7 @@ import VellumAssistantShared
 struct TasksWindowView: View {
     @StateObject private var viewModel: TasksWindowViewModel
 
-    init(daemonClient: DaemonClient, onRunTaskInChat: ((String, String, String) -> Void)? = nil) {
+    init(daemonClient: DaemonClient, onRunTaskInChat: ((String, String, String) -> Bool)? = nil) {
         let vm = TasksWindowViewModel(daemonClient: daemonClient)
         vm.onRunTaskInChat = onRunTaskInChat
         _viewModel = StateObject(wrappedValue: vm)
@@ -256,6 +256,12 @@ private struct TasksWindowRow: View {
     private var statusColumn: some View {
         let status = WorkItemStatus(rawStatus: item.status)
         let style = TasksTableContract.statusStyle(for: status)
+        // When the status has output to show, use accent color persistently
+        // (not just on hover) so the badge looks clearly clickable.
+        let textColor = hasOutput ? VColor.accent : style.color
+        let bgColor = hasOutput
+            ? VColor.accent.opacity(isStatusHovered ? 0.24 : 0.14)
+            : style.color.opacity(0.12)
         return HStack(spacing: VSpacing.xs) {
             if status == .running {
                 ProgressView()
@@ -263,11 +269,16 @@ private struct TasksWindowRow: View {
             }
             Text(style.label)
                 .font(VFont.caption)
-                .foregroundColor(hasOutput && isStatusHovered ? VColor.accent : style.color)
+                .foregroundColor(textColor)
+            if hasOutput {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(textColor.opacity(0.6))
+            }
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, 2)
-        .background(hasOutput && isStatusHovered ? VColor.accent.opacity(0.18) : style.color.opacity(0.12))
+        .background(bgColor)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
         .contentShape(Rectangle())
         .onHover { hovering in isStatusHovered = hovering }

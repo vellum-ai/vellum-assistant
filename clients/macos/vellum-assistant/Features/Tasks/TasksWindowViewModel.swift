@@ -76,6 +76,15 @@ class TasksWindowViewModel: ObservableObject {
             // A fresh list response means the daemon is alive — clear any
             // stale timeout warnings since the user can now retry.
             self?.runTimeoutIds.removeAll()
+            // Safety net: clear in-flight IDs for items whose status is no
+            // longer "running". This prevents stale IDs from keeping the
+            // Run/Rerun button disabled after a status transition.
+            if let self {
+                let nonRunningIds = Set(response.items
+                    .filter { WorkItemStatus(rawStatus: $0.status) != .running }
+                    .map(\.id))
+                self.runInFlightIds.subtract(nonRunningIds)
+            }
         }
 
         // Debounce rapid broadcasts so multiple mutations coalesce
