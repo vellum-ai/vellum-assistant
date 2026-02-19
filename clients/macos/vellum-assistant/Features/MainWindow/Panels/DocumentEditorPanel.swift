@@ -10,10 +10,11 @@ struct DocumentEditorPanelView: View {
         VStack(spacing: 0) {
             // Header toolbar
             HStack {
-                Text(documentManager.title)
+                TextField("Document title", text: $documentManager.title)
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(1)
+                    .textFieldStyle(.plain)
                 Spacer()
                 if documentManager.wordCount > 0 {
                     Text("\(documentManager.wordCount) words")

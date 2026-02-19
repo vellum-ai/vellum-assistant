@@ -51,6 +51,7 @@ final class DocumentManager: ObservableObject {
         self.sessionId = sessionId
         self.title = title
         self.initialContent = initialContent
+        self.wordCount = initialContent.split(whereSeparator: \.isWhitespace).count
         self.hasActiveDocument = true
 
         // Initialize editor with content (or store as pending if coordinator not ready)
