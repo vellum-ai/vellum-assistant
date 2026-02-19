@@ -1956,11 +1956,6 @@ public struct IPCWorkItemCompleteRequest: Codable, Sendable {
     public let id: String
 }
 
-public struct IPCWorkItemRenderRequest: Codable, Sendable {
-    public let type: String
-    public let id: String
-}
-
 public struct IPCWorkItemDeleteRequest: Codable, Sendable {
     public let type: String
     public let id: String
