@@ -233,6 +233,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `vercel_api_config_response` message.
     public var onVercelApiConfigResponse: ((VercelApiConfigResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `twitter_integration_config_response` message.
+    public var onTwitterIntegrationConfigResponse: ((TwitterIntegrationConfigResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `model_info` message.
     public var onModelInfo: ((ModelInfoMessage) -> Void)?
 

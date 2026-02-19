@@ -1671,6 +1671,22 @@ extension IPCVercelApiConfigRequest {
 /// Backed by generated `IPCVercelApiConfigResponse`.
 public typealias VercelApiConfigResponseMessage = IPCVercelApiConfigResponse
 
+// MARK: - Twitter Integration Config Messages
+
+/// Sent to get/set Twitter integration config.
+/// Backed by generated `IPCTwitterIntegrationConfigRequest`.
+public typealias TwitterIntegrationConfigRequestMessage = IPCTwitterIntegrationConfigRequest
+
+extension IPCTwitterIntegrationConfigRequest {
+    public init(action: String, mode: String? = nil, clientId: String? = nil, clientSecret: String? = nil) {
+        self.init(type: "twitter_integration_config", action: action, mode: mode, clientId: clientId, clientSecret: clientSecret)
+    }
+}
+
+/// Response from Twitter integration config operations.
+/// Backed by generated `IPCTwitterIntegrationConfigResponse`.
+public typealias TwitterIntegrationConfigResponseMessage = IPCTwitterIntegrationConfigResponse
+
 /// Authentication result from the daemon after the client sends an `auth` message.
 /// Backed by generated `IPCAuthResult`.
 public typealias AuthResultMessage = IPCAuthResult
@@ -1813,6 +1829,7 @@ public enum ServerMessage: Decodable, Sendable {
     case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
+    case twitterIntegrationConfigResponse(TwitterIntegrationConfigResponseMessage)
     case modelInfo(ModelInfoMessage)
     case publishPageResponse(PublishPageResponseMessage)
     case unpublishPageResponse(UnpublishPageResponseMessage)
@@ -2058,6 +2075,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "vercel_api_config_response":
             let message = try VercelApiConfigResponseMessage(from: decoder)
             self = .vercelApiConfigResponse(message)
+        case "twitter_integration_config_response":
+            let message = try TwitterIntegrationConfigResponseMessage(from: decoder)
+            self = .twitterIntegrationConfigResponse(message)
         case "model_info":
             let message = try ModelInfoMessage(from: decoder)
             self = .modelInfo(message)

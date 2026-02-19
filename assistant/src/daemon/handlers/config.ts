@@ -5,7 +5,7 @@ import { addRule, removeRule, updateRule, getAllRules, acceptStarterBundle } fro
 import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression } from '../../schedule/schedule-store.js';
 import { listReminders, cancelReminder } from '../../tools/reminder/reminder-store.js';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
-import { upsertCredentialMetadata, deleteCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { postToSlackWebhook } from '../../slack/slack-webhook.js';
 import { getApp } from '../../memory/app-store.js';
 import type {
@@ -20,6 +20,7 @@ import type {
   ShareToSlackRequest,
   SlackWebhookConfigRequest,
   VercelApiConfigRequest,
+  TwitterIntegrationConfigRequest,
 } from '../ipc-protocol.js';
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, type HandlerContext, type DispatchMap } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
@@ -457,6 +458,104 @@ export function handleVercelApiConfig(
   }
 }
 
+export function handleTwitterIntegrationConfig(
+  msg: TwitterIntegrationConfigRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    if (msg.action === 'get') {
+      const raw = loadRawConfig();
+      const mode = (raw.twitterIntegrationMode as 'local_byo' | 'managed' | undefined) ?? 'local_byo';
+      const localClientConfigured = !!getSecureKey('credential:integration:twitter:oauth_client_id');
+      const connected = !!getSecureKey('credential:integration:twitter:access_token');
+      const meta = getCredentialMetadata('integration:twitter', 'access_token');
+      ctx.send(socket, {
+        type: 'twitter_integration_config_response',
+        success: true,
+        mode,
+        managedAvailable: false,
+        localClientConfigured,
+        connected,
+        accountInfo: meta?.accountInfo ?? undefined,
+      });
+    } else if (msg.action === 'set_mode') {
+      const raw = loadRawConfig();
+      raw.twitterIntegrationMode = msg.mode ?? 'local_byo';
+      saveRawConfig(raw);
+      ctx.send(socket, {
+        type: 'twitter_integration_config_response',
+        success: true,
+        mode: msg.mode ?? 'local_byo',
+        managedAvailable: false,
+        localClientConfigured: !!getSecureKey('credential:integration:twitter:oauth_client_id'),
+        connected: !!getSecureKey('credential:integration:twitter:access_token'),
+      });
+    } else if (msg.action === 'set_local_client') {
+      if (!msg.clientId) {
+        ctx.send(socket, {
+          type: 'twitter_integration_config_response',
+          success: false,
+          managedAvailable: false,
+          localClientConfigured: false,
+          connected: false,
+          error: 'clientId is required for set_local_client action',
+        });
+        return;
+      }
+      setSecureKey('credential:integration:twitter:oauth_client_id', msg.clientId);
+      if (msg.clientSecret) {
+        setSecureKey('credential:integration:twitter:oauth_client_secret', msg.clientSecret);
+      }
+      ctx.send(socket, {
+        type: 'twitter_integration_config_response',
+        success: true,
+        managedAvailable: false,
+        localClientConfigured: true,
+        connected: !!getSecureKey('credential:integration:twitter:access_token'),
+      });
+    } else if (msg.action === 'clear_local_client') {
+      // If connected, disconnect first
+      if (getSecureKey('credential:integration:twitter:access_token')) {
+        deleteSecureKey('credential:integration:twitter:access_token');
+        deleteSecureKey('credential:integration:twitter:refresh_token');
+        deleteCredentialMetadata('integration:twitter', 'access_token');
+      }
+      deleteSecureKey('credential:integration:twitter:oauth_client_id');
+      deleteSecureKey('credential:integration:twitter:oauth_client_secret');
+      ctx.send(socket, {
+        type: 'twitter_integration_config_response',
+        success: true,
+        managedAvailable: false,
+        localClientConfigured: false,
+        connected: false,
+      });
+    } else if (msg.action === 'disconnect') {
+      deleteSecureKey('credential:integration:twitter:access_token');
+      deleteSecureKey('credential:integration:twitter:refresh_token');
+      deleteCredentialMetadata('integration:twitter', 'access_token');
+      ctx.send(socket, {
+        type: 'twitter_integration_config_response',
+        success: true,
+        managedAvailable: false,
+        localClientConfigured: !!getSecureKey('credential:integration:twitter:oauth_client_id'),
+        connected: false,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to handle Twitter integration config');
+    ctx.send(socket, {
+      type: 'twitter_integration_config_response',
+      success: false,
+      managedAvailable: false,
+      localClientConfigured: false,
+      connected: false,
+      error: message,
+    });
+  }
+}
+
 export function handleEnvVarsRequest(socket: net.Socket, ctx: HandlerContext): void {
   const vars: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -482,5 +581,6 @@ export const configHandlers: Partial<DispatchMap> = {
   share_to_slack: handleShareToSlack,
   slack_webhook_config: handleSlackWebhookConfig,
   vercel_api_config: handleVercelApiConfig,
+  twitter_integration_config: handleTwitterIntegrationConfig,
   env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
 };

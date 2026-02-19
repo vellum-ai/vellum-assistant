@@ -1622,6 +1622,25 @@ public struct IPCTrustRulesListResponseRule: Codable, Sendable {
     public let createdAt: Int
 }
 
+public struct IPCTwitterIntegrationConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let mode: String?
+    public let clientId: String?
+    public let clientSecret: String?
+}
+
+public struct IPCTwitterIntegrationConfigResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let mode: String?
+    public let managedAvailable: Bool
+    public let localClientConfigured: Bool
+    public let connected: Bool
+    public let accountInfo: String?
+    public let error: String?
+}
+
 public struct IPCUiSurfaceAction: Codable, Sendable {
     public let type: String
     public let sessionId: String
