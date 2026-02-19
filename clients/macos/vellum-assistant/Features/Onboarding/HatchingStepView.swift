@@ -109,7 +109,9 @@ struct HatchingStepView: View {
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundColor(VColor.textPrimary)
 
-                Text("Setting up your assistant on GCP")
+                Text(state.cloudProvider == "local"
+                     ? "Setting up your local assistant"
+                     : "Setting up your assistant on \(state.cloudProvider.uppercased())")
                     .font(.system(size: 14))
                     .foregroundColor(VColor.textSecondary)
             }

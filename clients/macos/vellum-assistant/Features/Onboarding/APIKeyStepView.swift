@@ -281,7 +281,7 @@ struct APIKeyStepView: View {
             if userHostedEnabled && hostingMode != .local {
                 state.advance()
             } else if userHostedEnabled {
-                state.advance(by: 2)
+                state.isHatching = true
             } else {
                 state.advance()
             }
