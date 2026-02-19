@@ -114,6 +114,10 @@ struct ChatContentView: View {
                             .padding(.horizontal, VSpacing.lg)
                             .id("step-indicator")
                         }
+
+                        // Invisible anchor at the very bottom of all content
+                        Color.clear.frame(height: 1)
+                            .id("scroll-bottom-anchor")
                     }
                     .padding(VSpacing.lg)
                 }
@@ -132,9 +136,12 @@ struct ChatContentView: View {
                 .onChange(of: viewModel.isSending) { _, isSending in
                     if isSending {
                         withAnimation(.easeOut(duration: 0.3)) {
-                            proxy.scrollTo("step-indicator", anchor: .bottom)
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                         }
                     }
+                }
+                .onChange(of: viewModel.activeSubagents.count) { _, _ in
+                    scrollToBottom(proxy: proxy, animated: true)
                 }
             }
             } // end else (messages non-empty)
@@ -350,13 +357,12 @@ struct ChatContentView: View {
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool) {
-        guard let lastMessage = viewModel.messages.last else { return }
         if animated {
             withAnimation(.easeOut(duration: 0.3)) {
-                proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
         } else {
-            proxy.scrollTo(lastMessage.id, anchor: .bottom)
+            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
         }
     }
 }
