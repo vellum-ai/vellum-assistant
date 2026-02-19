@@ -678,6 +678,12 @@ extension ChatViewModel {
 
         case .error(let err):
             log.error("Server error: \(err.message)")
+            // Only process errors relevant to this chat session. Generic daemon
+            // errors (e.g., IPC validation failures from unrelated message types
+            // like work_item_delete) should not pollute the chat UI.
+            guard isSending || isThinking || isCancelling || currentAssistantMessageId != nil || isWorkspaceRefinementInFlight else {
+                return
+            }
             isWorkspaceRefinementInFlight = false
             refinementMessagePreview = nil
             refinementStreamingText = nil
