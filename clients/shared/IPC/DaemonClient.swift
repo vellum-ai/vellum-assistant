@@ -536,6 +536,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                     case .cancelled:
                         log.info("Connection cancelled")
                         self.isConnected = false
+                        self.isConnecting = false
                         self.isAuthenticated = false
                         self.stopPingTimer()
                         if !resumed {
