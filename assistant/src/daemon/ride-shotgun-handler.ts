@@ -11,9 +11,7 @@ import {
 } from '../tools/watch/watch-state.js';
 import type { WatchSession } from '../tools/watch/watch-state.js';
 import { lastSummaryBySession, generateSummary } from './watch-handler.js';
-import { join } from 'node:path';
 import { getLogger } from '../util/logger.js';
-import { getDataDir } from '../util/platform.js';
 import { NetworkRecorder } from '../tools/browser/network-recorder.js';
 import { saveRecording } from '../tools/browser/recording-store.js';
 import type { SessionRecording } from '../tools/browser/network-recording-types.js';
@@ -44,7 +42,7 @@ async function completeSession(session: WatchSession): Promise<void> {
 
   // In learn mode, stop recording and save — skip the LLM summary (not needed)
   if (session.isLearnMode && session.recordingId) {
-    await finalizeLearnRecording(watchId, session, session.recordingId);
+    session.savedRecordingPath = await finalizeLearnRecording(watchId, session, session.recordingId);
     lastSummaryBySession.set(sessionId, 'Learn session completed — recording saved.');
     session.status = 'completed';
     log.info({ watchId, sessionId }, 'Learn session complete — firing completion notifier');
@@ -99,6 +97,11 @@ export async function handleRideShotgunStart(
   if (isLearnMode) {
     const startRecording = async () => {
       for (let attempt = 0; attempt < 10; attempt++) {
+        // Check if session is still active before each attempt
+        if (session.status !== 'active') {
+          log.info({ watchId, attempt, status: session.status }, 'Session no longer active — aborting recording start');
+          return;
+        }
         try {
           const recorder = new NetworkRecorder(targetDomain);
           recorder.loginSignals = [
@@ -107,6 +110,12 @@ export async function handleRideShotgunStart(
             '/graphql/getConsumerOrdersWithDetails',
           ];
           await recorder.startDirect();
+          // If session completed while we were connecting, stop immediately to avoid leak
+          if (session.status !== 'active') {
+            log.info({ watchId, attempt }, 'Session completed during CDP connect — stopping recorder to prevent leak');
+            await recorder.stop();
+            return;
+          }
           // Auto-stop when login is detected
           recorder.onLoginDetected = () => {
             log.info({ watchId }, 'Login detected — auto-stopping learn session');
@@ -142,11 +151,6 @@ export async function handleRideShotgunStart(
       'Completion notifier firing — sending ride_shotgun_result to client',
     );
 
-    let recordingPath: string | undefined;
-    if (isLearnMode && recordingId) {
-      recordingPath = join(getDataDir(), 'recordings', `${recordingId}.json`);
-    }
-
     ctx.send(socket, {
       type: 'ride_shotgun_result',
       sessionId,
@@ -154,7 +158,7 @@ export async function handleRideShotgunStart(
       summary,
       observationCount,
       recordingId,
-      recordingPath,
+      recordingPath: _completedSession.savedRecordingPath,
     });
 
     unregisterWatchCompletionNotifier(sessionId);

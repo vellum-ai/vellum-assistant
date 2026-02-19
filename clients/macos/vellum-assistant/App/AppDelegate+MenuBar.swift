@@ -280,7 +280,24 @@ extension AppDelegate {
     }
 
     @objc func startRideShotgunLearn() {
-        ambientAgent.startLearnSession(targetDomain: "doordash.com", durationSeconds: 300)
+        let alert = NSAlert()
+        alert.messageText = "Learn Session"
+        alert.informativeText = "Enter the target domain to record:"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Start")
+        alert.addButton(withTitle: "Cancel")
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        input.stringValue = "doordash.com"
+        input.placeholderString = "example.com"
+        alert.accessoryView = input
+        alert.window.initialFirstResponder = input
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let domain = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !domain.isEmpty else { return }
+
+        ambientAgent.startLearnSession(targetDomain: domain, durationSeconds: 300)
     }
 
     @objc func stopRideShotgun() {

@@ -32,6 +32,8 @@ export interface WatchSession {
   targetDomain?: string;
   /** Recording ID for learn mode sessions */
   recordingId?: string;
+  /** Path where the learn recording was successfully saved (undefined if save failed) */
+  savedRecordingPath?: string;
 }
 
 /** Module-level map of watch sessions keyed by watchId. */
