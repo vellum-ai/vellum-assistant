@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
@@ -57,10 +57,13 @@ function detectMediaType(buf: Buffer): string | null {
 function optimizeWithSips(srcPath: string): string | null {
   const tmpPath = join(tmpdir(), `vellum-view-image-${Date.now()}.jpg`);
   try {
-    execSync(
-      `sips --resampleHeightWidthMax ${OPTIMIZE_MAX_DIMENSION} -s format jpeg -s formatOptions ${OPTIMIZE_JPEG_QUALITY} ${JSON.stringify(srcPath)} --out ${JSON.stringify(tmpPath)}`,
-      { stdio: 'pipe', timeout: 15_000 },
-    );
+    execFileSync('sips', [
+      '--resampleHeightWidthMax', String(OPTIMIZE_MAX_DIMENSION),
+      '-s', 'format', 'jpeg',
+      '-s', 'formatOptions', String(OPTIMIZE_JPEG_QUALITY),
+      srcPath,
+      '--out', tmpPath,
+    ], { stdio: 'pipe', timeout: 15_000 });
     return tmpPath;
   } catch {
     return null;
