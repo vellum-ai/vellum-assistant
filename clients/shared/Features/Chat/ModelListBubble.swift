@@ -20,6 +20,7 @@ public struct ModelListBubble: View {
     private static let providerGroups: [(key: String, name: String, models: [(cmd: String, model: String, display: String)])] = [
         ("anthropic", "Anthropic", [
             ("opus", "claude-opus-4-6", "Claude Opus 4.6"),
+            ("opus-fast", "claude-opus-4-6-fast", "Claude Opus 4.6 Fast"),
             ("sonnet", "claude-sonnet-4-6", "Claude Sonnet 4.6"),
             ("haiku", "claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
         ]),
