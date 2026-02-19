@@ -48,3 +48,39 @@ jobs:
         run: bun run test
         env:
           EXCLUDE_EXPERIMENTAL: 'true'
+
+      - name: Zip assistant artifact
+        run: zip -r ../assistant-pr-${{ github.event.pull_request.number }}.zip . -x "node_modules/*"
+
+      - name: Upload assistant artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: assistant-pr-${{ github.event.pull_request.number }}
+          path: assistant-pr-${{ github.event.pull_request.number }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Generate GitHub App token
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Comment artifact link on PR
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          ARTIFACT_NAME="assistant-pr-${{ github.event.pull_request.number }}"
+          ARTIFACT_ID=$(gh api "/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id")
+          ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/$ARTIFACT_ID"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          gh pr comment "$PR_NUMBER" --body "📦 **Assistant artifact** for this PR is ready for download: [Download $ARTIFACT_NAME]($ARTIFACT_URL)
+
+          To run this build locally:
+          \`\`\`
+          vel up assistant --pr $PR_NUMBER
+          \`\`\`"
