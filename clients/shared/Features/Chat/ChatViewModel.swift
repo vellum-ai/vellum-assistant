@@ -463,6 +463,10 @@ public final class ChatViewModel: ObservableObject {
             // task reference, which would cause duplicate subscriptions.
             if self?.messageLoopGeneration == generation {
                 self?.messageLoopTask = nil
+                // Reset spinner state — if IPC drops mid-turn the client
+                // never receives message_complete, leaving the UI stuck.
+                self?.isThinking = false
+                self?.isSending = false
             }
         }
     }
