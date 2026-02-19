@@ -104,7 +104,7 @@ assistant/
 │   ├── home-base/            # Home Base app-link bootstrap
 │   ├── hooks/                # Git-style lifecycle hooks
 │   ├── media/                # Media processing and attachments
-│   ├── schedule/             # Reminders and scheduling
+│   ├── schedule/             # Reminders and recurrence scheduling (cron + RRULE)
 │   ├── tasks/                # Task management
 │   ├── workspace/            # Workspace file operations
 │   ├── events/               # Domain event bus
@@ -122,7 +122,9 @@ assistant/
 
 ## Database
 
-SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments (with FTS5), memory items, entities, and reminders.
+SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments (with FTS5), memory items, entities, reminders, and recurrence schedules (cron + RRULE).
+
+> **Compatibility note:** The recurrence schedule system supports both cron expressions and iCalendar RRULE syntax. The legacy field names `cron_expression` and `cronExpression` remain supported in API inputs. New code should use the `expression` field with an explicit `syntax` discriminator. See [`ARCHITECTURE.md`](../ARCHITECTURE.md) for details.
 
 Run migrations:
 
