@@ -15,6 +15,7 @@ import {
   recordCallEvent,
   createPendingQuestion,
   getPendingQuestion,
+  expirePendingQuestions,
 } from './call-store.js';
 import { MAX_CALL_DURATION_MS, USER_CONSULTATION_TIMEOUT_MS, SILENCE_TIMEOUT_MS } from './call-constants.js';
 import type { RelayConnection } from './relay-server.js';
@@ -254,6 +255,7 @@ export class CallOrchestrator {
             );
             this.state = 'idle';
             updateCallSession(this.callSessionId, { status: 'in_progress' });
+            expirePendingQuestions(this.callSessionId);
           }
         }, USER_CONSULTATION_TIMEOUT_MS);
         return;

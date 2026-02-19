@@ -328,7 +328,12 @@ export class RuntimeHttpServer {
     // ── Call answer endpoint — behind auth gate ──────────────────────
     const callAnswerMatch = path.match(/^\/v1\/calls\/([^/]+)\/answer$/);
     if (callAnswerMatch && req.method === 'POST') {
-      return await handleCallAnswer(req, callAnswerMatch[1]);
+      try {
+        return await handleCallAnswer(req, callAnswerMatch[1]);
+      } catch (err) {
+        log.error({ err, callSessionId: callAnswerMatch[1] }, 'Runtime HTTP handler error answering call');
+        return Response.json({ error: 'Internal server error' }, { status: 500 });
+      }
     }
 
     // Serve shareable app pages
