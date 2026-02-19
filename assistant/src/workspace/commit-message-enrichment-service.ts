@@ -107,13 +107,10 @@ export class CommitEnrichmentService {
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
 
-    // Wait for any in-flight workers to finish first
-    if (this.inFlightPromises.size > 0) {
-      log.debug({ inFlight: this.inFlightPromises.size }, 'Waiting for in-flight enrichment jobs');
-      await Promise.all(this.inFlightPromises);
-    }
-
-    // Now drain remaining queue items serially, respecting concurrency
+    // Drain pending queue items serially FIRST so they get a chance to run
+    // before the lifecycle force-exit timer fires. If we awaited in-flight
+    // jobs first, a slow/hung job could consume the entire grace period and
+    // pending jobs would never start.
     if (this.queue.length > 0) {
       log.info({ pending: this.queue.length }, 'Enrichment queue shutting down, draining pending jobs');
     }
@@ -125,6 +122,12 @@ export class CommitEnrichmentService {
       } finally {
         this.activeWorkers--;
       }
+    }
+
+    // Now wait for any in-flight workers that were already running
+    if (this.inFlightPromises.size > 0) {
+      log.debug({ inFlight: this.inFlightPromises.size }, 'Waiting for in-flight enrichment jobs');
+      await Promise.all(this.inFlightPromises);
     }
 
     log.info(
