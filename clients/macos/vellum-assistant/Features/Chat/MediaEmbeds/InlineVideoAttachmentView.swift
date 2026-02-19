@@ -144,23 +144,16 @@ struct InlineVideoAttachmentView: View {
     }
 
     private func generateThumbnail() async {
-        let base64: String
-        if !attachment.data.isEmpty {
-            base64 = attachment.data
-        } else if attachment.isLazyLoad,
-                  let port = daemonHttpPort,
-                  let attachmentId = attachment.id.isEmpty ? nil : attachment.id {
-            do {
-                base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
-            } catch {
-                log.error("Failed to fetch attachment for thumbnail: \(error.localizedDescription, privacy: .public)")
-                return
+        // Prefer the server-provided thumbnail (already decoded by mapIPCAttachments).
+        if let serverImage = attachment.thumbnailImage {
+            await MainActor.run {
+                thumbnailImage = serverImage
             }
-        } else {
             return
         }
 
-        guard let data = Data(base64Encoded: base64) else { return }
+        // Fallback: extract thumbnail from inline video data.
+        guard !attachment.data.isEmpty, let data = Data(base64Encoded: attachment.data) else { return }
 
         let fileURL = safeTempURL()
         do {

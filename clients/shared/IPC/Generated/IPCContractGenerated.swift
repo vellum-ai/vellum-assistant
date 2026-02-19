@@ -1859,6 +1859,8 @@ public struct IPCUserMessageAttachment: Codable, Sendable {
     public let extractedText: String?
     /// Original file size in bytes. Present when data was omitted from history_response to reduce payload size.
     public let sizeBytes: Int?
+    /// Base64-encoded JPEG thumbnail. Generated server-side for video attachments.
+    public let thumbnailData: String?
 }
 
 public struct IPCUserMessageEcho: Codable, Sendable {

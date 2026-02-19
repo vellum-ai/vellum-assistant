@@ -17,6 +17,7 @@ export interface StoredAttachment {
   mimeType: string;
   sizeBytes: number;
   kind: string;
+  thumbnailBase64: string | null;
   createdAt: number;
 }
 
@@ -183,6 +184,7 @@ export function uploadAttachment(
       mimeType: attachments.mimeType,
       sizeBytes: attachments.sizeBytes,
       kind: attachments.kind,
+      thumbnailBase64: attachments.thumbnailBase64,
       createdAt: attachments.createdAt,
     })
     .from(attachments)
@@ -222,8 +224,20 @@ export function uploadAttachment(
     mimeType,
     sizeBytes,
     kind,
+    thumbnailBase64: null,
     createdAt: now,
   };
+}
+
+/**
+ * Update the thumbnail for an existing attachment.
+ */
+export function setAttachmentThumbnail(attachmentId: string, thumbnailBase64: string): void {
+  const db = getDb();
+  db.update(attachments)
+    .set({ thumbnailBase64 })
+    .where(eq(attachments.id, attachmentId))
+    .run();
 }
 
 export type DeleteAttachmentResult = 'deleted' | 'not_found' | 'still_referenced';
@@ -288,6 +302,7 @@ export function getAttachmentsByIds(
         mimeType: row.mimeType,
         sizeBytes: row.sizeBytes,
         kind: row.kind,
+        thumbnailBase64: row.thumbnailBase64,
         dataBase64: row.dataBase64,
         createdAt: row.createdAt,
       });
@@ -365,6 +380,7 @@ export function getAttachmentMetadataForMessage(
         mimeType: attachments.mimeType,
         sizeBytes: attachments.sizeBytes,
         kind: attachments.kind,
+        thumbnailBase64: attachments.thumbnailBase64,
         createdAt: attachments.createdAt,
       })
       .from(attachments)
@@ -413,6 +429,7 @@ export function getAttachmentsForMessageUnscoped(
         mimeType: row.mimeType,
         sizeBytes: row.sizeBytes,
         kind: row.kind,
+        thumbnailBase64: row.thumbnailBase64,
         dataBase64: row.dataBase64,
         createdAt: row.createdAt,
       });
@@ -453,6 +470,7 @@ export function getAttachmentByIdUnscoped(
     mimeType: row.mimeType,
     sizeBytes: row.sizeBytes,
     kind: row.kind,
+    thumbnailBase64: row.thumbnailBase64,
     dataBase64: row.dataBase64,
     createdAt: row.createdAt,
   };

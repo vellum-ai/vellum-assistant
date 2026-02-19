@@ -3,7 +3,8 @@ import { v4 as uuid } from 'uuid';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { classifySessionError, buildSessionErrorMessage } from '../session-error.js';
-import { getAttachmentsForMessageUnscoped } from '../../memory/attachments-store.js';
+import { getAttachmentsForMessageUnscoped, setAttachmentThumbnail } from '../../memory/attachments-store.js';
+import { generateVideoThumbnail } from '../video-thumbnail.js';
 import type { UserMessageAttachment } from '../ipc-contract.js';
 import { normalizeThreadType } from '../ipc-protocol.js';
 import type {
@@ -354,12 +355,23 @@ export function handleHistoryRequest(
         const MAX_INLINE_B64_SIZE = 512 * 1024;
         attachments = linked.map((a) => {
           const omit = a.mimeType.startsWith('video/') && a.dataBase64.length > MAX_INLINE_B64_SIZE;
+
+          // Lazily generate thumbnails for existing video attachments on first history load.
+          if (a.mimeType.startsWith('video/') && !a.thumbnailBase64) {
+            const attachmentId = a.id;
+            const base64 = a.dataBase64;
+            generateVideoThumbnail(base64).then((thumb) => {
+              if (thumb) setAttachmentThumbnail(attachmentId, thumb);
+            }).catch(() => {});
+          }
+
           return {
             id: a.id,
             filename: a.originalFilename,
             mimeType: a.mimeType,
             data: omit ? '' : a.dataBase64,
             ...(omit ? { sizeBytes: a.sizeBytes } : {}),
+            ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
           };
         });
       }

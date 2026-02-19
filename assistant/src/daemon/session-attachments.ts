@@ -3,7 +3,8 @@ import type { UserMessageAttachment } from './ipc-protocol.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { addRule } from '../permissions/trust-store.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
-import { uploadAttachment, linkAttachmentToMessage, AttachmentUploadError } from '../memory/attachments-store.js';
+import { uploadAttachment, linkAttachmentToMessage, setAttachmentThumbnail, AttachmentUploadError } from '../memory/attachments-store.js';
+import { generateVideoThumbnail } from './video-thumbnail.js';
 import {
   resolveDirectives,
   contentBlocksToDrafts,
@@ -156,13 +157,31 @@ export async function resolveAssistantAttachments(
         throw err;
       }
       linkAttachmentToMessage(lastAssistantMessageId, stored.id, i);
-      const omitData = draft.mimeType.startsWith('video/') && draft.dataBase64.length > MAX_INLINE_B64_SIZE;
+      const isVideo = draft.mimeType.startsWith('video/');
+      const omitData = isVideo && draft.dataBase64.length > MAX_INLINE_B64_SIZE;
+
+      // Generate and persist a thumbnail for video attachments.
+      let thumbnailData: string | undefined;
+      if (isVideo) {
+        const existing = stored.thumbnailBase64;
+        if (existing) {
+          thumbnailData = existing;
+        } else {
+          const generated = await generateVideoThumbnail(draft.dataBase64);
+          if (generated) {
+            setAttachmentThumbnail(stored.id, generated);
+            thumbnailData = generated;
+          }
+        }
+      }
+
       emittedAttachments.push({
         id: stored.id,
         filename: draft.filename,
         mimeType: draft.mimeType,
         data: omitData ? '' : draft.dataBase64,
         ...(omitData ? { sizeBytes: draft.sizeBytes } : {}),
+        ...(thumbnailData ? { thumbnailData } : {}),
       });
     }
   } else if (assistantAttachments.length > 0) {

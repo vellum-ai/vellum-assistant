@@ -541,6 +541,7 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE channel_inbound_events ADD COLUMN raw_payload TEXT`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN thread_type TEXT NOT NULL DEFAULT 'standard'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN memory_scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE attachments ADD COLUMN thumbnail_base64 TEXT`); } catch { /* already exists */ }
 
   migrateJobDeferrals(database);
   migrateToolInvocationsFk(database);

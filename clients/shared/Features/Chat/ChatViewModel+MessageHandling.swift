@@ -293,6 +293,14 @@ extension ChatViewModel {
                 #elseif os(iOS)
                 thumbnailImage = thumbnailData.flatMap { UIImage(data: $0) }
                 #endif
+            } else if let serverThumb = ipc.thumbnailData, !serverThumb.isEmpty,
+                      let thumbData = Data(base64Encoded: serverThumb) {
+                thumbnailData = thumbData
+                #if os(macOS)
+                thumbnailImage = NSImage(data: thumbData)
+                #elseif os(iOS)
+                thumbnailImage = UIImage(data: thumbData)
+                #endif
             }
 
             return ChatAttachment(

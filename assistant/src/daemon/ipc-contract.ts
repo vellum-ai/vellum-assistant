@@ -45,6 +45,8 @@ export interface UserMessageAttachment {
   extractedText?: string;
   /** Original file size in bytes. Present when data was omitted from history_response to reduce payload size. */
   sizeBytes?: number;
+  /** Base64-encoded JPEG thumbnail. Generated server-side for video attachments. */
+  thumbnailData?: string;
 }
 
 export interface ConfirmationResponse {
