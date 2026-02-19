@@ -11,7 +11,7 @@ public struct ToolConfirmationBubble: View {
 
     @State private var showDiff = false
     @State private var showAlwaysAllowMenu = false
-    @State private var showTechnicalDetails = false
+    @State private var showTechnicalDetails = true
 
     public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAddTrustRule: @escaping (String, String, String, String) -> Bool) {
         self.confirmation = confirmation
