@@ -591,9 +591,15 @@ class CredentialStoreTool implements Tool {
           }
 
           // Persist client credentials in keychain for defense in depth
-          setSecureKey(`credential:${service}:client_id`, clientId);
+          const clientIdStored = setSecureKey(`credential:${service}:client_id`, clientId);
+          if (!clientIdStored) {
+            return { content: 'Error: failed to store client_id in secure storage', isError: true };
+          }
           if (clientSecret) {
-            setSecureKey(`credential:${service}:client_secret`, clientSecret);
+            const clientSecretStored = setSecureKey(`credential:${service}:client_secret`, clientSecret);
+            if (!clientSecretStored) {
+              return { content: 'Error: failed to store client_secret in secure storage', isError: true };
+            }
           }
 
           upsertCredentialMetadata(service, 'access_token', {
