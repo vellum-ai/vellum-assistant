@@ -46,6 +46,9 @@ Create a branch from the plan (or derive one from the PR title), then ship:
   --body "## Summary
 <1-3 bullet points>
 
+## Plan section
+<paste the full text of this PR's section from the plan file, verbatim>
+
 🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
   --base main \
   --merge \

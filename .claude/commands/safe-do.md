@@ -46,6 +46,9 @@ cd <worktree> && .claude/ship \
   --body "## Summary
 <1-3 bullet points>
 
+## Original task
+$ARGUMENTS
+
 🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
   --base main \
   --track-unreviewed

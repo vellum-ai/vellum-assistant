@@ -97,6 +97,9 @@ cd <worktree> && .claude/ship \
   --body "## Summary
 <1-3 bullet points>
 
+## Plan section
+<paste the full text of this PR's section from the plan file, verbatim>
+
 Part of plan: <plan filename> (PR <X> of <total>)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)" \

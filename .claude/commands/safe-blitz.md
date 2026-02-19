@@ -201,7 +201,13 @@ ALL work happens here. Do NOT touch the main repo.
 1. Make the changes in your worktree.
 2. Do NOT run tests, type-checking (tsc), or linting unless the task specifically requires it (e.g., "fix the type errors", "make the tests pass").
 3. cd back to worktree root, then ship (.claude/ship MUST run from the repo root, not assistant/):
-   cd <worktree> && .claude/ship --commit-msg "<message>" --title "<title>" --body "<summary>" --base <feature-branch-name> --merge --assignee @me
+   cd <worktree> && .claude/ship --commit-msg "<message>" --title "<title>" --body "## Summary
+<1-3 bullet points>
+
+## Task
+<the exact TODO item text you were given>
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)" --base <feature-branch-name> --merge --assignee @me
 4. Send a message to "lead" with:
    - The PR link (printed by .claude/ship)
    - A summary of what you changed and why
