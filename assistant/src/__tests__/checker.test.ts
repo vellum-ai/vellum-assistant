@@ -3753,22 +3753,60 @@ describe('Permission Checker', () => {
   });
 });
 
-describe('bash network_mode=proxied follows normal rules (no force prompt)', () => {
+describe('bash network_mode=proxied force prompt', () => {
   beforeEach(() => {
     clearCache();
     testConfig.permissions = { mode: 'legacy' };
     testConfig.skills = { load: { extraDirs: [] } };
   });
 
-  test('proxied bash auto-allows via default sandbox rule', async () => {
+  test('proxied bash always prompts even when trust rules would allow', async () => {
+    // The global sandbox allow rule would normally auto-allow any bash command,
+    // but proxied mode injects credentials so it must always prompt.
     const result = await check('bash', { command: 'curl https://api.example.com', network_mode: 'proxied' }, '/tmp');
+    expect(result.decision).toBe('prompt');
+    expect(result.reason).toContain('Proxied network mode');
+  });
+
+  test('host_bash with network_mode=proxied follows normal flow (not force-prompted)', async () => {
+    // host_bash does not support network_mode — proxied-mode force-prompt
+    // applies only to sandboxed bash, not host_bash.
+    addRule('host_bash', '**', 'everywhere');
+    const result = await check('host_bash', { command: 'curl https://api.example.com', network_mode: 'proxied' }, '/tmp');
     expect(result.decision).toBe('allow');
-    expect(result.matchedRule?.id).toBe('default:allow-bash-global');
+    expect(result.reason).not.toContain('Proxied network mode');
+  });
+
+  test('non-proxied bash follows normal flow (auto-allowed)', async () => {
+    const result = await check('bash', { command: 'ls' }, '/tmp');
+    expect(result.decision).toBe('allow');
+    expect(result.reason).not.toContain('Proxied network mode');
+  });
+
+  test('non-proxied bash with trust rule follows normal flow', async () => {
+    addRule('bash', 'rm *', '/tmp');
+    const result = await check('bash', { command: 'rm file.txt' }, '/tmp');
+    expect(result.decision).toBe('allow');
+    expect(result.reason).not.toContain('Proxied network mode');
+  });
+
+  test('proxied bash prompt reason is descriptive', async () => {
+    const result = await check('bash', { command: 'wget http://example.com', network_mode: 'proxied' }, '/tmp');
+    expect(result.decision).toBe('prompt');
+    expect(result.reason).toBe('Proxied network mode requires explicit approval for each invocation.');
   });
 
   test('proxied bash with network_mode=off follows normal flow', async () => {
     const result = await check('bash', { command: 'ls', network_mode: 'off' }, '/tmp');
     expect(result.decision).toBe('allow');
+  });
+
+  test('proxied bash prompts even in strict mode with matching rule', async () => {
+    testConfig.permissions = { mode: 'strict' };
+    addRule('bash', '*', 'everywhere');
+    const result = await check('bash', { command: 'curl https://api.example.com', network_mode: 'proxied' }, '/tmp');
+    expect(result.decision).toBe('prompt');
+    expect(result.reason).toContain('Proxied network mode');
   });
 
   test('deny rule still blocks proxied bash command', async () => {

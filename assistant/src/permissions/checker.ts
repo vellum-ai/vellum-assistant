@@ -355,6 +355,15 @@ export async function check(
     return { decision: 'deny', reason: `Blocked by deny rule: ${matchedRule.pattern}`, matchedRule };
   }
 
+  // Proxied network mode requires explicit user approval for every
+  // invocation because the command routes through an authenticated
+  // proxy with injected credentials. This runs after deny rules but
+  // before allow/ask rules so that trust rules cannot auto-approve
+  // proxied commands.
+  if (toolName === 'bash' && input.network_mode === 'proxied') {
+    return { decision: 'prompt', reason: 'Proxied network mode requires explicit approval for each invocation.' };
+  }
+
   if (matchedRule) {
     if (matchedRule.decision === 'ask') {
       // Ask rules always prompt — never auto-allow or auto-deny
