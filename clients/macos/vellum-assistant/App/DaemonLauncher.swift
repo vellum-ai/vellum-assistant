@@ -93,6 +93,8 @@ final class DaemonLauncher {
     func startMonitoring() {
         guard daemonBinaryURL != nil else { return }
         isStopping = false
+        hasGivenUp = false
+        consecutiveCrashes = 0
         stopMonitoring()
 
         healthCheckTask = Task { [weak self] in
@@ -205,6 +207,10 @@ final class DaemonLauncher {
 
     private func launch(binaryURL: URL) throws {
         log.info("Launching daemon from \(binaryURL.path)")
+
+        // Remove stale socket file before launching so waitForSocket()
+        // doesn't return prematurely on a leftover socket from a previous run.
+        try? FileManager.default.removeItem(at: socketURL)
 
         let proc = Process()
         proc.executableURL = binaryURL

@@ -195,6 +195,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotifications()
         setupAutoUpdate()
         showMainWindow(initialMessage: isFirstLaunch ? "Wake up, my friend" : nil, isFirstLaunch: isFirstLaunch)
+
+        if isFirstLaunch {
+            ensureDaemonConnected()
+        }
+    }
+
+    private func ensureDaemonConnected() {
+        guard !daemonClient.isConnected else { return }
+        Task {
+            try? await daemonLauncher.launchIfNeeded()
+            daemonLauncher.startMonitoring()
+            try? await daemonClient.connect()
+            if daemonClient.isConnected {
+                setupAmbientAgent()
+                refreshAppsCache()
+                refreshSkillsCache()
+            }
+        }
     }
 
     private func showAuthWindow() {
