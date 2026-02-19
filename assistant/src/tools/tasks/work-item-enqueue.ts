@@ -2,7 +2,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { getTask, listTasks, createTask } from '../../tasks/task-store.js';
-import { createWorkItem } from '../../work-items/work-item-store.js';
+import { createWorkItem, findActiveWorkItemsByTitle, updateWorkItem } from '../../work-items/work-item-store.js';
 
 const PRIORITY_LABELS: Record<number, string> = {
   0: 'high',
@@ -43,6 +43,12 @@ const definition: ToolDefinition = {
         type: 'number',
         description: 'Manual sort order within the priority tier.',
       },
+      if_exists: {
+        type: 'string',
+        enum: ['create_duplicate', 'reuse_existing', 'update_existing'],
+        description:
+          'What to do if an active work item with the same title already exists. Defaults to "reuse_existing".',
+      },
     },
   },
 };
@@ -57,6 +63,47 @@ class TaskListAddTool implements Tool {
     return definition;
   }
 
+  /**
+   * Check for an existing active work item with the same title and handle
+   * according to the if_exists strategy. Returns a result if a duplicate was
+   * found and handled, or null if no duplicate exists (caller should proceed).
+   */
+  private handleDuplicate(
+    title: string,
+    ifExists: string,
+    input: Record<string, unknown>,
+  ): ToolExecutionResult | null {
+    const existing = findActiveWorkItemsByTitle(title);
+    if (existing.length === 0) return null;
+
+    const match = existing[0];
+
+    if (ifExists === 'reuse_existing') {
+      return {
+        content: `Task "${match.title}" already exists in the queue (ID: ${match.id}, status: ${match.status}). Use task_list_update to modify it.`,
+        isError: false,
+      };
+    }
+
+    if (ifExists === 'update_existing') {
+      const updates: Partial<{ title: string; notes: string; priorityTier: number; sortIndex: number }> = {};
+      if (input.priority_tier !== undefined) updates.priorityTier = input.priority_tier as number;
+      if (input.notes !== undefined) updates.notes = input.notes as string;
+      if (input.sort_index !== undefined) updates.sortIndex = input.sort_index as number;
+      if (Object.keys(updates).length > 0) {
+        updateWorkItem(match.id, updates);
+      }
+      return {
+        content: `Reused existing task "${match.title}" (ID: ${match.id}) instead of creating a duplicate.${
+          Object.keys(updates).length > 0 ? ` Updated: ${Object.keys(updates).join(', ')}.` : ''
+        }`,
+        isError: false,
+      };
+    }
+
+    return null;
+  }
+
   async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
     try {
       const taskId = input.task_id as string | undefined;
@@ -66,6 +113,8 @@ class TaskListAddTool implements Tool {
       const priorityTier = input.priority_tier as number | undefined;
       const sortIndex = input.sort_index as number | undefined;
 
+      const ifExists = (input.if_exists as string) || 'reuse_existing';
+
       // Ad-hoc mode: title provided without task_id or task_name
       if (!taskId && !taskName) {
         if (!titleOverride) {
@@ -73,6 +122,12 @@ class TaskListAddTool implements Tool {
             content: 'Error: You must provide either task_id, task_name, or title to create a work item.',
             isError: true,
           };
+        }
+
+        // Duplicate-prevention guard
+        if (ifExists !== 'create_duplicate') {
+          const duplicateResult = this.handleDuplicate(titleOverride, ifExists, input);
+          if (duplicateResult) return duplicateResult;
         }
 
         // Auto-create a lightweight task template for the ad-hoc item
@@ -141,9 +196,17 @@ class TaskListAddTool implements Tool {
         resolvedTask = matches[0];
       }
 
+      const finalTitle = titleOverride ?? resolvedTask.title;
+
+      // Duplicate-prevention guard
+      if (ifExists !== 'create_duplicate') {
+        const duplicateResult = this.handleDuplicate(finalTitle, ifExists, input);
+        if (duplicateResult) return duplicateResult;
+      }
+
       const workItem = createWorkItem({
         taskId: resolvedTask.id,
-        title: titleOverride ?? resolvedTask.title,
+        title: finalTitle,
         notes,
         priorityTier: priorityTier ?? 1,
         sortIndex,
