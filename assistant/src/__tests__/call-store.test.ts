@@ -414,8 +414,6 @@ describe('call-store', () => {
 
     // Verify the record was updated by querying directly
     const db = getDb();
-    const row = db.run('SELECT * FROM call_pending_questions WHERE id = ?', question.id);
-    // Check via a fresh query
     const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
     const updated = raw.query('SELECT * FROM call_pending_questions WHERE id = ?').get(question.id) as {
       status: string;

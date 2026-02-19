@@ -194,7 +194,7 @@ export function getPendingQuestion(callSessionId: string): CallPendingQuestion |
 
 export function answerPendingQuestion(id: string, answerText: string): void {
   const db = getDb();
-  const result = db.update(callPendingQuestions)
+  db.update(callPendingQuestions)
     .set({
       status: 'answered',
       answerText,
@@ -207,7 +207,10 @@ export function answerPendingQuestion(id: string, answerText: string): void {
       ),
     )
     .run();
-  if (result.changes === 0) {
+  // Drizzle's .run() returns void for bun:sqlite, so verify via raw client.
+  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+  const check = raw.query('SELECT status FROM call_pending_questions WHERE id = ?').get(id) as { status: string } | null;
+  if (!check || check.status !== 'answered') {
     log.warn({ questionId: id }, 'answerPendingQuestion: no rows updated — question may have already been answered or expired');
   }
 }

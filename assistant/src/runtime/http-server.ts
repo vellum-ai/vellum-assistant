@@ -291,7 +291,7 @@ export class RuntimeHttpServer {
       if (!callSessionId) {
         return new Response('Missing callSessionId', { status: 400 });
       }
-      const upgraded = server.upgrade<RelayWebSocketData>(req, { data: { callSessionId } });
+      const upgraded = server.upgrade(req, { data: { callSessionId } });
       if (!upgraded) {
         return new Response('WebSocket upgrade failed', { status: 500 });
       }
