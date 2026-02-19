@@ -107,3 +107,25 @@ Only proceed after explicit user approval.
    - Confirmation page link
    - Final reservation details as shown on the confirmation page
 4. If the submission fails, take a fresh `browser_snapshot` and report the error.
+
+## Critical Rules
+
+- **ALWAYS sign in first.** Do not attempt to search or browse availability before signing in.
+- **NEVER tell the user to sign in themselves.** You handle ALL authentication using `browser_fill_credential` and `ui_show` for verification codes.
+- **NEVER give up.** If an interaction fails, take a fresh `browser_snapshot` and retry with updated element IDs.
+- **Target elements by `element_id`** from `browser_snapshot`. Never fabricate CSS selectors.
+- **Use arrow keys for dropdowns and date pickers.** Date selectors, time pickers, party size dropdowns, and autocomplete menus should be navigated with `ArrowDown`/`ArrowUp` + `Enter`, not clicks.
+- **Handle CAPTCHAs:** If a Cloudflare/CAPTCHA challenge appears, wait a few seconds — it often auto-resolves. If it persists, the system will hand off to the user automatically.
+- **Fresh snapshots after every action** that changes the page. Element IDs go stale after navigation or DOM updates.
+- **Conserve context.** Browser flows are token-heavy. Avoid unnecessary snapshots — only take one when the page changes. Combine multiple actions efficiently. Do not narrate every step in detail.
+- **ALWAYS surface cancellation and no-show fees.** Before confirming any reservation, check for cancellation policies, no-show fees, deposits, and credit card holds. If the restaurant charges any fee, call it out explicitly — do not bury it in other details. The user must acknowledge fees before you proceed.
+- **Two confirmations required.** Never submit a reservation without both the policy confirmation (Step 6) and the final pre-submit confirmation (Step 7).
+
+## Error Handling
+
+- **Search returns no results:** Try alternate search terms, broaden the location, or check spelling. If still nothing, suggest the other provider (OpenTable ↔ Resy).
+- **Expired OTP:** Never retry an old verification code. Always prompt the user for a fresh code via `ui_show` with `await_action: true`.
+- **Login fails repeatedly:** After 3 failed attempts, inform the user and ask if they want to try the other provider or handle login manually.
+- **Reservation submit fails:** Take a fresh `browser_snapshot`, read the error message, and report it to the user. Common causes: credit card required, party size changed, slot no longer available. Suggest rebooking if the slot was taken.
+- **Page unresponsive or stuck:** Wait up to 10 seconds, then try refreshing (`browser_navigate` to the current URL). If still stuck, report to the user.
+- **Provider-specific errors:** If one provider consistently errors, suggest switching to the other.
