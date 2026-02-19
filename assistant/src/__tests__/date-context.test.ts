@@ -295,22 +295,41 @@ describe('trip-planning: next work week resolution', () => {
 // ---------------------------------------------------------------------------
 
 describe('trip-planning: month-without-year disambiguation via temporal anchors', () => {
-  test('"May" in Feb 2026 → model sees current date is Feb 2026, so May = May 2026', () => {
+  test('Today line includes full YYYY-MM-DD format with year for month disambiguation', () => {
     const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
-    expect(result).toContain('Today: 2026-02-18 (Wednesday)');
-    // The model sees it's Feb 2026, so "May" unambiguously means May 2026.
+    // The Today line must include the full year so the model can resolve bare
+    // month names (e.g. "May" → May 2026 because today is Feb 2026).
+    // Regex ensures YYYY-MM-DD format is present (regression if year is dropped).
+    expect(result).toMatch(/Today: \d{4}-\d{2}-\d{2} \(\w+\)/);
+    expect(result).toContain('2026-02-18');
   });
 
-  test('"January" in Feb 2026 → model infers January = next year (Jan 2027)', () => {
-    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC' });
-    expect(result).toContain('Today: 2026-02-18');
-    // The model has enough context: today is Feb 2026, so "January" = Jan 2027.
+  test('future-month anchors: horizon dates are all in the future relative to today', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'UTC', horizonDays: 14 });
+    // Extract all horizon dates (indented YYYY-MM-DD lines)
+    const horizonDates = result.match(/^\s+(\d{4}-\d{2}-\d{2}) \w+$/gm);
+    expect(horizonDates).not.toBeNull();
+    // All horizon dates must be after today (2026-02-18)
+    for (const line of horizonDates!) {
+      const dateStr = line.trim().split(' ')[0];
+      expect(dateStr > '2026-02-18').toBe(true);
+    }
   });
 
-  test('December in late Dec → model sees current month for disambiguation', () => {
-    const result = buildTemporalContext({ nowMs: TUE_DEC_29, timeZone: 'UTC' });
+  test('year-end context: horizon spans into next year for Dec disambiguation', () => {
+    const result = buildTemporalContext({ nowMs: TUE_DEC_29, timeZone: 'UTC', horizonDays: 14 });
+    // Today is Dec 29 2026 — horizon must include 2027 dates so the model can
+    // distinguish "January" (Jan 2027) from past January (Jan 2026).
     expect(result).toContain('Today: 2026-12-29');
-    // "December" when it's already Dec 29 → remainder of current month or Dec 2027.
+    expect(result).toMatch(/2027-01-\d{2} \w+/); // At least one January 2027 date
+  });
+
+  test('timezone is always present for correct local-month resolution', () => {
+    const result = buildTemporalContext({ nowMs: WED_FEB_18, timeZone: 'America/New_York' });
+    // Timezone must be present so the model resolves months in the user's
+    // local calendar, not UTC.
+    expect(result).toMatch(/Timezone: .+/);
+    expect(result).toContain('America/New_York');
   });
 });
 
