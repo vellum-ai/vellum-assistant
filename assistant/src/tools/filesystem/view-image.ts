@@ -1,10 +1,11 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, statSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { extname, join, resolve } from 'node:path';
+import { extname, join } from 'node:path';
 import { RiskLevel } from '../../permissions/types.js';
 import type { ImageContent, ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
+import { sandboxPolicy } from '../shared/filesystem/path-policy.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 const SUPPORTED_EXTENSIONS = new Set([
@@ -100,7 +101,11 @@ class ViewImageTool implements Tool {
       return { content: 'Error: path is required and must be a string', isError: true };
     }
 
-    const resolved = resolve(context.workingDir, rawPath);
+    const pathCheck = sandboxPolicy(rawPath, context.workingDir);
+    if (!pathCheck.ok) {
+      return { content: `Error: ${pathCheck.error}`, isError: true };
+    }
+    const resolved = pathCheck.resolved;
 
     const ext = extname(resolved).toLowerCase();
     if (!SUPPORTED_EXTENSIONS.has(ext)) {

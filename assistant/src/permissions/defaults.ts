@@ -196,6 +196,17 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 100,
   }));
 
+  // view_image is a read-only sandbox tool — always allow without prompting.
+  // Candidates contain "/" (absolute paths), so use "/**" globstar.
+  const viewImageRule: DefaultRuleTemplate = {
+    id: 'default:allow-view_image-global',
+    tool: 'view_image',
+    pattern: 'view_image:/**',
+    scope: 'everywhere',
+    decision: 'allow',
+    priority: 100,
+  };
+
   return [
     ...hostFileRules,
     hostShellRule,
@@ -208,5 +219,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     browserNavigateRule,
     ...browserToolRules,
     ...uiSurfaceRules,
+    viewImageRule,
   ];
 }
