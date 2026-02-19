@@ -68,7 +68,7 @@ struct InlineVideoEmbedView: View {
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.background.opacity(0.8))
+                    .fill(Color.black.opacity(0.8)) // Intentional: always-dark video placeholder
                     .frame(height: 200)
 
                 Image(systemName: "play.circle.fill")
@@ -105,7 +105,7 @@ struct InlineVideoEmbedView: View {
         }
         .frame(height: 200)
         .frame(maxWidth: .infinity)
-        .background(VColor.background.opacity(0.8))
+        .background(Color.black.opacity(0.8)) // Intentional: always-dark video error state
     }
 }
 
