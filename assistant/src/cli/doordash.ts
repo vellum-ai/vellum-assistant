@@ -148,6 +148,9 @@ export function registerDoordashCommand(program: Command): void {
       const duration = parseInt(opts.duration, 10);
 
       try {
+        // Restore minimized Chrome window so user can see the login page
+        try { await restoreChromeWindow(); } catch { /* best-effort */ }
+
         const result = await startLearnSession(duration);
         if (result.recordingPath) {
           const session = importFromRecording(result.recordingPath);
@@ -893,6 +896,54 @@ async function minimizeChromeWindow(): Promise<void> {
           method: 'Browser.setWindowBounds',
           params: { windowId: msg.result.windowId, bounds: { windowState: 'minimized' } },
         }));
+      } else if (msg.id === 1) {
+        clearTimeout(timeout);
+        ws.close();
+        reject(new Error('Browser.getWindowForTarget failed'));
+      } else if (msg.id === 2) {
+        clearTimeout(timeout);
+        ws.close();
+        resolve();
+      }
+    });
+
+    ws.addEventListener('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+}
+
+async function restoreChromeWindow(): Promise<void> {
+  const res = await fetch(`${CDP_BASE}/json/list`);
+  const targets = (await res.json()) as Array<{ type: string; webSocketDebuggerUrl: string }>;
+  const pageTarget = targets.find(t => t.type === 'page');
+  if (!pageTarget) return;
+
+  const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      ws.close();
+      reject(new Error('CDP restore timed out'));
+    }, 5000);
+
+    ws.addEventListener('open', () => {
+      ws.send(JSON.stringify({ id: 1, method: 'Browser.getWindowForTarget' }));
+    });
+
+    ws.addEventListener('message', (event) => {
+      const msg = JSON.parse(String(event.data)) as { id: number; result?: { windowId: number } };
+      if (msg.id === 1 && msg.result) {
+        ws.send(JSON.stringify({
+          id: 2,
+          method: 'Browser.setWindowBounds',
+          params: { windowId: msg.result.windowId, bounds: { windowState: 'normal' } },
+        }));
+      } else if (msg.id === 1) {
+        clearTimeout(timeout);
+        ws.close();
+        reject(new Error('Browser.getWindowForTarget failed'));
       } else if (msg.id === 2) {
         clearTimeout(timeout);
         ws.close();
