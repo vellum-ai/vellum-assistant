@@ -277,6 +277,9 @@ export class Session {
         JSON.stringify([{ type: 'text', text: questionText }]),
       );
 
+      // Mirror into in-memory messages so subsequent turns see this context
+      this.messages.push(createAssistantMessage(questionText));
+
       // Emit to active clients in real-time
       this.sendToClient({
         type: 'assistant_text_delta',
@@ -304,6 +307,9 @@ export class Session {
         'assistant',
         JSON.stringify([{ type: 'text', text: summaryText }]),
       );
+
+      // Mirror into in-memory messages so subsequent turns see this context
+      this.messages.push(createAssistantMessage(summaryText));
 
       // Emit to active clients
       this.sendToClient({
@@ -519,9 +525,6 @@ export class Session {
       unregisterWatchCommentaryNotifier(this.conversationId);
       unregisterWatchCompletionNotifier(this.conversationId);
       pruneWatchSessions(this.conversationId);
-      unregisterCallQuestionNotifier(this.conversationId);
-      unregisterCallCompletionNotifier(this.conversationId);
-
       // Clear queued messages and notify each caller with a session-scoped
       // cancel event so other sessions do not receive cross-thread errors.
       for (const queued of this.queue) {
@@ -1522,7 +1525,8 @@ export class Session {
     consolidateAssistantMessages(this.conversationId, userMessageId);
   }
 
-  private drainQueue(reason: QueueDrainReason = 'loop_complete'): void {
+  /** @internal — also invoked from server.ts when the call bridge skips the agent loop. */
+  drainQueue(reason: QueueDrainReason = 'loop_complete'): void {
     drainQueueImpl(this as ProcessSessionContext, reason);
   }
 
