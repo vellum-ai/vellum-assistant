@@ -992,20 +992,26 @@ describe('WorkspaceGitService', () => {
       const badDir = '/nonexistent/path/that/does/not/exist';
       const service = new WorkspaceGitService(badDir);
 
-      // First failure
+      // First failure — breaker does NOT open (requires 2+ failures)
       await expect(service.ensureInitialized()).rejects.toThrow();
       expect(_getInitConsecutiveFailures(service)).toBe(1);
 
-      // Second failure — need to wait for the backoff to expire.
-      // The default backoff base is 2000ms, so for the first failure
-      // the backoff is 2000ms. Override via internal state to make the
-      // breaker window expire immediately so we can test the second failure.
+      // Second failure — expire the backoff window from the first failure
+      // so the attempt actually runs (not blocked by breaker).
       const internal = service as unknown as {
         initNextAllowedAttemptMs: number;
       };
       internal.initNextAllowedAttemptMs = Date.now() - 1;
 
       await expect(service.ensureInitialized()).rejects.toThrow();
+      expect(_getInitConsecutiveFailures(service)).toBe(2);
+
+      // Third attempt within the backoff window — breaker is now open
+      // (2+ consecutive failures) so the attempt is skipped.
+      await expect(service.ensureInitialized()).rejects.toThrow(
+        'Init circuit breaker open: backing off after repeated failures',
+      );
+      // Failure count should NOT increase (the breaker prevented the attempt)
       expect(_getInitConsecutiveFailures(service)).toBe(2);
     });
 

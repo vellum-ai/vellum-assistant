@@ -185,7 +185,7 @@ export class WorkspaceGitService {
    * When open, init attempts are skipped until the backoff window expires.
    */
   private isInitBreakerOpen(): boolean {
-    if (this.initConsecutiveFailures === 0) return false;
+    if (this.initConsecutiveFailures < 2) return false;
     return Date.now() < this.initNextAllowedAttemptMs;
   }
 
@@ -235,14 +235,17 @@ export class WorkspaceGitService {
       return;
     }
 
-    // Circuit breaker: skip if recent init attempts have been failing
-    if (this.isInitBreakerOpen()) {
-      throw new Error('Init circuit breaker open: backing off after repeated failures');
-    }
-
     // If initialization is in progress, wait for it
     if (this.initPromise) {
       return this.initPromise;
+    }
+
+    // Circuit breaker: skip if multiple recent init attempts have been failing.
+    // Checked AFTER initPromise so callers waiting on in-progress init aren't
+    // blocked, and only activates after 2+ consecutive failures so that a
+    // single transient failure allows immediate retry.
+    if (this.isInitBreakerOpen()) {
+      throw new Error('Init circuit breaker open: backing off after repeated failures');
     }
 
     // Start initialization
