@@ -959,8 +959,8 @@ describe('WorkspaceGitService', () => {
       // a real git error rather than the expected exit code 1 for
       // "staged changes exist").
       const proto = Object.getPrototypeOf(service);
-      const originalExecGit = proto.execGit.bind(service);
-      proto.execGit = async function (args: string[]) {
+      const originalExecGit = proto.execGit;
+      proto.execGit = async function (this: unknown, args: string[]) {
         if (args[0] === 'diff' && args[1] === '--cached' && args[2] === '--quiet') {
           const err = new Error(
             'Git command failed: git diff --cached --quiet\nError: simulated error\nStderr: ',
@@ -968,7 +968,7 @@ describe('WorkspaceGitService', () => {
           err.code = 2;
           throw err;
         }
-        return originalExecGit(args);
+        return originalExecGit.call(this, args);
       };
 
       try {
