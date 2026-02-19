@@ -341,7 +341,9 @@ struct ChatView: View {
         let base: CGFloat = VSpacing.sm + VSpacing.md + topPad + bottomPad + contentHeight + buttonRow
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
         let error: CGFloat = sessionError != nil ? 60 : (errorText != nil ? 36 : 0)
-        let queue: CGFloat = pendingQueuedCount > 0 ? 24 : 0
+        // Queue container: header (~28pt) + per-message row (~24pt each) + padding
+        let queueCount = CGFloat(queuedMessages.count)
+        let queue: CGFloat = queueCount > 0 ? (28 + (isQueueExpanded ? queueCount * 24 : 0) + VSpacing.xs) : 0
         return base + attachments + error + queue
     }
 
@@ -498,10 +500,10 @@ struct ChatView: View {
 
     // MARK: - Message List
 
-    private func shouldShowTimestamp(at index: Int) -> Bool {
+    private func shouldShowTimestamp(at index: Int, in list: [ChatMessage]) -> Bool {
         if index == 0 { return true }
-        let current = messages[index].timestamp
-        let previous = messages[index - 1].timestamp
+        let current = list[index].timestamp
+        let previous = list[index - 1].timestamp
         // Always show a divider when crossing a calendar-day boundary (in local timezone)
         var calendar = Calendar.current
         calendar.timeZone = ChatTimestampTimeZone.resolve()
@@ -514,8 +516,13 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: VSpacing.lg) {
-                    ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                        if shouldShowTimestamp(at: index) {
+                    // Filter out queued messages — they're shown above the composer instead
+                    let displayMessages = messages.filter { msg in
+                        if case .queued = msg.status { return false }
+                        return true
+                    }
+                    ForEach(Array(displayMessages.enumerated()), id: \.element.id) { index, message in
+                        if shouldShowTimestamp(at: index, in: displayMessages) {
                             TimestampDivider(date: message.timestamp)
                         }
 
@@ -538,7 +545,7 @@ struct ChatView: View {
                             else {
                                 let hasPrecedingAssistant: Bool = {
                                     guard index > 0 else { return false }
-                                    return messages[index - 1].role == .assistant
+                                    return displayMessages[index - 1].role == .assistant
                                 }()
 
                                 if !hasPrecedingAssistant {
@@ -569,23 +576,23 @@ struct ChatView: View {
                         } else {
                             // Hide tool call chips when the next message is a pending
                             // confirmation — the tool hasn't been approved yet.
-                            let nextIsPendingConfirmation = index + 1 < messages.count
-                                && messages[index + 1].confirmation?.state == .pending
+                            let nextIsPendingConfirmation = index + 1 < displayMessages.count
+                                && displayMessages[index + 1].confirmation?.state == .pending
 
                             // Pass decided confirmation from the next message so it
                             // renders as a compact chip at the bottom of this bubble.
                             let nextDecidedConfirmation: ToolConfirmationData? = {
-                                guard index + 1 < messages.count,
-                                      let conf = messages[index + 1].confirmation,
+                                guard index + 1 < displayMessages.count,
+                                      let conf = displayMessages[index + 1].confirmation,
                                       conf.state != .pending else { return nil }
                                 return conf
                             }()
 
                             let isLastAssistant = message.role == .assistant
                                 && !message.isStreaming
-                                && (index == messages.count - 1
-                                    || (index == messages.count - 2
-                                        && messages[messages.count - 1].confirmation != nil && messages[messages.count - 1].confirmation?.state != .pending))
+                                && (index == displayMessages.count - 1
+                                    || (index == displayMessages.count - 2
+                                        && displayMessages[displayMessages.count - 1].confirmation != nil && displayMessages[displayMessages.count - 1].confirmation?.state != .pending))
                                 && !isSending
                                 && !isThinking
 
@@ -597,7 +604,6 @@ struct ChatView: View {
                                 onRegenerate: onRegenerate,
                                 onSurfaceAction: onSurfaceAction,
                                 onReportMessage: onReportMessage,
-                                onDeleteQueuedMessage: onDeleteQueuedMessage,
                                 mediaEmbedSettings: mediaEmbedSettings
                             )
                                 .id(message.id)
@@ -850,23 +856,79 @@ struct ChatView: View {
         }
     }
 
-    // MARK: - Queue Summary
+    // MARK: - Queued Messages (above composer)
+
+    /// Messages waiting in the queue, shown stacked above the input field
+    /// so they don't break chronological order in the chat feed.
+    private var queuedMessages: [ChatMessage] {
+        messages.filter { msg in
+            if case .queued = msg.status { return true }
+            return false
+        }
+    }
+
+    @State private var isQueueExpanded = true
 
     @ViewBuilder
     private var queueSummary: some View {
-        if pendingQueuedCount > 0 {
-            HStack(spacing: VSpacing.xs) {
-                Image(systemName: "text.line.first.and.arrowtriangle.forward")
-                    .font(VFont.caption)
-                Text(pendingQueuedCount == 1
-                     ? "1 message queued, sending automatically"
-                     : "\(pendingQueuedCount) messages queued, sending automatically")
-                    .font(VFont.caption)
+        let queued = queuedMessages
+        if !queued.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                // Header
+                Button {
+                    withAnimation(VAnimation.fast) {
+                        isQueueExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: isQueueExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(VColor.textMuted)
+                        Text("\(queued.count) Queued")
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                // Message list
+                if isQueueExpanded {
+                    VStack(spacing: VSpacing.xs) {
+                        ForEach(queued, id: \.id) { message in
+                            HStack(spacing: VSpacing.sm) {
+                                Circle()
+                                    .fill(VColor.textMuted)
+                                    .frame(width: 5, height: 5)
+                                Text(message.text)
+                                    .font(VFont.body)
+                                    .foregroundColor(VColor.textSecondary)
+                                    .lineLimit(1)
+                                Spacer()
+                            }
+                            .padding(.horizontal, VSpacing.lg)
+                        }
+                    }
+                    .padding(.bottom, VSpacing.sm)
+                    .transition(.opacity)
+                }
             }
-            .foregroundColor(VColor.textSecondary)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(VColor.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
             .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.xs)
-            .transition(.opacity)
+            .padding(.bottom, VSpacing.xs)
+            .frame(maxWidth: 700)
+            .frame(maxWidth: .infinity)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
     }
 
@@ -904,7 +966,6 @@ private struct ChatBubble: View {
     let onRegenerate: () -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     var onReportMessage: ((String?) -> Void)?
-    var onDeleteQueuedMessage: ((UUID) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
 
     @State private var appearance = AvatarAppearanceManager.shared
@@ -931,25 +992,6 @@ private struct ChatBubble: View {
         if message.isStreaming { return "streaming-\(message.id)" }
         let s = mediaEmbedSettings
         return "\(message.text)|\(s?.enabled ?? false)|\(s?.enabledSince?.timeIntervalSince1970 ?? 0)|\(s?.allowedDomains ?? [])"
-    }
-
-    private var statusLabel: String? {
-        switch message.status {
-        case .queued(let position):
-            return position > 0 ? "Queued (\(ordinal(position)) in line)" : "Queued"
-        case .processing:
-            return "Sending\u{2026}"
-        case .sent:
-            return nil
-        }
-    }
-
-    private var bubbleOpacity: Double {
-        switch message.status {
-        case .queued: return 0.7
-        case .processing: return 0.85
-        case .sent: return 1.0
-        }
     }
 
     private var bubbleFill: AnyShapeStyle {
@@ -1046,25 +1088,6 @@ private struct ChatBubble: View {
                 // - Complete: shows compact chips ("Ran a terminal command" + "Permission granted")
                 if !isUser {
                     trailingStatus
-                }
-
-                if let label = statusLabel {
-                    HStack(spacing: VSpacing.xs) {
-                        Text(label)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                        if case .queued = message.status, let onDelete = onDeleteQueuedMessage {
-                            Button {
-                                onDelete(message.id)
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(VColor.textMuted)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Delete queued message")
-                        }
-                    }
                 }
 
                 HStack(spacing: VSpacing.xs) {
@@ -1940,7 +1963,6 @@ private struct ChatBubble: View {
                 .fill(bubbleFill)
         )
         .frame(maxWidth: 520, alignment: isUser ? .trailing : .leading)
-        .opacity(bubbleOpacity)
     }
 
     @ViewBuilder
@@ -2114,22 +2136,6 @@ private struct ChatBubble: View {
         return parsed
     }
 
-    private func ordinal(_ n: Int) -> String {
-        let suffix: String
-        let ones = n % 10
-        let tens = (n / 10) % 10
-        if tens == 1 {
-            suffix = "th"
-        } else {
-            switch ones {
-            case 1: suffix = "st"
-            case 2: suffix = "nd"
-            case 3: suffix = "rd"
-            default: suffix = "th"
-            }
-        }
-        return "\(n)\(suffix)"
-    }
 }
 
 // MARK: - Markdown Table Support
