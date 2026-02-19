@@ -1,5 +1,6 @@
 import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { updateSchedule, formatLocalDate, describeCronExpression } from '../../schedule/schedule-store.js';
+import type { ScheduleSyntax } from '../../schedule/recurrence-types.js';
 
 export async function executeScheduleUpdate(
   input: Record<string, unknown>,
@@ -12,10 +13,20 @@ export async function executeScheduleUpdate(
 
   const updates: Record<string, unknown> = {};
   if (input.name !== undefined) updates.name = input.name;
-  if (input.cron_expression !== undefined) updates.cronExpression = input.cron_expression;
   if (input.timezone !== undefined) updates.timezone = input.timezone;
   if (input.message !== undefined) updates.message = input.message;
   if (input.enabled !== undefined) updates.enabled = input.enabled;
+
+  // New syntax/expression fields take precedence over legacy cron_expression
+  if (input.expression !== undefined) {
+    updates.expression = input.expression;
+  } else if (input.cron_expression !== undefined) {
+    updates.cronExpression = input.cron_expression;
+  }
+
+  if (input.syntax !== undefined) {
+    updates.syntax = input.syntax;
+  }
 
   if (Object.keys(updates).length === 0) {
     return { content: 'Error: No updates provided. Specify at least one field to update.', isError: true };
@@ -28,17 +39,24 @@ export async function executeScheduleUpdate(
       timezone?: string | null;
       message?: string;
       enabled?: boolean;
+      syntax?: ScheduleSyntax;
+      expression?: string;
     });
 
     if (!job) {
       return { content: `Error: Schedule not found: ${jobId}`, isError: true };
     }
 
+    const scheduleDescription = job.syntax === 'rrule'
+      ? job.expression
+      : describeCronExpression(job.cronExpression);
+
     return {
       content: [
         `Schedule updated successfully.`,
         `  Name: ${job.name}`,
-        `  Schedule: ${describeCronExpression(job.cronExpression)}${job.timezone ? ` (${job.timezone})` : ''}`,
+        `  Syntax: ${job.syntax}`,
+        `  Schedule: ${scheduleDescription}${job.timezone ? ` (${job.timezone})` : ''}`,
         `  Enabled: ${job.enabled}`,
         `  Next run: ${job.enabled ? formatLocalDate(job.nextRunAt) : 'n/a (disabled)'}`,
       ].join('\n'),
