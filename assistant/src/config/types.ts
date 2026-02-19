@@ -29,4 +29,5 @@ export type {
   SkillsInstallConfig,
   SwarmConfig,
   SkillsConfig,
+  WorkspaceGitConfig,
 } from './schema.js';

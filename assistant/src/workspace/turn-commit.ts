@@ -44,12 +44,14 @@ export interface TurnCommitMetadata {
  * @param sessionId - Session/conversation identifier
  * @param turnNumber - 1-based turn number within the session
  * @param provider - Optional commit message provider (defaults to deterministic)
+ * @param deadlineMs - Optional absolute deadline (Date.now()) after which the commit should be skipped
  */
 export async function commitTurnChanges(
   workspaceDir: string,
   sessionId: string,
   turnNumber: number,
   provider?: CommitMessageProvider,
+  deadlineMs?: number,
 ): Promise<void> {
   const messageProvider = provider ?? new DefaultCommitMessageProvider();
   try {
@@ -71,7 +73,7 @@ export async function commitTurnChanges(
       };
 
       return messageProvider.buildImmediateMessage(ctx);
-    });
+    }, deadlineMs !== undefined ? { deadlineMs } : undefined);
 
     const commitDurationMs = Date.now() - commitStartMs;
 

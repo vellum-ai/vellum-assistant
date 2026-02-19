@@ -719,6 +719,11 @@ export const WorkspaceGitConfigSchema = z.object({
     .int('workspaceGit.failureBackoffMaxMs must be an integer')
     .positive('workspaceGit.failureBackoffMaxMs must be a positive integer')
     .default(60000),
+  interactiveGitTimeoutMs: z
+    .number({ error: 'workspaceGit.interactiveGitTimeoutMs must be a number' })
+    .int('workspaceGit.interactiveGitTimeoutMs must be an integer')
+    .positive('workspaceGit.interactiveGitTimeoutMs must be a positive integer')
+    .default(10000),
   enrichmentQueueSize: z
     .number({ error: 'workspaceGit.enrichmentQueueSize must be a number' })
     .int('workspaceGit.enrichmentQueueSize must be an integer')
@@ -992,6 +997,7 @@ export const AssistantConfigSchema = z.object({
     turnCommitMaxWaitMs: 4000,
     failureBackoffBaseMs: 2000,
     failureBackoffMaxMs: 60000,
+    interactiveGitTimeoutMs: 10000,
     enrichmentQueueSize: 50,
     enrichmentConcurrency: 1,
     enrichmentJobTimeoutMs: 30000,
