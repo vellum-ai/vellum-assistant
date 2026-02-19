@@ -1924,17 +1924,6 @@ public struct IPCWorkItemCompleteRequest: Codable, Sendable {
     public let id: String
 }
 
-public struct IPCWorkItemDeleteRequest: Codable, Sendable {
-    public let type: String
-    public let id: String
-}
-
-public struct IPCWorkItemDeleteResponse: Codable, Sendable {
-    public let type: String
-    public let id: String
-    public let success: Bool
-}
-
 public struct IPCWorkItemCreateRequest: Codable, Sendable {
     public let type: String
     public let taskId: String
@@ -1966,6 +1955,17 @@ public struct IPCWorkItemCreateResponseItem: Codable, Sendable {
     public let updatedAt: Int
 }
 
+public struct IPCWorkItemDeleteRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
+public struct IPCWorkItemDeleteResponse: Codable, Sendable {
+    public let type: String
+    public let id: String
+    public let success: Bool
+}
+
 public struct IPCWorkItemGetRequest: Codable, Sendable {
     public let type: String
     public let id: String
@@ -1991,6 +1991,29 @@ public struct IPCWorkItemGetResponseItem: Codable, Sendable {
     public let sourceId: String?
     public let createdAt: Int
     public let updatedAt: Int
+}
+
+public struct IPCWorkItemOutputRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
+public struct IPCWorkItemOutputResponse: Codable, Sendable {
+    public let type: String
+    public let id: String
+    public let success: Bool
+    public let error: String?
+    public let output: IPCWorkItemOutputResponseOutput?
+}
+
+public struct IPCWorkItemOutputResponseOutput: Codable, Sendable {
+    public let title: String
+    public let status: String
+    public let runId: String?
+    public let conversationId: String?
+    public let completedAt: Int?
+    public let summary: String
+    public let highlights: [String]
 }
 
 public struct IPCWorkItemRunTaskRequest: Codable, Sendable {

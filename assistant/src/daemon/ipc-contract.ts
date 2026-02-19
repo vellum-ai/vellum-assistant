@@ -808,6 +808,11 @@ export interface WorkItemRunTaskRequest {
   id: string;
 }
 
+export interface WorkItemOutputRequest {
+  type: 'work_item_output';
+  id: string;
+}
+
 export type ClientMessage =
   | AuthMessage
   | UserMessage
@@ -902,6 +907,7 @@ export type ClientMessage =
   | WorkItemCompleteRequest
   | WorkItemDeleteRequest
   | WorkItemRunTaskRequest
+  | WorkItemOutputRequest
   | SubagentAbortRequest
   | SubagentStatusRequest
   | SubagentMessageRequest;
@@ -1944,6 +1950,22 @@ export interface WorkItemRunTaskResponse {
   errorCode?: WorkItemRunTaskErrorCode;
 }
 
+export interface WorkItemOutputResponse {
+  type: 'work_item_output_response';
+  id: string;
+  success: boolean;
+  error?: string;
+  output?: {
+    title: string;
+    status: string;
+    runId: string | null;
+    conversationId: string | null;
+    completedAt: number | null;
+    summary: string;
+    highlights: string[];
+  };
+}
+
 /** Server push — tells the client to open/focus the tasks window. */
 export interface OpenTasksWindow {
   type: 'open_tasks_window';
@@ -2071,6 +2093,7 @@ export type ServerMessage =
   | WorkItemUpdateResponse
   | WorkItemDeleteResponse
   | WorkItemRunTaskResponse
+  | WorkItemOutputResponse
   | WorkItemStatusChanged
   | TasksChanged
   | OpenTasksWindow

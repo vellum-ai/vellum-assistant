@@ -7,6 +7,7 @@ import type {
   WorkItemCompleteRequest,
   WorkItemDeleteRequest,
   WorkItemRunTaskRequest,
+  WorkItemOutputRequest,
 } from '../ipc-protocol.js';
 import { log, type HandlerContext } from './shared.js';
 import {
@@ -17,8 +18,9 @@ import {
   updateWorkItem,
   type WorkItemStatus,
 } from '../../work-items/work-item-store.js';
-import { getTask } from '../../tasks/task-store.js';
+import { getTask, getTaskRun } from '../../tasks/task-store.js';
 import { runTask } from '../../tasks/task-runner.js';
+import { getMessages } from '../../memory/conversation-store.js';
 
 export function handleWorkItemsList(
   msg: WorkItemsListRequest,
@@ -142,6 +144,80 @@ function broadcastWorkItemStatus(ctx: HandlerContext, id: string): void {
       },
     });
   }
+}
+
+export function handleWorkItemOutput(
+  msg: WorkItemOutputRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const workItem = getWorkItem(msg.id);
+  if (!workItem) {
+    ctx.send(socket, { type: 'work_item_output_response', id: msg.id, success: false, error: 'Work item not found' });
+    return;
+  }
+
+  let summary = '';
+  let highlights: string[] = [];
+
+  if (workItem.lastRunConversationId) {
+    const msgs = getMessages(workItem.lastRunConversationId);
+    // Find the last assistant message with text content (not tool calls)
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role !== 'assistant') continue;
+
+      let text = m.content;
+      // Content may be JSON array of content blocks — extract text blocks only
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+          text = parsed
+            .filter((b: { type: string }) => b.type === 'text')
+            .map((b: { text: string }) => b.text)
+            .join('\n');
+        }
+      } catch {
+        // Plain text content — use as-is
+      }
+
+      if (!text.trim()) continue;
+
+      summary = text.length > 2000 ? text.slice(0, 2000) : text;
+
+      // Extract up to 5 notable lines (bullet points or key findings)
+      const lines = text.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if ((trimmed.startsWith('-') || trimmed.startsWith('*')) && trimmed.length > 2) {
+          highlights.push(trimmed);
+          if (highlights.length >= 5) break;
+        }
+      }
+      break;
+    }
+  }
+
+  let completedAt: number | null = null;
+  if (workItem.lastRunId) {
+    const run = getTaskRun(workItem.lastRunId);
+    completedAt = run?.finishedAt ?? null;
+  }
+
+  ctx.send(socket, {
+    type: 'work_item_output_response',
+    id: msg.id,
+    success: true,
+    output: {
+      title: workItem.title,
+      status: workItem.lastRunStatus ?? workItem.status,
+      runId: workItem.lastRunId,
+      conversationId: workItem.lastRunConversationId,
+      completedAt,
+      summary,
+      highlights,
+    },
+  });
 }
 
 export async function handleWorkItemRunTask(

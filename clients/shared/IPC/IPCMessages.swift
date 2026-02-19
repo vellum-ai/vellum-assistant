@@ -1815,6 +1815,7 @@ public enum ServerMessage: Decodable, Sendable {
     case tasksChanged(IPCTasksChanged)
     case workItemDeleteResponse(IPCWorkItemDeleteResponse)
     case workItemRunTaskResponse(IPCWorkItemRunTaskResponse)
+    case workItemOutputResponse(IPCWorkItemOutputResponse)
     case workItemUpdateResponse(IPCWorkItemUpdateResponse)
     case openTasksWindow(OpenTasksWindowMessage)
     case subagentSpawned(IPCSubagentSpawned)
@@ -2096,6 +2097,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "work_item_run_task_response":
             let message = try IPCWorkItemRunTaskResponse(from: decoder)
             self = .workItemRunTaskResponse(message)
+        case "work_item_output_response":
+            let message = try IPCWorkItemOutputResponse(from: decoder)
+            self = .workItemOutputResponse(message)
         case "work_item_update_response":
             let message = try IPCWorkItemUpdateResponse(from: decoder)
             self = .workItemUpdateResponse(message)

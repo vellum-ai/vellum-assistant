@@ -281,6 +281,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `work_item_run_task_response` message.
     public var onWorkItemRunTaskResponse: ((IPCWorkItemRunTaskResponse) -> Void)?
 
+    /// Called when the daemon sends a `work_item_output_response` message.
+    public var onWorkItemOutputResponse: ((IPCWorkItemOutputResponse) -> Void)?
+
     /// Called when the daemon sends a `work_item_update_response` message.
     public var onWorkItemUpdateResponse: ((IPCWorkItemUpdateResponse) -> Void)?
 
@@ -882,6 +885,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(IPCWorkItemRunTaskRequest(type: "work_item_run_task", id: id))
     }
 
+    /// Request the latest output for a work item.
+    public func sendWorkItemOutput(id: String) throws {
+        try send(IPCWorkItemOutputRequest(type: "work_item_output", id: id))
+    }
+
     /// Update fields on an existing work item.
     public func sendWorkItemUpdate(id: String, title: String? = nil, notes: String? = nil, status: String? = nil, priorityTier: Double? = nil, sortIndex: Int? = nil) throws {
         try send(IPCWorkItemUpdateRequest(type: "work_item_update", id: id, title: title, notes: notes, status: status, priorityTier: priorityTier, sortIndex: sortIndex))
@@ -1438,6 +1446,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             onWorkItemDeleteResponse?(msg)
         case .workItemRunTaskResponse(let msg):
             onWorkItemRunTaskResponse?(msg)
+        case .workItemOutputResponse(let msg):
+            onWorkItemOutputResponse?(msg)
         case .workItemUpdateResponse(let msg):
             onWorkItemUpdateResponse?(msg)
         case .openTasksWindow:

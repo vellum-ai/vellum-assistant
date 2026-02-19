@@ -449,6 +449,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'work_item_run_task',
     id: 'wi-001',
   },
+  work_item_output: {
+    type: 'work_item_output',
+    id: 'wi-001',
+  },
   document_save: {
     type: 'document_save',
     surfaceId: 'doc-001',
@@ -1327,6 +1331,20 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     id: 'wi-001',
     lastRunId: 'run-001',
     success: true,
+  },
+  work_item_output_response: {
+    type: 'work_item_output_response',
+    id: 'wi-001',
+    success: true,
+    output: {
+      title: 'Process report',
+      status: 'completed',
+      runId: 'run-001',
+      conversationId: 'conv-001',
+      completedAt: 1700002000,
+      summary: 'Report processed successfully.',
+      highlights: ['- Key finding 1', '- Key finding 2'],
+    },
   },
   work_item_status_changed: {
     type: 'work_item_status_changed',
