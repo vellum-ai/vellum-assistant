@@ -27,6 +27,9 @@ func resolveSocketPath(environment: [String: String]? = nil) -> String {
         let trimmed = envPath.trimmingCharacters(in: .whitespacesAndNewlines)
         return expandHomePath(trimmed)
     }
+    if let baseDir = env["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
+        return expandHomePath(baseDir) + "/.vellum/vellum.sock"
+    }
     return NSHomeDirectory() + "/.vellum/vellum.sock"
 }
 

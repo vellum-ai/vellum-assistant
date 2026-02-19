@@ -17,7 +17,12 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 final class DaemonLauncher {
 
     private var process: Process?
-    private let vellumDir: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".vellum")
+    private var vellumDir: URL {
+        if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
+            return URL(fileURLWithPath: baseDir).appendingPathComponent(".vellum")
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".vellum")
+    }
     private var pidFileURL: URL {
         vellumDir.appendingPathComponent("vellum.pid")
     }
