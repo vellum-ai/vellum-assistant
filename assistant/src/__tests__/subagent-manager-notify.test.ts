@@ -228,7 +228,7 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
     expect(notifications[0].message).toContain('subagent_read');
   });
 
-  test('failed subagent does not notify parent (prevents auto-retry)', async () => {
+  test('failed subagent notifies parent with error and asks user before retry', async () => {
     const manager = new SubagentManager();
     const subagentId = 'sub-1';
     const state = makeState(subagentId);
@@ -251,8 +251,10 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
 
     expect(state.status).toBe('failed');
     expect(state.error).toBe('API rate limit exceeded');
-    // Failures don't notify the parent — user sees the red chip in the UI.
-    expect(notifications).toHaveLength(0);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].message).toContain('failed');
+    expect(notifications[0].message).toContain('API rate limit exceeded');
+    expect(notifications[0].message).toContain('Do NOT re-spawn');
   });
 
   test('failed subagent does not notify if already aborted', async () => {

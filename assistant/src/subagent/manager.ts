@@ -99,24 +99,7 @@ export class SubagentManager {
       );
     }
 
-    // Block respawn of recently-failed/aborted subagents — the user must explicitly ask.
     console.log(`[subagent] spawn() called with label="${config.label}" parent="${config.parentSessionId}"`);
-    const children = this.parentToChildren.get(config.parentSessionId);
-    if (children) {
-      for (const childId of children) {
-        const child = this.subagents.get(childId);
-        if (child) {
-          console.log(`[subagent]   existing child: label="${child.state.config.label}" status="${child.state.status}"`);
-        }
-        if (child && child.state.config.label === config.label && (child.state.status === 'failed' || child.state.status === 'aborted')) {
-          const reason = child.state.status === 'aborted' ? 'aborted' : 'failed';
-          console.log(`[subagent]   BLOCKED: label matches ${reason} subagent`);
-          throw new Error(
-            `A subagent with label "${config.label}" was recently ${reason}. Do not retry — ask the user first.`,
-          );
-        }
-      }
-    }
 
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
@@ -261,10 +244,8 @@ export class SubagentManager {
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         this.setStatus(subagentId, 'failed', getSender(), errorMsg);
-        console.log(`[subagent] Failed: "${managed.state.config.label}" error="${errorMsg}" — NOT notifying parent`);
-        // Don't notify parent about failures — the user sees the red chip
-        // in the UI and can ask for a retry. This prevents the LLM from
-        // auto-retrying failed subagents.
+        console.log(`[subagent] Failed: "${managed.state.config.label}" error="${errorMsg}" — notifying parent`);
+        this.notifyParent(managed, 'failed', getSender());
       } else {
         console.log(`[subagent] Agent loop threw but status already terminal: "${managed.state.status}"`);
       }
