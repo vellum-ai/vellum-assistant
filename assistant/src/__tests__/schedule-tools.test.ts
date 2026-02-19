@@ -32,14 +32,10 @@ mock.module('../config/loader.js', () => ({
 import type { Database } from 'bun:sqlite';
 import { initializeDb, getDb } from '../memory/db.js';
 import type { ToolContext } from '../tools/types.js';
-
-// Register schedule tools
-await import('../tools/schedule/create.js');
-await import('../tools/schedule/list.js');
-await import('../tools/schedule/update.js');
-await import('../tools/schedule/delete.js');
-
-import { getTool } from '../tools/registry.js';
+import { executeScheduleCreate } from '../tools/schedule/create.js';
+import { executeScheduleList } from '../tools/schedule/list.js';
+import { executeScheduleUpdate } from '../tools/schedule/update.js';
+import { executeScheduleDelete } from '../tools/schedule/delete.js';
 
 initializeDb();
 
@@ -65,10 +61,8 @@ describe('schedule_create tool', () => {
     getRawDb().run('DELETE FROM cron_jobs');
   });
 
-  const tool = getTool('schedule_create')!;
-
   test('creates a schedule with valid cron expression', async () => {
-    const result = await tool.execute({
+    const result = await executeScheduleCreate({
       name: 'Daily standup',
       cron_expression: '0 9 * * 1-5',
       message: 'Time for standup!',
@@ -82,7 +76,7 @@ describe('schedule_create tool', () => {
   });
 
   test('creates a disabled schedule', async () => {
-    const result = await tool.execute({
+    const result = await executeScheduleCreate({
       name: 'Paused job',
       cron_expression: '0 12 * * *',
       message: 'Noon check',
@@ -94,7 +88,7 @@ describe('schedule_create tool', () => {
   });
 
   test('creates a schedule with timezone', async () => {
-    const result = await tool.execute({
+    const result = await executeScheduleCreate({
       name: 'LA morning',
       cron_expression: '0 8 * * *',
       message: 'Good morning LA',
@@ -106,7 +100,7 @@ describe('schedule_create tool', () => {
   });
 
   test('rejects missing name', async () => {
-    const result = await tool.execute({
+    const result = await executeScheduleCreate({
       cron_expression: '0 9 * * *',
       message: 'test',
     }, ctx);
@@ -115,18 +109,18 @@ describe('schedule_create tool', () => {
     expect(result.content).toContain('name is required');
   });
 
-  test('rejects missing cron_expression', async () => {
-    const result = await tool.execute({
+  test('rejects missing expression', async () => {
+    const result = await executeScheduleCreate({
       name: 'Test',
       message: 'test',
     }, ctx);
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('cron_expression is required');
+    expect(result.content).toContain('expression (or cron_expression) is required');
   });
 
   test('rejects missing message', async () => {
-    const result = await tool.execute({
+    const result = await executeScheduleCreate({
       name: 'Test',
       cron_expression: '0 9 * * *',
     }, ctx);
@@ -136,7 +130,7 @@ describe('schedule_create tool', () => {
   });
 
   test('rejects invalid cron expression', async () => {
-    const result = await tool.execute({
+    const result = await executeScheduleCreate({
       name: 'Bad cron',
       cron_expression: 'not-a-cron',
       message: 'test',
@@ -155,29 +149,26 @@ describe('schedule_list tool', () => {
     getRawDb().run('DELETE FROM cron_jobs');
   });
 
-  const createTool = getTool('schedule_create')!;
-  const listTool = getTool('schedule_list')!;
-
   test('returns empty message when no schedules exist', async () => {
-    const result = await listTool.execute({}, ctx);
+    const result = await executeScheduleList({}, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('No schedules found');
   });
 
   test('lists all schedules', async () => {
-    await createTool.execute({
+    await executeScheduleCreate({
       name: 'Job Alpha',
       cron_expression: '0 9 * * *',
       message: 'Alpha',
     }, ctx);
-    await createTool.execute({
+    await executeScheduleCreate({
       name: 'Job Beta',
       cron_expression: '0 17 * * *',
       message: 'Beta',
     }, ctx);
 
-    const result = await listTool.execute({}, ctx);
+    const result = await executeScheduleList({}, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Schedules (2)');
@@ -186,19 +177,19 @@ describe('schedule_list tool', () => {
   });
 
   test('filters to enabled only', async () => {
-    await createTool.execute({
+    await executeScheduleCreate({
       name: 'Enabled Job',
       cron_expression: '0 9 * * *',
       message: 'enabled',
     }, ctx);
-    await createTool.execute({
+    await executeScheduleCreate({
       name: 'Disabled Job',
       cron_expression: '0 17 * * *',
       message: 'disabled',
       enabled: false,
     }, ctx);
 
-    const result = await listTool.execute({ enabled_only: true }, ctx);
+    const result = await executeScheduleList({ enabled_only: true }, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Enabled Job');
@@ -206,16 +197,15 @@ describe('schedule_list tool', () => {
   });
 
   test('shows detail for a specific job', async () => {
-    await createTool.execute({
+    await executeScheduleCreate({
       name: 'Detail Job',
       cron_expression: '30 14 * * *',
       message: 'Afternoon check',
     }, ctx);
 
-    // Get the job ID from the DB
     const row = getRawDb().query('SELECT id FROM cron_jobs LIMIT 1').get() as { id: string };
 
-    const result = await listTool.execute({ job_id: row.id }, ctx);
+    const result = await executeScheduleList({ job_id: row.id }, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Schedule: Detail Job');
@@ -226,7 +216,7 @@ describe('schedule_list tool', () => {
   });
 
   test('returns error for nonexistent job_id', async () => {
-    const result = await listTool.execute({ job_id: 'nonexistent' }, ctx);
+    const result = await executeScheduleList({ job_id: 'nonexistent' }, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Schedule not found');
@@ -241,18 +231,15 @@ describe('schedule_update tool', () => {
     getRawDb().run('DELETE FROM cron_jobs');
   });
 
-  const createTool = getTool('schedule_create')!;
-  const updateTool = getTool('schedule_update')!;
-
   test('updates the name of a schedule', async () => {
-    await createTool.execute({
+    await executeScheduleCreate({
       name: 'Old Name',
       cron_expression: '0 9 * * *',
       message: 'test',
     }, ctx);
 
     const row = getRawDb().query('SELECT id FROM cron_jobs LIMIT 1').get() as { id: string };
-    const result = await updateTool.execute({
+    const result = await executeScheduleUpdate({
       job_id: row.id,
       name: 'New Name',
     }, ctx);
@@ -263,14 +250,14 @@ describe('schedule_update tool', () => {
   });
 
   test('updates the cron expression', async () => {
-    await createTool.execute({
+    await executeScheduleCreate({
       name: 'Timing Test',
       cron_expression: '0 9 * * *',
       message: 'test',
     }, ctx);
 
     const row = getRawDb().query('SELECT id FROM cron_jobs LIMIT 1').get() as { id: string };
-    const result = await updateTool.execute({
+    const result = await executeScheduleUpdate({
       job_id: row.id,
       cron_expression: '0 17 * * *',
     }, ctx);
@@ -280,14 +267,14 @@ describe('schedule_update tool', () => {
   });
 
   test('disables a schedule', async () => {
-    await createTool.execute({
+    await executeScheduleCreate({
       name: 'Disable Me',
       cron_expression: '0 9 * * *',
       message: 'test',
     }, ctx);
 
     const row = getRawDb().query('SELECT id FROM cron_jobs LIMIT 1').get() as { id: string };
-    const result = await updateTool.execute({
+    const result = await executeScheduleUpdate({
       job_id: row.id,
       enabled: false,
     }, ctx);
@@ -298,28 +285,28 @@ describe('schedule_update tool', () => {
   });
 
   test('rejects missing job_id', async () => {
-    const result = await updateTool.execute({ name: 'test' }, ctx);
+    const result = await executeScheduleUpdate({ name: 'test' }, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('job_id is required');
   });
 
   test('rejects update with no fields', async () => {
-    await createTool.execute({
+    await executeScheduleCreate({
       name: 'No Update',
       cron_expression: '0 9 * * *',
       message: 'test',
     }, ctx);
 
     const row = getRawDb().query('SELECT id FROM cron_jobs LIMIT 1').get() as { id: string };
-    const result = await updateTool.execute({ job_id: row.id }, ctx);
+    const result = await executeScheduleUpdate({ job_id: row.id }, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('No updates provided');
   });
 
   test('returns error for nonexistent job_id', async () => {
-    const result = await updateTool.execute({
+    const result = await executeScheduleUpdate({
       job_id: 'nonexistent',
       name: 'test',
     }, ctx);
@@ -329,20 +316,161 @@ describe('schedule_update tool', () => {
   });
 
   test('rejects invalid cron expression in update', async () => {
-    await createTool.execute({
+    await executeScheduleCreate({
       name: 'Bad Update',
       cron_expression: '0 9 * * *',
       message: 'test',
     }, ctx);
 
     const row = getRawDb().query('SELECT id FROM cron_jobs LIMIT 1').get() as { id: string };
-    const result = await updateTool.execute({
+    const result = await executeScheduleUpdate({
       job_id: row.id,
       cron_expression: 'invalid',
     }, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Invalid cron expression');
+  });
+});
+
+// ── RRULE support in schedule tools ─────────────────────────────────
+
+describe('schedule_create with RRULE', () => {
+  beforeEach(() => {
+    getRawDb().run('DELETE FROM cron_runs');
+    getRawDb().run('DELETE FROM cron_jobs');
+  });
+
+  test('creates a schedule with legacy cron_expression', async () => {
+    const result = await executeScheduleCreate({
+      name: 'Legacy cron',
+      cron_expression: '0 9 * * 1-5',
+      message: 'Legacy test',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Schedule created successfully');
+    expect(result.content).toContain('Syntax: cron');
+    expect(result.content).toContain('Every weekday at 9:00 AM');
+  });
+
+  test('creates a schedule with RRULE syntax + expression', async () => {
+    const result = await executeScheduleCreate({
+      name: 'RRULE daily',
+      syntax: 'rrule',
+      expression: 'DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY',
+      message: 'RRULE test',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Schedule created successfully');
+    expect(result.content).toContain('Syntax: rrule');
+    expect(result.content).toContain('RRULE:FREQ=DAILY');
+  });
+
+  test('auto-detects RRULE syntax when syntax is omitted', async () => {
+    const result = await executeScheduleCreate({
+      name: 'Auto-detect RRULE',
+      expression: 'DTSTART:20250601T120000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO',
+      message: 'Auto-detect test',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Syntax: rrule');
+    expect(result.content).toContain('RRULE:FREQ=WEEKLY');
+  });
+
+  test('rejects RRULE missing DTSTART with deterministic message', async () => {
+    const result = await executeScheduleCreate({
+      name: 'No DTSTART',
+      syntax: 'rrule',
+      expression: 'RRULE:FREQ=DAILY',
+      message: 'Should fail',
+    }, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('DTSTART');
+    expect(result.content).toContain('deterministic');
+  });
+});
+
+describe('schedule_update with RRULE', () => {
+  beforeEach(() => {
+    getRawDb().run('DELETE FROM cron_runs');
+    getRawDb().run('DELETE FROM cron_jobs');
+  });
+
+  test('switches a cron schedule to rrule', async () => {
+    await executeScheduleCreate({
+      name: 'Cron to RRULE',
+      cron_expression: '0 9 * * *',
+      message: 'test',
+    }, ctx);
+
+    const row = getRawDb().query('SELECT id FROM cron_jobs LIMIT 1').get() as { id: string };
+    const result = await executeScheduleUpdate({
+      job_id: row.id,
+      syntax: 'rrule',
+      expression: 'DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Schedule updated successfully');
+    expect(result.content).toContain('Syntax: rrule');
+    expect(result.content).toContain('RRULE:FREQ=DAILY');
+  });
+});
+
+describe('schedule_list with RRULE', () => {
+  beforeEach(() => {
+    getRawDb().run('DELETE FROM cron_runs');
+    getRawDb().run('DELETE FROM cron_jobs');
+  });
+
+  test('shows syntax-aware output for cron schedules', async () => {
+    await executeScheduleCreate({
+      name: 'Cron Job',
+      cron_expression: '0 9 * * 1-5',
+      message: 'Cron test',
+    }, ctx);
+
+    const result = await executeScheduleList({}, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('[cron]');
+    expect(result.content).toContain('Every weekday at 9:00 AM');
+  });
+
+  test('shows syntax-aware output for rrule schedules', async () => {
+    await executeScheduleCreate({
+      name: 'RRULE Job',
+      syntax: 'rrule',
+      expression: 'DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY',
+      message: 'RRULE test',
+    }, ctx);
+
+    const result = await executeScheduleList({}, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('[rrule]');
+    expect(result.content).toContain('RRULE:FREQ=DAILY');
+  });
+
+  test('shows syntax and expression in detail mode', async () => {
+    await executeScheduleCreate({
+      name: 'Detail RRULE',
+      syntax: 'rrule',
+      expression: 'DTSTART:20250601T120000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO',
+      message: 'Detail test',
+    }, ctx);
+
+    const row = getRawDb().query('SELECT id FROM cron_jobs LIMIT 1').get() as { id: string };
+    const result = await executeScheduleList({ job_id: row.id }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Syntax: rrule');
+    expect(result.content).toContain('Expression:');
+    expect(result.content).toContain('RRULE:FREQ=WEEKLY');
   });
 });
 
@@ -354,18 +482,15 @@ describe('schedule_delete tool', () => {
     getRawDb().run('DELETE FROM cron_jobs');
   });
 
-  const createTool = getTool('schedule_create')!;
-  const deleteTool = getTool('schedule_delete')!;
-
   test('deletes a schedule', async () => {
-    await createTool.execute({
+    await executeScheduleCreate({
       name: 'Delete Me',
       cron_expression: '0 9 * * *',
       message: 'test',
     }, ctx);
 
     const row = getRawDb().query('SELECT id FROM cron_jobs LIMIT 1').get() as { id: string };
-    const result = await deleteTool.execute({ job_id: row.id }, ctx);
+    const result = await executeScheduleDelete({ job_id: row.id }, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Schedule deleted');
@@ -377,14 +502,14 @@ describe('schedule_delete tool', () => {
   });
 
   test('rejects missing job_id', async () => {
-    const result = await deleteTool.execute({}, ctx);
+    const result = await executeScheduleDelete({}, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('job_id is required');
   });
 
   test('returns error for nonexistent job_id', async () => {
-    const result = await deleteTool.execute({ job_id: 'nonexistent' }, ctx);
+    const result = await executeScheduleDelete({ job_id: 'nonexistent' }, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Schedule not found');
