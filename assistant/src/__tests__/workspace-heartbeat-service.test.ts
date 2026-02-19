@@ -10,8 +10,11 @@ import type { CommitMessageProvider, CommitContext, CommitMessageResult } from '
 // Re-register the real workspace modules so our static imports bind to them.
 // The ?real query string forces Bun to bypass the mock cache.
 // ---------------------------------------------------------------------------
+// @ts-expect-error Bun mock bypass: ?real query string forces real module resolution
 mock.module('../workspace/git-service.js', async () => await import('../workspace/git-service.js?real'));
+// @ts-expect-error Bun mock bypass: ?real query string forces real module resolution
 mock.module('../workspace/heartbeat-service.js', async () => await import('../workspace/heartbeat-service.js?real'));
+// @ts-expect-error Bun mock bypass: ?real query string forces real module resolution
 mock.module('../workspace/commit-message-enrichment-service.js', async () => await import('../workspace/commit-message-enrichment-service.js?real'));
 
 import {

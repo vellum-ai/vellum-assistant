@@ -98,7 +98,7 @@ function createMockProvider(statusMap: Record<string, string> = {}): VoiceProvid
 /** Silent logger for tests */
 const silentLog = new Proxy({} as Record<string, unknown>, {
   get: () => () => {},
-}) as ReturnType<typeof import('../util/logger.js').getLogger>;
+}) as unknown as ReturnType<typeof import('../util/logger.js').getLogger>;
 
 describe('listRecoverableCalls', () => {
   beforeEach(() => {

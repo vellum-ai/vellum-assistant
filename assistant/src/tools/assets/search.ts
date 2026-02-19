@@ -214,7 +214,7 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
 
     const limit = Math.min(params.limit ?? DEFAULT_LIMIT, MAX_RESULTS);
     const stmt = raw.prepare(
-      `SELECT a.id, a.assistant_id, a.original_filename, a.mime_type, a.size_bytes, a.kind, a.created_at
+      `SELECT a.id, a.assistant_id, a.original_filename, a.mime_type, a.size_bytes, a.kind, a.thumbnail_base64, a.created_at
        FROM attachments a
        WHERE ${whereParts.join(' AND ')}
        ORDER BY a.created_at DESC
@@ -228,6 +228,7 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       mime_type: string;
       size_bytes: number;
       kind: string;
+      thumbnail_base64: string | null;
       created_at: number;
     }>;
 
@@ -238,6 +239,7 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       mimeType: r.mime_type,
       sizeBytes: r.size_bytes,
       kind: r.kind,
+      thumbnailBase64: r.thumbnail_base64,
       createdAt: r.created_at,
     }));
   }
@@ -254,6 +256,7 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       mimeType: attachments.mimeType,
       sizeBytes: attachments.sizeBytes,
       kind: attachments.kind,
+      thumbnailBase64: attachments.thumbnailBase64,
       createdAt: attachments.createdAt,
     })
     .from(attachments)

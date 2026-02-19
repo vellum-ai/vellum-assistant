@@ -190,6 +190,7 @@ describe('createToolDomainEventPublisher', () => {
       durationMs: 12,
       errorMessage: 'cat: /missing: No such file or directory',
       isExpected: false,
+      errorCategory: 'tool_failure',
       errorName: 'Error',
       errorStack: 'Error: cat: /missing: No such file or directory',
     });
@@ -229,6 +230,7 @@ describe('createToolDomainEventPublisher', () => {
       durationMs: 9,
       errorMessage: 'ENOENT',
       isExpected: false,
+      errorCategory: 'tool_failure',
       errorName: 'Error',
       errorStack: 'Error: ENOENT\n    at test',
     });

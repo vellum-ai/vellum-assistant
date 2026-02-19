@@ -462,6 +462,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     id: 'wi-001',
     approvedTools: ['bash', 'file_write'],
   },
+  work_item_cancel: {
+    type: 'work_item_cancel',
+    id: 'wi-001',
+  },
   document_save: {
     type: 'document_save',
     surfaceId: 'doc-001',
@@ -1365,6 +1369,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   work_item_approve_permissions_response: {
     type: 'work_item_approve_permissions_response',
+    id: 'wi-001',
+    success: true,
+  },
+  work_item_cancel_response: {
+    type: 'work_item_cancel_response',
     id: 'wi-001',
     success: true,
   },
