@@ -22,9 +22,10 @@ struct TemporaryChatIndicator: View {
         .buttonStyle(TemporaryChatIndicatorStyle(isHovered: isHovered))
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.set() }
-            else { NSCursor.arrow.set() }
+            if hovering { NSCursor.pointingHand.push() }
+            else { NSCursor.pop() }
         }
+        .onDisappear { if isHovered { NSCursor.pop() } }
         .accessibilityLabel("Exit temporary chat")
     }
 }
