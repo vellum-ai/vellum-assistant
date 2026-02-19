@@ -24,8 +24,9 @@ export function clearTaskRunRules(taskRunId: string): void {
  * Each rule allows the specified tool with a wildcard pattern scoped to the
  * given working directory. Priority is set to 50 — lower than user rules (100)
  * so that user deny rules still take precedence. `allowHighRisk` is set because
- * task sessions have no client to respond to confirmation prompts — without it,
- * high-risk tools hang indefinitely waiting for approval that never comes.
+ * task runs execute asynchronously without interactive confirmation — the client
+ * pre-approves tools via the preflight flow before execution begins, so there
+ * is no interactive prompt during the run itself.
  */
 export function buildTaskRules(taskRunId: string, requiredTools: string[], workingDir: string): TrustRule[] {
   return requiredTools.map((tool) => ({

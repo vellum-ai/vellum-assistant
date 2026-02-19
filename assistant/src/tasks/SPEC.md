@@ -87,18 +87,23 @@ Each task run creates a new conversation thread with `threadType: 'background'`.
 
 ### Lifecycle
 
-1. **Start**: The daemon creates a `background` thread, substitutes template
-   placeholders, and sends the prompt to the LLM. An IPC notification
-   (`task_run_started`) is broadcast to all connected clients with the run ID,
-   task ID, and thread ID.
-2. **Completion**: When the LLM response is received and stored, the daemon
-   broadcasts a `task_run_completed` notification with the run ID, task ID,
-   thread ID, and a status (`success` | `error`).
-3. **Visibility**: Background threads are excluded from the default thread list
-   (existing behavior in `conversation-store.ts`). Clients can query for them
-   explicitly to surface task results in a dedicated UI.
+1. **Preflight**: The client requests a permission preflight for the work item.
+   The daemon classifies risk for each required tool and returns the permission
+   set. The client displays an approval dialog; approved tools are stored on
+   the work item.
+2. **Start**: The daemon creates a `background` conversation, substitutes
+   template placeholders, sets up ephemeral permission rules for the approved
+   tools, and processes the rendered prompt through a daemon `Session`. Status
+   updates are broadcast to all connected clients via `work_item_status_changed`
+   and `tasks_changed` IPC messages.
+3. **Completion**: When the session finishes, the work item transitions to
+   `awaiting_review` (on success) or `failed` (on error). The daemon broadcasts
+   the final status to all clients.
+4. **Visibility**: Background conversations are excluded from the default thread
+   list (existing behavior in `conversation-store.ts`). Clients can query for
+   them explicitly to surface task results in a dedicated UI.
 
-**Why background threads:** Reuses the existing `threadType: 'background'`
+**Why background conversations:** Reuses the existing `threadType: 'background'`
 infrastructure. Task runs don't interrupt the user's current conversation, and
 clients can choose how and when to display results (toast, panel, separate
 tab).
@@ -107,27 +112,28 @@ tab).
 
 ## 4. Safety Invariants
 
-- **No auto-execution**: Tasks are never triggered automatically. Every run
-  requires an explicit user action (CLI command, API call, or UI button press).
+- **Explicit trigger required**: Task runs are triggered either by an explicit
+  user action (UI button press, API call) or by a user-configured schedule
+  (`run_task:<task_id>` via the scheduler).
 - **Ephemeral permission bundles**: If a task is configured with tool access,
   the permission grants are scoped to the single run and discarded afterward.
   No persistent allowlist entries are created on behalf of a task.
-- **High-risk tools always prompt**: Regardless of any task-level permission
-  configuration, tools classified as `RiskLevel.High` (destructive shell
-  commands, private-network fetches, etc.) always require interactive user
-  confirmation. This invariant cannot be overridden by task definitions.
+- **High-risk tools require upfront approval**: Tools classified as
+  `RiskLevel.High` (destructive shell commands, private-network fetches, etc.)
+  are surfaced in the preflight dialog so the user can explicitly approve or
+  deny them before execution begins. During the run itself, approved tools
+  (including high-risk ones) execute without further prompting.
 
 ---
 
-## 5. PR Dependency Chain
+## 5. Implementation Notes
 
-Implementation is split into sequential PRs, each building on the previous:
+The implementation is complete. Key modules:
 
-| PR | Title | What it delivers |
-|----|-------|------------------|
-| 0  | Spec decisions | This document. |
-| 1  | Schema + storage | `tasks` and `task_runs` tables, Drizzle schema, migration in `db.ts`, CRUD functions in `task-store.ts`. |
-| 2  | Template engine | `renderTemplate()` — placeholder substitution with input validation against the JSON Schema. |
-| 3  | Run executor | `executeTaskRun()` — creates background thread, calls LLM, writes result, broadcasts IPC notifications (`task_run_started`, `task_run_completed`). |
-| 4  | CLI surface | `vellum task create`, `vellum task run`, `vellum task list` commands. |
-| 5  | IPC + macOS integration | Wire up IPC message types; macOS client displays task run results. |
+| Module | What it delivers |
+|--------|------------------|
+| `task-store.ts` | `tasks` and `task_runs` tables, CRUD functions. |
+| `task-runner.ts` | `runTask()` — creates background conversation, renders template, processes through daemon Session. |
+| `ephemeral-permissions.ts` | Scoped permission rules for the duration of a single task run. |
+| `work-items.ts` (daemon handler) | IPC handlers for preflight, run, cancel, and status queries. |
+| Bundled skill (`tasks/`) | Tool definitions (`task_save`, `task_run`, `task_list`, `task_delete`, `task_list_*`) for the LLM. |
