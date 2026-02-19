@@ -27,11 +27,11 @@ public struct TaskProgressData {
         self.steps = steps
     }
 
-    public static func parse(from dict: [String: Any?]) -> TaskProgressData? {
-        guard let title = dict["title"] as? String,
-              let stepsArray = dict["steps"] as? [[String: Any?]] else {
+    public static func parse(from dict: [String: Any?], fallbackTitle: String? = nil) -> TaskProgressData? {
+        guard let stepsArray = dict["steps"] as? [[String: Any?]] else {
             return nil
         }
+        let title = dict["title"] as? String ?? fallbackTitle ?? "Task"
 
         let status = dict["status"] as? String ?? "in_progress"
 
