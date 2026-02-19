@@ -694,7 +694,7 @@ export class WorkspaceGitService {
    * intentionally short for interactive workspace operations — background
    * enrichment jobs use their own dedicated timeout.
    */
-  private async execGit(args: string[]): Promise<{ stdout: string; stderr: string }> {
+  private async execGit(args: string[], options?: { signal?: AbortSignal }): Promise<{ stdout: string; stderr: string }> {
     const config = getConfig();
     const timeoutMs = config.workspaceGit?.interactiveGitTimeoutMs ?? 10_000;
     try {
@@ -703,6 +703,7 @@ export class WorkspaceGitService {
         encoding: 'utf-8',
         timeout: timeoutMs,
         env: cleanGitEnv(this.workspaceDir),
+        signal: options?.signal,
       });
       return { stdout, stderr };
     } catch (err) {
@@ -741,8 +742,8 @@ export class WorkspaceGitService {
    * Write a git note to a specific commit.
    * Uses the 'vellum' notes ref to avoid conflicts with default notes.
    */
-  async writeNote(commitHash: string, noteContent: string): Promise<void> {
-    await this.execGit(['notes', '--ref=vellum', 'add', '-f', '-m', noteContent, commitHash]);
+  async writeNote(commitHash: string, noteContent: string, signal?: AbortSignal): Promise<void> {
+    await this.execGit(['notes', '--ref=vellum', 'add', '-f', '-m', noteContent, commitHash], { signal });
   }
 
   /**

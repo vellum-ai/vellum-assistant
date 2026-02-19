@@ -392,13 +392,23 @@ describe('CommitEnrichmentService', () => {
       maxRetries: 0,
     });
 
-    // Monkey-patch writeNote to simulate slow work that respects abort
+    // Monkey-patch writeNote to simulate slow work that respects the abort signal.
+    // The real writeNote now passes the signal to execFileAsync which kills the
+    // child process on abort. This mock replicates that behavior by rejecting
+    // when the signal fires.
     const originalWriteNote = gitService.writeNote.bind(gitService);
-    gitService.writeNote = async (hash: string, note: string) => {
-      // Simulate slow work — longer than the timeout
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      enrichmentCompleted = true;
-      return originalWriteNote(hash, note);
+    gitService.writeNote = async (_hash: string, _note: string, signal?: AbortSignal) => {
+      // Simulate slow work that is cancellable via AbortSignal
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          enrichmentCompleted = true;
+          resolve();
+        }, 2000);
+        signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(new Error('aborted'));
+        }, { once: true });
+      });
     };
 
     service.enqueue({
@@ -410,6 +420,10 @@ describe('CommitEnrichmentService', () => {
 
     await waitForDrain(service, 5000);
     await service.shutdown();
+
+    // Allow any zombie work to settle — if abort didn't work, the 2s timer
+    // would still be running and would set enrichmentCompleted=true.
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     // The job should have timed out and been counted as failed
     expect(service._getFailedCount()).toBe(1);
@@ -431,11 +445,17 @@ describe('CommitEnrichmentService', () => {
       maxRetries: 0,
     });
 
-    // Make writeNote artificially slow so the job will always time out
+    // Make writeNote artificially slow so the job will always time out.
+    // The mock respects the abort signal so the subprocess is killed on timeout.
     const originalWriteNote = gitService.writeNote.bind(gitService);
-    gitService.writeNote = async (hash: string, note: string) => {
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      return originalWriteNote(hash, note);
+    gitService.writeNote = async (_hash: string, _note: string, signal?: AbortSignal) => {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 5000);
+        signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(new Error('aborted'));
+        }, { once: true });
+      });
     };
 
     service.enqueue({

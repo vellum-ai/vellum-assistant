@@ -250,7 +250,7 @@ export class CommitEnrichmentService {
     });
 
     if (signal?.aborted) return;
-    await job.gitService.writeNote(job.commitHash, note);
+    await job.gitService.writeNote(job.commitHash, note, signal);
   }
 }
 
