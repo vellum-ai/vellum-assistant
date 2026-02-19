@@ -11,7 +11,7 @@
  * and a replay endpoint allows manual recovery of dead-lettered ones.
  */
 
-import { eq, and, lte } from 'drizzle-orm';
+import { eq, and, lte, isNotNull } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { channelInboundEvents, conversations } from './schema.js';
@@ -136,6 +136,7 @@ export function findMessageBySourceId(
         eq(channelInboundEvents.sourceChannel, sourceChannel),
         eq(channelInboundEvents.externalChatId, externalChatId),
         eq(channelInboundEvents.sourceMessageId, sourceMessageId),
+        isNotNull(channelInboundEvents.messageId),
       ),
     )
     .get();
