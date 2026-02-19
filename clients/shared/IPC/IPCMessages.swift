@@ -2173,3 +2173,12 @@ public struct SlotContentWire: Decodable, Sendable {
     public let panel: String?
     public let surfaceId: String?
 }
+
+// MARK: - Work Item Helpers
+
+extension IPCWorkItemsListResponseItem {
+    /// Returns a copy with a different `priorityTier`, preserving all other fields.
+    public func withPriorityTier(_ newTier: Double) -> Self {
+        Self(id: id, taskId: taskId, title: title, notes: notes, status: status, priorityTier: newTier, sortIndex: sortIndex, lastRunId: lastRunId, lastRunConversationId: lastRunConversationId, lastRunStatus: lastRunStatus, sourceType: sourceType, sourceId: sourceId, createdAt: createdAt, updatedAt: updatedAt)
+    }
+}

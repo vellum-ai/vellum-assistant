@@ -167,9 +167,35 @@ struct TasksWindowView: View {
     }
 
     private func updatePriority(id: String, tier: Double) {
+        // Snapshot for rollback on failure
+        let snapshot = items
+
+        // Optimistic local update: replace the item's priority and re-sort
+        if let index = items.firstIndex(where: { $0.id == id }) {
+            var updated = items
+            updated[index] = updated[index].withPriorityTier(tier)
+            updated.sort {
+                if $0.priorityTier != $1.priorityTier {
+                    return $0.priorityTier < $1.priorityTier
+                }
+                if let s0 = $0.sortIndex, let s1 = $1.sortIndex, s0 != s1 {
+                    return s0 < s1
+                }
+                return $0.updatedAt > $1.updatedAt
+            }
+            // Fast linear transition to avoid jittery spring animations on reorder
+            withAnimation(.linear(duration: 0.15)) {
+                items = updated
+            }
+        }
+
         do {
             try daemonClient.sendWorkItemUpdate(id: id, priorityTier: tier)
         } catch {
+            // Rollback to pre-update state
+            withAnimation(.linear(duration: 0.15)) {
+                items = snapshot
+            }
             errorMessage = error.localizedDescription
         }
     }
