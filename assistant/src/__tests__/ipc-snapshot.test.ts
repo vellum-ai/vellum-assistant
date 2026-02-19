@@ -466,6 +466,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'work_item_cancel',
     id: 'wi-001',
   },
+  work_item_render: {
+    type: 'work_item_render',
+    id: 'wi-001',
+  },
   document_save: {
     type: 'document_save',
     surfaceId: 'doc-001',
@@ -1376,6 +1380,13 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'work_item_cancel_response',
     id: 'wi-001',
     success: true,
+  },
+  work_item_render_response: {
+    type: 'work_item_render_response',
+    id: 'wi-001',
+    success: true,
+    content: '# Rendered Work Item',
+    title: 'Process report',
   },
   work_item_status_changed: {
     type: 'work_item_status_changed',
