@@ -3,6 +3,7 @@
 import { Command } from 'commander';
 import { createRequire } from 'node:module';
 import * as net from 'node:net';
+import { dirname, join } from 'node:path';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json') as { version: string };
@@ -1176,4 +1177,18 @@ function generateFishCompletion(
   return script;
 }
 
-program.parse();
+const knownCommands = new Set(program.commands.map(cmd => cmd.name()));
+const firstArg = process.argv[2];
+
+if (firstArg && !firstArg.startsWith('-') && !knownCommands.has(firstArg)) {
+  const cliPkgPath = require.resolve('@vellumai/cli/package.json');
+  const cliEntry = join(dirname(cliPkgPath), 'src', 'index.ts');
+  const child = spawn('bun', ['run', cliEntry, ...process.argv.slice(2)], {
+    stdio: 'inherit',
+  });
+  child.on('exit', (code) => {
+    process.exit(code ?? 1);
+  });
+} else {
+  program.parse();
+}

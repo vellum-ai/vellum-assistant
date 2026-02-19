@@ -11,6 +11,7 @@
         "@huggingface/transformers": "^3.8.1",
         "@qdrant/js-client-rest": "^1.16.2",
         "@sentry/node": "^10.38.0",
+        "@vellumai/cli": "../cli",
         "@vellumai/vellum-gateway": "^0.1.7",
         "agentmail": "^0.1.0",
         "archiver": "^7.0.1",
@@ -537,6 +538,8 @@
     "@typescript-eslint/utils": ["@typescript-eslint/utils@8.55.0", "", { "dependencies": { "@eslint-community/eslint-utils": "^4.9.1", "@typescript-eslint/scope-manager": "8.55.0", "@typescript-eslint/types": "8.55.0", "@typescript-eslint/typescript-estree": "8.55.0" }, "peerDependencies": { "eslint": "^8.57.0 || ^9.0.0", "typescript": ">=4.8.4 <6.0.0" } }, "sha512-BqZEsnPGdYpgyEIkDC1BadNY8oMwckftxBT+C8W0g1iKPdeqKZBtTfnvcq0nf60u7MkjFO8RBvpRGZBPw4L2ow=="],
 
     "@typescript-eslint/visitor-keys": ["@typescript-eslint/visitor-keys@8.55.0", "", { "dependencies": { "@typescript-eslint/types": "8.55.0", "eslint-visitor-keys": "^4.2.1" } }, "sha512-AxNRwEie8Nn4eFS1FzDMJWIISMGoXMb037sgCBJ3UR6o0fQTzr2tqN9WT+DkWJPhIdQCfV7T6D387566VtnCJA=="],
+
+    "@vellumai/cli": ["@vellumai/cli@file:../cli", { "dependencies": { "ink": "^6.7.0", "react": "^19.2.4" }, "devDependencies": { "@types/bun": "^1.2.4", "@types/react": "^19.2.14", "eslint": "^10.0.0", "typescript": "^5.9.3", "typescript-eslint": "^8.55.0" }, "bin": { "vellum-cli": "./src/index.ts" } }],
 
     "@vellumai/vellum-gateway": ["@vellumai/vellum-gateway@0.1.7", "", { "dependencies": { "file-type": "^21.3.0", "pino": "^9.6.0", "pino-pretty": "^13.1.3", "zod": "^4.3.6" } }, "sha512-JJhCqhsnZ99+dazCUWtOac24p92WyCr3/bxYkfmTgk6yYz9zqH7O1DpjxTLOtjAohQnki4WXNFUCzu48LCtFsg=="],
 
