@@ -146,8 +146,8 @@ final class ActionVerifier {
 
     // MARK: - Comparison
 
-    /// Compare two actions for equivalence. Click-type actions use proximity
-    /// matching on coordinates (within 5px) to catch near-identical clicks.
+    /// Compare two actions for equivalence. Click-type actions use radial
+    /// proximity matching on coordinates (within 5px radius) to catch near-identical clicks.
     private func actionsMatch(_ a: AgentAction, _ b: AgentAction) -> Bool {
         guard a.type == b.type && a.text == b.text && a.key == b.key
               && a.appName == b.appName && a.script == b.script else {
@@ -163,8 +163,7 @@ final class ActionVerifier {
                                   _ bx: CGFloat?, _ by: CGFloat?) -> Bool {
         switch (ax, ay, bx, by) {
         case let (.some(x1), .some(y1), .some(x2), .some(y2)):
-            return abs(x1 - x2) <= Self.coordinateTolerance
-                && abs(y1 - y2) <= Self.coordinateTolerance
+            return hypot(x1 - x2, y1 - y2) <= Self.coordinateTolerance
         case (.none, .none, .none, .none):
             return true
         default:
