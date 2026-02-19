@@ -267,9 +267,7 @@ private func fetchAttachmentData(port: Int, attachmentId: String) async throws -
     let tokenBase: String
     if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
        !baseDir.isEmpty {
-        tokenBase = baseDir.hasPrefix("~/")
-            ? NSHomeDirectory() + "/" + String(baseDir.dropFirst(2))
-            : (baseDir == "~" ? NSHomeDirectory() : baseDir)
+        tokenBase = baseDir
     } else {
         tokenBase = NSHomeDirectory()
     }
