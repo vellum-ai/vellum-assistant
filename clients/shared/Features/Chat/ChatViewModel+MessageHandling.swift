@@ -60,6 +60,46 @@ extension ChatViewModel {
         return str.count > 80 ? String(str.prefix(77)) + "..." : str
     }
 
+    /// Format all tool input arguments for display in expanded details.
+    /// The primary value comes first, then remaining keys as `key: value` lines.
+    func formatAllToolInput(_ input: [String: AnyCodable]) -> String {
+        guard !input.isEmpty else { return "" }
+
+        // Find the primary key (same logic as extractToolInput)
+        let primaryKey = Self.toolInputPriorityKeys.first(where: { input[$0] != nil })
+            ?? input.keys.sorted().first
+
+        var lines: [String] = []
+
+        // Primary value first (undecorated)
+        if let key = primaryKey, let value = input[key] {
+            lines.append(stringifyValue(value))
+        }
+
+        // Remaining keys sorted alphabetically
+        let otherKeys = input.keys
+            .filter { $0 != primaryKey }
+            .sorted()
+        for key in otherKeys {
+            guard let value = input[key] else { continue }
+            lines.append("\(key): \(stringifyValue(value))")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func stringifyValue(_ value: AnyCodable) -> String {
+        if let s = value.value as? String { return s }
+        if let b = value.value as? Bool { return b ? "true" : "false" }
+        if let n = value.value as? Int { return String(n) }
+        if let n = value.value as? Double { return String(n) }
+        if let encoder = try? JSONEncoder().encode(value),
+           let json = String(data: encoder, encoding: .utf8) {
+            return json
+        }
+        return String(describing: value.value ?? "")
+    }
+
     func toolDisplayName(_ name: String) -> String {
         switch name {
         case "file_write": return "Write File"
@@ -647,7 +687,7 @@ extension ChatViewModel {
             var toolCall = ToolCallData(
                 toolName: msg.toolName,
                 inputSummary: summarizeToolInput(msg.input),
-                inputFull: extractToolInput(msg.input),
+                inputFull: formatAllToolInput(msg.input),
                 arrivedBeforeText: !currentAssistantHasText,
                 startedAt: Date()
             )

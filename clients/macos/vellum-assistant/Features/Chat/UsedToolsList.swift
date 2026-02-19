@@ -162,18 +162,15 @@ private struct UsedToolsRow: View {
                             .foregroundColor(VColor.textMuted)
                             .textCase(.uppercase)
 
-                        HStack(spacing: VSpacing.xs) {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text(toolCall.friendlyName)
                                 .font(VFont.captionMedium)
                                 .foregroundColor(VColor.textSecondary)
-                            if !toolCall.inputSummary.isEmpty {
-                                Text("·")
-                                    .foregroundColor(VColor.textMuted)
-                                Text(toolCall.inputSummary)
+                            if !toolCall.inputFull.isEmpty {
+                                Text(toolCall.inputFull)
                                     .font(VFont.monoSmall)
                                     .foregroundColor(VColor.textSecondary)
                                     .textSelection(.enabled)
-                                    .lineLimit(3)
                             }
                         }
                     }
