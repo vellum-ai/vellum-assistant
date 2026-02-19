@@ -27,7 +27,7 @@
             "description": "How the reminder fires. Defaults to notify."
           }
         },
-        "required": ["fire_at", "label"]
+        "required": ["fire_at", "label", "message"]
       },
       "executor": "tools/reminder-create.ts",
       "execution_target": "host"

@@ -94,7 +94,7 @@ describe('Task/Schedule/Reminder routing section in system prompt', () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain('### Task Queue (task_list_add / task_list_show / task_list_update / task_list_remove)');
     expect(prompt).toContain('### Schedules (schedule_create / schedule_list / schedule_update / schedule_delete)');
-    expect(prompt).toContain('### Reminders (reminder)');
+    expect(prompt).toContain('### Reminders (reminder_create / reminder_list / reminder_cancel)');
   });
 
   test('routing section contains key routing phrases for task queue', () => {
@@ -148,7 +148,7 @@ describe('Task/Schedule/Reminder routing section in system prompt', () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain('### Common mistakes to avoid');
     // The key mis-routing guard: "add this to my tasks" should go to task_list_add
-    expect(prompt).toContain('"Add this to my tasks" → task_list_add (NOT schedule_create or reminder)');
+    expect(prompt).toContain('"Add this to my tasks" → task_list_add (NOT schedule_create or reminder_create)');
   });
 
   test('routing section distinguishes timed vs untimed "remind me"', () => {
@@ -156,7 +156,7 @@ describe('Task/Schedule/Reminder routing section in system prompt', () => {
     // Without a time → task queue
     expect(prompt).toContain('"Remind me to buy groceries" without a time → task_list_add');
     // With a time → reminder
-    expect(prompt).toContain('"Remind me at 5pm to buy groceries" → reminder');
+    expect(prompt).toContain('"Remind me at 5pm to buy groceries" → reminder_create');
   });
 
   test('routing section appears after tool routing by content type', () => {

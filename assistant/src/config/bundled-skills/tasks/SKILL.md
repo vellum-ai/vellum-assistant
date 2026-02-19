@@ -22,6 +22,6 @@ Use `task_list_add` to enqueue items (ad-hoc or from a template), `task_list_sho
 
 ## Tips
 
-- When the user says "add to my tasks" or "add to my queue", use `task_list_add` (NOT schedule_create or reminder).
+- When the user says "add to my tasks" or "add to my queue", use `task_list_add` (NOT schedule_create or reminder_create).
 - Use `task_save` only when the user wants to capture a conversation pattern as a reusable template.
 - `task_list` shows saved templates; `task_list_show` shows the active work queue.
