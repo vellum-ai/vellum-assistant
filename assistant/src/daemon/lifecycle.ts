@@ -257,7 +257,6 @@ function loadDotEnv(): void {
 
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
-  console.log('[daemon] Starting up...');
   loadDotEnv();
   initSentry();
   await initLogfire();
@@ -336,11 +335,9 @@ export async function runDaemon(): Promise<void> {
     log.warn({ err }, 'Qdrant failed to start — memory features will be unavailable');
   }
 
-  console.log('[daemon] Starting DaemonServer (IPC socket)...');
   log.info('Daemon startup: starting DaemonServer (IPC socket)');
   const server = new DaemonServer();
   await server.start();
-  console.log('[daemon] DaemonServer started');
   log.info('Daemon startup: DaemonServer started, starting memory worker');
   const memoryWorker = startMemoryJobsWorker();
   // Initialize watcher engine and register providers
@@ -429,7 +426,6 @@ export async function runDaemon(): Promise<void> {
   }
 
   writePid(process.pid);
-  console.log(`[daemon] Ready (pid=${process.pid})`);
   log.info({ pid: process.pid }, 'Daemon started');
 
   const hookManager = getHookManager();
