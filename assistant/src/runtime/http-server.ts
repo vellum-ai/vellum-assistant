@@ -56,7 +56,6 @@ import {
   handleVoiceWebhook,
   handleStatusCallback,
   handleConnectAction,
-  handleCallAnswer,
 } from '../calls/twilio-routes.js';
 import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
@@ -370,17 +369,6 @@ export class RuntimeHttpServer {
       const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
       if (!token || !this.verifyToken(token)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-    }
-
-    // ── Call answer endpoint — behind auth gate ──────────────────────
-    const callAnswerMatch = path.match(/^\/v1\/calls\/([^/]+)\/answer$/);
-    if (callAnswerMatch && req.method === 'POST') {
-      try {
-        return await handleCallAnswer(req, callAnswerMatch[1]);
-      } catch (err) {
-        log.error({ err, callSessionId: callAnswerMatch[1] }, 'Runtime HTTP handler error answering call');
-        return Response.json({ error: 'Internal server error' }, { status: 500 });
       }
     }
 

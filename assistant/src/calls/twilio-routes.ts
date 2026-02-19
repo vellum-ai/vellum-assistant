@@ -19,7 +19,6 @@ import {
   finalizeCallbackClaim,
 } from './call-store.js';
 import type { CallStatus } from './types.js';
-import { answerCall } from './call-domain.js';
 import { logDeadLetterEvent } from './call-recovery.js';
 import { isTerminalState } from './call-state-machine.js';
 import { getTwilioConfig } from './twilio-config.js';
@@ -231,22 +230,3 @@ export async function handleConnectAction(_req: Request): Promise<Response> {
   );
 }
 
-/**
- * Answer a pending question for an active call.
- * POST /v1/calls/:callSessionId/answer
- * Body: { answer: string }
- */
-export async function handleCallAnswer(req: Request, callSessionId: string): Promise<Response> {
-  const body = await req.json() as { answer?: string };
-
-  const result = await answerCall({
-    callSessionId,
-    answer: body.answer ?? '',
-  });
-
-  if (!result.ok) {
-    return Response.json({ error: result.error }, { status: result.status ?? 500 });
-  }
-
-  return Response.json({ ok: true, questionId: result.questionId });
-}
