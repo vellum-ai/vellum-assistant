@@ -191,7 +191,8 @@ export const claudeCodeTool: Tool = {
       // Substitute template_vars: {{key}} patterns
       if (templateVars) {
         for (const [key, value] of Object.entries(templateVars)) {
-          resolvedPrompt = resolvedPrompt.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+          const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          resolvedPrompt = resolvedPrompt.replace(new RegExp(`\\{\\{${escaped}\\}\\}`, 'g'), value);
         }
       }
 
