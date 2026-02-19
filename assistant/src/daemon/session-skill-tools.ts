@@ -241,6 +241,9 @@ export function projectSkillTools(
   const allToolDefinitions: ToolDefinition[] = [];
   const allToolNames = new Set<string>();
   const successfulEntries = new Map<string, string>();
+  // Track skills already unregistered in the version-change branch so the
+  // transient-failure cleanup loop doesn't double-decrement the refcount.
+  const alreadyUnregistered = new Set<string>();
 
   for (const skillId of activeIds) {
     const skill = catalogById.get(skillId);
@@ -281,6 +284,7 @@ export function projectSkillTools(
         // Hash changed — unregister stale tools, then re-register with new definitions
         log.info({ skillId, prevHash, currentHash }, 'Skill version changed, re-registering tools');
         unregisterSkillTools(skillId);
+        alreadyUnregistered.add(skillId);
         try {
           registerSkillTools(tools);
         } catch (err) {
@@ -313,7 +317,7 @@ export function projectSkillTools(
   // skill would be re-registered when it recovers next turn, inflating the
   // refcount since the prior registration was never decremented.
   for (const id of prevActive.keys()) {
-    if (activeIds.has(id) && !successfulEntries.has(id)) {
+    if (activeIds.has(id) && !successfulEntries.has(id) && !alreadyUnregistered.has(id)) {
       log.info({ skillId: id }, 'Unregistering tools for transiently-failed skill');
       unregisterSkillTools(id);
     }
