@@ -73,3 +73,45 @@ VELLUM_CUSTOM_HOST=user@10.0.0.1 vellum-cli hatch --remote custom
 ```
 
 When hatching on GCP in interactive mode (without `-d`), the CLI displays an animated progress TUI that polls the instance's startup script output in real time. Press `Ctrl+C` to detach -- the instance will continue running in the background.
+
+### `retire`
+
+Delete a provisioned assistant instance.
+
+```bash
+vellum-cli retire <name> [options]
+```
+
+#### Options
+
+| Option              | Description |
+| ------------------- | ----------- |
+| `--remote <target>` | Cloud provider of the instance. One of: `local`, `gcp`, `aws`, `custom`. Defaults to `gcp`. |
+
+#### Remote Targets
+
+- **`gcp`** -- Deletes a GCP Compute Engine instance via `gcloud compute instances delete`.
+- **`aws`** -- Terminates an AWS EC2 instance by looking up the instance ID from its Name tag.
+- **`local`** -- No remote cleanup needed; prints a reminder to stop the local daemon.
+- **`custom`** -- No remote cleanup; custom instances must be managed directly on the remote host.
+
+#### Environment Variables
+
+| Variable              | Required For | Description |
+| --------------------- | ------------ | ----------- |
+| `GCP_PROJECT`         | `gcp`        | GCP project ID. Falls back to the active `gcloud` project. |
+| `GCP_DEFAULT_ZONE`    | `gcp`        | GCP zone of the compute instance. |
+| `AWS_REGION`          | `aws`        | AWS region of the EC2 instance. |
+
+#### Examples
+
+```bash
+# Retire a GCP instance (default)
+vellum-cli retire my-assistant
+
+# Retire a GCP instance explicitly
+vellum-cli retire my-assistant --remote gcp
+
+# Retire an AWS instance
+AWS_REGION=us-east-1 vellum-cli retire my-assistant --remote aws
+```

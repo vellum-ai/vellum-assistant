@@ -1,9 +1,11 @@
 #!/usr/bin/env bun
 
 import { hatch } from "./commands/hatch";
+import { retire } from "./commands/retire";
 
 const commands = {
   hatch,
+  retire,
 } as const;
 
 type CommandName = keyof typeof commands;
@@ -16,7 +18,8 @@ async function main() {
     console.log("Usage: vellum-cli <command> [options]");
     console.log("");
     console.log("Commands:");
-    console.log("  hatch   Create a new assistant instance");
+    console.log("  hatch    Create a new assistant instance");
+    console.log("  retire   Delete an assistant instance");
     process.exit(0);
   }
 
