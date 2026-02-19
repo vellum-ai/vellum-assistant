@@ -74,7 +74,7 @@ async function runScheduleOnce(
   const now = Date.now();
   let processed = 0;
 
-  // ── Cron jobs ───────────────────────────────────────────────────────
+  // ── Recurrence schedules (cron + RRULE) ─────────────────────────────
   const jobs = claimDueSchedules(now);
   for (const job of jobs) {
     // Check if message is a task invocation (run_task:<task_id>)
