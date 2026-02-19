@@ -275,6 +275,7 @@ extension ChatViewModel {
             let id = ipc.id ?? UUID().uuidString
             let base64 = ipc.data
             let dataLength = base64.count
+            let sizeBytes: Int? = ipc.sizeBytes.flatMap { Int(exactly: $0) }
 
             var thumbnailData: Data?
             #if os(macOS)
@@ -285,7 +286,7 @@ extension ChatViewModel {
             #error("Unsupported platform")
             #endif
 
-            if ipc.mimeType.hasPrefix("image/"), let rawData = Data(base64Encoded: base64) {
+            if ipc.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
                 thumbnailData = Self.generateThumbnail(from: rawData, maxDimension: 120)
                 #if os(macOS)
                 thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
@@ -301,6 +302,7 @@ extension ChatViewModel {
                 data: base64,
                 thumbnailData: thumbnailData,
                 dataLength: dataLength,
+                sizeBytes: sizeBytes,
                 thumbnailImage: thumbnailImage
             )
         }

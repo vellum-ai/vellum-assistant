@@ -1,17 +1,22 @@
 import AVKit
 import SwiftUI
 import VellumAssistantShared
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "InlineVideoAttachment")
 
 /// Inline video player for file-based video attachments (e.g. video/mp4).
 ///
 /// Decodes base64 attachment data to a temp file and plays it with native
 /// AVPlayerView. Uses a click-to-play pattern to avoid auto-playing videos
-/// on scroll.
+/// on scroll. Supports lazy-loading large attachments via the daemon HTTP API.
 struct InlineVideoAttachmentView: View {
     let attachment: ChatAttachment
+    let daemonHttpPort: Int?
 
     @State private var player: AVPlayer?
     @State private var isPlaying = false
+    @State private var isLoading = false
     @State private var failed = false
 
     var body: some View {
@@ -25,6 +30,8 @@ struct InlineVideoAttachmentView: View {
 
             if failed {
                 failedView
+            } else if isLoading {
+                loadingView
             } else if let player, isPlaying {
                 VideoPlayerView(player: player)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -59,6 +66,18 @@ struct InlineVideoAttachmentView: View {
         }
     }
 
+    private var loadingView: some View {
+        VStack(spacing: VSpacing.sm) {
+            ProgressView()
+                .controlSize(.regular)
+
+            Text("Loading video...")
+                .font(VFont.caption)
+                .foregroundStyle(VColor.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var failedView: some View {
         VStack(spacing: VSpacing.xs) {
             Image(systemName: "exclamationmark.triangle")
@@ -85,7 +104,15 @@ struct InlineVideoAttachmentView: View {
     }
 
     private func prepareAndPlay() {
-        guard let data = Data(base64Encoded: attachment.data) else {
+        if attachment.isLazyLoad {
+            fetchAndPlay()
+        } else {
+            playFromBase64(attachment.data)
+        }
+    }
+
+    private func playFromBase64(_ base64: String) {
+        guard let data = Data(base64Encoded: base64) else {
             failed = true
             return
         }
@@ -104,12 +131,76 @@ struct InlineVideoAttachmentView: View {
         avPlayer.play()
     }
 
-    private func openInExternalPlayer() {
-        guard let data = Data(base64Encoded: attachment.data) else { return }
-        let fileURL = safeTempURL()
-        try? data.write(to: fileURL)
-        NSWorkspace.shared.open(fileURL)
+    private func fetchAndPlay() {
+        guard let port = daemonHttpPort, let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
+            failed = true
+            return
+        }
+
+        isLoading = true
+        Task {
+            do {
+                let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
+                await MainActor.run {
+                    isLoading = false
+                    playFromBase64(base64)
+                }
+            } catch {
+                log.error("Failed to fetch attachment \(attachmentId): \(error.localizedDescription)")
+                await MainActor.run {
+                    isLoading = false
+                    failed = true
+                }
+            }
+        }
     }
+
+    private func openInExternalPlayer() {
+        if attachment.isLazyLoad {
+            guard let port = daemonHttpPort, let attachmentId = attachment.id.isEmpty ? nil : attachment.id else { return }
+            isLoading = true
+            Task {
+                do {
+                    let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
+                    guard let data = Data(base64Encoded: base64) else { return }
+                    let fileURL = safeTempURL()
+                    try data.write(to: fileURL)
+                    await MainActor.run {
+                        isLoading = false
+                        NSWorkspace.shared.open(fileURL)
+                    }
+                } catch {
+                    await MainActor.run { isLoading = false }
+                }
+            }
+        } else {
+            guard let data = Data(base64Encoded: attachment.data) else { return }
+            let fileURL = safeTempURL()
+            try? data.write(to: fileURL)
+            NSWorkspace.shared.open(fileURL)
+        }
+    }
+}
+
+/// Fetch attachment base64 data from the daemon HTTP endpoint.
+private func fetchAttachmentData(port: Int, attachmentId: String) async throws -> String {
+    guard let token = readSessionToken() else {
+        throw URLError(.userAuthenticationRequired)
+    }
+    let url = URL(string: "http://localhost:\(port)/v1/attachments/\(attachmentId)")!
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+        throw URLError(.badServerResponse)
+    }
+
+    struct AttachmentResponse: Decodable {
+        let data: String
+    }
+    let decoded = try JSONDecoder().decode(AttachmentResponse.self, from: data)
+    return decoded.data
 }
 
 /// NSViewRepresentable wrapper for AVPlayerView.

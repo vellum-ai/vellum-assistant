@@ -709,7 +709,8 @@ public struct ChatAttachment: Identifiable {
     public let id: String
     public let filename: String
     public let mimeType: String
-    /// Base64-encoded file data.
+    /// Base64-encoded file data. Empty when the attachment was too large to embed
+    /// in the history_response — use ``fetchData(port:)`` to load it lazily.
     public let data: String
     /// Pre-rendered thumbnail for image attachments (resized to 120px max dimension).
     public let thumbnailData: Data?
@@ -717,6 +718,9 @@ public struct ChatAttachment: Identifiable {
     /// Swift's String.count iterates the entire string to count grapheme clusters,
     /// which is expensive for multi-MB base64 strings on every SwiftUI render pass.
     public let dataLength: Int
+    /// Original file size in bytes. Non-nil when `data` is empty because the
+    /// attachment was too large to inline in the history response.
+    public let sizeBytes: Int?
     /// Pre-decoded thumbnail image, cached to avoid decoding PNG data on every
     /// SwiftUI render pass (each keystroke triggers a re-evaluation of the composer).
     #if os(macOS)
@@ -727,24 +731,30 @@ public struct ChatAttachment: Identifiable {
     #error("Unsupported platform")
     #endif
 
+    /// Whether this attachment's binary data was omitted to keep the IPC payload small.
+    /// The client should fetch it lazily via the HTTP endpoint when the user interacts.
+    public var isLazyLoad: Bool { data.isEmpty && sizeBytes != nil }
+
     #if os(macOS)
-    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, thumbnailImage: NSImage?) {
+    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: NSImage?) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
         self.data = data
         self.thumbnailData = thumbnailData
         self.dataLength = dataLength
+        self.sizeBytes = sizeBytes
         self.thumbnailImage = thumbnailImage
     }
     #elseif os(iOS)
-    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, thumbnailImage: UIImage?) {
+    public init(id: String, filename: String, mimeType: String, data: String, thumbnailData: Data?, dataLength: Int, sizeBytes: Int? = nil, thumbnailImage: UIImage?) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
         self.data = data
         self.thumbnailData = thumbnailData
         self.dataLength = dataLength
+        self.sizeBytes = sizeBytes
         self.thumbnailImage = thumbnailImage
     }
     #else

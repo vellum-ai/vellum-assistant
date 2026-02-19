@@ -1847,6 +1847,8 @@ public struct IPCUserMessageAttachment: Codable, Sendable {
     public let mimeType: String
     public let data: String
     public let extractedText: String?
+    /// Original file size in bytes. Present when data was omitted from history_response to reduce payload size.
+    public let sizeBytes: Int?
 }
 
 public struct IPCUserMessageEcho: Codable, Sendable {

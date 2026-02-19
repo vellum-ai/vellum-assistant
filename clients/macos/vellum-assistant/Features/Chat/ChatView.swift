@@ -94,6 +94,7 @@ struct ChatView: View {
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
     var activeSubagents: [SubagentInfo] = []
+    var daemonHttpPort: Int?
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     /// Sums utf8.count over each segment (O(1) per contiguous segment) instead of joining first,
@@ -603,7 +604,8 @@ struct ChatView: View {
                                 onRegenerate: onRegenerate,
                                 onSurfaceAction: onSurfaceAction,
                                 onReportMessage: onReportMessage,
-                                mediaEmbedSettings: mediaEmbedSettings
+                                mediaEmbedSettings: mediaEmbedSettings,
+                                daemonHttpPort: daemonHttpPort
                             )
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -987,6 +989,7 @@ private struct ChatBubble: View {
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
+    var daemonHttpPort: Int?
 
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
@@ -1653,7 +1656,7 @@ private struct ChatBubble: View {
         if !partitioned.videos.isEmpty {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 ForEach(partitioned.videos) { attachment in
-                    InlineVideoAttachmentView(attachment: attachment)
+                    InlineVideoAttachmentView(attachment: attachment, daemonHttpPort: daemonHttpPort)
                 }
             }
         }
@@ -1962,7 +1965,7 @@ private struct ChatBubble: View {
             if !partitioned.videos.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     ForEach(partitioned.videos) { attachment in
-                        InlineVideoAttachmentView(attachment: attachment)
+                        InlineVideoAttachmentView(attachment: attachment, daemonHttpPort: daemonHttpPort)
                     }
                 }
             }

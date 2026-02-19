@@ -348,11 +348,16 @@ export function handleHistoryRequest(
     if (m.role === 'assistant' && m.id) {
       const linked = getAttachmentsForMessageUnscoped(m.id);
       if (linked.length > 0) {
+        // Skip embedding base64 data for attachments larger than 512KB to keep
+        // the history_response payload small enough for the client to decode
+        // reliably. The client fetches large attachment data lazily via HTTP.
+        const MAX_INLINE_B64_SIZE = 512 * 1024;
         attachments = linked.map((a) => ({
           id: a.id,
           filename: a.originalFilename,
           mimeType: a.mimeType,
-          data: a.dataBase64,
+          data: a.dataBase64.length > MAX_INLINE_B64_SIZE ? '' : a.dataBase64,
+          ...(a.dataBase64.length > MAX_INLINE_B64_SIZE ? { sizeBytes: a.sizeBytes } : {}),
         }));
       }
     }
