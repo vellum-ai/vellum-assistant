@@ -89,7 +89,7 @@ class CallStartTool implements Tool {
 
       log.info({ callSessionId: session.id, to: phoneNumber, task }, 'Initiating outbound call');
 
-      const baseUrl = process.env.BASE_URL ?? 'https://localhost:7821';
+      const baseUrl = config.webhookBaseUrl.replace(/\/$/, '');
       const { callSid } = await provider.initiateCall({
         from: config.phoneNumber,
         to: phoneNumber,
