@@ -9,6 +9,8 @@ public struct SettingsView: View {
     @State private var perplexityKeyText = ""
     @State private var imageGenKeyText = ""
     @State private var vercelKeyText = ""
+    @State private var twitterClientId = ""
+    @State private var twitterClientSecret = ""
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
     @State private var showingPrivacy = false
@@ -217,6 +219,104 @@ public struct SettingsView: View {
                 }
             }
 
+            Section("Twitter / X") {
+                Picker("Integration mode", selection: $store.twitterMode) {
+                    Text("Local (BYO App)").tag("local_byo")
+                    Text("Managed").tag("managed")
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: store.twitterMode) { _, newValue in
+                    store.setTwitterMode(newValue)
+                }
+
+                if store.twitterMode == "managed" {
+                    HStack(spacing: 6) {
+                        Image(systemName: "info.circle")
+                            .foregroundStyle(.secondary)
+                        Text("Managed mode is coming soon. Switch to Local (BYO App) to connect now.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if store.twitterMode == "local_byo" {
+                    if !store.twitterLocalClientConfigured {
+                        VStack(alignment: .leading, spacing: 6) {
+                            TextField("OAuth Client ID", text: $twitterClientId)
+                                .textFieldStyle(.roundedBorder)
+                            SecureField("OAuth Client Secret (optional)", text: $twitterClientSecret)
+                                .textFieldStyle(.roundedBorder)
+                            HStack {
+                                Text("Create an app at developer.x.com")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Button("Save") {
+                                    store.saveTwitterLocalClient(
+                                        clientId: twitterClientId,
+                                        clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret
+                                    )
+                                    twitterClientId = ""
+                                    twitterClientSecret = ""
+                                }
+                                .disabled(twitterClientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            }
+                        }
+                    } else {
+                        if store.twitterConnected {
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                    .font(.system(size: 14))
+                                Text("Connected")
+                                    .foregroundStyle(.secondary)
+                                if let account = store.twitterAccountInfo {
+                                    Text(account)
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
+                                Spacer()
+                                Button("Disconnect") {
+                                    store.disconnectTwitter()
+                                }
+                                .tint(.red)
+                            }
+                        } else {
+                            HStack(spacing: 6) {
+                                Image(systemName: "circle")
+                                    .foregroundStyle(.tertiary)
+                                    .font(.system(size: 14))
+                                Text("App configured")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                if store.twitterAuthInProgress {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Connecting...")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Button("Connect") {
+                                        store.connectTwitter()
+                                    }
+                                }
+                            }
+                        }
+
+                        HStack {
+                            Spacer()
+                            Button("Clear App Config") {
+                                store.clearTwitterLocalClient()
+                                twitterClientId = ""
+                                twitterClientSecret = ""
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+            }
+
             Section("Computer Use") {
                 HStack {
                     Text("Max steps per session")
@@ -416,6 +516,7 @@ public struct SettingsView: View {
         .onAppear {
             store.refreshAPIKeyState()
             store.refreshVercelKeyState()
+            store.refreshTwitterStatus()
             checkPermissions()
         }
         .onDisappear {
