@@ -101,6 +101,11 @@ export async function handleRideShotgunStart(
       for (let attempt = 0; attempt < 10; attempt++) {
         try {
           const recorder = new NetworkRecorder(targetDomain);
+          recorder.loginSignals = [
+            '/graphql/postLoginQuery',
+            '/graphql/homePageFacetFeed',
+            '/graphql/getConsumerOrdersWithDetails',
+          ];
           await recorder.startDirect();
           // Auto-stop when login is detected
           recorder.onLoginDetected = () => {
