@@ -232,28 +232,28 @@ private struct TasksWindowRow: View {
 
     private var actionsColumn: some View {
         let status = WorkItemStatus(rawStatus: item.status)
-        let runEnabled = status == .queued
-        let showRun = status == .queued || status == .failed
+        let isFailed = status == .failed
+        let showRun = status == .queued || isFailed
+        let buttonColor = isFailed ? VColor.warning : VColor.accent
+        let buttonLabel = isFailed ? "Retry" : "Run"
         return HStack(spacing: VSpacing.xs) {
             if showRun {
                 Button(action: onRun) {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "play.fill")
+                        Image(systemName: isFailed ? "arrow.clockwise" : "play.fill")
                             .font(.system(size: 10))
-                        Text("Run")
+                        Text(buttonLabel)
                             .font(VFont.caption)
                     }
-                    .foregroundColor(VColor.accent)
+                    .foregroundColor(buttonColor)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xs)
-                    .background(VColor.accent.opacity(0.12))
+                    .background(buttonColor.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 }
                 .buttonStyle(.plain)
-                .disabled(!runEnabled)
-                .opacity(runEnabled ? 1.0 : 0.4)
-                .accessibilityLabel("Run task")
-                .accessibilityHint(runEnabled ? "" : "Task cannot be run because it has failed")
+                .accessibilityLabel(isFailed ? "Retry task" : "Run task")
+                .accessibilityHint(isFailed ? "Retry running this failed task" : "")
             }
 
             if status == .awaitingReview {
