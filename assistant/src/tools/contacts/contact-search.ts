@@ -49,6 +49,48 @@ const definition: ToolDefinition = {
   },
 };
 
+export async function executeContactSearch(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const query = input.query as string | undefined;
+  const channelAddress = input.channel_address as string | undefined;
+  const channelType = input.channel_type as string | undefined;
+  const relationship = input.relationship as string | undefined;
+  const limit = input.limit as number | undefined;
+
+  if (!query && !channelAddress && !relationship) {
+    return {
+      content: 'Error: At least one search criterion is required (query, channel_address, or relationship)',
+      isError: true,
+    };
+  }
+
+  try {
+    const results = searchContacts({
+      query,
+      channelAddress,
+      channelType,
+      relationship,
+      limit,
+    });
+
+    if (results.length === 0) {
+      return { content: 'No contacts found matching the search criteria.', isError: false };
+    }
+
+    const lines = [`Found ${results.length} contact(s):\n`];
+    for (const contact of results) {
+      lines.push(formatContactSummary(contact));
+    }
+
+    return { content: lines.join('\n'), isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { content: `Error: ${msg}`, isError: true };
+  }
+}
+
 class ContactSearchTool implements Tool {
   name = 'contact_search';
   description = definition.description;
@@ -59,43 +101,8 @@ class ContactSearchTool implements Tool {
     return definition;
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    const query = input.query as string | undefined;
-    const channelAddress = input.channel_address as string | undefined;
-    const channelType = input.channel_type as string | undefined;
-    const relationship = input.relationship as string | undefined;
-    const limit = input.limit as number | undefined;
-
-    if (!query && !channelAddress && !relationship) {
-      return {
-        content: 'Error: At least one search criterion is required (query, channel_address, or relationship)',
-        isError: true,
-      };
-    }
-
-    try {
-      const results = searchContacts({
-        query,
-        channelAddress,
-        channelType,
-        relationship,
-        limit,
-      });
-
-      if (results.length === 0) {
-        return { content: 'No contacts found matching the search criteria.', isError: false };
-      }
-
-      const lines = [`Found ${results.length} contact(s):\n`];
-      for (const contact of results) {
-        lines.push(formatContactSummary(contact));
-      }
-
-      return { content: lines.join('\n'), isError: false };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return { content: `Error: ${msg}`, isError: true };
-    }
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeContactSearch(input, context);
   }
 }
 
