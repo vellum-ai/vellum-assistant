@@ -209,14 +209,20 @@ export async function handleCallAnswer(req: Request, callSessionId: string): Pro
     return Response.json({ error: 'No pending question found' }, { status: 404 });
   }
 
+  // Verify the orchestrator exists and is waiting for input before persisting the answer.
+  // If the orchestrator is missing (e.g. after a reconnect/restart) or is no longer in the
+  // waiting_on_user state, reject the answer so the question stays open for retry.
+  const orchestrator = getCallOrchestrator(callSessionId);
+  if (!orchestrator) {
+    log.warn({ callSessionId }, 'handleCallAnswer: no active orchestrator for call session');
+    return Response.json({ error: 'No active orchestrator for this call' }, { status: 409 });
+  }
+
   // Mark question as answered
   answerPendingQuestion(question.id, body.answer);
 
   // Route answer to the orchestrator
-  const orchestrator = getCallOrchestrator(callSessionId);
-  if (orchestrator) {
-    await orchestrator.handleUserAnswer(body.answer);
-  }
+  await orchestrator.handleUserAnswer(body.answer);
 
   return Response.json({ ok: true, questionId: question.id });
 }
