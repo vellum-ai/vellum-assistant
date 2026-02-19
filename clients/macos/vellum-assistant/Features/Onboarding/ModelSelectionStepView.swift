@@ -11,7 +11,7 @@ struct ModelSelectionStepView: View {
 
     @State private var showTitle = false
     @State private var showContent = false
-    @State private var selectedModel = "claude-sonnet-4-6"
+    @State private var selectedModel = "claude-opus-4-6"
 
     private static let models: [(id: String, name: String, detail: String)] = [
         ("claude-opus-4-6", "Opus 4.6", "Most capable"),

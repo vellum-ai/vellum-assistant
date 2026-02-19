@@ -278,16 +278,14 @@ struct APIKeyStepView: View {
         guard !trimmed.isEmpty else { return }
         APIKeyManager.setKey(trimmed)
 
-        if userHostedEnabled && hostingMode != .local {
-            state.advance()
-        } else {
             saveModelToConfig("claude-opus-4-6")
-            if userHostedEnabled {
+            if userHostedEnabled && hostingMode != .local {
+                state.advance()
+            } else if userHostedEnabled {
                 state.advance(by: 2)
             } else {
                 state.advance()
             }
-        }
     }
 
     private func saveModelToConfig(_ model: String) {
