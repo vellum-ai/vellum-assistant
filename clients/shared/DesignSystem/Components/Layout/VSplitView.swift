@@ -57,16 +57,15 @@ public struct VSplitView<Main: View, Panel: View>: View {
                 .fill(isDividerHovered || isDragging ? VColor.accent : VColor.surfaceBorder)
                 .frame(width: 1)
 
-            // Pill handle centered vertically
-            Capsule()
-                .fill(isDividerHovered || isDragging ? VColor.accent : VColor.surfaceBorder)
-                .frame(width: 6, height: 48)
-                .overlay(
-                    Capsule()
-                        .stroke(isDividerHovered || isDragging ? VColor.accent : VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
+            // Small pill — only visible on hover/drag
+            if isDividerHovered || isDragging {
+                Capsule()
+                    .fill(VColor.accent)
+                    .frame(width: 4, height: 32)
+                    .transition(.opacity)
+            }
         }
-        .frame(width: 12)
+        .frame(width: 8)
         .contentShape(Rectangle())
         .animation(VAnimation.fast, value: isDividerHovered)
         .animation(VAnimation.fast, value: isDragging)
