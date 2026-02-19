@@ -1,7 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { RiskLevel } from '../../permissions/types.js';
 import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { registerTool } from '../registry.js';
 import { getDb } from '../../memory/db.js';
 import { computeMemoryFingerprint } from '../../memory/fingerprint.js';
 import { memoryItems } from '../../memory/schema.js';
@@ -111,50 +109,3 @@ export async function executePlaybookUpdate(input: Record<string, unknown>, cont
     return { content: `Error updating playbook: ${msg}`, isError: true };
   }
 }
-
-registerTool({
-  name: 'playbook_update',
-  description: 'Update an existing action playbook rule',
-  category: 'playbook',
-  defaultRiskLevel: RiskLevel.Low,
-  getDefinition: () => ({
-    name: 'playbook_update',
-    description: 'Update an existing action playbook rule',
-    input_schema: {
-      type: 'object',
-      properties: {
-        playbook_id: {
-          type: 'string',
-          description: 'ID of the playbook to update (from playbook_list results)',
-        },
-        trigger: {
-          type: 'string',
-          description: 'Updated trigger pattern',
-        },
-        action: {
-          type: 'string',
-          description: 'Updated action description',
-        },
-        channel: {
-          type: 'string',
-          description: 'Updated channel ("*" for all)',
-        },
-        category: {
-          type: 'string',
-          description: 'Updated category',
-        },
-        autonomy_level: {
-          type: 'string',
-          enum: ['auto', 'draft', 'notify'],
-          description: 'Updated autonomy level',
-        },
-        priority: {
-          type: 'number',
-          description: 'Updated priority',
-        },
-      },
-      required: ['playbook_id'],
-    },
-  }),
-  execute: executePlaybookUpdate,
-});

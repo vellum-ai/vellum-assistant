@@ -1,7 +1,5 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
-import { RiskLevel } from '../../permissions/types.js';
 import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { registerTool } from '../registry.js';
 import { getDb } from '../../memory/db.js';
 import { memoryItems } from '../../memory/schema.js';
 import { parsePlaybookStatement } from '../../playbooks/types.js';
@@ -74,28 +72,3 @@ export async function executePlaybookList(input: Record<string, unknown>, contex
     return { content: `Error listing playbooks: ${msg}`, isError: true };
   }
 }
-
-registerTool({
-  name: 'playbook_list',
-  description: 'List action playbooks, optionally filtered by channel or category',
-  category: 'playbook',
-  defaultRiskLevel: RiskLevel.Low,
-  getDefinition: () => ({
-    name: 'playbook_list',
-    description: 'List action playbooks, optionally filtered by channel or category',
-    input_schema: {
-      type: 'object',
-      properties: {
-        channel: {
-          type: 'string',
-          description: 'Filter by channel (e.g. "email", "slack"). Omit to show all.',
-        },
-        category: {
-          type: 'string',
-          description: 'Filter by category (e.g. "scheduling", "triage"). Omit to show all.',
-        },
-      },
-    },
-  }),
-  execute: executePlaybookList,
-});

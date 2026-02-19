@@ -37,11 +37,12 @@ mock.module('../memory/jobs-store.js', () => ({
 import type { Database } from 'bun:sqlite';
 import { initializeDb, getDb } from '../memory/db.js';
 import type { ToolContext } from '../tools/types.js';
-
-// Register playbook tools
-await import('../tools/playbooks/index.js');
-
-import { getTool } from '../tools/registry.js';
+import {
+  executePlaybookCreate,
+  executePlaybookList,
+  executePlaybookUpdate,
+  executePlaybookDelete,
+} from '../tools/playbooks/index.js';
 
 initializeDb();
 
@@ -74,10 +75,8 @@ function extractPlaybookId(content: string): string {
 describe('playbook_create tool', () => {
   beforeEach(clearPlaybooks);
 
-  const tool = getTool('playbook_create')!;
-
   test('creates a playbook with required fields', async () => {
-    const result = await tool.execute({
+    const result = await executePlaybookCreate({
       trigger: 'meeting request',
       action: 'check calendar, propose 3 times',
     }, ctx);
@@ -93,7 +92,7 @@ describe('playbook_create tool', () => {
   });
 
   test('creates a playbook with all optional fields', async () => {
-    const result = await tool.execute({
+    const result = await executePlaybookCreate({
       trigger: 'from:ceo@*',
       action: 'prioritize and draft response',
       channel: 'email',
@@ -111,7 +110,7 @@ describe('playbook_create tool', () => {
   });
 
   test('creates with notify autonomy level', async () => {
-    const result = await tool.execute({
+    const result = await executePlaybookCreate({
       trigger: 'newsletter',
       action: 'archive',
       autonomy_level: 'notify',
@@ -122,12 +121,12 @@ describe('playbook_create tool', () => {
   });
 
   test('rejects duplicate playbook', async () => {
-    await tool.execute({
+    await executePlaybookCreate({
       trigger: 'unique trigger',
       action: 'unique action',
     }, ctx);
 
-    const result = await tool.execute({
+    const result = await executePlaybookCreate({
       trigger: 'unique trigger',
       action: 'unique action',
     }, ctx);
@@ -137,7 +136,7 @@ describe('playbook_create tool', () => {
   });
 
   test('rejects missing trigger', async () => {
-    const result = await tool.execute({
+    const result = await executePlaybookCreate({
       action: 'do something',
     }, ctx);
 
@@ -146,7 +145,7 @@ describe('playbook_create tool', () => {
   });
 
   test('rejects missing action', async () => {
-    const result = await tool.execute({
+    const result = await executePlaybookCreate({
       trigger: 'test trigger',
     }, ctx);
 
@@ -160,27 +159,24 @@ describe('playbook_create tool', () => {
 describe('playbook_list tool', () => {
   beforeEach(clearPlaybooks);
 
-  const createTool = getTool('playbook_create')!;
-  const listTool = getTool('playbook_list')!;
-
   test('returns empty message when no playbooks exist', async () => {
-    const result = await listTool.execute({}, ctx);
+    const result = await executePlaybookList({}, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('No playbooks found');
   });
 
   test('lists all playbooks', async () => {
-    await createTool.execute({
+    await executePlaybookCreate({
       trigger: 'meeting request',
       action: 'check calendar',
     }, ctx);
-    await createTool.execute({
+    await executePlaybookCreate({
       trigger: 'newsletter',
       action: 'archive it',
     }, ctx);
 
-    const result = await listTool.execute({}, ctx);
+    const result = await executePlaybookList({}, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Found 2 playbook(s)');
@@ -189,18 +185,18 @@ describe('playbook_list tool', () => {
   });
 
   test('filters by channel', async () => {
-    await createTool.execute({
+    await executePlaybookCreate({
       trigger: 'email trigger',
       action: 'handle email',
       channel: 'email',
     }, ctx);
-    await createTool.execute({
+    await executePlaybookCreate({
       trigger: 'slack trigger',
       action: 'handle slack',
       channel: 'slack',
     }, ctx);
 
-    const result = await listTool.execute({ channel: 'email' }, ctx);
+    const result = await executePlaybookList({ channel: 'email' }, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('email trigger');
@@ -208,18 +204,18 @@ describe('playbook_list tool', () => {
   });
 
   test('filters by category', async () => {
-    await createTool.execute({
+    await executePlaybookCreate({
       trigger: 'scheduling trigger',
       action: 'schedule it',
       category: 'scheduling',
     }, ctx);
-    await createTool.execute({
+    await executePlaybookCreate({
       trigger: 'triage trigger',
       action: 'triage it',
       category: 'triage',
     }, ctx);
 
-    const result = await listTool.execute({ category: 'scheduling' }, ctx);
+    const result = await executePlaybookList({ category: 'scheduling' }, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('scheduling trigger');
@@ -227,13 +223,13 @@ describe('playbook_list tool', () => {
   });
 
   test('includes wildcard channel playbooks in channel filter', async () => {
-    await createTool.execute({
+    await executePlaybookCreate({
       trigger: 'wildcard trigger',
       action: 'handle anything',
       channel: '*',
     }, ctx);
 
-    const result = await listTool.execute({ channel: 'email' }, ctx);
+    const result = await executePlaybookList({ channel: 'email' }, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('wildcard trigger');
@@ -245,17 +241,14 @@ describe('playbook_list tool', () => {
 describe('playbook_update tool', () => {
   beforeEach(clearPlaybooks);
 
-  const createTool = getTool('playbook_create')!;
-  const updateTool = getTool('playbook_update')!;
-
   test('updates the trigger', async () => {
-    const createResult = await createTool.execute({
+    const createResult = await executePlaybookCreate({
       trigger: 'old trigger',
       action: 'do something',
     }, ctx);
     const id = extractPlaybookId(createResult.content);
 
-    const result = await updateTool.execute({
+    const result = await executePlaybookUpdate({
       playbook_id: id,
       trigger: 'new trigger',
     }, ctx);
@@ -266,13 +259,13 @@ describe('playbook_update tool', () => {
   });
 
   test('updates multiple fields at once', async () => {
-    const createResult = await createTool.execute({
+    const createResult = await executePlaybookCreate({
       trigger: 'test',
       action: 'old action',
     }, ctx);
     const id = extractPlaybookId(createResult.content);
 
-    const result = await updateTool.execute({
+    const result = await executePlaybookUpdate({
       playbook_id: id,
       action: 'new action',
       channel: 'slack',
@@ -290,7 +283,7 @@ describe('playbook_update tool', () => {
   });
 
   test('rejects missing playbook_id', async () => {
-    const result = await updateTool.execute({
+    const result = await executePlaybookUpdate({
       trigger: 'new trigger',
     }, ctx);
 
@@ -299,7 +292,7 @@ describe('playbook_update tool', () => {
   });
 
   test('returns error for nonexistent playbook_id', async () => {
-    const result = await updateTool.execute({
+    const result = await executePlaybookUpdate({
       playbook_id: 'nonexistent',
       trigger: 'test',
     }, ctx);
@@ -314,37 +307,33 @@ describe('playbook_update tool', () => {
 describe('playbook_delete tool', () => {
   beforeEach(clearPlaybooks);
 
-  const createTool = getTool('playbook_create')!;
-  const deleteTool = getTool('playbook_delete')!;
-  const listTool = getTool('playbook_list')!;
-
   test('deletes a playbook', async () => {
-    const createResult = await createTool.execute({
+    const createResult = await executePlaybookCreate({
       trigger: 'delete me',
       action: 'to be deleted',
     }, ctx);
     const id = extractPlaybookId(createResult.content);
 
-    const result = await deleteTool.execute({ playbook_id: id }, ctx);
+    const result = await executePlaybookDelete({ playbook_id: id }, ctx);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Playbook deleted');
     expect(result.content).toContain('delete me');
 
     // Verify it no longer appears in list
-    const listResult = await listTool.execute({}, ctx);
+    const listResult = await executePlaybookList({}, ctx);
     expect(listResult.content).toContain('No playbooks found');
   });
 
   test('rejects missing playbook_id', async () => {
-    const result = await deleteTool.execute({}, ctx);
+    const result = await executePlaybookDelete({}, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('playbook_id is required');
   });
 
   test('returns error for nonexistent playbook_id', async () => {
-    const result = await deleteTool.execute({ playbook_id: 'nonexistent' }, ctx);
+    const result = await executePlaybookDelete({ playbook_id: 'nonexistent' }, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('not found');
