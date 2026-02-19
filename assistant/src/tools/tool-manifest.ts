@@ -17,7 +17,6 @@ import { screenWatchTool } from './watch/screen-watch.js';
 import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
 import { documentCreateTool, documentUpdateTool } from './document/index.js';
 import { cliDiscoverTool } from './host-terminal/cli-discover.js';
-import { followupCreateTool, followupListTool, followupResolveTool } from './followups/index.js';
 import { taskSaveTool, taskRunTool, taskListTool, taskDeleteTool, taskListShowTool, taskListAddTool, taskListUpdateTool, taskListRemoveTool } from './tasks/index.js';
 import {
   subagentSpawnTool,
@@ -112,9 +111,6 @@ export const explicitTools: Tool[] = [
   documentCreateTool,
   documentUpdateTool,
   cliDiscoverTool,
-  followupCreateTool,
-  followupListTool,
-  followupResolveTool,
   taskSaveTool,
   taskRunTool,
   taskListTool,
