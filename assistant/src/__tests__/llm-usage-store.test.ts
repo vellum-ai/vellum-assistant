@@ -43,7 +43,6 @@ function makeInput(overrides?: Partial<UsageEventInput>): UsageEventInput {
     cacheCreationInputTokens: null,
     cacheReadInputTokens: null,
     actor: 'main_agent',
-    assistantId: null,
     conversationId: null,
     runId: null,
     requestId: null,
@@ -86,7 +85,7 @@ describe('recordUsageEvent', () => {
   });
 
   test('persists a priced event that can be retrieved', () => {
-    const input = makeInput({ assistantId: 'a1', conversationId: 'c1' });
+    const input = makeInput({ conversationId: 'c1' });
     const event = recordUsageEvent(input, pricedResult);
 
     const events = listUsageEvents();
@@ -94,7 +93,6 @@ describe('recordUsageEvent', () => {
     expect(events[0].id).toBe(event.id);
     expect(events[0].estimatedCostUsd).toBe(0.0045);
     expect(events[0].pricingStatus).toBe('priced');
-    expect(events[0].assistantId).toBe('a1');
     expect(events[0].conversationId).toBe('c1');
   });
 
@@ -113,7 +111,6 @@ describe('recordUsageEvent', () => {
 
   test('handles null optional fields', () => {
     const input = makeInput({
-      assistantId: null,
       conversationId: null,
       runId: null,
       requestId: null,
@@ -124,7 +121,6 @@ describe('recordUsageEvent', () => {
 
     const events = listUsageEvents();
     expect(events).toHaveLength(1);
-    expect(events[0].assistantId).toBeNull();
     expect(events[0].conversationId).toBeNull();
     expect(events[0].runId).toBeNull();
     expect(events[0].requestId).toBeNull();
@@ -134,7 +130,6 @@ describe('recordUsageEvent', () => {
 
   test('handles populated optional fields', () => {
     const input = makeInput({
-      assistantId: 'assistant-1',
       conversationId: 'conv-1',
       runId: 'run-1',
       requestId: 'req-1',
@@ -145,7 +140,6 @@ describe('recordUsageEvent', () => {
 
     const events = listUsageEvents();
     expect(events).toHaveLength(1);
-    expect(events[0].assistantId).toBe('assistant-1');
     expect(events[0].conversationId).toBe('conv-1');
     expect(events[0].runId).toBe('run-1');
     expect(events[0].requestId).toBe('req-1');
