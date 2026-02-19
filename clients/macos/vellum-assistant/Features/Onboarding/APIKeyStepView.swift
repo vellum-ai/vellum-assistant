@@ -282,7 +282,11 @@ struct APIKeyStepView: View {
             state.advance()
         } else {
             saveModelToConfig("claude-opus-4-6")
-            state.advance()
+            if userHostedEnabled {
+                state.advance(by: 2)
+            } else {
+                state.advance()
+            }
         }
     }
 
