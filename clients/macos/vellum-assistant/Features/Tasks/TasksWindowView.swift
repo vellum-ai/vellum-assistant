@@ -236,6 +236,7 @@ private struct TasksWindowRow: View {
             actionsColumn
                 .frame(width: TasksTableContract.actionsWidth)
         }
+        .frame(minHeight: 36)
         .padding(.vertical, VSpacing.sm)
         .padding(.horizontal, VSpacing.md)
         .background(isHovered ? VColor.surface.opacity(0.8) : VColor.surface.opacity(0.5))
@@ -285,10 +286,17 @@ private struct TasksWindowRow: View {
                     .font(VFont.caption)
                     .foregroundColor(style.color)
             }
+            .padding(.horizontal, VSpacing.xs)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(isHovered ? VColor.surfaceBorder.opacity(0.5) : Color.clear)
+            )
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .accessibilityLabel("Priority \(style.label)")
+        .accessibilityHint("Double-click to change priority")
     }
 
     // MARK: - Status Column
@@ -309,6 +317,7 @@ private struct TasksWindowRow: View {
         .padding(.vertical, 2)
         .background(style.color.opacity(0.12))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        .accessibilityLabel("Status \(style.label)")
     }
 
     // MARK: - Actions Column
@@ -330,6 +339,7 @@ private struct TasksWindowRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Run task")
             }
 
             if item.status == "awaiting_review" {
@@ -347,6 +357,7 @@ private struct TasksWindowRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Mark task as reviewed")
             }
         }
     }
