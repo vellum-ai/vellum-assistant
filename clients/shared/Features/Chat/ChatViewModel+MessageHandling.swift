@@ -946,12 +946,21 @@ extension ChatViewModel {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
-            // When the user intentionally cancelled, suppress both the typed
-            // session error and the errorText so no toast appears.
+            // When the user intentionally cancelled, suppress the error.
+            // Otherwise, insert an inline error message so errors are visually
+            // distinct from normal assistant replies (rendered with a red box).
             if !wasCancelling {
                 let typedError = SessionError(from: msg)
                 sessionError = typedError
-                errorText = msg.userMessage
+                // Remove empty assistant message left over from the interrupted stream
+                if let existingId = messages.last?.id,
+                   messages.last?.role == .assistant,
+                   messages.last?.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true,
+                   messages.last?.toolCalls.isEmpty == true {
+                    messages.removeAll(where: { $0.id == existingId })
+                }
+                let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true)
+                messages.append(errorMsg)
             }
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {

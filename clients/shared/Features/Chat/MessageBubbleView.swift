@@ -189,6 +189,25 @@ public struct MessageBubbleView: View {
                 .background(VColor.userBubble)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .textSelection(.enabled)
+        } else if message.isError {
+            HStack(alignment: .top, spacing: VSpacing.sm) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(VColor.error)
+                    .padding(.top, 1)
+                Text(text)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(VSpacing.md)
+            .background(VColor.error.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
+            )
         } else {
             MarkdownRenderer(text: text)
                 .padding(VSpacing.md)
