@@ -7,13 +7,9 @@ import type { ImageContent, ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
-const SUPPORTED_EXTENSIONS: Record<string, string> = {
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-};
+const SUPPORTED_EXTENSIONS = new Set([
+  '.jpg', '.jpeg', '.png', '.gif', '.webp',
+]);
 
 const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
 
@@ -22,6 +18,36 @@ const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
 const OPTIMIZE_THRESHOLD_BYTES = 1 * 1024 * 1024; // 1 MB
 const OPTIMIZE_MAX_DIMENSION = 1568; // Anthropic's recommended max
 const OPTIMIZE_JPEG_QUALITY = 80;
+
+/**
+ * Detect the actual image format from the first bytes of the buffer.
+ * Returns the MIME type, or null if unrecognised.
+ */
+function detectMediaType(buf: Buffer): string | null {
+  if (buf.length < 12) return null;
+
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) {
+    return 'image/jpeg';
+  }
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) {
+    return 'image/png';
+  }
+  // GIF: 47 49 46 38
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) {
+    return 'image/gif';
+  }
+  // WebP: RIFF....WEBP
+  if (
+    buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+    buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50
+  ) {
+    return 'image/webp';
+  }
+
+  return null;
+}
 
 /**
  * Use macOS `sips` to resize and convert an image to JPEG.
@@ -77,9 +103,8 @@ class ViewImageTool implements Tool {
     const resolved = resolve(context.workingDir, rawPath);
 
     const ext = extname(resolved).toLowerCase();
-    const mediaType = SUPPORTED_EXTENSIONS[ext];
-    if (!mediaType) {
-      const supported = Object.keys(SUPPORTED_EXTENSIONS).join(', ');
+    if (!SUPPORTED_EXTENSIONS.has(ext)) {
+      const supported = [...SUPPORTED_EXTENSIONS].join(', ');
       return {
         content: `Error: unsupported image format "${ext}". Supported: ${supported}`,
         isError: true,
@@ -106,7 +131,6 @@ class ViewImageTool implements Tool {
     }
 
     let buffer: Buffer;
-    let finalMediaType = mediaType;
     let optimized = false;
     let tmpPath: string | null = null;
 
@@ -115,7 +139,6 @@ class ViewImageTool implements Tool {
         tmpPath = optimizeWithSips(resolved);
         if (tmpPath) {
           buffer = readFileSync(tmpPath) as Buffer;
-          finalMediaType = 'image/jpeg';
           optimized = true;
         } else {
           buffer = readFileSync(resolved) as Buffer;
@@ -132,13 +155,23 @@ class ViewImageTool implements Tool {
       }
     }
 
+    // Detect actual format from magic bytes — never trust the file extension
+    // alone, since sips converts to JPEG and files can be misnamed.
+    const detectedType = detectMediaType(buffer);
+    if (!detectedType) {
+      return {
+        content: `Error: could not detect image format for ${resolved}. The file may be corrupt.`,
+        isError: true,
+      };
+    }
+
     const base64Data = buffer.toString('base64');
 
     const imageBlock: ImageContent = {
       type: 'image' as const,
       source: {
         type: 'base64' as const,
-        media_type: finalMediaType,
+        media_type: detectedType,
         data: base64Data,
       },
     };
@@ -148,7 +181,7 @@ class ViewImageTool implements Tool {
       : '';
 
     return {
-      content: `Image loaded: ${resolved} (${buffer.length} bytes, ${finalMediaType})${sizeSuffix}`,
+      content: `Image loaded: ${resolved} (${buffer.length} bytes, ${detectedType})${sizeSuffix}`,
       isError: false,
       contentBlocks: [imageBlock],
     };
