@@ -118,7 +118,7 @@ export async function handleDeleteAttachment(req: Request): Promise<Response> {
 }
 
 export function handleGetAttachment(attachmentId: string): Response {
-  const attachment = attachmentsStore.getAttachmentById("self", attachmentId);
+  const attachment = attachmentsStore.getAttachmentByIdUnscoped(attachmentId);
   if (!attachment) {
     return Response.json({ error: 'Attachment not found' }, { status: 404 });
   }

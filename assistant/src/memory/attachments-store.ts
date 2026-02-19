@@ -433,6 +433,32 @@ export function getAttachmentById(
 }
 
 /**
+ * Retrieve a single attachment by ID without assistant scoping.
+ * Used by the desktop HTTP endpoint where tenant isolation is not needed.
+ */
+export function getAttachmentByIdUnscoped(
+  attachmentId: string,
+): (StoredAttachment & { dataBase64: string }) | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(attachments)
+    .where(eq(attachments.id, attachmentId))
+    .get();
+  if (!row) return null;
+  return {
+    id: row.id,
+    assistantId: row.assistantId,
+    originalFilename: row.originalFilename,
+    mimeType: row.mimeType,
+    sizeBytes: row.sizeBytes,
+    kind: row.kind,
+    dataBase64: row.dataBase64,
+    createdAt: row.createdAt,
+  };
+}
+
+/**
  * Delete attachments from a specific candidate set that have no remaining
  * links in message_attachments. Only the given IDs are considered — this
  * prevents freshly uploaded (but not yet linked) attachments from being
