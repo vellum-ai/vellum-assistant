@@ -1140,7 +1140,7 @@ private struct ChatBubble: View {
                 NSCursor.arrow.set()
             }
         }
-        .overlay(alignment: .top) {
+        .overlay(alignment: .bottom) {
             if isCopyHovered && !showCopyConfirmation {
                 Text("Copy")
                     .font(VFont.caption)
@@ -1157,7 +1157,7 @@ private struct ChatBubble: View {
                     )
                     .vShadow(VShadow.sm)
                     .fixedSize()
-                    .offset(y: -28)
+                    .offset(y: 28)
                     .transition(.opacity)
                     .allowsHitTesting(false)
             }
@@ -1178,7 +1178,7 @@ private struct ChatBubble: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Try again")
         .onHover { isRegenerateHovered = $0 }
-        .overlay(alignment: .top) {
+        .overlay(alignment: .bottom) {
             if isRegenerateHovered {
                 Text("Try again")
                     .font(VFont.caption)
@@ -1195,7 +1195,7 @@ private struct ChatBubble: View {
                     )
                     .vShadow(VShadow.sm)
                     .fixedSize()
-                    .offset(y: -28)
+                    .offset(y: 28)
                     .transition(.opacity)
                     .allowsHitTesting(false)
             }
