@@ -118,8 +118,8 @@ describe('Parallel tool execution benchmarks', () => {
     const elapsed = Date.now() - start;
 
     // Parallel: ~50ms + overhead. Sequential would be ~250ms.
-    // Allow up to 200ms for CI/scheduling overhead.
-    expect(elapsed).toBeLessThan(200);
+    // Allow up to 150ms for CI/scheduling overhead.
+    expect(elapsed).toBeLessThan(150);
   });
 
   // 2. 10 tools at 50ms each should still complete quickly in parallel
@@ -156,8 +156,8 @@ describe('Parallel tool execution benchmarks', () => {
     expect(executionLog).toHaveLength(toolCount);
 
     // Parallel: ~50ms + overhead. Sequential would be ~500ms.
-    // Allow up to 300ms for CI/scheduling overhead with 10 concurrent timers.
-    expect(elapsed).toBeLessThan(300);
+    // Allow up to 200ms for CI/scheduling overhead with 10 concurrent timers.
+    expect(elapsed).toBeLessThan(200);
 
     // Verify overlap: all tools should start before any finishes
     const allStarts = executionLog.map((e) => e.start);
@@ -215,51 +215,68 @@ describe('Parallel tool execution benchmarks', () => {
 
   // 4. Abort during parallel execution cancels within 200ms
   test('abort during parallel execution cancels within 200ms', async () => {
-    const toolCount = 5;
-
-    const toolUseBlocks = Array.from({ length: toolCount }, (_, i) => ({
-      id: `t${i}`,
-      name: 'delay_tool',
-      input: { index: i },
-    }));
-
-    const { provider } = createMockProvider([
-      parallelToolUseResponse(toolUseBlocks),
-      textResponse('Should not reach.'),
-    ]);
-
-    const controller = new AbortController();
-
-    const toolExecutor = async () => {
-      // Each tool takes 10 seconds — abort should fire during execution
-      setTimeout(() => controller.abort(), 50);
-      await new Promise((r) => setTimeout(r, 10_000));
-      return { content: 'should not return', isError: false };
+    const unhandledRejections: Error[] = [];
+    const handler = (event: PromiseRejectionEvent) => {
+      unhandledRejections.push(event.reason);
+      event.preventDefault();
     };
+    globalThis.addEventListener('unhandledrejection', handler);
 
-    const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
-    const start = Date.now();
-    const history = await loop.run([userMessage], () => {}, controller.signal);
-    const elapsed = Date.now() - start;
+    try {
+      const toolCount = 5;
 
-    // Should exit quickly after the 50ms abort, not wait 10s
-    expect(elapsed).toBeLessThan(200);
+      const toolUseBlocks = Array.from({ length: toolCount }, (_, i) => ({
+        id: `t${i}`,
+        name: 'delay_tool',
+        input: { index: i },
+      }));
 
-    // History should have: user msg, assistant (tool_use), user (cancelled tool_results)
-    expect(history).toHaveLength(3);
+      const { provider } = createMockProvider([
+        parallelToolUseResponse(toolUseBlocks),
+        textResponse('Should not reach.'),
+      ]);
 
-    const lastMsg = history[history.length - 1];
-    expect(lastMsg.role).toBe('user');
+      const controller = new AbortController();
 
-    const toolResultBlocks = lastMsg.content.filter(
-      (b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result',
-    );
-    expect(toolResultBlocks).toHaveLength(toolCount);
+      const toolExecutor = async () => {
+        // Each tool takes 10 seconds — abort should fire during execution
+        setTimeout(() => controller.abort(), 50);
+        await new Promise((r) => setTimeout(r, 10_000));
+        return { content: 'should not return', isError: false };
+      };
 
-    // All results should be cancelled
-    for (const block of toolResultBlocks) {
-      expect(block.content).toBe('Cancelled by user');
-      expect(block.is_error).toBe(true);
+      const loop = new AgentLoop(provider, 'system', {}, dummyTools, toolExecutor);
+      const start = Date.now();
+      const history = await loop.run([userMessage], () => {}, controller.signal);
+      const elapsed = Date.now() - start;
+
+      // Should exit quickly after the 50ms abort, not wait 10s
+      expect(elapsed).toBeLessThan(200);
+
+      // History should have: user msg, assistant (tool_use), user (cancelled tool_results)
+      expect(history).toHaveLength(3);
+
+      const lastMsg = history[history.length - 1];
+      expect(lastMsg.role).toBe('user');
+
+      const toolResultBlocks = lastMsg.content.filter(
+        (b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result',
+      );
+      expect(toolResultBlocks).toHaveLength(toolCount);
+
+      // All results should be cancelled
+      for (const block of toolResultBlocks) {
+        expect(block.content).toBe('Cancelled by user');
+        expect(block.is_error).toBe(true);
+      }
+
+      // Wait a tick for any late rejections to surface
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Verify no unhandled rejections occurred
+      expect(unhandledRejections).toHaveLength(0);
+    } finally {
+      globalThis.removeEventListener('unhandledrejection', handler);
     }
   });
 });
