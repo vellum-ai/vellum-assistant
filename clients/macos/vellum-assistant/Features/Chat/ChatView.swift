@@ -112,33 +112,9 @@ struct ChatView: View {
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
     @State private var isComposerExpanded = false
-    @State private var emptyStateTitle: String = emptyStateTitles.randomElement()!
-    @State private var emptyStatePlaceholder: String = placeholderTexts.randomElement()!
-    @State private var emptyStateVisible = false
     @State private var identity: IdentityInfo? = IdentityInfo.load()
     @State private var appearance = AvatarAppearanceManager.shared
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
-
-    private static let defaultGreetings = [
-        "What are we working on?",
-        "I'm here whenever you need me.",
-        "What's on your mind?",
-        "Let's make something happen.",
-        "Ready when you are.",
-    ]
-
-    private static var emptyStateTitles: [String] {
-        let custom = IdentityInfo.loadGreetings()
-        return custom.isEmpty ? defaultGreetings : custom
-    }
-
-    private static let placeholderTexts = [
-        "Ask me anything...",
-        "Tell me what you need...",
-        "Say the word...",
-        "Go ahead, I'm listening...",
-        "Type or hold Fn to talk...",
-    ]
 
     private var isEmptyState: Bool {
         messages.isEmpty && !isSending
@@ -152,9 +128,41 @@ struct ChatView: View {
                 apiKeyBanner
                 if isEmptyState {
                     if isTemporaryChat {
-                        temporaryChatEmptyStateView
+                        ChatTemporaryChatEmptyStateView(
+                            inputText: $inputText,
+                            hasAPIKey: hasAPIKey,
+                            isSending: isSending,
+                            isRecording: isRecording,
+                            suggestion: suggestion,
+                            pendingAttachments: pendingAttachments,
+                            onSend: onSend,
+                            onStop: onStop,
+                            onAcceptSuggestion: onAcceptSuggestion,
+                            onAttach: onAttach,
+                            onRemoveAttachment: onRemoveAttachment,
+                            onPaste: onPaste,
+                            onMicrophoneToggle: onMicrophoneToggle,
+                            editorContentHeight: $editorContentHeight,
+                            isComposerExpanded: $isComposerExpanded
+                        )
                     } else {
-                        emptyStateView
+                        ChatEmptyStateView(
+                            inputText: $inputText,
+                            hasAPIKey: hasAPIKey,
+                            isSending: isSending,
+                            isRecording: isRecording,
+                            suggestion: suggestion,
+                            pendingAttachments: pendingAttachments,
+                            onSend: onSend,
+                            onStop: onStop,
+                            onAcceptSuggestion: onAcceptSuggestion,
+                            onAttach: onAttach,
+                            onRemoveAttachment: onRemoveAttachment,
+                            onPaste: onPaste,
+                            onMicrophoneToggle: onMicrophoneToggle,
+                            editorContentHeight: $editorContentHeight,
+                            isComposerExpanded: $isComposerExpanded
+                        )
                     }
                 } else {
                     ZStack(alignment: .bottom) {
@@ -196,12 +204,6 @@ struct ChatView: View {
                     .transition(.opacity)
             }
         }
-        .onChange(of: messages.isEmpty) {
-            if messages.isEmpty {
-                emptyStateTitle = Self.emptyStateTitles.randomElement()!
-                emptyStatePlaceholder = Self.placeholderTexts.randomElement()!
-            }
-        }
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
@@ -211,126 +213,6 @@ struct ChatView: View {
                 editorContentHeight = composerMinHeight
             }
         }
-    }
-
-    private var emptyStateView: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            Spacer()
-
-            Text("🍃")
-                .font(.system(size: 48))
-                .opacity(emptyStateVisible ? 1 : 0)
-                .scaleEffect(emptyStateVisible ? 1 : 0.8)
-                .padding(.bottom, VSpacing.lg)
-
-            Text(emptyStateTitle)
-                .font(.custom("Fraunces", size: 28).weight(.regular))
-                .foregroundColor(VColor.textSecondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 500)
-                .opacity(emptyStateVisible ? 1 : 0)
-                .offset(y: emptyStateVisible ? 0 : 8)
-                .padding(.horizontal, VSpacing.xl)
-                .padding(.bottom, VSpacing.xl)
-
-            ComposerView(
-                inputText: $inputText,
-                hasAPIKey: hasAPIKey,
-                isSending: isSending,
-                isRecording: isRecording,
-                suggestion: suggestion,
-                pendingAttachments: pendingAttachments,
-                onSend: onSend,
-                onStop: onStop,
-                onAcceptSuggestion: onAcceptSuggestion,
-                onAttach: onAttach,
-                onRemoveAttachment: onRemoveAttachment,
-                onPaste: onPaste,
-                onMicrophoneToggle: onMicrophoneToggle,
-                placeholderText: emptyStatePlaceholder,
-                editorContentHeight: $editorContentHeight,
-                isComposerExpanded: $isComposerExpanded
-            )
-            .frame(maxWidth: 500)
-            .opacity(emptyStateVisible ? 1 : 0)
-            .offset(y: emptyStateVisible ? 0 : 10)
-
-            Spacer()
-            Spacer()
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.5)) {
-                emptyStateVisible = true
-            }
-        }
-        .onDisappear {
-            emptyStateVisible = false
-        }
-    }
-
-    private var temporaryChatEmptyStateView: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            Spacer()
-
-            Text("🍃")
-                .font(.system(size: 48))
-                .padding(.bottom, VSpacing.lg)
-
-            Text("Temporary Chat")
-                .font(.system(size: 28, weight: .medium))
-                .foregroundColor(VColor.textSecondary)
-                .multilineTextAlignment(.center)
-                .padding(.bottom, VSpacing.sm)
-
-            Text("Memory is disabled for this chat, and it won\u{2019}t appear in your history.")
-                .font(VFont.body)
-                .foregroundColor(VColor.textMuted)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 400)
-                .padding(.horizontal, VSpacing.xl)
-                .padding(.bottom, VSpacing.xxl)
-
-            ComposerView(
-                inputText: $inputText,
-                hasAPIKey: hasAPIKey,
-                isSending: isSending,
-                isRecording: isRecording,
-                suggestion: suggestion,
-                pendingAttachments: pendingAttachments,
-                onSend: onSend,
-                onStop: onStop,
-                onAcceptSuggestion: onAcceptSuggestion,
-                onAttach: onAttach,
-                onRemoveAttachment: onRemoveAttachment,
-                onPaste: onPaste,
-                onMicrophoneToggle: onMicrophoneToggle,
-                placeholderText: "Ask anything...",
-                editorContentHeight: $editorContentHeight,
-                isComposerExpanded: $isComposerExpanded
-            )
-
-            Spacer()
-            Spacer()
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            RadialGradient(
-                gradient: Gradient(colors: [
-                    VColor.accent.opacity(0.07),
-                    VColor.accent.opacity(0.02),
-                    Color.clear,
-                ]),
-                center: .center,
-                startRadius: 20,
-                endRadius: 350
-            )
-            .offset(y: -40)
-        )
     }
 
     /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
@@ -375,7 +257,14 @@ struct ChatView: View {
             }
 
             if let errorText, sessionError == nil {
-                errorBanner(errorText)
+                ChatErrorBanner(
+                    text: errorText,
+                    isSecretBlockError: isSecretBlockError,
+                    onSendAnyway: onSendAnyway,
+                    isRetryableError: isRetryableError,
+                    onRetryError: onRetryError,
+                    onDismissError: onDismissError
+                )
             }
             queueSummary
             ComposerView(
@@ -682,179 +571,6 @@ struct ChatView: View {
                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                 }
             }
-        }
-    }
-
-    // MARK: - Error Banner
-
-    private func errorBanner(_ text: String) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(VFont.caption)
-
-            Text(text)
-                .font(VFont.caption)
-                .lineLimit(4)
-
-            Spacer()
-
-            if isSecretBlockError {
-                Button(action: onSendAnyway) {
-                    Text("Send Anyway")
-                        .font(VFont.captionMedium)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(Color.white.opacity(0.2))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Send message anyway")
-            } else if isRetryableError {
-                Button(action: onRetryError) {
-                    Text("Retry")
-                        .font(VFont.captionMedium)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(Color.white.opacity(0.2))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Retry sending message")
-            }
-
-            Button {
-                onDismissError()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(VFont.caption)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss error")
-        }
-        .foregroundColor(.white)
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.sm)
-        .background(VColor.error)
-    }
-
-    // MARK: - Session Error Toast
-
-    private func sessionErrorToast(_ error: SessionError) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            Image(systemName: sessionErrorIcon(error.category))
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(sessionErrorAccent(error.category))
-
-            VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text(error.message)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(2)
-
-                Text(error.recoverySuggestion)
-                    .font(VFont.small)
-                    .foregroundColor(VColor.textSecondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            if error.isRetryable {
-                Button(action: onRetry) {
-                    Text(sessionErrorActionLabel(error.category))
-                        .font(VFont.captionMedium)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(sessionErrorAccent(error.category))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(sessionErrorActionLabel(error.category))
-            }
-
-            if error.debugDetails != nil {
-                Button(action: onCopyDebugInfo) {
-                    Image(systemName: "doc.on.clipboard")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(VColor.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Copy debug info")
-            }
-
-            Button {
-                onDismissSessionError()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(VColor.textMuted)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss error")
-        }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.sm)
-        .background(sessionErrorAccent(error.category).opacity(0.1))
-        .overlay(
-            Rectangle()
-                .fill(sessionErrorAccent(error.category))
-                .frame(width: 3),
-            alignment: .leading
-        )
-        .transition(.move(edge: .top).combined(with: .opacity))
-    }
-
-    /// SF Symbol icon appropriate for each error category.
-    private func sessionErrorIcon(_ category: SessionErrorCategory) -> String {
-        switch category {
-        case .providerNetwork:
-            return "wifi.exclamationmark"
-        case .rateLimit:
-            return "clock.badge.exclamationmark"
-        case .providerApi:
-            return "exclamationmark.icloud.fill"
-        case .contextTooLarge:
-            return "text.badge.xmark"
-        case .queueFull:
-            return "tray.full.fill"
-        case .sessionAborted:
-            return "stop.circle.fill"
-        case .processingFailed, .regenerateFailed:
-            return "arrow.triangle.2.circlepath"
-        case .unknown:
-            return "exclamationmark.triangle.fill"
-        }
-    }
-
-    /// Accent color for each error category -- warm for transient/retryable,
-    /// red for hard failures.
-    private func sessionErrorAccent(_ category: SessionErrorCategory) -> Color {
-        switch category {
-        case .rateLimit, .queueFull:
-            return VColor.warning
-        case .providerNetwork:
-            return Amber._500
-        case .sessionAborted:
-            return VColor.textSecondary
-        case .contextTooLarge:
-            return VColor.warning
-        default:
-            return VColor.error
-        }
-    }
-
-    /// Action button label tailored to the error category.
-    private func sessionErrorActionLabel(_ category: SessionErrorCategory) -> String {
-        switch category {
-        case .rateLimit:
-            return "Retry"
-        case .regenerateFailed:
-            return "Retry"
-        case .providerNetwork:
-            return "Retry"
-        default:
-            return "Retry"
         }
     }
 
