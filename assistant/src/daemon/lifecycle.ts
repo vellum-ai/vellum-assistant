@@ -224,16 +224,18 @@ export async function stopDaemon(): Promise<{ stopped: boolean }> {
     killWaited += 100;
   }
 
-  // Only remove the socket if the process has actually exited.
-  // If it's still alive after SIGKILL + timeout, leave the socket
-  // intact to avoid pulling the rug from under a still-running daemon.
+  // Only clean up if the process has actually exited.
+  // If it's still alive after SIGKILL + timeout, preserve both socket
+  // and PID file so isDaemonRunning() still reports true and prevents
+  // a duplicate daemon from being spawned.
   if (!isProcessRunning(pid)) {
     removeSocketFile(getSocketPath());
-  } else {
-    log.warn({ pid }, 'Daemon process still running after SIGKILL + timeout, leaving socket intact');
+    cleanupPidFile();
+    return { stopped: true };
   }
-  cleanupPidFile();
-  return { stopped: true };
+
+  log.warn({ pid }, 'Daemon process still running after SIGKILL + timeout, leaving socket and PID file intact');
+  return { stopped: false };
 }
 
 export async function ensureDaemonRunning(): Promise<void> {
