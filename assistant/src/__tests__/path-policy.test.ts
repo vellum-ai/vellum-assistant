@@ -148,6 +148,37 @@ describe('sandboxPolicy', () => {
       expect(result.resolved).toBe(join(boundary, 'subdir', 'new-file.txt'));
     }
   });
+
+  test('remaps /workspace/ paths to boundary dir', () => {
+    const boundary = makeTempDir();
+    mkdirSync(join(boundary, 'scratch'));
+
+    const result = sandboxPolicy('/workspace/scratch/file.png', boundary);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe(join(boundary, 'scratch', 'file.png'));
+    }
+  });
+
+  test('remaps bare /workspace to boundary root', () => {
+    const boundary = makeTempDir();
+
+    const result = sandboxPolicy('/workspace', boundary);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.resolved).toBe(boundary);
+    }
+  });
+
+  test('remapped /workspace path still rejects traversal escapes', () => {
+    const boundary = makeTempDir();
+
+    const result = sandboxPolicy('/workspace/../../../etc/passwd', boundary);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe('out_of_bounds');
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
