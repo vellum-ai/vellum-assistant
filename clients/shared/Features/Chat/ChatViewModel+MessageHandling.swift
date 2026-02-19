@@ -580,6 +580,13 @@ extension ChatViewModel {
             cancelTimeoutTask = nil
             let wasCancelling = isCancelling
             isCancelling = false
+            // Stale cancel event from a previous cancel cycle — the daemon
+            // emits generation_cancelled for each queued entry during abort,
+            // but the first event already reset state and dispatched any
+            // pending send-direct. Ignore to avoid clobbering the new send.
+            if !wasCancelling && isSending {
+                return
+            }
             isThinking = false
             if wasCancelling {
                 isSending = false
