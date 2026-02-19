@@ -1,6 +1,6 @@
 import Foundation
 
-enum ImageURLClassification {
+public enum ImageURLClassification {
     case image
     case notImage
     case unknown
@@ -11,14 +11,14 @@ enum ImageURLClassification {
 /// This is the first stage of image detection in the media-embed pipeline.
 /// Only truly extensionless URLs return `.unknown` (triggering the MIME-probe
 /// fallback); URLs with a non-image extension return `.notImage`.
-enum ImageURLClassifier {
+public enum ImageURLClassifier {
 
     private static let imageExtensions: Set<String> = [
         "png", "jpg", "jpeg", "gif", "webp", "svg",
         "bmp", "ico", "tiff", "tif", "avif", "heic"
     ]
 
-    static func classify(_ url: URL) -> ImageURLClassification {
+    public static func classify(_ url: URL) -> ImageURLClassification {
         // Only allow https for security.
         guard url.scheme?.lowercased() == "https" else {
             return .notImage

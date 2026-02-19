@@ -5,7 +5,7 @@ import Foundation
 /// This is the first stage of the media-embed pipeline: deterministic,
 /// regex-based URL discovery with no markdown awareness (markdown link
 /// syntax handling is layered on top in a later stage).
-enum MessageURLExtractor {
+public enum MessageURLExtractor {
 
     // Characters that commonly trail a URL in natural prose but aren't
     // part of the URL itself.
@@ -13,7 +13,7 @@ enum MessageURLExtractor {
 
     /// Extracts all distinct `http(s)://` URLs from `text`, returned in
     /// first-occurrence order. Duplicates are suppressed (first wins).
-    static func extractPlainURLs(from text: String) -> [URL] {
+    public static func extractPlainURLs(from text: String) -> [URL] {
         extractPlainURLsWithPositions(from: text).map(\.url)
     }
 
@@ -65,7 +65,7 @@ enum MessageURLExtractor {
 
     /// Extracts `http(s)://` URLs that appear as markdown link targets
     /// (`[text](url)`) in `text`, returned in first-occurrence order.
-    static func extractMarkdownLinkURLs(from text: String) -> [URL] {
+    public static func extractMarkdownLinkURLs(from text: String) -> [URL] {
         extractMarkdownLinkURLsWithPositions(from: text).map(\.url)
     }
 
@@ -124,7 +124,7 @@ enum MessageURLExtractor {
     /// Matches are replaced with a single space (not an empty string)
     /// to preserve token boundaries — otherwise surrounding text could
     /// concatenate into a spurious URL.
-    static func stripCodeRegions(from text: String) -> String {
+    public static func stripCodeRegions(from text: String) -> String {
         let mutable = NSMutableString(string: text)
         let fullRange = NSRange(location: 0, length: mutable.length)
 
@@ -141,7 +141,7 @@ enum MessageURLExtractor {
     /// Combines plain-text and markdown-link URL extraction, returning a
     /// deduplicated list in first-occurrence order across both sources.
     /// URLs inside inline code spans and fenced code blocks are excluded.
-    static func extractAllURLs(from text: String) -> [URL] {
+    public static func extractAllURLs(from text: String) -> [URL] {
         let stripped = stripCodeRegions(from: text)
 
         let plain = extractPlainURLsWithPositions(from: stripped)

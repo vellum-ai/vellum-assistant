@@ -1,17 +1,22 @@
 import Foundation
-import VellumAssistantShared
 
 /// The type of media embed that should be rendered for a URL.
-enum MediaEmbedIntent: Equatable {
+public enum MediaEmbedIntent: Equatable {
     case image(url: URL)
     case video(provider: String, videoID: String, embedURL: URL)
 }
 
 /// Snapshot of user-facing settings that gate media embed resolution.
-struct MediaEmbedResolverSettings {
-    let enabled: Bool
-    let enabledSince: Date?
-    let allowedDomains: [String]
+public struct MediaEmbedResolverSettings {
+    public let enabled: Bool
+    public let enabledSince: Date?
+    public let allowedDomains: [String]
+
+    public init(enabled: Bool, enabledSince: Date?, allowedDomains: [String]) {
+        self.enabled = enabled
+        self.enabledSince = enabledSince
+        self.allowedDomains = allowedDomains
+    }
 }
 
 /// Assembles URL extraction, video parsing, image classification, and
@@ -20,7 +25,7 @@ struct MediaEmbedResolverSettings {
 /// The resolver is role-agnostic (works for both user and assistant
 /// messages), deduplicates by canonical URL, and respects the feature
 /// gate (`enabled` / `enabledSince`).
-enum MediaEmbedResolver {
+public enum MediaEmbedResolver {
 
     /// Video parsers tried in order for each extracted URL.
     private static let videoParsers: [(URL) -> VideoParseResult?] = [
@@ -38,7 +43,7 @@ enum MediaEmbedResolver {
     /// Uses a two-stage image detection approach: first tries extension-based
     /// classification via `ImageURLClassifier`, then falls back to an async
     /// HTTP HEAD probe via `ImageMIMEProbe` for extensionless URLs.
-    static func resolve(
+    public static func resolve(
         message: ChatMessage,
         settings: MediaEmbedResolverSettings
     ) async -> [MediaEmbedIntent] {

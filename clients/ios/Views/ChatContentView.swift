@@ -80,6 +80,11 @@ struct ChatContentView: View {
                                 if message.role == .assistant && !message.isStreaming && !completedTools.isEmpty {
                                     UsedToolsListCompact(toolCalls: completedTools)
                                 }
+
+                                // Inline media embeds (images, videos)
+                                if !message.text.isEmpty && !message.isStreaming {
+                                    MessageMediaEmbedsView(message: message)
+                                }
                             }
 
                             // Subagent chips anchored to the message that spawned them

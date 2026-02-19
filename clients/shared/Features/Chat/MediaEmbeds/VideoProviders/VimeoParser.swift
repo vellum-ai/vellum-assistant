@@ -10,7 +10,7 @@ import Foundation
 /// - `vimeo.com/groups/GROUP/videos/VIDEO_ID`    (group)
 ///
 /// Only `https` URLs are accepted. Video IDs must be numeric.
-enum VimeoParser {
+public enum VimeoParser {
 
     private static let vimeoHosts: Set<String> = [
         "vimeo.com",
@@ -18,7 +18,7 @@ enum VimeoParser {
         "player.vimeo.com"
     ]
 
-    static func parse(_ url: URL) -> VideoParseResult? {
+    public static func parse(_ url: URL) -> VideoParseResult? {
         guard url.scheme?.lowercased() == "https" else { return nil }
 
         guard let host = url.host?.lowercased() else { return nil }

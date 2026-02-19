@@ -1,9 +1,15 @@
 import Foundation
 
-struct VideoParseResult {
-    let videoID: String
-    let provider: String
-    let embedURL: URL
+public struct VideoParseResult {
+    public let videoID: String
+    public let provider: String
+    public let embedURL: URL
+
+    public init(videoID: String, provider: String, embedURL: URL) {
+        self.videoID = videoID
+        self.provider = provider
+        self.embedURL = embedURL
+    }
 }
 
 /// Parses YouTube URLs in various formats and produces a canonical embed URL.
@@ -15,7 +21,7 @@ struct VideoParseResult {
 /// - `youtube.com/embed/ID`
 ///
 /// Only `https` URLs are accepted.
-enum YouTubeParser {
+public enum YouTubeParser {
 
     private static let youtubeHosts: Set<String> = [
         "youtube.com",
@@ -23,7 +29,7 @@ enum YouTubeParser {
         "m.youtube.com"
     ]
 
-    static func parse(_ url: URL) -> VideoParseResult? {
+    public static func parse(_ url: URL) -> VideoParseResult? {
         guard url.scheme?.lowercased() == "https" else { return nil }
 
         guard let host = url.host?.lowercased() else { return nil }

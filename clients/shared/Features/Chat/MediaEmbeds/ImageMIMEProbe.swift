@@ -5,8 +5,8 @@ import Foundation
 /// This is the second stage of image detection, used for extensionless URLs
 /// that `ImageURLClassifier` returns `.unknown` for. Results are cached
 /// in-memory to avoid redundant network requests.
-final class ImageMIMEProbe {
-    static let shared = ImageMIMEProbe()
+public final class ImageMIMEProbe {
+    public static let shared = ImageMIMEProbe()
 
     private let cache = NSCache<NSString, CacheEntry>()
     private let session: URLSession
@@ -29,7 +29,7 @@ final class ImageMIMEProbe {
     /// Returns `.image` when the Content-Type starts with `image/`,
     /// `.notImage` for any other content type, and `.unknown` on
     /// network errors or timeouts. Never throws.
-    func probe(_ url: URL) async -> ImageURLClassification {
+    public func probe(_ url: URL) async -> ImageURLClassification {
         guard url.scheme?.lowercased() == "https" else {
             return .notImage
         }
@@ -63,7 +63,7 @@ final class ImageMIMEProbe {
         return result
     }
 
-    func clearCache() {
+    public func clearCache() {
         cache.removeAllObjects()
     }
 }

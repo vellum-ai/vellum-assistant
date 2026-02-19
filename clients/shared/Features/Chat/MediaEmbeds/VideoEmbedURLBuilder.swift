@@ -5,9 +5,9 @@ import Foundation
 /// The parsers (`YouTubeParser`, `VimeoParser`, `LoomParser`) extract video IDs
 /// and produce bare embed URLs. This builder adds player query parameters
 /// (autoplay, rel suppression, etc.) that are provider-specific.
-enum VideoEmbedURLBuilder {
+public enum VideoEmbedURLBuilder {
 
-    static func buildEmbedURL(provider: String, videoID: String) -> URL? {
+    public static func buildEmbedURL(provider: String, videoID: String) -> URL? {
         switch provider.lowercased() {
         case "youtube":
             return URL(string: "https://www.youtube.com/embed/\(videoID)?autoplay=1&rel=0")

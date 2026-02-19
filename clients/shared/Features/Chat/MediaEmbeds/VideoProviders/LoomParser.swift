@@ -7,14 +7,14 @@ import Foundation
 /// - `loom.com/embed/VIDEO_ID`  (with optional www subdomain)
 ///
 /// Only `https` URLs are accepted.
-enum LoomParser {
+public enum LoomParser {
 
     private static let loomHosts: Set<String> = [
         "loom.com",
         "www.loom.com"
     ]
 
-    static func parse(_ url: URL) -> VideoParseResult? {
+    public static func parse(_ url: URL) -> VideoParseResult? {
         guard url.scheme?.lowercased() == "https" else { return nil }
 
         guard let host = url.host?.lowercased() else { return nil }
