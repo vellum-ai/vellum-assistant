@@ -337,20 +337,44 @@ export function tryRecordProcessedCallback(
 }
 
 /**
+ * How long a callback claim is considered valid before it expires.
+ * If a process crashes after claiming but before the catch block releases,
+ * the claim becomes stale after this TTL and Twilio retries can re-claim it.
+ * Default: 5 minutes (300 000 ms).
+ */
+export const CALLBACK_CLAIM_TTL_MS = 5 * 60 * 1000;
+
+/**
  * Atomically claim a callback for processing. Returns true if this caller
- * won the claim (INSERT succeeded). Returns false if another caller already
- * claimed it (dedupe_key conflict).
+ * won the claim (INSERT succeeded or an expired claim was replaced).
+ * Returns false if another caller holds a non-expired claim.
  *
- * If processing fails, call `releaseCallbackClaim(dedupeKey)` to allow retries.
+ * Uses a lease/expiry pattern: claims older than CALLBACK_CLAIM_TTL_MS are
+ * treated as orphaned (e.g. from a crashed process) and can be re-claimed.
+ * This prevents hard crashes from permanently dropping callbacks.
+ *
+ * If processing fails, call `releaseCallbackClaim(dedupeKey)` to allow
+ * immediate retries without waiting for TTL expiry.
  */
 export function claimCallback(dedupeKey: string, callSessionId: string): boolean {
   const db = getDb();
   const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+  const now = Date.now();
+
+  // Try fresh insert first (fast path for new callbacks)
   raw.query(
     `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
-  ).run(uuid(), dedupeKey, callSessionId, Date.now());
-  const changes = raw.query('SELECT changes() as c').get() as { c: number };
-  return changes.c > 0;
+  ).run(uuid(), dedupeKey, callSessionId, now);
+  const insertChanges = raw.query('SELECT changes() as c').get() as { c: number };
+  if (insertChanges.c > 0) return true;
+
+  // Existing claim found — check if it has expired (orphaned by a crash)
+  const expiryCutoff = now - CALLBACK_CLAIM_TTL_MS;
+  raw.query(
+    `UPDATE processed_callbacks SET id = ?, call_session_id = ?, created_at = ? WHERE dedupe_key = ? AND created_at < ?`,
+  ).run(uuid(), callSessionId, now, dedupeKey, expiryCutoff);
+  const updateChanges = raw.query('SELECT changes() as c').get() as { c: number };
+  return updateChanges.c > 0;
 }
 
 /**

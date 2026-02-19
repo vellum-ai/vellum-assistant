@@ -39,6 +39,7 @@ import {
   expirePendingQuestions,
   claimCallback,
   releaseCallbackClaim,
+  CALLBACK_CLAIM_TTL_MS,
 } from '../calls/call-store.js';
 
 initializeDb();
@@ -544,5 +545,60 @@ describe('call-store', () => {
     const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
     const rows = raw.query('SELECT COUNT(*) as cnt FROM processed_callbacks WHERE dedupe_key = ?').get('test-dedupe-key-4') as { cnt: number };
     expect(rows.cnt).toBe(1);
+  });
+
+  test('claimCallback re-claims an expired (orphaned) claim', () => {
+    const session = createTestCallSession({
+      conversationId: 'conv-26',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    // Simulate an orphaned claim from a crashed process by inserting a row
+    // with a created_at timestamp older than the TTL
+    const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const staleTimestamp = Date.now() - CALLBACK_CLAIM_TTL_MS - 1000; // 1 second past expiry
+    raw.query(
+      `INSERT INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
+    ).run('stale-id', 'test-dedupe-key-expired', session.id, staleTimestamp);
+
+    // A new claim should succeed because the existing one is expired
+    const result = claimCallback('test-dedupe-key-expired', session.id);
+    expect(result).toBe(true);
+
+    // The row should have been updated with a fresh timestamp
+    const row = raw.query(
+      'SELECT created_at, id FROM processed_callbacks WHERE dedupe_key = ?',
+    ).get('test-dedupe-key-expired') as { created_at: number; id: string };
+    expect(row.created_at).toBeGreaterThan(staleTimestamp);
+    expect(row.id).not.toBe('stale-id');
+  });
+
+  test('claimCallback does NOT re-claim a non-expired claim', () => {
+    const session = createTestCallSession({
+      conversationId: 'conv-27',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    // Insert a recent claim (within TTL)
+    const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const recentTimestamp = Date.now() - 1000; // 1 second ago, well within TTL
+    raw.query(
+      `INSERT INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
+    ).run('recent-id', 'test-dedupe-key-fresh', session.id, recentTimestamp);
+
+    // A new claim should fail because the existing one is still valid
+    const result = claimCallback('test-dedupe-key-fresh', session.id);
+    expect(result).toBe(false);
+
+    // The original row should be unchanged
+    const row = raw.query(
+      'SELECT created_at, id FROM processed_callbacks WHERE dedupe_key = ?',
+    ).get('test-dedupe-key-fresh') as { created_at: number; id: string };
+    expect(row.created_at).toBe(recentTimestamp);
+    expect(row.id).toBe('recent-id');
   });
 });
