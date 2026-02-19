@@ -96,6 +96,7 @@ export function buildSystemPrompt(): string {
   const bootstrap = readPromptFile(bootstrapPath);
 
   const parts: string[] = [];
+  parts.push(buildDatetimeSection());
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
   if (user) parts.push(user);
@@ -126,6 +127,21 @@ export function buildSystemPrompt(): string {
   parts.push(buildPostToolResponseSection());
 
   return appendSkillsCatalog(parts.join('\n\n'));
+}
+
+function buildDatetimeSection(): string {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const now = new Date().toLocaleString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: tz,
+  });
+  return `Current datetime: ${now}${tz ? ` (${tz})` : ' (user timezone unknown)'}`;
 }
 
 function buildToolRoutingSection(): string {
