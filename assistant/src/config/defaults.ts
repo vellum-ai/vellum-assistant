@@ -194,4 +194,17 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     enrichmentJobTimeoutMs: 30000,
     enrichmentMaxRetries: 2,
   },
+  calls: {
+    enabled: true,
+    provider: 'twilio' as const,
+    maxDurationSeconds: 3600,
+    userConsultTimeoutSeconds: 120,
+    disclosure: {
+      enabled: true,
+      text: 'At the very beginning of the call, disclose that you are an AI assistant calling on behalf of the user.',
+    },
+    safety: {
+      denyCategories: [],
+    },
+  },
 };

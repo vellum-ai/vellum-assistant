@@ -9,6 +9,7 @@
 
 import { startCall, getCallStatus, cancelCall, answerCall } from '../../calls/call-domain.js';
 import { getLogger } from '../../util/logger.js';
+import { getConfig } from '../../config/loader.js';
 
 const log = getLogger('call-routes');
 
@@ -18,6 +19,13 @@ const log = getLogger('call-routes');
  * Body: { phoneNumber: string; task: string; context?: string; conversationId: string }
  */
 export async function handleStartCall(req: Request): Promise<Response> {
+  if (!getConfig().calls.enabled) {
+    return Response.json(
+      { error: 'Calls feature is disabled via configuration. Set calls.enabled to true to use this feature.' },
+      { status: 403 },
+    );
+  }
+
   const body = await req.json() as {
     phoneNumber?: string;
     task?: string;

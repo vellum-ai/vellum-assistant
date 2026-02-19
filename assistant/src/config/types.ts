@@ -30,4 +30,7 @@ export type {
   SwarmConfig,
   SkillsConfig,
   WorkspaceGitConfig,
+  CallsConfig,
+  CallsDisclosureConfig,
+  CallsSafetyConfig,
 } from './schema.js';
