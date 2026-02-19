@@ -1013,9 +1013,48 @@ The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **la
 |------|------|
 | `assistant/src/workspace/top-level-scanner.ts` | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap |
 | `assistant/src/workspace/top-level-renderer.ts` | Renders `TopLevelSnapshot` to `<workspace_top_level>` XML block |
-| `assistant/src/daemon/session-runtime-assembly.ts` | Runtime injections and strip helpers (`<workspace_top_level>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
+| `assistant/src/daemon/session-runtime-assembly.ts` | Runtime injections and strip helpers (`<workspace_top_level>`, `<temporal_context>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
 | `assistant/src/onboarding/onboarding-orchestrator.ts` | Builds assistant-owned onboarding runtime guidance from channel playbook + transport metadata |
-| `assistant/src/daemon/session.ts` | Cache state, dirty marking, runtime injection wiring |
+| `assistant/src/daemon/session-agent-loop.ts` | Agent loop orchestration, runtime injection wiring, strip chain |
+
+---
+
+## Temporal Context Injection — Date Grounding
+
+The session injects a `<temporal_context>` block into every user message at runtime, giving the model awareness of the current date, timezone, upcoming weekend/work week windows, and a 14-day horizon of labelled future dates. This enables reliable reasoning about future dates (e.g. "plan a trip for next weekend") without persisting volatile temporal data in conversation history.
+
+### Per-turn flow
+
+```mermaid
+graph TB
+    subgraph "Per-Turn Flow"
+        BUILD["buildTemporalContext(timeZone)<br/>→ compact XML block"]
+        INJECT["applyRuntimeInjections<br/>prepend temporal block<br/>to user message"]
+        AGENT["AgentLoop.run(runMessages)"]
+        STRIP["stripTemporalContext<br/>remove block from persisted history"]
+    end
+
+    BUILD --> INJECT
+    INJECT --> AGENT
+    AGENT --> STRIP
+```
+
+### Key design decisions
+
+- **Fresh each turn**: `buildTemporalContext()` is called at the start of every agent loop invocation, ensuring the model always sees the current date even in long-running conversations.
+- **Timezone-aware**: Uses `Intl.DateTimeFormat` APIs for DST-safe date arithmetic. The host timezone (`Intl.DateTimeFormat().resolvedOptions().timeZone`) is used by default.
+- **Bounded output**: Hard-capped at 1500 characters and 14 horizon entries to prevent prompt bloat.
+- **Runtime-only**: The injected `<temporal_context>` block is stripped from `this.messages` after the agent loop completes via `stripTemporalContext`. It never persists in conversation history.
+- **Specific strip prefix**: The strip function matches the exact injected prefix (`<temporal_context>\nToday:`) to avoid accidentally removing user-authored text that starts with `<temporal_context>`.
+- **Retry paths**: Temporal context is included in all three `applyRuntimeInjections` call sites (main path, compact retry, media-trim retry).
+
+### Key files
+
+| File | Role |
+|------|------|
+| `assistant/src/daemon/date-context.ts` | `buildTemporalContext()` — generates the `<temporal_context>` XML block |
+| `assistant/src/daemon/session-runtime-assembly.ts` | `injectTemporalContext()` / `stripTemporalContext()` helpers |
+| `assistant/src/daemon/session-agent-loop.ts` | Wiring: computes temporal context, passes to `applyRuntimeInjections`, strips after run |
 
 ---
 
