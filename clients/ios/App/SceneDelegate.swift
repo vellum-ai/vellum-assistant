@@ -6,9 +6,16 @@ import UIKit
 class SceneDelegate: NSObject, UIWindowSceneDelegate {
     func sceneWillEnterForeground(_ scene: UIScene) {
         guard let appDelegate = UIApplication.shared.delegate as? AppDelegate else { return }
-        let client = appDelegate.clientProvider.client
-        guard !client.isConnected else { return }
-        Task { try? await client.connect() }
+        let provider = appDelegate.clientProvider
+        guard !provider.client.isConnected else { return }
+        Task {
+            do {
+                try await provider.client.connect()
+                await MainActor.run { provider.isConnected = true }
+            } catch {
+                // Connection failed — will retry on next foreground transition
+            }
+        }
     }
 }
 #endif

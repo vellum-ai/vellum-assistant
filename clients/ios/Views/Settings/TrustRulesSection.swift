@@ -43,6 +43,9 @@ struct TrustRulesSection: View {
             }
         }
         .onAppear { loadTrustRules() }
+        .onChange(of: clientProvider.isConnected) { _, connected in
+            if connected { loadTrustRules() }
+        }
         .onDisappear {
             if let daemon = clientProvider.client as? DaemonClient {
                 daemon.onTrustRulesListResponse = nil

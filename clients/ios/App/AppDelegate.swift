@@ -9,6 +9,9 @@ import VellumAssistantShared
 @MainActor
 final class ClientProvider: ObservableObject {
     @Published var client: any DaemonClientProtocol
+    /// Flipped to `true` after a successful `connect()` call; sections observe
+    /// this to trigger data reloads once the daemon is reachable.
+    @Published var isConnected: Bool = false
 
     init(client: any DaemonClientProtocol) {
         self.client = client

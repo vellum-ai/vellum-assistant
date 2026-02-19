@@ -32,6 +32,9 @@ struct RemindersSection: View {
             }
         }
         .onAppear { loadReminders() }
+        .onChange(of: clientProvider.isConnected) { _, connected in
+            if connected { loadReminders() }
+        }
         .onDisappear {
             if let daemon = clientProvider.client as? DaemonClient {
                 daemon.onRemindersListResponse = nil

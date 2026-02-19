@@ -61,6 +61,7 @@ struct SettingsView: View {
 
     private func switchClient(to mode: String) {
         clientProvider.client.disconnect()
+        clientProvider.isConnected = false
         let newClient: any DaemonClientProtocol
         if mode == ConnectionMode.connected.rawValue {
             newClient = DaemonClient(config: .fromUserDefaults())
@@ -71,6 +72,7 @@ struct SettingsView: View {
         Task {
             do {
                 try await clientProvider.client.connect()
+                clientProvider.isConnected = true
             } catch {
                 // Connection failed — sections will handle their own loading
             }
