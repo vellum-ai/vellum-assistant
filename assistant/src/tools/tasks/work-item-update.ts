@@ -1,6 +1,4 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { resolveWorkItem, updateWorkItem, identifyEntityById, buildTaskTemplateMismatchError, type WorkItemStatus } from '../../work-items/work-item-store.js';
 import { getLogger } from '../../util/logger.js';
 
@@ -10,66 +8,6 @@ const PRIORITY_LABELS: Record<number, string> = {
   0: 'high',
   1: 'medium',
   2: 'low',
-};
-
-const definition: ToolDefinition = {
-  name: 'task_list_update',
-  description:
-    'Update an existing task in the Task Queue. Can change priority, notes, status, or sort order. Identifies the task by work item ID, task ID, task name, or title.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      work_item_id: {
-        type: 'string',
-        description: 'Direct work item ID (most precise selector)',
-      },
-      task_id: {
-        type: 'string',
-        description: 'Task definition ID to find the work item for',
-      },
-      task_name: {
-        type: 'string',
-        description: 'Task name/title to search for (case-insensitive exact match)',
-      },
-      title: {
-        type: 'string',
-        description: 'Work item title to search for (case-insensitive exact match)',
-      },
-      priority_tier: {
-        type: 'number',
-        description: '0 = high, 1 = medium, 2 = low',
-      },
-      notes: {
-        type: 'string',
-        description: 'Updated notes for the work item',
-      },
-      status: {
-        type: 'string',
-        enum: ['queued', 'running', 'awaiting_review', 'failed', 'cancelled', 'archived'],
-        description: 'New status for the work item',
-      },
-      sort_index: {
-        type: 'number',
-        description: 'Manual sort order within the same priority tier',
-      },
-      filter_priority_tier: {
-        type: 'number',
-        description:
-          'Disambiguation filter: narrow by current priority tier (0=high, 1=medium, 2=low) when multiple items share the same title/task_id. This identifies WHICH item to update — it is NOT the new priority value.',
-      },
-      filter_status: {
-        type: 'string',
-        enum: ['queued', 'running', 'awaiting_review', 'failed', 'cancelled', 'done', 'archived'],
-        description:
-          'Disambiguation filter: narrow by current status when multiple items share the same title/task_id.',
-      },
-      created_order: {
-        type: 'number',
-        description:
-          'Disambiguation filter: pick the Nth oldest match (1 = oldest, 2 = second oldest, etc.) when multiple items share the same title/task_id.',
-      },
-    },
-  },
 };
 
 export async function executeTaskListUpdate(
@@ -174,20 +112,3 @@ export async function executeTaskListUpdate(
     return { content: `Error: ${msg}`, isError: true };
   }
 }
-
-class TaskListUpdateTool implements Tool {
-  name = 'task_list_update';
-  description = definition.description;
-  category = 'tasks';
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  }
-
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeTaskListUpdate(input, _context);
-  }
-}
-
-export const taskListUpdateTool = new TaskListUpdateTool();

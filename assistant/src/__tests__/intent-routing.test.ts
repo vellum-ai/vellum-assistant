@@ -51,7 +51,12 @@ mock.module('../config/loader.js', () => ({
 
 // ── Import after mocks ───────────────────────────────────────────────
 const { buildSystemPrompt } = await import('../config/system-prompt.js');
-const { taskListAddTool } = await import('../tools/tasks/work-item-enqueue.js');
+
+// Load task_list_add description from the bundled skill TOOLS.json
+const tasksToolsJson = JSON.parse(
+  readFileSync(join(import.meta.dirname, '../config/bundled-skills/tasks/TOOLS.json'), 'utf-8'),
+);
+const taskListAddDef = tasksToolsJson.tools.find((t: { name: string }) => t.name === 'task_list_add');
 
 // Load reminder_create description from the bundled skill TOOLS.json
 const reminderToolsJson = JSON.parse(
@@ -149,27 +154,27 @@ describe('Task/Schedule/Reminder routing section in system prompt', () => {
 
 describe('task_list_add tool description', () => {
   test('mentions "add to my tasks" routing phrase', () => {
-    const def = taskListAddTool.getDefinition();
+    const def = taskListAddDef;
     expect(def.description).toContain('add to my tasks');
   });
 
   test('mentions "add to my queue" routing phrase', () => {
-    const def = taskListAddTool.getDefinition();
+    const def = taskListAddDef;
     expect(def.description).toContain('add to my queue');
   });
 
   test('mentions "put this on my task list" routing phrase', () => {
-    const def = taskListAddTool.getDefinition();
+    const def = taskListAddDef;
     expect(def.description).toContain('put this on my task list');
   });
 
   test('mentions ad-hoc title-only mode', () => {
-    const def = taskListAddTool.getDefinition();
+    const def = taskListAddDef;
     expect(def.description).toContain('just a title');
   });
 
   test('explicitly warns NOT to use schedule_create or reminder for task requests', () => {
-    const def = taskListAddTool.getDefinition();
+    const def = taskListAddDef;
     expect(def.description).toContain('Do NOT use schedule_create or reminder');
   });
 });
@@ -233,7 +238,7 @@ describe('reminder tool description', () => {
 
 describe('cross-tool routing consistency', () => {
   test('all three tools reference task_list_add as the task-queue tool', () => {
-    const enqueueDef = taskListAddTool.getDefinition();
+    const enqueueDef = taskListAddDef;
     const scheduleTool = getTool('schedule_create')!;
     const scheduleDef = scheduleTool.getDefinition();
 
