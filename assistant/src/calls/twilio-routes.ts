@@ -34,7 +34,7 @@ function generateTwiML(callSessionId: string, wssBaseUrl: string, welcomeGreetin
 <Response>
   <Connect>
     <ConversationRelay
-      url="${wssBaseUrl}/v1/calls/relay?callSessionId=${callSessionId}"
+      url="${escapeXml(wssBaseUrl)}/v1/calls/relay?callSessionId=${escapeXml(callSessionId)}"
       welcomeGreeting="${escapeXml(welcomeGreeting)}"
       voice="Google.en-US-Journey-O"
       language="en-US"
@@ -88,6 +88,16 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   if (!session) {
     log.warn({ callSessionId }, 'Voice webhook: call session not found');
     return new Response('Call session not found', { status: 404 });
+  }
+
+  // Parse the Twilio POST body to capture CallSid immediately, so status
+  // callbacks (keyed by CallSid) can locate this session even if the
+  // WebSocket relay hasn't been set up yet.
+  const formBody = new URLSearchParams(await req.text());
+  const callSid = formBody.get('CallSid');
+  if (callSid && callSid !== session.providerCallSid) {
+    updateCallSession(callSessionId, { providerCallSid: callSid });
+    log.info({ callSessionId, callSid }, 'Stored CallSid from voice webhook');
   }
 
   const wssBaseUrl = process.env.WSS_BASE_URL ?? process.env.BASE_URL ?? 'wss://localhost:7821';

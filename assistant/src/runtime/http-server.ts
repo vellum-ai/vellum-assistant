@@ -221,6 +221,18 @@ export class RuntimeHttpServer {
       return undefined as unknown as Response;
     }
 
+    // ── Twilio webhook endpoints — before auth check because Twilio
+    //    webhook POSTs don't include bearer tokens. ────────────────────
+    if (path === '/v1/calls/twilio/voice-webhook' && req.method === 'POST') {
+      return await handleVoiceWebhook(req);
+    }
+    if (path === '/v1/calls/twilio/status' && req.method === 'POST') {
+      return await handleStatusCallback(req);
+    }
+    if (path === '/v1/calls/twilio/connect-action' && req.method === 'POST') {
+      return await handleConnectAction(req);
+    }
+
     // Require bearer token when configured
     if ((process.env.DISABLE_HTTP_AUTH ?? "").toLowerCase() !== "true" && this.bearerToken) {
       const authHeader = req.headers.get('authorization');
@@ -411,20 +423,6 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'channels/replay' && req.method === 'POST') {
         return await handleReplayDeadLetters(req);
-      }
-
-      // ── Call/Twilio endpoints ─────────────────────────────────────────
-      const voiceWebhookMatch = endpoint.match(/^calls\/twilio\/voice-webhook$/);
-      if (voiceWebhookMatch && req.method === 'POST') {
-        return await handleVoiceWebhook(req);
-      }
-
-      if (endpoint === 'calls/twilio/status' && req.method === 'POST') {
-        return await handleStatusCallback(req);
-      }
-
-      if (endpoint === 'calls/twilio/connect-action' && req.method === 'POST') {
-        return await handleConnectAction(req);
       }
 
       return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });
