@@ -175,6 +175,18 @@ Wildcard patterns like `*.fal.run` match:
 
 When one credential has both an exact pattern (`api.fal.run`) and a wildcard pattern (`*.fal.run`), the exact match takes precedence.
 
+#### Multi-Credential Ambiguity Blocking
+
+When multiple credentials are passed to a proxied command via `credential_ids`, the proxy resolves which credential to inject for each request using a two-level specificity algorithm:
+
+1. **Per-credential selection**: For each credential, the proxy picks the most specific matching header template (exact host > wildcard). If a single credential has multiple templates that match with equal specificity, the request is **blocked** (returns 403).
+
+2. **Cross-credential resolution**: After selecting the best template per credential, the proxy checks how many credentials produced a match. If exactly one credential matches, its header is injected. If **more than one credential** matches the same host, the request is **blocked** — the proxy cannot determine which credential to use and refuses to guess.
+
+Requests that match zero credentials pass through without injection.
+
+**Example**: If credential A has pattern `*.example.com` and credential B has pattern `api.example.com`, a request to `api.example.com` is blocked because both credentials match (even though B's match is more specific — specificity is only compared within a single credential, not across credentials).
+
 #### Debugging Proxied 401 Errors
 
 If a proxied command receives a 401 or 403 despite having the correct credential stored:
