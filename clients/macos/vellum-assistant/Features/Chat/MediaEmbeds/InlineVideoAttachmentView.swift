@@ -128,7 +128,7 @@ struct InlineVideoAttachmentView: View {
 
     private func playFromBase64(_ base64: String) async {
         guard let data = Data(base64Encoded: base64) else {
-            failed = true
+            await MainActor.run { failed = true }
             return
         }
 
@@ -136,7 +136,7 @@ struct InlineVideoAttachmentView: View {
         do {
             try data.write(to: fileURL)
         } catch {
-            failed = true
+            await MainActor.run { failed = true }
             return
         }
 
@@ -144,13 +144,21 @@ struct InlineVideoAttachmentView: View {
         if let tracks = try? await asset.load(.tracks),
            let videoTrack = tracks.first(where: { $0.mediaType == .video }),
            let size = try? await videoTrack.load(.naturalSize),
+           let transform = try? await videoTrack.load(.preferredTransform),
            size.width > 0, size.height > 0 {
-            videoAspectRatio = size.width / size.height
+            let transformed = CGRect(origin: .zero, size: size).applying(transform).size
+            let w = abs(transformed.width)
+            let h = abs(transformed.height)
+            if w > 0, h > 0 {
+                await MainActor.run { videoAspectRatio = w / h }
+            }
         }
 
         let avPlayer = AVPlayer(url: fileURL)
-        self.player = avPlayer
-        self.isPlaying = true
+        await MainActor.run {
+            self.player = avPlayer
+            self.isPlaying = true
+        }
         avPlayer.play()
     }
 
