@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 @testable import VellumAssistantLib
+@testable import VellumAssistantShared
 
 @MainActor
 final class InlineImageLazyLoadingTests: XCTestCase {

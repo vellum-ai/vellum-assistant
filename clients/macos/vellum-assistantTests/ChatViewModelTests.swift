@@ -723,15 +723,18 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
 
         // Daemon dequeues B — status becomes .processing
+        // Note: messageDequeued moves the message to the end of the array for chronological ordering
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
-        XCTAssertEqual(viewModel.messages[1].status, .processing, "Message B should be processing after dequeue")
+        let messageBAfterDequeue = viewModel.messages.first(where: { $0.text == "Message B" })!
+        XCTAssertEqual(messageBAfterDequeue.status, .processing, "Message B should be processing after dequeue")
 
         // Assistant responds to B, then message_complete
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to B")))
         viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
 
         // After message_complete, the processing user message should be reset to .sent
-        XCTAssertEqual(viewModel.messages[1].status, .sent, "Message B should be .sent after messageComplete, not .processing")
+        let messageBAfterComplete = viewModel.messages.first(where: { $0.text == "Message B" })!
+        XCTAssertEqual(messageBAfterComplete.status, .sent, "Message B should be .sent after messageComplete, not .processing")
     }
 
     func testProcessingStatusResetToSentOnGenerationCancelled() {
@@ -747,12 +750,14 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
         viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
-        XCTAssertEqual(viewModel.messages[1].status, .processing)
+        let messageBAfterDequeue = viewModel.messages.first(where: { $0.text == "Message B" })!
+        XCTAssertEqual(messageBAfterDequeue.status, .processing)
 
         // Generation is cancelled
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
 
-        XCTAssertEqual(viewModel.messages[1].status, .sent, "Message B should be .sent after generationCancelled, not .processing")
+        let messageBAfterCancel = viewModel.messages.first(where: { $0.text == "Message B" })!
+        XCTAssertEqual(messageBAfterCancel.status, .sent, "Message B should be .sent after generationCancelled, not .processing")
     }
 
     func testProcessingStatusResetToSentOnGenerationHandoff() {
@@ -774,14 +779,16 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
         viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 2)))
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
-        XCTAssertEqual(viewModel.messages[1].status, .processing)
+        let messageBAfterDequeue = viewModel.messages.first(where: { $0.text == "Message B" })!
+        XCTAssertEqual(messageBAfterDequeue.status, .processing)
 
         // B completes via handoff (C is still queued)
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to B")))
         viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
 
         // B should be reset to .sent after generationHandoff
-        XCTAssertEqual(viewModel.messages[1].status, .sent, "Message B should be .sent after generationHandoff, not .processing")
+        let messageBAfterHandoff = viewModel.messages.first(where: { $0.text == "Message B" })!
+        XCTAssertEqual(messageBAfterHandoff.status, .sent, "Message B should be .sent after generationHandoff, not .processing")
     }
 
     // MARK: - Generation Handoff
@@ -899,9 +906,10 @@ final class ChatViewModelTests: XCTestCase {
         // Assistant message for A should be finalized
         XCTAssertFalse(viewModel.messages[3].isStreaming, "First assistant message should be finalized")
 
-        // 6. Daemon dequeues B
+        // 6. Daemon dequeues B (messageDequeued moves B to the end for chronological ordering)
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
-        XCTAssertEqual(viewModel.messages[1].status, .processing, "Message B should be processing")
+        let messageBStatus = viewModel.messages.first(where: { $0.text == "Message B" })!
+        XCTAssertEqual(messageBStatus.status, .processing, "Message B should be processing")
         XCTAssertTrue(viewModel.isThinking, "isThinking restored after dequeue")
         XCTAssertTrue(viewModel.isSending)
         XCTAssertEqual(viewModel.pendingQueuedCount, 1)
@@ -914,9 +922,10 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.messages[4].isStreaming, "Second assistant message should be finalized")
         XCTAssertTrue(viewModel.isSending, "isSending stays true — C is still queued")
 
-        // 8. Daemon dequeues C
+        // 8. Daemon dequeues C (messageDequeued moves C to the end for chronological ordering)
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-C")))
-        XCTAssertEqual(viewModel.messages[2].status, .processing, "Message C should be processing")
+        let messageCStatus = viewModel.messages.first(where: { $0.text == "Message C" })!
+        XCTAssertEqual(messageCStatus.status, .processing, "Message C should be processing")
         XCTAssertEqual(viewModel.pendingQueuedCount, 0)
 
         // 9. Text delta for C, then message_complete
@@ -994,8 +1003,10 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.pendingQueuedCount, 2)
 
         // Simulate messageDequeued for B — first queued goes to .processing
+        // (messageDequeued moves B to the end for chronological ordering)
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
-        XCTAssertEqual(viewModel.messages[1].status, .processing, "Message B should now be processing")
+        let messageBStatus = viewModel.messages.first(where: { $0.text == "Message B" })!
+        XCTAssertEqual(messageBStatus.status, .processing, "Message B should now be processing")
         XCTAssertTrue(viewModel.isSending)
         XCTAssertTrue(viewModel.isThinking, "isThinking restored after dequeue")
         XCTAssertEqual(viewModel.pendingQueuedCount, 1)
@@ -1006,8 +1017,10 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isSending, "isSending stays true — C is still queued")
 
         // Simulate messageDequeued for C
+        // (messageDequeued moves C to the end for chronological ordering)
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-C")))
-        XCTAssertEqual(viewModel.messages[2].status, .processing, "Message C should now be processing")
+        let messageCStatus = viewModel.messages.first(where: { $0.text == "Message C" })!
+        XCTAssertEqual(messageCStatus.status, .processing, "Message C should now be processing")
         XCTAssertEqual(viewModel.pendingQueuedCount, 0)
 
         // Assistant responds to C, then message_complete (no more queued)
