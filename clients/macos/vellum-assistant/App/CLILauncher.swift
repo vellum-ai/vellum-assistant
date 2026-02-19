@@ -63,6 +63,43 @@ final class CLILauncher {
         log.info("CLI hatch completed successfully")
     }
 
+    func runRetire(name: String) async throws {
+        guard let binaryURL = cliBinaryURL else {
+            log.info("No bundled CLI binary found — skipping retire (dev mode)")
+            throw CLIError.binaryNotFound
+        }
+
+        log.info("Running retire via CLI at \(binaryURL.path) for '\(name)'")
+
+        let proc = Process()
+        proc.executableURL = binaryURL
+        proc.arguments = ["retire", name]
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        proc.standardOutput = stdoutPipe
+        proc.standardError = stderrPipe
+
+        var env = ProcessInfo.processInfo.environment
+        env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
+        proc.environment = env
+
+        try proc.run()
+        log.info("CLI retire launched with pid \(proc.processIdentifier)")
+
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        proc.waitUntilExit()
+
+        let status = proc.terminationStatus
+        if status != 0 {
+            let stderrString = String(data: stderrData, encoding: .utf8) ?? ""
+            log.error("CLI retire failed with exit code \(status): \(stderrString)")
+            throw CLIError.executionFailed(stderrString)
+        }
+
+        log.info("CLI retire completed successfully")
+    }
+
     struct RemoteHatchConfig {
         let remote: String
         var gcpProjectId: String = ""

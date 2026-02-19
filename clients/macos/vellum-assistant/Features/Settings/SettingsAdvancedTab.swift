@@ -12,6 +12,7 @@ struct SettingsAdvancedTab: View {
 
     @State private var sessionToken: String = ""
     @State private var tokenCopied: Bool = false
+    @State private var showingRetireConfirmation: Bool = false
     #if DEBUG
     @State private var showingEnvVars = false
     @State private var appEnvVars: [(String, String)] = []
@@ -24,6 +25,7 @@ struct SettingsAdvancedTab: View {
             privateThreadSection
             archivedThreadsSection
             iosDeviceSection
+            retireAssistantSection
 
             #if DEBUG
             developerSection
@@ -32,6 +34,14 @@ struct SettingsAdvancedTab: View {
         .onAppear {
             let tokenPath = NSHomeDirectory() + "/.vellum/session-token"
             sessionToken = (try? String(contentsOfFile: tokenPath, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+        .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Retire", role: .destructive) {
+                NSApp.sendAction(#selector(AppDelegate.performRetire), to: nil, from: nil)
+            }
+        } message: {
+            Text("This will stop the assistant daemon, remove local data, and return to initial setup. This action cannot be undone.")
         }
         #if DEBUG
         .sheet(isPresented: $showingEnvVars) {
@@ -175,6 +185,33 @@ struct SettingsAdvancedTab: View {
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
         }
+    }
+
+    // MARK: - Retire Assistant
+
+    private var retireAssistantSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Retire Assistant")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            HStack {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Retire this assistant")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Text("Stops the daemon, removes local data, and returns to initial setup.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                Spacer()
+                VButton(label: "Retire...", style: .danger) {
+                    showingRetireConfirmation = true
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Developer (Debug Only)
