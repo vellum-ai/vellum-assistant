@@ -13,6 +13,9 @@ const log = getLogger('handlers');
 
 export { log };
 
+/** Debounce window for suppressing file-watcher config reloads after programmatic saves. */
+export const CONFIG_RELOAD_DEBOUNCE_MS = 300;
+
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
 
 export const FALLBACK_SCREEN = { width: 1920, height: 1080 };

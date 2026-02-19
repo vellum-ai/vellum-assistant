@@ -64,6 +64,8 @@ import { registerContactsCommand } from './cli/contacts.js';
 import { registerAutonomyCommand } from './cli/autonomy.js';
 import { registerDoordashCommand } from './cli/doordash.js';
 
+const SHORT_HASH_LENGTH = 8;
+
 function sendOneMessage(
   msg: ClientMessage,
 ): Promise<ServerMessage> {
@@ -517,7 +519,7 @@ trust
     );
     log.info('-'.repeat(idW + toolW + patternW + scopeW + decW + priW + 20));
     for (const r of rules) {
-      const id = r.id.slice(0, 8);
+      const id = r.id.slice(0, SHORT_HASH_LENGTH);
       const created = new Date(r.createdAt).toISOString().slice(0, 10);
       log.info(
         id.padEnd(idW) +
@@ -548,7 +550,7 @@ trust
       log.error(err instanceof Error ? err.message : String(err));
       process.exit(1);
     }
-    log.info(`Removed rule ${match.id.slice(0, 8)} (${match.tool}: ${match.pattern})`);
+    log.info(`Removed rule ${match.id.slice(0, SHORT_HASH_LENGTH)} (${match.tool}: ${match.pattern})`);
   });
 
 trust

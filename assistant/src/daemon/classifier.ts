@@ -4,6 +4,8 @@ import { getLogger } from '../util/logger.js';
 
 const log = getLogger('classifier');
 
+const CLASSIFICATION_TIMEOUT_MS = 5000;
+
 export type InteractionType = 'computer_use' | 'text_qa';
 
 /**
@@ -53,7 +55,7 @@ export async function classifyInteraction(task: string, source?: 'voice' | 'text
         messages: [{ role: 'user' as const, content: task }],
       }),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Classification timeout')), 5000),
+        setTimeout(() => reject(new Error('Classification timeout')), CLASSIFICATION_TIMEOUT_MS),
       ),
     ]);
 

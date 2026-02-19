@@ -19,7 +19,7 @@ import type {
   SkillsSearchRequest,
   SkillsInspectRequest,
 } from '../ipc-protocol.js';
-import { log, ensureSkillEntry, type HandlerContext } from './shared.js';
+import { log, CONFIG_RELOAD_DEBOUNCE_MS, ensureSkillEntry, type HandlerContext } from './shared.js';
 
 export function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
   const config = getConfig();
@@ -63,7 +63,7 @@ export function handleSkillsEnable(
 
     const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
     if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
+    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
     ctx.debounceTimers.set('__suppress_reset__', resetTimer);
 
     ctx.updateConfigFingerprint();
@@ -110,7 +110,7 @@ export function handleSkillsDisable(
 
     const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
     if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
+    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
     ctx.debounceTimers.set('__suppress_reset__', resetTimer);
 
     ctx.updateConfigFingerprint();
@@ -167,7 +167,7 @@ export function handleSkillsConfigure(
 
     const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
     if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
+    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
     ctx.debounceTimers.set('__suppress_reset__', resetTimer);
 
     ctx.updateConfigFingerprint();
@@ -228,7 +228,7 @@ export async function handleSkillsInstall(
       invalidateConfigCache();
       const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
       if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-      const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
+      const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
       ctx.debounceTimers.set('__suppress_reset__', resetTimer);
       ctx.updateConfigFingerprint();
     } catch (err) {
@@ -323,7 +323,7 @@ export async function handleSkillsUninstall(
 
       const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
       if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-      const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
+      const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
       ctx.debounceTimers.set('__suppress_reset__', resetTimer);
 
       ctx.updateConfigFingerprint();

@@ -8,6 +8,8 @@ import { memoryEntities, memoryEntityRelations, memoryItemEntities } from './sch
 
 const log = getLogger('memory-entity-extractor');
 
+const ENTITY_EXTRACTION_TIMEOUT_MS = 15_000;
+
 export type EntityType =
   | 'person'
   | 'project'
@@ -145,7 +147,7 @@ export async function extractEntitiesWithLLM(
         messages: [{ role: 'user' as const, content: text }],
       }) as Promise<Anthropic.Message>,
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Entity extraction LLM timeout')), 15000),
+        setTimeout(() => reject(new Error('Entity extraction LLM timeout')), ENTITY_EXTRACTION_TIMEOUT_MS),
       ),
     ]) as Anthropic.Message;
 

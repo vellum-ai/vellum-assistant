@@ -7,6 +7,7 @@ import type { ThreadMessage, ThreadSummary } from './types.js';
 const log = getLogger('thread-summarizer');
 
 const SUMMARIZATION_MODEL = 'claude-haiku-4-5-20251001';
+const SUMMARIZATION_TIMEOUT_MS = 20_000;
 const DEFAULT_MAX_TOKENS = 4000;
 const CHARS_PER_TOKEN = 4;
 
@@ -222,7 +223,7 @@ async function summarizeWithLLM(
         timer = setTimeout(() => {
           abortController.abort();
           reject(new Error('Thread summarization LLM timeout'));
-        }, 20000);
+        }, SUMMARIZATION_TIMEOUT_MS);
       }),
     ]);
 

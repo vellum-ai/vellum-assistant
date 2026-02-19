@@ -13,6 +13,8 @@ import type { WatchSession } from './watch-state.js';
 
 const log = getLogger('screen-watch');
 
+const SHORT_HASH_LENGTH = 8;
+
 class ScreenWatchTool implements Tool {
   name = 'start_screen_watch';
   description = 'Start observing the screen at regular intervals for a specified duration. Captures OCR text from the active window and provides periodic commentary.';
@@ -77,7 +79,7 @@ class ScreenWatchTool implements Tool {
     }
 
     // Generate watchId
-    const watchId = crypto.randomUUID().slice(0, 8);
+    const watchId = crypto.randomUUID().slice(0, SHORT_HASH_LENGTH);
     const now = Date.now();
     const durationSeconds = durationMinutes * 60;
 

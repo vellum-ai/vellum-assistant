@@ -24,6 +24,7 @@ import { DEFAULT_TRIAGE_CATEGORIES } from './types.js';
 const log = getLogger('triage-engine');
 
 const TRIAGE_MODEL = 'claude-haiku-4-5-20251001';
+const TRIAGE_CLASSIFICATION_TIMEOUT_MS = 15_000;
 
 // ── Playbook fetching ────────────────────────────────────────────────
 
@@ -244,7 +245,7 @@ async function classifyWithLLM(
       timer = setTimeout(() => {
         abortController.abort();
         reject(new Error('Triage classification LLM timeout'));
-      }, 15000);
+      }, TRIAGE_CLASSIFICATION_TIMEOUT_MS);
     }),
   ]);
 

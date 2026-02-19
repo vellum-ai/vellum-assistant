@@ -25,6 +25,8 @@ const bundlerLog = getLogger('app-bundler');
 import { APP_VERSION } from '../version.js';
 const PACKAGE_VERSION = APP_VERSION;
 
+const SHORT_HASH_LENGTH = 8;
+const HASH_DISPLAY_LENGTH = 12;
 const MAX_BUNDLE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 const ASSET_FETCH_TIMEOUT_MS = 10_000;
 
@@ -79,7 +81,7 @@ export function extractRemoteUrls(html: string): string[] {
  * Uses a hash of the URL to avoid collisions, preserving the original extension.
  */
 function assetFilename(url: string): string {
-  const hash = createHash('sha256').update(url).digest('hex').slice(0, 12);
+  const hash = createHash('sha256').update(url).digest('hex').slice(0, HASH_DISPLAY_LENGTH);
   let ext = '';
   try {
     const parsed = new URL(url);
@@ -215,7 +217,7 @@ export async function packageApp(
   const allAssets = [...allAssetsMap.values()];
 
   // Create the zip archive
-  const bundleFilename = `${app.name.replace(/[^a-zA-Z0-9_-]/g, '_')}-${randomUUID().slice(0, 8)}.vellumapp`;
+  const bundleFilename = `${app.name.replace(/[^a-zA-Z0-9_-]/g, '_')}-${randomUUID().slice(0, SHORT_HASH_LENGTH)}.vellumapp`;
   const bundlePath = join(tmpdir(), bundleFilename);
 
   await new Promise<void>((resolve, reject) => {

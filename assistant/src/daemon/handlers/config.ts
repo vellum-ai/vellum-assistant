@@ -21,7 +21,7 @@ import type {
   SlackWebhookConfigRequest,
   VercelApiConfigRequest,
 } from '../ipc-protocol.js';
-import { log, type HandlerContext } from './shared.js';
+import { log, CONFIG_RELOAD_DEBOUNCE_MS, type HandlerContext } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
 
 export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
@@ -96,7 +96,7 @@ export function handleModelSet(
     }
     const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
     if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
+    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
     ctx.debounceTimers.set('__suppress_reset__', resetTimer);
 
     // Re-initialize provider with the new model so LLM calls use it
@@ -145,7 +145,7 @@ export function handleImageGenModelSet(
     }
     const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
     if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, 300);
+    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
     ctx.debounceTimers.set('__suppress_reset__', resetTimer);
 
     ctx.updateConfigFingerprint();

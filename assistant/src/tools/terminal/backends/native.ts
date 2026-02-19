@@ -9,6 +9,8 @@ import type { SandboxBackend, SandboxResult } from './types.js';
 
 const log = getLogger('sandbox');
 
+const HASH_DISPLAY_LENGTH = 12;
+
 /**
  * macOS sandbox-exec profile that restricts shell commands:
  * - Denies all by default
@@ -81,7 +83,7 @@ function getProfilePath(workingDir: string): string {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  const hash = createHash('sha256').update(workingDir).digest('hex').slice(0, 12);
+  const hash = createHash('sha256').update(workingDir).digest('hex').slice(0, HASH_DISPLAY_LENGTH);
   const path = join(dir, `sandbox-profile-${hash}.sb`);
 
   const profile = SANDBOX_PROFILE.replace(/__WORKING_DIR__/g, workingDir);
