@@ -139,15 +139,17 @@ export class SessionEvictor {
     // no more idle sessions remain.
     const rss = process.memoryUsage.rss();
     if (rss > this.memoryThresholdBytes) {
-      log.warn(
-        { rssBytes: rss, thresholdBytes: this.memoryThresholdBytes, sessionCount: this.sessions.size },
-        'Memory pressure detected, evicting idle sessions',
-      );
       const sorted = this.idleSessionsByLru();
-      for (const [id, session] of sorted) {
-        if (process.memoryUsage.rss() <= this.memoryThresholdBytes) break;
-        this.evict(id, session);
-        result.memoryEvicted++;
+      if (sorted.length > 0) {
+        log.warn(
+          { rssBytes: rss, thresholdBytes: this.memoryThresholdBytes, sessionCount: this.sessions.size },
+          'Memory pressure detected, evicting idle sessions',
+        );
+        for (const [id, session] of sorted) {
+          if (process.memoryUsage.rss() <= this.memoryThresholdBytes) break;
+          this.evict(id, session);
+          result.memoryEvicted++;
+        }
       }
     }
 
