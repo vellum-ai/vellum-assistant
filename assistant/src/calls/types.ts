@@ -1,4 +1,4 @@
-export type CallStatus = 'initiated' | 'ringing' | 'in_progress' | 'waiting_on_user' | 'completed' | 'failed';
+export type CallStatus = 'initiated' | 'ringing' | 'in_progress' | 'waiting_on_user' | 'completed' | 'failed' | 'cancelled';
 export type CallEventType = 'call_started' | 'call_connected' | 'caller_spoke' | 'assistant_spoke' | 'user_question_asked' | 'user_answered' | 'call_ended' | 'call_failed';
 export type PendingQuestionStatus = 'pending' | 'answered' | 'expired' | 'cancelled';
 

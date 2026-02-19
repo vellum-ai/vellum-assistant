@@ -174,13 +174,14 @@ export class CommitEnrichmentService {
   private async executeJob(job: InternalJob): Promise<void> {
     job.attempts++;
 
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
       // Race the enrichment work against a timeout
       await Promise.race([
         this.doEnrichment(job),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Enrichment job timed out')), this.jobTimeoutMs),
-        ),
+        new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(() => reject(new Error('Enrichment job timed out')), this.jobTimeoutMs);
+        }),
       ]);
       this.succeededCount++;
       log.debug(
@@ -214,6 +215,10 @@ export class CommitEnrichmentService {
         { commitHash: job.commitHash, attempts: job.attempts, timedOut: isTimeout, err },
         isTimeout ? 'Enrichment job timed out after max retries' : 'Enrichment job failed after max retries',
       );
+    } finally {
+      if (timeoutHandle !== undefined) {
+        clearTimeout(timeoutHandle);
+      }
     }
   }
 

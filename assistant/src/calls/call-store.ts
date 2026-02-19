@@ -2,7 +2,8 @@ import { eq, and, notInArray, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../memory/db.js';
 import { callSessions, callEvents, callPendingQuestions } from '../memory/schema.js';
-import type { CallSession, CallEvent, CallPendingQuestion, CallEventType } from './types.js';
+import type { CallSession, CallEvent, CallPendingQuestion, CallEventType, CallStatus } from './types.js';
+import { validateTransition } from './call-state-machine.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('call-store');
@@ -105,7 +106,7 @@ export function getActiveCallSessionForConversation(conversationId: string): Cal
     .where(
       and(
         eq(callSessions.conversationId, conversationId),
-        notInArray(callSessions.status, ['completed', 'failed']),
+        notInArray(callSessions.status, ['completed', 'failed', 'cancelled']),
       ),
     )
     .orderBy(desc(callSessions.createdAt))
@@ -119,6 +120,19 @@ export function updateCallSession(
   updates: Partial<Pick<CallSession, 'status' | 'providerCallSid' | 'startedAt' | 'endedAt' | 'lastError'>>,
 ): void {
   const db = getDb();
+
+  // Validate status transition when a new status is provided
+  if (updates.status) {
+    const current = getCallSession(id);
+    if (current) {
+      const result = validateTransition(current.status, updates.status as CallStatus);
+      if (!result.valid) {
+        log.warn({ callSessionId: id, from: current.status, to: updates.status, reason: result.reason }, 'Invalid call status transition — skipping update');
+        return;
+      }
+    }
+  }
+
   db.update(callSessions)
     .set({ ...updates, updatedAt: Date.now() })
     .where(eq(callSessions.id, id))
