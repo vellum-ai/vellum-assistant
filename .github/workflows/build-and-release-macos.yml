@@ -83,20 +83,38 @@ jobs:
           bun build --compile --target=bun-darwin-arm64 src/daemon/main.ts \
             --external electron --external "chromium-bidi/*" \
             --define "process.env.APP_VERSION='$DISPLAY_VERSION'" \
-            --outfile ../clients/macos/daemon-bin/vellum-daemon
+            --outfile ../clients/macos/daemon-bin/vellum-daemon-arm64
+          bun build --compile --target=bun-darwin-x64 src/daemon/main.ts \
+            --external electron --external "chromium-bidi/*" \
+            --define "process.env.APP_VERSION='$DISPLAY_VERSION'" \
+            --outfile ../clients/macos/daemon-bin/vellum-daemon-x64
+          lipo -create \
+            ../clients/macos/daemon-bin/vellum-daemon-arm64 \
+            ../clients/macos/daemon-bin/vellum-daemon-x64 \
+            -output ../clients/macos/daemon-bin/vellum-daemon
+          rm ../clients/macos/daemon-bin/vellum-daemon-arm64 ../clients/macos/daemon-bin/vellum-daemon-x64
           chmod +x ../clients/macos/daemon-bin/vellum-daemon
-          echo "Daemon binary built:"
+          echo "Daemon universal binary built:"
           ls -lh ../clients/macos/daemon-bin/vellum-daemon
+          file ../clients/macos/daemon-bin/vellum-daemon
 
       - name: Build CLI binary
         working-directory: cli
         run: |
           bun install
           bun build --compile --target=bun-darwin-arm64 src/index.ts \
-            --outfile ../clients/macos/cli-bin/vellum-cli
+            --outfile ../clients/macos/cli-bin/vellum-cli-arm64
+          bun build --compile --target=bun-darwin-x64 src/index.ts \
+            --outfile ../clients/macos/cli-bin/vellum-cli-x64
+          lipo -create \
+            ../clients/macos/cli-bin/vellum-cli-arm64 \
+            ../clients/macos/cli-bin/vellum-cli-x64 \
+            -output ../clients/macos/cli-bin/vellum-cli
+          rm ../clients/macos/cli-bin/vellum-cli-arm64 ../clients/macos/cli-bin/vellum-cli-x64
           chmod +x ../clients/macos/cli-bin/vellum-cli
-          echo "CLI binary built:"
+          echo "CLI universal binary built:"
           ls -lh ../clients/macos/cli-bin/vellum-cli
+          file ../clients/macos/cli-bin/vellum-cli
 
       - name: Build release .app
         run: |
