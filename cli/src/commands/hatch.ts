@@ -429,23 +429,7 @@ interface WorkspaceConfig {
 }
 
 async function activateGcpCredentials(): Promise<void> {
-  const envKeyPath = process.env.VELLUM_GCP_SA_KEY_PATH;
-  if (envKeyPath && existsSync(envKeyPath)) {
-    try {
-      await exec("gcloud", [
-        "auth",
-        "activate-service-account",
-        `--key-file=${envKeyPath}`,
-      ]);
-      const project = process.env.GCP_PROJECT;
-      if (project) {
-        await exec("gcloud", ["config", "set", "project", project]);
-      }
-    } finally {
-      try {
-        unlinkSync(envKeyPath);
-      } catch {}
-    }
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
     return;
   }
 

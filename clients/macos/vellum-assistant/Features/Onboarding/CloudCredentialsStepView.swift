@@ -355,7 +355,7 @@ struct CloudCredentialsStepView: View {
 
     private var continueButton: some View {
         Button(action: { saveAndContinue() }) {
-            Text(isAws || isCustomHardware ? "Continue" : "Hatch!")
+            Text("Hatch!")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundColor(adaptiveColor(light: .white, dark: .white))
                 .frame(maxWidth: .infinity)
@@ -437,9 +437,7 @@ struct CloudCredentialsStepView: View {
 
     private func saveAndContinue() {
         guard !continueDisabled else { return }
-        if state.cloudProvider == "gcp" {
-            state.isHatching = true
-        }
+        state.isHatching = true
         state.advance()
     }
 }

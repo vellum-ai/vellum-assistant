@@ -110,7 +110,6 @@ final class CLILauncher {
                     .appendingPathComponent("vellum-sa-key-\(ProcessInfo.processInfo.processIdentifier).json")
                 try config.gcpServiceAccountKey.write(to: tmpKeyPath, atomically: true, encoding: .utf8)
                 env["GOOGLE_APPLICATION_CREDENTIALS"] = tmpKeyPath.path
-                env["VELLUM_GCP_SA_KEY_PATH"] = tmpKeyPath.path
             }
         } else if config.remote == "aws" {
             if !config.awsRoleArn.isEmpty {
