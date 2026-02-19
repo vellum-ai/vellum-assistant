@@ -31,6 +31,14 @@ struct SettingsView: View {
     @State private var showingAddRule = false
     @State private var editingRule: TrustRuleItem?
 
+    // Scheduled tasks state
+    @State private var schedules: [ScheduleItem] = []
+    @State private var schedulesLoading = false
+
+    // Reminders state
+    @State private var reminders: [ReminderItem] = []
+    @State private var remindersLoading = false
+
     var body: some View {
         NavigationStack {
             Form {
@@ -206,6 +214,54 @@ struct SettingsView: View {
                             loadTrustRules()
                         }
                     }
+
+                    // Scheduled Tasks section (Connected mode only)
+                    Section("Scheduled Tasks") {
+                        if schedulesLoading {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                Spacer()
+                            }
+                        } else if schedules.isEmpty {
+                            Text("No scheduled tasks")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                        } else {
+                            ForEach(schedules, id: \.id) { schedule in
+                                scheduleRow(schedule)
+                            }
+                            .onDelete { indexSet in
+                                for index in indexSet {
+                                    deleteSchedule(schedules[index].id)
+                                }
+                            }
+                        }
+                    }
+
+                    // Reminders section (Connected mode only)
+                    Section("Reminders") {
+                        if remindersLoading {
+                            HStack {
+                                Spacer()
+                                ProgressView()
+                                Spacer()
+                            }
+                        } else if reminders.isEmpty {
+                            Text("No active reminders")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                        } else {
+                            ForEach(reminders, id: \.id) { reminder in
+                                reminderRow(reminder)
+                            }
+                            .onDelete { indexSet in
+                                for index in indexSet {
+                                    cancelReminder(reminders[index].id)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Section("Appearance") {
@@ -252,10 +308,12 @@ struct SettingsView: View {
         daemonPort = portValue > 0 ? String(portValue) : "8765"
         sessionToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token") ?? ""
 
-        // Load integrations and trust rules in Connected mode
+        // Load Connected mode data
         if connectionMode == ConnectionMode.connected.rawValue {
             loadIntegrations()
             loadTrustRules()
+            loadSchedules()
+            loadReminders()
         }
     }
 
@@ -368,6 +426,131 @@ struct SettingsView: View {
         guard let daemon = clientProvider.client as? DaemonClient else { return }
         try? daemon.send(RemoveTrustRuleMessage(id: rule.id))
         trustRules.removeAll { $0.id == rule.id }
+    }
+
+    // MARK: - Scheduled Tasks
+
+    @ViewBuilder
+    private func scheduleRow(_ schedule: ScheduleItem) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(schedule.name)
+                    .font(.body)
+                Text(schedule.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                HStack(spacing: 4) {
+                    Text(schedule.cronExpression)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    if let nextRun = formatTimestamp(schedule.nextRunAt) {
+                        Text("Next: \(nextRun)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { schedule.enabled },
+                set: { newValue in toggleSchedule(schedule.id, enabled: newValue) }
+            ))
+            .labelsHidden()
+        }
+    }
+
+    private func loadSchedules() {
+        guard let daemon = clientProvider.client as? DaemonClient else { return }
+        schedulesLoading = true
+        daemon.onSchedulesListResponse = { items in
+            schedules = items
+            schedulesLoading = false
+        }
+        try? daemon.sendListSchedules()
+    }
+
+    private func toggleSchedule(_ id: String, enabled: Bool) {
+        guard let daemon = clientProvider.client as? DaemonClient else { return }
+        try? daemon.sendToggleSchedule(id: id, enabled: enabled)
+        // Update local state immediately
+        if let idx = schedules.firstIndex(where: { $0.id == id }) {
+            // Refresh from daemon to get updated state
+            loadSchedules()
+        }
+    }
+
+    private func deleteSchedule(_ id: String) {
+        guard let daemon = clientProvider.client as? DaemonClient else { return }
+        try? daemon.sendRemoveSchedule(id: id)
+        schedules.removeAll { $0.id == id }
+    }
+
+    // MARK: - Reminders
+
+    @ViewBuilder
+    private func reminderRow(_ reminder: ReminderItem) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(reminder.label)
+                .font(.body)
+            Text(reminder.message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            HStack(spacing: 8) {
+                statusBadge(reminder.status)
+                if let fireTime = formatTimestamp(reminder.fireAt) {
+                    Text(fireTime)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func statusBadge(_ status: String) -> some View {
+        let (color, label): (Color, String) = {
+            switch status {
+            case "pending": return (VColor.warning, "Pending")
+            case "fired": return (VColor.success, "Fired")
+            case "cancelled": return (VColor.textMuted, "Cancelled")
+            default: return (VColor.textSecondary, status.capitalized)
+            }
+        }()
+        Text(label)
+            .font(.caption2)
+            .fontWeight(.medium)
+            .foregroundColor(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.15))
+            .clipShape(Capsule())
+    }
+
+    private func loadReminders() {
+        guard let daemon = clientProvider.client as? DaemonClient else { return }
+        remindersLoading = true
+        daemon.onRemindersListResponse = { items in
+            reminders = items
+            remindersLoading = false
+        }
+        try? daemon.sendListReminders()
+    }
+
+    private func cancelReminder(_ id: String) {
+        guard let daemon = clientProvider.client as? DaemonClient else { return }
+        try? daemon.sendCancelReminder(id: id)
+        reminders.removeAll { $0.id == id }
+    }
+
+    // MARK: - Formatting Helpers
+
+    private func formatTimestamp(_ ms: Int) -> String? {
+        let date = Date(timeIntervalSince1970: TimeInterval(ms) / 1000.0)
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
 
