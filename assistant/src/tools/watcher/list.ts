@@ -1,40 +1,5 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { listWatchers, getWatcher, listWatcherEvents } from '../../watcher/watcher-store.js';
-
-class WatcherListTool implements Tool {
-  name = 'watcher_list';
-  description = 'List all watchers with their status, or show details for a specific watcher';
-  category = 'watcher';
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
-        type: 'object',
-        properties: {
-          watcher_id: {
-            type: 'string',
-            description: 'If provided, show detailed info for this specific watcher including recent events.',
-          },
-          enabled_only: {
-            type: 'boolean',
-            description: 'When true, only show enabled watchers. Defaults to false.',
-          },
-        },
-        required: [],
-      },
-    };
-  }
-
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeWatcherList(input, _context);
-  }
-}
 
 export async function executeWatcherList(
   input: Record<string, unknown>,
@@ -93,5 +58,3 @@ export async function executeWatcherList(
 
   return { content: lines.join('\n'), isError: false };
 }
-
-registerTool(new WatcherListTool());

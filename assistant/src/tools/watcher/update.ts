@@ -1,56 +1,5 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { updateWatcher } from '../../watcher/watcher-store.js';
-
-class WatcherUpdateTool implements Tool {
-  name = 'watcher_update';
-  description = 'Update a watcher\'s configuration (name, action prompt, interval, enabled state)';
-  category = 'watcher';
-  defaultRiskLevel = RiskLevel.Medium;
-
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
-        type: 'object',
-        properties: {
-          watcher_id: {
-            type: 'string',
-            description: 'The ID of the watcher to update',
-          },
-          name: {
-            type: 'string',
-            description: 'New name for the watcher',
-          },
-          action_prompt: {
-            type: 'string',
-            description: 'New action prompt for event processing',
-          },
-          poll_interval_ms: {
-            type: 'number',
-            description: 'New poll interval in milliseconds (minimum 15000)',
-          },
-          enabled: {
-            type: 'boolean',
-            description: 'Enable or disable the watcher',
-          },
-          config: {
-            type: 'object',
-            description: 'New provider-specific configuration',
-          },
-        },
-        required: ['watcher_id'],
-      },
-    };
-  }
-
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeWatcherUpdate(input, _context);
-  }
-}
 
 export async function executeWatcherUpdate(
   input: Record<string, unknown>,
@@ -105,5 +54,3 @@ export async function executeWatcherUpdate(
     return { content: `Error updating watcher: ${msg}`, isError: true };
   }
 }
-
-registerTool(new WatcherUpdateTool());
