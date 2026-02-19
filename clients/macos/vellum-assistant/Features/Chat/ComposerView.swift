@@ -245,6 +245,8 @@ struct ComposerView: View {
         .onChange(of: editorContentHeight) {
             if editorContentHeight > composerCompactHeight && !isComposerExpanded {
                 withAnimation(VAnimation.fast) { isComposerExpanded = true }
+            } else if editorContentHeight <= composerCompactHeight && isComposerExpanded {
+                withAnimation(VAnimation.fast) { isComposerExpanded = false }
             }
         }
     }
@@ -696,6 +698,11 @@ private struct ComposerTextView: NSViewRepresentable {
             parent.onOverflowChange?(rawHeight > parent.maxHeight)
 
             if abs(lastReportedHeight - clampedHeight) > 0.5 {
+                // When content shrinks (e.g. deleting from 2 lines back to 1),
+                // reset the scroll position so text isn't clipped at the top.
+                if clampedHeight < lastReportedHeight {
+                    textView.scrollToBeginningOfDocument(nil)
+                }
                 lastReportedHeight = clampedHeight
                 parent.onHeightChange(clampedHeight)
             }
