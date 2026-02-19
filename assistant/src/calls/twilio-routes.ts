@@ -16,6 +16,7 @@ import {
   buildCallbackDedupeKey,
   claimCallback,
   releaseCallbackClaim,
+  finalizeCallbackClaim,
 } from './call-store.js';
 import type { CallStatus } from './types.js';
 import { answerCall } from './call-domain.js';
@@ -197,6 +198,9 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
     if (isTerminal) {
       expirePendingQuestions(session.id);
     }
+
+    // Mark the claim as permanently processed so it never expires
+    finalizeCallbackClaim(dedupeKey);
   } catch (err) {
     // Release claim so Twilio retries can reprocess
     releaseCallbackClaim(dedupeKey);
