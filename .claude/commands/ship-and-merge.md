@@ -41,7 +41,7 @@ git commit -m "<commit message>
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 git push -u origin HEAD
-gh pr create --base main --title "<PR title>" --body "$(cat <<'EOF'
+gh pr create --base main --title "<PR title>" --body "$(cat <<'PR_BODY_DELIM'
 ## Summary
 <1-3 bullet points>
 
@@ -49,7 +49,7 @@ gh pr create --base main --title "<PR title>" --body "$(cat <<'EOF'
 <$ARGUMENTS if provided, otherwise a brief description of what changes are being shipped>
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
+PR_BODY_DELIM
 )" --assignee @me
 ```
 
