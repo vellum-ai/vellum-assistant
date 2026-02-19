@@ -61,7 +61,7 @@ struct CloudCredentialsStepView: View {
 
             backButton
 
-            OnboardingFooter(currentStep: state.currentStep, totalSteps: 4)
+            OnboardingFooter(currentStep: state.currentStep, totalSteps: 3)
         }
         .padding(.horizontal, VSpacing.xxl)
         .padding(.bottom, VSpacing.lg)
@@ -439,12 +439,35 @@ struct CloudCredentialsStepView: View {
     private func saveAndContinue() {
         guard !continueDisabled else { return }
         saveCredentialsToConfig()
+        saveModelToConfig("claude-opus-4-6")
         if state.cloudProvider == "gcp" {
             Task {
                 try? await cliLauncher.runHatch()
             }
         }
         state.advance()
+    }
+
+    private func saveModelToConfig(_ model: String) {
+        let configURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vellum/workspace/config.json")
+
+        let dirURL = configURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+
+        do {
+            let data = try Data(contentsOf: configURL)
+            if var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                json["model"] = model
+                let updated = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+                try updated.write(to: configURL)
+            }
+        } catch {
+            let json: [String: Any] = ["model": model]
+            if let data = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
+                try? data.write(to: configURL)
+            }
+        }
     }
 
     private func saveCredentialsToConfig() {
