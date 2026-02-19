@@ -1,7 +1,7 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { resolveWorkItem, removeWorkItemFromQueue } from '../../work-items/work-item-store.js';
+import { resolveWorkItem, removeWorkItemFromQueue, identifyEntityById, buildTaskTemplateMismatchError } from '../../work-items/work-item-store.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('task-list-remove');
@@ -72,6 +72,17 @@ class TaskListRemoveTool implements Tool {
       const resolveResult = resolveWorkItem(selector);
 
       if (resolveResult.status === 'not_found') {
+        // When the model passes an ID directly, check if it's a task template
+        if (selector.workItemId) {
+          const entity = identifyEntityById(selector.workItemId);
+          if (entity.type === 'task_template') {
+            log.warn({ selectorType, inputId: selector.workItemId }, 'task template ID passed as work_item_id');
+            return {
+              content: `Error: ${buildTaskTemplateMismatchError(selector.workItemId, entity.title!, 'task_delete to delete task templates')}`,
+              isError: true,
+            };
+          }
+        }
         log.warn({ selectorType, error: resolveResult.message }, 'work item not found for removal');
         return { content: `Error: ${resolveResult.message}`, isError: true };
       }

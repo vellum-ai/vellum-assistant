@@ -1,6 +1,7 @@
 import { eq, desc, asc } from 'drizzle-orm';
 import { getDb } from '../memory/db.js';
 import { workItems } from '../memory/schema.js';
+import { getTask } from '../tasks/task-store.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -243,4 +244,57 @@ export function resolveWorkItem(selector: WorkItemSelector): ResolveWorkItemResu
   }
 
   return { status: 'not_found', message: 'At least one selector field (workItemId, taskId, or title) must be provided' };
+}
+
+// ── Entity Identification ───────────────────────────────────────────
+
+export type EntityType = 'task_template' | 'work_item' | 'unknown';
+
+export interface EntityIdentification {
+  type: EntityType;
+  id: string;
+  title?: string;
+}
+
+/**
+ * Determine whether an ID refers to a task template (tasks table) or
+ * a work item (work_items table). Used by tool error messages to give
+ * the model corrective guidance when the wrong entity type is provided.
+ */
+export function identifyEntityById(id: string): EntityIdentification {
+  const workItem = getWorkItem(id);
+  if (workItem) {
+    return { type: 'work_item', id: workItem.id, title: workItem.title };
+  }
+
+  const task = getTask(id);
+  if (task) {
+    return { type: 'task_template', id: task.id, title: task.title };
+  }
+
+  return { type: 'unknown', id };
+}
+
+/**
+ * Build a corrective error message when a work item ID is passed where
+ * a task template ID is expected.
+ */
+export function buildWorkItemMismatchError(id: string, title: string, expectedTool: string): string {
+  return [
+    `Entity mismatch: The ID "${id}" refers to a work item ("${title}"), not a task template.`,
+    `Corrective action: Use ${expectedTool} to operate on work items in the task queue.`,
+    `Selector fields: work_item_id: "${id}" or title: "${title}"`,
+  ].join('\n');
+}
+
+/**
+ * Build a corrective error message when a task template ID is passed where
+ * a work item ID is expected.
+ */
+export function buildTaskTemplateMismatchError(id: string, title: string, expectedTool: string): string {
+  return [
+    `Entity mismatch: The ID "${id}" refers to a task template ("${title}"), not a work item.`,
+    `Corrective action: Use ${expectedTool} to operate on task templates.`,
+    `Selector fields: task_id: "${id}" or task_name: "${title}"`,
+  ].join('\n');
 }

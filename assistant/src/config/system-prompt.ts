@@ -239,6 +239,20 @@ function buildTaskScheduleReminderRoutingSection(): string {
     '- "Mark X as done" → task_list_update (NOT task_list_add)',
     '- "Remove X from my tasks" → task_list_remove (NOT task_list_update)',
     '- "Delete that task" / "clean up the duplicate" → task_list_remove',
+    '',
+    '### Entity type routing: work items vs task templates',
+    '',
+    'There are two entity types with separate ID spaces:',
+    '- **Work items** (the user\'s task queue) — managed by task_list_add, task_list_show, task_list_update, task_list_remove',
+    '- **Task templates** (reusable definitions) — managed by task_save, task_list, task_run, task_delete',
+    '',
+    'Do NOT pass a work item ID to a task template tool or vice versa:',
+    '- Deleting a work item from the queue → task_list_remove (NOT task_delete)',
+    '- Deleting a task template → task_delete (NOT task_list_remove)',
+    '- Running a task template → task_run with task_id (NOT a work item ID)',
+    '- Updating a work item → task_list_update with work_item_id (NOT a task template ID)',
+    '',
+    'If an error says "entity mismatch", read the corrective action and selector fields it provides to pick the right tool.',
   ].join('\n');
 }
 
