@@ -10,14 +10,17 @@ struct IOSThread: Identifiable {
     let id: UUID
     var title: String
     let createdAt: Date
+    /// Tracks the most recent activity (message sent/received). Defaults to createdAt.
+    var lastActivityAt: Date
     /// When non-nil, this thread is backed by a daemon session (Connected mode).
     var sessionId: String?
     var isArchived: Bool
 
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false) {
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, sessionId: String? = nil, isArchived: Bool = false) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
+        self.lastActivityAt = lastActivityAt ?? createdAt
         self.sessionId = sessionId
         self.isArchived = isArchived
     }
@@ -30,6 +33,7 @@ private struct PersistedThread: Codable {
     var id: UUID
     var title: String
     var createdAt: Date
+    var lastActivityAt: Date?
     var isArchived: Bool?
 }
 
@@ -151,6 +155,7 @@ class IOSThreadStore: ObservableObject {
         let vm = ChatViewModel(daemonClient: daemonClient)
         viewModels[threadId] = vm
         observeForTitleGeneration(vm: vm, threadId: threadId)
+        observeForActivityTracking(vm: vm, threadId: threadId)
         return vm
     }
 
@@ -188,6 +193,16 @@ class IOSThreadStore: ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// Update lastActivityAt whenever the message list changes.
+    private func observeForActivityTracking(vm: ChatViewModel, threadId: UUID) {
+        vm.$messages
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.touchLastActivity(for: threadId)
+            }
+            .store(in: &cancellables)
+    }
+
     @discardableResult
     func newThread() -> IOSThread {
         let thread = IOSThread()
@@ -199,8 +214,8 @@ class IOSThreadStore: ObservableObject {
     func deleteThread(_ thread: IOSThread) {
         viewModels.removeValue(forKey: thread.id)
         threads.removeAll { $0.id == thread.id }
-        // Always keep at least one thread.
-        if threads.isEmpty {
+        // Always keep at least one active (non-archived) thread.
+        if threads.filter({ !$0.isArchived }).isEmpty {
             newThread()
         } else {
             save()
@@ -225,6 +240,13 @@ class IOSThreadStore: ObservableObject {
         save()
     }
 
+    /// Update lastActivityAt to now for the given thread.
+    func touchLastActivity(for threadId: UUID) {
+        guard let idx = threads.firstIndex(where: { $0.id == threadId }) else { return }
+        threads[idx].lastActivityAt = Date()
+        save()
+    }
+
     /// Returns the last message text for a thread, if available.
     func lastMessagePreview(for threadId: UUID) -> String? {
         guard let vm = viewModels[threadId],
@@ -239,7 +261,7 @@ class IOSThreadStore: ObservableObject {
     private func save() {
         // Don't persist daemon-synced threads — they're loaded on connect.
         guard !isConnectedMode else { return }
-        let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, isArchived: $0.isArchived) }
+        let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived) }
         if let data = try? JSONEncoder().encode(persisted) {
             UserDefaults.standard.set(data, forKey: Self.persistenceKey)
         }
@@ -250,7 +272,7 @@ class IOSThreadStore: ObservableObject {
               let persisted = try? JSONDecoder().decode([PersistedThread].self, from: data) else {
             return []
         }
-        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, isArchived: $0.isArchived ?? false) }
+        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived ?? false) }
     }
 }
 
@@ -341,7 +363,11 @@ struct ThreadListView: View {
                             }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
+                                    let wasSelected = selectedThreadId == thread.id
                                     store.deleteThread(thread)
+                                    if wasSelected {
+                                        selectedThreadId = activeThreads.first?.id
+                                    }
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
@@ -402,7 +428,7 @@ struct ThreadListView: View {
                 Text(thread.title)
                     .lineLimit(1)
                 Spacer()
-                Text(relativeDate(thread.createdAt))
+                Text(relativeDate(thread.lastActivityAt))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
