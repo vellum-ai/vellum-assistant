@@ -184,4 +184,14 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     install: { nodeManager: 'npm' },
     allowBundled: null,
   },
+  workspaceGit: {
+    turnCommitMaxWaitMs: 4000,
+    failureBackoffBaseMs: 2000,
+    failureBackoffMaxMs: 60000,
+    interactiveGitTimeoutMs: 10000,
+    enrichmentQueueSize: 50,
+    enrichmentConcurrency: 1,
+    enrichmentJobTimeoutMs: 30000,
+    enrichmentMaxRetries: 2,
+  },
 };

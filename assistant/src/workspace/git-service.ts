@@ -596,15 +596,19 @@ export class WorkspaceGitService {
 
   /**
    * Execute a git command in the workspace directory.
-   * Includes a 30-second timeout to prevent hung operations
-   * (e.g. stale git lock files).
+   * Uses the configurable interactiveGitTimeoutMs (default 10 000 ms) to
+   * prevent hung operations (e.g. stale git lock files). The timeout is
+   * intentionally short for interactive workspace operations — background
+   * enrichment jobs use their own dedicated timeout.
    */
   private async execGit(args: string[]): Promise<{ stdout: string; stderr: string }> {
     try {
+      const config = getConfig();
+      const timeoutMs = config.workspaceGit?.interactiveGitTimeoutMs ?? 10_000;
       const { stdout, stderr } = await execFileAsync('git', args, {
         cwd: this.workspaceDir,
         encoding: 'utf-8',
-        timeout: 30_000,
+        timeout: timeoutMs,
         env: cleanGitEnv(this.workspaceDir),
       });
       return { stdout, stderr };
