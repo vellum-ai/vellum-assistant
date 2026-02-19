@@ -113,7 +113,7 @@ class CredentialStoreTool implements Tool {
   name = 'credential_store';
   description = 'Store, list, delete, or prompt for credentials in the secure vault';
   category = 'credentials';
-  defaultRiskLevel = RiskLevel.Medium;
+  defaultRiskLevel = RiskLevel.Low;
 
   getDefinition(): ToolDefinition {
     return {
