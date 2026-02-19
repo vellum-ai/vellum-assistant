@@ -37,7 +37,9 @@ As each step completes, call `ui_update` with the same surface ID and patch `dat
 
 When the user asks you to order food (e.g. "Order pizza from Andiamo's"):
 
-1. **Check session** — run `vellum doordash status --json`. If `loggedIn` is false or the session is expired, tell the user: "I need to capture your DoorDash session. A separate Chrome window will open — your existing Chrome and tabs are not affected. Please sign in to DoorDash when it opens, and I'll take it from there." Then run `vellum doordash refresh --json`. This starts a Ride Shotgun learn session that records your login and auto-stops once it detects you've signed in. The session is imported automatically. **This command blocks until login is complete — just wait for it.**
+1. **Check session** — run `vellum doordash status --json`. If `loggedIn` is false or the session is expired, tell the user: "A Chrome window will open to the DoorDash login page. Please sign in there — I'll detect your login automatically and minimize the window." Then run `vellum doordash refresh --json`. This starts a Ride Shotgun learn session that records your login and auto-stops once it detects you've signed in. The session is imported automatically. **This command blocks until login is complete — just wait for it.**
+
+   Keep the DoorDash Chrome window open in the background — it's needed for API requests.
 
 2. **Search** — run `vellum doordash search "<query>" --json` to find matching restaurants. Present the top results to the user with name, rating, and delivery info. If the user named a specific restaurant, pick the best match. If ambiguous, ask.
 
@@ -72,6 +74,9 @@ When the user asks you to order food (e.g. "Order pizza from Andiamo's"):
 - **Do NOT use the browser skill.** All DoorDash interaction goes through the CLI, not browser automation.
 - **Rate limiting.** DoorDash rate-limits rapid sequential requests. When adding multiple items (e.g. a team order), wait 8–10 seconds between `cart add` calls. If you get a 403 error, wait 15–20 seconds and retry. For large orders (5+ items), consider running `vellum doordash refresh --json` midway through if you hit repeated 403s.
 - **Special instructions are unreliable.** Some merchants disable special instructions entirely. Always prefer `--options` for customizations (size, milk type, etc.). Only use `--special-instructions` for free-text requests that aren't covered by the item's option groups. If the merchant rejects special instructions, drop them and proceed without.
+- **Customization fallback.** If `cart add` with `--options` fails, or if the item details show options that are hard to construct (deeply nested, unusual format), proactively offer to use `cart learn` so the user can customize the item visually in the browser. Don't silently drop customizations — tell the user what happened and offer alternatives.
+- **Always-allow tip.** At the start of an ordering flow, suggest the user enable "always allow" for `vellum doordash` commands: "Tip: You can type 'a' to always allow `vellum doordash` commands for this session so you won't be prompted each time."
+- **Error attribution.** When errors occur, assume it's more likely a bug in our query/parsing than a DoorDash API change. Suggest running `vellum doordash record` to capture fresh queries before assuming the schema changed.
 
 ## Customization Options
 
