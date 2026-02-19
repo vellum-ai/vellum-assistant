@@ -1095,7 +1095,7 @@ export class DaemonServer {
       : [];
 
     // Resolve slash commands before persistence (synchronous — no race window).
-    const slashResult = resolveSlash(content);
+    const slashResult = resolveSlash(content, session.workingDir);
 
     // Unknown slash command — persist the exchange (user + assistant) and
     // return immediately. This path doesn't set processing=true since no
@@ -1124,6 +1124,8 @@ export class DaemonServer {
     // Preactivate skill tools when slash resolution identifies a known skill
     if (slashResult.kind === 'rewritten') {
       (session as unknown as { preactivatedSkillIds?: string[] }).preactivatedSkillIds = [slashResult.skillId];
+    } else if (slashResult.kind === 'cc_command') {
+      (session as unknown as { preactivatedSkillIds?: string[] }).preactivatedSkillIds = ['claude-code'];
     }
 
     // Persist the user message immediately after the isProcessing() guard.
