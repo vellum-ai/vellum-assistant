@@ -249,6 +249,14 @@ export function resolveSlash(content: string): SlashResolution {
   const modelResult = resolveModelCommand(content);
   if (modelResult) return modelResult;
 
+  // Handle /commands command
+  if (content.trim() === '/commands') {
+    return {
+      kind: 'unknown',
+      message: '/commands — List all available commands\n/model — Show or switch the current model\n/models — List all available models',
+    };
+  }
+
   const config = getConfig();
   const catalog = loadSkillCatalog();
   const resolved = resolveSkillStates(catalog, config);

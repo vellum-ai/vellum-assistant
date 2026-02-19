@@ -10,6 +10,7 @@ struct SlashCommand {
     let icon: String
 
     static let all: [SlashCommand] = [
+        SlashCommand(name: "commands", description: "List all available commands", icon: "terminal"),
         SlashCommand(name: "model", description: "Switch the active model", icon: "cpu"),
         SlashCommand(name: "models", description: "List all available models", icon: "list.bullet"),
     ]
@@ -504,13 +505,8 @@ struct ComposerView: View {
     private func selectSlashCommand(_ command: SlashCommand) {
         withAnimation(VAnimation.fast) { showSlashMenu = false }
         slashSelectedIndex = 0
-        if command.name == "model" {
-            inputText = "/model"
-            onSend()
-        } else if command.name == "models" {
-            inputText = "/models"
-            onSend()
-        }
+        inputText = "/\(command.name)"
+        onSend()
     }
 
     private func handleSlashNavigation(_ action: SlashNavigation) {

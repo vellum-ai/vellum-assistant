@@ -579,6 +579,10 @@ struct ChatView: View {
                             modelListView(for: message)
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        } else if message.commandList != nil {
+                            CommandListBubble()
+                                .id(message.id)
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
                         } else {
                             // Hide tool call chips when the next message is a pending
                             // confirmation — the tool hasn't been approved yet.

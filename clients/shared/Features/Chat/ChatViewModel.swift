@@ -1113,6 +1113,8 @@ public final class ChatViewModel: ObservableObject {
             } else if userText == "/models" {
                 chatMessages[i + 1].modelList = ModelListData()
                 hasModelCommand = true
+            } else if userText == "/commands" {
+                chatMessages[i + 1].commandList = CommandListData()
             }
         }
         // Refresh model/provider state so the picker/table has correct data on restart
