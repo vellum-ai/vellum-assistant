@@ -1,10 +1,7 @@
-import { readFileSync } from "fs";
-import { join } from "path";
-
-const ADAPTER_PATH = join(import.meta.dir, "..", "adapters", "openclaw-http-server.ts");
+// @ts-expect-error -- Bun embed: imports raw file content as a string, not supported by TypeScript
+import serverSource from "../adapters/openclaw-http-server.ts" with { type: "text" };
 
 export function buildOpenclawRuntimeServer(): string {
-  const serverSource = readFileSync(ADAPTER_PATH, "utf-8");
 
   return `
 cat > /opt/openclaw-runtime-server.ts << 'RUNTIME_SERVER_EOF'
