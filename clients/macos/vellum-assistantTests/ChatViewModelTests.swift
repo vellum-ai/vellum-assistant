@@ -2152,4 +2152,96 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[0].role, .user)
         XCTAssertEqual(viewModel.messages[0].text, "Hello")
     }
+
+    // MARK: - Send Direct Queued Message
+
+    func testSendDirectQueuedMessageSavesContentAndStops() {
+        // Set up a session with a sending state and a queued message
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Add an assistant message (current generation)
+        viewModel.messages.append(ChatMessage(role: .assistant, text: "Working...", isStreaming: true))
+
+        // Add a queued user message
+        let queuedId = UUID()
+        viewModel.messages.append(ChatMessage(id: queuedId, role: .user, text: "Jump ahead", status: .queued(position: 1)))
+
+        viewModel.sendDirectQueuedMessage(messageId: queuedId)
+
+        // The queued message should be removed from the messages array
+        XCTAssertFalse(viewModel.messages.contains(where: { $0.id == queuedId }))
+
+        // Pending send-direct state should be stored
+        XCTAssertEqual(viewModel.pendingSendDirectText, "Jump ahead")
+
+        // isCancelling should be set (daemon cancel sent)
+        XCTAssertTrue(viewModel.isCancelling)
+    }
+
+    func testSendDirectDispatcheAfterGenerationCancelled() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isCancelling = true
+
+        // Simulate pending send-direct
+        viewModel.pendingSendDirectText = "Jump ahead"
+        viewModel.pendingSendDirectAttachments = nil
+
+        // Simulate generationCancelled arriving
+        let cancelled = GenerationCancelledMessage(sessionId: "sess-1")
+        viewModel.handleServerMessage(.generationCancelled(cancelled))
+
+        // After cancellation, the pending text should have been dispatched
+        XCTAssertNil(viewModel.pendingSendDirectText)
+        // isSending should be true again (sendMessage was called)
+        XCTAssertTrue(viewModel.isSending)
+        // The dispatched message should appear in messages
+        XCTAssertTrue(viewModel.messages.contains(where: { $0.role == .user && $0.text == "Jump ahead" }))
+    }
+
+    func testSendDirectDispatchesAfterDisconnectedCancel() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+
+        // Add a queued message
+        let queuedId = UUID()
+        viewModel.messages.append(ChatMessage(id: queuedId, role: .user, text: "Urgent", status: .queued(position: 1)))
+
+        // Disconnect daemon
+        daemonClient.isConnected = false
+
+        viewModel.sendDirectQueuedMessage(messageId: queuedId)
+
+        // Disconnected path resets immediately and dispatches
+        XCTAssertNil(viewModel.pendingSendDirectText)
+        // The dispatched message should be in messages
+        XCTAssertTrue(viewModel.messages.contains(where: { $0.role == .user && $0.text == "Urgent" }))
+    }
+
+    func testSendDirectIgnoresNonQueuedMessage() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+
+        // Add a sent (non-queued) user message
+        let sentId = UUID()
+        viewModel.messages.append(ChatMessage(id: sentId, role: .user, text: "Already sent", status: .sent))
+
+        viewModel.sendDirectQueuedMessage(messageId: sentId)
+
+        // Should be a no-op — pendingSendDirectText stays nil
+        XCTAssertNil(viewModel.pendingSendDirectText)
+        // Message should still be there (not removed)
+        XCTAssertTrue(viewModel.messages.contains(where: { $0.id == sentId }))
+    }
+
+    func testSendDirectIgnoresUnknownMessageId() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+
+        viewModel.sendDirectQueuedMessage(messageId: UUID())
+
+        XCTAssertNil(viewModel.pendingSendDirectText)
+    }
 }

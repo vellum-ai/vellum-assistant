@@ -596,6 +596,7 @@ extension ChatViewModel {
                     messages[i].status = .sent
                 }
             }
+            dispatchPendingSendDirect()
 
         case .messageQueued(let queued):
             guard belongsToSession(queued.sessionId) else { return }

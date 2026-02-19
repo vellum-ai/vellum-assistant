@@ -44,6 +44,7 @@ struct ChatView: View {
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
     var onDeleteQueuedMessage: ((UUID) -> Void)?
+    var onSendDirectQueuedMessage: ((UUID) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
     var activeSubagents: [SubagentInfo] = []
@@ -225,6 +226,7 @@ struct ChatView: View {
             ChatQueueSummaryView(
                 queuedMessages: queuedMessages,
                 onDeleteQueuedMessage: onDeleteQueuedMessage,
+                onSendDirectQueuedMessage: onSendDirectQueuedMessage,
                 isExpanded: $isQueueExpanded
             )
             ComposerView(

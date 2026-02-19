@@ -133,6 +133,11 @@ public final class ChatViewModel: ObservableObject {
     /// a cancel request (e.g. a stuck tool blocks the generation_cancelled event).
     var cancelTimeoutTask: Task<Void, Never>?
 
+    /// Saved text from a queued message that should be auto-sent after cancellation completes.
+    var pendingSendDirectText: String?
+    /// Saved attachments from a queued message that should be auto-sent after cancellation completes.
+    var pendingSendDirectAttachments: [ChatAttachment]?
+
     /// Timestamp of the most recent `toolUseStart` event received by this view model.
     /// Used by ThreadManager to route `confirmationRequest` messages to the correct
     /// ChatViewModel when multiple threads have active sessions.
@@ -592,6 +597,7 @@ public final class ChatViewModel: ObservableObject {
             refinementStreamingText = nil
             isThinking = false
             isSending = false
+            dispatchPendingSendDirect()
             return
         }
 
@@ -633,6 +639,7 @@ public final class ChatViewModel: ObservableObject {
                     messages[i].status = .sent
                 }
             }
+            dispatchPendingSendDirect()
             return
         }
 
@@ -677,6 +684,7 @@ public final class ChatViewModel: ObservableObject {
                     messages[i].status = .sent
                 }
             }
+            dispatchPendingSendDirect()
             return
         }
 
@@ -733,6 +741,7 @@ public final class ChatViewModel: ObservableObject {
                     self.messages[i].status = .sent
                 }
             }
+            self.dispatchPendingSendDirect()
         }
     }
 
@@ -815,6 +824,40 @@ public final class ChatViewModel: ObservableObject {
         if pendingQueuedCount == 0 && !isThinking {
             isSending = false
         }
+    }
+
+    /// Skip the queue: stop the current generation and immediately send a specific queued message.
+    public func sendDirectQueuedMessage(messageId: UUID) {
+        guard let index = messages.firstIndex(where: { $0.id == messageId }),
+              case .queued = messages[index].status else { return }
+
+        // Save content before stop clears everything
+        let text = messages[index].text
+        let attachments = messages[index].attachments
+
+        // Remove this message from local state (it will be re-added by sendMessage)
+        messages.remove(at: index)
+
+        // Store for dispatch after cancellation completes.
+        // Must be set BEFORE stopGenerating() because synchronous cancel paths
+        // (bootstrap, disconnected, send-failure) dispatch immediately.
+        pendingSendDirectText = text
+        pendingSendDirectAttachments = attachments
+
+        // Stop current generation — this clears all queued messages on the daemon
+        stopGenerating()
+    }
+
+    /// If a send-direct is pending, populate the composer and fire sendMessage.
+    /// Called from all cancel-completion paths (generationCancelled, timeout, disconnected, etc.).
+    func dispatchPendingSendDirect() {
+        guard let directText = pendingSendDirectText else { return }
+        let directAttachments = pendingSendDirectAttachments ?? []
+        pendingSendDirectText = nil
+        pendingSendDirectAttachments = nil
+        inputText = directText
+        pendingAttachments = directAttachments
+        sendMessage()
     }
 
     /// Stop the active watch session and notify the macOS layer.
