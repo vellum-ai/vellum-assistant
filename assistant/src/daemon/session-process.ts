@@ -55,7 +55,7 @@ export interface ProcessSessionContext {
   currentPage?: string;
   /** Request-scoped skill IDs preactivated via slash resolution. */
   preactivatedSkillIds?: string[];
-  persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string): string;
+  persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>): string;
   runAgentLoop(
     content: string,
     userMessageId: string,
@@ -155,7 +155,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   // resolves early (no runAgentLoop call), so we must continue draining.
   let userMessageId: string;
   try {
-    userMessageId = session.persistUserMessage(resolvedContent, next.attachments, next.requestId);
+    userMessageId = session.persistUserMessage(resolvedContent, next.attachments, next.requestId, next.metadata);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId: session.conversationId, requestId: next.requestId }, 'Failed to persist queued message');

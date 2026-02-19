@@ -44,6 +44,7 @@ struct ChatView: View {
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
     var onDeleteQueuedMessage: ((UUID) -> Void)?
+    var onSendDirectQueuedMessage: ((UUID) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
     var activeSubagents: [SubagentInfo] = []
@@ -226,6 +227,7 @@ struct ChatView: View {
             ChatQueueSummaryView(
                 queuedMessages: queuedMessages,
                 onDeleteQueuedMessage: onDeleteQueuedMessage,
+                onSendDirectQueuedMessage: onSendDirectQueuedMessage,
                 isExpanded: $isQueueExpanded
             )
             ComposerView(
@@ -369,6 +371,7 @@ struct ChatView: View {
                     // Filter out queued messages — they're shown above the composer instead
                     let displayMessages = messages.filter { msg in
                         if case .queued = msg.status { return false }
+                        if msg.isSubagentNotification { return false }
                         return true
                     }
                     ForEach(Array(displayMessages.enumerated()), id: \.element.id) { index, message in
@@ -466,11 +469,13 @@ struct ChatView: View {
                         }
 
                         // Subagent chips anchored to the message that spawned them
+                        // Indent to align with message text (past the 28pt avatar + 8pt spacing)
                         ForEach(activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
                             SubagentStatusChip(subagent: subagent) {
                                 onAbortSubagent?(subagent.id)
                             }
                                 .frame(maxWidth: 520, alignment: .leading)
+                                .padding(.leading, 36)
                                 .id("subagent-\(subagent.id)")
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
@@ -482,6 +487,7 @@ struct ChatView: View {
                             onAbortSubagent?(subagent.id)
                         }
                             .frame(maxWidth: 520, alignment: .leading)
+                            .padding(.leading, 36)
                             .id("subagent-\(subagent.id)")
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }

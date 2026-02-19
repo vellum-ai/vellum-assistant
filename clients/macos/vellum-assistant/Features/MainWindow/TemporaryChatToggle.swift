@@ -3,6 +3,7 @@ import VellumAssistantShared
 
 struct TemporaryChatToggle: View {
     let isActive: Bool
+    var tooltip: String? = nil
     let onToggle: () -> Void
 
     var body: some View {
@@ -11,6 +12,7 @@ struct TemporaryChatToggle: View {
             icon: "circle.dashed",
             isActive: isActive,
             iconOnly: true,
+            tooltip: tooltip,
             action: onToggle
         )
         .foregroundColor(isActive ? VColor.accent : nil)

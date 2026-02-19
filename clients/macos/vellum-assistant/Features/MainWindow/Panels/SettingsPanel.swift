@@ -22,6 +22,8 @@ struct SettingsPanel: View {
     @State private var imageGenKeyText: String = ""
     @State private var showingTrustRules = false
     @State private var showingReminders = false
+    @State private var twitterClientId: String = ""
+    @State private var twitterClientSecret: String = ""
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
     @State private var connectingIntegration: String?
     @State private var integrationError: (id: String, message: String)?
@@ -82,6 +84,7 @@ struct SettingsPanel: View {
         }
         .onAppear {
             store.refreshAPIKeyState()
+            store.refreshTwitterStatus()
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
         }
@@ -504,7 +507,155 @@ struct SettingsPanel: View {
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceSubtle)
             }
+
+            // TWITTER / X section
+            twitterSection
         }
+    }
+
+    // MARK: - Twitter Section
+
+    private var twitterSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Twitter / X")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            // Mode Picker
+            HStack {
+                Text("Integration mode")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                Spacer()
+                Picker("", selection: $store.twitterMode) {
+                    Text("Local (BYO App)").tag("local_byo")
+                    Text("Managed").tag("managed")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .onChange(of: store.twitterMode) { _, newValue in
+                    store.setTwitterMode(newValue)
+                }
+            }
+
+            // Managed mode "coming soon" card
+            if store.twitterMode == "managed" {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(VColor.textSecondary)
+                    Text("Managed mode is coming soon. Switch to Local (BYO App) to connect now.")
+                        .font(VFont.caption)
+                        .foregroundStyle(VColor.textSecondary)
+                }
+            }
+
+            // Local BYO mode content
+            if store.twitterMode == "local_byo" {
+                if !store.twitterLocalClientConfigured {
+                    // Client credentials entry (when not yet configured)
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        TextField("OAuth Client ID", text: $twitterClientId)
+                            .textFieldStyle(.plain)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .padding(VSpacing.md)
+                            .background(VColor.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                            )
+
+                        SecureField("OAuth Client Secret (optional)", text: $twitterClientSecret)
+                            .textFieldStyle(.plain)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .padding(VSpacing.md)
+                            .background(VColor.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                            )
+
+                        HStack {
+                            Text("Create an app at developer.x.com")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Spacer()
+                            VButton(label: "Save", style: .primary) {
+                                store.saveTwitterLocalClient(
+                                    clientId: twitterClientId,
+                                    clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret
+                                )
+                                twitterClientId = ""
+                                twitterClientSecret = ""
+                            }
+                            .disabled(twitterClientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                } else {
+                    // Client configured — show connect or connected state
+                    if store.twitterConnected {
+                        // Connected state
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(VColor.success)
+                                .font(.system(size: 14))
+                            Text("Connected")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            if let account = store.twitterAccountInfo {
+                                Text(account)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            Spacer()
+                            VButton(label: "Disconnect", style: .danger) {
+                                store.disconnectTwitter()
+                            }
+                        }
+                    } else {
+                        // Client configured but not connected
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: "circle")
+                                .foregroundColor(VColor.textMuted)
+                                .font(.system(size: 14))
+                            Text("App configured")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Spacer()
+                            if store.twitterAuthInProgress {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Connecting...")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textSecondary)
+                            } else {
+                                VButton(label: "Connect", style: .primary) {
+                                    store.connectTwitter()
+                                }
+                            }
+                        }
+                    }
+
+                    // Clear/reconfigure button
+                    HStack {
+                        Spacer()
+                        Button("Clear App Config") {
+                            store.clearTwitterLocalClient()
+                            twitterClientId = ""
+                            twitterClientSecret = ""
+                        }
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    }
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Trust Tab

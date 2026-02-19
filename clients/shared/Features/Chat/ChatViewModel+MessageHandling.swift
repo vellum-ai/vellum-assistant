@@ -450,8 +450,22 @@ extension ChatViewModel {
             cancelTimeoutTask = nil
             isCancelling = false
             isThinking = false
-            // Only clear isSending if no messages are still queued
-            if pendingQueuedCount == 0 {
+            // When a send-direct is pending, this messageComplete is the
+            // cancel acknowledgment. Reset all queue state so the follow-up
+            // sendMessage() starts a fresh send instead of re-queuing.
+            if pendingSendDirectText != nil {
+                isSending = false
+                pendingQueuedCount = 0
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
+                pendingLocalDeletions.removeAll()
+                for i in messages.indices {
+                    if case .queued = messages[i].status, messages[i].role == .user {
+                        messages[i].status = .sent
+                    }
+                }
+            } else if pendingQueuedCount == 0 {
+                // Only clear isSending if no messages are still queued
                 isSending = false
                 #if os(iOS)
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -532,6 +546,7 @@ extension ChatViewModel {
                     messages[i].status = .sent
                 }
             }
+            dispatchPendingSendDirect()
             // Skip follow-up suggestions for workspace refinements
             if !isSending && !wasRefinement {
                 fetchSuggestion()
@@ -556,6 +571,15 @@ extension ChatViewModel {
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
+            let wasCancelling = isCancelling
+            isCancelling = false
+            // Stale cancel event from a previous cancel cycle — the daemon
+            // emits generation_cancelled for each queued entry during abort,
+            // but the first event already reset state and dispatched any
+            // pending send-direct. Ignore to avoid clobbering the new send.
+            if !wasCancelling && isSending {
+                return
+            }
             pendingVoiceMessage = false
             isWorkspaceRefinementInFlight = false
             refinementMessagePreview = nil
@@ -563,8 +587,6 @@ extension ChatViewModel {
             cancelledDuringRefinement = false
             cancelTimeoutTask?.cancel()
             cancelTimeoutTask = nil
-            let wasCancelling = isCancelling
-            isCancelling = false
             isThinking = false
             if wasCancelling {
                 isSending = false
@@ -596,6 +618,7 @@ extension ChatViewModel {
                     messages[i].status = .sent
                 }
             }
+            dispatchPendingSendDirect()
 
         case .messageQueued(let queued):
             guard belongsToSession(queued.sessionId) else { return }
@@ -760,6 +783,7 @@ extension ChatViewModel {
                         messages[i].status = .sent
                     }
                 }
+                dispatchPendingSendDirect()
             } else if pendingQueuedCount == 0 {
                 // The daemon drains queued work after a non-cancellation
                 // error, so preserve queue bookkeeping when messages are

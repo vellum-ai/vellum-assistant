@@ -675,11 +675,11 @@ describe('Provider streaming benchmark', () => {
       },
     });
 
-    try {
-      // Use ANTHROPIC_BASE_URL env var to point AnthropicProvider at mock server
-      const origBaseUrl = process.env.ANTHROPIC_BASE_URL;
-      process.env.ANTHROPIC_BASE_URL = `http://localhost:${server.port}`;
+    // Save and override env var before try so it's always restored in finally
+    const origBaseUrl = process.env.ANTHROPIC_BASE_URL;
+    process.env.ANTHROPIC_BASE_URL = `http://localhost:${server.port}`;
 
+    try {
       // Import dynamically after setting env var so SDK picks it up
       const { AnthropicProvider } = await import('../providers/anthropic/client.js');
       const provider = new AnthropicProvider(BENCH_API_KEY, 'claude-3-5-sonnet-20241022');
@@ -702,13 +702,6 @@ describe('Provider streaming benchmark', () => {
         },
       );
 
-      // Restore env var
-      if (origBaseUrl === undefined) {
-        delete process.env.ANTHROPIC_BASE_URL;
-      } else {
-        process.env.ANTHROPIC_BASE_URL = origBaseUrl;
-      }
-
       // Verify the full adapter pipeline delivered all events
       const textDeltas = receivedEvents.filter((e) => e.type === 'text_delta');
       expect(textDeltas.length).toBe(tokenCount);
@@ -727,6 +720,11 @@ describe('Provider streaming benchmark', () => {
       const rate = (textDeltas.length / elapsed) * 1000;
       expect(rate).toBeGreaterThan(500);
     } finally {
+      if (origBaseUrl === undefined) {
+        delete process.env.ANTHROPIC_BASE_URL;
+      } else {
+        process.env.ANTHROPIC_BASE_URL = origBaseUrl;
+      }
       server.stop();
     }
   });

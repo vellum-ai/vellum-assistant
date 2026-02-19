@@ -3,7 +3,7 @@
  * Stores/loads auth cookies from a recording or manual login.
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { getDataDir } from '../util/platform.js';
 import type { SessionRecording, ExtractedCredential } from '../tools/browser/network-recording-types.js';
@@ -41,7 +41,6 @@ export function saveSession(session: TwitterSession): void {
 export function clearSession(): void {
   const path = getSessionPath();
   if (existsSync(path)) {
-    const { unlinkSync } = require('node:fs') as typeof import('node:fs');
     unlinkSync(path);
   }
 }

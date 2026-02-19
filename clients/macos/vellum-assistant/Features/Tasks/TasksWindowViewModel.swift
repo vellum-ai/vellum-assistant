@@ -104,7 +104,15 @@ class TasksWindowViewModel: ObservableObject {
             self.cancelRunTimeout(id: response.id)
             if !response.success {
                 self.logger.error("onWorkItemRunTaskResponse: run failed for id=\(response.id, privacy: .public) errorCode=\(response.errorCode ?? "none", privacy: .public) error=\(response.error ?? "none", privacy: .public)")
-                self.errorMessage = response.error ?? "Failed to run task"
+                // When required tools changed after initial approval, the daemon
+                // returns permission_required — reopen the preflight dialog so the
+                // user can approve the updated set.
+                if response.errorCode == "permission_required",
+                   let item = self.items.first(where: { $0.id == response.id }) {
+                    self.initiateRun(item: item)
+                } else {
+                    self.errorMessage = response.error ?? "Failed to run task"
+                }
                 self.fetchItems()
             }
         }

@@ -14,6 +14,7 @@ export interface QueuedMessage {
   onEvent: (msg: ServerMessage) => void;
   activeSurfaceId?: string;
   currentPage?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export const MAX_QUEUE_DEPTH = 10;

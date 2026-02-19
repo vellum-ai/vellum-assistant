@@ -451,6 +451,13 @@ export function createProxyApprovalCallback(
 // ── createResolveToolsCallback ───────────────────────────────────────
 
 /**
+ * Bundled skills that must always be active regardless of conversation
+ * history or explicit preactivation. Without this, their tools are
+ * unavailable in fresh sessions until `skill_load` is called.
+ */
+const DEFAULT_PREACTIVATED_SKILL_IDS = ['tasks'];
+
+/**
  * Subset of Session state that the resolveTools callback reads at each
  * agent turn. Properties are read lazily from this reference.
  */
@@ -475,8 +482,12 @@ export function createResolveToolsCallback(
   if (toolDefs.length === 0) return undefined;
 
   return (history: Message[]) => {
+    const effectivePreactivated = [
+      ...DEFAULT_PREACTIVATED_SKILL_IDS,
+      ...(ctx.preactivatedSkillIds ?? []),
+    ];
     const projection = projectSkillTools(history, {
-      preactivatedSkillIds: ctx.preactivatedSkillIds,
+      preactivatedSkillIds: effectivePreactivated,
       previouslyActiveSkillIds: ctx.skillProjectionState,
       cache: ctx.skillProjectionCache,
     });

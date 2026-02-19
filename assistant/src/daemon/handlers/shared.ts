@@ -70,6 +70,13 @@ export interface RenderedHistoryContent {
   surfaces: HistorySurface[];
 }
 
+export interface SubagentNotificationData {
+  subagentId: string;
+  label: string;
+  status: 'completed' | 'failed' | 'aborted';
+  error?: string;
+}
+
 export interface ParsedHistoryMessage {
   id?: string;
   role: string;
@@ -80,6 +87,7 @@ export interface ParsedHistoryMessage {
   textSegments: string[];
   contentOrder: string[];
   surfaces: HistorySurface[];
+  subagentNotification?: SubagentNotificationData;
 }
 
 /**

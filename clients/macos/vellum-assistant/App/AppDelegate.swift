@@ -317,16 +317,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func performRetire() {
         let cliLauncher = CLILauncher()
-        let lockfilePath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum.lock.json").path
+        let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
-        var assistantName: String?
-        if let data = FileManager.default.contents(atPath: lockfilePath),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let assistants = json["assistants"] as? [[String: Any]],
-           let first = assistants.first,
-           let name = first["assistantId"] as? String {
-            assistantName = name
+        if assistantName == nil {
+            log.error("No stored connected assistant ID found — skipping retire")
         }
 
         Task {

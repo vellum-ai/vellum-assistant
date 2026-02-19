@@ -32,7 +32,7 @@ struct ChatContentView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: VSpacing.md) {
-                        let messages = viewModel.messages
+                        let messages = viewModel.messages.filter { !$0.isSubagentNotification }
                         ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                             if message.modelPicker != nil {
                                 ModelPickerBubble(

@@ -133,6 +133,13 @@ public final class ChatViewModel: ObservableObject {
     /// a cancel request (e.g. a stuck tool blocks the generation_cancelled event).
     var cancelTimeoutTask: Task<Void, Never>?
 
+    /// Saved text from a queued message that should be auto-sent after cancellation completes.
+    var pendingSendDirectText: String?
+    /// Saved attachments from a queued message that should be auto-sent after cancellation completes.
+    var pendingSendDirectAttachments: [ChatAttachment]?
+    /// Saved skill invocation from a queued message for send-direct dispatch.
+    var pendingSendDirectSkillInvocation: SkillInvocationData?
+
     /// Timestamp of the most recent `toolUseStart` event received by this view model.
     /// Used by ThreadManager to route `confirmationRequest` messages to the correct
     /// ChatViewModel when multiple threads have active sessions.
@@ -501,6 +508,9 @@ public final class ChatViewModel: ObservableObject {
                     self?.messages[index].isStreaming = false
                 }
                 self?.currentAssistantMessageId = nil
+                // If a send-direct was pending when the stream dropped,
+                // dispatch it now so the message isn't silently lost.
+                self?.dispatchPendingSendDirect()
             }
         }
     }
@@ -593,6 +603,7 @@ public final class ChatViewModel: ObservableObject {
             refinementStreamingText = nil
             isThinking = false
             isSending = false
+            dispatchPendingSendDirect()
             return
         }
 
@@ -634,6 +645,7 @@ public final class ChatViewModel: ObservableObject {
                     messages[i].status = .sent
                 }
             }
+            dispatchPendingSendDirect()
             return
         }
 
@@ -678,6 +690,7 @@ public final class ChatViewModel: ObservableObject {
                     messages[i].status = .sent
                 }
             }
+            dispatchPendingSendDirect()
             return
         }
 
@@ -734,6 +747,7 @@ public final class ChatViewModel: ObservableObject {
                     self.messages[i].status = .sent
                 }
             }
+            self.dispatchPendingSendDirect()
         }
     }
 
@@ -816,6 +830,55 @@ public final class ChatViewModel: ObservableObject {
         if pendingQueuedCount == 0 && !isThinking {
             isSending = false
         }
+    }
+
+    /// Skip the queue: stop the current generation and immediately send a specific queued message.
+    public func sendDirectQueuedMessage(messageId: UUID) {
+        guard let index = messages.firstIndex(where: { $0.id == messageId }),
+              case .queued = messages[index].status else { return }
+
+        // Save content before stop clears everything
+        let text = messages[index].text
+        let attachments = messages[index].attachments
+        let skillInvocation = messages[index].skillInvocation
+
+        // Remove this message from local state (it will be re-added by sendMessage)
+        messages.remove(at: index)
+
+        // If nothing is actively sending, stopGenerating() will no-op and no
+        // cancel-completion event will fire. Dispatch immediately instead.
+        guard isSending else {
+            inputText = text
+            pendingAttachments = attachments
+            pendingSkillInvocation = skillInvocation
+            sendMessage()
+            return
+        }
+
+        // Store for dispatch after cancellation completes.
+        // Must be set BEFORE stopGenerating() because synchronous cancel paths
+        // (bootstrap, disconnected, send-failure) dispatch immediately.
+        pendingSendDirectText = text
+        pendingSendDirectAttachments = attachments
+        pendingSendDirectSkillInvocation = skillInvocation
+
+        // Stop current generation — this clears all queued messages on the daemon
+        stopGenerating()
+    }
+
+    /// If a send-direct is pending, populate the composer and fire sendMessage.
+    /// Called from all cancel-completion paths (generationCancelled, timeout, disconnected, etc.).
+    func dispatchPendingSendDirect() {
+        guard let directText = pendingSendDirectText else { return }
+        let directAttachments = pendingSendDirectAttachments ?? []
+        let directSkillInvocation = pendingSendDirectSkillInvocation
+        pendingSendDirectText = nil
+        pendingSendDirectAttachments = nil
+        pendingSendDirectSkillInvocation = nil
+        inputText = directText
+        pendingAttachments = directAttachments
+        pendingSkillInvocation = directSkillInvocation
+        sendMessage()
     }
 
     /// Stop the active watch session and notify the macOS layer.
@@ -1096,6 +1159,8 @@ public final class ChatViewModel: ObservableObject {
     /// history before the existing messages so the user sees full context.
     public func populateFromHistory(_ historyMessages: [HistoryResponseMessage.HistoryMessageItem]) {
         var chatMessages: [ChatMessage] = []
+        var reconstructedSubagents: [SubagentInfo] = []
+        var lastAssistantMessageId: UUID?
         for item in historyMessages {
             let role: ChatRole = item.role == "assistant" ? .assistant : .user
             var toolCalls: [ToolCallData] = []
@@ -1200,7 +1265,30 @@ public final class ChatViewModel: ObservableObject {
                 log.info("Message contentOrder: \(item.contentOrder ?? []), surface refs: \(surfaceRefs.count), inlineSurfaces: \(chatMsg.inlineSurfaces.count)")
             }
 
+            // Track last assistant message ID for parenting reconstructed subagent chips
+            if role == .assistant {
+                lastAssistantMessageId = chatMsg.id
+            }
+
+            // Reconstruct subagent chips from structured notification metadata
+            if let notification = item.subagentNotification {
+                var info = SubagentInfo(
+                    id: notification.subagentId,
+                    label: notification.label,
+                    status: SubagentStatus(wire: notification.status),
+                    parentMessageId: lastAssistantMessageId
+                )
+                info.error = notification.error
+                reconstructedSubagents.append(info)
+                chatMsg.isSubagentNotification = true
+            }
+
             chatMessages.append(chatMsg)
+        }
+
+        // Merge reconstructed subagents into activeSubagents (avoid duplicates)
+        for info in reconstructedSubagents where !activeSubagents.contains(where: { $0.id == info.id }) {
+            activeSubagents.append(info)
         }
 
         // Tag assistant messages that follow "/model" or "/models" user messages

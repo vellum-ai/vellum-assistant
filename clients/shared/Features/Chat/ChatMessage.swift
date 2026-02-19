@@ -861,6 +861,10 @@ public struct ChatMessage: Identifiable {
     /// Nil for freshly streamed messages that haven't been loaded from history.
     /// Used for anchoring diagnostics exports so the daemon can locate the message.
     public var daemonMessageId: String?
+    /// When true, this message is a subagent notification (e.g. completed/failed/aborted)
+    /// reconstructed from history. It should be hidden from the chat UI since the
+    /// corresponding subagent chip conveys the same information.
+    public var isSubagentNotification: Bool = false
 
     /// Concatenated text from all segments. Backward-compatible computed property.
     public var text: String {

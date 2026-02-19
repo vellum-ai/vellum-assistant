@@ -19,7 +19,6 @@ import {
   finalizeCallbackClaim,
 } from './call-store.js';
 import type { CallStatus } from './types.js';
-import { answerCall } from './call-domain.js';
 import { logDeadLetterEvent } from './call-recovery.js';
 import { isTerminalState } from './call-state-machine.js';
 import { getTwilioConfig } from './twilio-config.js';
@@ -53,6 +52,19 @@ function generateTwiML(callSessionId: string, relayUrl: string, welcomeGreeting:
     />
   </Connect>
 </Response>`;
+}
+
+/**
+ * Resolve the WebSocket relay URL from Twilio config.
+ *
+ * Treats wssBaseUrl as present only when it is non-empty after trimming.
+ * Falls back to webhookBaseUrl, normalizing the scheme from http(s) to ws(s)
+ * and stripping any trailing slash.
+ */
+export function resolveRelayUrl(wssBaseUrl: string, webhookBaseUrl: string): string {
+  const base = wssBaseUrl.trim() || webhookBaseUrl;
+  const normalized = base.replace(/\/$/, '').replace(/^http(s?)/, 'ws$1');
+  return `${normalized}/v1/calls/relay`;
 }
 
 /**
@@ -114,12 +126,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   }
 
   const config = getTwilioConfig();
-  // Always use /v1/calls/relay — the canonical relay path on both runtime and
-  // gateway. wssBaseUrl (when set) points directly at runtime; otherwise
-  // webhookBaseUrl may point at the gateway OR at the runtime in gateway-less
-  // deployments, so we use the same path either way.
-  const wsBase = (config.wssBaseUrl ?? config.webhookBaseUrl).replace(/\/$/, '').replace(/^http/, 'ws');
-  const relayUrl = `${wsBase}/v1/calls/relay`;
+  const relayUrl = resolveRelayUrl(config.wssBaseUrl, config.webhookBaseUrl);
   const welcomeGreeting = process.env.CALL_WELCOME_GREETING ?? 'Hello, how can I help you today?';
 
   const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting);
@@ -231,22 +238,3 @@ export async function handleConnectAction(_req: Request): Promise<Response> {
   );
 }
 
-/**
- * Answer a pending question for an active call.
- * POST /v1/calls/:callSessionId/answer
- * Body: { answer: string }
- */
-export async function handleCallAnswer(req: Request, callSessionId: string): Promise<Response> {
-  const body = await req.json() as { answer?: string };
-
-  const result = await answerCall({
-    callSessionId,
-    answer: body.answer ?? '',
-  });
-
-  if (!result.ok) {
-    return Response.json({ error: result.error }, { status: result.status ?? 500 });
-  }
-
-  return Response.json({ ok: true, questionId: result.questionId });
-}

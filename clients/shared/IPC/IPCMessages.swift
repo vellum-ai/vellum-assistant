@@ -1103,9 +1103,9 @@ extension IPCHistoryResponse {
 }
 
 extension IPCHistoryResponseMessage {
-    /// Backward-compatible init without textSegments/contentOrder/surfaces (added in later IPC versions).
+    /// Backward-compatible init without textSegments/contentOrder/surfaces/subagentNotification (added in later IPC versions).
     public init(role: String, text: String, timestamp: Double, toolCalls: [IPCHistoryResponseToolCall]?, toolCallsBeforeText: Bool?, attachments: [IPCUserMessageAttachment]?) {
-        self.init(id: nil, role: role, text: text, timestamp: timestamp, toolCalls: toolCalls, toolCallsBeforeText: toolCallsBeforeText, attachments: attachments, textSegments: nil, contentOrder: nil, surfaces: nil)
+        self.init(id: nil, role: role, text: text, timestamp: timestamp, toolCalls: toolCalls, toolCallsBeforeText: toolCallsBeforeText, attachments: attachments, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil)
     }
 }
 
@@ -1687,6 +1687,36 @@ extension IPCTwitterIntegrationConfigRequest {
 /// Backed by generated `IPCTwitterIntegrationConfigResponse`.
 public typealias TwitterIntegrationConfigResponseMessage = IPCTwitterIntegrationConfigResponse
 
+// MARK: - Twitter Auth Messages
+
+/// Sent to start the Twitter OAuth connect flow.
+/// Backed by generated `IPCTwitterAuthStartRequest`.
+public typealias TwitterAuthStartMessage = IPCTwitterAuthStartRequest
+
+extension IPCTwitterAuthStartRequest {
+    public init() {
+        self.init(type: "twitter_auth_start")
+    }
+}
+
+/// Sent to query Twitter auth status.
+/// Backed by generated `IPCTwitterAuthStatusRequest`.
+public typealias TwitterAuthStatusRequestMessage = IPCTwitterAuthStatusRequest
+
+extension IPCTwitterAuthStatusRequest {
+    public init() {
+        self.init(type: "twitter_auth_status")
+    }
+}
+
+/// Result of a Twitter OAuth connect attempt.
+/// Backed by generated `IPCTwitterAuthResult`.
+public typealias TwitterAuthResultMessage = IPCTwitterAuthResult
+
+/// Response to a Twitter auth status query.
+/// Backed by generated `IPCTwitterAuthStatusResponse`.
+public typealias TwitterAuthStatusResponseMessage = IPCTwitterAuthStatusResponse
+
 /// Authentication result from the daemon after the client sends an `auth` message.
 /// Backed by generated `IPCAuthResult`.
 public typealias AuthResultMessage = IPCAuthResult
@@ -1830,6 +1860,8 @@ public enum ServerMessage: Decodable, Sendable {
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
     case twitterIntegrationConfigResponse(TwitterIntegrationConfigResponseMessage)
+    case twitterAuthResult(TwitterAuthResultMessage)
+    case twitterAuthStatusResponse(TwitterAuthStatusResponseMessage)
     case modelInfo(ModelInfoMessage)
     case publishPageResponse(PublishPageResponseMessage)
     case unpublishPageResponse(UnpublishPageResponseMessage)
@@ -2078,6 +2110,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "twitter_integration_config_response":
             let message = try TwitterIntegrationConfigResponseMessage(from: decoder)
             self = .twitterIntegrationConfigResponse(message)
+        case "twitter_auth_result":
+            let message = try TwitterAuthResultMessage(from: decoder)
+            self = .twitterAuthResult(message)
+        case "twitter_auth_status_response":
+            let message = try TwitterAuthStatusResponseMessage(from: decoder)
+            self = .twitterAuthStatusResponse(message)
         case "model_info":
             let message = try ModelInfoMessage(from: decoder)
             self = .modelInfo(message)

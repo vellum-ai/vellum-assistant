@@ -160,12 +160,8 @@ describe('IPC Unix socket round-trip benchmark', () => {
   afterAll(async () => {
     client?.destroy();
     await new Promise<void>((resolve) => server?.close(() => resolve()));
-    try {
-      fs.unlinkSync(socketPath);
-      fs.rmdirSync(tmpDir);
-    } catch {
-      // cleanup best-effort
-    }
+    try { fs.unlinkSync(socketPath); } catch { /* server.close() may already remove it */ }
+    try { fs.rmdirSync(tmpDir); } catch { /* best-effort */ }
   });
 
   test('session_list round-trip p50 < 5ms, p99 < 50ms', async () => {

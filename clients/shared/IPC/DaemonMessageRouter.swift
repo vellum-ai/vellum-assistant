@@ -121,6 +121,10 @@ extension DaemonClient {
             onVercelApiConfigResponse?(msg)
         case .twitterIntegrationConfigResponse(let msg):
             onTwitterIntegrationConfigResponse?(msg)
+        case .twitterAuthResult(let msg):
+            onTwitterAuthResult?(msg)
+        case .twitterAuthStatusResponse(let msg):
+            onTwitterAuthStatusResponse?(msg)
         case .modelInfo(let msg):
             currentModel = msg.model
             onModelInfo?(msg)

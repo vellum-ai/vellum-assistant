@@ -359,22 +359,20 @@ struct MainWindowView: View {
                 VStack(spacing: 0) {
                     // Top bar (always visible, above sidebar)
                     HStack(spacing: 0) {
-                        VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true) {
+                        VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true, tooltip: sidebarOpen ? "Hide sidebar" : "Show sidebar") {
                             withAnimation(.easeInOut(duration: 0.35)) {
                                 sidebarOpen.toggle()
                             }
                         }
-                        .help(sidebarOpen ? "Hide sidebar" : "Show sidebar")
                         if !sidebarOpen,
                            !windowState.isShowingChat
                             || threadManager.activeThread?.kind == .private
                             || threadManager.activeViewModel?.messages.contains(where: { $0.role == .user }) == true {
                             Spacer().frame(width: VSpacing.xs)
-                            VIconButton(label: "New Chat", icon: "plus.circle", iconOnly: true) {
+                            VIconButton(label: "New Chat", icon: "plus.circle", iconOnly: true, tooltip: "New chat") {
                                 windowState.selection = nil
                                 threadManager.createThread()
                             }
-                            .help("New chat")
                         }
                         Spacer()
                         if windowState.isShowingChat {
@@ -408,19 +406,20 @@ struct MainWindowView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("Copy thread")
-                                .help(showCopyThreadConfirmation ? "Copied!" : "Copy thread")
+                                .vTooltip(showCopyThreadConfirmation ? "Copied!" : "Copy thread")
                             }
 
                             TemporaryChatToggle(
                                 isActive: threadManager.activeThread?.kind == .private,
+                                tooltip: threadManager.activeThread?.kind == .private ? "Exit temporary chat" : "Temporary chat",
                                 onToggle: { toggleTemporaryChat() }
                             )
-                            .help(threadManager.activeThread?.kind == .private ? "Exit temporary chat" : "Temporary chat")
                         }
                     }
                     .padding(.leading, trafficLightPadding)
                     .padding(.trailing, VSpacing.lg)
                     .frame(height: 36)
+                    .zIndex(1)
 
                     Divider().background(VColor.surfaceBorder)
 
@@ -1216,5 +1215,3 @@ private struct DrawerMenuItem: View {
         }
     }
 }
-
-

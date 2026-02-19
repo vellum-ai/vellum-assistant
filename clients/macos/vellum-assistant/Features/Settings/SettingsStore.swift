@@ -65,6 +65,15 @@ public final class SettingsStore: ObservableObject {
     @Published var mediaEmbedsEnabledSince: Date?
     @Published var mediaEmbedVideoAllowlistDomains: [String]
 
+    // MARK: - Twitter Integration State
+
+    @Published var twitterMode: String = "local_byo"
+    @Published var twitterManagedAvailable: Bool = false
+    @Published var twitterLocalClientConfigured: Bool = false
+    @Published var twitterConnected: Bool = false
+    @Published var twitterAccountInfo: String?
+    @Published var twitterAuthInProgress: Bool = false
+
     // MARK: - Trust Rules Coordination
 
     /// Whether any settings surface currently has a trust rules sheet open.
@@ -153,11 +162,37 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
+        // Wire up Twitter integration config IPC response
+        daemonClient?.onTwitterIntegrationConfigResponse = { [weak self] response in
+            guard let self else { return }
+            if response.success {
+                self.twitterMode = response.mode ?? "local_byo"
+                self.twitterManagedAvailable = response.managedAvailable
+                self.twitterLocalClientConfigured = response.localClientConfigured
+                self.twitterConnected = response.connected
+                self.twitterAccountInfo = response.accountInfo
+            }
+        }
+
+        // Wire up Twitter auth result IPC response
+        daemonClient?.onTwitterAuthResult = { [weak self] response in
+            guard let self else { return }
+            self.twitterAuthInProgress = false
+            if response.success {
+                self.twitterConnected = true
+                self.twitterAccountInfo = response.accountInfo
+            }
+            self.refreshTwitterStatus()
+        }
+
         // Refresh Vercel key state on init
         refreshVercelKeyState()
 
         // Fetch current model from daemon
         try? daemonClient?.sendModelGet()
+
+        // Refresh Twitter integration status on init
+        refreshTwitterStatus()
     }
 
     // MARK: - API Key Actions
@@ -268,6 +303,37 @@ public final class SettingsStore: ObservableObject {
 
     func refreshVercelKeyState() {
         try? daemonClient?.sendVercelApiConfig(action: "get")
+    }
+
+    // MARK: - Twitter Integration Actions
+
+    func refreshTwitterStatus() {
+        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "get"))
+    }
+
+    func setTwitterMode(_ mode: String) {
+        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "set_mode", mode: mode))
+    }
+
+    func saveTwitterLocalClient(clientId: String, clientSecret: String?) {
+        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(
+            action: "set_local_client",
+            clientId: clientId,
+            clientSecret: clientSecret
+        ))
+    }
+
+    func clearTwitterLocalClient() {
+        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "clear_local_client"))
+    }
+
+    func connectTwitter() {
+        twitterAuthInProgress = true
+        try? daemonClient?.send(TwitterAuthStartMessage())
+    }
+
+    func disconnectTwitter() {
+        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "disconnect"))
     }
 
     // MARK: - Model Actions

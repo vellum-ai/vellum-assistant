@@ -703,6 +703,15 @@ public struct IPCHistoryResponseMessage: Codable, Sendable {
     public let contentOrder: [String]?
     /// UI surfaces (widgets) embedded in the message.
     public let surfaces: [IPCHistoryResponseSurface]?
+    /// Present when this message is a subagent lifecycle notification (completed/failed/aborted).
+    public let subagentNotification: IPCHistoryResponseMessageSubagentNotification?
+}
+
+public struct IPCHistoryResponseMessageSubagentNotification: Codable, Sendable {
+    public let subagentId: String
+    public let label: String
+    public let status: String
+    public let error: String?
 }
 
 public struct IPCHistoryResponseSurface: Codable, Sendable {
@@ -1499,7 +1508,6 @@ public struct IPCSubagentStatusRequest: Codable, Sendable {
     public let type: String
     /// If omitted, returns all subagents for the session.
     public let subagentId: String?
-    public let sessionId: String
 }
 
 public struct IPCSuggestionRequest: Codable, Sendable {
@@ -1620,6 +1628,29 @@ public struct IPCTrustRulesListResponseRule: Codable, Sendable {
     public let decision: String
     public let priority: Int
     public let createdAt: Int
+}
+
+public struct IPCTwitterAuthResult: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let accountInfo: String?
+    public let error: String?
+}
+
+public struct IPCTwitterAuthStartRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCTwitterAuthStatusRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCTwitterAuthStatusResponse: Codable, Sendable {
+    public let type: String
+    public let connected: Bool
+    public let accountInfo: String?
+    public let mode: String?
+    public let error: String?
 }
 
 public struct IPCTwitterIntegrationConfigRequest: Codable, Sendable {
@@ -1971,11 +2002,6 @@ public struct IPCWorkItemCancelResponse: Codable, Sendable {
 }
 
 public struct IPCWorkItemCompleteRequest: Codable, Sendable {
-    public let type: String
-    public let id: String
-}
-
-public struct IPCWorkItemRenderRequest: Codable, Sendable {
     public let type: String
     public let id: String
 }
