@@ -101,6 +101,7 @@ class IOSThreadStore: ObservableObject {
         guard !response.sessions.isEmpty else { return }
 
         let recentSessions = Array(response.sessions.filter { $0.threadType != "private" }.prefix(10))
+        guard !recentSessions.isEmpty else { return }
 
         var restoredThreads: [IOSThread] = []
         for session in recentSessions {
@@ -121,8 +122,10 @@ class IOSThreadStore: ObservableObject {
             && viewModels[threads[0].id]?.sessionId == nil
         if defaultIsEmpty, let defaultThread = threads.first {
             viewModels.removeValue(forKey: defaultThread.id)
+            threads = restoredThreads
+        } else {
+            threads = restoredThreads + threads
         }
-        threads = restoredThreads
     }
 
     private func handleHistoryResponse(_ response: HistoryResponseMessage) {
