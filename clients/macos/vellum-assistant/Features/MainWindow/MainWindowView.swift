@@ -415,15 +415,6 @@ struct MainWindowView: View {
 
                         // Sidebar drawer overlay
                         if sidebarOpen && windowState.layoutConfig.left.visible {
-                            // Scrim — click to dismiss
-                            Color.black.opacity(0.15)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    withAnimation(.easeInOut(duration: 0.35)) {
-                                        sidebarOpen = false
-                                    }
-                                }
-
                             // Sidebar panel + resize handle
                             HStack(spacing: 0) {
                                 sidebarView
