@@ -145,8 +145,19 @@ final class ChatViewModelIOSTests: XCTestCase {
         viewModel.sendMessage()
         XCTAssertTrue(viewModel.isSending)
 
-        // Session info arrives
-        let info = SessionInfoMessage(sessionId: "new-sess", title: "Test")
+        // Allow async Task to send session_create
+        let expectation = XCTestExpectation(description: "session_create sent")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+
+        // Extract the correlation ID from the sent session_create message
+        let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
+        let correlationId = sessionCreates.first?.correlationId
+
+        // Session info arrives with matching correlation ID
+        let info = SessionInfoMessage(sessionId: "new-sess", title: "Test", correlationId: correlationId)
         viewModel.handleServerMessage(.sessionInfo(info))
 
         XCTAssertEqual(viewModel.sessionId, "new-sess")
@@ -271,8 +282,19 @@ final class ChatViewModelIOSTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[0].role, .user)
         XCTAssertTrue(viewModel.isSending)
 
-        // 2. Session info arrives
-        let info = SessionInfoMessage(sessionId: "cycle-sess", title: "iOS Chat")
+        // Allow async Task to send session_create
+        let expectation = XCTestExpectation(description: "session_create sent")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+
+        // Extract the correlation ID from the sent session_create message
+        let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
+        let correlationId = sessionCreates.first?.correlationId
+
+        // 2. Session info arrives with matching correlation ID
+        let info = SessionInfoMessage(sessionId: "cycle-sess", title: "iOS Chat", correlationId: correlationId)
         viewModel.handleServerMessage(.sessionInfo(info))
         XCTAssertEqual(viewModel.sessionId, "cycle-sess")
 
