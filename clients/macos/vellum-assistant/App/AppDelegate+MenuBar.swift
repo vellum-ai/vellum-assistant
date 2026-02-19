@@ -21,6 +21,9 @@ extension AppDelegate {
     func setupFileMenu() {
         guard let mainMenu = NSApp.mainMenu else { return }
 
+        // Avoid duplicate File menus on logout/re-login cycles
+        if mainMenu.indexOfItem(withTitle: "File") >= 0 { return }
+
         let fileMenu = NSMenu(title: "File")
 
         let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
