@@ -18,6 +18,7 @@ struct InlineVideoAttachmentView: View {
     @State private var isPlaying = false
     @State private var isLoading = false
     @State private var failed = false
+    @State private var videoAspectRatio: CGFloat = 3.0 / 4.0
 
     var body: some View {
         ZStack {
@@ -40,7 +41,7 @@ struct InlineVideoAttachmentView: View {
             }
         }
         .frame(maxWidth: 360)
-        .aspectRatio(3.0 / 4.0, contentMode: .fit)
+        .aspectRatio(videoAspectRatio, contentMode: .fit)
         .onDisappear {
             player?.pause()
             player = nil
@@ -107,11 +108,11 @@ struct InlineVideoAttachmentView: View {
         if attachment.isLazyLoad {
             fetchAndPlay()
         } else {
-            playFromBase64(attachment.data)
+            Task { await playFromBase64(attachment.data) }
         }
     }
 
-    private func playFromBase64(_ base64: String) {
+    private func playFromBase64(_ base64: String) async {
         guard let data = Data(base64Encoded: base64) else {
             failed = true
             return
@@ -123,6 +124,14 @@ struct InlineVideoAttachmentView: View {
         } catch {
             failed = true
             return
+        }
+
+        let asset = AVAsset(url: fileURL)
+        if let tracks = try? await asset.load(.tracks),
+           let videoTrack = tracks.first(where: { $0.mediaType == .video }),
+           let size = try? await videoTrack.load(.naturalSize),
+           size.width > 0, size.height > 0 {
+            videoAspectRatio = size.width / size.height
         }
 
         let avPlayer = AVPlayer(url: fileURL)
@@ -141,10 +150,8 @@ struct InlineVideoAttachmentView: View {
         Task {
             do {
                 let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
-                await MainActor.run {
-                    isLoading = false
-                    playFromBase64(base64)
-                }
+                await MainActor.run { isLoading = false }
+                await playFromBase64(base64)
             } catch {
                 log.error("Failed to fetch attachment \(attachmentId): \(error.localizedDescription)")
                 await MainActor.run {
