@@ -872,10 +872,11 @@ function extractItemDetails(page: Record<string, unknown>): ItemDetails {
   };
 
   if (itemPreferences) {
+    const specialInstructions = (itemPreferences.specialInstructions ?? {}) as Record<string, unknown>;
     result.specialInstructionsConfig = {
-      maxLength: Number(itemPreferences.maxLength ?? 500),
-      placeholderText: itemPreferences.placeholderText as string | undefined,
-      isEnabled: itemPreferences.isEnabled !== false,
+      maxLength: Number(specialInstructions.characterMaxLength ?? 500),
+      placeholderText: specialInstructions.placeholderText as string | undefined,
+      isEnabled: specialInstructions.isEnabled !== false,
     };
   }
 
