@@ -130,7 +130,13 @@ class IOSThreadStore: ObservableObject {
         } else {
             // Deduplicate: only prepend restored threads whose sessionId
             // doesn't already exist in the current thread list.
-            let existingSessionIds = Set(threads.compactMap { $0.sessionId })
+            let existingSessionIds: Set<String> = Set(
+                threads.compactMap { thread -> String? in
+                    // Check both the thread's own sessionId AND the VM's bound sessionId
+                    if let sid = thread.sessionId { return sid }
+                    return viewModels[thread.id]?.sessionId
+                }
+            )
             var newThreads: [IOSThread] = []
             for restored in restoredThreads {
                 if let sid = restored.sessionId, existingSessionIds.contains(sid) {
