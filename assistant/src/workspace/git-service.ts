@@ -161,6 +161,12 @@ export class WorkspaceGitService {
   }
 
   private recordSuccess(): void {
+    if (this.consecutiveFailures > 0) {
+      log.info(
+        { workspaceDir: this.workspaceDir, previousFailures: this.consecutiveFailures },
+        'Circuit breaker closed: commit succeeded after failures',
+      );
+    }
     this.consecutiveFailures = 0;
     this.nextAllowedAttemptMs = 0;
   }
@@ -175,6 +181,10 @@ export class WorkspaceGitService {
       failureBackoffMaxMs,
     );
     this.nextAllowedAttemptMs = Date.now() + delay;
+    log.warn(
+      { workspaceDir: this.workspaceDir, consecutiveFailures: this.consecutiveFailures, backoffMs: delay },
+      'Circuit breaker opened: commit failed, backing off',
+    );
   }
 
   /**
