@@ -3042,6 +3042,8 @@ The avatar evolves during onboarding based on conversation and identity choices.
 - `AvatarEvolutionResolver` — Merges deterministic + model + user layers with strict precedence
 - `AvatarCustomizationPanel` — User override surface with per-field lock/unlock
 
+**Custom avatar storage:** User-uploaded profile pictures are stored at `~/.vellum/workspace/data/avatar/custom-avatar.png`. On first launch after upgrade, any legacy avatar from `~/Library/Application Support/vellum-assistant/` is automatically migrated (copied, not moved). The avatar customization panel is accessible from the Identity panel via a "Customize Avatar" CTA button.
+
 **Precedence:** `user overrides > deterministic constraints > model-driven traits > defaults`
 
 **Persistence:** Evolution state in UserDefaults, resolved appearance in LOOKS.md
