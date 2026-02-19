@@ -571,3 +571,12 @@ export const callPendingQuestions = sqliteTable('call_pending_questions', {
   answeredAt: integer('answered_at'),
   answerText: text('answer_text'),
 });
+
+export const processedCallbacks = sqliteTable('processed_callbacks', {
+  id: text('id').primaryKey(),
+  dedupeKey: text('dedupe_key').notNull().unique(),
+  callSessionId: text('call_session_id')
+    .notNull()
+    .references(() => callSessions.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at').notNull(),
+});

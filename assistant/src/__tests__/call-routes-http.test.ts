@@ -45,6 +45,7 @@ mock.module('../config/loader.js', () => ({
 // Mock Twilio provider to avoid real API calls
 mock.module('../calls/twilio-provider.js', () => ({
   TwilioConversationRelayProvider: class {
+    static getAuthToken() { return 'mock-auth-token'; }
     static verifyWebhookSignature() { return true; }
     async initiateCall() { return { callSid: 'CA_mock_sid_123' }; }
     async endCall() { return; }
