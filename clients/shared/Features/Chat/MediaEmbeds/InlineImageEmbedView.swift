@@ -1,6 +1,7 @@
 import SwiftUI
+#if os(macOS)
 import AppKit
-import VellumAssistantShared
+#endif
 
 /// Renders a remote image inline within a chat bubble.
 ///
@@ -14,14 +15,18 @@ import VellumAssistantShared
 /// image at once.
 ///
 /// Tapping the image opens the URL in the user's default browser.
-struct InlineImageEmbedView: View {
-    let url: URL
+public struct InlineImageEmbedView: View {
+    public let url: URL
+
+    public init(url: URL) {
+        self.url = url
+    }
 
     /// Flipped to `true` by `onAppear`; prevents eager network fetches
     /// for images that are off-screen in long chat histories.
     @State private var isVisible = false
 
-    var body: some View {
+    public var body: some View {
         Group {
             if isVisible {
                 AsyncImage(url: url) { phase in
@@ -47,7 +52,11 @@ struct InlineImageEmbedView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .onAppear { isVisible = true }
         .onTapGesture {
+            #if os(macOS)
             NSWorkspace.shared.open(url)
+            #elseif os(iOS)
+            UIApplication.shared.open(url)
+            #endif
         }
     }
 
