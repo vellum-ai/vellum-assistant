@@ -28,26 +28,33 @@ class WatcherDeleteTool implements Tool {
   }
 
   async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    const watcherId = input.watcher_id as string;
-    if (!watcherId || typeof watcherId !== 'string') {
-      return { content: 'Error: watcher_id is required', isError: true };
-    }
-
-    const watcher = getWatcher(watcherId);
-    if (!watcher) {
-      return { content: `Error: Watcher not found: ${watcherId}`, isError: true };
-    }
-
-    const deleted = deleteWatcher(watcherId);
-    if (!deleted) {
-      return { content: `Error: Failed to delete watcher: ${watcherId}`, isError: true };
-    }
-
-    return {
-      content: `Watcher deleted: "${watcher.name}"`,
-      isError: false,
-    };
+    return executeWatcherDelete(input, _context);
   }
+}
+
+export async function executeWatcherDelete(
+  input: Record<string, unknown>,
+  _context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const watcherId = input.watcher_id as string;
+  if (!watcherId || typeof watcherId !== 'string') {
+    return { content: 'Error: watcher_id is required', isError: true };
+  }
+
+  const watcher = getWatcher(watcherId);
+  if (!watcher) {
+    return { content: `Error: Watcher not found: ${watcherId}`, isError: true };
+  }
+
+  const deleted = deleteWatcher(watcherId);
+  if (!deleted) {
+    return { content: `Error: Failed to delete watcher: ${watcherId}`, isError: true };
+  }
+
+  return {
+    content: `Watcher deleted: "${watcher.name}"`,
+    isError: false,
+  };
 }
 
 registerTool(new WatcherDeleteTool());
