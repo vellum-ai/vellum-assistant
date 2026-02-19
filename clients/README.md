@@ -20,8 +20,10 @@ clients/
 │   ├── build.sh               # Build script (wraps SPM → .app → codesign)
 │   └── CLAUDE.md              # Development guide for Claude Code
 └── ios/                       # iOS-specific code
-    ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, UserDefaultsKeys)
-    ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ThreadListView, SettingsView, etc.)
+    ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, VellumIntents, etc.)
+    ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ThreadListView, etc.)
+    │   └── Settings/          # Decomposed settings sections (Integrations, TrustRules, etc.)
+    ├── Tests/                 # iOS integration tests (70 tests)
     └── Resources/             # Assets, Info.plist, background.png
 ```
 
@@ -116,6 +118,11 @@ See [clients/ios/README.md](ios/README.md) for full build, packaging, and config
 - ✅ Attachment support (photos, files)
 - ✅ Settings with live client switching (no restart needed)
 - ✅ Push notifications (APNS + rich inline reply)
+- ✅ Export conversation (copy as markdown or share sheet)
+- ✅ Siri Shortcuts ("Ask Vellum..." via AppIntents)
+- ✅ Deep linking (`vellum://send?message=...`)
+- ✅ Responsive typography/spacing (compact scaling for iPhone, full size on iPad)
+- ✅ 70 integration tests (ChatViewModel, threads, attachments, formatting)
 
 Depends only on `VellumAssistantShared` (no macOS frameworks).
 
@@ -176,8 +183,21 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 
 ```bash
 cd clients/macos
-./build.sh test     # All SPM tests (both shared and macOS-specific)
+./build.sh test     # All SPM tests (shared + macOS-specific)
 ```
+
+### iOS Integration Tests
+
+```bash
+cd clients
+swift test --filter vellum-assistant-iosTests    # 70 iOS-specific tests
+```
+
+Test files in `clients/ios/Tests/`:
+- `ChatViewModelIOSTests.swift` — send/receive flow, streaming, error handling
+- `ThreadLifecycleIOSTests.swift` — session creation, thread isolation
+- `ChatTranscriptFormatterIOSTests.swift` — markdown formatting
+- `AttachmentFlowIOSTests.swift` — attachment limits, send flow, thumbnails
 
 Tests use mock implementations of protocols for dependency injection:
 - `DaemonClientProtocol` → `MockDaemonClient`

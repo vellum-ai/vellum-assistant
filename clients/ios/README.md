@@ -18,6 +18,10 @@ The iOS target (`vellum-assistant-ios`) is part of the multi-platform Swift Pack
 - Attachment support (photos, files)
 - Voice input via `SFSpeechRecognizer`
 - Onboarding flow with adaptive steps based on connection mode
+- Export conversation as markdown (copy to clipboard or share sheet)
+- Siri Shortcuts integration — "Ask Vellum..." via AppIntents framework
+- Deep linking via `vellum://send?message=...` URL scheme
+- Responsive typography and spacing that scales down for iPhone compact width
 
 ## Building and Running
 
@@ -121,6 +125,23 @@ TCP is opt-in (`VELLUM_DAEMON_TCP_ENABLED=1`) for security — the Unix socket d
 The macOS app sets `VELLUM_DAEMON_TCP_ENABLED=1` automatically when the daemon starts.
 
 ## Running Tests
+
+### iOS Integration Tests
+
+The `vellum-assistant-iosTests` target contains 70 iOS-specific integration tests:
+
+```bash
+cd clients
+swift test --filter vellum-assistant-iosTests
+```
+
+Test files in `clients/ios/Tests/`:
+- `ChatViewModelIOSTests.swift` — message send/receive flow, streaming, error handling (30 tests)
+- `ThreadLifecycleIOSTests.swift` — session creation, backfill, thread isolation (12 tests)
+- `ChatTranscriptFormatterIOSTests.swift` — markdown formatting, plain text extraction (11 tests)
+- `AttachmentFlowIOSTests.swift` — attachment limits, send flow, thumbnails (17 tests)
+
+### Shared Tests
 
 The `VellumAssistantSharedTests` target covers shared IPC logic and can be run on macOS without a simulator:
 
