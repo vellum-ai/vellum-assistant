@@ -194,4 +194,32 @@ describe('DST-safe timezone behavior', () => {
     const result = buildTemporalContext({ nowMs: nearMidnight, timeZone: 'Asia/Tokyo' });
     expect(result).toContain('Today: 2026-02-19 (Thursday)');
   });
+
+  test('addDays is correct across DST spring-forward boundary', () => {
+    // 2026-03-08 is spring-forward day in America/New_York (clocks jump 2:00→3:00 AM).
+    // Use a timestamp at local 23:30 on Friday March 6 (04:30 UTC March 7).
+    const preDST = Date.UTC(2026, 2, 7, 4, 30, 0); // local: Fri Mar 6 23:30 EST
+    const result = buildTemporalContext({ nowMs: preDST, timeZone: 'America/New_York', horizonDays: 5 });
+    // Today should be Friday March 6
+    expect(result).toContain('Today: 2026-03-06 (Friday)');
+    // Horizon should have 5 consecutive days with no duplicates/skips
+    expect(result).toContain('2026-03-07 Saturday');
+    expect(result).toContain('2026-03-08 Sunday');
+    expect(result).toContain('2026-03-09 Monday');
+    expect(result).toContain('2026-03-10 Tuesday');
+    expect(result).toContain('2026-03-11 Wednesday');
+  });
+
+  test('addDays is correct across DST fall-back boundary', () => {
+    // 2026-11-01 is fall-back day in America/New_York (clocks jump 2:00→1:00 AM).
+    // Use a timestamp at local 00:30 on Sunday Nov 1 (04:30 UTC Nov 1).
+    const preFallback = Date.UTC(2026, 10, 1, 4, 30, 0); // local: Sun Nov 1 00:30 EDT
+    const result = buildTemporalContext({ nowMs: preFallback, timeZone: 'America/New_York', horizonDays: 3 });
+    // Today should be Sunday Nov 1
+    expect(result).toContain('Today: 2026-11-01 (Sunday)');
+    // Horizon should have 3 consecutive days
+    expect(result).toContain('2026-11-02 Monday');
+    expect(result).toContain('2026-11-03 Tuesday');
+    expect(result).toContain('2026-11-04 Wednesday');
+  });
 });

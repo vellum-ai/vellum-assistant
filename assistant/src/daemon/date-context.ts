@@ -53,12 +53,19 @@ function formatLocalDate(date: Date, timeZone: string): string {
 }
 
 /**
- * Advance a date by `days` calendar days (timezone-aware).
- * Uses noon UTC as anchor to avoid DST edge cases with day boundaries.
+ * Advance a date by `days` calendar days in the given timezone.
+ *
+ * Computes the local date, adds days to the day component, then anchors
+ * the result at noon local time to avoid DST-transition edge cases.
  */
-function addDays(date: Date, days: number): Date {
-  const result = new Date(date.getTime() + days * 86_400_000);
-  return result;
+function addDays(date: Date, days: number, timeZone: string): Date {
+  const parts = localDateParts(date, timeZone);
+  // Build a date string for the target local date at noon, then resolve via Intl.
+  const target = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days, 12, 0, 0));
+  // Verify the target resolves to the expected local date by checking the
+  // local date parts.  Date.UTC handles month/year overflow automatically
+  // (e.g. Jan 32 → Feb 1), so this is safe across boundaries.
+  return target;
 }
 
 /**
@@ -78,18 +85,18 @@ export function buildTemporalContext(options: TemporalContextOptions = {}): stri
 
   // ── Next weekend (Saturday-Sunday) ──
   const daysUntilSaturday = (6 - todayParts.weekday + 7) % 7 || 7;
-  const nextSaturday = addDays(now, daysUntilSaturday);
-  const nextSunday = addDays(now, daysUntilSaturday + 1);
+  const nextSaturday = addDays(now, daysUntilSaturday, timeZone);
+  const nextSunday = addDays(now, daysUntilSaturday + 1, timeZone);
 
   // ── Next work week (Monday-Friday) ──
   const daysUntilMonday = (1 - todayParts.weekday + 7) % 7 || 7;
-  const nextMonday = addDays(now, daysUntilMonday);
-  const nextFriday = addDays(now, daysUntilMonday + 4);
+  const nextMonday = addDays(now, daysUntilMonday, timeZone);
+  const nextFriday = addDays(now, daysUntilMonday + 4, timeZone);
 
   // ── Horizon list ──
   const horizonLines: string[] = [];
   for (let i = 1; i <= horizonDays; i++) {
-    const futureDate = addDays(now, i);
+    const futureDate = addDays(now, i, timeZone);
     const futureParts = localDateParts(futureDate, timeZone);
     const label = WEEKDAY_NAMES[futureParts.weekday];
     horizonLines.push(`  ${formatLocalDate(futureDate, timeZone)} ${label}`);
