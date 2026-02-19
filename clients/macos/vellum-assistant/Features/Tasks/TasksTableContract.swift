@@ -42,6 +42,13 @@ enum TasksTableContract {
         let color: Color
     }
 
+    /// All priority tiers in display order, used to populate the priority edit menu.
+    static let allPriorityTiers: [(tier: Double, label: String, color: Color)] = [
+        (0, "High",   VColor.error),
+        (1, "Medium", VColor.accent),
+        (2, "Low",    VColor.textMuted),
+    ]
+
     static func priorityStyle(for tier: Double) -> PriorityStyle {
         switch tier {
         case 0:  return PriorityStyle(label: "High",   color: VColor.error)

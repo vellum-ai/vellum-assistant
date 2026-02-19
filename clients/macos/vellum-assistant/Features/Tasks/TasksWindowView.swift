@@ -98,7 +98,10 @@ struct TasksWindowView: View {
                             TasksWindowRow(
                                 item: item,
                                 onRun: { runTask(id: item.id) },
-                                onComplete: { completeTask(id: item.id) }
+                                onComplete: { completeTask(id: item.id) },
+                                onPriorityChange: { newTier in
+                                    updatePriority(id: item.id, tier: newTier)
+                                }
                             )
                         }
                     }
@@ -162,6 +165,14 @@ struct TasksWindowView: View {
             errorMessage = error.localizedDescription
         }
     }
+
+    private func updatePriority(id: String, tier: Double) {
+        do {
+            try daemonClient.sendWorkItemUpdate(id: id, priorityTier: tier)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
 }
 
 // MARK: - Row View
@@ -171,6 +182,7 @@ private struct TasksWindowRow: View {
     let item: IPCWorkItemsListResponseItem
     let onRun: () -> Void
     let onComplete: () -> Void
+    let onPriorityChange: (Double) -> Void
     @State private var isHovered = false
 
     var body: some View {
@@ -218,10 +230,31 @@ private struct TasksWindowRow: View {
 
     private var priorityColumn: some View {
         let style = TasksTableContract.priorityStyle(for: item.priorityTier)
-        return Circle()
-            .fill(style.color)
-            .frame(width: 8, height: 8)
-            .accessibilityLabel("Priority \(style.label)")
+        return Menu {
+            ForEach(TasksTableContract.allPriorityTiers, id: \.tier) { option in
+                Button {
+                    onPriorityChange(option.tier)
+                } label: {
+                    Label {
+                        Text(option.label)
+                    } icon: {
+                        Image(systemName: option.tier == item.priorityTier ? "checkmark.circle.fill" : "circle.fill")
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: VSpacing.xs) {
+                Circle()
+                    .fill(style.color)
+                    .frame(width: 8, height: 8)
+                Text(style.label)
+                    .font(VFont.caption)
+                    .foregroundColor(style.color)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .accessibilityLabel("Priority \(style.label)")
     }
 
     // MARK: - Status Column
