@@ -9,6 +9,7 @@
 import type { CredentialMetadata } from './metadata-store.js';
 import type { CredentialInjectionTemplate } from './policy-types.js';
 import { isDomainAllowed } from './domain-policy.js';
+import { matchHostPattern } from './host-pattern-match.js';
 
 export interface CredentialCandidate {
   credentialId: string;
@@ -35,24 +36,7 @@ const SCORE_ALIAS_SET = 10;
  * Supports leading wildcard like "*.example.com".
  */
 function hostMatchesPattern(host: string, pattern: string): 'exact' | 'wildcard' | 'none' {
-  const lHost = host.toLowerCase();
-  const lPattern = pattern.toLowerCase();
-
-  if (lHost === lPattern) return 'exact';
-
-  // Wildcard patterns like "*.fal.ai"
-  if (lPattern.startsWith('*.')) {
-    const suffix = lPattern.slice(1); // ".fal.ai"
-    if (lHost.endsWith(suffix) && lHost.length > suffix.length) {
-      return 'wildcard';
-    }
-    // Also match the bare domain: "*.fal.ai" should match "fal.ai"
-    if (lHost === lPattern.slice(2)) {
-      return 'wildcard';
-    }
-  }
-
-  return 'none';
+  return matchHostPattern(host, pattern, { includeApexForWildcard: true });
 }
 
 /**
