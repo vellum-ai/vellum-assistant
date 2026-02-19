@@ -69,24 +69,34 @@ final class AvatarAppearanceManager {
 
     // MARK: - Custom Avatar
 
-    private func loadCustomAvatar() {
-        let workspaceURL = customAvatarURL
-        let legacyURL = Self.legacyAppSupportCustomAvatarURL()
-        let fm = FileManager.default
-
+    /// Resolves which avatar URL to load from, performing one-time migration if needed.
+    /// Extracted as a static helper so migration logic is directly testable.
+    nonisolated static func resolveCustomAvatarURL(
+        workspaceURL: URL,
+        legacyURL: URL,
+        fileManager: FileManager = .default
+    ) -> URL? {
         // One-time migration: copy legacy avatar to workspace if workspace copy doesn't exist
-        if !fm.fileExists(atPath: workspaceURL.path), fm.fileExists(atPath: legacyURL.path) {
+        if !fileManager.fileExists(atPath: workspaceURL.path), fileManager.fileExists(atPath: legacyURL.path) {
             let dir = workspaceURL.deletingLastPathComponent()
-            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-            try? fm.copyItem(at: legacyURL, to: workspaceURL)
+            try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? fileManager.copyItem(at: legacyURL, to: workspaceURL)
         }
 
-        // Load from workspace (primary) or fall back to legacy for current session
-        if fm.fileExists(atPath: workspaceURL.path) {
-            customAvatarImage = NSImage(contentsOf: workspaceURL)
-        } else if fm.fileExists(atPath: legacyURL.path) {
-            customAvatarImage = NSImage(contentsOf: legacyURL)
+        if fileManager.fileExists(atPath: workspaceURL.path) {
+            return workspaceURL
+        } else if fileManager.fileExists(atPath: legacyURL.path) {
+            return legacyURL
         }
+        return nil
+    }
+
+    private func loadCustomAvatar() {
+        guard let url = Self.resolveCustomAvatarURL(
+            workspaceURL: customAvatarURL,
+            legacyURL: Self.legacyAppSupportCustomAvatarURL()
+        ) else { return }
+        customAvatarImage = NSImage(contentsOf: url)
     }
 
     func setCustomAvatar(_ image: NSImage) {
