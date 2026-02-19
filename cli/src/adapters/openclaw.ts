@@ -97,7 +97,14 @@ else
   echo "bun already installed: $(bun --version)"
 fi
 
+set +e
 openclaw gateway install --token ${bearerToken}
+GATEWAY_INSTALL_EXIT=\$?
+set -e
+
+if [ \$GATEWAY_INSTALL_EXIT -ne 0 ]; then
+  echo "WARN: openclaw gateway install exited with \$GATEWAY_INSTALL_EXIT (expected systemd mismatch), continuing with user-level systemd setup"
+fi
 
 mkdir -p /root/.openclaw
 openclaw config set env.ANTHROPIC_API_KEY "${anthropicApiKey}"
