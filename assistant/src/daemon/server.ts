@@ -721,7 +721,7 @@ export class DaemonServer {
   }
 
   private send(socket: net.Socket, msg: ServerMessage): void {
-    if (!socket.destroyed) {
+    if (!socket.destroyed && socket.writable) {
       socket.write(serialize(msg));
     }
   }
