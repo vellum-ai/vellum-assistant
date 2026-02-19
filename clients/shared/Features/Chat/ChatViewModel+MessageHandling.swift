@@ -1072,14 +1072,19 @@ extension ChatViewModel {
                     }
                 }
             } else {
+                // Capture before clearing — surface actions don't set
+                // isSending, so this distinguishes user-message sends
+                // from surface action rejections.
+                let wasSendingUserMessage = isSending
                 // Always clear sending state so regenerate is unblocked.
                 isSending = false
-                // When QUEUE_FULL, the daemon rejected the message that
-                // triggered the error — no message_queued will arrive for it.
-                // Remove its stale pending ID (the last one appended) so
-                // subsequent message_queued/message_dequeued events don't
-                // mis-correlate to the wrong user message.
-                if msg.code == .queueFull, let rejectedId = pendingMessageIds.last {
+                // When QUEUE_FULL from a user-message send, the daemon
+                // rejected the message — no message_queued will arrive.
+                // Remove its stale pending ID so subsequent events don't
+                // mis-correlate. Only do this for user-message sends
+                // (wasSendingUserMessage), not surface action rejections
+                // which never append to pendingMessageIds.
+                if msg.code == .queueFull, wasSendingUserMessage, let rejectedId = pendingMessageIds.last {
                     pendingMessageIds.removeLast()
                     if let index = messages.firstIndex(where: { $0.id == rejectedId }) {
                         messages[index].status = .sent
