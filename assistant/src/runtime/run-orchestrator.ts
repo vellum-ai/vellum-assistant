@@ -18,6 +18,8 @@ import type { UserDecision } from '../permissions/types.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
+import { assistantEventHub } from './assistant-event-hub.js';
+import { buildAssistantEvent } from './assistant-event.js';
 
 const log = getLogger('run-orchestrator');
 
@@ -91,6 +93,23 @@ export class RunOrchestrator {
     // Set the assistant ID so attachments are scoped correctly.
     session.setAssistantId('self');
 
+    // Serialized publish chain so hub subscribers observe events in order.
+    let hubChain: Promise<void> = Promise.resolve();
+    const publishToHub = (msg: ServerMessage): void => {
+      const msgRecord = msg as unknown as Record<string, unknown>;
+      const msgSessionId =
+        'sessionId' in msg && typeof msgRecord.sessionId === 'string'
+          ? (msgRecord.sessionId as string)
+          : undefined;
+      const resolvedSessionId = msgSessionId ?? conversationId;
+      const event = buildAssistantEvent(assistantId, msg, resolvedSessionId);
+      hubChain = hubChain
+        .then(() => assistantEventHub.publish(event))
+        .catch((err: unknown) => {
+          log.warn({ err }, 'assistant-events hub subscriber threw during HTTP run');
+        });
+    };
+
     // Hook into session to intercept confirmation_request events.
     // When the prompter sends a confirmation_request, we record it in the
     // run store so the web UI can poll and submit a decision.
@@ -117,6 +136,9 @@ export class RunOrchestrator {
           session,
         });
       }
+      // Mirror every outbound message to the assistant-events hub so SSE
+      // subscribers receive the same payload parity as IPC clients.
+      publishToHub(msg);
     });
 
     // Fire-and-forget the agent loop
@@ -135,6 +157,12 @@ export class RunOrchestrator {
       } else if (msg.type === 'session_error') {
         lastError = msg.userMessage;
       }
+      // Mirror agent-loop events (assistant_text_delta, message_complete,
+      // tool_use_start, tool_result, etc.) to the hub. These travel through
+      // the onEvent path, distinct from the updateClient path used by the
+      // prompter (confirmation_request). Both paths must publish so SSE
+      // consumers receive the full response stream.
+      publishToHub(msg);
     }).then(() => {
       if (lastError) {
         log.error({ runId: run.id, error: lastError }, 'Run failed (error event from agent loop)');
