@@ -469,11 +469,13 @@ struct ChatView: View {
                         }
 
                         // Subagent chips anchored to the message that spawned them
+                        // Indent to align with message text (past the 28pt avatar + 8pt spacing)
                         ForEach(activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
                             SubagentStatusChip(subagent: subagent) {
                                 onAbortSubagent?(subagent.id)
                             }
                                 .frame(maxWidth: 520, alignment: .leading)
+                                .padding(.leading, 36)
                                 .id("subagent-\(subagent.id)")
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
@@ -485,6 +487,7 @@ struct ChatView: View {
                             onAbortSubagent?(subagent.id)
                         }
                             .frame(maxWidth: 520, alignment: .leading)
+                            .padding(.leading, 36)
                             .id("subagent-\(subagent.id)")
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
