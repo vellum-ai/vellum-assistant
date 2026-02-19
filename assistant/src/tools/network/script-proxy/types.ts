@@ -25,6 +25,8 @@ export interface ProxyEnvVars {
   HTTPS_PROXY: string;
   NO_PROXY: string;
   NODE_EXTRA_CA_CERTS?: string;
+  /** Combined CA bundle (system roots + proxy CA) for non-Node TLS clients (curl, Python, etc.). */
+  SSL_CERT_FILE?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -221,8 +221,9 @@ struct SecretPromptView: View {
                             onCancel()
                         }
                         VButton(label: "Save", style: .primary) {
-                            guard !secretValue.isEmpty else { return }
-                            if onSave(secretValue) {
+                            let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !trimmed.isEmpty else { return }
+                            if onSave(trimmed) {
                                 withAnimation(VAnimation.standard) { saved = true }
                             }
                         }
@@ -235,8 +236,9 @@ struct SecretPromptView: View {
                                 .font(.system(size: 10))
                                 .foregroundColor(VColor.warning)
                             VButton(label: "Send Once (not saved)", style: .ghost) {
-                                guard !secretValue.isEmpty else { return }
-                                _ = onSendOnce(secretValue)
+                                let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !trimmed.isEmpty else { return }
+                                _ = onSendOnce(trimmed)
                             }
                             .disabled(secretValue.isEmpty)
                         }

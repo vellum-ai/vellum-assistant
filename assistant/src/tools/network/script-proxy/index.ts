@@ -21,6 +21,8 @@ export {
 
 export {
   ensureLocalCA,
+  ensureCombinedCABundle,
   issueLeafCert,
   getCAPath,
+  getCombinedCAPath,
 } from './certs.js';

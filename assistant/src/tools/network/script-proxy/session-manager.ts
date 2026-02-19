@@ -13,7 +13,7 @@ import type {
 } from './types.js';
 import type { PolicyCallback } from './http-forwarder.js';
 import { evaluateRequestWithApproval } from './policy.js';
-import { getCAPath, ensureLocalCA } from './certs.js';
+import { getCAPath, getCombinedCAPath, ensureLocalCA, ensureCombinedCABundle } from './certs.js';
 import { minimatch } from 'minimatch';
 import { resolveById } from '../../credentials/resolve.js';
 import { listCredentialMetadata } from '../../credentials/metadata-store.js';
@@ -149,17 +149,14 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
       // per-conversation limit.
       try {
         await ensureLocalCA(managed.dataDir);
+        // Build a combined CA bundle (system roots + proxy CA) so
+        // non-Node clients like curl, Python, and Go trust the proxy's
+        // leaf certs via SSL_CERT_FILE (see getSessionEnv).
+        await ensureCombinedCABundle(managed.dataDir);
       } catch (err) {
         sessions.delete(sessionId);
         throw err;
       }
-
-      // MITM interception relies on NODE_EXTRA_CA_CERTS to make the
-      // generated CA trusted by child processes. This only works for
-      // Node/Bun runtimes — non-Node clients (curl, Python, Go) will
-      // reject the proxy's TLS certificates. For now, MITM is only
-      // enabled when credential injection templates require it, and the
-      // primary use case is Node/Bun subprocesses launched by the agent.
       config.mitmHandler = {
         caDir,
         shouldIntercept: (hostname: string, port: number) =>
@@ -373,6 +370,9 @@ export function getSessionEnv(
 
   if (managed.dataDir) {
     env.NODE_EXTRA_CA_CERTS = getCAPath(managed.dataDir);
+    // Combined bundle lets non-Node clients (curl, Python, Go) trust
+    // the proxy CA alongside system roots via SSL_CERT_FILE.
+    env.SSL_CERT_FILE = getCombinedCAPath(managed.dataDir);
   }
 
   return env;

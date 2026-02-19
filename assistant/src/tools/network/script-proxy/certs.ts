@@ -4,7 +4,16 @@ import { X509Certificate } from 'node:crypto';
 
 const CA_CERT_FILENAME = 'ca.pem';
 const CA_KEY_FILENAME = 'ca-key.pem';
+const COMBINED_CA_FILENAME = 'combined-ca-bundle.pem';
 const ISSUED_DIR = 'issued';
+
+/** Well-known system CA bundle paths by platform. */
+const SYSTEM_CA_PATHS = [
+  '/etc/ssl/cert.pem',                       // macOS
+  '/etc/ssl/certs/ca-certificates.crt',      // Debian/Ubuntu
+  '/etc/pki/tls/certs/ca-bundle.crt',        // RHEL/CentOS/Fedora
+  '/etc/ssl/ca-bundle.pem',                  // openSUSE
+];
 
 // Only allow valid hostname characters: alphanumeric, hyphens, dots, and wildcards
 const HOSTNAME_RE = /^[a-zA-Z0-9.*-]+$/;
@@ -158,6 +167,66 @@ export async function issueLeafCert(
     readFile(leafKeyPath, 'utf-8'),
   ]);
   return { cert, key };
+}
+
+/**
+ * Create a combined CA bundle that includes both system root CAs and the
+ * proxy CA cert. This is needed for non-Node clients (curl, Python, Go)
+ * that don't honor NODE_EXTRA_CA_CERTS — they use SSL_CERT_FILE instead,
+ * which replaces (rather than supplements) the default CA bundle.
+ *
+ * Idempotent: skips regeneration if the combined bundle is newer than
+ * both the system bundle and the proxy CA cert.
+ */
+export async function ensureCombinedCABundle(dataDir: string): Promise<string | null> {
+  const caDir = join(dataDir, 'proxy-ca');
+  const caCertPath = join(caDir, CA_CERT_FILENAME);
+  const combinedPath = join(caDir, COMBINED_CA_FILENAME);
+
+  // Find the system CA bundle
+  let systemBundlePath: string | null = null;
+  for (const p of SYSTEM_CA_PATHS) {
+    try {
+      await stat(p);
+      systemBundlePath = p;
+      break;
+    } catch {
+      // not found, try next
+    }
+  }
+  if (!systemBundlePath) return null;
+
+  // Check if combined bundle already exists and is newer than both sources
+  try {
+    const [combinedSt, caSt, systemSt] = await Promise.all([
+      stat(combinedPath),
+      stat(caCertPath),
+      stat(systemBundlePath),
+    ]);
+    if (combinedSt.mtimeMs > caSt.mtimeMs && combinedSt.mtimeMs > systemSt.mtimeMs) {
+      return combinedPath;
+    }
+  } catch {
+    // One or more files missing — fall through to create
+  }
+
+  try {
+    const [systemCAs, proxyCACert] = await Promise.all([
+      readFile(systemBundlePath, 'utf-8'),
+      readFile(caCertPath, 'utf-8'),
+    ]);
+    await writeFile(combinedPath, systemCAs + '\n' + proxyCACert);
+    return combinedPath;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Return the path to the combined CA bundle for use as SSL_CERT_FILE.
+ */
+export function getCombinedCAPath(dataDir: string): string {
+  return join(dataDir, 'proxy-ca', COMBINED_CA_FILENAME);
 }
 
 /**
