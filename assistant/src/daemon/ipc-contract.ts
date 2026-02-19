@@ -2217,7 +2217,6 @@ export interface SubagentStatusRequest {
   type: 'subagent_status';
   /** If omitted, returns all subagents for the session. */
   subagentId?: string;
-  sessionId: string;
 }
 
 export interface SubagentMessageRequest {
