@@ -1216,5 +1216,3 @@ private struct DrawerMenuItem: View {
         }
     }
 }
-
-
