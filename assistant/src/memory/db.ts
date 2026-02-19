@@ -1137,7 +1137,18 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
     raw.exec('BEGIN');
 
     // conversation_keys: UNIQUE (assistant_id, conversation_key)
-    // Delete non-self rows that conflict with an existing 'self' row, then update the rest.
+    // Step 1: Among non-self rows, keep only one per conversation_key so the
+    //         bulk UPDATE cannot hit a (non-self-A, key) + (non-self-B, key) collision.
+    raw.exec(/*sql*/ `
+      DELETE FROM conversation_keys
+      WHERE assistant_id != 'self'
+        AND rowid NOT IN (
+          SELECT MIN(rowid) FROM conversation_keys
+          WHERE assistant_id != 'self'
+          GROUP BY conversation_key
+        )
+    `);
+    // Step 2: Delete non-self rows that conflict with an existing 'self' row.
     raw.exec(/*sql*/ `
       DELETE FROM conversation_keys
       WHERE assistant_id != 'self'
@@ -1147,11 +1158,25 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
             AND ck2.conversation_key = conversation_keys.conversation_key
         )
     `);
+    // Step 3: Remaining non-self rows are now safe to bulk-update.
     raw.exec(/*sql*/ `
       UPDATE conversation_keys SET assistant_id = 'self' WHERE assistant_id != 'self'
     `);
 
     // attachments: UNIQUE (assistant_id, content_hash) WHERE content_hash IS NOT NULL
+    // Step 1: Dedup non-self rows sharing the same content_hash.
+    raw.exec(/*sql*/ `
+      DELETE FROM attachments
+      WHERE assistant_id != 'self'
+        AND content_hash IS NOT NULL
+        AND rowid NOT IN (
+          SELECT MIN(rowid) FROM attachments
+          WHERE assistant_id != 'self'
+            AND content_hash IS NOT NULL
+          GROUP BY content_hash
+        )
+    `);
+    // Step 2: Delete non-self rows conflicting with existing 'self' rows.
     raw.exec(/*sql*/ `
       DELETE FROM attachments
       WHERE assistant_id != 'self'
@@ -1162,11 +1187,23 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
             AND a2.content_hash = attachments.content_hash
         )
     `);
+    // Step 3: Bulk-update remaining non-self rows.
     raw.exec(/*sql*/ `
       UPDATE attachments SET assistant_id = 'self' WHERE assistant_id != 'self'
     `);
 
     // channel_inbound_events: UNIQUE (assistant_id, source_channel, external_chat_id, external_message_id)
+    // Step 1: Dedup non-self rows sharing the same (source_channel, external_chat_id, external_message_id).
+    raw.exec(/*sql*/ `
+      DELETE FROM channel_inbound_events
+      WHERE assistant_id != 'self'
+        AND rowid NOT IN (
+          SELECT MIN(rowid) FROM channel_inbound_events
+          WHERE assistant_id != 'self'
+          GROUP BY source_channel, external_chat_id, external_message_id
+        )
+    `);
+    // Step 2: Delete non-self rows conflicting with existing 'self' rows.
     raw.exec(/*sql*/ `
       DELETE FROM channel_inbound_events
       WHERE assistant_id != 'self'
@@ -1178,6 +1215,7 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
             AND e2.external_message_id = channel_inbound_events.external_message_id
         )
     `);
+    // Step 3: Bulk-update remaining non-self rows.
     raw.exec(/*sql*/ `
       UPDATE channel_inbound_events SET assistant_id = 'self' WHERE assistant_id != 'self'
     `);
