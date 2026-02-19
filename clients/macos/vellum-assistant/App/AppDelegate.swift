@@ -536,6 +536,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupSurfaceManager() {
+        // Let SurfaceManager check whether the standalone Tasks window is already
+        // showing so it can suppress duplicate task queue surfaces from the LLM.
+        surfaceManager.isTasksWindowVisible = { [weak self] in
+            self?.tasksWindow?.isVisible ?? false
+        }
+
         // Wire daemon surface messages to SurfaceManager (or BrowserPiPManager for browser_view)
         daemonClient.onSurfaceShow = { [weak self] msg in
             guard let self else { return }
