@@ -3,6 +3,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { getLogger } from '../../util/logger.js';
+import { truncate } from '../../util/truncate.js';
 
 const log = getLogger('cli-discover');
 
@@ -141,7 +142,7 @@ class CliDiscoverTool implements Tool {
         result.authenticated = authOutput !== null && authOutput.length > 0;
         if (authOutput) {
           // Keep auth info brief — first line, max 200 chars
-          result.authInfo = authOutput.split('\n')[0].slice(0, 200);
+          result.authInfo = truncate(authOutput.split('\n')[0], 200, '');
         }
       }
 

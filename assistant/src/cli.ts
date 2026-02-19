@@ -181,7 +181,7 @@ export async function startCli(): Promise<void> {
     if (req.toolName === 'browser_press_key') {
       return `press "${req.input.key ?? ''}"`;
     }
-    return `${req.toolName}: ${JSON.stringify(req.input).slice(0, 80)}`;
+    return `${req.toolName}: ${truncate(JSON.stringify(req.input), 80)}`;
   }
 
   function renderConfirmationPrompt(req: ConfirmationRequest): void {
@@ -501,7 +501,7 @@ export async function startCli(): Promise<void> {
           }
           process.stdout.write('\n');
         } else {
-          process.stdout.write(`\n[Tool: ${msg.result.slice(0, 200)}]\n`);
+          process.stdout.write(`\n[Tool: ${truncate(msg.result, 200)}]\n`);
         }
         toolStreaming = false;
         if (msg.diff) {

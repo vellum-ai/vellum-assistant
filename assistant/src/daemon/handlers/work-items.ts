@@ -24,6 +24,7 @@ import { getTask, getTaskRun } from '../../tasks/task-store.js';
 import { runTask } from '../../tasks/task-runner.js';
 import { getMessages } from '../../memory/conversation-store.js';
 import { classifyRisk, check } from '../../permissions/checker.js';
+import { truncate } from '../../util/truncate.js';
 
 export function handleWorkItemsList(
   msg: WorkItemsListRequest,
@@ -205,7 +206,7 @@ export function handleWorkItemOutput(
 
       if (!text.trim()) continue;
 
-      summary = text.length > 2000 ? text.slice(0, 2000) : text;
+      summary = truncate(text, 2000, '');
 
       // Extract up to 5 notable lines (bullet points or key findings)
       const lines = text.split('\n');

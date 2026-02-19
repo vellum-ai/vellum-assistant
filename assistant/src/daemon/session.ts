@@ -47,6 +47,7 @@ import {
   getSummaryFromContextMessage,
 } from '../context/window-manager.js';
 import { getHookManager } from '../hooks/manager.js';
+import { truncate } from '../util/truncate.js';
 import {
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
@@ -747,7 +748,7 @@ export class Session {
     try {
       const preMessageResult = await getHookManager().trigger('pre-message', {
         sessionId: this.conversationId,
-        messagePreview: content.slice(0, 200),
+        messagePreview: truncate(content, 200, ''),
       });
 
       if (preMessageResult.blocked) {
@@ -1464,10 +1465,10 @@ export class Session {
         const message = err instanceof Error ? err.message : String(err);
         const errorClass = err instanceof Error ? err.constructor.name : 'Error';
         rlog.error({ err }, 'Session processing error');
-        this.traceEmitter.emit('request_error', message.slice(0, 200), {
+        this.traceEmitter.emit('request_error', truncate(message, 200, ''), {
           requestId: reqId,
           status: 'error',
-          attributes: { errorClass, message: message.slice(0, 500) },
+          attributes: { errorClass, message: truncate(message, 500, '') },
         });
         onEvent({ type: 'error', message: `Failed to process message: ${message}` });
         const classified = classifySessionError(err, errorCtx);
@@ -1598,7 +1599,7 @@ export class Session {
   }
 
   private async generateTitle(userMessage: string, assistantResponse: string): Promise<void> {
-    const prompt = `Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes.\n\nUser: ${userMessage.slice(0, 200)}\nAssistant: ${assistantResponse.slice(0, 200)}`;
+    const prompt = `Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes.\n\nUser: ${truncate(userMessage, 200, '')}\nAssistant: ${truncate(assistantResponse, 200, '')}`;
     const response = await this.provider.sendMessage(
       [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
       [], // no tools

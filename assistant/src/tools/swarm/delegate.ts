@@ -3,6 +3,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
+import { truncate } from '../../util/truncate.js';
 import { getFailoverProvider } from '../../providers/registry.js';
 import { resolveSwarmLimits } from '../../swarm/limits.js';
 import { generatePlan } from '../../swarm/router-planner.js';
@@ -94,7 +95,7 @@ export const swarmDelegateTool: Tool = {
 
       context.onOutput?.(`Plan: ${plan.tasks.length} tasks\n`);
       for (const task of plan.tasks) {
-        context.onOutput?.(`  - [${task.role}] ${task.id}: ${task.objective.slice(0, 80)}\n`);
+        context.onOutput?.(`  - [${task.role}] ${task.id}: ${truncate(task.objective, 80)}\n`);
       }
       context.onOutput?.('\nExecuting...\n');
 

@@ -4,6 +4,7 @@ import { v4 as uuid } from 'uuid';
 import { getConfig } from '../config/loader.js';
 import type { MemoryExtractionConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
+import { truncate } from '../util/truncate.js';
 import { computeMemoryFingerprint } from './fingerprint.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
@@ -199,8 +200,8 @@ async function extractItemsWithLLM(
     for (const raw of input.items) {
       if (!VALID_KINDS.has(raw.kind)) continue;
       if (!raw.subject || !raw.statement) continue;
-      const subject = String(raw.subject).slice(0, 80);
-      const statement = String(raw.statement).slice(0, 500);
+      const subject = truncate(String(raw.subject), 80, '');
+      const statement = truncate(String(raw.statement), 500, '');
       const confidence = clamp(parseScore(raw.confidence, 0.5), 0, 1);
       const importance = clamp(parseScore(raw.importance, 0.5), 0, 1);
       const fingerprint = computeMemoryFingerprint(scopeId, raw.kind, subject, statement);
@@ -333,7 +334,7 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
     db.insert(memoryItemSources).values({
       memoryItemId,
       messageId,
-      evidence: item.statement.slice(0, 500),
+      evidence: truncate(item.statement, 500, ''),
       createdAt: now,
     }).onConflictDoNothing().run();
 
@@ -410,7 +411,7 @@ function inferSubject(sentence: string, kind: MemoryItemKind): string {
     if (match) return match[1];
   }
   const words = trimmed.split(/\s+/).slice(0, 6).join(' ');
-  return words.slice(0, 80);
+  return truncate(words, 80, '');
 }
 
 function includesAny(text: string, needles: string[]): boolean {

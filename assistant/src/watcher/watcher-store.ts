@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { getDb } from '../memory/db.js';
 import { watchers, watcherEvents } from '../memory/schema.js';
 import { DEFAULT_POLL_INTERVAL_MS } from './constants.js';
+import { truncate } from '../util/truncate.js';
 
 // ── Interfaces ──────────────────────────────────────────────────────
 
@@ -227,7 +228,7 @@ export function failWatcherPoll(id: string, error: string): void {
     .set({
       status: 'idle',
       consecutiveErrors: errors,
-      lastError: error.slice(0, 2000),
+      lastError: truncate(error, 2000, ''),
       lastPollAt: now,
       nextPollAt: now + backoff,
       updatedAt: now,
@@ -245,7 +246,7 @@ export function disableWatcher(id: string, reason: string): void {
     .set({
       status: 'disabled',
       enabled: false,
-      lastError: reason.slice(0, 2000),
+      lastError: truncate(reason, 2000, ''),
       updatedAt: Date.now(),
     })
     .where(eq(watchers.id, id))

@@ -24,6 +24,7 @@ import {
   UPDATE_CART_ITEM_QUERY,
 } from './queries.js';
 import { loadCapturedQueries } from './query-extractor.js';
+import { truncate } from '../util/truncate.js';
 
 const GRAPHQL_BASE = 'https://www.doordash.com/graphql';
 const CDP_BASE = 'http://localhost:9222';
@@ -240,7 +241,7 @@ export async function searchItems(query: string, opts?: { debug?: boolean }): Pr
   );
   if (opts?.debug) {
     process.stderr.write(
-      `[debug] homePageFacetFeed raw: ${JSON.stringify(data.homePageFacetFeed).substring(0, 3000)}\n`,
+      `[debug] homePageFacetFeed raw: ${truncate(JSON.stringify(data.homePageFacetFeed), 3000, '')}\n`,
     );
   }
   return extractSearchResults(data.homePageFacetFeed);
@@ -360,7 +361,7 @@ export async function getStoreMenu(
     process.stderr.write(
       `[debug] storepageFeed keys: ${Object.keys(feed).join(', ')}\n` +
       `[debug] itemLists count: ${rawItemLists.length}, carousels count: ${rawCarousels.length}\n` +
-      `[debug] menuBook: ${JSON.stringify(menuBook).substring(0, 2000)}\n`,
+      `[debug] menuBook: ${truncate(JSON.stringify(menuBook), 2000, '')}\n`,
     );
   }
 
@@ -404,8 +405,8 @@ export async function getRetailStoreMenu(
     process.stderr.write(
       `[debug] retailStorePageFeed keys: ${Object.keys(feed).join(', ')}\n` +
       `[debug] l1Categories count: ${l1Cats.length}, collections count: ${collections.length}\n` +
-      `[debug] page: ${JSON.stringify(page).substring(0, 500)}\n` +
-      `[debug] collections sample: ${JSON.stringify(collections.slice(0, 2)).substring(0, 2000)}\n`,
+      `[debug] page: ${truncate(JSON.stringify(page), 500, '')}\n` +
+      `[debug] collections sample: ${truncate(JSON.stringify(collections.slice(0, 2)), 2000, '')}\n`,
     );
   }
   return extractRetailStoreInfo(data.retailStorePageFeed);

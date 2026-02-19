@@ -6,6 +6,7 @@ import { computeMemoryFingerprint } from '../../../../memory/fingerprint.js';
 import { memoryItems } from '../../../../memory/schema.js';
 import { enqueueMemoryJob } from '../../../../memory/jobs-store.js';
 import { extractStylePatterns } from '../../../../messaging/style-analyzer.js';
+import { truncate } from '../../../../util/truncate.js';
 import { resolveProvider, withProviderToken, ok, err } from './shared.js';
 
 function clamp(value: number, min: number, max: number): number {
@@ -100,7 +101,7 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
         upsertMemoryItem({
           kind: 'relationship',
           subject,
-          statement: `${contact.name} (${contact.email}): ${contact.toneNote}`.slice(0, 500),
+          statement: truncate(`${contact.name} (${contact.email}): ${contact.toneNote}`, 500, ''),
           importance: 0.6,
           scopeId,
         });

@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { AssistantConfig } from '../../config/types.js';
 import { getLogger } from '../../util/logger.js';
+import { truncate } from '../../util/truncate.js';
 import { getDb } from '../../memory/db.js';
 import { computeMemoryFingerprint } from '../../memory/fingerprint.js';
 import { memoryItems } from '../../memory/schema.js';
@@ -84,14 +85,14 @@ export async function handleMemorySave(
   }
 
   const subject = typeof args.subject === 'string' && args.subject.trim().length > 0
-    ? args.subject.trim().slice(0, 80)
+    ? truncate(args.subject.trim(), 80, '')
     : inferSubjectFromStatement(statement.trim());
 
   try {
     const db = getDb();
     const id = uuid();
     const now = Date.now();
-    const trimmedStatement = statement.trim().slice(0, 500);
+    const trimmedStatement = truncate(statement.trim(), 500, '');
 
     const fingerprint = computeMemoryFingerprint(scopeId, kind, subject, trimmedStatement);
 
@@ -185,7 +186,7 @@ export async function handleMemoryUpdate(
     }
 
     const now = Date.now();
-    const trimmedStatement = statement.trim().slice(0, 500);
+    const trimmedStatement = truncate(statement.trim(), 500, '');
 
     const fingerprint = computeMemoryFingerprint(scopeId, existing.kind, existing.subject, trimmedStatement);
 
@@ -232,7 +233,7 @@ export async function handleMemoryUpdate(
 function inferSubjectFromStatement(statement: string): string {
   // Take first few words as a subject label
   const words = statement.split(/\s+/).slice(0, 6).join(' ');
-  return words.slice(0, 80);
+  return truncate(words, 80, '');
 }
 
 /**

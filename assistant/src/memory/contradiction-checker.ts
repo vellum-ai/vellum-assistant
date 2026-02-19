@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { eq } from 'drizzle-orm';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
+import { truncate } from '../util/truncate.js';
 import { createOrUpdatePendingConflict } from './conflict-store.js';
 import { getDb } from './db.js';
 import { enqueueMemoryJob } from './jobs-store.js';
@@ -234,7 +235,7 @@ async function classifyRelationship(
 
   return {
     relationship,
-    explanation: String(input.explanation ?? '').slice(0, 500),
+    explanation: truncate(String(input.explanation ?? ''), 500, ''),
   };
 }
 
@@ -324,6 +325,6 @@ function escapeSqlLike(s: string): string {
 
 function buildClarificationQuestion(existingStatement: string, candidateStatement: string): string {
   const normalize = (input: string): string =>
-    input.replace(/\s+/g, ' ').trim().slice(0, 180);
+    truncate(input.replace(/\s+/g, ' ').trim(), 180, '');
   return `I have conflicting notes: "${normalize(existingStatement)}" vs "${normalize(candidateStatement)}". Which one is correct?`;
 }
