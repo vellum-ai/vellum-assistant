@@ -82,6 +82,10 @@ jobs:
           codesign --verify --deep --strict "dist/Vellum.app"
           echo "Code signature verified"
 
+      - name: Run tests
+        working-directory: clients/macos
+        run: ./build.sh test
+
       - name: Cleanup keychain
         if: always()
         run: |
