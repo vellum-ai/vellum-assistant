@@ -228,7 +228,6 @@ describe('scheduler RRULE execution', () => {
       expression: rruleExpr,
     });
 
-    const beforeNextRunAt = getSchedule(schedule.id)!.nextRunAt;
     forceScheduleDue(schedule.id);
 
     const processMessage = async () => {};
