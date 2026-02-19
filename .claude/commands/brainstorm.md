@@ -19,7 +19,7 @@ Can include but not limited to:
 
 This is just meant to be a starting point for brainstorming, don't limit yourself to these ideas.
 Ultrathink about this and go wild.
-We're going to make this project the best it can be.
+We're going to make this project the best in the universe.
 
 Once you've done your absolute best, share the changes you plan on making with me, and once I approve them, update .private/TODO.md.
 .private/TODO.md should be a single bulleted list of items organized by descending priority, don't organize by category. Keep the "Address the feedback on <PR URL>" items at the top of the list.

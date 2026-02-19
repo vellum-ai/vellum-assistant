@@ -14,13 +14,33 @@ Creates and removes isolated git worktrees for parallel development. Used by `/s
 .claude/worktree list
 ```
 
+### `scripts/vellum-runtime-tunnel.sh` — SSH tunnel for remote runtime access
+
+Forwards a local TCP port to a remote Vellum runtime HTTP server via SSH. Use this when running the web app in local mode against a remote assistant daemon.
+
+```bash
+# Start a tunnel to a remote host
+scripts/vellum-runtime-tunnel.sh start user@remote-host
+
+# Check tunnel status
+scripts/vellum-runtime-tunnel.sh status
+
+# Print env vars for web local mode
+scripts/vellum-runtime-tunnel.sh print-env
+
+# Stop the tunnel
+scripts/vellum-runtime-tunnel.sh stop
+```
+
+Options: `--local-port PORT` and `--remote-port PORT` (both default to 7821).
+
 ## Slash Commands
 
 Slash commands for Claude Code that automate development workflows. They live in `.claude/commands/` (committed to the repo) and manage a shared task list (`.private/TODO.md`), create PRs, merge them, and track review status.
 
 ## Setup
 
-### 1. Create `.private/` directory
+### 1. Run `vel setup`
 
 Create the required `.private/` tracking files manually. The `.private/` directory is gitignored, so every developer needs to set this up locally.
 
@@ -76,7 +96,7 @@ Spawns a pool of agents that work through `.private/TODO.md` in parallel using i
 
 ### `/check-reviews` - Process PR review feedback
 
-Checks every PR in `.private/UNREVIEWED_PRS.md` for reviews from automated reviewers. If reviewers requested changes, it adds "Address the feedback on \<PR>" tasks to the top of `.private/TODO.md`. Fully reviewed PRs are removed from the unreviewed list. PRs waiting 30+ minutes for a single reviewer are skipped (implicit approval).
+Checks every PR in `.private/UNREVIEWED_PRS.md` for reviews from the automated reviewers (Codex and Devin bots). If reviewers requested changes, it adds "Address the feedback on \<PR>" tasks to the top of `.private/TODO.md`. Fully reviewed PRs are removed from the unreviewed list. PRs waiting 30+ minutes for a single reviewer are skipped (implicit approval).
 
 **When to use:** Run periodically after merging PRs to see if reviewers flagged anything. The feedback tasks it creates are then picked up by `/work` or `/swarm`.
 
@@ -167,7 +187,7 @@ Squash-merges the feature branch PR into main, closes the project issue, and cle
 
 ### `/ship-and-merge` - Ship with automated review loop
 
-Ships uncommitted changes via a PR, waits for automated reviews, fixes valid feedback (up to 3 rounds), and squash-merges.
+Ships uncommitted changes via a PR, waits for Codex/Devin reviews, fixes valid feedback (up to 3 rounds), and squash-merges.
 
 ### `/plan-html` - Create or refresh a plan with HTML view
 
@@ -186,7 +206,7 @@ Pulls main, determines/creates a version tag, generates release notes from commi
 
 Plans a feature from scratch, creates a GitHub project board and milestone issues, swarm-executes them in parallel, sweeps for review feedback, addresses it, and reports a final summary. Combines `/brainstorm` + `/swarm` + `/check-reviews` into a single end-to-end workflow.
 
-The project board is created under the repo's GitHub org with the naming convention `<github-username>-<repo-name>`. Milestone issues are added to the board and tracked through Ready → In Progress → In Review → Done.
+The project board is created under the `vellum-ai` org with the naming convention `<github-username>-<repo-name>`. Milestone issues are added to the board and tracked through Ready → In Progress → In Review → Done.
 
 **When to use:** When you have a feature to build end-to-end and want the full plan → execute → review → fix cycle handled automatically.
 
@@ -220,7 +240,7 @@ This is the main workflow.
 ```
 
 ```
-/work Address the feedback on https://github.com/<owner>/<repo>/pull/999
+/work Address the feedback on https://github.com/vellum-ai/vellum-assistant/pull/999
 ...
 ```
 

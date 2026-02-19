@@ -88,9 +88,15 @@ remove() {
   local slug="${branch//\//-}"
   local dir="$PARENT_DIR/${WT_PREFIX}-${slug}"
 
+  # Fall back to legacy prefix for worktrees created before the rename
   if [ ! -d "$dir" ]; then
-    echo "Error: no worktree at $dir"
-    exit 1
+    local legacy_dir="$PARENT_DIR/vellum-wt-${slug}"
+    if [ -d "$legacy_dir" ]; then
+      dir="$legacy_dir"
+    else
+      echo "Error: no worktree at $dir"
+      exit 1
+    fi
   fi
 
   echo "Removing worktree at $dir..."

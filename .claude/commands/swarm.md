@@ -14,7 +14,7 @@ If no arguments are provided, default to 12 workers with no task limit (run unti
 - **gh pr view fields**: `merged` is NOT a valid --json field. Use `state` and `mergedAt` instead: `gh pr view <N> --json state,mergedAt,title,url`
 - **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
 - **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
-- **No piping to tail/head**: `tail` and `head` may not be available in the shell. Avoid piping to `tail` or `head`. Instead, run the command directly and let output truncate naturally, or use the Read tool on output files.
+- **No piping to tail/head**: `tail` and `head` may not be available in the shell. Avoid `cmd | tail -N`. Instead, run the command directly and let output truncate naturally, or use the Read tool on output files.
 
 ## Phase 1: Setup
 

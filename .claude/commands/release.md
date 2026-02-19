@@ -1,4 +1,4 @@
-Cut a new release by creating a tagged GitHub Release.
+Cut a new macOS desktop app release by creating a tagged GitHub Release, which triggers the CI build pipeline.
 
 The user may pass `$ARGUMENTS` as the version (e.g. `0.2.0` or `v0.2.0`). If not provided, auto-increment the patch version from the latest tag.
 
@@ -52,19 +52,23 @@ Write concise, user-facing descriptions (not raw commit messages).
 
 ```bash
 gh release create v<version> \
+  --repo vellum-ai/vellum-assistant \
   --title "v<version>" \
   --notes "<release notes>"
 ```
 
-This automatically creates the git tag and triggers any `on: release` workflows.
+This automatically:
+- Creates the git tag
+- Triggers the `Build and Release macOS App` workflow via `on: release`
+- The workflow builds, signs, notarizes, and publishes the DMG to the public updates repo
 
 ### 6. Verify the workflow started
 
 ```bash
-gh run list --limit 1
+gh run list --repo vellum-ai/vellum-assistant --workflow="Build and Release macOS App" --limit 1
 ```
 
-Confirm a build was triggered (if applicable).
+Confirm the build was triggered.
 
 ### 7. Report
 
@@ -72,3 +76,5 @@ Output:
 - The release URL
 - The version number
 - The release notes
+- A link to the running workflow
+- Remind the user that the build takes ~15-20 minutes and will auto-publish to `vellum-ai/velly` when done
