@@ -46,7 +46,7 @@ mock.module('../util/platform.js', () => ({
 }));
 
 // Mock proxy session manager
-const mockGetOrStartSession = mock(() => Promise.resolve({
+const mockGetOrStartSession = mock((_convId: string, _credIds: string[]) => Promise.resolve({
   session: { id: 'test-session-id', port: 8080, status: 'active' },
   created: true,
 }));

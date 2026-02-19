@@ -729,27 +729,30 @@ export class AnthropicProvider implements Provider {
   private fromAnthropicBlock(
     block: Anthropic.ContentBlock,
   ): ContentBlock {
-    switch (block.type) {
+    const blockType = block.type as string;
+    switch (blockType) {
       case "text":
-        return { type: "text", text: block.text };
+        return { type: "text", text: (block as Anthropic.TextBlock).text };
       case "thinking":
-        return { type: "thinking", thinking: block.thinking, signature: block.signature };
+        return { type: "thinking", thinking: (block as Anthropic.ThinkingBlock).thinking, signature: (block as Anthropic.ThinkingBlock).signature };
       case "redacted_thinking":
-        return { type: "redacted_thinking", data: block.data };
-      case "tool_use":
+        return { type: "redacted_thinking", data: (block as Anthropic.RedactedThinkingBlock).data };
+      case "tool_use": {
+        const tu = block as Anthropic.ToolUseBlock;
         return {
           type: "tool_use",
-          id: block.id,
-          name: block.name,
-          input: block.input as Record<string, unknown>,
+          id: tu.id,
+          name: tu.name,
+          input: tu.input as Record<string, unknown>,
         };
+      }
       case "server_tool_use":
       case "web_search_tool_result":
         // Native Anthropic web search blocks — informational only, silently dropped
         // by the empty-text filter in sendMessage.
         return { type: "text", text: "" };
       default:
-        return { type: "text", text: `[unsupported block type: ${(block as { type: string }).type}]` };
+        return { type: "text", text: `[unsupported block type: ${blockType}]` };
     }
   }
 
