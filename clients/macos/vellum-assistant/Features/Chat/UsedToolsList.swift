@@ -87,7 +87,8 @@ private struct UsedToolsRow: View {
     private var hasDetails: Bool {
         !toolCall.inputFull.isEmpty ||
         (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true)) ||
-        toolCall.cachedImage != nil
+        toolCall.cachedImage != nil ||
+        !toolCall.claudeCodeSteps.isEmpty
     }
 
     var body: some View {
