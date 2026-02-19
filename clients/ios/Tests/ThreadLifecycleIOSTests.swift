@@ -35,12 +35,18 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         let vm = ChatViewModel(daemonClient: mockClient)
         vm.createSessionIfNeeded()
 
-        // Allow async Task to execute
+        // Poll until session_create appears in sentMessages (message-driven wait)
         let expectation = XCTestExpectation(description: "session_create sent")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            expectation.fulfill()
+        func poll() {
+            let found = mockClient.sentMessages.contains { $0 is SessionCreateMessage }
+            if found {
+                expectation.fulfill()
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
+            }
         }
-        wait(for: [expectation], timeout: 1.0)
+        poll()
+        wait(for: [expectation], timeout: 2.0)
 
         let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
         XCTAssertEqual(sessionCreates.count, 1, "Should send exactly one session_create")
@@ -144,8 +150,19 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(vm.messages.count, 1)
         XCTAssertTrue(vm.isSending)
 
-        // Step 2: Session info arrives
-        let info = SessionInfoMessage(sessionId: "thread-sess-1", title: "New Thread")
+        // Allow async Task to send session_create
+        let expectation = XCTestExpectation(description: "session_create sent")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+
+        // Extract the correlation ID from the sent session_create message
+        let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
+        let correlationId = sessionCreates.first?.correlationId
+
+        // Step 2: Session info arrives with matching correlation ID
+        let info = SessionInfoMessage(sessionId: "thread-sess-1", title: "New Thread", correlationId: correlationId)
         vm.handleServerMessage(.sessionInfo(info))
         XCTAssertEqual(vm.sessionId, "thread-sess-1")
 
@@ -222,8 +239,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         vm2.handleServerMessage(.assistantTextDelta(deltaA))
 
         XCTAssertEqual(vm1.messages.count, 1, "VM1 should accept delta for its session")
-        // VM2 should ignore delta for a different session (if sessionId filtering is active)
-        // Note: the actual filtering depends on whether sessionId is set on the delta
+        XCTAssertTrue(vm2.messages.isEmpty, "VM2 should ignore delta for a different session")
     }
 
     // MARK: - Error Recovery in Session
