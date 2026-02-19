@@ -1174,6 +1174,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         receiveBuffer = Data()
         cuObservationSequenceBySession.removeAll()
         isConnected = false
+        isConnecting = false
         httpPort = nil
         latestMemoryStatus = nil
 
@@ -1565,8 +1566,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         reconnectTask?.cancel()
         reconnectTask = nil
         reconnectDelay = 1.0
+        isConnecting = true
         Task { @MainActor [weak self] in
-            guard let self, self.shouldReconnect else { return }
+            guard let self, self.shouldReconnect else {
+                self?.isConnecting = false
+                return
+            }
             do {
                 try await self.connect()
             } catch {
