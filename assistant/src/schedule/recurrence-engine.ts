@@ -83,10 +83,11 @@ export function isValidScheduleExpression(spec: ScheduleSpec): boolean {
       if (error) return false;
 
       const normalized = normalizeRruleExpression(spec.expression);
+      const tzid = spec.timezone ?? undefined;
       if (hasSetConstructs(normalized)) {
-        rrulestr(normalized, { forceset: true });
+        rrulestr(normalized, { forceset: true, tzid });
       } else {
-        rrulestr(normalized);
+        rrulestr(normalized, { tzid });
       }
       return true;
     }
@@ -122,10 +123,11 @@ export function computeNextRunAt(spec: ScheduleSpec, nowMs?: number): number {
     if (error) throw new Error(error);
 
     const useSet = hasSetConstructs(normalized);
+    const tzid = spec.timezone ?? undefined;
     const parsed = useSet
-      ? (rrulestr(normalized, { forceset: true }) as RRuleSet)
-      : rrulestr(normalized);
-    const next = parsed.after(new Date(now), true);
+      ? (rrulestr(normalized, { forceset: true, tzid }) as RRuleSet)
+      : rrulestr(normalized, { tzid });
+    const next = parsed.after(new Date(now));
     if (!next) {
       throw new Error(`RRULE expression has no upcoming runs after ${new Date(now).toISOString()}`);
     }
