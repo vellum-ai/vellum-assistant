@@ -32,20 +32,28 @@ export function handleSubscribeAssistantEvents(
     return Response.json({ error: 'conversationKey is required' }, { status: 400 });
   }
 
-  // Honour the assistantId from the legacy /v1/assistants/:id/events path so
-  // that hub filtering is scoped to the correct assistant.  Falls back to
-  // 'self' for the new /v1/events route (consistent with all other handlers).
+  // Extract the assistantId from the legacy /v1/assistants/:id/events path
+  // (falls back to 'self' for the new /v1/events route).  The current
+  // single-tenant runtime publishes all events under 'self', so reject any
+  // other value explicitly — a non-'self' ID would produce a silently empty
+  // stream rather than the expected events.
   const pathMatch = url.pathname.match(/^\/v1\/assistants\/([^/]+)\/events$/);
   const assistantId = pathMatch?.[1] ?? 'self';
+  if (assistantId !== 'self') {
+    return Response.json(
+      { error: `Assistant ID '${assistantId}' is not supported; use 'self'` },
+      { status: 400 },
+    );
+  }
 
-  const mapping = getOrCreateConversation(assistantId, conversationKey);
+  const mapping = getOrCreateConversation('self', conversationKey);
   const encoder = new TextEncoder();
   let sub: AssistantEventSubscription | null = null;
 
   const stream = new ReadableStream({
     start(controller) {
       sub = assistantEventHub.subscribe(
-        { assistantId, sessionId: mapping.conversationId },
+        { assistantId: 'self', sessionId: mapping.conversationId },
         (event) => {
           try {
             controller.enqueue(encoder.encode(formatSseFrame(event)));
