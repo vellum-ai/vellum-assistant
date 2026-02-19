@@ -276,10 +276,13 @@ export class SubagentManager {
           `[Subagent "${label}" was explicitly aborted]\n\n` +
           `This subagent was cancelled on purpose. Do NOT re-spawn or retry it.`;
         try {
+          // Use the managed subagent's stored parentSendToClient so the
+          // notification routes to the parent session's socket, not the
+          // aborting socket (which may be a different thread after switching).
           this.onSubagentFinished(
             managed.state.config.parentSessionId,
             message,
-            parentSendToClient,
+            managed.parentSendToClient,
           );
         } catch (err) {
           log.error({ subagentId, err }, 'Failed to notify parent about abort');

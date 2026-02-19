@@ -37,6 +37,7 @@ function injectFakeSubagent(
   manager: SubagentManager,
   subagentId: string,
   state: SubagentState,
+  parentSendToClient?: () => void,
 ): void {
   const fakeSession: FakeManagedSubagent['session'] = {
     abort: () => {},
@@ -49,7 +50,7 @@ function injectFakeSubagent(
   const subagents = internals.subagents;
   const parentToChildren = internals.parentToChildren;
 
-  subagents.set(subagentId, { session: fakeSession, state, parentSendToClient: () => {} });
+  subagents.set(subagentId, { session: fakeSession, state, parentSendToClient: parentSendToClient ?? (() => {}) });
 
   const parentId = state.config.parentSessionId;
   if (!parentToChildren.has(parentId)) {
@@ -99,6 +100,31 @@ describe('SubagentManager abort notification', () => {
     expect(notifications).toHaveLength(1);
     expect(notifications[0].message).toContain('explicitly aborted');
     expect(notifications[0].message).toContain('Do NOT re-spawn');
+  });
+
+  test('abort notification routes to parent sender, not aborting sender', () => {
+    const manager = new SubagentManager();
+    const subagentId = 'sub-1';
+    const state = makeState(subagentId);
+
+    // Track which sender onSubagentFinished receives.
+    let notificationSender: unknown = null;
+    manager.onSubagentFinished = (_pid, _message, sender) => {
+      notificationSender = sender;
+    };
+
+    // The parent's stored sender (set at spawn time).
+    const parentSender = () => {};
+    injectFakeSubagent(manager, subagentId, state, parentSender);
+
+    // A different sender (simulating abort from a different thread's socket).
+    const abortingSender = ((_msg: ServerMessage) => {}) as (msg: ServerMessage) => void;
+
+    manager.abort(subagentId, abortingSender);
+
+    // onSubagentFinished should receive the parent's sender, not the aborting one.
+    expect(notificationSender).toBe(parentSender);
+    expect(notificationSender).not.toBe(abortingSender);
   });
 
   test('abort sends subagent_status_changed to client', () => {
