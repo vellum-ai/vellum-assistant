@@ -20,16 +20,11 @@ final class AuthManager {
     var errorMessage: String?
 
     private let authService = AuthService.shared
-    private static var callbackScheme: String {
-        guard let urlTypes = Bundle.main.infoDictionary?["CFBundleURLTypes"] as? [[String: Any]],
-              let firstType = urlTypes.first,
-              let schemes = firstType["CFBundleURLSchemes"] as? [String],
-              let scheme = schemes.first
-        else {
-            return "vellum-assistant"
-        }
-        return scheme
-    }
+    // Always use the production scheme for auth callbacks regardless of build
+    // configuration. ASWebAuthenticationSession intercepts the redirect in-process
+    // so it won't conflict with a production install, and WorkOS only needs one
+    // whitelisted redirect URI.
+    private static let callbackScheme = "vellum-assistant"
     private var webAuthSession: ASWebAuthenticationSession?
 
     var isAuthenticated: Bool {
