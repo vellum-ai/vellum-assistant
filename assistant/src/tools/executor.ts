@@ -504,7 +504,7 @@ export class ToolExecutor {
               const blockedContent = `Tool output blocked: user denied output containing ${allMatches.length} potential secret(s) (${types}).`;
               const durationMs = Date.now() - startTime;
               emitLifecycleEvent(context, {
-                type: 'executed',
+                type: 'permission_denied',
                 toolName: name,
                 executionTarget,
                 input,
@@ -514,8 +514,8 @@ export class ToolExecutor {
                 requestId: context.requestId,
                 riskLevel,
                 decision: 'deny',
+                reason: `User denied output containing secrets: ${types}`,
                 durationMs,
-                result: { content: blockedContent, isError: true },
               });
 
               void getHookManager().trigger('post-tool-execute', {
