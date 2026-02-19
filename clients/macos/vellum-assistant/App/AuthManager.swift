@@ -20,7 +20,16 @@ final class AuthManager {
     var errorMessage: String?
 
     private let authService = AuthService.shared
-    private static let callbackScheme = "vellum-assistant"
+    private static var callbackScheme: String {
+        guard let urlTypes = Bundle.main.infoDictionary?["CFBundleURLTypes"] as? [[String: Any]],
+              let firstType = urlTypes.first,
+              let schemes = firstType["CFBundleURLSchemes"] as? [String],
+              let scheme = schemes.first
+        else {
+            return "vellum-assistant"
+        }
+        return scheme
+    }
     private var webAuthSession: ASWebAuthenticationSession?
 
     var isAuthenticated: Bool {
