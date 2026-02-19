@@ -824,6 +824,11 @@ export interface WorkItemCancelRequest {
   id: string;
 }
 
+export interface WorkItemRenderRequest {
+  type: 'work_item_render';
+  id: string;
+}
+
 export type ClientMessage =
   | AuthMessage
   | UserMessage
@@ -921,6 +926,7 @@ export type ClientMessage =
   | WorkItemPreflightRequest
   | WorkItemApprovePermissionsRequest
   | WorkItemCancelRequest
+  | WorkItemRenderRequest
   | SubagentAbortRequest
   | SubagentStatusRequest
   | SubagentMessageRequest;
@@ -1989,6 +1995,15 @@ export interface WorkItemCancelResponse {
   error?: string;
 }
 
+export interface WorkItemRenderResponse {
+  type: 'work_item_render_response';
+  id: string;
+  success: boolean;
+  title?: string;
+  content?: string;
+  error?: string;
+}
+
 /** Server push — tells the client to open/focus the tasks window. */
 export interface OpenTasksWindow {
   type: 'open_tasks_window';
@@ -2119,6 +2134,7 @@ export type ServerMessage =
   | WorkItemPreflightResponse
   | WorkItemApprovePermissionsResponse
   | WorkItemCancelResponse
+  | WorkItemRenderResponse
   | WorkItemStatusChanged
   | TasksChanged
   | OpenTasksWindow

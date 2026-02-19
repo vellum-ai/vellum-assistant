@@ -96,6 +96,7 @@
     "WorkItemGetRequest",
     "WorkItemOutputRequest",
     "WorkItemPreflightRequest",
+    "WorkItemRenderRequest",
     "WorkItemRunTaskRequest",
     "WorkItemUpdateRequest",
     "WorkItemsListRequest"
@@ -207,6 +208,7 @@
     "WorkItemGetResponse",
     "WorkItemOutputResponse",
     "WorkItemPreflightResponse",
+    "WorkItemRenderResponse",
     "WorkItemRunTaskResponse",
     "WorkItemStatusChanged",
     "WorkItemUpdateResponse",
@@ -309,6 +311,7 @@
     "work_item_get",
     "work_item_output",
     "work_item_preflight",
+    "work_item_render",
     "work_item_run_task",
     "work_item_update",
     "work_items_list"
@@ -419,6 +422,7 @@
     "work_item_get_response",
     "work_item_output_response",
     "work_item_preflight_response",
+    "work_item_render_response",
     "work_item_run_task_response",
     "work_item_status_changed",
     "work_item_update_response",

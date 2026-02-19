@@ -2037,6 +2037,20 @@ public struct IPCWorkItemPreflightResponsePermission: Codable, Sendable {
     public let currentDecision: String
 }
 
+public struct IPCWorkItemRenderRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
+public struct IPCWorkItemRenderResponse: Codable, Sendable {
+    public let type: String
+    public let id: String
+    public let success: Bool
+    public let title: String?
+    public let content: String?
+    public let error: String?
+}
+
 public struct IPCWorkItemRunTaskRequest: Codable, Sendable {
     public let type: String
     public let id: String
