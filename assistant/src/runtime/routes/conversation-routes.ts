@@ -190,7 +190,6 @@ export async function handleSendMessage(
 
   try {
     const result = await processor(
-      "self",
       mapping.conversationId,
       content ?? '',
       hasAttachments ? attachmentIds : undefined,

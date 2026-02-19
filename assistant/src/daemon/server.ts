@@ -967,7 +967,6 @@ export class DaemonServer {
    * is not blocked for the duration of the agent loop.
    */
   async persistAndProcessMessage(
-    assistantId: string,
     conversationId: string,
     content: string,
     attachmentIds?: string[],
@@ -988,14 +987,14 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
-    // Set assistantId AFTER the isProcessing check so a rejected request
-    // doesn't mutate the session state visible to an in-flight request.
-    session.setAssistantId(assistantId);
+    // Set the session identity AFTER the isProcessing check so a rejected
+    // request doesn't mutate the session state visible to an in-flight request.
+    session.setAssistantId('self');
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
 
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds
-      ? attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds).map((a) => ({
+      ? attachmentsStore.getAttachmentsByIds('self', attachmentIds).map((a) => ({
           id: a.id,
           filename: a.originalFilename,
           mimeType: a.mimeType,
@@ -1022,7 +1021,6 @@ export class DaemonServer {
    * Used by the channel inbound endpoint which needs the assistant reply.
    */
   async processMessage(
-    assistantId: string,
     conversationId: string,
     content: string,
     attachmentIds?: string[],
@@ -1041,14 +1039,14 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
-    // Set assistantId AFTER the isProcessing check so a rejected request
-    // doesn't mutate the session state visible to an in-flight request.
-    session.setAssistantId(assistantId);
+    // Set the session identity AFTER the isProcessing check so a rejected
+    // request doesn't mutate the session state visible to an in-flight request.
+    session.setAssistantId('self');
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
 
     // Resolve attachment IDs to full attachment data for the session
     const attachments = attachmentIds
-      ? attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds).map((a) => ({
+      ? attachmentsStore.getAttachmentsByIds('self', attachmentIds).map((a) => ({
           id: a.id,
           filename: a.originalFilename,
           mimeType: a.mimeType,
@@ -1072,8 +1070,8 @@ export class DaemonServer {
     return new RunOrchestrator({
       getOrCreateSession: (conversationId) =>
         this.getOrCreateSession(conversationId),
-      resolveAttachments: (assistantId, attachmentIds) =>
-        attachmentsStore.getAttachmentsByIds(assistantId, attachmentIds).map((a) => ({
+      resolveAttachments: (attachmentIds) =>
+        attachmentsStore.getAttachmentsByIds('self', attachmentIds).map((a) => ({
           id: a.id,
           filename: a.originalFilename,
           mimeType: a.mimeType,

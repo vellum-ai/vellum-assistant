@@ -32,7 +32,7 @@ interface PendingRunState {
 
 export interface RunOrchestratorDeps {
   getOrCreateSession: (conversationId: string) => Promise<Session>;
-  resolveAttachments: (assistantId: string, attachmentIds: string[]) => Array<{
+  resolveAttachments: (attachmentIds: string[]) => Array<{
     id: string;
     filename: string;
     mimeType: string;
@@ -64,7 +64,6 @@ export class RunOrchestrator {
    * and fire the agent loop in the background.
    */
   async startRun(
-    assistantId: string,
     conversationId: string,
     content: string,
     attachmentIds?: string[],
@@ -82,15 +81,15 @@ export class RunOrchestrator {
     }
 
     const attachments = attachmentIds
-      ? this.deps.resolveAttachments(assistantId, attachmentIds)
+      ? this.deps.resolveAttachments(attachmentIds)
       : [];
 
     const requestId = crypto.randomUUID();
     const messageId = session.persistUserMessage(content, attachments, requestId);
-    const run = runsStore.createRun(assistantId, conversationId, messageId);
+    const run = runsStore.createRun('self', conversationId, messageId);
 
     // Set the assistant ID so attachments are scoped correctly.
-    session.setAssistantId(assistantId);
+    session.setAssistantId('self');
 
     // Hook into session to intercept confirmation_request events.
     // When the prompter sends a confirmation_request, we record it in the

@@ -427,7 +427,6 @@ export class RuntimeHttpServer {
 
       try {
         const { messageId: userMessageId } = await this.processMessage(
-          event.assistantId,
           event.conversationId,
           content,
           attachmentIds,

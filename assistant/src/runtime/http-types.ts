@@ -12,7 +12,6 @@ export interface RuntimeMessageSessionOptions {
 }
 
 export type MessageProcessor = (
-  assistantId: string,
   conversationId: string,
   content: string,
   attachmentIds?: string[],
@@ -26,7 +25,6 @@ export type MessageProcessor = (
  * immediately.
  */
 export type NonBlockingMessageProcessor = (
-  assistantId: string,
   conversationId: string,
   content: string,
   attachmentIds?: string[],

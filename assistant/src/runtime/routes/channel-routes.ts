@@ -220,7 +220,6 @@ export async function handleChannelInbound(
       }
 
       const { messageId: userMessageId } = await processMessage(
-        "self",
         result.conversationId,
         content ?? '',
         hasAttachments ? attachmentIds : undefined,

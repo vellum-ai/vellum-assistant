@@ -328,7 +328,7 @@ export async function runDaemon(): Promise<void> {
 
   const scheduler = startScheduler(
     async (conversationId, message) => {
-      await server.processMessage('schedule', conversationId, message);
+      await server.processMessage(conversationId, message);
     },
     (reminder) => {
       server.broadcast({
@@ -382,10 +382,10 @@ export async function runDaemon(): Promise<void> {
         port,
         hostname,
         bearerToken,
-        processMessage: (assistantId, conversationId, content, attachmentIds, options, sourceChannel) =>
-          server.processMessage(assistantId, conversationId, content, attachmentIds, options, sourceChannel),
-        persistAndProcessMessage: (assistantId, conversationId, content, attachmentIds, options, sourceChannel) =>
-          server.persistAndProcessMessage(assistantId, conversationId, content, attachmentIds, options, sourceChannel),
+        processMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
+          server.processMessage(conversationId, content, attachmentIds, options, sourceChannel),
+        persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
+          server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel),
         runOrchestrator: server.createRunOrchestrator(),
         interfacesDir: getInterfacesDir(),
       });

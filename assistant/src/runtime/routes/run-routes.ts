@@ -53,7 +53,6 @@ export async function handleCreateRun(
 
   try {
     const run = await runOrchestrator.startRun(
-      "self",
       mapping.conversationId,
       content ?? '',
       hasAttachments ? attachmentIds : undefined,
