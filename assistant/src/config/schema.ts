@@ -8,6 +8,7 @@ const VALID_MEMORY_EMBEDDING_PROVIDERS = ['auto', 'local', 'openai', 'gemini', '
 const VALID_SANDBOX_BACKENDS = ['native', 'docker'] as const;
 const VALID_DOCKER_NETWORKS = ['none', 'bridge'] as const;
 const VALID_PERMISSIONS_MODES = ['legacy', 'strict'] as const;
+const VALID_CALL_PROVIDERS = ['twilio'] as const;
 
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
@@ -781,6 +782,49 @@ export const SwarmConfigSchema = z.object({
     .default('claude-sonnet-4-6'),
 });
 
+export const CallsDisclosureConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'calls.disclosure.enabled must be a boolean' })
+    .default(true),
+  text: z
+    .string({ error: 'calls.disclosure.text must be a string' })
+    .default('At the very beginning of the call, disclose that you are an AI assistant calling on behalf of the user.'),
+});
+
+export const CallsSafetyConfigSchema = z.object({
+  denyCategories: z
+    .array(z.string({ error: 'calls.safety.denyCategories values must be strings' }))
+    .default([]),
+});
+
+export const CallsConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'calls.enabled must be a boolean' })
+    .default(true),
+  provider: z
+    .enum(VALID_CALL_PROVIDERS, {
+      error: `calls.provider must be one of: ${VALID_CALL_PROVIDERS.join(', ')}`,
+    })
+    .default('twilio'),
+  maxDurationSeconds: z
+    .number({ error: 'calls.maxDurationSeconds must be a number' })
+    .int('calls.maxDurationSeconds must be an integer')
+    .positive('calls.maxDurationSeconds must be a positive integer')
+    .default(3600),
+  userConsultTimeoutSeconds: z
+    .number({ error: 'calls.userConsultTimeoutSeconds must be a number' })
+    .int('calls.userConsultTimeoutSeconds must be an integer')
+    .positive('calls.userConsultTimeoutSeconds must be a positive integer')
+    .default(120),
+  disclosure: CallsDisclosureConfigSchema.default({
+    enabled: true,
+    text: 'At the very beginning of the call, disclose that you are an AI assistant calling on behalf of the user.',
+  }),
+  safety: CallsSafetyConfigSchema.default({
+    denyCategories: [],
+  }),
+});
+
 export const SkillsConfigSchema = z.object({
   entries: z.record(z.string(), SkillEntryConfigSchema).default({}),
   load: SkillsLoadConfigSchema.default({ extraDirs: [], watch: true, watchDebounceMs: 250 }),
@@ -1003,6 +1047,19 @@ export const AssistantConfigSchema = z.object({
     enrichmentJobTimeoutMs: 30000,
     enrichmentMaxRetries: 2,
   }),
+  calls: CallsConfigSchema.default({
+    enabled: true,
+    provider: 'twilio',
+    maxDurationSeconds: 3600,
+    userConsultTimeoutSeconds: 120,
+    disclosure: {
+      enabled: true,
+      text: 'At the very beginning of the call, disclose that you are an AI assistant calling on behalf of the user.',
+    },
+    safety: {
+      denyCategories: [],
+    },
+  }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
     ctx.addIssue({
@@ -1059,3 +1116,6 @@ export type SkillsInstallConfig = z.infer<typeof SkillsInstallConfigSchema>;
 export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
 export type SkillsConfig = z.infer<typeof SkillsConfigSchema>;
 export type WorkspaceGitConfig = z.infer<typeof WorkspaceGitConfigSchema>;
+export type CallsConfig = z.infer<typeof CallsConfigSchema>;
+export type CallsDisclosureConfig = z.infer<typeof CallsDisclosureConfigSchema>;
+export type CallsSafetyConfig = z.infer<typeof CallsSafetyConfigSchema>;

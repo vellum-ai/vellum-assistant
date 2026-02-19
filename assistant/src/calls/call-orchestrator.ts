@@ -16,7 +16,7 @@ import {
   createPendingQuestion,
   expirePendingQuestions,
 } from './call-store.js';
-import { MAX_CALL_DURATION_MS, USER_CONSULTATION_TIMEOUT_MS, SILENCE_TIMEOUT_MS } from './call-constants.js';
+import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
 import type { RelayConnection } from './relay-server.js';
 import { registerCallOrchestrator, unregisterCallOrchestrator, fireCallQuestionNotifier, fireCallCompletionNotifier } from './call-state.js';
 
@@ -134,6 +134,11 @@ export class CallOrchestrator {
   // ── Private ──────────────────────────────────────────────────────
 
   private buildSystemPrompt(): string {
+    const config = getConfig();
+    const disclosureRule = config.calls.disclosure.enabled
+      ? `1. ${config.calls.disclosure.text}`
+      : '1. Begin the conversation naturally.';
+
     return [
       'You are on a live phone call on behalf of your user.',
       this.task ? `Task: ${this.task}` : '',
@@ -142,7 +147,7 @@ export class CallOrchestrator {
       'Respond naturally and conversationally — speak as you would in a real phone conversation.',
       '',
       'IMPORTANT RULES:',
-      '1. At the very beginning of the call, disclose that you are an AI assistant calling on behalf of the user.',
+      disclosureRule,
       '2. Be concise — phone conversations should be brief and natural.',
       '3. If the callee asks something you don\'t know, include [ASK_USER: your question here] in your response along with a hold message like "Let me check on that for you."',
       '4. If the callee provides information preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
@@ -300,7 +305,7 @@ export class CallOrchestrator {
             updateCallSession(this.callSessionId, { status: 'in_progress' });
             expirePendingQuestions(this.callSessionId);
           }
-        }, USER_CONSULTATION_TIMEOUT_MS);
+        }, getUserConsultationTimeoutMs());
         return;
       }
 
@@ -334,7 +339,8 @@ export class CallOrchestrator {
   }
 
   private startDurationTimer(): void {
-    const warningMs = MAX_CALL_DURATION_MS - 2 * 60 * 1000; // 2 minutes before max
+    const maxDurationMs = getMaxCallDurationMs();
+    const warningMs = maxDurationMs - 2 * 60 * 1000; // 2 minutes before max
 
     this.durationWarningTimer = setTimeout(() => {
       log.info({ callSessionId: this.callSessionId }, 'Call duration warning');
@@ -356,7 +362,7 @@ export class CallOrchestrator {
         updateCallSession(this.callSessionId, { status: 'completed', endedAt: Date.now() });
         recordCallEvent(this.callSessionId, 'call_ended', { reason: 'max_duration' });
       }, 3000);
-    }, MAX_CALL_DURATION_MS);
+    }, maxDurationMs);
   }
 
   private resetSilenceTimer(): void {

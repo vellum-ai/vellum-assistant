@@ -3,6 +3,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { startCall } from '../../calls/call-domain.js';
+import { getConfig } from '../../config/loader.js';
 
 const definition: ToolDefinition = {
   name: 'call_start',
@@ -39,6 +40,10 @@ class CallStartTool implements Tool {
   }
 
   async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    if (!getConfig().calls.enabled) {
+      return { content: 'Error: Calls feature is disabled via configuration. Set calls.enabled to true to use this feature.', isError: true };
+    }
+
     const result = await startCall({
       phoneNumber: input.phone_number as string,
       task: input.task as string,
