@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { afterAll, describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -49,6 +49,10 @@ import { _setBackend } from '../security/secure-keys.js';
 import { loadConfig, invalidateConfigCache } from '../config/loader.js';
 import { AssistantConfigSchema } from '../config/schema.js';
 import { DEFAULT_CONFIG } from '../config/defaults.js';
+
+afterAll(() => {
+  mock.restore();
+});
 
 // ---------------------------------------------------------------------------
 // Helpers

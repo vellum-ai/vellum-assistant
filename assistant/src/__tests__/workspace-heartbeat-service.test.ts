@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, afterAll } from 'bun:test';
 import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -11,6 +11,7 @@ import {
   HeartbeatService,
   _resetHeartbeatState,
 } from '../workspace/heartbeat-service.js';
+import { _resetEnrichmentService, getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
 import type { CommitMessageProvider, CommitContext, CommitMessageResult } from '../workspace/commit-message-provider.js';
 
 describe('HeartbeatService', () => {
@@ -31,10 +32,18 @@ describe('HeartbeatService', () => {
     services.set(testDir, service);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Shut down any in-flight enrichment work before removing the test directory
+    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    _resetEnrichmentService();
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });
     }
+  });
+
+  afterAll(async () => {
+    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    _resetEnrichmentService();
   });
 
   describe('heartbeat check with age threshold', () => {

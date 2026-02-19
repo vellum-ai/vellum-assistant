@@ -1,10 +1,11 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, afterAll } from 'bun:test';
 import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { commitTurnChanges } from '../workspace/turn-commit.js';
 import { WorkspaceGitService, _resetGitServiceRegistry } from '../workspace/git-service.js';
+import { _resetEnrichmentService, getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
 import type { CommitMessageProvider, CommitContext, CommitMessageResult } from '../workspace/commit-message-provider.js';
 
 describe('commitTurnChanges', () => {
@@ -16,10 +17,18 @@ describe('commitTurnChanges', () => {
     _resetGitServiceRegistry();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Shut down any in-flight enrichment work before removing the test directory
+    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    _resetEnrichmentService();
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });
     }
+  });
+
+  afterAll(async () => {
+    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    _resetEnrichmentService();
   });
 
   test('turn with file edits creates a commit', async () => {
