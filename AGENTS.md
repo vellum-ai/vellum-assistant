@@ -101,6 +101,8 @@ Do not add new tool registrations using the `class ____Tool implements Tool {` p
 
 Prefer skills in `assistant/skills/vellum-skills/` that teach the model how to use CLI tools directly.
 
+Keep the system prompt as minimal as possible. Avoid adding instructions about how to use tools; only document what tools exist when they are basic, primitive, and universally useful. Prefer CLI programs that the assistant can progressively learn to use via `--help`.
+
 ## Migration Guidance
 
 When touching existing tool-based flows, migrate behavior toward skill-driven CLI usage instead of adding new registered tools.
