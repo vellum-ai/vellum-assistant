@@ -127,6 +127,40 @@ struct IdentityPanel: View {
             }
 
             idRow(label: "Origin system", value: metadata?.originSystem ?? "local")
+
+            if let home = identity.home {
+                homeRow(home: home)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func homeRow(home: AssistantHome) -> some View {
+        HStack(alignment: .top) {
+            Text("Home")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .frame(width: 100, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text(home.displayLabel)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+
+                ForEach(Array(home.displayDetails.enumerated()), id: \.offset) { _, detail in
+                    HStack(spacing: VSpacing.xs) {
+                        Text(detail.label + ":")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        Text(detail.value)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.textSecondary)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+
+            Spacer()
         }
     }
 
