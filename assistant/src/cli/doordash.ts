@@ -276,14 +276,18 @@ export function registerDoordashCommand(program: Command): void {
         };
 
         await new Promise<void>((resolve) => {
+          let poll: ReturnType<typeof setInterval> | undefined;
+
           // Timeout
           const timer = setTimeout(() => {
+            if (poll) clearInterval(poll);
             process.stderr.write(`\nTimeout reached (${duration}s).\n`);
             resolve();
           }, duration * 1000);
 
           // Ctrl+C
           process.on('SIGINT', () => {
+            if (poll) clearInterval(poll);
             clearTimeout(timer);
             resolve();
           });
@@ -291,7 +295,7 @@ export function registerDoordashCommand(program: Command): void {
           // --stop-on: poll entries for the target operation
           if (opts.stopOn) {
             const target = opts.stopOn;
-            const poll = setInterval(() => {
+            poll = setInterval(() => {
               const entries = recorder.getEntries();
               const found = entries.some(e => {
                 if (!e.request.postData) return false;
@@ -756,10 +760,43 @@ async function startLearnSession(durationSeconds: number): Promise<LearnResult> 
     }, (durationSeconds + 30) * 1000);
     timeoutHandle.unref();
 
+    let authenticated = !sessionToken; // If no token needed, consider already authenticated
+
+    const sendStartCommand = () => {
+      socket.write(
+        serialize({
+          type: 'ride_shotgun_start',
+          durationSeconds,
+          intervalSeconds: 5,
+          mode: 'learn',
+          targetDomain: 'doordash.com',
+        } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
+      );
+    };
+
     socket.on('data', (chunk) => {
       const messages = parser.feed(chunk.toString('utf-8'));
       for (const msg of messages) {
         const m = msg as unknown as Record<string, unknown>;
+
+        // Handle auth handshake
+        if (!authenticated && m.type === 'auth_result') {
+          if ((m as { success: boolean }).success) {
+            authenticated = true;
+            sendStartCommand();
+          } else {
+            clearTimeout(timeoutHandle);
+            socket.destroy();
+            reject(new Error('Daemon authentication failed'));
+          }
+          continue;
+        }
+
+        // Skip duplicate auth_result after already authenticated
+        if (m.type === 'auth_result') {
+          continue;
+        }
+
         if (m.type === 'ride_shotgun_result') {
           clearTimeout(timeoutHandle);
           socket.destroy();
@@ -772,26 +809,18 @@ async function startLearnSession(durationSeconds: number): Promise<LearnResult> 
     });
 
     socket.on('connect', () => {
-      // Authenticate if needed
       if (sessionToken) {
+        // Send auth and wait for auth_result before sending the command
         socket.write(
           serialize({
             type: 'auth',
             token: sessionToken,
           } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
         );
+      } else {
+        // No auth needed, send command immediately
+        sendStartCommand();
       }
-
-      // Send ride_shotgun_start in learn mode
-      socket.write(
-        serialize({
-          type: 'ride_shotgun_start',
-          durationSeconds,
-          intervalSeconds: 5,
-          mode: 'learn',
-          targetDomain: 'doordash.com',
-        } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
-      );
     });
   });
 }
