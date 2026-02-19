@@ -1424,13 +1424,14 @@ export class Session {
         this.turnCount++;
         const config = getConfig();
         const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
-        const commitPromise = commitTurnChanges(this.workingDir, this.conversationId, this.turnCount);
-        let timedOut = false;
-        await Promise.race([
-          commitPromise,
-          new Promise<void>((resolve) => setTimeout(() => { timedOut = true; resolve(); }, maxWait)),
-        ]);
-        if (timedOut) {
+        const deadlineMs = Date.now() + maxWait;
+        const commitPromise = commitTurnChanges(
+          this.workingDir, this.conversationId, this.turnCount,
+          undefined, // use default commit message provider
+          deadlineMs,
+        );
+        const outcome = await raceWithTimeout(commitPromise, maxWait);
+        if (outcome === 'timed_out') {
           rlog.warn(
             { turnNumber: this.turnCount, maxWaitMs: maxWait, conversationId: this.conversationId },
             'Turn-boundary commit timed out — continuing without waiting (commit still runs in background)',
@@ -1661,4 +1662,29 @@ function fileBlockToStub(block: Extract<ContentBlock, { type: 'file' }>): Extrac
 function isToolResultOnlyMessage(message: Message): boolean {
   return message.content.length > 0
     && message.content.every((block) => block.type === 'tool_result');
+}
+
+/**
+ * Race a promise against a timeout. Returns 'completed' if the promise
+ * resolves/rejects within the budget, or 'timed_out' if the timeout fires
+ * first. The timer is always cleared in `finally` to prevent handle leaks.
+ */
+async function raceWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<'completed' | 'timed_out'> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      promise.then(() => 'completed' as const),
+      new Promise<'timed_out'>((resolve) => {
+        timer = setTimeout(() => resolve('timed_out'), timeoutMs);
+      }),
+    ]);
+    return result;
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
 }
