@@ -37,7 +37,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
         // Poll until session_create appears in sentMessages (message-driven wait)
         let expectation = XCTestExpectation(description: "session_create sent")
+        var cancelled = false
         func poll() {
+            guard !cancelled else { return }
             let found = mockClient.sentMessages.contains { $0 is SessionCreateMessage }
             if found {
                 expectation.fulfill()
@@ -47,6 +49,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         }
         poll()
         wait(for: [expectation], timeout: 2.0)
+        cancelled = true
 
         let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
         XCTAssertEqual(sessionCreates.count, 1, "Should send exactly one session_create")
@@ -64,10 +67,18 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         vm.createSessionIfNeeded(threadType: "private")
 
         let expectation = XCTestExpectation(description: "session_create sent")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            expectation.fulfill()
+        var cancelled = false
+        func poll() {
+            guard !cancelled else { return }
+            if !mockClient.sentMessages.isEmpty {
+                expectation.fulfill()
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
+            }
         }
-        wait(for: [expectation], timeout: 1.0)
+        poll()
+        wait(for: [expectation], timeout: 2.0)
+        cancelled = true
 
         let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
         XCTAssertEqual(sessionCreates.first?.threadType, "private")
@@ -80,10 +91,18 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         vm.createSessionIfNeeded()
 
         let expectation = XCTestExpectation(description: "session_create sent")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            expectation.fulfill()
+        var cancelled = false
+        func poll() {
+            guard !cancelled else { return }
+            if !mockClient.sentMessages.isEmpty {
+                expectation.fulfill()
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
+            }
         }
-        wait(for: [expectation], timeout: 1.0)
+        poll()
+        wait(for: [expectation], timeout: 2.0)
+        cancelled = true
 
         // Extract the correlation ID from the sent message
         let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
@@ -103,10 +122,18 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         vm.createSessionIfNeeded()
 
         let expectation = XCTestExpectation(description: "session_create sent")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            expectation.fulfill()
+        var cancelled = false
+        func poll() {
+            guard !cancelled else { return }
+            if !mockClient.sentMessages.isEmpty {
+                expectation.fulfill()
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
+            }
         }
-        wait(for: [expectation], timeout: 1.0)
+        poll()
+        wait(for: [expectation], timeout: 2.0)
+        cancelled = true
 
         // Send session_info with a different correlation ID
         let info = SessionInfoMessage(sessionId: "wrong-sess", title: "Wrong", correlationId: "wrong-correlation-id")
@@ -125,10 +152,18 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         vm.createSessionIfNeeded()
 
         let expectation = XCTestExpectation(description: "session_create sent")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            expectation.fulfill()
+        var cancelled = false
+        func poll() {
+            guard !cancelled else { return }
+            if !mockClient.sentMessages.isEmpty {
+                expectation.fulfill()
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
+            }
         }
-        wait(for: [expectation], timeout: 1.0)
+        poll()
+        wait(for: [expectation], timeout: 2.0)
+        cancelled = true
 
         let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
         let correlationId = sessionCreates.first?.correlationId
@@ -150,12 +185,20 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(vm.messages.count, 1)
         XCTAssertTrue(vm.isSending)
 
-        // Allow async Task to send session_create
+        // Poll until session_create appears in sentMessages (message-driven wait)
         let expectation = XCTestExpectation(description: "session_create sent")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            expectation.fulfill()
+        var cancelled = false
+        func poll() {
+            guard !cancelled else { return }
+            if !mockClient.sentMessages.isEmpty {
+                expectation.fulfill()
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { poll() }
+            }
         }
-        wait(for: [expectation], timeout: 1.0)
+        poll()
+        wait(for: [expectation], timeout: 2.0)
+        cancelled = true
 
         // Extract the correlation ID from the sent session_create message
         let sessionCreates = mockClient.sentMessages.compactMap { $0 as? SessionCreateMessage }
