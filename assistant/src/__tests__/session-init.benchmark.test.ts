@@ -218,6 +218,7 @@ const { initializeTools, getAllToolDefinitions, __resetRegistryForTesting } = aw
 );
 const { buildSystemPrompt } = await import('../config/system-prompt.js');
 const { Session } = await import('../daemon/session.js');
+const { projectSkillTools, resetSkillToolProjection } = await import('../daemon/session-skill-tools.js');
 import type { Provider } from '../providers/types.js';
 
 afterAll(() => {
@@ -312,9 +313,10 @@ describe('Session initialization benchmark', () => {
 });
 
 describe('End-to-end session creation benchmark', () => {
-  // Uses the real Session constructor + loadFromDb() path, which wires up
-  // the tool executor, event bus, agent loop, context window manager, and
-  // notifiers — exactly what the daemon does.
+  // Covers Session constructor + loadFromDb(): tool executor wiring,
+  // event bus, agent loop, context window manager, and notifiers.
+  // Does NOT cover provider/rate-limit setup or session map bookkeeping
+  // that getOrCreateSession handles before calling new Session().
 
   const mockProvider: Provider = {
     name: 'mock',
@@ -358,29 +360,38 @@ describe('End-to-end session creation benchmark', () => {
   });
 
   test('session creation with 3 preactivated skills completes under 300ms (median of 3)', async () => {
+    const realSkillIds = ['reminder', 'weather', 'contacts'];
+
     __resetRegistryForTesting();
     await initializeTools();
     const systemPrompt = buildSystemPrompt();
 
     // Warm-up run
+    const warmupTracking = new Map<string, string>();
     const warmup = new Session('bench-warmup-s', mockProvider, systemPrompt, 64000, noop, testDir);
-    warmup.preactivatedSkillIds = ['skill-a', 'skill-b', 'skill-c'];
+    warmup.preactivatedSkillIds = realSkillIds;
     await warmup.loadFromDb();
+    projectSkillTools([], { preactivatedSkillIds: realSkillIds, previouslyActiveSkillIds: warmupTracking });
+    resetSkillToolProjection(warmupTracking);
     warmup.dispose();
 
     const timings: number[] = [];
     for (let i = 0; i < 3; i++) {
       const id = `bench-with-skills-${i}`;
+      const tracking = new Map<string, string>();
       const start = performance.now();
       const session = new Session(id, mockProvider, systemPrompt, 64000, noop, testDir);
-      session.preactivatedSkillIds = ['skill-a', 'skill-b', 'skill-c'];
+      session.preactivatedSkillIds = realSkillIds;
       await session.loadFromDb();
+      // Exercise skill projection (happens per agent turn in production)
+      projectSkillTools([], { preactivatedSkillIds: realSkillIds, previouslyActiveSkillIds: tracking });
       timings.push(performance.now() - start);
 
       if (i === 0) {
         expect(session.conversationId).toBe(id);
         expect(session.getMessages()).toHaveLength(0);
       }
+      resetSkillToolProjection(tracking);
       session.dispose();
     }
 
