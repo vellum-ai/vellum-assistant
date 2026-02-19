@@ -10,9 +10,15 @@ import { retireInstance as retireGcpInstance } from "../lib/gcp";
 import { exec } from "../lib/step-runner";
 
 function resolveCloud(entry: AssistantEntry): string {
-  if (entry.cloud) return entry.cloud;
-  if (entry.project) return "gcp";
-  if (entry.sshUser) return "custom";
+  if (entry.cloud) {
+    return entry.cloud;
+  }
+  if (entry.project) {
+    return "gcp";
+  }
+  if (entry.sshUser) {
+    return "custom";
+  }
   return "local";
 }
 
