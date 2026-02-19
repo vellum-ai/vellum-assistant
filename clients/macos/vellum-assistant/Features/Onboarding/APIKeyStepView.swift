@@ -196,7 +196,7 @@ struct APIKeyStepView: View {
 
     private var primaryButton: some View {
         Button(action: { saveAndContinue() }) {
-            Text(userHostedEnabled ? "Continue" : "Save API key")
+            Text(userHostedEnabled && hostingMode != .local ? "Continue" : "Hatch!")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
