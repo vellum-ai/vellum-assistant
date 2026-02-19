@@ -507,6 +507,9 @@ public final class ChatViewModel: ObservableObject {
                     self?.messages[index].isStreaming = false
                 }
                 self?.currentAssistantMessageId = nil
+                // If a send-direct was pending when the stream dropped,
+                // dispatch it now so the message isn't silently lost.
+                self?.dispatchPendingSendDirect()
             }
         }
     }

@@ -458,6 +458,7 @@ extension ChatViewModel {
                 pendingQueuedCount = 0
                 pendingMessageIds = []
                 requestIdToMessageId = [:]
+                pendingLocalDeletions.removeAll()
                 for i in messages.indices {
                     if case .queued = messages[i].status, messages[i].role == .user {
                         messages[i].status = .sent
