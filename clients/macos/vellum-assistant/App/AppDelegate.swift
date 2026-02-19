@@ -182,6 +182,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupDaemonClient()
         setupMenuBar()
+        setupFileMenu()
         setupViewMenu()
         setupHotKey()
         setupEscapeMonitor()
@@ -283,9 +284,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             if let mainMenu = NSApp.mainMenu {
-                if let viewIndex = mainMenu.indexOfItem(withTitle: "View") as Int?,
-                   viewIndex >= 0 {
-                    mainMenu.removeItem(at: viewIndex)
+                for title in ["File", "View"] {
+                    let idx = mainMenu.indexOfItem(withTitle: title)
+                    if idx >= 0 { mainMenu.removeItem(at: idx) }
                 }
             }
 
@@ -350,9 +351,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             if let mainMenu = NSApp.mainMenu {
-                if let viewIndex = mainMenu.indexOfItem(withTitle: "View") as Int?,
-                   viewIndex >= 0 {
-                    mainMenu.removeItem(at: viewIndex)
+                for title in ["File", "View"] {
+                    let idx = mainMenu.indexOfItem(withTitle: title)
+                    if idx >= 0 { mainMenu.removeItem(at: idx) }
                 }
             }
 
