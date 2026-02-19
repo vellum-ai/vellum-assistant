@@ -21,6 +21,22 @@ const log = getLogger('ride-shotgun-handler');
 /** Active network recorders keyed by watchId. */
 const activeRecorders = new Map<string, NetworkRecorder>();
 
+/** Return domain-specific URL patterns that indicate a successful login. */
+function getLoginSignals(targetDomain?: string): string[] {
+  if (targetDomain === 'x.com' || targetDomain === 'twitter.com') {
+    return [
+      '/i/api/graphql/',       // any authenticated GraphQL call
+      '/1.1/account/settings', // legacy API session check
+    ];
+  }
+  // DoorDash and general fallback
+  return [
+    '/graphql/postLoginQuery',
+    '/graphql/homePageFacetFeed',
+    '/graphql/getConsumerOrdersWithDetails',
+  ];
+}
+
 /**
  * Complete a session — finalize recording (if learn mode), generate summary, fire notifier.
  * Shared by both the duration timeout and the early-stop handler.
@@ -106,11 +122,7 @@ export async function handleRideShotgunStart(
         }
         try {
           const recorder = new NetworkRecorder(targetDomain);
-          recorder.loginSignals = [
-            '/graphql/postLoginQuery',
-            '/graphql/homePageFacetFeed',
-            '/graphql/getConsumerOrdersWithDetails',
-          ];
+          recorder.loginSignals = getLoginSignals(targetDomain);
           await recorder.startDirect();
           // If session completed while we were connecting, stop immediately to avoid leak
           if (session.status !== 'active') {
