@@ -2,7 +2,7 @@ You are running a single iteration of a cronjob that runs periodically for task 
 
 <instructions>
 
-Look at every item in .private/UNREVIEWED_PRS.md. Each line is a PR URL like `https://github.com/vellum-ai/vellum-assistant/pull/123`.
+Look at every item in .private/UNREVIEWED_PRS.md. Each line is a PR URL like `https://github.com/<owner>/<repo>/pull/123`.
 
 Check each PR to see if **both** chatgpt-codex-connector and devin-ai-integration have reviewed it and whether they have feedback.
 

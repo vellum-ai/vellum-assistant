@@ -1,0 +1,278 @@
+import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const testDir = mkdtempSync(join(tmpdir(), 'followup-tools-test-'));
+
+mock.module('../util/platform.js', () => ({
+  getDataDir: () => testDir,
+  isMacOS: () => process.platform === 'darwin',
+  isLinux: () => process.platform === 'linux',
+  isWindows: () => process.platform === 'win32',
+  getSocketPath: () => join(testDir, 'test.sock'),
+  getPidPath: () => join(testDir, 'test.pid'),
+  getDbPath: () => join(testDir, 'test.db'),
+  getLogPath: () => join(testDir, 'test.log'),
+  ensureDataDir: () => {},
+  migrateToDataLayout: () => {},
+  migrateToWorkspaceLayout: () => {},
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => new Proxy({} as Record<string, unknown>, {
+    get: () => () => {},
+  }),
+}));
+
+mock.module('../config/loader.js', () => ({
+  getConfig: () => ({ memory: {} }),
+}));
+
+import type { Database } from 'bun:sqlite';
+import { initializeDb, getDb } from '../memory/db.js';
+import type { ToolContext } from '../tools/types.js';
+import { followupCreateTool } from '../tools/followups/followup_create.js';
+import { followupListTool } from '../tools/followups/followup_list.js';
+import { followupResolveTool } from '../tools/followups/followup_resolve.js';
+
+initializeDb();
+
+afterAll(() => {
+  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+});
+
+function getRawDb(): Database {
+  return (getDb() as unknown as { $client: Database }).$client;
+}
+
+const ctx: ToolContext = {
+  workingDir: '/tmp',
+  sessionId: 'test-session',
+  conversationId: 'test-conversation',
+};
+
+function clearFollowups(): void {
+  getRawDb().run('DELETE FROM followups');
+}
+
+function extractFollowupId(content: string): string {
+  const match = content.match(/Follow-up (\S+)/);
+  expect(match).not.toBeNull();
+  return match![1];
+}
+
+// ── followup_create ─────────────────────────────────────────────────
+
+describe('followup_create tool', () => {
+  beforeEach(clearFollowups);
+
+  test('creates a follow-up with required fields', async () => {
+    const result = await followupCreateTool.execute({
+      channel: 'email',
+      thread_id: 'thread-123',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Created follow-up');
+    expect(result.content).toContain('email');
+    expect(result.content).toContain('thread-123');
+    expect(result.content).toContain('Status: pending');
+  });
+
+  test('creates a follow-up with expected response deadline', async () => {
+    const result = await followupCreateTool.execute({
+      channel: 'slack',
+      thread_id: 'slack-thread-1',
+      expected_response_hours: 24,
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Expected response by');
+  });
+
+  test('creates a follow-up with reminder cron ID', async () => {
+    const result = await followupCreateTool.execute({
+      channel: 'email',
+      thread_id: 'thread-456',
+      reminder_cron_id: 'cron-abc',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Reminder cron: cron-abc');
+  });
+
+  test('rejects missing channel', async () => {
+    const result = await followupCreateTool.execute({
+      thread_id: 'thread-123',
+    }, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('channel is required');
+  });
+
+  test('rejects empty channel', async () => {
+    const result = await followupCreateTool.execute({
+      channel: '   ',
+      thread_id: 'thread-123',
+    }, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('channel is required');
+  });
+
+  test('rejects missing thread_id', async () => {
+    const result = await followupCreateTool.execute({
+      channel: 'email',
+    }, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('thread_id is required');
+  });
+
+  test('rejects non-positive expected_response_hours', async () => {
+    const result = await followupCreateTool.execute({
+      channel: 'email',
+      thread_id: 'thread-123',
+      expected_response_hours: -1,
+    }, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('expected_response_hours must be a positive number');
+  });
+
+  test('rejects nonexistent contact_id', async () => {
+    const result = await followupCreateTool.execute({
+      channel: 'email',
+      thread_id: 'thread-123',
+      contact_id: 'nonexistent-contact',
+    }, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Contact "nonexistent-contact" not found');
+  });
+});
+
+// ── followup_list ───────────────────────────────────────────────────
+
+describe('followup_list tool', () => {
+  beforeEach(clearFollowups);
+
+  test('returns empty message when no follow-ups exist', async () => {
+    const result = await followupListTool.execute({}, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('No follow-ups found');
+  });
+
+  test('lists all follow-ups', async () => {
+    await followupCreateTool.execute({ channel: 'email', thread_id: 'thread-1' }, ctx);
+    await followupCreateTool.execute({ channel: 'slack', thread_id: 'thread-2' }, ctx);
+
+    const result = await followupListTool.execute({}, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Found 2 follow-up(s)');
+    expect(result.content).toContain('email');
+    expect(result.content).toContain('slack');
+  });
+
+  test('filters by status', async () => {
+    await followupCreateTool.execute({ channel: 'email', thread_id: 'thread-1' }, ctx);
+
+    const result = await followupListTool.execute({ status: 'pending' }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Found 1 follow-up(s)');
+  });
+
+  test('filters by channel', async () => {
+    await followupCreateTool.execute({ channel: 'email', thread_id: 'thread-1' }, ctx);
+    await followupCreateTool.execute({ channel: 'slack', thread_id: 'thread-2' }, ctx);
+
+    const result = await followupListTool.execute({ channel: 'email' }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('email');
+    expect(result.content).not.toContain('**slack**');
+  });
+
+  test('returns error for invalid status', async () => {
+    const result = await followupListTool.execute({ status: 'invalid' }, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid status');
+  });
+});
+
+// ── followup_resolve ────────────────────────────────────────────────
+
+describe('followup_resolve tool', () => {
+  beforeEach(clearFollowups);
+
+  test('resolves a follow-up by ID', async () => {
+    const createResult = await followupCreateTool.execute({
+      channel: 'email',
+      thread_id: 'thread-1',
+    }, ctx);
+    const id = extractFollowupId(createResult.content);
+
+    const result = await followupResolveTool.execute({ id }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Resolved follow-up');
+    expect(result.content).toContain('Status: resolved');
+  });
+
+  test('resolves by channel and thread_id', async () => {
+    await followupCreateTool.execute({
+      channel: 'email',
+      thread_id: 'thread-1',
+    }, ctx);
+
+    const result = await followupResolveTool.execute({
+      channel: 'email',
+      thread_id: 'thread-1',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Resolved 1 follow-up(s)');
+  });
+
+  test('resolves multiple follow-ups by thread', async () => {
+    await followupCreateTool.execute({ channel: 'email', thread_id: 'shared-thread' }, ctx);
+    await followupCreateTool.execute({ channel: 'email', thread_id: 'shared-thread' }, ctx);
+
+    const result = await followupResolveTool.execute({
+      channel: 'email',
+      thread_id: 'shared-thread',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Resolved 2 follow-up(s)');
+  });
+
+  test('returns no-match message for nonexistent thread', async () => {
+    const result = await followupResolveTool.execute({
+      channel: 'email',
+      thread_id: 'nonexistent',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('No pending follow-up found');
+  });
+
+  test('returns error when resolving nonexistent ID', async () => {
+    const result = await followupResolveTool.execute({ id: 'bad-id' }, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('not found');
+  });
+
+  test('rejects when neither id nor channel+thread_id provided', async () => {
+    const result = await followupResolveTool.execute({}, ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Either id or both channel and thread_id are required');
+  });
+});

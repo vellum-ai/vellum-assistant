@@ -60,6 +60,10 @@ fi
 PR_NUMBERS=("$@")
 NOW=$(date -u +%s)
 
+# Derive org/repo from git remote (e.g. "vellum-ai/vellum-assistant")
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_SLUG=$(git -C "$REPO_ROOT" remote get-url origin | sed -E 's#.+github\.com[:/]##; s/\.git$//')
+
 TMPDIR_WORK=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_WORK"' EXIT
 
@@ -73,11 +77,11 @@ check_pr() {
   gh pr view "$pr_number" --json comments,reviews,createdAt > "$pr_dir/pr.json" &
   local pid1=$!
 
-  gh api "repos/vellum-ai/vellum-assistant/issues/$pr_number/reactions" \
+  gh api "repos/$REPO_SLUG/issues/$pr_number/reactions" \
     --jq '[.[] | {user: .user.login, content: .content}]' > "$pr_dir/reactions.json" &
   local pid2=$!
 
-  gh api "repos/vellum-ai/vellum-assistant/pulls/$pr_number/comments" \
+  gh api "repos/$REPO_SLUG/pulls/$pr_number/comments" \
     --jq '[.[] | {user: .user.login, body: .body, path: .path, line: .line}]' > "$pr_dir/inline.json" &
   local pid3=$!
 

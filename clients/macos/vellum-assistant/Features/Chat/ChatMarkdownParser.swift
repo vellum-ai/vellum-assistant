@@ -1,0 +1,311 @@
+import SwiftUI
+import VellumAssistantShared
+
+// MARK: - Markdown Table Support
+
+/// A segment of message content — either plain text or a parsed table.
+struct ListItem {
+    let indent: Int
+    let ordered: Bool
+    let number: Int      // meaningful only when ordered == true
+    let text: String
+}
+
+enum MarkdownSegment {
+    case text(String)
+    case table(headers: [String], rows: [[String]])
+    case image(alt: String, url: String)
+    case heading(level: Int, text: String)
+    case codeBlock(language: String?, code: String)
+    case horizontalRule
+    case list(items: [ListItem])
+}
+
+/// Returns true if `line` is a markdown heading (1-6 `#` chars followed by a space).
+func isHeadingLine(_ line: String) -> (level: Int, text: String)? {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    let hashes = trimmed.prefix(while: { $0 == "#" })
+    let level = hashes.count
+    guard level >= 1, level <= 6 else { return nil }
+    let rest = trimmed.dropFirst(level)
+    guard rest.first == " " else { return nil }
+    return (level, String(rest.dropFirst()).trimmingCharacters(in: .whitespaces))
+}
+
+/// Returns true if `line` is a horizontal rule (`---`, `***`, or `___` with 3+ chars).
+func isHorizontalRule(_ line: String) -> Bool {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    let stripped = trimmed.filter { !$0.isWhitespace }
+    guard stripped.count >= 3 else { return false }
+    guard let ch = stripped.first, (ch == "-" || ch == "*" || ch == "_") else { return false }
+    return stripped.allSatisfy { $0 == ch }
+}
+
+/// Returns a `ListItem` if the line looks like a list entry, otherwise nil.
+func parseListLine(_ line: String) -> ListItem? {
+    // Measure indent (count leading spaces, tabs count as 4)
+    var indent = 0
+    for ch in line {
+        if ch == " " { indent += 1 }
+        else if ch == "\t" { indent += 4 }
+        else { break }
+    }
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+    // Unordered: `- `, `* `, `+ `
+    if (trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ")) {
+        return ListItem(indent: indent, ordered: false, number: 0, text: String(trimmed.dropFirst(2)))
+    }
+    // Ordered: `1. `, `2. `, etc.
+    let digits = trimmed.prefix(while: { $0.isNumber })
+    if !digits.isEmpty {
+        let rest = trimmed.dropFirst(digits.count)
+        if rest.hasPrefix(". ") {
+            return ListItem(indent: indent, ordered: true, number: Int(digits) ?? 1,
+                            text: String(rest.dropFirst(2)))
+        }
+    }
+    return nil
+}
+
+/// Parses message text into segments, extracting markdown tables, code blocks, headings, lists, and rules.
+func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
+    let lines = text.components(separatedBy: .newlines)
+    var segments: [MarkdownSegment] = []
+    var currentText: [String] = []
+    var i = 0
+    var fenceDelimiter: (character: Character, length: Int)? = nil
+    var codeBlockLanguage: String? = nil
+    var codeBlockLines: [String] = []
+
+    func flushText() {
+        let pending = currentText.joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !pending.isEmpty {
+            segments.append(.text(pending))
+        }
+        currentText = []
+    }
+
+    while i < lines.count {
+        let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+
+        // --- Inside a fenced code block ---
+        if let fence = fenceDelimiter {
+            let closeCount = trimmed.prefix(while: { $0 == fence.character }).count
+            if closeCount >= fence.length && trimmed.drop(while: { $0 == fence.character }).allSatisfy(\.isWhitespace) {
+                // Closing fence — emit code block
+                fenceDelimiter = nil
+                segments.append(.codeBlock(language: codeBlockLanguage, code: codeBlockLines.joined(separator: "\n")))
+                codeBlockLines = []
+                codeBlockLanguage = nil
+            } else {
+                codeBlockLines.append(lines[i])
+            }
+            i += 1
+            continue
+        }
+
+        // --- Opening a new fence ---
+        if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+            flushText()
+            let fenceChar = trimmed.first!
+            let fenceLen = trimmed.prefix(while: { $0 == fenceChar }).count
+            fenceDelimiter = (fenceChar, fenceLen)
+            let lang = trimmed.dropFirst(fenceLen).trimmingCharacters(in: .whitespaces)
+            codeBlockLanguage = lang.isEmpty ? nil : lang
+            i += 1
+            continue
+        }
+
+        // --- Table detection ---
+        if i + 2 < lines.count,
+           isTableRow(lines[i]),
+           isTableSeparator(lines[i + 1]),
+           isTableRow(lines[i + 2]) {
+            flushText()
+            let headers = parseTableCells(lines[i])
+            i += 2  // skip separator
+            var rows: [[String]] = []
+            while i < lines.count, isTableRow(lines[i]) {
+                let cells = parseTableCells(lines[i])
+                let padded = Array(cells.prefix(headers.count))
+                    + Array(repeating: "", count: max(0, headers.count - cells.count))
+                rows.append(padded)
+                i += 1
+            }
+            segments.append(.table(headers: headers, rows: rows))
+            continue
+        }
+
+        // --- Heading detection ---
+        if let heading = isHeadingLine(lines[i]) {
+            flushText()
+            segments.append(.heading(level: heading.level, text: heading.text))
+            i += 1
+            continue
+        }
+
+        // --- Horizontal rule detection ---
+        if isHorizontalRule(trimmed) {
+            flushText()
+            segments.append(.horizontalRule)
+            i += 1
+            continue
+        }
+
+        // --- List detection (consecutive list lines) ---
+        if parseListLine(lines[i]) != nil {
+            flushText()
+            var items: [ListItem] = []
+            while i < lines.count, let item = parseListLine(lines[i]) {
+                items.append(item)
+                i += 1
+            }
+            segments.append(.list(items: items))
+            continue
+        }
+
+        // --- Plain text ---
+        currentText.append(lines[i])
+        i += 1
+    }
+
+    // If a fence was never closed, emit as a code block (e.g. during streaming)
+    if fenceDelimiter != nil {
+        segments.append(.codeBlock(language: codeBlockLanguage, code: codeBlockLines.joined(separator: "\n")))
+    }
+
+    flushText()
+
+    // Post-process .text segments to extract inline images.
+    return segments.flatMap { segment -> [MarkdownSegment] in
+        if case .text(let content) = segment {
+            return extractImageSegments(from: content)
+        }
+        return [segment]
+    }
+}
+
+/// Splits text around `![alt](url)` matches, returning mixed `.text` / `.image` segments.
+func extractImageSegments(from text: String) -> [MarkdownSegment] {
+    let pattern = #"!\[([^\]]*)\]\(([^)]+)\)"#
+    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        return [.text(text)]
+    }
+
+    let nsText = text as NSString
+    let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+
+    if matches.isEmpty { return [.text(text)] }
+
+    var segments: [MarkdownSegment] = []
+    var lastEnd = 0
+
+    for match in matches {
+        // Text before the image
+        if match.range.location > lastEnd {
+            let before = nsText.substring(with: NSRange(location: lastEnd, length: match.range.location - lastEnd))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !before.isEmpty {
+                segments.append(.text(before))
+            }
+        }
+
+        let alt = nsText.substring(with: match.range(at: 1))
+        let url = nsText.substring(with: match.range(at: 2))
+        segments.append(.image(alt: alt, url: url))
+
+        lastEnd = match.range.location + match.range.length
+    }
+
+    // Text after the last image
+    if lastEnd < nsText.length {
+        let after = nsText.substring(from: lastEnd)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !after.isEmpty {
+            segments.append(.text(after))
+        }
+    }
+
+    return segments
+}
+
+func isTableRow(_ line: String) -> Bool {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    return trimmed.hasPrefix("|") && trimmed.hasSuffix("|")
+        && trimmed.filter({ $0 == "|" }).count >= 2
+}
+
+func isTableSeparator(_ line: String) -> Bool {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    guard trimmed.hasPrefix("|") && trimmed.hasSuffix("|") else { return false }
+    let inner = trimmed.dropFirst().dropLast()
+    // Each cell should be dashes (with optional colons for alignment)
+    return inner.split(separator: "|").allSatisfy { cell in
+        let c = cell.trimmingCharacters(in: .whitespaces)
+        return !c.isEmpty && c.allSatisfy({ $0 == "-" || $0 == ":" })
+    }
+}
+
+func parseTableCells(_ line: String) -> [String] {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    let inner = String(trimmed.dropFirst().dropLast())  // strip outer pipes
+    return inner.components(separatedBy: "|")
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+}
+
+/// Renders a parsed markdown table.
+struct MarkdownTableView: View {
+    let headers: [String]
+    let rows: [[String]]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header row
+            HStack(spacing: 0) {
+                ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
+                    Text(header)
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                }
+            }
+            .background(VColor.backgroundSubtle)
+
+            Divider().background(VColor.surfaceBorder)
+
+            // Data rows
+            ForEach(Array(rows.enumerated()), id: \.offset) { rowIdx, row in
+                HStack(spacing: 0) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                        inlineMarkdownCell(cell)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xs)
+                    }
+                }
+                .background(rowIdx % 2 == 1 ? VColor.backgroundSubtle.opacity(0.5) : Color.clear)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .stroke(VColor.surfaceBorder, lineWidth: 0.5)
+        )
+        .frame(maxWidth: 520, alignment: .leading)
+    }
+
+    private func inlineMarkdownCell(_ text: String) -> some View {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        let attributed = (try? AttributedString(markdown: text, options: options))
+            ?? AttributedString(text)
+        return Text(attributed)
+            .font(VFont.caption)
+            .foregroundColor(VColor.textPrimary)
+    }
+}

@@ -26,10 +26,16 @@ function ensureTestDir(): void {
   }
 }
 
+function makeLoggerStub(): Record<string, unknown> {
+  const stub: Record<string, unknown> = {};
+  for (const m of ['info', 'warn', 'error', 'debug', 'trace', 'fatal', 'silent', 'child']) {
+    stub[m] = m === 'child' ? () => makeLoggerStub() : () => {};
+  }
+  return stub;
+}
+
 mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
-  }),
+  getLogger: () => makeLoggerStub(),
 }));
 
 mock.module('../util/platform.js', () => ({
@@ -49,10 +55,6 @@ import { _setBackend } from '../security/secure-keys.js';
 import { loadConfig, invalidateConfigCache } from '../config/loader.js';
 import { AssistantConfigSchema } from '../config/schema.js';
 import { DEFAULT_CONFIG } from '../config/defaults.js';
-
-afterAll(() => {
-  mock.restore();
-});
 
 // ---------------------------------------------------------------------------
 // Helpers

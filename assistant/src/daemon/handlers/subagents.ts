@@ -4,7 +4,7 @@
 
 import * as net from 'node:net';
 import type { SubagentAbortRequest, SubagentStatusRequest, SubagentMessageRequest } from '../ipc-protocol.js';
-import type { HandlerContext } from './shared.js';
+import type { HandlerContext, DispatchMap } from './shared.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import { log } from './shared.js';
 
@@ -120,3 +120,9 @@ export function handleSubagentMessage(
     });
   }
 }
+
+export const subagentHandlers: Partial<DispatchMap> = {
+  subagent_abort: handleSubagentAbort,
+  subagent_status: handleSubagentStatus,
+  subagent_message: handleSubagentMessage,
+};

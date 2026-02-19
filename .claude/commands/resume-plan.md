@@ -79,8 +79,7 @@ git fetch origin main
 #### 8b. Implement
 
 Read the next PR section from the plan. Implement all changes in the worktree.
-- Follow the project conventions.
-- Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
+- Follow the project conventions described in AGENTS.md.
 
 #### 8c. Validate
 
@@ -138,9 +137,6 @@ Then **stop**. Do NOT continue to the next PR.
 
 - **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
 - **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
-- **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
-- **Imports**: All imports use `.js` extensions (NodeNext module resolution).
-- **Project structure**: Bun + TypeScript project. Code is in `assistant/`.
 
 ## Important
 

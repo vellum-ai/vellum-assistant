@@ -23,6 +23,11 @@ const APPROVAL_REQUIRED_TOOLS = new Set([
 
 const VALID_PROFILES: readonly WorkerProfile[] = ['general', 'researcher', 'coder', 'reviewer'];
 
+// Maximum nesting depth for Claude Code subprocesses.
+// Depth 0 = top-level assistant, depth 1 = first subprocess, etc.
+const MAX_CLAUDE_CODE_DEPTH = 1;
+const DEPTH_ENV_VAR = 'VELLUM_CLAUDE_CODE_DEPTH';
+
 export const claudeCodeTool: Tool = {
   name: 'claude_code',
   description: 'Delegate a coding task to Claude Code, an AI-powered coding agent that can read, write, and edit files, run shell commands, and perform complex multi-step software engineering tasks autonomously.',
@@ -109,6 +114,9 @@ export const claudeCodeTool: Tool = {
 
     const { query } = sdkModule;
 
+    // Collect stderr output from the Claude Code subprocess for debugging
+    const stderrLines: string[] = [];
+
     log.info({ prompt: truncate(prompt, 100, ''), workingDir, model, resume: !!resumeSessionId }, 'Starting Claude Code session');
 
     // Build the canUseTool callback, enforcing profile-based restrictions
@@ -152,6 +160,26 @@ export const claudeCodeTool: Tool = {
       }
     };
 
+    // Enforce nesting depth limit to prevent infinite recursion.
+    const currentDepth = parseInt(process.env[DEPTH_ENV_VAR] ?? '0', 10);
+    if (currentDepth >= MAX_CLAUDE_CODE_DEPTH) {
+      log.warn({ currentDepth, max: MAX_CLAUDE_CODE_DEPTH }, 'Claude Code nesting depth exceeded');
+      return {
+        content: `Error: Claude Code nesting depth exceeded (depth ${currentDepth}, max ${MAX_CLAUDE_CODE_DEPTH}). Cannot spawn another Claude Code subprocess.`,
+        isError: true,
+      };
+    }
+
+    // Build a clean env for the subprocess. Strip the SDK's own nesting guard
+    // (CLAUDECODE) so it can launch, but set our depth counter to enforce our limit.
+    const subprocessEnv: Record<string, string | undefined> = {
+      ...process.env,
+      ANTHROPIC_API_KEY: apiKey,
+      [DEPTH_ENV_VAR]: String(currentDepth + 1),
+    };
+    delete subprocessEnv.CLAUDECODE;
+    delete subprocessEnv.CLAUDE_CODE_ENTRYPOINT;
+
     // Build query options
     const queryOptions: import('@anthropic-ai/claude-agent-sdk').Options = {
       cwd: workingDir,
@@ -159,12 +187,16 @@ export const claudeCodeTool: Tool = {
       canUseTool,
       permissionMode: 'default',
       allowedTools: [...AUTO_APPROVE_TOOLS],
-      env: {
-        ...process.env,
-        ANTHROPIC_API_KEY: apiKey,
-      },
+      env: subprocessEnv,
       maxTurns: 50,
       persistSession: true,
+      stderr: (data: string) => {
+        const trimmed = data.trimEnd();
+        if (trimmed) {
+          stderrLines.push(trimmed);
+          log.debug({ stderr: trimmed }, 'Claude Code subprocess stderr');
+        }
+      },
     };
 
     if (resumeSessionId) {
@@ -180,6 +212,12 @@ export const claudeCodeTool: Tool = {
       for await (const message of conversation) {
         switch (message.type) {
           case 'assistant': {
+            // Check for SDK-level errors on the assistant message
+            if (message.error) {
+              log.error({ error: message.error, sessionId: message.session_id }, 'Claude Code assistant message error');
+              hasError = true;
+              resultText += `\n\n[Claude Code error: ${message.error}]`;
+            }
             // Extract text from assistant messages
             if (message.message?.content) {
               for (const block of message.message.content) {
@@ -194,22 +232,43 @@ export const claudeCodeTool: Tool = {
           }
           case 'result': {
             sessionId = message.session_id;
+            const resultMeta = {
+              subtype: message.subtype,
+              numTurns: message.num_turns,
+              durationMs: message.duration_ms,
+              costUsd: message.total_cost_usd,
+              stopReason: message.stop_reason,
+            };
+
             if (message.subtype === 'success') {
+              log.info(resultMeta, 'Claude Code session completed successfully');
               if (message.result && !resultText) {
                 resultText = message.result;
               }
             } else {
-              // Error result
+              // Error result — surface the subtype and details
               hasError = true;
               const errors = message.errors ?? [];
+              const denials = message.permission_denials ?? [];
+
+              log.error({ ...resultMeta, errors, permissionDenials: denials.length }, 'Claude Code session failed');
+
+              const parts: string[] = [];
+              parts.push(`[${message.subtype}] (${message.num_turns} turns, ${(message.duration_ms / 1000).toFixed(1)}s)`);
               if (errors.length > 0) {
-                resultText += `\n\nErrors: ${errors.join(', ')}`;
+                parts.push(`Errors: ${errors.join('; ')}`);
               }
+              if (denials.length > 0) {
+                const denialSummary = denials.map(d => `${d.tool_name}`).join(', ');
+                parts.push(`Permission denied: ${denialSummary}`);
+              }
+              resultText += `\n\n${parts.join('\n')}`;
             }
             break;
           }
           default:
-            // Ignore other message types (system, stream_event, etc.)
+            // Log unhandled message types at debug level for diagnostics
+            log.debug({ messageType: message.type }, 'Claude Code unhandled message type');
             break;
         }
       }
@@ -222,10 +281,16 @@ export const claudeCodeTool: Tool = {
         isError: hasError,
       };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error({ err }, 'Claude Code execution failed');
+      const errMessage = err instanceof Error ? err.message : String(err);
+      const recentStderr = stderrLines.slice(-20);
+      log.error({ err, stderrTail: recentStderr }, 'Claude Code execution failed');
+
+      const parts = [`Claude Code error: ${errMessage}`];
+      if (recentStderr.length > 0) {
+        parts.push(`\nSubprocess stderr (last ${recentStderr.length} lines):\n${recentStderr.join('\n')}`);
+      }
       return {
-        content: `Claude Code error: ${message}`,
+        content: parts.join(''),
         isError: true,
       };
     }

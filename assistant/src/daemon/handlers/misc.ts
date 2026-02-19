@@ -18,7 +18,7 @@ import type {
   IpcBlobProbe,
   CuSessionCreate,
 } from '../ipc-protocol.js';
-import { log, wireEscalationHandler, renderHistoryContent, type HandlerContext } from './shared.js';
+import { log, wireEscalationHandler, renderHistoryContent, type HandlerContext, type DispatchMap } from './shared.js';
 import { handleCuSessionCreate } from './computer-use.js';
 
 // ─── Task submit handler ────────────────────────────────────────────────────
@@ -321,3 +321,11 @@ export function handleIpcBlobProbe(
     observedNonceSha256: observedHash,
   });
 }
+
+export const miscHandlers: Partial<DispatchMap> = {
+  task_submit: handleTaskSubmit,
+  suggestion_request: handleSuggestionRequest,
+  link_open_request: handleLinkOpenRequest,
+  ipc_blob_probe: handleIpcBlobProbe,
+  ping: (_msg, socket, ctx) => { ctx.send(socket, { type: 'pong' }); },
+};

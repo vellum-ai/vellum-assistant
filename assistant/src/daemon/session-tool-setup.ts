@@ -6,7 +6,7 @@
  * keeping the constructor body focused on wiring.
  */
 
-import type { ToolDefinition } from '../providers/types.js';
+import type { Message, ToolDefinition } from '../providers/types.js';
 import type { ToolExecutionResult, ToolLifecycleEventHandler } from '../tools/types.js';
 import type { ServerMessage, UiSurfaceShow } from './ipc-protocol.js';
 import type { ToolExecutor } from '../tools/executor.js';
@@ -26,6 +26,7 @@ import type { SurfaceSessionContext } from './session-surfaces.js';
 import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
 import { registerSessionSender } from '../tools/browser/browser-screencast.js';
 import type { ProxyApprovalCallback, ProxyApprovalRequest } from '../tools/network/script-proxy/index.js';
+import { projectSkillTools, type SkillProjectionCache } from './session-skill-tools.js';
 
 // ── Context Interface ────────────────────────────────────────────────
 
@@ -198,6 +199,47 @@ export function createToolExecutor(
       }
     }
 
+    // Auto-emit task_progress card on first DoorDash CLI command
+    if (name === 'bash' && !result.isError) {
+      const cmd = input.command as string | undefined;
+      if (cmd && /(?:^|[;&|]\s*)vellum doordash\b/.test(cmd) && !ctx.surfaceState.has('doordash-progress')) {
+        const surfaceId = 'doordash-progress';
+        const data = {
+          title: 'Ordering from DoorDash',
+          body: '',
+          template: 'task_progress' as const,
+          templateData: {
+            title: 'Ordering from DoorDash',
+            status: 'in_progress',
+            steps: [
+              { label: 'Check session', status: 'in_progress' },
+              { label: 'Search restaurants', status: 'pending' },
+              { label: 'Browse menu', status: 'pending' },
+              { label: 'Add to cart', status: 'pending' },
+              { label: 'Place order', status: 'pending' },
+            ],
+          },
+        } satisfies import('./ipc-contract.js').CardSurfaceData;
+        ctx.surfaceState.set(surfaceId, { surfaceType: 'card', data });
+        ctx.sendToClient({
+          type: 'ui_surface_show',
+          sessionId: ctx.conversationId,
+          surfaceId,
+          surfaceType: 'card',
+          title: 'Ordering from DoorDash',
+          data,
+          display: 'inline',
+        });
+        ctx.currentTurnSurfaces.push({
+          surfaceId,
+          surfaceType: 'card',
+          title: 'Ordering from DoorDash',
+          data,
+          display: 'inline',
+        });
+      }
+    }
+
     return result;
   };
 }
@@ -288,5 +330,46 @@ export function createProxyApprovalCallback(
     return response.decision === 'allow'
       || response.decision === 'always_allow'
       || response.decision === 'always_allow_high_risk';
+  };
+}
+
+// ── createResolveToolsCallback ───────────────────────────────────────
+
+/**
+ * Subset of Session state that the resolveTools callback reads at each
+ * agent turn. Properties are read lazily from this reference.
+ */
+export interface SkillProjectionContext {
+  preactivatedSkillIds?: string[];
+  readonly skillProjectionState: Map<string, string>;
+  readonly skillProjectionCache: SkillProjectionCache;
+  readonly coreToolNames: Set<string>;
+  allowedToolNames?: Set<string>;
+}
+
+/**
+ * Build a resolveTools callback that merges base tool definitions with
+ * dynamically projected skill tools on each agent turn. Also updates
+ * allowedToolNames so newly-activated skill tools aren't blocked by
+ * the executor's stale gate.
+ */
+export function createResolveToolsCallback(
+  toolDefs: ToolDefinition[],
+  ctx: SkillProjectionContext,
+): ((history: Message[]) => ToolDefinition[]) | undefined {
+  if (toolDefs.length === 0) return undefined;
+
+  return (history: Message[]) => {
+    const projection = projectSkillTools(history, {
+      preactivatedSkillIds: ctx.preactivatedSkillIds,
+      previouslyActiveSkillIds: ctx.skillProjectionState,
+      cache: ctx.skillProjectionCache,
+    });
+    const turnAllowed = new Set(ctx.coreToolNames);
+    for (const name of projection.allowedToolNames) {
+      turnAllowed.add(name);
+    }
+    ctx.allowedToolNames = turnAllowed;
+    return [...toolDefs, ...projection.toolDefinitions];
   };
 }

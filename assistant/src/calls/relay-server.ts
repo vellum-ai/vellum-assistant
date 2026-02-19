@@ -14,6 +14,11 @@ import {
   recordCallEvent,
 } from './call-store.js';
 import { CallOrchestrator } from './call-orchestrator.js';
+import {
+  extractPromptSpeakerMetadata,
+  SpeakerIdentityTracker,
+  type PromptSpeakerContext,
+} from './speaker-identification.js';
 
 const log = getLogger('relay-server');
 
@@ -33,6 +38,23 @@ export interface RelayPromptMessage {
   voicePrompt: string;
   lang: string;
   last: boolean;
+  speakerId?: string;
+  speakerLabel?: string;
+  speakerName?: string;
+  speakerConfidence?: number;
+  participantId?: string;
+  participant?: {
+    id?: string;
+    name?: string;
+  };
+  speaker?: {
+    id?: string;
+    label?: string;
+    name?: string;
+    confidence?: number;
+  };
+  metadata?: Record<string, unknown>;
+  providerMetadata?: Record<string, unknown>;
 }
 
 export interface RelayInterruptMessage {
@@ -88,15 +110,22 @@ export const activeRelayConnections = new Map<string, RelayConnection>();
 export class RelayConnection {
   private ws: ServerWebSocket<RelayWebSocketData>;
   private callSessionId: string;
-  private conversationHistory: Array<{ role: 'caller' | 'assistant'; text: string; timestamp: number }>;
+  private conversationHistory: Array<{
+    role: 'caller' | 'assistant';
+    text: string;
+    timestamp: number;
+    speaker?: PromptSpeakerContext;
+  }>;
   private abortController: AbortController;
   private orchestrator: CallOrchestrator | null = null;
+  private speakerIdentityTracker: SpeakerIdentityTracker;
 
   constructor(ws: ServerWebSocket<RelayWebSocketData>, callSessionId: string) {
     this.ws = ws;
     this.callSessionId = callSessionId;
     this.conversationHistory = [];
     this.abortController = new AbortController();
+    this.speakerIdentityTracker = new SpeakerIdentityTracker();
   }
 
   /**
@@ -162,8 +191,8 @@ export class RelayConnection {
   /**
    * Get the conversation history for context.
    */
-  getConversationHistory(): Array<{ role: string; text: string }> {
-    return this.conversationHistory.map(({ role, text }) => ({ role, text }));
+  getConversationHistory(): Array<{ role: string; text: string; speaker?: PromptSpeakerContext }> {
+    return this.conversationHistory.map(({ role, text, speaker }) => ({ role, text, speaker }));
   }
 
   /**
@@ -236,22 +265,30 @@ export class RelayConnection {
       'Caller transcript received (final)',
     );
 
+    const speakerMetadata = extractPromptSpeakerMetadata(msg as unknown as Record<string, unknown>);
+    const speaker = this.speakerIdentityTracker.identifySpeaker(speakerMetadata);
+
     // Record in conversation history
     this.conversationHistory.push({
       role: 'caller',
       text: msg.voicePrompt,
       timestamp: Date.now(),
+      speaker,
     });
 
     // Record event
     recordCallEvent(this.callSessionId, 'caller_spoke', {
       transcript: msg.voicePrompt,
       lang: msg.lang,
+      speakerId: speaker.speakerId,
+      speakerLabel: speaker.speakerLabel,
+      speakerConfidence: speaker.speakerConfidence,
+      speakerSource: speaker.source,
     });
 
     // Route to orchestrator for LLM-driven response
     if (this.orchestrator) {
-      await this.orchestrator.handleCallerUtterance(msg.voicePrompt);
+      await this.orchestrator.handleCallerUtterance(msg.voicePrompt, speaker);
     } else {
       // Fallback if orchestrator not yet initialized
       this.sendTextToken('I\'m still setting up. Please hold.', true);

@@ -7,6 +7,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG_FILE="$REPO_ROOT/.private/project-config.env"
 
+# Derive org/repo from git remote
+REPO_SLUG=$(git -C "$REPO_ROOT" remote get-url origin | sed -E 's#.+github\.com[:/]##; s/\.git$//')
+REPO_OWNER="${REPO_SLUG%%/*}"
+REPO_NAME="${REPO_SLUG##*/}"
+
 usage() {
   cat <<'EOF'
 Usage: .claude/gh-project <command> [args]
@@ -117,17 +122,17 @@ cmd_init() {
   local gh_username
   gh_username=$(gh api user --jq '.login')
 
-  local project_title="${gh_username}-vellum-assistant"
+  local project_title="${gh_username}-${REPO_NAME}"
   echo "==> Creating project: $project_title"
 
   local project_url
-  project_url=$(gh project create --owner "vellum-ai" --title "$project_title" --format json | jq -r '.url')
+  project_url=$(gh project create --owner "$REPO_OWNER" --title "$project_title" --format json | jq -r '.url')
   local project_number
   project_number=$(echo "$project_url" | grep -oE '[0-9]+$')
 
   echo "==> Getting project node ID..."
   local project_id
-  project_id=$(gh project view "$project_number" --owner "vellum-ai" --format json | jq -r '.id')
+  project_id=$(gh project view "$project_number" --owner "$REPO_OWNER" --format json | jq -r '.id')
 
   echo "==> Fetching existing Status field..."
   local field_result
@@ -202,7 +207,7 @@ cmd_init() {
   echo "==> Writing config to $CONFIG_FILE"
   cat > "$CONFIG_FILE" <<ENVEOF
 GH_PROJECT_NUMBER=$project_number
-GH_PROJECT_OWNER=vellum-ai
+GH_PROJECT_OWNER=$REPO_OWNER
 GH_PROJECT_ID=$project_id
 GH_STATUS_FIELD_ID=$field_id
 GH_STATUS_TRIAGE_ID=$triage_id
@@ -244,7 +249,7 @@ cmd_add_issue() {
 
   echo "==> Getting node ID for issue #$issue_number..."
   local node_id
-  node_id=$(gh api "repos/vellum-ai/vellum-assistant/issues/$issue_number" --jq '.node_id')
+  node_id=$(gh api "repos/$REPO_SLUG/issues/$issue_number" --jq '.node_id')
 
   echo "==> Adding issue #$issue_number to project..."
   local item_id

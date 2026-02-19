@@ -28,8 +28,7 @@ For each PR in order:
 
 Read the PR section carefully. Implement all the changes described:
 - Create/modify the listed files according to the steps.
-- Follow the project conventions (Bun + TypeScript, `.js` import extensions, NodeNext resolution).
-- Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
+- Follow the project conventions described in AGENTS.md.
 
 #### 3b. Validate
 
@@ -82,8 +81,5 @@ After all PRs are mainlined, tell the user the plan is fully executed. List all 
 
 - **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
 - **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
-- **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
-- **Imports**: All imports use `.js` extensions (NodeNext module resolution).
-- **Project structure**: Bun + TypeScript project. Code is in `assistant/`.
 
 IMPORTANT: .private/UNREVIEWED_PRS.md is written to by other processes. Read before writing, verify after writing.

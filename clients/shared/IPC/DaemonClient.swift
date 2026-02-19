@@ -89,19 +89,19 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Published State
 
     @Published public var isConnected: Bool = false
-    private var isConnecting: Bool = false
+    var isConnecting: Bool = false
 
     /// Whether blob transport has been verified for this connection.
     /// Resets to `false` on disconnect/reconnect. Only set to `true` after
     /// a successful probe round-trip on macOS local-socket connections.
-    @Published public private(set) var isBlobTransportAvailable: Bool = false
+    @Published public internal(set) var isBlobTransportAvailable: Bool = false
 
     /// The runtime HTTP server port, populated via `daemon_status` on connect.
     /// `nil` means the HTTP server is not running.
     @Published public var httpPort: Int?
 
     /// The daemon version string, populated via `daemon_status` on connect.
-    @Published public private(set) var daemonVersion: String?
+    @Published public internal(set) var daemonVersion: String?
 
     /// Latest memory health payload from daemon `memory_status` events.
     @Published public var latestMemoryStatus: MemoryStatusMessage?
@@ -331,63 +331,63 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         return stream
     }
 
-    // MARK: - Private State
+    // MARK: - Internal State (accessed by extensions in DaemonConnection.swift and DaemonMessageRouter.swift)
 
-    private var connection: NWConnection?
-    private let queue = DispatchQueue(label: "com.vellum.vellum-assistant.daemon-client", qos: .userInitiated)
+    var connection: NWConnection?
+    let queue = DispatchQueue(label: "com.vellum.vellum-assistant.daemon-client", qos: .userInitiated)
 
-    private var subscribers: [UUID: AsyncStream<ServerMessage>.Continuation] = [:]
+    var subscribers: [UUID: AsyncStream<ServerMessage>.Continuation] = [:]
 
-    private var isAuthenticated = false
-    private var authContinuation: CheckedContinuation<Void, Error>?
-    private var authTimeoutTask: Task<Void, Never>?
+    var isAuthenticated = false
+    var authContinuation: CheckedContinuation<Void, Error>?
+    var authTimeoutTask: Task<Void, Never>?
 
     /// Buffer for accumulating incoming data until we have complete newline-delimited messages.
-    private var receiveBuffer = Data()
+    var receiveBuffer = Data()
 
     /// Maximum line size: 96 MB (for screenshots with base64).
-    private let maxLineSize = 96 * 1024 * 1024
+    let maxLineSize = 96 * 1024 * 1024
 
     /// Monotonic per-session sequence for CU observation sends.
-    private var cuObservationSequenceBySession: [String: Int] = [:]
+    var cuObservationSequenceBySession: [String: Int] = [:]
 
     /// Whether we should attempt to reconnect on disconnect.
-    private var shouldReconnect = true
+    var shouldReconnect = true
 
     /// Current reconnect backoff delay in seconds.
-    private var reconnectDelay: TimeInterval = 1.0
+    var reconnectDelay: TimeInterval = 1.0
 
     /// Maximum reconnect backoff delay.
-    private let maxReconnectDelay: TimeInterval = 30.0
+    let maxReconnectDelay: TimeInterval = 30.0
 
     /// Reconnect task handle.
-    private var reconnectTask: Task<Void, Never>?
+    var reconnectTask: Task<Void, Never>?
 
     /// Network path monitor — triggers immediate reconnect when network becomes available.
-    private var pathMonitor: NWPathMonitor?
-    private let pathMonitorQueue = DispatchQueue(label: "com.vellum.vellum-assistant.network-monitor", qos: .background)
+    var pathMonitor: NWPathMonitor?
+    let pathMonitorQueue = DispatchQueue(label: "com.vellum.vellum-assistant.network-monitor", qos: .background)
 
     /// Ping timer task handle.
-    private var pingTask: Task<Void, Never>?
+    var pingTask: Task<Void, Never>?
 
     /// Whether we're waiting for a pong response.
-    private var awaitingPong = false
+    var awaitingPong = false
 
     /// Pong timeout task handle.
-    private var pongTimeoutTask: Task<Void, Never>?
+    var pongTimeoutTask: Task<Void, Never>?
 
     /// Blob probe task handle — fire-and-forget after connect on macOS.
-    private var blobProbeTask: Task<Void, Never>?
+    var blobProbeTask: Task<Void, Never>?
 
     /// The probe ID we're currently waiting for a response to.
     /// Used to match ipc_blob_probe_result to the outstanding probe.
     /// Internal (not private) for testability via @testable import.
     var pendingProbeId: String?
 
-    private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
 
-    private let config: DaemonConfig
+    let config: DaemonConfig
 
     // MARK: - Init
 
@@ -423,255 +423,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     #if os(macOS)
     public static func resolveSocketPath(environment: [String: String]? = nil) -> String {
         return VellumAssistantShared.resolveSocketPath(environment: environment)
-    }
-    #endif
-
-    // MARK: - Connect
-
-    /// How long to wait for a connection before giving up.
-    private static let connectTimeout: TimeInterval = 5.0
-    private static let authTimeout: TimeInterval = 5.0
-
-    /// Connect to the daemon. If already connected, disconnects first.
-    /// - macOS: Connects to Unix domain socket at `~/.vellum/vellum.sock`
-    /// - iOS: Connects to TCP endpoint (hostname from UserDefaults or localhost:8765)
-    public func connect() async throws {
-        // Disconnect any existing connection without triggering reconnect.
-        disconnectInternal(triggerReconnect: false)
-
-        isConnecting = true
-        shouldReconnect = true
-
-        #if os(macOS)
-        log.info("Connecting to daemon socket at \(self.config.socketPath)")
-        let endpoint = NWEndpoint.unix(path: self.config.socketPath)
-        let parameters = NWParameters()
-        parameters.defaultProtocolStack.transportProtocol = NWProtocolTCP.Options()
-        #elseif os(iOS)
-        // Check UserDefaults first to pick up runtime changes, fall back to config
-        // This allows reconnects to pick up changed settings while preserving custom configs for tests
-        let hostname: String
-        let port: UInt16
-
-        if let userHostname = UserDefaults.standard.string(forKey: "daemon_hostname"), !userHostname.isEmpty {
-            hostname = userHostname
-        } else {
-            hostname = self.config.hostname
-        }
-
-        let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
-        if rawPort > 0 && rawPort <= 65535 {
-            port = UInt16(rawPort)
-        } else {
-            port = self.config.port
-        }
-
-        // Also re-read TLS setting from UserDefaults on each connect to match hostname/port behaviour
-        let tlsEnabled: Bool
-        if UserDefaults.standard.object(forKey: "daemon_tls_enabled") != nil {
-            tlsEnabled = UserDefaults.standard.bool(forKey: "daemon_tls_enabled")
-        } else {
-            tlsEnabled = self.config.tlsEnabled
-        }
-
-        log.info("Connecting to daemon at \(hostname):\(port) (tls=\(tlsEnabled))")
-        let endpoint = NWEndpoint.hostPort(
-            host: NWEndpoint.Host(hostname),
-            port: NWEndpoint.Port(integerLiteral: port)
-        )
-        let parameters: NWParameters = tlsEnabled ? .tls : .tcp
-        #else
-        #error("DaemonClient is only supported on macOS and iOS")
-        #endif
-
-        let conn = NWConnection(to: endpoint, using: parameters)
-        self.connection = conn
-
-        try await withCheckedThrowingContinuation { (checkedContinuation: CheckedContinuation<Void, Error>) in
-            var resumed = false
-
-            // Timeout: if we haven't connected within the deadline, fail.
-            let timeoutTask = Task { @MainActor [weak self] in
-                do {
-                    try await Task.sleep(nanoseconds: UInt64(Self.connectTimeout * 1_000_000_000))
-                } catch { return }
-
-                guard !resumed else { return }
-                resumed = true
-                log.error("Connection timed out after \(Self.connectTimeout)s")
-                self?.isConnected = false
-                self?.isConnecting = false
-                self?.stopPingTimer()
-                conn.stateUpdateHandler = nil
-                conn.cancel()
-                checkedContinuation.resume(throwing: NWError.posix(.ETIMEDOUT))
-            }
-
-            conn.stateUpdateHandler = { [weak self] state in
-                guard let self else { return }
-
-                Task { @MainActor in
-                    switch state {
-                    case .ready:
-                        if !resumed {
-                            resumed = true
-                            timeoutTask.cancel()
-                            log.info("Connected to daemon socket")
-                            self.startReceiveLoop()
-                            Task { @MainActor in
-                                do {
-                                    #if os(macOS)
-                                    try await self.authenticate()
-                                    #elseif os(iOS)
-                                    try await self.authenticateIfNeeded()
-                                    #else
-                                    self.isAuthenticated = true
-                                    #endif
-                                    self.isConnected = true
-                                    self.isConnecting = false
-                                    self.startNetworkMonitor()
-                                    NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
-                                    self.reconnectDelay = 1.0
-                                    self.startPingTimer()
-                                    #if os(macOS)
-                                    self.runBlobProbe()
-                                    #endif
-                                    checkedContinuation.resume()
-                                } catch {
-                                    log.error("Daemon authentication failed: \(error.localizedDescription)")
-                                    self.isConnected = false
-                                    self.isConnecting = false
-                                    self.isAuthenticated = false
-                                    self.stopPingTimer()
-                                    conn.stateUpdateHandler = nil
-                                    conn.cancel()
-                                    checkedContinuation.resume(throwing: error)
-                                }
-                            }
-                        }
-
-                    case .failed(let error):
-                        log.error("Connection failed: \(error.localizedDescription)")
-                        self.isConnected = false
-                        self.isConnecting = false
-                        self.isAuthenticated = false
-                        self.stopPingTimer()
-                        if !resumed {
-                            resumed = true
-                            timeoutTask.cancel()
-                            checkedContinuation.resume(throwing: error)
-                        } else {
-                            self.scheduleReconnect()
-                        }
-
-                    case .cancelled:
-                        log.info("Connection cancelled")
-                        self.isConnected = false
-                        self.isConnecting = false
-                        self.isAuthenticated = false
-                        self.stopPingTimer()
-                        if !resumed {
-                            resumed = true
-                            timeoutTask.cancel()
-                            checkedContinuation.resume(throwing: NWError.posix(.ECANCELED))
-                        }
-
-                    case .waiting(let error):
-                        log.warning("Connection waiting: \(error.localizedDescription)")
-                        // Don't resume the continuation yet; NWConnection may still transition to .ready.
-                        // The timeout task will handle the case where it never does.
-
-                    default:
-                        break
-                    }
-                }
-            }
-
-            conn.start(queue: self.queue)
-        }
-    }
-
-    // MARK: - Authentication
-
-    #if os(macOS)
-    private func authenticate() async throws {
-        guard let token = readSessionToken() else {
-            throw AuthError.missingToken
-        }
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            authContinuation?.resume(throwing: AuthError.rejected("Authentication superseded"))
-            authContinuation = continuation
-
-            authTimeoutTask?.cancel()
-            authTimeoutTask = Task { @MainActor [weak self] in
-                do {
-                    try await Task.sleep(nanoseconds: UInt64(Self.authTimeout * 1_000_000_000))
-                } catch {
-                    return
-                }
-                guard let self, let pending = self.authContinuation else { return }
-                self.authContinuation = nil
-                self.authTimeoutTask = nil
-                self.isAuthenticated = false
-                pending.resume(throwing: AuthError.timeout)
-            }
-
-            do {
-                try self.send(AuthMessage(token: token))
-            } catch {
-                authContinuation = nil
-                authTimeoutTask?.cancel()
-                authTimeoutTask = nil
-                continuation.resume(throwing: error)
-            }
-        }
-    }
-    #endif
-
-    #if os(iOS)
-    /// Perform token-based authentication if `config.authToken` is set.
-    /// Sends an `AuthMessage` and waits for an `auth_result` response before
-    /// allowing the connection to be marked as ready.
-    /// If no token is configured, marks the connection as authenticated immediately.
-    private func authenticateIfNeeded() async throws {
-        // Re-read from Keychain on each call to pick up runtime changes (mirrors hostname/port pattern).
-        // Falls back to legacy UserDefaults key with one-time migration (same logic as DaemonConfig).
-        let tokenFromKeychain = APIKeyManager.shared.getAPIKey(provider: "daemon-token")
-            ?? DaemonConfig.migrateAuthToken()
-        guard let token = tokenFromKeychain ?? config.authToken else {
-            // No token configured — treat as unauthenticated (plain TCP, no handshake).
-            isAuthenticated = true
-            return
-        }
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            authContinuation?.resume(throwing: AuthError.rejected("Authentication superseded"))
-            authContinuation = continuation
-
-            authTimeoutTask?.cancel()
-            authTimeoutTask = Task { @MainActor [weak self] in
-                do {
-                    try await Task.sleep(nanoseconds: UInt64(Self.authTimeout * 1_000_000_000))
-                } catch {
-                    return
-                }
-                guard let self, let pending = self.authContinuation else { return }
-                self.authContinuation = nil
-                self.authTimeoutTask = nil
-                self.isAuthenticated = false
-                pending.resume(throwing: AuthError.timeout)
-            }
-
-            do {
-                try self.send(AuthMessage(token: token))
-            } catch {
-                authContinuation = nil
-                authTimeoutTask?.cancel()
-                authTimeoutTask = nil
-                continuation.resume(throwing: error)
-            }
-        }
     }
     #endif
 
@@ -1162,580 +913,5 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             type: "document_list",
             conversationId: conversationId
         ))
-    }
-
-    // MARK: - Signing Identity (macOS only)
-
-    #if os(macOS)
-    /// Handle a sign_bundle_payload request from the daemon.
-    private func handleSignBundlePayload(_ msg: SignBundlePayloadMessage) {
-        do {
-            let payloadData = Data(msg.payload.utf8)
-            let signature = try SigningIdentityManager.shared.sign(payloadData)
-            let keyId = try SigningIdentityManager.shared.getKeyId()
-            let publicKey = try SigningIdentityManager.shared.getPublicKey()
-
-            try send(SignBundlePayloadResponseMessage(
-                requestId: msg.requestId,
-                signature: signature.base64EncodedString(),
-                keyId: keyId,
-                publicKey: publicKey.rawRepresentation.base64EncodedString()
-            ))
-        } catch {
-            log.error("Failed to sign bundle payload: \(error.localizedDescription)")
-        }
-    }
-
-    /// Handle a get_signing_identity request from the daemon.
-    private func handleGetSigningIdentity(_ msg: IPCGetSigningIdentityRequest) {
-        do {
-            let keyId = try SigningIdentityManager.shared.getKeyId()
-            let publicKey = try SigningIdentityManager.shared.getPublicKey()
-
-            try send(GetSigningIdentityResponseMessage(
-                requestId: msg.requestId,
-                keyId: keyId,
-                publicKey: publicKey.rawRepresentation.base64EncodedString()
-            ))
-        } catch {
-            log.error("Failed to get signing identity: \(error.localizedDescription)")
-        }
-    }
-    #endif
-
-    // MARK: - Disconnect
-
-    /// Disconnect from the daemon. Stops reconnect and ping timers.
-    public func disconnect() {
-        disconnectInternal(triggerReconnect: false)
-    }
-
-    private func disconnectInternal(triggerReconnect: Bool) {
-        shouldReconnect = triggerReconnect
-        reconnectTask?.cancel()
-        reconnectTask = nil
-        if !triggerReconnect {
-            stopNetworkMonitor()
-        }
-        stopPingTimer()
-        #if os(macOS) || os(iOS)
-        if let pending = authContinuation {
-            authContinuation = nil
-            authTimeoutTask?.cancel()
-            authTimeoutTask = nil
-            pending.resume(throwing: AuthError.rejected("Disconnected"))
-        }
-        authTimeoutTask?.cancel()
-        authTimeoutTask = nil
-        #endif
-        blobProbeTask?.cancel()
-        blobProbeTask = nil
-        pendingProbeId = nil
-        isBlobTransportAvailable = false
-        isAuthenticated = false
-
-        if let conn = connection {
-            conn.stateUpdateHandler = nil
-            conn.cancel()
-            connection = nil
-        }
-
-        receiveBuffer = Data()
-        cuObservationSequenceBySession.removeAll()
-        isConnected = false
-        isConnecting = false
-        httpPort = nil
-        latestMemoryStatus = nil
-
-        // Finish all subscriber streams so `for await` loops terminate
-        // instead of hanging forever on disconnect.
-        for continuation in subscribers.values {
-            continuation.finish()
-        }
-        subscribers.removeAll()
-    }
-
-    // MARK: - Receive Loop
-
-    private func startReceiveLoop() {
-        guard let conn = connection else { return }
-        receiveData(on: conn)
-    }
-
-    private func receiveData(on conn: NWConnection) {
-        conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, error in
-            guard let self else { return }
-
-            Task { @MainActor in
-                if let data = content, !data.isEmpty {
-                    self.processReceivedData(data)
-                }
-
-                if isComplete {
-                    log.info("Connection received EOF")
-                    self.handleUnexpectedDisconnect()
-                    return
-                }
-
-                if let error {
-                    log.error("Receive error: \(error.localizedDescription)")
-                    self.handleUnexpectedDisconnect()
-                    return
-                }
-
-                // Continue reading.
-                self.receiveData(on: conn)
-            }
-        }
-    }
-
-    /// Buffer incoming data, split on newlines, decode each complete line as ServerMessage.
-    private func processReceivedData(_ data: Data) {
-        receiveBuffer.append(data)
-
-        // Check max buffer size.
-        if receiveBuffer.count > maxLineSize {
-            log.error("Receive buffer exceeded max line size (\(self.maxLineSize) bytes), clearing buffer")
-            receiveBuffer = Data()
-            return
-        }
-
-        // Split on newlines.
-        let newline = UInt8(0x0A)
-        while let newlineIndex = receiveBuffer.firstIndex(of: newline) {
-            let lineData = receiveBuffer[receiveBuffer.startIndex..<newlineIndex]
-            receiveBuffer = receiveBuffer[(newlineIndex + 1)...]
-
-            // Skip empty lines.
-            guard !lineData.isEmpty else { continue }
-
-            do {
-                let message = try decoder.decode(ServerMessage.self, from: Data(lineData))
-                handleServerMessage(message)
-            } catch {
-                // Log a safe summary — never include raw line content which may contain secrets.
-                let byteCount = lineData.count
-                let typeHint = extractMessageType(from: Data(lineData))
-                log.error("Failed to decode server message: \(error.localizedDescription), bytes: \(byteCount), type: \(typeHint)")
-            }
-        }
-    }
-
-    private func handleServerMessage(_ message: ServerMessage) {
-        // Handle pong internally.
-        if case .pong = message {
-            awaitingPong = false
-            pongTimeoutTask?.cancel()
-            pongTimeoutTask = nil
-        }
-
-        // Handle daemon status internally.
-        if case .daemonStatus(let status) = message {
-            httpPort = status.httpPort.flatMap { Int(exactly: $0) }
-            if let version = status.version {
-                daemonVersion = version
-            }
-        }
-
-        // Handle blob probe result internally.
-        if case .ipcBlobProbeResult(let result) = message {
-            handleBlobProbeResult(result)
-        }
-
-        // Forward surface messages to registered callbacks.
-        switch message {
-        case .authResult(let msg):
-            handleAuthResult(msg)
-        case .uiSurfaceShow(let msg):
-            // Inline surfaces are rendered in-chat by ChatViewModel; skip the floating panel.
-            if msg.display != "inline" {
-                onSurfaceShow?(msg)
-            }
-        case .uiSurfaceUpdate(let msg):
-            onSurfaceUpdate?(msg)
-        case .uiSurfaceDismiss(let msg):
-            onSurfaceDismiss?(msg)
-        case .uiSurfaceComplete(let msg):
-            onSurfaceComplete?(msg)
-        case .documentEditorShow(let msg):
-            log.debug("documentEditorShow received — surfaceId=\(msg.surfaceId, privacy: .public), title=\(msg.title, privacy: .public)")
-            onDocumentEditorShow?(msg)
-            log.debug("documentEditorShow callback invoked")
-        case .documentEditorUpdate(let msg):
-            onDocumentEditorUpdate?(msg)
-        case .documentSaveResponse(let msg):
-            onDocumentSaveResponse?(msg)
-        case .documentLoadResponse(let msg):
-            onDocumentLoadResponse?(msg)
-        case .documentListResponse(let msg):
-            onDocumentListResponse?(msg)
-        case .uiLayoutConfig(let msg):
-            onLayoutConfig?(msg)
-        case .appFilesChanged(let msg):
-            onAppFilesChanged?(msg.appId)
-        case .appDataResponse(let msg):
-            onAppDataResponse?(msg)
-        case .messageQueued(let msg):
-            onMessageQueued?(msg)
-        case .messageDequeued(let msg):
-            onMessageDequeued?(msg)
-        case .messageQueuedDeleted(let msg):
-            onMessageQueuedDeleted?(msg)
-        case .generationHandoff(let msg):
-            onGenerationHandoff?(msg)
-        case .confirmationRequest(let msg):
-            onConfirmationRequest?(msg)
-        case .secretRequest(let msg):
-            onSecretRequest?(msg)
-        case .taskRouted(let msg):
-            onTaskRouted?(msg)
-        case .reminderFired(let msg):
-            onReminderFired?(msg)
-        case .scheduleComplete(let msg):
-            onScheduleComplete?(msg)
-        case .trustRulesListResponse(let msg):
-            onTrustRulesListResponse?(msg.rules)
-        case .schedulesListResponse(let msg):
-            onSchedulesListResponse?(msg.schedules)
-        case .remindersListResponse(let msg):
-            onRemindersListResponse?(msg.reminders)
-        case .skillStateChanged(let msg):
-            onSkillStateChanged?(msg)
-        case .skillsOperationResponse(let msg):
-            onSkillsOperationResponse?(msg)
-        case .skillsInspectResponse(let msg):
-            onSkillsInspectResponse?(msg)
-        case .appsListResponse(let msg):
-            onAppsListResponse?(msg)
-        case .homeBaseGetResponse(let msg):
-            onHomeBaseGetResponse?(msg)
-        case .appUpdatePreviewResponse:
-            break // Fire-and-forget; no callback needed
-        case .appPreviewResponse(let msg):
-            onAppPreviewResponse?(msg)
-        case .sharedAppsListResponse(let msg):
-            onSharedAppsListResponse?(msg)
-        case .sharedAppDeleteResponse(let msg):
-            onSharedAppDeleteResponse?(msg)
-        case .forkSharedAppResponse(let msg):
-            onForkSharedAppResponse?(msg)
-        case .bundleAppResponse(let msg):
-            onBundleAppResponse?(msg)
-        case .openBundleResponse(let msg):
-            onOpenBundleResponse?(msg)
-        case .sessionListResponse(let msg):
-            onSessionListResponse?(msg)
-        case .historyResponse(let msg):
-            onHistoryResponse?(msg)
-        case .shareToSlackResponse(let msg):
-            onShareToSlackResponse?(msg)
-        case .slackWebhookConfigResponse(let msg):
-            onSlackWebhookConfigResponse?(msg)
-        case .vercelApiConfigResponse(let msg):
-            onVercelApiConfigResponse?(msg)
-        case .modelInfo(let msg):
-            currentModel = msg.model
-            onModelInfo?(msg)
-        case .publishPageResponse(let msg):
-            onPublishPageResponse?(msg)
-        case .openUrl(let msg):
-            onOpenUrl?(msg)
-        case .unpublishPageResponse:
-            break // Handled via specific callback if needed
-        case .memoryStatus(let msg):
-            latestMemoryStatus = msg
-        case .traceEvent(let msg):
-            onTraceEvent?(msg)
-        case .error(let msg):
-            onError?(msg)
-        #if os(macOS)
-        case .signBundlePayload(let msg):
-            handleSignBundlePayload(msg)
-        case .getSigningIdentity(let msg):
-            handleGetSigningIdentity(msg)
-        #elseif os(iOS)
-        case .signBundlePayload(let msg):
-            log.warning("Received sign_bundle_payload request on iOS — signing not supported")
-            try? send(SignBundlePayloadResponseMessage(
-                requestId: msg.requestId,
-                error: "Signing operations are not available on iOS"
-            ))
-        case .getSigningIdentity(let msg):
-            log.warning("Received get_signing_identity request on iOS — signing not supported")
-            try? send(GetSigningIdentityResponseMessage(
-                requestId: msg.requestId,
-                error: "Signing operations are not available on iOS"
-            ))
-        #else
-        case .signBundlePayload, .getSigningIdentity:
-            log.error("Signing operations are not supported on this platform")
-        #endif
-        case .integrationListResponse(let msg):
-            onIntegrationListResponse?(msg)
-        case .integrationConnectResult(let msg):
-            onIntegrationConnectResult?(msg)
-        case .diagnosticsExportResponse(let msg):
-            onDiagnosticsExportResponse?(msg)
-        case .browserFrame(let msg):
-            onBrowserFrame?(msg)
-        case .browserInteractiveModeChanged(let msg):
-            onBrowserInteractiveModeChanged?(msg)
-        case .browserCDPRequest(let msg):
-            onBrowserCDPRequest?(msg)
-        case .envVarsResponse(let msg):
-            onEnvVarsResponse?(msg)
-        case .workItemsListResponse(let msg):
-            onWorkItemsListResponse?(msg)
-        case .workItemStatusChanged(let msg):
-            onWorkItemStatusChanged?(msg)
-        case .tasksChanged(let msg):
-            onTasksChanged?(msg)
-        case .workItemDeleteResponse(let msg):
-            onWorkItemDeleteResponse?(msg)
-        case .workItemRunTaskResponse(let msg):
-            onWorkItemRunTaskResponse?(msg)
-        case .workItemOutputResponse(let msg):
-            onWorkItemOutputResponse?(msg)
-        case .workItemUpdateResponse(let msg):
-            onWorkItemUpdateResponse?(msg)
-        case .workItemPreflightResponse(let msg):
-            onWorkItemPreflightResponse?(msg)
-        case .workItemApprovePermissionsResponse(let msg):
-            onWorkItemApprovePermissionsResponse?(msg)
-        case .workItemCancelResponse(let msg):
-            onWorkItemCancelResponse?(msg)
-        case .workItemRenderResponse(let msg):
-            onWorkItemRenderResponse?(msg)
-        case .openTasksWindow:
-            onOpenTasksWindow?()
-        case .subagentSpawned(let msg):
-            onSubagentSpawned?(msg)
-        case .subagentStatusChanged(let msg):
-            onSubagentStatusChanged?(msg)
-        default:
-            break
-        }
-
-        // Broadcast to all subscribers.
-        for continuation in subscribers.values {
-            continuation.yield(message)
-        }
-    }
-
-    private func handleAuthResult(_ result: AuthResultMessage) {
-        #if os(macOS) || os(iOS)
-        isAuthenticated = result.success
-        if let pending = authContinuation {
-            authContinuation = nil
-            authTimeoutTask?.cancel()
-            authTimeoutTask = nil
-            if result.success {
-                pending.resume(returning: ())
-            } else {
-                pending.resume(throwing: AuthError.rejected(result.message))
-            }
-        }
-        #endif
-    }
-
-    // MARK: - Blob Probe (macOS only)
-
-    #if os(macOS)
-    /// Initiate a blob probe after connecting. Writes a nonce file to the shared
-    /// blob directory and sends a probe message to the daemon. The daemon reads
-    /// the file, hashes it, and responds. If the hashes match, blob transport
-    /// is confirmed available for this connection.
-    private func runBlobProbe() {
-        blobProbeTask?.cancel()
-        isBlobTransportAvailable = false
-
-        blobProbeTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-
-            let store = IpcBlobStore.shared
-            store.ensureDirectory()
-
-            guard let probe = store.writeProbeFile() else {
-                log.warning("Blob probe: failed to write probe file")
-                return
-            }
-
-            self.pendingProbeId = probe.probeId
-
-            do {
-                try self.send(IpcBlobProbeMessage(
-                    probeId: probe.probeId,
-                    nonceSha256: probe.nonceSha256
-                ))
-                log.info("Blob probe sent: \(probe.probeId)")
-            } catch {
-                log.warning("Blob probe: failed to send probe message: \(error.localizedDescription)")
-                self.pendingProbeId = nil
-            }
-        }
-    }
-    #endif
-
-    /// Process a blob probe result from the daemon.
-    /// Internal (not private) for testability via @testable import.
-    func handleBlobProbeResult(_ result: IpcBlobProbeResultMessage) {
-        guard result.probeId == pendingProbeId else {
-            log.warning("Blob probe: ignoring stale result for \(result.probeId) (expected \(self.pendingProbeId ?? "nil"))")
-            return
-        }
-        pendingProbeId = nil
-
-        if result.ok {
-            isBlobTransportAvailable = true
-            log.info("Blob transport verified for this connection")
-        } else {
-            isBlobTransportAvailable = false
-            log.warning("Blob probe failed: \(result.reason ?? "unknown")")
-        }
-    }
-
-    // MARK: - Reconnect
-
-    private func handleUnexpectedDisconnect() {
-        disconnectInternal(triggerReconnect: shouldReconnect)
-        if shouldReconnect {
-            // Re-enable reconnect since disconnectInternal sets it based on the parameter.
-            self.shouldReconnect = true
-            scheduleReconnect()
-        }
-    }
-
-    private func scheduleReconnect() {
-        guard shouldReconnect else { return }
-        reconnectTask?.cancel()
-
-        let delay = reconnectDelay
-        log.info("Scheduling reconnect in \(delay)s")
-
-        reconnectTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            } catch {
-                return // Cancelled.
-            }
-
-            guard let self, self.shouldReconnect else { return }
-
-            // Increase backoff for next attempt.
-            self.reconnectDelay = min(self.reconnectDelay * 2, self.maxReconnectDelay)
-
-            do {
-                try await self.connect()
-            } catch {
-                log.error("Reconnect failed: \(error.localizedDescription)")
-                // connect() failure will trigger another scheduleReconnect via stateUpdateHandler
-                // only if we haven't already scheduled one.
-                if self.shouldReconnect && self.reconnectTask == nil {
-                    self.scheduleReconnect()
-                }
-            }
-        }
-    }
-
-    // MARK: - Network Reachability
-
-    private func startNetworkMonitor() {
-        guard pathMonitor == nil else { return }
-        let monitor = NWPathMonitor()
-        monitor.pathUpdateHandler = { [weak self] path in
-            Task { @MainActor [weak self] in
-                self?.handleNetworkPathChange(path)
-            }
-        }
-        monitor.start(queue: pathMonitorQueue)
-        pathMonitor = monitor
-    }
-
-    private func stopNetworkMonitor() {
-        pathMonitor?.cancel()
-        pathMonitor = nil
-    }
-
-    private func handleNetworkPathChange(_ path: NWPath) {
-        guard path.status == .satisfied, !isConnected, !isConnecting, shouldReconnect else { return }
-        log.info("Network available — resetting backoff and reconnecting immediately")
-        reconnectTask?.cancel()
-        reconnectTask = nil
-        reconnectDelay = 1.0
-        isConnecting = true
-        Task { @MainActor [weak self] in
-            guard let self, self.shouldReconnect else {
-                self?.isConnecting = false
-                return
-            }
-            do {
-                try await self.connect()
-            } catch {
-                log.error("Immediate reconnect on network change failed: \(error.localizedDescription)")
-                self.scheduleReconnect()
-            }
-        }
-    }
-
-    // MARK: - Ping / Pong
-
-    private func startPingTimer() {
-        stopPingTimer()
-
-        pingTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
-                } catch {
-                    return // Cancelled.
-                }
-
-                guard let self, self.isConnected else { return }
-
-                self.sendPing()
-            }
-        }
-    }
-
-    private func stopPingTimer() {
-        pingTask?.cancel()
-        pingTask = nil
-        pongTimeoutTask?.cancel()
-        pongTimeoutTask = nil
-        awaitingPong = false
-    }
-
-    /// Extract the "type" field from raw JSON data for safe logging.
-    /// Returns the type string if parseable, otherwise "<unknown>".
-    /// This avoids logging the entire line which may contain sensitive values.
-    private func extractMessageType(from data: Data) -> String {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = json["type"] as? String else {
-            return "<unknown>"
-        }
-        return type
-    }
-
-    private func sendPing() {
-        do {
-            try send(PingMessage())
-            awaitingPong = true
-
-            // Start pong timeout.
-            pongTimeoutTask?.cancel()
-            pongTimeoutTask = Task { @MainActor [weak self] in
-                do {
-                    try await Task.sleep(nanoseconds: 10_000_000_000) // 10 seconds
-                } catch {
-                    return // Cancelled.
-                }
-
-                guard let self, self.awaitingPong else { return }
-                log.warning("Pong timeout, reconnecting")
-                self.handleUnexpectedDisconnect()
-            }
-        } catch {
-            log.error("Failed to send ping: \(error.localizedDescription)")
-        }
     }
 }

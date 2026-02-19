@@ -26,9 +26,6 @@ Derive a short namespace slug from the feature description to avoid conflicts wi
 - **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
 - **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
 - **No piping to tail/head**: `tail` and `head` may not be available in the shell. Don't pipe to them.
-- **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
-- **Imports**: All imports use `.js` extensions (NodeNext module resolution).
-- **Project structure**: Bun + TypeScript project. Code is in `assistant/`.
 
 ## Phase 1: Project Setup
 

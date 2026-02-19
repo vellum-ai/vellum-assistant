@@ -5,7 +5,7 @@ import { ComputerUseSession } from '../computer-use-session.js';
 import { getLogger } from '../../util/logger.js';
 import { execSync } from 'node:child_process';
 import { estimateBase64Bytes } from '../assistant-attachments.js';
-import type { CuSessionCreate, ServerMessage, SessionTransportMetadata } from '../ipc-protocol.js';
+import type { ClientMessage, CuSessionCreate, ServerMessage, SessionTransportMetadata } from '../ipc-protocol.js';
 import type { SecretPromptResult } from '../../permissions/secret-prompter.js';
 import { getConfig } from '../../config/loader.js';
 
@@ -122,6 +122,19 @@ export interface HandlerContext {
   /** Refresh the eviction timestamp for a session that was accessed directly. */
   touchSession(sessionId: string): void;
 }
+
+// ─── Typed dispatch ──────────────────────────────────────────────────────────
+
+type MessageType = ClientMessage['type'];
+// 'auth' is handled at the transport layer (server.ts) and never reaches dispatch.
+type DispatchableType = Exclude<MessageType, 'auth'>;
+type MessageOfType<T extends MessageType> = Extract<ClientMessage, { type: T }>;
+type MessageHandler<T extends MessageType> = (
+  msg: MessageOfType<T>,
+  socket: net.Socket,
+  ctx: HandlerContext,
+) => void | Promise<void>;
+export type DispatchMap = { [T in DispatchableType]: MessageHandler<T> };
 
 /**
  * Query the main display dimensions via CoreGraphics.

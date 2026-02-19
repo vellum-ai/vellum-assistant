@@ -45,6 +45,7 @@ final class CLILauncher {
 
         var env = ProcessInfo.processInfo.environment
         env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
+        env["VELLUM_DESKTOP_APP"] = "1"
         proc.environment = env
 
         try proc.run()
@@ -82,6 +83,7 @@ final class CLILauncher {
 
         var env = ProcessInfo.processInfo.environment
         env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
+        env["VELLUM_DESKTOP_APP"] = "1"
         proc.environment = env
 
         try proc.run()
@@ -134,6 +136,7 @@ final class CLILauncher {
 
         var env = ProcessInfo.processInfo.environment
         env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
+        env["VELLUM_DESKTOP_APP"] = "1"
 
         if !config.anthropicApiKey.isEmpty {
             env["ANTHROPIC_API_KEY"] = config.anthropicApiKey

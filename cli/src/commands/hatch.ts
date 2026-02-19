@@ -2,7 +2,7 @@ import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 import { existsSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir, userInfo } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
 import { saveAssistantEntry } from "../lib/assistant-config";
@@ -722,21 +722,48 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
   console.log("");
 
   console.log("🔨 Starting local daemon...");
-  const child = spawn("bunx", ["vellum", "daemon", "start"], {
-    stdio: "inherit",
-    env: { ...process.env },
-  });
 
-  await new Promise<void>((resolve, reject) => {
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`Daemon start exited with code ${code}`));
-      }
+  if (process.env.VELLUM_DESKTOP_APP) {
+    const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
+    const child = spawn(daemonBinary, [], {
+      detached: true,
+      stdio: "ignore",
+      env: { ...process.env },
     });
-    child.on("error", reject);
-  });
+    child.unref();
+
+    const homeDir = process.env.HOME ?? userInfo().homedir;
+    const socketPath = join(homeDir, ".vellum", "vellum.sock");
+    const maxWait = 10000;
+    const pollInterval = 100;
+    let waited = 0;
+    while (waited < maxWait) {
+      if (existsSync(socketPath)) {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, pollInterval));
+      waited += pollInterval;
+    }
+    if (!existsSync(socketPath)) {
+      console.warn("⚠️  Daemon socket did not appear within 10s — continuing anyway");
+    }
+  } else {
+    const child = spawn("bunx", ["vellum", "daemon", "start"], {
+      stdio: "inherit",
+      env: { ...process.env },
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      child.on("close", (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`Daemon start exited with code ${code}`));
+        }
+      });
+      child.on("error", reject);
+    });
+  }
 
   console.log("🌐 Starting gateway...");
   const gatewayDir = join(import.meta.dir, "..", "..", "..", "gateway");

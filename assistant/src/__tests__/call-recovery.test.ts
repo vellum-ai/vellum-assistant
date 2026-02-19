@@ -98,7 +98,7 @@ function createMockProvider(statusMap: Record<string, string> = {}): VoiceProvid
 /** Silent logger for tests */
 const silentLog = new Proxy({} as Record<string, unknown>, {
   get: () => () => {},
-}) as ReturnType<typeof import('../util/logger.js').getLogger>;
+}) as unknown as ReturnType<typeof import('../util/logger.js').getLogger>;
 
 describe('listRecoverableCalls', () => {
   beforeEach(() => {
@@ -203,7 +203,7 @@ describe('reconcileCallsOnStartup', () => {
     // Should complete without error
   });
 
-  test('fails stale calls with no provider SID (past grace period)', async () => {
+  test('leaves stale no-SID sessions non-terminal (past grace period)', async () => {
     const session = createTestCallSession({
       conversationId: 'conv-nosid',
       provider: 'twilio',
@@ -218,9 +218,10 @@ describe('reconcileCallsOnStartup', () => {
 
     const updated = getCallSession(session.id);
     expect(updated).not.toBeNull();
-    expect(updated!.status).toBe('failed');
-    expect(updated!.endedAt).not.toBeNull();
-    expect(updated!.lastError).toContain('Daemon restarted before call connected to provider');
+    // Should NOT be failed — left non-terminal so late webhooks can still deliver the SID
+    expect(updated!.status).toBe('initiated');
+    expect(updated!.endedAt).toBeNull();
+    expect(updated!.lastError).toContain('grace period expired but leaving non-terminal');
   });
 
   test('skips recent no-SID sessions within grace period', async () => {
@@ -424,7 +425,7 @@ describe('reconcileCallsOnStartup', () => {
   });
 
   test('handles mixed recoverable calls correctly', async () => {
-    // Call 1: no SID, stale — should fail
+    // Call 1: no SID, stale — should be left non-terminal (not failed)
     const noSid = createTestCallSession({
       conversationId: 'conv-mix1',
       provider: 'twilio',
@@ -464,8 +465,10 @@ describe('reconcileCallsOnStartup', () => {
 
     await reconcileCallsOnStartup(provider, silentLog);
 
+    // No-SID session left non-terminal so late webhooks can still resume it
     const updatedNoSid = getCallSession(noSid.id);
-    expect(updatedNoSid!.status).toBe('failed');
+    expect(updatedNoSid!.status).toBe('initiated');
+    expect(updatedNoSid!.lastError).toContain('grace period expired but leaving non-terminal');
 
     const updatedCompleted = getCallSession(completed.id);
     expect(updatedCompleted!.status).toBe('completed');

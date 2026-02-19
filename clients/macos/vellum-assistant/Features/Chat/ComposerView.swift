@@ -104,27 +104,30 @@ struct ComposerView: View {
                     attachmentStrip
                 }
 
-                if isComposerExpanded {
-                    // Expanded: text area on top, buttons on bottom row
+                // Text field always lives at the same structural position
+                // so that the NSViewRepresentable is never destroyed and
+                // recreated when toggling between compact/expanded layouts.
+                // In compact mode, buttons are overlaid at trailing edge;
+                // in expanded mode, they sit on a separate row below.
+                HStack(alignment: .center, spacing: VSpacing.md) {
                     composerTextField
                         .frame(height: clampedComposerHeight)
+                        .frame(maxHeight: isComposerExpanded ? clampedComposerHeight : .infinity, alignment: .center)
+                    if !isComposerExpanded {
+                        composerActionButtons
+                            .frame(maxHeight: .infinity, alignment: .center)
+                            .offset(y: compactActionOpticalYOffset)
+                    }
+                }
+                .frame(height: isComposerExpanded ? clampedComposerHeight : compactRowHeight, alignment: .center)
 
+                if isComposerExpanded {
+                    // Expanded: buttons on a separate row below the text area
                     HStack(spacing: VSpacing.md) {
                         Spacer()
                         composerActionButtons
                     }
                     .padding(.top, VSpacing.xs)
-                } else {
-                    // Compact: text and buttons on the same row
-                    HStack(alignment: .center, spacing: VSpacing.md) {
-                        composerTextField
-                            .frame(height: clampedComposerHeight)
-                            .frame(maxHeight: .infinity, alignment: .center)
-                        composerActionButtons
-                            .frame(maxHeight: .infinity, alignment: .center)
-                            .offset(y: compactActionOpticalYOffset)
-                    }
-                    .frame(height: compactRowHeight, alignment: .center)
                 }
             }
             .padding(.top, isComposerExpanded ? VSpacing.md : VSpacing.xs)
@@ -563,7 +566,7 @@ private struct ComposerTextView: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = false
+        scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
 
@@ -682,6 +685,9 @@ private struct ComposerTextView: NSViewRepresentable {
             parent.text = textView.string
             isWritingFromView = false
             syncHeight()
+            // After large pastes the scroll position may not reflect the
+            // insertion point. Scroll to the cursor so pasted text is visible.
+            textView.scrollRangeToVisible(textView.selectedRange())
         }
 
         func syncHeight() {

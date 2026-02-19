@@ -18,6 +18,7 @@
     "typecheck": "bunx tsc --noEmit",
     "test": "bash scripts/test.sh",
     "test:stable": "EXCLUDE_EXPERIMENTAL=true bash scripts/test.sh",
+    "test:bench": "find src/__tests__ -maxdepth 1 -type f -name '*.benchmark.test.ts' -print0 | xargs -0 -P 1 -I {} bun test {}",
     "test:filesystem-tools": "bash scripts/test-filesystem-tools.sh"
   },
   "dependencies": {

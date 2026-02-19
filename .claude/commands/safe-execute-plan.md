@@ -7,9 +7,6 @@ If `$ARGUMENTS` is empty, stop and tell the user to provide the plan filename. E
 ## Repo-specific gotchas
 
 - **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
-- **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
-- **Imports**: All imports use `.js` extensions (NodeNext module resolution).
-- **Project structure**: Bun + TypeScript project. Code is in `assistant/`.
 
 ## Steps
 
@@ -55,8 +52,7 @@ ALL work happens in the worktree — do NOT modify files in the main repo.
 
 Read the PR section carefully. Implement all the changes described:
 - Create/modify the listed files according to the steps.
-- Follow the project conventions.
-- Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
+- Follow the project conventions described in AGENTS.md.
 
 #### 4c. Validate
 

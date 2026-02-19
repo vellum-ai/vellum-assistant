@@ -9,29 +9,7 @@ You can order food from DoorDash for the user using the `vellum doordash` CLI.
 
 ## Task Progress Widget
 
-When executing a food ordering flow, show live progress using the `task_progress` card template. Before starting, call `ui_show` with:
-```json
-{
-  "surface_type": "card",
-  "data": {
-    "title": "Ordering from DoorDash",
-    "body": "",
-    "template": "task_progress",
-    "templateData": {
-      "title": "Ordering from DoorDash",
-      "status": "in_progress",
-      "steps": [
-        { "label": "Check session", "status": "in_progress" },
-        { "label": "Search restaurants", "status": "pending" },
-        { "label": "Browse menu", "status": "pending" },
-        { "label": "Add to cart", "status": "pending" },
-        { "label": "Place order", "status": "pending" }
-      ]
-    }
-  }
-}
-```
-As each step completes, call `ui_update` with the same surface ID and patch `data.templateData` (not top-level `status`/`steps`) to update step statuses. Add `detail` to completed steps (e.g. `"detail": "Found Andiamo's"`). Adapt the steps to the actual flow (e.g. skip "Search restaurants" if the user named a specific store).
+A task progress card is shown automatically when you run your first `vellum doordash` command. Its surface ID is `doordash-progress`. As each step completes, call `ui_update` with surface ID `doordash-progress` to update step statuses. Update `data.templateData.steps` — set completed steps to `"status": "completed"` with a `"detail"` string, the current step to `"status": "in_progress"`, and future steps to `"status": "pending"`. Adapt the steps to the actual flow (e.g. skip "Search restaurants" if the user named a specific store).
 
 ## Typical Flow
 

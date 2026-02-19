@@ -8,9 +8,6 @@ If `$ARGUMENTS` is empty, stop and tell the user to provide a description of wha
 
 - **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
 - **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
-- **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
-- **Imports**: All imports use `.js` extensions (NodeNext module resolution).
-- **Project structure**: Bun + TypeScript project. Code is in `assistant/`.
 
 ## Steps
 

@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, mock, test, beforeEach } from 'bun:test';
+import { describe, expect, mock, test, beforeEach } from 'bun:test';
 import { rmSync, writeFileSync } from 'node:fs';
 import type { Message, ProviderResponse } from '../providers/types.js';
 import type { AgentEvent, CheckpointInfo, CheckpointDecision } from '../agent/loop.js';
@@ -295,10 +295,6 @@ beforeEach(() => {
   turnCommitCalls.length = 0;
   turnCommitHangForever = false;
   linkAttachmentShouldThrow = false;
-});
-
-afterAll(() => {
-  mock.restore();
 });
 
 // ---------------------------------------------------------------------------

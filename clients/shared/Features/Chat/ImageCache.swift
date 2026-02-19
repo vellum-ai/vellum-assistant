@@ -32,7 +32,10 @@ public actor ImageCache {
         }
 
         let task = Task<Data, Error> {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(from: url)
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                throw URLError(.badServerResponse)
+            }
             return data
         }
 

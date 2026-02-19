@@ -19,7 +19,7 @@ import type {
   SkillsSearchRequest,
   SkillsInspectRequest,
 } from '../ipc-protocol.js';
-import { log, CONFIG_RELOAD_DEBOUNCE_MS, ensureSkillEntry, type HandlerContext } from './shared.js';
+import { log, CONFIG_RELOAD_DEBOUNCE_MS, ensureSkillEntry, type HandlerContext, type DispatchMap } from './shared.js';
 
 export function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
   const config = getConfig();
@@ -485,3 +485,17 @@ export async function handleSkillDetail(
     });
   }
 }
+
+export const skillHandlers: Partial<DispatchMap> = {
+  skills_list: (_msg, socket, ctx) => handleSkillsList(socket, ctx),
+  skill_detail: handleSkillDetail,
+  skills_enable: handleSkillsEnable,
+  skills_disable: handleSkillsDisable,
+  skills_configure: handleSkillsConfigure,
+  skills_install: handleSkillsInstall,
+  skills_uninstall: handleSkillsUninstall,
+  skills_update: handleSkillsUpdate,
+  skills_check_updates: handleSkillsCheckUpdates,
+  skills_search: handleSkillsSearch,
+  skills_inspect: handleSkillsInspect,
+};

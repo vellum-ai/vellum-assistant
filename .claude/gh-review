@@ -4,6 +4,11 @@ set -euo pipefail
 # .claude/gh-review — Review thread operations
 # Reply to and resolve bot review threads on PRs.
 
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_SLUG=$(git -C "$REPO_ROOT" remote get-url origin | sed -E 's#.+github\.com[:/]##; s/\.git$//')
+REPO_OWNER="${REPO_SLUG%%/*}"
+REPO_NAME="${REPO_SLUG##*/}"
+
 usage() {
   cat <<'EOF'
 Usage: .claude/gh-review <command> [args]
@@ -35,7 +40,7 @@ cmd_resolve_threads() {
   threads_json=$(gh api graphql \
     -F prNumber="$pr_number" \
     -f query='query($prNumber: Int!) {
-    repository(owner: "vellum-ai", name: "vellum-assistant") {
+    repository(owner: "'"$REPO_OWNER"'", name: "'"$REPO_NAME"'") {
       pullRequest(number: $prNumber) {
         reviewThreads(first: 100) {
           nodes {

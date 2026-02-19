@@ -3,6 +3,8 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"  # .claude/ → repo root
 PARENT_DIR="$(dirname "$REPO_ROOT")"
+REPO_NAME="$(basename "$REPO_ROOT")"
+WT_PREFIX="${REPO_NAME}-wt"
 
 usage() {
   echo "Usage: .claude/worktree <create|remove|list> [args]"
@@ -27,7 +29,7 @@ create() {
   local branch="$1"
   local start_point="${2:-}"
   local slug="${branch//\//-}"
-  local dir="$PARENT_DIR/vellum-wt-${slug}"
+  local dir="$PARENT_DIR/${WT_PREFIX}-${slug}"
 
   if [ -d "$dir" ]; then
     echo "Error: worktree already exists at $dir"
@@ -41,9 +43,25 @@ create() {
     git -C "$REPO_ROOT" worktree add "$dir" -b "$branch"
   fi
 
-  echo "Installing assistant dependencies..."
+  # Install dependencies if a package manager lock file exists
   export PATH="$HOME/.bun/bin:$PATH"
-  cd "$dir/assistant" && bun install
+  if [ -f "$dir/bun.lockb" ] || [ -f "$dir/bun.lock" ]; then
+    echo "Installing dependencies..."
+    cd "$dir" && bun install
+  elif [ -f "$dir/package-lock.json" ]; then
+    echo "Installing dependencies..."
+    cd "$dir" && npm install
+  fi
+  # Also install in subdirectories that have their own lock files
+  for subdir in "$dir"/*/; do
+    if [ -f "${subdir}bun.lockb" ] || [ -f "${subdir}bun.lock" ]; then
+      echo "Installing dependencies in $(basename "$subdir")..."
+      cd "$subdir" && bun install
+    elif [ -f "${subdir}package-lock.json" ]; then
+      echo "Installing dependencies in $(basename "$subdir")..."
+      cd "$subdir" && npm install
+    fi
+  done
 
   # Copy local settings so agents spawned in this worktree have tool permissions
   if [ -f "$REPO_ROOT/.claude/settings.local.json" ]; then
@@ -68,11 +86,17 @@ remove() {
   done
 
   local slug="${branch//\//-}"
-  local dir="$PARENT_DIR/vellum-wt-${slug}"
+  local dir="$PARENT_DIR/${WT_PREFIX}-${slug}"
 
+  # Fall back to legacy prefix for worktrees created before the rename
   if [ ! -d "$dir" ]; then
-    echo "Error: no worktree at $dir"
-    exit 1
+    local legacy_dir="$PARENT_DIR/vellum-wt-${slug}"
+    if [ -d "$legacy_dir" ]; then
+      dir="$legacy_dir"
+    else
+      echo "Error: no worktree at $dir"
+      exit 1
+    fi
   fi
 
   echo "Removing worktree at $dir..."

@@ -1,3 +1,4 @@
+import AppKit
 import VellumAssistantShared
 import SwiftUI
 
@@ -124,38 +125,68 @@ struct HatchingStepView: View {
 
     // MARK: - Log Output
 
+    @State private var showCopiedFeedback = false
+
     private var logOutput: some View {
         VStack(spacing: VSpacing.xs) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(Array(state.hatchLogLines.enumerated()), id: \.offset) { index, line in
-                            Text(line)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(VColor.textMuted)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .id(index)
+            ZStack(alignment: .topTrailing) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(Array(state.hatchLogLines.enumerated()), id: \.offset) { index, line in
+                                Text(line)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(VColor.textMuted)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .id(index)
+                            }
+                        }
+                        .padding(VSpacing.sm)
+                    }
+                    .frame(maxWidth: 380, maxHeight: 140)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .fill(adaptiveColor(
+                                light: Color(nsColor: NSColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)),
+                                dark: VColor.surface.opacity(0.3)
+                            ))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+                    .onChange(of: state.hatchLogLines.count) { _, _ in
+                        if let last = state.hatchLogLines.indices.last {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                proxy.scrollTo(last, anchor: .bottom)
+                            }
                         }
                     }
-                    .padding(VSpacing.sm)
                 }
-                .frame(maxWidth: 380, maxHeight: 140)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(adaptiveColor(
-                            light: Color(nsColor: NSColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)),
-                            dark: VColor.surface.opacity(0.3)
-                        ))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
-                .onChange(of: state.hatchLogLines.count) { _, _ in
-                    if let last = state.hatchLogLines.indices.last {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(last, anchor: .bottom)
+
+                if !state.hatchLogLines.isEmpty {
+                    Button(action: {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(
+                            state.hatchLogLines.joined(separator: "\n"),
+                            forType: .string
+                        )
+                        showCopiedFeedback = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            showCopiedFeedback = false
                         }
+                    }) {
+                        Image(systemName: showCopiedFeedback ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 10))
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(6)
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
                 }
             }

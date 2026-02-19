@@ -35,8 +35,10 @@ mock.module('../config/loader.js', () => ({
     calls: {
       enabled: true,
       provider: 'twilio',
-      maxDurationSeconds: 3600,
-      userConsultTimeoutSeconds: 120,
+      maxDurationSeconds: 12 * 60,
+      userConsultTimeoutSeconds: 90,
+      userConsultationTimeoutSeconds: 90,
+      silenceTimeoutSeconds: 30,
       disclosure: { enabled: false, text: '' },
       safety: { denyCategories: [] },
     },
@@ -96,6 +98,7 @@ import {
   createCallSession,
   getCallSession,
   getPendingQuestion,
+  updateCallSession,
 } from '../calls/call-store.js';
 import {
   getCallOrchestrator,
@@ -180,6 +183,7 @@ function setupOrchestrator(task?: string) {
     toNumber: '+15552222222',
     task,
   });
+  updateCallSession(session.id, { status: 'in_progress' });
   const relay = createMockRelay();
   const orchestrator = new CallOrchestrator(session.id, relay as unknown as RelayConnection, task ?? null);
   return { session, relay, orchestrator };
@@ -219,6 +223,27 @@ describe('call-orchestrator', () => {
     // Find the final empty-string token that marks end of turn
     const endMarkers = relay.sentTokens.filter((t) => t.last === true);
     expect(endMarkers.length).toBeGreaterThanOrEqual(1);
+
+    orchestrator.destroy();
+  });
+
+  test('handleCallerUtterance: includes speaker context in model message', async () => {
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { messages: Array<{ role: string; content: string }> };
+      const userMessage = firstArg.messages.find((m) => m.role === 'user');
+      expect(userMessage?.content).toContain('[SPEAKER id="speaker-1" label="Aaron" source="provider" confidence="0.91"]');
+      expect(userMessage?.content).toContain('Can you summarize this meeting?');
+      return createMockStream(['Sure, here is a summary.']);
+    });
+
+    const { orchestrator } = setupOrchestrator();
+
+    await orchestrator.handleCallerUtterance('Can you summarize this meeting?', {
+      speakerId: 'speaker-1',
+      speakerLabel: 'Aaron',
+      speakerConfidence: 0.91,
+      source: 'provider',
+    });
 
     orchestrator.destroy();
   });

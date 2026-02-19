@@ -206,7 +206,7 @@ Pulls main, determines/creates a version tag, generates release notes from commi
 
 Plans a feature from scratch, creates a GitHub project board and milestone issues, swarm-executes them in parallel, sweeps for review feedback, addresses it, and reports a final summary. Combines `/brainstorm` + `/swarm` + `/check-reviews` into a single end-to-end workflow.
 
-The project board is created under the `vellum-ai` org with the naming convention `<github-username>-vellum-assistant`. Milestone issues are added to the board and tracked through Ready → In Progress → In Review → Done.
+The project board is created under the `vellum-ai` org with the naming convention `<github-username>-<repo-name>`. Milestone issues are added to the board and tracked through Ready → In Progress → In Review → Done.
 
 **When to use:** When you have a feature to build end-to-end and want the full plan → execute → review → fix cycle handled automatically.
 

@@ -49,9 +49,7 @@ For each task being handed off:
 You are working on a single task in an isolated git worktree.
 
 ## Project context
-- Bun + TypeScript project. Code is in `assistant/`.
-- Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
-- All imports use `.js` extensions (NodeNext module resolution).
+Read AGENTS.md in the repo root for project conventions and structure.
 
 ## Repo-specific gotchas
 - `gh pr view` does NOT support a `merged` --json field. Use `state` and `mergedAt`: `gh pr view <N> --json state,mergedAt,title,url`
