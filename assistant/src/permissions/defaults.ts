@@ -12,8 +12,6 @@ export interface DefaultRuleTemplate {
   priority: number;
 }
 
-/** Tools that directly access the filesystem by path. */
-const FILE_TOOLS = ['file_read', 'file_write', 'file_edit'] as const;
 const HOST_FILE_TOOLS = ['host_file_read', 'host_file_write', 'host_file_edit'] as const;
 const COMPUTER_USE_TOOLS = [
   'computer_use_click',
@@ -37,19 +35,6 @@ const COMPUTER_USE_TOOLS = [
  * Computed at runtime so paths reflect the configured root directory.
  */
 export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
-  // Use forward slashes so minimatch patterns work on all platforms
-  // (path.join produces backslashes on Windows, which minimatch treats as escapes).
-  const protectedDir = join(getRootDir(), 'protected').replaceAll('\\', '/');
-
-  const protectedFileRules = FILE_TOOLS.map((tool) => ({
-    id: `default:ask-${tool}-protected`,
-    tool,
-    pattern: `${tool}:${protectedDir}/**`,
-    scope: 'everywhere',
-    decision: 'ask' as const,
-    priority: 1000,
-  }));
-
   const hostFileRules = HOST_FILE_TOOLS.map((tool) => ({
     id: `default:ask-${tool}-global`,
     tool,
@@ -221,7 +206,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   }));
 
   return [
-    ...protectedFileRules,
     ...hostFileRules,
     hostShellRule,
     ...computerUseRules,
