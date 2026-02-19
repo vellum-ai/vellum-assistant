@@ -33,6 +33,69 @@ final class ActionVerifierTests: XCTestCase {
         XCTAssertEqual(isAllowed(result), true, "Non-consecutive identical actions should be allowed")
     }
 
+    func testLoopDetection_alternatingPattern_blocked() {
+        let a = AgentAction(type: .click, reasoning: "test", x: 100, y: 200)
+        let b = AgentAction(type: .click, reasoning: "test", x: 300, y: 400)
+
+        XCTAssertEqual(isAllowed(verifier.verify(a)), true)
+        XCTAssertEqual(isAllowed(verifier.verify(b)), true)
+        XCTAssertEqual(isAllowed(verifier.verify(a)), true)
+        // Fourth action completes the A-B-A-B cycle
+        XCTAssertEqual(isBlocked(verifier.verify(b)), true, "Alternating A-B-A-B pattern should be blocked")
+    }
+
+    func testLoopDetection_length3Cycle_blocked() {
+        let a = AgentAction(type: .click, reasoning: "test", x: 100, y: 200)
+        let b = AgentAction(type: .key, reasoning: "test", key: "tab")
+        let c = AgentAction(type: .click, reasoning: "test", x: 300, y: 400)
+
+        XCTAssertEqual(isAllowed(verifier.verify(a)), true)
+        XCTAssertEqual(isAllowed(verifier.verify(b)), true)
+        XCTAssertEqual(isAllowed(verifier.verify(c)), true)
+        XCTAssertEqual(isAllowed(verifier.verify(a)), true)
+        XCTAssertEqual(isAllowed(verifier.verify(b)), true)
+        // Sixth action completes A-B-C-A-B-C
+        XCTAssertEqual(isBlocked(verifier.verify(c)), true, "Length-3 cycle A-B-C-A-B-C should be blocked")
+    }
+
+    func testLoopDetection_nearIdenticalClicks_blocked() {
+        // Same target but coordinates differ by less than 5px
+        let click1 = AgentAction(type: .click, reasoning: "test", x: 100, y: 200)
+        let click2 = AgentAction(type: .click, reasoning: "test", x: 103, y: 198)
+        let click3 = AgentAction(type: .click, reasoning: "test", x: 101, y: 202)
+
+        XCTAssertEqual(isAllowed(verifier.verify(click1)), true)
+        XCTAssertEqual(isAllowed(verifier.verify(click2)), true)
+        XCTAssertEqual(isBlocked(verifier.verify(click3)), true,
+                       "Near-identical clicks (within 5px) should be treated as same action")
+    }
+
+    func testLoopDetection_farApartClicks_allowed() {
+        // Coordinates differ by more than 5px — not a loop
+        let click1 = AgentAction(type: .click, reasoning: "test", x: 100, y: 200)
+        let click2 = AgentAction(type: .click, reasoning: "test", x: 110, y: 200)
+        let click3 = AgentAction(type: .click, reasoning: "test", x: 120, y: 200)
+
+        XCTAssertEqual(isAllowed(verifier.verify(click1)), true)
+        XCTAssertEqual(isAllowed(verifier.verify(click2)), true)
+        XCTAssertEqual(isAllowed(verifier.verify(click3)), true,
+                       "Clicks more than 5px apart should not be treated as a loop")
+    }
+
+    func testLoopDetection_nearIdenticalAlternating_blocked() {
+        // Alternating near-identical clicks on two targets
+        let a1 = AgentAction(type: .click, reasoning: "test", x: 100, y: 200)
+        let b1 = AgentAction(type: .click, reasoning: "test", x: 300, y: 400)
+        let a2 = AgentAction(type: .click, reasoning: "test", x: 102, y: 198)
+        let b2 = AgentAction(type: .click, reasoning: "test", x: 301, y: 403)
+
+        XCTAssertEqual(isAllowed(verifier.verify(a1)), true)
+        XCTAssertEqual(isAllowed(verifier.verify(b1)), true)
+        XCTAssertEqual(isAllowed(verifier.verify(a2)), true)
+        XCTAssertEqual(isBlocked(verifier.verify(b2)), true,
+                       "Near-identical alternating clicks should be detected as a loop")
+    }
+
     // MARK: - Credit Card Detection
 
     func testSensitiveData_creditCard_blocked() {

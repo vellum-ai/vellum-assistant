@@ -22,12 +22,9 @@ final class ActionVerifier {
             return .blocked("Maximum step limit (\(maxSteps)) reached")
         }
 
-        // 2. Loop detection — same action 3 times consecutively
-        if actionHistory.count >= 2 {
-            let last2 = Array(actionHistory.suffix(2))
-            if last2.allSatisfy({ actionsAreIdentical($0, action) }) {
-                return .blocked("Agent appears stuck — same action repeated 3 times consecutively")
-            }
+        // 2. Loop detection — repeating action patterns
+        if detectLoop(including: action) {
+            return .blocked("Agent appears stuck in a repeating action loop")
         }
 
         // 3. Sensitive text detection
@@ -109,10 +106,70 @@ final class ActionVerifier {
 
     func resetBlockCount() { blockedCount = 0 }
 
+    // MARK: - Loop Detection
+
+    private static let loopWindowSize = 10
+    private static let coordinateTolerance: CGFloat = 5
+    private static let clickTypes: Set<ActionType> = [.click, .doubleClick, .rightClick]
+
+    /// Detects repeating action patterns using a sliding window.
+    /// Checks for length-1 cycles (3 consecutive identical) and
+    /// length 2-4 cycles (pattern repeats twice) within the last 10 actions.
+    private func detectLoop(including candidate: AgentAction) -> Bool {
+        let historySlice = actionHistory.suffix(Self.loopWindowSize - 1)
+        var window = Array(historySlice)
+        window.append(candidate)
+
+        // Length-1: same action 3 times in a row
+        if window.count >= 3 {
+            let tail = window.suffix(3)
+            let first = tail[tail.startIndex]
+            if tail.dropFirst().allSatisfy({ actionsMatch($0, first) }) {
+                return true
+            }
+        }
+
+        // Length 2-4: pattern repeats at least twice consecutively
+        for cycleLen in 2...4 {
+            let needed = cycleLen * 2
+            guard window.count >= needed else { continue }
+            let end = window.count
+            let patternA = window[(end - needed)..<(end - cycleLen)]
+            let patternB = window[(end - cycleLen)..<end]
+            if zip(patternA, patternB).allSatisfy({ actionsMatch($0, $1) }) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     // MARK: - Comparison
 
-    private func actionsAreIdentical(_ a: AgentAction, _ b: AgentAction) -> Bool {
-        a.type == b.type && a.x == b.x && a.y == b.y && a.text == b.text && a.key == b.key && a.appName == b.appName && a.script == b.script
+    /// Compare two actions for equivalence. Click-type actions use proximity
+    /// matching on coordinates (within 5px) to catch near-identical clicks.
+    private func actionsMatch(_ a: AgentAction, _ b: AgentAction) -> Bool {
+        guard a.type == b.type && a.text == b.text && a.key == b.key
+              && a.appName == b.appName && a.script == b.script else {
+            return false
+        }
+        if Self.clickTypes.contains(a.type) {
+            return coordinatesMatch(a.x, a.y, b.x, b.y)
+        }
+        return a.x == b.x && a.y == b.y
+    }
+
+    private func coordinatesMatch(_ ax: CGFloat?, _ ay: CGFloat?,
+                                  _ bx: CGFloat?, _ by: CGFloat?) -> Bool {
+        switch (ax, ay, bx, by) {
+        case let (.some(x1), .some(y1), .some(x2), .some(y2)):
+            return abs(x1 - x2) <= Self.coordinateTolerance
+                && abs(y1 - y2) <= Self.coordinateTolerance
+        case (.none, .none, .none, .none):
+            return true
+        default:
+            return false
+        }
     }
 
     // MARK: - Sensitive Data Detection
