@@ -139,6 +139,25 @@ export function updateCallSession(
     .run();
 }
 
+// ── Recovery queries ─────────────────────────────────────────────────
+
+/**
+ * Returns all call sessions that are in a non-terminal state
+ * (i.e. not completed, failed, or cancelled). Used during daemon startup
+ * to reconcile in-flight calls.
+ */
+export function listRecoverableCalls(): CallSession[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(callSessions)
+    .where(
+      notInArray(callSessions.status, ['completed', 'failed', 'cancelled']),
+    )
+    .all();
+  return rows.map(parseCallSession);
+}
+
 // ── Call Events ──────────────────────────────────────────────────────
 
 export function recordCallEvent(

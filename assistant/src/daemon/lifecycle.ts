@@ -45,6 +45,8 @@ import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
 import { HeartbeatService } from '../workspace/heartbeat-service.js';
 import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
+import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
+import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 
 const log = getLogger('lifecycle');
 
@@ -290,6 +292,15 @@ export async function runDaemon(): Promise<void> {
       log.info({ workItemId: item.id, title: item.title }, 'Recovered orphaned running work item → failed (interrupted)');
     }
     log.info({ count: orphanedRunning.length }, 'Recovered orphaned running work items');
+  }
+
+  // Reconcile in-flight calls that were left in non-terminal states
+  // after a daemon crash or restart.
+  try {
+    const twilioProvider = new TwilioConversationRelayProvider();
+    await reconcileCallsOnStartup(twilioProvider, log);
+  } catch (err) {
+    log.warn({ err }, 'Call recovery failed — continuing startup');
   }
 
   log.info('Daemon startup: loading config');
