@@ -154,6 +154,8 @@ class TaskListAddTool implements Tool {
           sortIndex,
         });
 
+        log.info({ selectorType: 'title', workItemId: workItem.id, title: workItem.title }, 'ad-hoc work item created');
+
         const priority = PRIORITY_LABELS[workItem.priorityTier] ?? `tier ${workItem.priorityTier}`;
         const lines = [
           `Enqueued work item:`,
@@ -218,6 +220,7 @@ class TaskListAddTool implements Tool {
 
       log.debug({ title: finalTitle }, 'task_list_add: creating new item');
 
+      const selectorType = taskId ? 'task_id' : 'task_name';
       const workItem = createWorkItem({
         taskId: resolvedTask.id,
         title: finalTitle,
@@ -225,6 +228,8 @@ class TaskListAddTool implements Tool {
         priorityTier: priorityTier ?? 1,
         sortIndex,
       });
+
+      log.info({ selectorType, taskId: resolvedTask.id, workItemId: workItem.id, title: workItem.title }, 'work item created from task definition');
 
       const priority = PRIORITY_LABELS[workItem.priorityTier] ?? `tier ${workItem.priorityTier}`;
       const lines = [
@@ -245,6 +250,7 @@ class TaskListAddTool implements Tool {
       return { content: lines.join('\n'), isError: false };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      log.error({ error: msg }, 'enqueue failed');
       return { content: `Error: ${msg}`, isError: true };
     }
   }

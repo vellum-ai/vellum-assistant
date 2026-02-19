@@ -2,6 +2,9 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { resolveWorkItem, deleteWorkItem } from '../../work-items/work-item-store.js';
+import { getLogger } from '../../util/logger.js';
+
+const log = getLogger('task-list-remove');
 
 const definition: ToolDefinition = {
   name: 'task_list_remove',
@@ -41,6 +44,8 @@ class TaskListRemoveTool implements Tool {
   }
 
   async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+    const selectorType = input.work_item_id ? 'work_item_id' : input.task_id ? 'task_id' : input.task_name ? 'task_name' : input.title ? 'title' : 'none';
+
     try {
       const selector = {
         workItemId: input.work_item_id as string | undefined,
@@ -49,13 +54,17 @@ class TaskListRemoveTool implements Tool {
       };
 
       const item = resolveWorkItem(selector);
-      const title = item.title;
+
+      log.info({ selectorType, selectorValue: input[selectorType], resolvedWorkItemId: item.id, title: item.title }, 'resolved work item for removal');
 
       deleteWorkItem(item.id);
 
-      return { content: `Removed "${title}" from the task queue.`, isError: false };
+      log.info({ resolvedWorkItemId: item.id, deletedCount: 1 }, 'work item removed');
+
+      return { content: `Removed "${item.title}" from the task queue.`, isError: false };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      log.error({ selectorType, error: msg }, 'remove failed');
       return { content: `Error: ${msg}`, isError: true };
     }
   }
