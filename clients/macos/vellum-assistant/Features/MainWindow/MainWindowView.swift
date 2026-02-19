@@ -297,8 +297,9 @@ struct MainWindowView: View {
 
                     // Right: Top bar + main content
                     VStack(spacing: 0) {
-                        if windowState.isShowingChat {
-                            // Top bar — only shown for chat views, not panels.
+                        // Top bar — sidebar toggle always visible when sidebar is closed;
+                        // TemporaryChatToggle only shown on chat views.
+                        if !(sidebarOpen && windowState.layoutConfig.left.visible) || windowState.isShowingChat {
                             HStack(spacing: 0) {
                                 if !(sidebarOpen && windowState.layoutConfig.left.visible) {
                                     VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true) {
@@ -308,10 +309,12 @@ struct MainWindowView: View {
                                     }
                                 }
                                 Spacer()
-                                TemporaryChatToggle(
-                                    isActive: threadManager.activeThread?.kind == .private,
-                                    onToggle: { toggleTemporaryChat() }
-                                )
+                                if windowState.isShowingChat {
+                                    TemporaryChatToggle(
+                                        isActive: threadManager.activeThread?.kind == .private,
+                                        onToggle: { toggleTemporaryChat() }
+                                    )
+                                }
                             }
                             .padding(.leading, (sidebarOpen && windowState.layoutConfig.left.visible) ? VSpacing.sm : trafficLightPadding)
                             .padding(.trailing, VSpacing.lg)
@@ -554,7 +557,7 @@ struct MainWindowView: View {
                     .truncationMode(.tail)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, VSpacing.xs)
+            .padding(.leading, VSpacing.md)
             .padding(.trailing, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
             .background {
@@ -713,7 +716,7 @@ struct MainWindowView: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.leading, VSpacing.md)
+                                .padding(.leading, 20)
                                 .padding(.vertical, VSpacing.xs)
                         }
                         .buttonStyle(.plain)
@@ -1351,7 +1354,8 @@ private struct NewChatButton: View {
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
             }
-            .padding(.horizontal, VSpacing.md)
+            .padding(.leading, 20)
+            .padding(.trailing, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
             .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : .clear)
             .contentShape(Rectangle())
@@ -1379,7 +1383,8 @@ private struct SidebarNavRow: View {
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
             }
-            .padding(.horizontal, VSpacing.md)
+            .padding(.leading, 20)
+            .padding(.trailing, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
             .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : .clear)
             .contentShape(Rectangle())
@@ -1397,7 +1402,8 @@ private struct SidebarSubheader: View {
             .font(VFont.caption)
             .foregroundColor(VColor.textMuted)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, VSpacing.md)
+            .padding(.leading, 20)
+            .padding(.trailing, VSpacing.md)
             .padding(.vertical, 20)
     }
 }
