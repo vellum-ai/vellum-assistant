@@ -227,7 +227,7 @@ struct SecretPromptView: View {
                                 withAnimation(VAnimation.standard) { saved = true }
                             }
                         }
-                        .disabled(secretValue.isEmpty)
+                        .disabled(secretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
 
                     if allowOneTimeSend {
@@ -240,7 +240,7 @@ struct SecretPromptView: View {
                                 guard !trimmed.isEmpty else { return }
                                 _ = onSendOnce(trimmed)
                             }
-                            .disabled(secretValue.isEmpty)
+                            .disabled(secretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }
                 }

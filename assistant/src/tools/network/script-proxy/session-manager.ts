@@ -1,5 +1,6 @@
 import type { Server } from 'node:http';
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { createProxyServer } from './server.js';
 import type { ProxyServerConfig } from './server.js';
@@ -372,7 +373,13 @@ export function getSessionEnv(
     env.NODE_EXTRA_CA_CERTS = getCAPath(managed.dataDir);
     // Combined bundle lets non-Node clients (curl, Python, Go) trust
     // the proxy CA alongside system roots via SSL_CERT_FILE.
-    env.SSL_CERT_FILE = getCombinedCAPath(managed.dataDir);
+    // Only set when the bundle file actually exists — it's created by
+    // ensureCombinedCABundle() during MITM setup, and pointing
+    // SSL_CERT_FILE at a missing file would break trust roots.
+    const combinedPath = getCombinedCAPath(managed.dataDir);
+    if (existsSync(combinedPath)) {
+      env.SSL_CERT_FILE = combinedPath;
+    }
   }
 
   return env;
