@@ -66,9 +66,6 @@ struct AvatarCustomizationPanel: View {
 
                     // Outfit section
                     outfitSection
-
-                    // Reset button
-                    resetButton
                 }
 
                 Spacer(minLength: VSpacing.xxl)
@@ -88,15 +85,18 @@ struct AvatarCustomizationPanel: View {
 
     @ViewBuilder
     private var avatarPreview: some View {
-        HStack {
-            Spacer()
-            DinoSceneView(
-                seed: identity?.name ?? "default",
-                palette: appearance.palette,
-                outfit: appearance.outfit
-            )
-            .frame(width: 140, height: 160)
-            Spacer()
+        ZStack(alignment: .topTrailing) {
+            HStack {
+                Spacer()
+                DinoSceneView(
+                    seed: identity?.name ?? "default",
+                    palette: appearance.palette,
+                    outfit: appearance.outfit
+                )
+                .frame(width: 140, height: 160)
+                Spacer()
+            }
+            resetButton
         }
     }
 
@@ -290,29 +290,24 @@ struct AvatarCustomizationPanel: View {
 
     @ViewBuilder
     private var resetButton: some View {
-        HStack {
-            Spacer()
-            Button {
-                resetToAuto()
-            } label: {
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 12, weight: .medium))
-                    Text("Reset to Auto")
-                        .font(VFont.bodyMedium)
-                }
-                .foregroundColor(VColor.textSecondary)
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.vertical, VSpacing.sm)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
-                )
+        Button {
+            resetToAuto()
+        } label: {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 12, weight: .medium))
+                Text("Reset to Auto")
+                    .font(VFont.bodyMedium)
             }
-            .buttonStyle(.plain)
-            Spacer()
+            .foregroundColor(VColor.textSecondary)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.xs)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
         }
-        .padding(.top, VSpacing.sm)
+        .buttonStyle(.plain)
     }
 
     // MARK: - Actions
