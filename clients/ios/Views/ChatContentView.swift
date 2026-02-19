@@ -35,28 +35,46 @@ struct ChatContentView: View {
                     LazyVStack(spacing: VSpacing.md) {
                         let messages = viewModel.messages
                         ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                            let isLastAssistant = message.role == .assistant
-                                && !message.isStreaming
-                                && (index == messages.count - 1
-                                    || (index == messages.count - 2
-                                        && messages[messages.count - 1].confirmation != nil
-                                        && messages[messages.count - 1].confirmation?.state != .pending))
-                                && !viewModel.isSending
-                                && !viewModel.isThinking
-                            MessageBubbleView(
-                                message: message,
-                                onConfirmationResponse: { requestId, decision in
-                                    viewModel.respondToConfirmation(requestId: requestId, decision: decision)
-                                },
-                                onSurfaceAction: { surfaceId, actionId, data in
-                                    viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data)
-                                },
-                                onRegenerate: isLastAssistant ? { viewModel.regenerateLastMessage() } : nil,
-                                onAddTrustRule: { toolName, pattern, scope, decision in
-                                    viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision)
-                                }
-                            )
-                            .id(message.id)
+                            if message.modelPicker != nil {
+                                ModelPickerBubble(
+                                    models: ModelListBubble.anthropicModels.map { (id: $0.cmd, name: $0.display) },
+                                    selectedModelId: "claude-opus-4-6",
+                                    onSelect: { modelId in
+                                        viewModel.inputText = "/\(modelId)"
+                                        viewModel.sendMessage()
+                                    }
+                                )
+                                .id(message.id)
+                            } else if message.modelList != nil {
+                                ModelListBubble(currentModel: "claude-opus-4-6", configuredProviders: ["anthropic"])
+                                    .id(message.id)
+                            } else if message.commandList != nil {
+                                CommandListBubble()
+                                    .id(message.id)
+                            } else {
+                                let isLastAssistant = message.role == .assistant
+                                    && !message.isStreaming
+                                    && (index == messages.count - 1
+                                        || (index == messages.count - 2
+                                            && messages[messages.count - 1].confirmation != nil
+                                            && messages[messages.count - 1].confirmation?.state != .pending))
+                                    && !viewModel.isSending
+                                    && !viewModel.isThinking
+                                MessageBubbleView(
+                                    message: message,
+                                    onConfirmationResponse: { requestId, decision in
+                                        viewModel.respondToConfirmation(requestId: requestId, decision: decision)
+                                    },
+                                    onSurfaceAction: { surfaceId, actionId, data in
+                                        viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data)
+                                    },
+                                    onRegenerate: isLastAssistant ? { viewModel.regenerateLastMessage() } : nil,
+                                    onAddTrustRule: { toolName, pattern, scope, decision in
+                                        viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision)
+                                    }
+                                )
+                                .id(message.id)
+                            }
                         }
 
                         // Current step indicator shown while generating
