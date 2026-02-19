@@ -383,6 +383,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        daemonClient.onOpenTasksWindow = { [weak self] in
+            self?.showTasksWindow()
+        }
+
         // Handle escalation: text_qa -> computer_use via computer_use_request_control
         daemonClient.onTaskRouted = { [weak self] routed in
             guard let self else { return }
