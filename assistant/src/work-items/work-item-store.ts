@@ -2,6 +2,7 @@ import { eq, desc, asc } from 'drizzle-orm';
 import { getDb } from '../memory/db.js';
 import { workItems } from '../memory/schema.js';
 import { getTask } from '../tasks/task-store.js';
+import { sanitizeToolList } from '../tasks/tool-sanitizer.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -81,7 +82,7 @@ export function createWorkItemWithPermissions(opts: {
 
   const task = getTask(opts.taskId);
   if (task) {
-    const requiredTools: string[] = task.requiredTools ? JSON.parse(task.requiredTools) : [];
+    const requiredTools = sanitizeToolList(task.requiredTools ? JSON.parse(task.requiredTools) : []);
     if (requiredTools.length > 0) {
       const updated = updateWorkItem(item.id, {
         approvedTools: JSON.stringify(requiredTools),

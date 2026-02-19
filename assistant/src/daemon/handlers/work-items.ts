@@ -25,6 +25,7 @@ import { runTask } from '../../tasks/task-runner.js';
 import { getMessages } from '../../memory/conversation-store.js';
 import { classifyRisk, check } from '../../permissions/checker.js';
 import { truncate } from '../../util/truncate.js';
+import { CANONICAL_TOOLS, sanitizeToolList, getToolDescription } from '../../tasks/tool-sanitizer.js';
 
 export function handleWorkItemsList(
   msg: WorkItemsListRequest,
@@ -318,21 +319,6 @@ export async function handleWorkItemRunTask(
   }
 }
 
-const TOOL_DESCRIPTIONS: Record<string, string> = {
-  bash: 'Execute shell commands',
-  host_bash: 'Execute shell commands on host',
-  file_read: 'Read files',
-  file_write: 'Write files',
-  file_edit: 'Edit files',
-  host_file_read: 'Read host files',
-  host_file_write: 'Write host files',
-  host_file_edit: 'Edit host files',
-  web_fetch: 'Fetch web URLs',
-  web_search: 'Search the web',
-  browser_navigate: 'Navigate browser',
-  network_request: 'Make network requests',
-  skill_load: 'Load skills',
-};
 
 export async function handleWorkItemPreflight(
   msg: WorkItemPreflightRequest,
@@ -362,14 +348,15 @@ export async function handleWorkItemPreflight(
     return;
   }
 
-  // If the task has explicit requiredTools, use those. Otherwise fall back
-  // to the default set of common tools so the preflight dialog always
-  // appears — ad-hoc tasks never have requiredTools, and without this
-  // fallback the task would run with zero permissions, causing it to hang
-  // on confirmation prompts that have no client to respond.
+  // If the task has explicit requiredTools, sanitize them against the
+  // canonical set. Otherwise fall back to all canonical tools so the
+  // preflight dialog always appears — ad-hoc tasks never have
+  // requiredTools, and without this fallback the task would run with
+  // zero permissions, causing it to hang on confirmation prompts that
+  // have no client to respond.
   const requiredTools: string[] = task.requiredTools
-    ? JSON.parse(task.requiredTools)
-    : Object.keys(TOOL_DESCRIPTIONS);
+    ? sanitizeToolList(JSON.parse(task.requiredTools))
+    : Object.keys(CANONICAL_TOOLS);
 
   const workingDir = process.cwd();
   const permissions = await Promise.all(
@@ -378,7 +365,7 @@ export async function handleWorkItemPreflight(
       const result = await check(tool, {}, workingDir);
       return {
         tool,
-        description: TOOL_DESCRIPTIONS[tool] ?? tool,
+        description: getToolDescription(tool),
         riskLevel: risk.toLowerCase() as 'low' | 'medium' | 'high',
         currentDecision: result.decision as 'allow' | 'deny' | 'prompt',
       };
@@ -400,7 +387,7 @@ export function handleWorkItemApprovePermissions(
   }
 
   updateWorkItem(msg.id, {
-    approvedTools: JSON.stringify(msg.approvedTools),
+    approvedTools: JSON.stringify(sanitizeToolList(msg.approvedTools)),
     approvalStatus: 'approved',
   });
 

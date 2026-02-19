@@ -4,6 +4,7 @@ import { messages as messagesTable } from '../memory/schema.js';
 import { createTask } from './task-store.js';
 import type { Task } from './task-store.js';
 import { truncate } from '../util/truncate.js';
+import { sanitizeToolList } from './tool-sanitizer.js';
 
 /** Output schema for the task compiler. */
 export interface CompiledTask {
@@ -45,8 +46,9 @@ export function compileTaskFromConversation(conversationId: string): CompiledTas
   // Extract user message text content
   const userText = extractTextContent(firstUserMsg.content);
 
-  // Extract unique tool names from assistant messages
-  const requiredTools = extractToolNames(msgs);
+  // Extract unique tool names from assistant messages, then sanitize against
+  // the canonical set so only recognized tools are persisted.
+  const requiredTools = sanitizeToolList(extractToolNames(msgs));
 
   // Build template with placeholder substitutions
   const { template, properties } = buildTemplate(userText);

@@ -2,6 +2,7 @@ import { getLogger } from '../util/logger.js';
 import { createConversation } from '../memory/conversation-store.js';
 import { getTask, createTaskRun, updateTaskRun } from './task-store.js';
 import { buildTaskRules, setTaskRunRules, clearTaskRunRules } from './ephemeral-permissions.js';
+import { sanitizeToolList } from './tool-sanitizer.js';
 
 const log = getLogger('task-runner');
 
@@ -51,8 +52,9 @@ export async function runTask(
 
   // Build and register ephemeral permission rules. If the user pre-approved
   // specific tools via the preflight flow, use those instead of all requiredTools.
-  const requiredTools: string[] = task.requiredTools ? JSON.parse(task.requiredTools) : [];
-  const toolsForRules = opts.approvedTools ?? requiredTools;
+  // Both paths go through sanitizeToolList to ensure only canonical tools get rules.
+  const requiredTools = sanitizeToolList(task.requiredTools ? JSON.parse(task.requiredTools) : []);
+  const toolsForRules = opts.approvedTools ? sanitizeToolList(opts.approvedTools) : requiredTools;
   const rules = buildTaskRules(run.id, toolsForRules, opts.workingDir);
   setTaskRunRules(run.id, rules);
 
