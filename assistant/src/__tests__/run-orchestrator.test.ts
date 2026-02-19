@@ -92,7 +92,7 @@ describe('run failure detection', () => {
       resolveAttachments: () => [],
     });
 
-    const run = await orchestrator.startRun('self', conversation.id, 'Hello');
+    const run = await orchestrator.startRun(conversation.id, 'Hello');
 
     // The agent loop fires asynchronously; give it a tick to settle.
     await new Promise((r) => setTimeout(r, 50));
@@ -114,7 +114,7 @@ describe('run failure detection', () => {
       resolveAttachments: () => [],
     });
 
-    const run = await orchestrator.startRun('self', conversation.id, 'Hello');
+    const run = await orchestrator.startRun(conversation.id, 'Hello');
 
     await new Promise((r) => setTimeout(r, 50));
 
@@ -192,7 +192,7 @@ describe('run approval state executionTarget', () => {
       resolveAttachments: () => [],
     });
 
-    const run = await orchestrator.startRun('self', conversation.id, 'Run host command');
+    const run = await orchestrator.startRun(conversation.id, 'Run host command');
     const stored = orchestrator.getRun(run.id);
     expect(stored?.status).toBe('needs_confirmation');
     expect(stored?.pendingConfirmation?.executionTarget).toBe('host');

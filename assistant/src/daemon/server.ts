@@ -122,7 +122,7 @@ export class DaemonServer {
    * Defaults to 'default' for the IPC daemon runtime; override in tests or
    * multi-tenant deployments where the daemon is scoped to a specific assistant.
    */
-  assistantId: string = 'self';
+  assistantId: string = 'default';
 
   constructor() {
     this.socketPath = getSocketPath();

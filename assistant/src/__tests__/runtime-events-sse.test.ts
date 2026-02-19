@@ -128,7 +128,7 @@ describe('SSE assistant-events endpoint', () => {
     // buffering in Bun's loopback SSE implementation. The HTTP auth and
     // routing are already covered by other test files; here we focus on the
     // SSE subscription logic and frame delivery.
-    const { conversationId } = getOrCreateConversation('self', 'sse-happy-path');
+    const { conversationId } = getOrCreateConversation('sse-happy-path');
 
     const ac = new AbortController();
     const req = new Request(
