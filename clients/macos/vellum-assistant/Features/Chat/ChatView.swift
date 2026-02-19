@@ -1254,8 +1254,8 @@ private struct ChatBubble: View {
                 onTap: nil
             )
                 .frame(maxWidth: 520, alignment: .leading)
-        } else if hasCompletedTools || hasPermission || showRegenerate || (hasInProgressTools && permissionWasDenied) {
-            // All done (or denied) — steps pill + permission chip + regenerate on one row,
+        } else if hasCompletedTools || hasPermission || (hasInProgressTools && permissionWasDenied) {
+            // All done (or denied) — steps pill + permission chip on one row,
             // with the expanded steps list in the row below.
             let onlyPermissionTools = message.toolCalls.allSatisfy { $0.toolName == "request_system_permission" }
             VStack(alignment: .leading, spacing: 0) {
@@ -1268,7 +1268,6 @@ private struct ChatBubble: View {
                     if let confirmation = decidedConfirmation {
                         compactPermissionChip(confirmation)
                     }
-                    if showRegenerate { regenerateButton }
                     Spacer()
                 }
 
