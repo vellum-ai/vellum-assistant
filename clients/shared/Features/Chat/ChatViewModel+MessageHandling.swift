@@ -503,7 +503,15 @@ extension ChatViewModel {
             if let messageId = pendingMessageIds.first {
                 pendingMessageIds.removeFirst()
                 requestIdToMessageId[queued.requestId] = messageId
-                if let index = messages.firstIndex(where: { $0.id == messageId }) {
+                // If the user deleted this message before the ack arrived,
+                // forward the deletion to the daemon now that we have the requestId.
+                if pendingLocalDeletions.remove(messageId) != nil {
+                    do {
+                        try daemonClient.send(DeleteQueuedMessageMessage(sessionId: queued.sessionId, requestId: queued.requestId))
+                    } catch {
+                        log.error("Failed to send deferred delete_queued_message: \(error.localizedDescription)")
+                    }
+                } else if let index = messages.firstIndex(where: { $0.id == messageId }) {
                     messages[index].status = .queued(position: queued.position)
                 }
             }
