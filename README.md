@@ -55,6 +55,8 @@ bun install
 bun run src/index.ts daemon start
 ```
 
+> **Note:** Some dependencies (`agentmail`, `@pydantic/logfire-node`) are optional at runtime but required for full `tsc --noEmit` type-checking to pass. They are installed automatically by `bun install`.
+
 ## Sandbox and Host Access Model
 
 - Default tool workspace: `~/.vellum/workspace` (persistent global sandbox filesystem).
