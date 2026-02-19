@@ -908,6 +908,17 @@ struct ChatView: View {
                                     .foregroundColor(VColor.textSecondary)
                                     .lineLimit(1)
                                 Spacer()
+                                if let onDelete = onDeleteQueuedMessage {
+                                    Button {
+                                        onDelete(message.id)
+                                    } label: {
+                                        Image(systemName: "trash")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(VColor.textMuted)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Delete queued message")
+                                }
                             }
                             .padding(.horizontal, VSpacing.lg)
                         }
