@@ -67,8 +67,8 @@ struct SubagentStatusChip: View {
         )
         .onAppear { startDotAnimation() }
         .onDisappear { timer?.invalidate() }
-        .onChange(of: subagent.status) { newStatus in
-            if newStatus.isTerminal {
+        .onChange(of: subagent.status) {
+            if subagent.status.isTerminal {
                 timer?.invalidate()
                 timer = nil
             }

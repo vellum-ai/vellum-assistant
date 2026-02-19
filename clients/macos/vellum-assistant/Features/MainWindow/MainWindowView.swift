@@ -1669,12 +1669,12 @@ private struct ActiveChatViewWrapper: View {
                     )
                 }
             },
+            onDeleteQueuedMessage: { messageId in viewModel.deleteQueuedMessage(messageId: messageId) },
             mediaEmbedSettings: MediaEmbedResolverSettings(
                 enabled: settingsStore.mediaEmbedsEnabled,
                 enabledSince: settingsStore.mediaEmbedsEnabledSince,
                 allowedDomains: settingsStore.mediaEmbedVideoAllowlistDomains
             ),
-            onDeleteQueuedMessage: { messageId in viewModel.deleteQueuedMessage(messageId: messageId) },
             isTemporaryChat: isTemporaryChat,
             activeSubagents: viewModel.activeSubagents
         )
