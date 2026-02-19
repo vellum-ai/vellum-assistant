@@ -1,27 +1,5 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { mergeContacts, getContact } from '../../contacts/contact-store.js';
-
-const definition: ToolDefinition = {
-  name: 'contact_merge',
-  description: 'Merge two contacts when you discover they are the same person (e.g. same person on email and Slack). Combines channels, keeps the higher importance, and deletes the donor contact.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      keep_id: {
-        type: 'string',
-        description: 'ID of the contact to keep (the surviving contact)',
-      },
-      merge_id: {
-        type: 'string',
-        description: 'ID of the contact to merge into the kept contact (will be deleted)',
-      },
-    },
-    required: ['keep_id', 'merge_id'],
-  },
-};
 
 export async function executeContactMerge(
   input: Record<string, unknown>,
@@ -75,20 +53,3 @@ export async function executeContactMerge(
     return { content: `Error: ${msg}`, isError: true };
   }
 }
-
-class ContactMergeTool implements Tool {
-  name = 'contact_merge';
-  description = definition.description;
-  category = 'contacts';
-  defaultRiskLevel = RiskLevel.Medium;
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  }
-
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
-    return executeContactMerge(input, context);
-  }
-}
-
-registerTool(new ContactMergeTool());

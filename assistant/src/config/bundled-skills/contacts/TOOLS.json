@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "contact_upsert",
+      "description": "Create or update a contact in the relationship graph. Use this to track people the user interacts with across channels (email, Slack, etc.).",
+      "category": "contacts",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Contact ID to update. Omit to create a new contact (or auto-match by channel address)."
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Display name for the contact"
+          },
+          "relationship": {
+            "type": "string",
+            "description": "Relationship type (e.g. colleague, friend, manager, client, family)"
+          },
+          "importance": {
+            "type": "number",
+            "description": "Importance score 0-1 (default 0.5). Higher = more important."
+          },
+          "response_expectation": {
+            "type": "string",
+            "description": "Expected response speed (e.g. immediate, within_hours, within_day, casual)"
+          },
+          "preferred_tone": {
+            "type": "string",
+            "description": "Preferred communication tone (e.g. formal, casual, friendly, professional)"
+          },
+          "channels": {
+            "type": "array",
+            "description": "Communication channels for this contact",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["email", "slack", "whatsapp", "phone", "telegram", "discord", "other"],
+                  "description": "Channel type"
+                },
+                "address": {
+                  "type": "string",
+                  "description": "Channel address (email address, Slack handle, phone number, etc.)"
+                },
+                "is_primary": {
+                  "type": "boolean",
+                  "description": "Whether this is the primary channel for this type"
+                }
+              },
+              "required": ["type", "address"]
+            }
+          }
+        },
+        "required": ["display_name"]
+      },
+      "executor": "tools/contact-upsert.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "contact_search",
+      "description": "Search for contacts by name, channel address, relationship type, or other criteria. Returns matching contacts with their channel information.",
+      "category": "contacts",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search by display name (partial match)"
+          },
+          "channel_address": {
+            "type": "string",
+            "description": "Search by channel address (email, phone, handle — partial match)"
+          },
+          "channel_type": {
+            "type": "string",
+            "description": "Filter by channel type when searching by address (email, slack, whatsapp, phone, etc.)"
+          },
+          "relationship": {
+            "type": "string",
+            "description": "Filter by relationship type (exact match)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results to return (default 20, max 100)"
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/contact-search.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "contact_merge",
+      "description": "Merge two contacts when you discover they are the same person (e.g. same person on email and Slack). Combines channels, keeps the higher importance, and deletes the donor contact.",
+      "category": "contacts",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keep_id": {
+            "type": "string",
+            "description": "ID of the contact to keep (the surviving contact)"
+          },
+          "merge_id": {
+            "type": "string",
+            "description": "ID of the contact to merge into the kept contact (will be deleted)"
+          }
+        },
+        "required": ["keep_id", "merge_id"]
+      },
+      "executor": "tools/contact-merge.ts",
+      "execution_target": "host"
+    }
+  ]
+}

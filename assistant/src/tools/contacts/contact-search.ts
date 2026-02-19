@@ -1,7 +1,4 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { searchContacts } from '../../contacts/contact-store.js';
 import type { ContactWithChannels } from '../../contacts/types.js';
 
@@ -17,37 +14,6 @@ function formatContactSummary(c: ContactWithChannels): string {
   }
   return parts.join('\n');
 }
-
-const definition: ToolDefinition = {
-  name: 'contact_search',
-  description: 'Search for contacts by name, channel address, relationship type, or other criteria. Returns matching contacts with their channel information.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      query: {
-        type: 'string',
-        description: 'Search by display name (partial match)',
-      },
-      channel_address: {
-        type: 'string',
-        description: 'Search by channel address (email, phone, handle — partial match)',
-      },
-      channel_type: {
-        type: 'string',
-        description: 'Filter by channel type when searching by address (email, slack, whatsapp, phone, etc.)',
-      },
-      relationship: {
-        type: 'string',
-        description: 'Filter by relationship type (exact match)',
-      },
-      limit: {
-        type: 'number',
-        description: 'Maximum results to return (default 20, max 100)',
-      },
-    },
-    required: [],
-  },
-};
 
 export async function executeContactSearch(
   input: Record<string, unknown>,
@@ -90,20 +56,3 @@ export async function executeContactSearch(
     return { content: `Error: ${msg}`, isError: true };
   }
 }
-
-class ContactSearchTool implements Tool {
-  name = 'contact_search';
-  description = definition.description;
-  category = 'contacts';
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return definition;
-  }
-
-  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
-    return executeContactSearch(input, context);
-  }
-}
-
-registerTool(new ContactSearchTool());
