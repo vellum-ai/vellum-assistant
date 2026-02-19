@@ -1,7 +1,7 @@
 import { eq, desc, asc, and, count, sql, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
-import { conversations, messages, toolInvocations, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments } from './schema.js';
+import { conversations, messages, toolInvocations, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments, llmRequestLogs } from './schema.js';
 import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
 import { getLogger } from '../util/logger.js';
@@ -77,6 +77,7 @@ export function getConversationMemoryScopeId(conversationId: string): string {
 export function deleteConversation(id: string): void {
   const db = getDb();
   db.transaction((tx) => {
+    tx.delete(llmRequestLogs).where(eq(llmRequestLogs.conversationId, id)).run();
     tx.delete(toolInvocations).where(eq(toolInvocations.conversationId, id)).run();
     tx.delete(messages).where(eq(messages.conversationId, id)).run();
     tx.delete(conversations).where(eq(conversations.id, id)).run();
@@ -221,6 +222,7 @@ export function clearAll(): { conversations: number; messages: number } {
   raw.exec('DELETE FROM memory_embeddings');
   raw.exec('DELETE FROM memory_jobs');
   raw.exec('DELETE FROM memory_checkpoints');
+  raw.exec('DELETE FROM llm_request_logs');
   raw.exec('DELETE FROM llm_usage_events');
   raw.exec('DELETE FROM message_attachments');
   raw.exec('DELETE FROM attachments');
