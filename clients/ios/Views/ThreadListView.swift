@@ -56,6 +56,8 @@ class IOSThreadStore: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     /// Maps daemon session IDs to thread IDs for history loading.
     private var pendingHistoryBySessionId: [String: UUID] = [:]
+    /// Tracks thread IDs that already have an activity-tracking observer to avoid duplicates.
+    private var observedActivityThreadIds: Set<UUID> = []
 
     init(daemonClient: any DaemonClientProtocol) {
         self.daemonClient = daemonClient
@@ -171,6 +173,7 @@ class IOSThreadStore: ObservableObject {
     /// Return the ChatViewModel for the given thread, creating it if necessary.
     func viewModel(for threadId: UUID) -> ChatViewModel {
         if let existing = viewModels[threadId] {
+            observeForActivityTracking(vm: existing, threadId: threadId)
             return existing
         }
         let vm = ChatViewModel(daemonClient: daemonClient)
@@ -214,10 +217,15 @@ class IOSThreadStore: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// Update lastActivityAt whenever the message list changes.
+    /// Update lastActivityAt whenever the message count changes (not on every streaming delta).
     private func observeForActivityTracking(vm: ChatViewModel, threadId: UUID) {
+        guard !observedActivityThreadIds.contains(threadId) else { return }
+        observedActivityThreadIds.insert(threadId)
+
         vm.$messages
             .dropFirst()
+            .map(\.count)
+            .removeDuplicates()
             .sink { [weak self] _ in
                 self?.touchLastActivity(for: threadId)
             }
