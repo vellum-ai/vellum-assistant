@@ -37,6 +37,8 @@ import {
   getPendingQuestion,
   answerPendingQuestion,
   expirePendingQuestions,
+  claimCallback,
+  releaseCallbackClaim,
 } from '../calls/call-store.js';
 
 initializeDb();
@@ -66,6 +68,7 @@ function resetTables() {
   db.run('DELETE FROM call_pending_questions');
   db.run('DELETE FROM call_events');
   db.run('DELETE FROM call_sessions');
+  db.run('DELETE FROM processed_callbacks');
   db.run('DELETE FROM conversations');
   ensuredConvIds = new Set();
 }
@@ -473,5 +476,73 @@ describe('call-store', () => {
     const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
     const q1Row = raw.query('SELECT status FROM call_pending_questions WHERE id = ?').get(q1.id) as { status: string };
     expect(q1Row.status).toBe('answered');
+  });
+
+  // ── Callback Claim ──────────────────────────────────────────────
+
+  test('claimCallback returns true on first call', () => {
+    const session = createTestCallSession({
+      conversationId: 'conv-22',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    const result = claimCallback('test-dedupe-key-1', session.id);
+    expect(result).toBe(true);
+  });
+
+  test('claimCallback returns false on duplicate key', () => {
+    const session = createTestCallSession({
+      conversationId: 'conv-23',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    const first = claimCallback('test-dedupe-key-2', session.id);
+    const second = claimCallback('test-dedupe-key-2', session.id);
+
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+  });
+
+  test('releaseCallbackClaim allows re-claim', () => {
+    const session = createTestCallSession({
+      conversationId: 'conv-24',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    const first = claimCallback('test-dedupe-key-3', session.id);
+    expect(first).toBe(true);
+
+    releaseCallbackClaim('test-dedupe-key-3');
+
+    const second = claimCallback('test-dedupe-key-3', session.id);
+    expect(second).toBe(true);
+  });
+
+  test('claimCallback INSERT OR IGNORE pattern is safe for same key', () => {
+    const session = createTestCallSession({
+      conversationId: 'conv-25',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    // Claim the key
+    const first = claimCallback('test-dedupe-key-4', session.id);
+    expect(first).toBe(true);
+
+    // Subsequent claims with the same key should all return false without throwing
+    expect(claimCallback('test-dedupe-key-4', session.id)).toBe(false);
+    expect(claimCallback('test-dedupe-key-4', session.id)).toBe(false);
+
+    // Only one row should exist in the table for this key
+    const raw = (getDb() as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const rows = raw.query('SELECT COUNT(*) as cnt FROM processed_callbacks WHERE dedupe_key = ?').get('test-dedupe-key-4') as { cnt: number };
+    expect(rows.cnt).toBe(1);
   });
 });
