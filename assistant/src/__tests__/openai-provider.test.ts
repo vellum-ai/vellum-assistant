@@ -585,7 +585,9 @@ describe('OpenAIProvider', () => {
       { signal: controller.signal },
     );
 
-    expect(lastCreateOptions!.signal).toBe(controller.signal);
+    // The provider wraps the signal via createStreamTimeout, so the API
+    // receives a different AbortSignal linked to the external one.
+    expect(lastCreateOptions!.signal).toBeInstanceOf(AbortSignal);
   });
 
   // -----------------------------------------------------------------------

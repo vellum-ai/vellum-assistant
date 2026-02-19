@@ -30,6 +30,7 @@ mock.module('../util/logger.js', () => ({
 const testConfig: Record<string, any> = {
   permissions: { mode: 'legacy' as 'legacy' | 'strict' },
   skills: { load: { extraDirs: [] as string[] } },
+  sandbox: { enabled: false },
 };
 
 mock.module('../config/loader.js', () => ({

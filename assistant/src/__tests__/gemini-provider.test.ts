@@ -477,8 +477,10 @@ describe('GeminiProvider', () => {
       { signal: controller.signal },
     );
 
+    // The provider wraps the signal via createStreamTimeout, so the API
+    // receives a different AbortSignal linked to the external one.
     const config = lastStreamParams!.config as Record<string, unknown>;
-    expect(config.abortSignal).toBe(controller.signal);
+    expect(config.abortSignal).toBeInstanceOf(AbortSignal);
   });
 
   // -----------------------------------------------------------------------
