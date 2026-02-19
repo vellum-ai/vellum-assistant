@@ -2,7 +2,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { deleteTask, deleteTasks, getTask } from '../../tasks/task-store.js';
-import { getWorkItem, deleteWorkItem } from '../../work-items/work-item-store.js';
+import { removeWorkItemFromQueue } from '../../work-items/work-item-store.js';
 
 const definition: ToolDefinition = {
   name: 'task_delete',
@@ -47,10 +47,9 @@ class TaskDeleteTool implements Tool {
         if (!deleted) {
           // The LLM may pass a work item ID instead of a task template ID.
           // Fall back to removing from the task queue so the user's intent succeeds.
-          const workItem = getWorkItem(ids[0]);
-          if (workItem) {
-            deleteWorkItem(workItem.id);
-            return { content: `Removed "${workItem.title}" from the task queue.`, isError: false };
+          const result = removeWorkItemFromQueue(ids[0]);
+          if (result.success) {
+            return { content: result.message, isError: false };
           }
           return { content: `No task found with ID ${ids[0]}`, isError: true };
         }
@@ -67,10 +66,9 @@ class TaskDeleteTool implements Tool {
           taskIds.push(id);
           taskTitles.push(task.title);
         } else {
-          const workItem = getWorkItem(id);
-          if (workItem) {
-            deleteWorkItem(workItem.id);
-            workItemTitles.push(workItem.title);
+          const result = removeWorkItemFromQueue(id);
+          if (result.success) {
+            workItemTitles.push(result.title);
           }
         }
       }

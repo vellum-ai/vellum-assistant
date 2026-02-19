@@ -1,7 +1,7 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { resolveWorkItem, deleteWorkItem } from '../../work-items/work-item-store.js';
+import { resolveWorkItem, removeWorkItemFromQueue } from '../../work-items/work-item-store.js';
 
 const definition: ToolDefinition = {
   name: 'task_list_remove',
@@ -49,11 +49,9 @@ class TaskListRemoveTool implements Tool {
       };
 
       const item = resolveWorkItem(selector);
-      const title = item.title;
+      const result = removeWorkItemFromQueue(item.id);
 
-      deleteWorkItem(item.id);
-
-      return { content: `Removed "${title}" from the task queue.`, isError: false };
+      return { content: result.message, isError: false };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { content: `Error: ${msg}`, isError: true };

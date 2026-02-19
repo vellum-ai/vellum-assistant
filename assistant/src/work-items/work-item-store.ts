@@ -90,6 +90,28 @@ export function deleteWorkItem(id: string): void {
   db.delete(workItems).where(eq(workItems.id, id)).run();
 }
 
+// ── Queue Removal ───────────────────────────────────────────────────
+
+export interface RemoveWorkItemResult {
+  success: boolean;
+  title: string;
+  message: string;
+}
+
+/**
+ * Shared helper for removing a single work item from the queue by ID.
+ * Used by both task_delete (compat path) and task_list_remove so all
+ * single-item deletions follow one codepath.
+ */
+export function removeWorkItemFromQueue(id: string): RemoveWorkItemResult {
+  const item = getWorkItem(id);
+  if (!item) {
+    return { success: false, title: '', message: `No work item found with ID "${id}"` };
+  }
+  deleteWorkItem(item.id);
+  return { success: true, title: item.title, message: `Removed "${item.title}" from the task queue.` };
+}
+
 // ── Selectors / Helpers ─────────────────────────────────────────────
 
 export interface WorkItemSelector {
