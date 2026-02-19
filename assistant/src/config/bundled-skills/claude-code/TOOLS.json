@@ -23,7 +23,7 @@
           },
           "model": {
             "type": "string",
-            "description": "Model to use (defaults to claude-sonnet-4-5-20250929)"
+            "description": "Model to use (defaults to claude-sonnet-4-6)"
           },
           "profile": {
             "type": "string",

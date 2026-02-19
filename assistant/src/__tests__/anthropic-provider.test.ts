@@ -10,7 +10,7 @@ let _lastStreamOptions: Record<string, unknown> | null = null;
 
 const fakeResponse = {
   content: [{ type: 'text', text: 'Hello' }],
-  model: 'claude-sonnet-4-5-20250929',
+  model: 'claude-sonnet-4-6',
   usage: {
     input_tokens: 100,
     output_tokens: 20,
@@ -99,7 +99,7 @@ describe('AnthropicProvider — Cache-Control Characterization', () => {
   beforeEach(() => {
     lastStreamParams = null;
     _lastStreamOptions = null;
-    provider = new AnthropicProvider('sk-ant-test', 'claude-sonnet-4-5-20250929');
+    provider = new AnthropicProvider('sk-ant-test', 'claude-sonnet-4-6');
   });
 
   // -----------------------------------------------------------------------

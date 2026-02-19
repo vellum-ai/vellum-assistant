@@ -104,8 +104,8 @@ describe('resolvePricing', () => {
   });
 
   describe('prefix matching', () => {
-    test('matches claude-sonnet-4-5-20250929 via claude-sonnet-4 prefix', () => {
-      const result = resolvePricing('anthropic', 'claude-sonnet-4-5-20250929', 1_000_000, 1_000_000);
+    test('matches claude-sonnet-4-6 via claude-sonnet-4 prefix', () => {
+      const result = resolvePricing('anthropic', 'claude-sonnet-4-6', 1_000_000, 1_000_000);
       expect(result.pricingStatus).toBe('priced');
       expect(result.estimatedCostUsd).toBe(3 + 15);
     });
@@ -159,7 +159,7 @@ describe('resolvePricingWithOverrides', () => {
     const overrides: ModelPricingOverride[] = [
       { provider: 'anthropic', modelPattern: 'claude-sonnet-4', inputPer1M: 5, outputPer1M: 25 },
     ];
-    const result = resolvePricingWithOverrides('anthropic', 'claude-sonnet-4-5-20250929', 1_000_000, 1_000_000, overrides);
+    const result = resolvePricingWithOverrides('anthropic', 'claude-sonnet-4-6', 1_000_000, 1_000_000, overrides);
     expect(result.pricingStatus).toBe('priced');
     expect(result.estimatedCostUsd).toBe(5 + 25);
   });
@@ -200,7 +200,7 @@ describe('resolvePricingWithOverrides', () => {
       { provider: 'anthropic', modelPattern: 'claude-sonnet', inputPer1M: 1, outputPer1M: 1 },
       { provider: 'anthropic', modelPattern: 'claude-sonnet-4', inputPer1M: 99, outputPer1M: 99 },
     ];
-    const result = resolvePricingWithOverrides('anthropic', 'claude-sonnet-4-5-20250929', 1_000_000, 1_000_000, overrides);
+    const result = resolvePricingWithOverrides('anthropic', 'claude-sonnet-4-6', 1_000_000, 1_000_000, overrides);
     expect(result.pricingStatus).toBe('priced');
     expect(result.estimatedCostUsd).toBe(99 + 99);
   });
@@ -208,7 +208,7 @@ describe('resolvePricingWithOverrides', () => {
 
 describe('estimateCost', () => {
   test('returns a number for known Anthropic model', () => {
-    const cost = estimateCost(1_000_000, 1_000_000, 'claude-sonnet-4-5-20250929', 'anthropic');
+    const cost = estimateCost(1_000_000, 1_000_000, 'claude-sonnet-4-6', 'anthropic');
     expect(typeof cost).toBe('number');
     expect(cost).toBe(3 + 15);
   });

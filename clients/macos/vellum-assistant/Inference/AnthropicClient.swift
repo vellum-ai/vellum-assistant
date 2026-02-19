@@ -52,7 +52,7 @@ final class AnthropicClient {
     /// with exponential backoff. Client errors (400, 401, 403, etc.) are thrown immediately.
     ///
     /// - Parameters:
-    ///   - model: The model identifier (e.g. "claude-sonnet-4-5-20250929").
+    ///   - model: The model identifier (e.g. "claude-sonnet-4-6").
     ///   - maxTokens: Maximum tokens for the response.
     ///   - system: The system prompt string.
     ///   - tools: Array of tool definition dictionaries.
