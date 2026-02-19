@@ -3,7 +3,7 @@
  * injection templates and emits deterministic policy decisions.
  */
 
-import { minimatch } from 'minimatch';
+import { matchHostPattern, compareMatchSpecificity, type HostMatchKind } from '../../credentials/host-pattern-match.js';
 import type { CredentialInjectionTemplate } from '../../credentials/policy-types.js';
 import type { PolicyDecision, RequestTargetContext } from './types.js';
 
@@ -30,37 +30,60 @@ export function evaluateRequest(
     return { kind: 'unauthenticated' };
   }
 
-  const candidates: MatchCandidate[] = [];
+  // For each credential, find the best matching header template by specificity.
+  // Query templates are excluded — they're handled via URL rewriting in the
+  // MITM path and can't be injected by the HTTP forwarder.
+  const perCredentialBest: MatchCandidate[] = [];
 
   for (const id of credentialIds) {
     const tpls = templates.get(id);
     if (!tpls) continue;
 
+    let bestMatch: HostMatchKind = 'none';
+    let bestCandidates: CredentialInjectionTemplate[] = [];
+
     for (const tpl of tpls) {
-      // Query templates are handled via URL rewriting in the MITM path
-      // and can't be injected by the HTTP forwarder. Exclude them so
-      // a host with both query and header templates doesn't appear
-      // ambiguous — consistent with the MITM rewriteCallback filtering.
       if (tpl.injectionType === 'query') continue;
-      if (minimatch(hostname, tpl.hostPattern, { nocase: true })) {
-        candidates.push({ credentialId: id, template: tpl });
+      const match = matchHostPattern(hostname, tpl.hostPattern, { includeApexForWildcard: true });
+      if (match === 'none') continue;
+
+      const cmp = compareMatchSpecificity(match, bestMatch);
+      if (cmp < 0) {
+        // Strictly more specific — replace
+        bestMatch = match;
+        bestCandidates = [tpl];
+      } else if (cmp === 0) {
+        // Same specificity — accumulate (potential intra-credential tie)
+        bestCandidates.push(tpl);
       }
+      // cmp > 0 means less specific — skip
+    }
+
+    if (bestCandidates.length === 1) {
+      perCredentialBest.push({ credentialId: id, template: bestCandidates[0] });
+    } else if (bestCandidates.length > 1) {
+      // Same credential has multiple templates at the same specificity — ambiguous
+      return {
+        kind: 'ambiguous',
+        candidates: bestCandidates.map((tpl) => ({ credentialId: id, template: tpl })),
+      };
     }
   }
 
-  if (candidates.length === 0) {
+  if (perCredentialBest.length === 0) {
     return { kind: 'missing' };
   }
 
-  if (candidates.length === 1) {
+  if (perCredentialBest.length === 1) {
     return {
       kind: 'matched',
-      credentialId: candidates[0].credentialId,
-      template: candidates[0].template,
+      credentialId: perCredentialBest[0].credentialId,
+      template: perCredentialBest[0].template,
     };
   }
 
-  return { kind: 'ambiguous', candidates };
+  // Multiple credentials match — cross-credential ambiguity
+  return { kind: 'ambiguous', candidates: perCredentialBest };
 }
 
 /**
@@ -112,7 +135,7 @@ export function evaluateRequestWithApproval(
   const matchingPatterns: string[] = [];
   for (const tpl of allKnownTemplates) {
     if (tpl.injectionType === 'query') continue;
-    if (minimatch(hostname, tpl.hostPattern, { nocase: true })) {
+    if (matchHostPattern(hostname, tpl.hostPattern, { includeApexForWildcard: true }) !== 'none') {
       matchingPatterns.push(tpl.hostPattern);
     }
   }
