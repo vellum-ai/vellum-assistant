@@ -1073,23 +1073,30 @@ export class DaemonServer {
         }))
       : [];
 
-    // Check the call-answer bridge before processing. If the message is
-    // consumed as a call answer, persist it and skip the agent loop.
+    // Check the call-answer bridge before processing. The bridge check is
+    // in its own try/catch so that a bridge failure (non-fatal) falls through
+    // to the agent loop, but post-bridge persistence/cleanup errors propagate
+    // to the caller instead of silently falling through to double-process.
+    let bridgeHandled = false;
     try {
       const bridgeResult = await tryHandlePendingCallAnswer(conversationId, content);
-      if (bridgeResult.handled) {
-        // Persist the user message so it appears in history, but skip the
-        // agent loop since the call system consumed it.
-        const requestId = crypto.randomUUID();
-        const messageId = session.persistUserMessage(content, attachments, requestId);
-        resetSessionProcessingState(session);
-        // Drain any queued messages that arrived while processing was true.
-        session.drainQueue('loop_complete');
-        log.info({ conversationId, messageId }, 'User message consumed by call-answer bridge, skipping agent loop');
-        return { messageId };
-      }
+      bridgeHandled = bridgeResult.handled;
     } catch (err) {
       log.warn({ err, conversationId }, 'Call-answer bridge check failed (non-fatal), proceeding with agent loop');
+    }
+
+    if (bridgeHandled) {
+      // Persist the user message so it appears in history, but skip the
+      // agent loop since the call system consumed it. Errors here must
+      // propagate — the bridge already consumed the answer, so falling
+      // through to the agent loop would double-process the message.
+      const requestId = crypto.randomUUID();
+      const messageId = session.persistUserMessage(content, attachments, requestId);
+      resetSessionProcessingState(session);
+      // Drain any queued messages that arrived while processing was true.
+      session.drainQueue('loop_complete');
+      log.info({ conversationId, messageId }, 'User message consumed by call-answer bridge, skipping agent loop');
+      return { messageId };
     }
 
     // Delegate to session.processMessage which handles slash-command
