@@ -232,8 +232,10 @@ private struct TasksWindowRow: View {
 
     private var actionsColumn: some View {
         let status = WorkItemStatus(rawStatus: item.status)
+        let runEnabled = status == .queued
+        let showRun = status == .queued || status == .failed
         return HStack(spacing: VSpacing.xs) {
-            if status == .queued {
+            if showRun {
                 Button(action: onRun) {
                     HStack(spacing: VSpacing.xs) {
                         Image(systemName: "play.fill")
@@ -248,7 +250,10 @@ private struct TasksWindowRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 }
                 .buttonStyle(.plain)
+                .disabled(!runEnabled)
+                .opacity(runEnabled ? 1.0 : 0.4)
                 .accessibilityLabel("Run task")
+                .accessibilityHint(runEnabled ? "" : "Task cannot be run because it has failed")
             }
 
             if status == .awaitingReview {
