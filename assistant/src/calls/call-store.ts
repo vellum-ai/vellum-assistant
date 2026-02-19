@@ -1,0 +1,214 @@
+import { eq, and, notInArray, desc } from 'drizzle-orm';
+import { v4 as uuid } from 'uuid';
+import { getDb } from '../memory/db.js';
+import { callSessions, callEvents, callPendingQuestions } from '../memory/schema.js';
+import type { CallSession, CallEvent, CallPendingQuestion, CallEventType } from './types.js';
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+function parseCallSession(row: typeof callSessions.$inferSelect): CallSession {
+  return {
+    id: row.id,
+    conversationId: row.conversationId,
+    provider: row.provider,
+    providerCallSid: row.providerCallSid,
+    fromNumber: row.fromNumber,
+    toNumber: row.toNumber,
+    task: row.task,
+    status: row.status as CallSession['status'],
+    startedAt: row.startedAt,
+    endedAt: row.endedAt,
+    lastError: row.lastError,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function parseCallEvent(row: typeof callEvents.$inferSelect): CallEvent {
+  return {
+    id: row.id,
+    callSessionId: row.callSessionId,
+    eventType: row.eventType as CallEvent['eventType'],
+    payloadJson: row.payloadJson,
+    createdAt: row.createdAt,
+  };
+}
+
+function parsePendingQuestion(row: typeof callPendingQuestions.$inferSelect): CallPendingQuestion {
+  return {
+    id: row.id,
+    callSessionId: row.callSessionId,
+    questionText: row.questionText,
+    status: row.status as CallPendingQuestion['status'],
+    askedAt: row.askedAt,
+    answeredAt: row.answeredAt,
+    answerText: row.answerText,
+  };
+}
+
+// ── Call Sessions ────────────────────────────────────────────────────
+
+export function createCallSession(opts: {
+  conversationId: string;
+  provider: string;
+  fromNumber: string;
+  toNumber: string;
+  task?: string;
+}): CallSession {
+  const db = getDb();
+  const now = Date.now();
+  const session = {
+    id: uuid(),
+    conversationId: opts.conversationId,
+    provider: opts.provider,
+    providerCallSid: null,
+    fromNumber: opts.fromNumber,
+    toNumber: opts.toNumber,
+    task: opts.task ?? null,
+    status: 'initiated' as const,
+    startedAt: null,
+    endedAt: null,
+    lastError: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  db.insert(callSessions).values(session).run();
+  return session;
+}
+
+export function getCallSession(id: string): CallSession | null {
+  const db = getDb();
+  const row = db.select().from(callSessions).where(eq(callSessions.id, id)).get();
+  if (!row) return null;
+  return parseCallSession(row);
+}
+
+export function getCallSessionByCallSid(callSid: string): CallSession | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(callSessions)
+    .where(eq(callSessions.providerCallSid, callSid))
+    .get();
+  if (!row) return null;
+  return parseCallSession(row);
+}
+
+export function getActiveCallSessionForConversation(conversationId: string): CallSession | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(callSessions)
+    .where(
+      and(
+        eq(callSessions.conversationId, conversationId),
+        notInArray(callSessions.status, ['completed', 'failed']),
+      ),
+    )
+    .get();
+  if (!row) return null;
+  return parseCallSession(row);
+}
+
+export function updateCallSession(
+  id: string,
+  updates: Partial<Pick<CallSession, 'status' | 'providerCallSid' | 'startedAt' | 'endedAt' | 'lastError'>>,
+): void {
+  const db = getDb();
+  db.update(callSessions)
+    .set({ ...updates, updatedAt: Date.now() })
+    .where(eq(callSessions.id, id))
+    .run();
+}
+
+// ── Call Events ──────────────────────────────────────────────────────
+
+export function recordCallEvent(
+  callSessionId: string,
+  eventType: CallEventType,
+  payload?: Record<string, unknown>,
+): CallEvent {
+  const db = getDb();
+  const now = Date.now();
+  const event = {
+    id: uuid(),
+    callSessionId,
+    eventType,
+    payloadJson: JSON.stringify(payload ?? {}),
+    createdAt: now,
+  };
+  db.insert(callEvents).values(event).run();
+  return event;
+}
+
+export function getCallEvents(callSessionId: string): CallEvent[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(callEvents)
+    .where(eq(callEvents.callSessionId, callSessionId))
+    .orderBy(callEvents.createdAt)
+    .all();
+  return rows.map(parseCallEvent);
+}
+
+// ── Pending Questions ────────────────────────────────────────────────
+
+export function createPendingQuestion(callSessionId: string, questionText: string): CallPendingQuestion {
+  const db = getDb();
+  const now = Date.now();
+  const question = {
+    id: uuid(),
+    callSessionId,
+    questionText,
+    status: 'pending' as const,
+    askedAt: now,
+    answeredAt: null,
+    answerText: null,
+  };
+  db.insert(callPendingQuestions).values(question).run();
+  return question;
+}
+
+export function getPendingQuestion(callSessionId: string): CallPendingQuestion | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(callPendingQuestions)
+    .where(
+      and(
+        eq(callPendingQuestions.callSessionId, callSessionId),
+        eq(callPendingQuestions.status, 'pending'),
+      ),
+    )
+    .orderBy(desc(callPendingQuestions.askedAt))
+    .limit(1)
+    .get();
+  if (!row) return null;
+  return parsePendingQuestion(row);
+}
+
+export function answerPendingQuestion(id: string, answerText: string): void {
+  const db = getDb();
+  db.update(callPendingQuestions)
+    .set({
+      status: 'answered',
+      answerText,
+      answeredAt: Date.now(),
+    })
+    .where(eq(callPendingQuestions.id, id))
+    .run();
+}
+
+export function expirePendingQuestions(callSessionId: string): void {
+  const db = getDb();
+  db.update(callPendingQuestions)
+    .set({ status: 'expired' })
+    .where(
+      and(
+        eq(callPendingQuestions.callSessionId, callSessionId),
+        eq(callPendingQuestions.status, 'pending'),
+      ),
+    )
+    .run();
+}

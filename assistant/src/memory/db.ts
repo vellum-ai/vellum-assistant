@@ -686,6 +686,55 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_triage_results_sender ON triage_results(sender)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_triage_results_created_at ON triage_results(created_at DESC)`);
 
+  // ── Call Sessions (outgoing AI phone calls) ────────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS call_sessions (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL,
+      provider_call_sid TEXT,
+      from_number TEXT NOT NULL,
+      to_number TEXT NOT NULL,
+      task TEXT,
+      status TEXT NOT NULL DEFAULT 'initiated',
+      started_at INTEGER,
+      ended_at INTEGER,
+      last_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS call_events (
+      id TEXT PRIMARY KEY,
+      call_session_id TEXT NOT NULL REFERENCES call_sessions(id) ON DELETE CASCADE,
+      event_type TEXT NOT NULL,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS call_pending_questions (
+      id TEXT PRIMARY KEY,
+      call_session_id TEXT NOT NULL REFERENCES call_sessions(id) ON DELETE CASCADE,
+      question_text TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      asked_at INTEGER NOT NULL,
+      answered_at INTEGER,
+      answer_text TEXT
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_call_sessions_conversation_id ON call_sessions(conversation_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_call_sessions_provider_call_sid ON call_sessions(provider_call_sid)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_call_sessions_status ON call_sessions(status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_call_events_call_session_id ON call_events(call_session_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_call_pending_questions_call_session_id ON call_pending_questions(call_session_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_call_pending_questions_status ON call_pending_questions(status)`);
+
   // ── Follow-ups ─────────────────────────────────────────────────────
 
   database.run(/*sql*/ `

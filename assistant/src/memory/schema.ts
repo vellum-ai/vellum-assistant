@@ -527,3 +527,45 @@ export const llmUsageEvents = sqliteTable('llm_usage_events', {
   pricingStatus: text('pricing_status').notNull(),
   metadataJson: text('metadata_json'),
 });
+
+// ── Call Sessions (outgoing AI phone calls) ──────────────────────────
+
+export const callSessions = sqliteTable('call_sessions', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id')
+    .notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(),
+  providerCallSid: text('provider_call_sid'),
+  fromNumber: text('from_number').notNull(),
+  toNumber: text('to_number').notNull(),
+  task: text('task'),
+  status: text('status').notNull().default('initiated'),
+  startedAt: integer('started_at'),
+  endedAt: integer('ended_at'),
+  lastError: text('last_error'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const callEvents = sqliteTable('call_events', {
+  id: text('id').primaryKey(),
+  callSessionId: text('call_session_id')
+    .notNull()
+    .references(() => callSessions.id, { onDelete: 'cascade' }),
+  eventType: text('event_type').notNull(),
+  payloadJson: text('payload_json').notNull().default('{}'),
+  createdAt: integer('created_at').notNull(),
+});
+
+export const callPendingQuestions = sqliteTable('call_pending_questions', {
+  id: text('id').primaryKey(),
+  callSessionId: text('call_session_id')
+    .notNull()
+    .references(() => callSessions.id, { onDelete: 'cascade' }),
+  questionText: text('question_text').notNull(),
+  status: text('status').notNull().default('pending'),
+  askedAt: integer('asked_at').notNull(),
+  answeredAt: integer('answered_at'),
+  answerText: text('answer_text'),
+});
