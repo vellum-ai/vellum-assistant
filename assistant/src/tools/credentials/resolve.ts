@@ -13,7 +13,7 @@ import {
   type CredentialMetadata,
 } from './metadata-store.js';
 import type { CredentialInjectionTemplate } from './policy-types.js';
-import { minimatch } from 'minimatch';
+import { matchHostPattern } from './host-pattern-match.js';
 
 export interface ResolvedCredential {
   credentialId: string;
@@ -109,7 +109,7 @@ export function resolveForDomain(
   for (const meta of all) {
     const templates = meta.injectionTemplates ?? [];
     const matching = templates.filter((t) =>
-      minimatch(hostname, t.hostPattern, { nocase: true }),
+      matchHostPattern(hostname, t.hostPattern, { includeApexForWildcard: true }) !== 'none',
     );
     if (matching.length === 0) continue;
     results.push({
