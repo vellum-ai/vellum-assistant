@@ -350,9 +350,31 @@ export async function runAgentLoopImpl(
           currentTurnToolNames.push(event.name);
           onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input, sessionId: ctx.conversationId });
           break;
-        case 'tool_output_chunk':
-          onEvent({ type: 'tool_output_chunk', chunk: event.chunk });
+        case 'tool_output_chunk': {
+          // Try to parse structured progress fields from the chunk
+          let structured: { subType?: string; subToolName?: string; subToolInput?: string; subToolIsError?: boolean } | undefined;
+          try {
+            const parsed = JSON.parse(event.chunk);
+            if (parsed && typeof parsed === 'object' && parsed.subType) {
+              structured = parsed;
+            }
+          } catch {
+            // Not JSON — pass through as plain chunk
+          }
+          if (structured) {
+            onEvent({
+              type: 'tool_output_chunk',
+              chunk: event.chunk,
+              subType: structured.subType,
+              subToolName: structured.subToolName,
+              subToolInput: structured.subToolInput,
+              subToolIsError: structured.subToolIsError,
+            });
+          } else {
+            onEvent({ type: 'tool_output_chunk', chunk: event.chunk });
+          }
           break;
+        }
         case 'input_json_delta':
           onEvent({ type: 'tool_input_delta', toolName: event.toolName, content: event.accumulatedJson, sessionId: ctx.conversationId });
           break;
