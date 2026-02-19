@@ -16,7 +16,7 @@
  * End-to-end targets (median of 3 runs):
  * - Session creation (no preactivated skills): < 200ms
  * - Session creation (3 preactivated skills): < 300ms
- * - Event listener registration: < 10ms
+ * - Session constructor (sync, no loadFromDb): < 10ms
  */
 import { afterAll, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -437,7 +437,7 @@ describe('End-to-end session creation benchmark', () => {
     expect(median(timings)).toBeLessThan(300);
   });
 
-  test('event listener registration is included in constructor and completes under 10ms (median of 5)', () => {
+  test('Session constructor (sync, no loadFromDb) completes under 10ms (median of 5)', () => {
     const systemPrompt = buildSystemPrompt();
 
     // Warm-up
