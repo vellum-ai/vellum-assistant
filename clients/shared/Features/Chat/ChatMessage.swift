@@ -222,7 +222,7 @@ public struct ToolConfirmationData: Equatable {
         return URL(string: urlString)
     }
 
-    /// Short, personable description of the action being requested.
+    /// Short question asking the user to approve the action.
     public var humanDescription: String {
         let reason = (input["reason"]?.value as? String) ?? ""
         // Lowercase the first letter so reason flows naturally mid-sentence (e.g. "to determine..." not "To determine...")
@@ -235,64 +235,64 @@ public struct ToolConfirmationData: Equatable {
             }
             return reason
         case "bash", "host_bash":
-            if !r.isEmpty { return "I would like to run a shell command \(r)." }
-            return "I would like to run a shell command."
+            if !r.isEmpty { return "Allow running a shell command \(r)?" }
+            return "Allow running a shell command?"
         case "file_write", "host_file_write":
-            if !r.isEmpty { return "I would like to write a file \(r)." }
+            if !r.isEmpty { return "Allow writing a file \(r)?" }
             let path = (input["path"]?.value as? String) ?? ""
-            if path.isEmpty { return "I would like to write a file." }
-            return "I would like to write to \(URL(fileURLWithPath: path).lastPathComponent)."
+            if path.isEmpty { return "Allow writing a file?" }
+            return "Allow writing to \(URL(fileURLWithPath: path).lastPathComponent)?"
         case "file_edit", "host_file_edit":
-            if !r.isEmpty { return "I would like to edit a file \(r)." }
+            if !r.isEmpty { return "Allow editing a file \(r)?" }
             let path = (input["path"]?.value as? String) ?? ""
-            if path.isEmpty { return "I would like to edit a file." }
-            return "I would like to edit \(URL(fileURLWithPath: path).lastPathComponent)."
+            if path.isEmpty { return "Allow editing a file?" }
+            return "Allow editing \(URL(fileURLWithPath: path).lastPathComponent)?"
         case "file_read", "host_file_read":
-            if !r.isEmpty { return "I would like to read a file \(r)." }
+            if !r.isEmpty { return "Allow reading a file \(r)?" }
             let path = (input["path"]?.value as? String) ?? ""
-            if path.isEmpty { return "I would like to read a file." }
-            return "I would like to read \(URL(fileURLWithPath: path).lastPathComponent)."
+            if path.isEmpty { return "Allow reading a file?" }
+            return "Allow reading \(URL(fileURLWithPath: path).lastPathComponent)?"
         case "web_fetch":
-            if !r.isEmpty { return "I would like to fetch a URL \(r)." }
+            if !r.isEmpty { return "Allow fetching a URL \(r)?" }
             let url = (input["url"]?.value as? String) ?? ""
             if let host = URL(string: url)?.host {
-                return "I would like to fetch data from \(host)."
+                return "Allow fetching data from \(host)?"
             }
-            return "I would like to fetch a URL."
+            return "Allow fetching a URL?"
         case "browser_navigate":
-            if !r.isEmpty { return "I would like to open a page \(r)." }
+            if !r.isEmpty { return "Allow opening a page \(r)?" }
             let url = (input["url"]?.value as? String) ?? ""
             if let host = URL(string: url)?.host {
-                return "I would like to open \(host)."
+                return "Allow opening \(host)?"
             }
-            return "I would like to open a page."
+            return "Allow opening a page?"
         case "credential_store":
             let action = (input["action"]?.value as? String) ?? ""
             let service = (input["service"]?.value as? String) ?? ""
             switch action {
             case "oauth2_connect":
                 return service.isEmpty
-                    ? "I would like to connect an account."
-                    : "I would like to connect your \(service.capitalized) account."
+                    ? "Allow connecting an account?"
+                    : "Allow connecting your \(service.capitalized) account?"
             case "store":
                 return service.isEmpty
-                    ? "I would like to save a credential securely."
-                    : "I would like to save a \(service) credential securely."
+                    ? "Allow saving a credential securely?"
+                    : "Allow saving a \(service) credential securely?"
             case "delete":
                 return service.isEmpty
-                    ? "I would like to remove a stored credential."
-                    : "I would like to remove a \(service) credential."
+                    ? "Allow removing a stored credential?"
+                    : "Allow removing a \(service) credential?"
             case "prompt":
                 return service.isEmpty
-                    ? "I would like to ask you for a credential."
-                    : "I would like to ask you for a \(service) credential."
+                    ? "Allow asking for a credential?"
+                    : "Allow asking for a \(service) credential?"
             default:
-                return "I would like to access secure storage."
+                return "Allow accessing secure storage?"
             }
         default:
             let tc = toolCategory.lowercased()
-            if !r.isEmpty { return "I would like to use \(tc) \(r)." }
-            return "I would like to use \(tc)."
+            if !r.isEmpty { return "Allow using \(tc) \(r)?" }
+            return "Allow using \(tc)?"
         }
     }
 
