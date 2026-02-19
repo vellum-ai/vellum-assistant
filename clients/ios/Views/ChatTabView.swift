@@ -1,9 +1,28 @@
 #if canImport(UIKit)
 import SwiftUI
+import UIKit
 import VellumAssistantShared
+
+// MARK: - ActivityViewController
+
+/// Lightweight SwiftUI wrapper around UIActivityViewController for sharing content.
+struct ActivityViewController: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - ChatTabView
 
 struct ChatTabView: View {
     @StateObject private var viewModel: ChatViewModel
+    @State private var showCopiedConfirmation = false
+    @State private var showShareSheet = false
+    @State private var shareMarkdown: String = ""
 
     init(daemonClient: any DaemonClientProtocol) {
         _viewModel = StateObject(wrappedValue: ChatViewModel(daemonClient: daemonClient))
@@ -13,6 +32,63 @@ struct ChatTabView: View {
         ChatContentView(viewModel: viewModel)
             .navigationTitle("Chat")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    exportMenu(messages: viewModel.messages, threadTitle: nil)
+                }
+            }
+            .sheet(isPresented: $showShareSheet) {
+                ActivityViewController(activityItems: [shareMarkdown])
+            }
+    }
+
+    @ViewBuilder
+    private func exportMenu(messages: [ChatMessage], threadTitle: String?) -> some View {
+        let hasTextMessages = messages.contains {
+            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
+        Menu {
+            Button {
+                let markdown = buildMarkdown(messages: messages, threadTitle: threadTitle)
+                guard !markdown.isEmpty else { return }
+                UIPasteboard.general.string = markdown
+                showCopiedConfirmation = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    showCopiedConfirmation = false
+                }
+            } label: {
+                Label(
+                    showCopiedConfirmation ? "Copied!" : "Copy as Markdown",
+                    systemImage: showCopiedConfirmation ? "checkmark" : "doc.on.doc"
+                )
+            }
+
+            Button {
+                let markdown = buildMarkdown(messages: messages, threadTitle: threadTitle)
+                guard !markdown.isEmpty else { return }
+                shareMarkdown = markdown
+                showShareSheet = true
+            } label: {
+                Label("Share\u{2026}", systemImage: "square.and.arrow.up")
+            }
+        } label: {
+            Image(systemName: showCopiedConfirmation ? "checkmark" : "square.and.arrow.up")
+                .foregroundColor(showCopiedConfirmation ? VColor.success : VColor.textMuted)
+        }
+        .disabled(!hasTextMessages)
+    }
+
+    private func buildMarkdown(messages: [ChatMessage], threadTitle: String?) -> String {
+        let names = ChatTranscriptFormatter.ParticipantNames(
+            assistantName: "Assistant",
+            userName: "You"
+        )
+        return ChatTranscriptFormatter.threadMarkdown(
+            messages: messages,
+            threadTitle: threadTitle,
+            participantNames: names
+        )
     }
 }
 
