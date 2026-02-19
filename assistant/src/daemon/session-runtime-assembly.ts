@@ -313,6 +313,38 @@ export function stripWorkspaceTopLevelContext(messages: Message[]): Message[] {
 }
 
 /**
+ * Prepend temporal context to a user message so the model has
+ * authoritative date/time grounding each turn.
+ */
+export function injectTemporalContext(message: Message, temporalContext: string): Message {
+  return {
+    ...message,
+    content: [
+      { type: 'text', text: temporalContext },
+      ...message.content,
+    ],
+  };
+}
+
+/**
+ * Strip `<temporal_context>` blocks injected by `injectTemporalContext`.
+ * Called after the agent run to prevent temporal context from persisting
+ * in session history.
+ */
+export function stripTemporalContext(messages: Message[]): Message[] {
+  return messages.map((message) => {
+    if (message.role !== 'user') return message;
+    const nextContent = message.content.filter((block) => {
+      if (block.type !== 'text') return true;
+      return !block.text.startsWith('<temporal_context>');
+    });
+    if (nextContent.length === message.content.length) return message;
+    if (nextContent.length === 0) return null;
+    return { ...message, content: nextContent };
+  }).filter((message): message is NonNullable<typeof message> => message !== null);
+}
+
+/**
  * Strip `<active_workspace>` (and legacy `<active_dynamic_page>`) blocks
  * injected by `injectActiveSurfaceContext`.  Called after the agent run to
  * prevent the (potentially 100 KB) surface HTML from persisting in session
@@ -344,6 +376,7 @@ export function applyRuntimeInjections(
     activeSurface?: ActiveSurfaceContext | null;
     workspaceTopLevelContext?: string | null;
     channelCapabilities?: ChannelCapabilities | null;
+    temporalContext?: string | null;
   },
 ): Message[] {
   let result = runMessages;
@@ -374,6 +407,19 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectChannelCapabilityContext(userTail, options.channelCapabilities),
+      ];
+    }
+  }
+
+  // Temporal context is injected before workspace top-level so it
+  // appears after workspace context in the final message content
+  // (both are prepended, so later injections appear first).
+  if (options.temporalContext) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === 'user') {
+      result = [
+        ...result.slice(0, -1),
+        injectTemporalContext(userTail, options.temporalContext),
       ];
     }
   }
