@@ -171,13 +171,9 @@ func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
         i += 1
     }
 
-    // If a fence was never closed, emit accumulated code block lines as text
+    // If a fence was never closed, emit as a code block (e.g. during streaming)
     if fenceDelimiter != nil {
-        let fenceChar = fenceDelimiter!.character
-        let fenceLen = fenceDelimiter!.length
-        let opener = String(repeating: String(fenceChar), count: fenceLen) + (codeBlockLanguage ?? "")
-        currentText.append(opener)
-        currentText.append(contentsOf: codeBlockLines)
+        segments.append(.codeBlock(language: codeBlockLanguage, code: codeBlockLines.joined(separator: "\n")))
     }
 
     flushText()
