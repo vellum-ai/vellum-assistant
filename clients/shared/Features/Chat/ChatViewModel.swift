@@ -472,6 +472,13 @@ public final class ChatViewModel: ObservableObject {
                 // never receives message_complete, leaving the UI stuck.
                 self?.isThinking = false
                 self?.isSending = false
+                self?.isCancelling = false
+                // Mark current assistant message as no longer streaming
+                if let existingId = self?.currentAssistantMessageId,
+                   let index = self?.messages.firstIndex(where: { $0.id == existingId }) {
+                    self?.messages[index].isStreaming = false
+                }
+                self?.currentAssistantMessageId = nil
             }
         }
     }
