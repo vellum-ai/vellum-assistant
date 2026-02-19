@@ -17,7 +17,9 @@ public enum InlineVideoEmbedState: Equatable {
 /// feeds directly into SwiftUI views.
 @MainActor
 public final class InlineVideoEmbedStateManager: ObservableObject {
-    @Published private(set) var state: InlineVideoEmbedState = .placeholder
+    @Published public private(set) var state: InlineVideoEmbedState = .placeholder
+
+    public init() {}
 
     /// Request the transition from placeholder (or failed) to initializing.
     ///
