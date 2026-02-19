@@ -22,6 +22,7 @@ export async function run(
         text: result.text,
         url: result.url,
       }),
+      isError: false,
     };
   } catch (err) {
     if (err instanceof SessionExpiredError) {

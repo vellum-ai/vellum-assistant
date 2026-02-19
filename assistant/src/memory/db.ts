@@ -1212,13 +1212,19 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
   ).get(checkpointKey);
   if (checkpoint) return;
 
-  // On fresh installs the tables are created without assistant_id (PR 7+). If the
-  // column is already absent, there is nothing to normalise — pre-seed the checkpoint
-  // and skip so the SQL below doesn't fail with "no such column: assistant_id".
-  const ckDdl = raw.query(
-    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'conversation_keys'`,
-  ).get() as { sql: string } | null;
-  if (!ckDdl?.sql.includes('assistant_id')) {
+  // On fresh installs the tables are created without assistant_id (PR 7+). Skip the
+  // migration if NONE of the four affected tables have the column — pre-seed the
+  // checkpoint so subsequent startups are also skipped. Checking all four (not just
+  // conversation_keys) avoids a false negative on very old installs where
+  // conversation_keys may not exist yet but other tables still carry assistant_id data.
+  const affectedTables = ['conversation_keys', 'attachments', 'channel_inbound_events', 'message_runs'];
+  const anyHasAssistantId = affectedTables.some((tbl) => {
+    const ddl = raw.query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`,
+    ).get(tbl) as { sql: string } | null;
+    return ddl?.sql.includes('assistant_id') ?? false;
+  });
+  if (!anyHasAssistantId) {
     raw.query(
       `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
     ).run(checkpointKey, Date.now());
