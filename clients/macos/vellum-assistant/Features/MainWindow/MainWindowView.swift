@@ -144,21 +144,23 @@ struct MainWindowView: View {
     }
 
     private func toggleTemporaryChat() {
-        if threadManager.activeThread?.kind == .private {
-            // Restore the thread the user was on before entering temporary chat.
-            // Fall back to visibleThreads.first only if the stored thread no longer exists.
-            if let savedId = preTemporaryChatThreadId,
-               threadManager.visibleThreads.contains(where: { $0.id == savedId }) {
-                threadManager.selectThread(id: savedId)
-            } else if let recent = threadManager.visibleThreads.first {
-                threadManager.selectThread(id: recent.id)
+        withAnimation(VAnimation.standard) {
+            if threadManager.activeThread?.kind == .private {
+                // Restore the thread the user was on before entering temporary chat.
+                // Fall back to visibleThreads.first only if the stored thread no longer exists.
+                if let savedId = preTemporaryChatThreadId,
+                   threadManager.visibleThreads.contains(where: { $0.id == savedId }) {
+                    threadManager.selectThread(id: savedId)
+                } else if let recent = threadManager.visibleThreads.first {
+                    threadManager.selectThread(id: recent.id)
+                } else {
+                    threadManager.createThread()
+                }
+                preTemporaryChatThreadId = nil
             } else {
-                threadManager.createThread()
+                preTemporaryChatThreadId = threadManager.activeThreadId
+                threadManager.createPrivateThread()
             }
-            preTemporaryChatThreadId = nil
-        } else {
-            preTemporaryChatThreadId = threadManager.activeThreadId
-            threadManager.createPrivateThread()
         }
     }
 
@@ -375,7 +377,6 @@ struct MainWindowView: View {
                         if windowState.isShowingChat, threadManager.activeThread?.kind == .private {
                             Spacer().frame(width: VSpacing.sm)
                             TemporaryChatIndicator(onExit: { toggleTemporaryChat() })
-                                .transition(.opacity.combined(with: .scale(scale: 0.9)))
                         }
                         Spacer()
                         if windowState.isShowingChat {
