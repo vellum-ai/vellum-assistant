@@ -60,6 +60,7 @@ function makeSessionWithEvent(message: ServerMessage): Session {
   return {
     isProcessing: () => false,
     persistUserMessage: () => undefined as unknown as string,
+    setChannelCapabilities: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       onEvent(message);
