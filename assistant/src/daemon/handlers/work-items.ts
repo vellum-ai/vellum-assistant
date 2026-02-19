@@ -163,16 +163,23 @@ export function handleWorkItemOutput(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const workItem = getWorkItem(msg.id);
-  if (!workItem) {
-    ctx.send(socket, { type: 'work_item_output_response', id: msg.id, success: false, error: 'Work item not found' });
-    return;
-  }
+  try {
+    const workItem = getWorkItem(msg.id);
+    if (!workItem) {
+      ctx.send(socket, { type: 'work_item_output_response', id: msg.id, success: false, error: 'Work item not found' });
+      return;
+    }
 
-  let summary = '';
-  let highlights: string[] = [];
+    // If the work item has never been run, return an error so the client
+    // can show "No output yet" instead of an empty loaded state.
+    if (!workItem.lastRunConversationId) {
+      ctx.send(socket, { type: 'work_item_output_response', id: msg.id, success: false, error: 'This task has not been run yet. No output is available.' });
+      return;
+    }
 
-  if (workItem.lastRunConversationId) {
+    let summary = '';
+    let highlights: string[] = [];
+
     const msgs = getMessages(workItem.lastRunConversationId);
     // Find the last assistant message with text content (not tool calls)
     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -208,28 +215,33 @@ export function handleWorkItemOutput(
       }
       break;
     }
-  }
 
-  let completedAt: number | null = null;
-  if (workItem.lastRunId) {
-    const run = getTaskRun(workItem.lastRunId);
-    completedAt = run?.finishedAt ?? null;
-  }
+    // Convert finishedAt from milliseconds (Date.now()) to seconds for the
+    // client, which uses Date(timeIntervalSince1970:) expecting seconds.
+    let completedAt: number | null = null;
+    if (workItem.lastRunId) {
+      const run = getTaskRun(workItem.lastRunId);
+      completedAt = run?.finishedAt != null ? Math.floor(run.finishedAt / 1000) : null;
+    }
 
-  ctx.send(socket, {
-    type: 'work_item_output_response',
-    id: msg.id,
-    success: true,
-    output: {
-      title: workItem.title,
-      status: workItem.lastRunStatus ?? workItem.status,
-      runId: workItem.lastRunId,
-      conversationId: workItem.lastRunConversationId,
-      completedAt,
-      summary,
-      highlights,
-    },
-  });
+    ctx.send(socket, {
+      type: 'work_item_output_response',
+      id: msg.id,
+      success: true,
+      output: {
+        title: workItem.title,
+        status: workItem.lastRunStatus ?? workItem.status,
+        runId: workItem.lastRunId,
+        conversationId: workItem.lastRunConversationId,
+        completedAt,
+        summary,
+        highlights,
+      },
+    });
+  } catch (err) {
+    log.error({ err, workItemId: msg.id }, 'handleWorkItemOutput failed');
+    ctx.send(socket, { type: 'work_item_output_response', id: msg.id, success: false, error: 'Failed to load task output' });
+  }
 }
 
 export async function handleWorkItemRunTask(
