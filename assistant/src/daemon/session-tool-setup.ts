@@ -176,6 +176,11 @@ export function createToolExecutor(
       }
     }
 
+    // Tell the client to open/focus the tasks window when the model lists tasks
+    if (name === 'task_list_show' && !result.isError) {
+      ctx.sendToClient({ type: 'open_tasks_window' });
+    }
+
     // Auto-refresh workspace surfaces when app files are edited
     if ((name === 'app_file_edit' || name === 'app_file_write') && !result.isError) {
       const appId = input.app_id as string | undefined;
