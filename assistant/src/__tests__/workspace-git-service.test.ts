@@ -851,6 +851,77 @@ describe('WorkspaceGitService', () => {
       expect(result2.committed).toBe(true);
     });
 
+    test('breaker early return inside lock does not reset breaker via recordSuccess', async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, 'test.txt'), 'content');
+
+      // Force breaker open with known failure count
+      const internal = service as unknown as {
+        consecutiveFailures: number;
+        nextAllowedAttemptMs: number;
+      };
+      internal.consecutiveFailures = 5;
+      internal.nextAllowedAttemptMs = Date.now() + 60_000;
+
+      // Pre-lock check catches the open breaker and returns early.
+      // Verify that consecutiveFailures is NOT reset to 0.
+      const result = await service.commitIfDirty(
+        () => ({ message: 'should not commit' }),
+      );
+      expect(result.committed).toBe(false);
+      expect(_getConsecutiveFailures(service)).toBe(5);
+    });
+
+    test('deadline early return inside lock does not reset breaker via recordSuccess', async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, 'test.txt'), 'content');
+
+      // Set up prior failures (breaker closed but failures recorded)
+      const internal = service as unknown as {
+        consecutiveFailures: number;
+        nextAllowedAttemptMs: number;
+      };
+      internal.consecutiveFailures = 3;
+      // Set nextAllowedAttemptMs in the past so the breaker check passes
+      // but consecutiveFailures is non-zero
+      internal.nextAllowedAttemptMs = Date.now() - 1000;
+
+      // Use a deadline that has already passed — this triggers the pre-lock
+      // deadline fast-path. consecutiveFailures should NOT be reset.
+      const result = await service.commitIfDirty(
+        () => ({ message: 'should not commit' }),
+        { deadlineMs: Date.now() - 1000 },
+      );
+      expect(result.committed).toBe(false);
+      expect(_getConsecutiveFailures(service)).toBe(3);
+    });
+
+    test('successful git operation after failures resets breaker', async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, 'test.txt'), 'content');
+
+      // Set up prior failures with breaker closed (backoff expired)
+      const internal = service as unknown as {
+        consecutiveFailures: number;
+        nextAllowedAttemptMs: number;
+      };
+      internal.consecutiveFailures = 3;
+      internal.nextAllowedAttemptMs = Date.now() - 1000;
+
+      // Commit should succeed and reset the breaker
+      const result = await service.commitIfDirty(
+        () => ({ message: 'recovery commit' }),
+      );
+      expect(result.committed).toBe(true);
+      expect(_getConsecutiveFailures(service)).toBe(0);
+    });
+
     test('bypassBreaker ignores breaker state', async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
