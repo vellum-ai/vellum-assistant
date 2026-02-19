@@ -21,6 +21,7 @@ public enum VFont {
     /// On macOS the base size is always returned unmodified.
     private static func adaptiveSize(_ base: CGFloat) -> CGFloat {
         #if os(iOS)
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return base }
         return base >= 18 ? round(base * compactScale) : base
         #else
         return base
