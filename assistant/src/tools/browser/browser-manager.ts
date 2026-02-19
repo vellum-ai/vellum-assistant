@@ -4,6 +4,7 @@ import { getDataDir } from '../../util/platform.js';
 import { getLogger } from '../../util/logger.js';
 import { checkBrowserRuntime } from './runtime-check.js';
 import { authSessionCache } from './auth-cache.js';
+import type { ExtractedCredential } from './network-recording-types.js';
 
 const log = getLogger('browser-manager');
 
@@ -623,6 +624,66 @@ class BrowserManager {
 
       this.handoffResolvers.set(sessionId, resolver);
     });
+  }
+
+  /**
+   * Get the raw Playwright page for a session (for CDP session creation).
+   * Used by NetworkRecorder to create its own CDP session.
+   */
+  getRawPage(sessionId: string): unknown | undefined {
+    return this.rawPages.get(sessionId);
+  }
+
+  /**
+   * Get any available raw page (for network recording when we don't care which page).
+   */
+  getAnyRawPage(): unknown | undefined {
+    for (const page of this.rawPages.values()) {
+      return page;
+    }
+    return undefined;
+  }
+
+  /**
+   * Extract cookies from the browser via CDP, optionally filtered by domain.
+   */
+  async extractCookies(domain?: string): Promise<ExtractedCredential[]> {
+    if (!this.browserCdpSession) return [];
+    try {
+      const result = await this.browserCdpSession.send('Network.getAllCookies') as {
+        cookies: Array<{
+          name: string;
+          value: string;
+          domain: string;
+          path: string;
+          httpOnly: boolean;
+          secure: boolean;
+          expires: number;
+        }>;
+      };
+
+      let cookies = result.cookies ?? [];
+      if (domain) {
+        cookies = cookies.filter(c =>
+          c.domain === domain ||
+          c.domain === `.${domain}` ||
+          c.domain.endsWith(`.${domain}`),
+        );
+      }
+
+      return cookies.map(c => ({
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        path: c.path,
+        httpOnly: c.httpOnly,
+        secure: c.secure,
+        expires: c.expires > 0 ? c.expires : undefined,
+      }));
+    } catch (err) {
+      log.warn({ err }, 'Failed to extract cookies via CDP');
+      return [];
+    }
   }
 
   hasContext(): boolean {
