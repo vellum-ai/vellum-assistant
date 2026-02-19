@@ -36,6 +36,11 @@ class TasksWindowViewModel: ObservableObject {
     /// Loading/loaded/error state for the preflight sheet.
     @Published var preflightState: PreflightState = .loading
 
+    /// Tracks the item awaiting a preflight response from the daemon.
+    /// Unlike `preflightItem`, this does NOT trigger the sheet — it only
+    /// becomes `preflightItem` if the response contains non-empty permissions.
+    private var pendingPreflightItem: IPCWorkItemsListResponseItem?
+
     /// Handles for pending timeout tasks keyed by work item ID, so we can
     /// cancel the timer when the daemon responds before the deadline.
     private var runTimeoutTasks: [String: Task<Void, Never>] = [:]
@@ -116,17 +121,23 @@ class TasksWindowViewModel: ObservableObject {
 
         daemonClient.onWorkItemPreflightResponse = { [weak self] response in
             guard let self else { return }
-            guard self.preflightItem?.id == response.id else { return }
+            // Match against the pending item (not yet shown as a sheet)
+            guard self.pendingPreflightItem?.id == response.id else { return }
             if response.success, let permissions = response.permissions {
                 if permissions.isEmpty {
-                    // No permissions needed — skip the sheet and run directly
-                    self.dismissPreflight()
+                    // No permissions needed (either pre-bundled or task has no
+                    // required tools) — run directly without showing a sheet.
+                    self.pendingPreflightItem = nil
                     self.runTask(id: response.id)
                 } else {
+                    // Permissions need approval — now show the preflight sheet
+                    self.preflightItem = self.pendingPreflightItem
+                    self.pendingPreflightItem = nil
                     self.preflightState = .loaded(permissions)
                 }
             } else {
-                self.preflightState = .error(response.error ?? "Failed to check permissions.")
+                self.pendingPreflightItem = nil
+                self.errorMessage = response.error ?? "Failed to check permissions."
             }
         }
 
@@ -164,8 +175,11 @@ class TasksWindowViewModel: ObservableObject {
         }
     }
 
-    /// Initiates the run flow for a work item. If the task has required tools,
-    /// opens the permission preflight sheet first. Otherwise runs directly.
+    /// Initiates the run flow for a work item. Sends a preflight check to the
+    /// daemon but does NOT show the permission sheet yet — the sheet only
+    /// appears if the daemon reports non-empty permissions. When permissions
+    /// are pre-bundled at creation time, the daemon returns an empty list and
+    /// the task runs immediately with no UI interruption.
     func initiateRun(item: IPCWorkItemsListResponseItem) {
         logger.info("initiateRun: id=\(item.id, privacy: .public)")
 
@@ -175,14 +189,16 @@ class TasksWindowViewModel: ObservableObject {
             return
         }
 
-        // Start the preflight check to see if permissions are needed
-        preflightItem = item
+        // Track which item we're preflighting without showing the sheet yet.
+        // The sheet will only appear if the response contains permissions.
+        pendingPreflightItem = item
         preflightState = .loading
         do {
             try daemonClient.sendWorkItemPreflight(id: item.id)
         } catch {
             logger.error("initiateRun: preflight transport error for id=\(item.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            preflightState = .error(error.localizedDescription)
+            pendingPreflightItem = nil
+            errorMessage = error.localizedDescription
         }
     }
 
