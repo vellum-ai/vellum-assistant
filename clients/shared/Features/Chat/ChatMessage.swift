@@ -346,6 +346,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.isError == rhs.isError
             && lhs.isComplete == rhs.isComplete
             && lhs.arrivedBeforeText == rhs.arrivedBeforeText
+            && lhs.inputFull == rhs.inputFull
             && lhs.imageData == rhs.imageData
             && lhs.buildingStatus == rhs.buildingStatus
     }
