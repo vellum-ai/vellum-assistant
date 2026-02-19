@@ -165,8 +165,8 @@ struct InlineVideoAttachmentView: View {
         await MainActor.run {
             self.player = avPlayer
             self.isPlaying = true
+            avPlayer.play()
         }
-        avPlayer.play()
     }
 
     private func fetchAndPlay() {
