@@ -1164,7 +1164,37 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
     `);
 
     // attachments: UNIQUE (assistant_id, content_hash) WHERE content_hash IS NOT NULL
-    // Step 1: Dedup non-self rows sharing the same content_hash.
+    //
+    // message_attachments rows reference attachment IDs with ON DELETE CASCADE, so we
+    // must remap links to the surviving row BEFORE deleting duplicates to avoid
+    // silently dropping attachment metadata from messages.
+    //
+    // Step 1: Remap message_attachments from non-self duplicates to their survivor
+    //         (MIN rowid per content_hash group), then delete the duplicates.
+    raw.exec(/*sql*/ `
+      UPDATE message_attachments
+      SET attachment_id = (
+        SELECT a_survivor.id
+        FROM attachments a_survivor
+        WHERE a_survivor.assistant_id != 'self'
+          AND a_survivor.content_hash = (
+            SELECT a_dup.content_hash FROM attachments a_dup
+            WHERE a_dup.id = message_attachments.attachment_id
+          )
+        ORDER BY a_survivor.rowid
+        LIMIT 1
+      )
+      WHERE attachment_id IN (
+        SELECT id FROM attachments
+        WHERE assistant_id != 'self'
+          AND content_hash IS NOT NULL
+          AND rowid NOT IN (
+            SELECT MIN(rowid) FROM attachments
+            WHERE assistant_id != 'self' AND content_hash IS NOT NULL
+            GROUP BY content_hash
+          )
+      )
+    `);
     raw.exec(/*sql*/ `
       DELETE FROM attachments
       WHERE assistant_id != 'self'
@@ -1176,7 +1206,31 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
           GROUP BY content_hash
         )
     `);
-    // Step 2: Delete non-self rows conflicting with existing 'self' rows.
+    // Step 2: Remap message_attachments from non-self rows conflicting with a 'self'
+    //         row to the 'self' row, then delete the now-unlinked non-self rows.
+    raw.exec(/*sql*/ `
+      UPDATE message_attachments
+      SET attachment_id = (
+        SELECT a_self.id
+        FROM attachments a_self
+        WHERE a_self.assistant_id = 'self'
+          AND a_self.content_hash = (
+            SELECT a_ns.content_hash FROM attachments a_ns
+            WHERE a_ns.id = message_attachments.attachment_id
+          )
+        LIMIT 1
+      )
+      WHERE attachment_id IN (
+        SELECT id FROM attachments
+        WHERE assistant_id != 'self'
+          AND content_hash IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM attachments a2
+            WHERE a2.assistant_id = 'self'
+              AND a2.content_hash = attachments.content_hash
+          )
+      )
+    `);
     raw.exec(/*sql*/ `
       DELETE FROM attachments
       WHERE assistant_id != 'self'
