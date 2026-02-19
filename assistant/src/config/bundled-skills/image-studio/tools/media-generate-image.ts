@@ -8,6 +8,26 @@ import { getDb } from '../../../../memory/db.js';
 import { conversationKeys } from '../../../../memory/schema.js';
 import { isAttachmentVisible, type AttachmentContext } from '../../../../daemon/media-visibility-policy.js';
 import { getConversationThreadType } from '../../../../memory/conversation-store.js';
+import { getAttachmentSourceConversations } from '../../../../tools/assets/search.js';
+
+/**
+ * Check whether an attachment is visible from the given context.
+ * Mirrors the logic in tools/assets/search.ts:isAttachmentVisibleFromContext.
+ */
+function isAttachmentAccessible(attachmentId: string, currentContext: AttachmentContext): boolean {
+  const sources = getAttachmentSourceConversations(attachmentId);
+  if (sources.length === 0) {
+    return true; // orphan attachments are universally visible
+  }
+  const hasStandard = sources.some((s) => s.threadType !== 'private');
+  if (hasStandard) {
+    return true;
+  }
+  // All sources are private — visible only if the caller is in one of those threads
+  return sources.some(
+    (s) => isAttachmentVisible({ conversationId: s.conversationId, isPrivate: true }, currentContext),
+  );
+}
 
 /** Resolve the assistantId for the current conversation. */
 function getAssistantIdForConversation(conversationId: string): string | null {
@@ -61,12 +81,9 @@ export async function run(
       isPrivate: threadType === 'private',
     };
 
-    // Filter to only visible attachments
+    // Filter to only visible attachments using their originating context
     const visibleAttachments = attachments.filter((att) =>
-      isAttachmentVisible(
-        { conversationId: context.conversationId, isPrivate: threadType === 'private' },
-        currentContext,
-      ),
+      isAttachmentAccessible(att.id, currentContext),
     );
 
     if (visibleAttachments.length === 0 && attachmentIds.length > 0) {

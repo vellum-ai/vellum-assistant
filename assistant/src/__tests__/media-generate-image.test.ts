@@ -76,6 +76,10 @@ mock.module('../daemon/media-visibility-policy.js', () => ({
   isAttachmentVisible: () => true,
 }));
 
+mock.module('../tools/assets/search.js', () => ({
+  getAttachmentSourceConversations: () => [],
+}));
+
 // Import after mocking
 import { run } from '../config/bundled-skills/image-studio/tools/media-generate-image.js';
 
