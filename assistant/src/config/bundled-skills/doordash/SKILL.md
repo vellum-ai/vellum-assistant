@@ -9,15 +9,9 @@ You can order food from DoorDash for the user using the `vellum doordash` CLI.
 
 ## CLI Setup
 
-`vellum doordash` is a built-in subcommand of the Vellum assistant CLI — it is NOT a separate tool you need to find or install. It should already be on your PATH. If `vellum` is not found, run:
-```
-export PATH="$HOME/.local/bin:$PATH"
-```
-If that still fails, invoke the CLI directly via bun:
-```
-bun run ~/vellum/workspace/vellum-assistant/assistant/src/index.ts doordash <subcommand> --json
-```
-Do NOT search for the binary, inspect `vel` wrapper scripts, or try to discover how the CLI works. Just run the commands as documented below.
+**IMPORTANT: Always use `host_bash` (not `bash`) for all `vellum doordash` commands.** The DoorDash CLI needs host access for Chrome CDP, session cookies, and the `vellum` binary — none of which are available inside the sandbox.
+
+`vellum doordash` is a built-in subcommand of the Vellum assistant CLI — it is NOT a separate tool you need to find or install. It should already be on your PATH. If `vellum` is not found, prepend `PATH="$HOME/.local/bin:$PATH"` to the command. Do NOT search for the binary, inspect wrapper scripts, or try to discover how the CLI works. Just run the commands as documented below.
 
 ## Task Progress Widget
 
