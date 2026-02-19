@@ -9,7 +9,7 @@
  * - Bounded queue with configurable max size (drops oldest on overflow)
  * - Bounded concurrency (default 1 worker)
  * - Per-job timeout with retry + exponential backoff
- * - Graceful shutdown: drains in-flight jobs, discards pending
+ * - Graceful shutdown: drains both in-flight and pending jobs
  * - Fire-and-forget: enqueue() never blocks or throws
  */
 
@@ -99,18 +99,24 @@ export class CommitEnrichmentService {
   }
 
   /**
-   * Graceful shutdown: wait for in-flight jobs to complete, discard pending.
+   * Graceful shutdown: drain pending queue and wait for all jobs to complete.
    */
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
-    const pendingCount = this.queue.length;
-    this.queue = [];
 
-    if (pendingCount > 0) {
-      log.info({ discarded: pendingCount }, 'Enrichment queue shutting down, discarding pending jobs');
+    // Process remaining queue items instead of discarding them
+    if (this.queue.length > 0) {
+      log.info({ pending: this.queue.length }, 'Enrichment queue shutting down, draining pending jobs');
+    }
+    while (this.queue.length > 0) {
+      const job = this.queue.shift()!;
+      const promise = this.executeJob(job).finally(() => {
+        this.inFlightPromises.delete(promise);
+      });
+      this.inFlightPromises.add(promise);
     }
 
-    // Wait for in-flight workers to finish
+    // Wait for all in-flight workers (including newly started ones) to finish
     if (this.inFlightPromises.size > 0) {
       log.debug({ inFlight: this.inFlightPromises.size }, 'Waiting for in-flight enrichment jobs');
       await Promise.all(this.inFlightPromises);
