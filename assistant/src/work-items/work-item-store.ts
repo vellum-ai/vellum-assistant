@@ -120,6 +120,21 @@ export interface WorkItemSelector {
   title?: string;
 }
 
+export type ResolveWorkItemResult =
+  | { status: 'found'; workItem: WorkItem }
+  | { status: 'not_found'; message: string }
+  | { status: 'ambiguous'; matches: WorkItem[]; message: string };
+
+const PRIORITY_TIER_LABELS: Record<number, string> = { 0: 'high', 1: 'medium', 2: 'low' };
+
+function formatAmbiguityMessage(selectorLabel: string, matches: WorkItem[]): string {
+  const lines = matches.map(
+    m =>
+      `  - ID: ${m.id} | title: "${m.title}" | priority: ${PRIORITY_TIER_LABELS[m.priorityTier] ?? m.priorityTier} | status: ${m.status}`,
+  );
+  return `Multiple items match '${selectorLabel}'. Please specify which one:\n${lines.join('\n')}`;
+}
+
 /** Find all active work items for a given task ID */
 export function findActiveWorkItemsByTaskId(taskId: string): WorkItem[] {
   return listWorkItems().filter(
@@ -139,37 +154,36 @@ export function findActiveWorkItemsByTitle(title: string): WorkItem[] {
  * Resolve a single active work item from a selector.
  * Tries fields in priority order: workItemId > taskId > title.
  * Only considers active items (status not 'done' or 'archived').
- * Throws if no match or ambiguous match.
+ * Returns a discriminated union so callers can handle ambiguity explicitly
+ * instead of silently picking one match when multiple exist.
  */
-export function resolveWorkItem(selector: WorkItemSelector): WorkItem {
+export function resolveWorkItem(selector: WorkItemSelector): ResolveWorkItemResult {
   if (selector.workItemId) {
     const item = getWorkItem(selector.workItemId);
-    if (!item) throw new Error(`No work item found with ID "${selector.workItemId}"`);
+    if (!item) return { status: 'not_found', message: `No work item found with ID "${selector.workItemId}"` };
     if (item.status === 'done' || item.status === 'archived') {
-      throw new Error(`Work item "${selector.workItemId}" is ${item.status}`);
+      return { status: 'not_found', message: `Work item "${selector.workItemId}" is ${item.status}` };
     }
-    return item;
+    return { status: 'found', workItem: item };
   }
 
   if (selector.taskId) {
     const items = findActiveWorkItemsByTaskId(selector.taskId);
-    if (items.length === 0) throw new Error(`No active work item found for task "${selector.taskId}"`);
+    if (items.length === 0) return { status: 'not_found', message: `No active work item found for task "${selector.taskId}"` };
     if (items.length > 1) {
-      // Deterministic tie-break: lowest priorityTier, then earliest createdAt
-      items.sort((a, b) => a.priorityTier - b.priorityTier || a.createdAt - b.createdAt);
+      return { status: 'ambiguous', matches: items, message: formatAmbiguityMessage(selector.taskId, items) };
     }
-    return items[0];
+    return { status: 'found', workItem: items[0] };
   }
 
   if (selector.title) {
     const items = findActiveWorkItemsByTitle(selector.title);
-    if (items.length === 0) throw new Error(`No active work item found with title "${selector.title}"`);
+    if (items.length === 0) return { status: 'not_found', message: `No active work item found with title "${selector.title}"` };
     if (items.length > 1) {
-      // Deterministic tie-break: lowest priorityTier, then earliest createdAt
-      items.sort((a, b) => a.priorityTier - b.priorityTier || a.createdAt - b.createdAt);
+      return { status: 'ambiguous', matches: items, message: formatAmbiguityMessage(selector.title, items) };
     }
-    return items[0];
+    return { status: 'found', workItem: items[0] };
   }
 
-  throw new Error('At least one selector field (workItemId, taskId, or title) must be provided');
+  return { status: 'not_found', message: 'At least one selector field (workItemId, taskId, or title) must be provided' };
 }

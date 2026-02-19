@@ -78,7 +78,19 @@ class TaskListUpdateTool implements Tool {
       };
 
       // Resolve the target work item
-      const item = resolveWorkItem(selector);
+      const result = resolveWorkItem(selector);
+
+      if (result.status === 'not_found') {
+        log.warn({ selectorType, error: result.message }, 'work item not found for update');
+        return { content: `Error: ${result.message}`, isError: true };
+      }
+
+      if (result.status === 'ambiguous') {
+        log.warn({ selectorType, matchCount: result.matches.length }, 'ambiguous selector for update');
+        return { content: `Error: ${result.message}`, isError: true };
+      }
+
+      const item = result.workItem;
 
       log.info({ selectorType, selectorValue: input[selectorType], resolvedWorkItemId: item.id }, 'resolved work item for update');
 
