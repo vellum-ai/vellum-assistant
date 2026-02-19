@@ -2,6 +2,9 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { resolveWorkItem, updateWorkItem, type WorkItemStatus } from '../../work-items/work-item-store.js';
+import { getLogger } from '../../util/logger.js';
+
+const log = getLogger('task-list-update');
 
 const PRIORITY_LABELS: Record<number, string> = {
   0: 'high',
@@ -64,6 +67,8 @@ class TaskListUpdateTool implements Tool {
   }
 
   async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+    const selectorType = input.work_item_id ? 'work_item_id' : input.task_id ? 'task_id' : input.task_name ? 'task_name' : input.title ? 'title' : 'none';
+
     try {
       // Build selector from whichever identifier was provided
       const selector = {
@@ -74,6 +79,8 @@ class TaskListUpdateTool implements Tool {
 
       // Resolve the target work item
       const item = resolveWorkItem(selector);
+
+      log.info({ selectorType, selectorValue: input[selectorType], resolvedWorkItemId: item.id }, 'resolved work item for update');
 
       // Build updates from provided fields
       const updates: Partial<{
@@ -88,6 +95,7 @@ class TaskListUpdateTool implements Tool {
       if (input.sort_index !== undefined) updates.sortIndex = input.sort_index as number;
 
       if (Object.keys(updates).length === 0) {
+        log.warn({ selectorType, resolvedWorkItemId: item.id }, 'update called with no fields to update');
         return {
           content: 'No updates specified. Provide at least one field to update (priority_tier, notes, status, sort_index).',
           isError: true,
@@ -96,11 +104,14 @@ class TaskListUpdateTool implements Tool {
 
       const updated = updateWorkItem(item.id, updates);
       if (!updated) {
+        log.error({ selectorType, resolvedWorkItemId: item.id, updates }, 'updateWorkItem returned null');
         return {
           content: `Error: Failed to update work item "${item.title}".`,
           isError: true,
         };
       }
+
+      log.info({ resolvedWorkItemId: item.id, updatedFields: Object.keys(updates) }, 'work item updated');
 
       // Build confirmation message
       const parts: string[] = [`Updated "${updated.title}"`];
@@ -114,6 +125,7 @@ class TaskListUpdateTool implements Tool {
       return { content: parts.join(', ') + '.', isError: false };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      log.error({ selectorType, error: msg }, 'update failed');
       return { content: `Error: ${msg}`, isError: true };
     }
   }

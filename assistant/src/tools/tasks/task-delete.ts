@@ -3,6 +3,9 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { deleteTask, deleteTasks, getTask } from '../../tasks/task-store.js';
 import { removeWorkItemFromQueue } from '../../work-items/work-item-store.js';
+import { getLogger } from '../../util/logger.js';
+
+const log = getLogger('task-delete');
 
 const definition: ToolDefinition = {
   name: 'task_delete',
@@ -49,10 +52,13 @@ class TaskDeleteTool implements Tool {
           // Fall back to removing from the task queue so the user's intent succeeds.
           const result = removeWorkItemFromQueue(ids[0]);
           if (result.success) {
+            log.info({ inputId: ids[0], fallback: true, deletedCount: 1 }, 'deleted via work item fallback');
             return { content: result.message, isError: false };
           }
+          log.warn({ inputId: ids[0] }, 'no task or work item found for deletion');
           return { content: `No task found with ID ${ids[0]}`, isError: true };
         }
+        log.info({ taskId: ids[0], title: task?.title, deletedCount: 1 }, 'task deleted');
         return { content: `Deleted task: ${task?.title ?? ids[0]}`, isError: false };
       }
 
@@ -68,7 +74,10 @@ class TaskDeleteTool implements Tool {
         } else {
           const result = removeWorkItemFromQueue(id);
           if (result.success) {
+            log.info({ inputId: id, fallback: true }, 'deleted work item in batch (fallback)');
             workItemTitles.push(result.title);
+          } else {
+            log.warn({ inputId: id }, 'batch delete: no task or work item found');
           }
         }
       }
@@ -76,8 +85,11 @@ class TaskDeleteTool implements Tool {
       const taskCount = taskIds.length > 0 ? deleteTasks(taskIds) : 0;
 
       if (taskCount === 0 && workItemTitles.length === 0) {
+        log.warn({ inputIds: ids }, 'no matching tasks found to delete');
         return { content: 'No matching tasks found to delete.', isError: true };
       }
+
+      log.info({ deletedTasks: taskCount, deletedWorkItems: workItemTitles.length, totalInput: ids.length }, 'batch delete completed');
 
       const lines: string[] = [];
       if (taskCount > 0) {
@@ -89,6 +101,7 @@ class TaskDeleteTool implements Tool {
       return { content: lines.join('\n'), isError: false };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      log.error({ inputIds: ids, error: msg }, 'delete failed');
       return { content: `Error: ${msg}`, isError: true };
     }
   }
