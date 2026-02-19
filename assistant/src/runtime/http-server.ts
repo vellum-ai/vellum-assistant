@@ -247,7 +247,7 @@ export class RuntimeHttpServer {
     // Paths already handled above (/v1/apps/..., /v1/secrets) will never reach here.
     const newRouteMatch = path.match(/^\/v1\/(?!assistants\/)(.+)$/);
     if (newRouteMatch) {
-      return this.dispatchEndpoint('self', newRouteMatch[1], req, url);
+      return this.dispatchEndpoint('local-assistant', newRouteMatch[1], req, url);
     }
 
     // Legacy: /v1/assistants/:assistantId/<endpoint>
