@@ -38,6 +38,7 @@ export class CallOrchestrator {
   private durationTimer: ReturnType<typeof setTimeout> | null = null;
   private durationWarningTimer: ReturnType<typeof setTimeout> | null = null;
   private consultationTimer: ReturnType<typeof setTimeout> | null = null;
+  private durationEndTimer: ReturnType<typeof setTimeout> | null = null;
   private task: string | null;
 
   constructor(callSessionId: string, relay: RelayConnection, task: string | null) {
@@ -87,6 +88,7 @@ export class CallOrchestrator {
     }
 
     this.state = 'processing';
+    updateCallSession(this.callSessionId, { status: 'in_progress' });
 
     // Append the user's answer as a special message the model recognizes
     this.conversationHistory.push({ role: 'user', content: `[USER_ANSWERED: ${answerText}]` });
@@ -111,6 +113,7 @@ export class CallOrchestrator {
     if (this.durationTimer) clearTimeout(this.durationTimer);
     if (this.durationWarningTimer) clearTimeout(this.durationWarningTimer);
     if (this.consultationTimer) clearTimeout(this.consultationTimer);
+    if (this.durationEndTimer) { clearTimeout(this.durationEndTimer); this.durationEndTimer = null; }
     this.abortController.abort();
     unregisterCallOrchestrator(this.callSessionId);
     log.info({ callSessionId: this.callSessionId }, 'CallOrchestrator destroyed');
@@ -170,11 +173,48 @@ export class CallOrchestrator {
         { signal: this.abortController.signal },
       );
 
+      // Buffer incoming tokens so we can strip control markers ([ASK_USER:...], [END_CALL])
+      // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
+      // could be the start of a control marker.
+      let ttsBuffer = '';
+
+      const flushSafeText = (force: boolean): void => {
+        if (ttsBuffer.length === 0) return;
+        const bracketIdx = ttsBuffer.indexOf('[');
+        if (bracketIdx === -1) {
+          // No bracket at all — safe to flush everything
+          this.relay.sendTextToken(ttsBuffer, false);
+          ttsBuffer = '';
+        } else if (bracketIdx > 0) {
+          // Flush everything before the bracket; keep the bracket and after
+          this.relay.sendTextToken(ttsBuffer.slice(0, bracketIdx), false);
+          ttsBuffer = ttsBuffer.slice(bracketIdx);
+        }
+        // If force is true, we still hold bracket-prefixed text — it will be
+        // evaluated after the stream completes.
+      };
+
       stream.on('text', (text) => {
-        this.relay.sendTextToken(text, false);
+        ttsBuffer += text;
+
+        // If the buffer contains a complete control marker, strip it
+        if (ASK_USER_REGEX.test(ttsBuffer)) {
+          ttsBuffer = ttsBuffer.replace(ASK_USER_REGEX, '');
+        }
+        if (ttsBuffer.includes(END_CALL_MARKER)) {
+          ttsBuffer = ttsBuffer.replace(END_CALL_MARKER, '');
+        }
+
+        flushSafeText(false);
       });
 
       const finalMessage = await stream.finalMessage();
+
+      // Final sweep: strip any remaining control markers from the buffer
+      ttsBuffer = ttsBuffer.replace(ASK_USER_REGEX, '').replace(END_CALL_MARKER, '');
+      if (ttsBuffer.length > 0) {
+        this.relay.sendTextToken(ttsBuffer, false);
+      }
 
       // Signal end of this turn's speech
       this.relay.sendTextToken('', true);
@@ -266,7 +306,7 @@ export class CallOrchestrator {
         true,
       );
       // Give TTS a moment to play, then end
-      setTimeout(() => {
+      this.durationEndTimer = setTimeout(() => {
         this.relay.endSession('Maximum call duration reached');
         updateCallSession(this.callSessionId, { status: 'completed', endedAt: Date.now() });
         recordCallEvent(this.callSessionId, 'call_ended', { reason: 'max_duration' });
