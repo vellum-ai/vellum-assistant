@@ -33,9 +33,21 @@ export DEVELOPER_DIR
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-BUNDLE_ID="com.vellum.vellum-assistant"
+CMD="${1:-build}"
+
 APP_NAME="vellum-assistant"
-BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
+
+# Debug builds use a separate bundle ID and display name so they can run
+# side-by-side with production without sharing TCC permissions or conflicting.
+if [ "$CMD" = "release" ]; then
+    BUNDLE_ID="com.vellum.vellum-assistant"
+    BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
+    URL_SCHEME="vellum-assistant"
+else
+    BUNDLE_ID="com.vellum.vellum-assistant.dev"
+    BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum Dev}"
+    URL_SCHEME="vellum-assistant-dev"
+fi
 APP_DIR="$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
@@ -47,8 +59,6 @@ if [ -z "${DISPLAY_VERSION:-}" ]; then
     DISPLAY_VERSION="${DISPLAY_VERSION:-0.1.0}"
 fi
 BUILD_VERSION="${BUILD_VERSION:-1}"
-
-CMD="${1:-build}"
 
 # Signing identity (overridable via env for CI)
 # Auto-detect any valid code signing certificate in keychain
@@ -176,9 +186,12 @@ if [ ! -f "$SCRIPT_DIR/cli-bin/vellum-cli" ] && [ -d "$CLI_SRC_DIR/src" ] && com
     echo "Building CLI binary from source..."
     mkdir -p "$SCRIPT_DIR/cli-bin"
     (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
-    bun build --compile "$CLI_SRC_DIR/src/index.ts" --outfile "$SCRIPT_DIR/cli-bin/vellum-cli"
-    chmod +x "$SCRIPT_DIR/cli-bin/vellum-cli"
-    echo "CLI binary built: $SCRIPT_DIR/cli-bin/vellum-cli"
+    if bun build --compile "$CLI_SRC_DIR/src/index.ts" --outfile "$SCRIPT_DIR/cli-bin/vellum-cli"; then
+        chmod +x "$SCRIPT_DIR/cli-bin/vellum-cli"
+        echo "CLI binary built: $SCRIPT_DIR/cli-bin/vellum-cli"
+    else
+        echo "Warning: CLI binary build failed — skipping (dev mode)"
+    fi
 fi
 
 # Also rebuild if CLI binary changed or newly added
@@ -307,7 +320,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
             <string>$BUNDLE_ID.auth</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>vellum-assistant</string>
+                <string>${URL_SCHEME}</string>
             </array>
         </dict>
     </array>
