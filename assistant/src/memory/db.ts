@@ -1212,6 +1212,19 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
   ).get(checkpointKey);
   if (checkpoint) return;
 
+  // On fresh installs the tables are created without assistant_id (PR 7+). If the
+  // column is already absent, there is nothing to normalise — pre-seed the checkpoint
+  // and skip so the SQL below doesn't fail with "no such column: assistant_id".
+  const ckDdl = raw.query(
+    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'conversation_keys'`,
+  ).get() as { sql: string } | null;
+  if (!ckDdl?.sql.includes('assistant_id')) {
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+    return;
+  }
+
   try {
     raw.exec('BEGIN');
 
