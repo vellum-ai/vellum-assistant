@@ -285,7 +285,7 @@ struct ConstellationView: View {
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
                 .contentShape(Rectangle())
-                .gesture(
+                .highPriorityGesture(
                     DragGesture()
                         .onChanged { value in
                             dragOffset = value.translation
@@ -327,7 +327,8 @@ struct ConstellationView: View {
 
     @ViewBuilder
     private func canvas(size: CGSize) -> some View {
-        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        // Shift center down so upper nodes aren't clipped by the panel header
+        let center = CGPoint(x: size.width / 2, y: size.height * 0.55)
         let hubRadius: CGFloat = 160
         let leafRadius: CGFloat = 110
         let layoutGroups = groups
