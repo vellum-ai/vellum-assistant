@@ -96,9 +96,12 @@ struct ChatView: View {
     var isTemporaryChat: Bool = false
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
+    /// Uses utf8.count (O(1) for contiguous strings) instead of String.count (O(n) grapheme
+    /// cluster enumeration) to avoid per-delta CPU cost on long streaming responses.
     private var streamingScrollTrigger: Int {
         let last = messages.last
-        return (last?.text.count ?? 0) + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
+        let textLen = last?.textSegments.last?.utf8.count ?? 0
+        return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
     }
 
     @State private var isDropTargeted = false
@@ -931,7 +934,11 @@ private struct ChatBubble: View {
 
     /// Composite identity for the `.task` modifier so it re-runs when either
     /// the message text or the embed settings change.
+    /// Returns a stable value while the message is streaming to avoid
+    /// cancelling and relaunching the async media embed resolution
+    /// (NSDataDetector + regex + HTTP HEAD probes) on every token delta.
     private var mediaEmbedTaskID: String {
+        if message.isStreaming { return "streaming-\(message.id)" }
         let s = mediaEmbedSettings
         return "\(message.text)|\(s?.enabled ?? false)|\(s?.enabledSince?.timeIntervalSince1970 ?? 0)|\(s?.allowedDomains ?? [])"
     }
@@ -1096,6 +1103,7 @@ private struct ChatBubble: View {
             isHovered = hovering
         }
         .task(id: mediaEmbedTaskID) {
+            guard !message.isStreaming else { return }
             guard let settings = mediaEmbedSettings else {
                 mediaEmbedIntents = []
                 return
