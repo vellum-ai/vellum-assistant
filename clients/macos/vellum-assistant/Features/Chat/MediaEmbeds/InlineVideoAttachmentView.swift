@@ -134,10 +134,12 @@ struct InlineVideoAttachmentView: View {
 
     /// Builds a safe temp-file URL by stripping path components from the filename
     /// to prevent traversal attacks (e.g. "../../etc/passwd").
+    /// Includes attachment.id to avoid collisions between attachments with the same filename.
     private func safeTempURL() -> URL {
         let sanitized = (attachment.filename as NSString).lastPathComponent
         let safeName = sanitized.isEmpty ? "video" : sanitized
-        return FileManager.default.temporaryDirectory.appendingPathComponent(safeName)
+        let uniqueName = attachment.id.isEmpty ? safeName : "\(attachment.id)-\(safeName)"
+        return FileManager.default.temporaryDirectory.appendingPathComponent(uniqueName)
     }
 
     private func generateThumbnail() async {
