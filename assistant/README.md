@@ -147,6 +147,17 @@ docker run --rm -p 3001:3001 \
 
 The image runs as non-root user `assistant` (uid 1001) and exposes port `3001`.
 
+## Troubleshooting
+
+### Invalid RRULE set expressions
+
+If `schedule_create` rejects an RRULE expression, check the following:
+
+- **Missing DTSTART** — Every RRULE expression must include a `DTSTART` line (e.g., `DTSTART:20250101T090000Z`).
+- **No inclusion rule** — At least one `RRULE:` or `RDATE` line is required. An expression with only `EXDATE` or `EXRULE` lines and no inclusion has no occurrences to schedule.
+- **Unsupported lines** — Only `DTSTART`, `RRULE:`, `RDATE`, `EXDATE`, and `EXRULE` prefixes are recognized. Any other line (e.g., `VTIMEZONE`, `VEVENT`) will be rejected.
+- **Newline encoding** — When passing multi-line RRULE expressions through JSON, use literal `\n` between lines. The engine normalizes escaped newlines automatically.
+
 ## Development
 
 ```bash
