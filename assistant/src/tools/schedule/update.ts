@@ -6,7 +6,7 @@ import { updateSchedule, formatLocalDate, describeCronExpression } from '../../s
 
 class ScheduleUpdateTool implements Tool {
   name = 'schedule_update';
-  description = 'Update an existing scheduled task (schedule, message, name, or enabled state)';
+  description = 'Update an existing recurring scheduled automation (cron expression, message, name, or enabled state)';
   category = 'schedule';
   defaultRiskLevel = RiskLevel.Medium;
 

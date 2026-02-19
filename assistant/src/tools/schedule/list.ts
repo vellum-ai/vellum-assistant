@@ -6,7 +6,7 @@ import { listSchedules, getSchedule, getScheduleRuns, formatLocalDate, describeC
 
 class ScheduleListTool implements Tool {
   name = 'schedule_list';
-  description = 'List scheduled tasks, or show details and recent runs for a specific task';
+  description = 'List recurring scheduled automations (cron jobs), or show details and recent runs for a specific one. For the user\'s task queue, use work_item_list instead.';
   category = 'schedule';
   defaultRiskLevel = RiskLevel.Low;
 

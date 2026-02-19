@@ -6,7 +6,7 @@ import { deleteSchedule, getSchedule } from '../../schedule/schedule-store.js';
 
 class ScheduleDeleteTool implements Tool {
   name = 'schedule_delete';
-  description = 'Delete a scheduled task and all its run history';
+  description = 'Delete a recurring scheduled automation and all its run history';
   category = 'schedule';
   defaultRiskLevel = RiskLevel.High;
 

@@ -109,6 +109,7 @@ export function buildSystemPrompt(): string {
   }
   parts.push(buildConfigSection());
   parts.push(buildToolRoutingSection());
+  parts.push(buildTaskScheduleReminderRoutingSection());
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
   parts.push(buildActionableUiSection());
@@ -189,6 +190,37 @@ function buildToolRoutingSection(): string {
     '- "Make a countdown timer" → `app_create` (interactive, dynamic)',
     '',
     '**All three tools are equally important — use the right one for the task.**',
+  ].join('\n');
+}
+
+function buildTaskScheduleReminderRoutingSection(): string {
+  return [
+    '## Tool Routing: Tasks vs Schedules vs Reminders',
+    '',
+    'These three systems serve different purposes. Choose the right one based on user intent:',
+    '',
+    '### Task Queue (work_item_enqueue / work_item_list)',
+    'For tracking things the user wants to do or remember. Use when the user says:',
+    '- "Add to my tasks", "add to my queue", "put this on my task list"',
+    '- "Track this", "I need to do X", "queue this up"',
+    '- Any request to add a one-off item to their personal to-do list',
+    '',
+    '### Schedules (schedule_create / schedule_list / schedule_update / schedule_delete)',
+    'For recurring automated jobs that run on a cron schedule. Use ONLY when the user explicitly wants:',
+    '- Recurring automation: "every day at 9am", "weekly on Mondays", "every hour"',
+    '- Periodic background tasks: "check my email every morning", "run this report weekly"',
+    '',
+    '### Reminders (reminder)',
+    'For one-time time-triggered notifications. Use ONLY when the user wants:',
+    '- A notification at a specific future time: "remind me at 3pm", "remind me in 2 hours"',
+    '- A timed alert, not a tracked task',
+    '',
+    '### Common mistakes to avoid',
+    '- "Add this to my tasks" → work_item_enqueue (NOT schedule_create or reminder)',
+    '- "What\'s on my task list?" → work_item_list (NOT schedule_list)',
+    '- "Remind me to buy groceries" without a time → work_item_enqueue (it\'s a task, not a timed reminder)',
+    '- "Remind me at 5pm to buy groceries" → reminder (explicit time trigger)',
+    '- "Check my inbox every morning at 8am" → schedule_create (recurring automation)',
   ].join('\n');
 }
 
