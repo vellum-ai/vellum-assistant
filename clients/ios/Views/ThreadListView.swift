@@ -128,7 +128,19 @@ class IOSThreadStore: ObservableObject {
             viewModels.removeValue(forKey: defaultThread.id)
             threads = restoredThreads
         } else {
-            threads = restoredThreads + threads
+            // Deduplicate: only prepend restored threads whose sessionId
+            // doesn't already exist in the current thread list.
+            let existingSessionIds = Set(threads.compactMap { $0.sessionId })
+            var newThreads: [IOSThread] = []
+            for restored in restoredThreads {
+                if let sid = restored.sessionId, existingSessionIds.contains(sid) {
+                    // Already have a thread for this session — discard the duplicate VM.
+                    viewModels.removeValue(forKey: restored.id)
+                } else {
+                    newThreads.append(restored)
+                }
+            }
+            threads = newThreads + threads
         }
     }
 
