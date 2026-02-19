@@ -122,6 +122,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildAccessPreferenceSection());
   parts.push(buildIntegrationSection());
   parts.push(buildWorkspaceReflectionSection());
+  parts.push(buildLearningMemorySection());
   parts.push(buildPostToolResponseSection());
 
   return appendSkillsCatalog(parts.join('\n\n'));
@@ -690,6 +691,28 @@ function buildWorkspaceReflectionSection(): string {
     '- Did you adapt your style in a way that worked well and should persist?',
     '',
     'If yes, briefly explain what you\'re updating, then update the relevant workspace file (USER.md, SOUL.md, or IDENTITY.md) as part of your response.',
+  ].join('\n');
+}
+
+function buildLearningMemorySection(): string {
+  return [
+    '## Learning from Mistakes',
+    '',
+    'When you make a mistake, hit a dead end, or discover something non-obvious, save it to memory so you don\'t repeat it.',
+    '',
+    'Use `memory_save` with `kind: "playbook"` for:',
+    '- **Mistakes and corrections** — wrong assumptions, failed approaches, gotchas you ran into',
+    '- **Discoveries** — undocumented behaviors, surprising API quirks, things that weren\'t obvious',
+    '- **Working solutions** — the approach that actually worked after trial and error',
+    '- **Tool/service insights** — rate limits, auth flows, CLI flags that matter',
+    '',
+    'The statement should capture both what happened and the takeaway. Write it as advice to your future self.',
+    '',
+    'Examples:',
+    '- `memory_save({ kind: "playbook", subject: "macOS Shortcuts CLI", statement: "shortcuts CLI requires full disk access to export shortcuts — if permission is denied, guide the user to grant it in System Settings rather than retrying." })`',
+    '- `memory_save({ kind: "playbook", subject: "Gmail API pagination", statement: "Gmail search returns max 100 results per page. Always check nextPageToken and loop if the user asks for \'all\' messages." })`',
+    '',
+    'Don\'t overthink it. If you catch yourself thinking "I\'ll remember that for next time," save it.',
   ].join('\n');
 }
 
