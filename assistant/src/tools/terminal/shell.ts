@@ -15,6 +15,7 @@ import {
   getSessionEnv,
 } from '../network/script-proxy/index.js';
 import { getDataDir } from '../../util/platform.js';
+import { resolveCredentialRef } from '../credentials/resolve.js';
 
 const log = getLogger('shell-tool');
 
@@ -100,13 +101,39 @@ class ShellTool implements Tool {
     const networkMode: 'off' | 'proxied' =
       input.network_mode === 'proxied' ? 'proxied' : 'off';
 
-    const credentialIds: string[] = [];
+    const rawCredentialRefs: string[] = [];
     if (Array.isArray(input.credential_ids)) {
       for (const id of input.credential_ids) {
         if (typeof id === 'string' && id.length > 0) {
-          credentialIds.push(id);
+          rawCredentialRefs.push(id);
         }
       }
+    }
+
+    // Resolve credential refs (UUID or service/field) to canonical UUIDs.
+    // Fail fast if any ref is unresolvable — partial execution with missing
+    // credentials is worse than a clear error.
+    const credentialIds: string[] = [];
+    if (networkMode === 'proxied' && rawCredentialRefs.length > 0) {
+      const unresolvedRefs: string[] = [];
+      const seenIds = new Set<string>();
+      for (const ref of rawCredentialRefs) {
+        const resolved = resolveCredentialRef(ref);
+        if (!resolved) {
+          unresolvedRefs.push(ref);
+        } else if (!seenIds.has(resolved.credentialId)) {
+          seenIds.add(resolved.credentialId);
+          credentialIds.push(resolved.credentialId);
+        }
+      }
+      if (unresolvedRefs.length > 0) {
+        return {
+          content: `Error: unknown credential reference(s): ${unresolvedRefs.join(', ')}. Use credential_store list to see available credentials.`,
+          isError: true,
+        };
+      }
+    } else {
+      credentialIds.push(...rawCredentialRefs);
     }
 
     const config = getConfig();
@@ -115,7 +142,7 @@ class ShellTool implements Tool {
     const timeoutSec = Math.max(1, Math.min(requestedSec, shellMaxTimeoutSec));
     const timeoutMs = timeoutSec * 1000;
 
-    log.info({ command: redactSecrets(command), cwd: context.workingDir, timeoutSec, networkMode, credentialIds }, 'Executing shell command');
+    log.info({ command: redactSecrets(command), cwd: context.workingDir, timeoutSec, networkMode, rawRefs: rawCredentialRefs, credentialIds }, 'Executing shell command');
 
     // Resolve sandbox config early — needed both for proxy env and command wrapping.
     const sandboxConfig = context.sandboxOverride != null
