@@ -679,17 +679,17 @@ struct MainWindowView: View {
 
             ScrollView {
                 VStack(spacing: 0) {
-                    // MARK: New Chat Button
-                    NewChatButton(action: { windowState.selection = nil; threadManager.createThread() })
-                        .padding(.bottom, VSpacing.sm)
-
                     // MARK: Nav Items
-                    SidebarNavRow(icon: "house.fill", label: "Home Base") {
+                    SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: windowState.activePanel == .directory) {
                         windowState.togglePanel(.directory)
                     }
-                    SidebarNavRow(icon: "person.crop.circle", label: "Identity") {
+                    SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity) {
                         windowState.togglePanel(.identity)
                     }
+
+                    // MARK: New Chat Button
+                    NewChatButton(action: { windowState.selection = nil; threadManager.createThread() })
+                        .padding(.vertical, VSpacing.sm)
 
                     // MARK: Recents
                     SidebarSubheader(title: "Recents")
@@ -1395,6 +1395,7 @@ private struct NewChatButton: View {
 private struct SidebarNavRow: View {
     let icon: String
     let label: String
+    var isActive: Bool = false
     let action: () -> Void
     @State private var isHovered = false
 
@@ -1403,17 +1404,17 @@ private struct SidebarNavRow: View {
             HStack(spacing: VSpacing.sm) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
+                    .foregroundColor(isActive || isHovered ? VColor.textPrimary : VColor.textSecondary)
                     .frame(width: 18)
                 Text(label)
-                    .font(VFont.body)
+                    .font(isActive ? VFont.bodyMedium : VFont.body)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
             }
             .padding(.leading, 20)
             .padding(.trailing, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : .clear)
+            .background(isActive ? VColor.hoverOverlay.opacity(0.08) : (isHovered ? VColor.hoverOverlay.opacity(0.06) : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
