@@ -51,6 +51,15 @@ const WORKSPACE_GITIGNORE_RULES = [
   'http-token',
 ];
 
+/**
+ * Rules that were used in older versions but have been superseded.
+ * These are removed from existing .gitignore files during normalization
+ * to prevent them from overriding the newer, more selective rules.
+ */
+const DEPRECATED_GITIGNORE_RULES = [
+  'data/',
+];
+
 /** Properties added by Node's child_process errors. */
 interface ExecError extends Error {
   killed?: boolean;
@@ -430,16 +439,27 @@ export class WorkspaceGitService {
   /**
    * Ensure .gitignore contains all required workspace exclusion rules.
    * Idempotent: checks for missing rules and only appends what's needed.
+   * Also removes deprecated rules that have been superseded by newer ones.
    * Must be called with the mutex lock held.
    */
   private ensureGitignoreRulesLocked(): void {
     const gitignorePath = join(this.workspaceDir, '.gitignore');
     if (existsSync(gitignorePath)) {
-      const existing = readFileSync(gitignorePath, 'utf-8');
-      const missingRules = WORKSPACE_GITIGNORE_RULES.filter(rule => !existing.includes(rule));
-      if (missingRules.length > 0) {
-        const section = '\n# Vellum runtime state (auto-added)\n' + missingRules.join('\n') + '\n';
-        writeFileSync(gitignorePath, existing + section, 'utf-8');
+      let content = readFileSync(gitignorePath, 'utf-8');
+
+      // Remove deprecated rules (e.g. broad 'data/' replaced by selective 'data/db/' etc.)
+      const deprecatedPresent = DEPRECATED_GITIGNORE_RULES.filter(rule => content.includes(rule));
+      if (deprecatedPresent.length > 0) {
+        const lines = content.split('\n');
+        content = lines.filter(line => !DEPRECATED_GITIGNORE_RULES.includes(line.trim())).join('\n');
+      }
+
+      const missingRules = WORKSPACE_GITIGNORE_RULES.filter(rule => !content.includes(rule));
+      if (missingRules.length > 0 || deprecatedPresent.length > 0) {
+        const updated = missingRules.length > 0
+          ? content + '\n# Vellum runtime state (auto-added)\n' + missingRules.join('\n') + '\n'
+          : content;
+        writeFileSync(gitignorePath, updated, 'utf-8');
       }
     } else {
       const gitignore = '# Runtime state - excluded from git tracking\n' + WORKSPACE_GITIGNORE_RULES.join('\n') + '\n';

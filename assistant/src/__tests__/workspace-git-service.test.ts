@@ -585,6 +585,41 @@ describe('WorkspaceGitService', () => {
       expect(contentAfter).toContain('session-token');
     });
 
+    test('existing repo with old data/ rule gets it replaced with selective rules', async () => {
+      // Set up a pre-existing git repo with the OLD broad data/ rule
+      execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
+      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
+      execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
+      const oldGitignore = '# Runtime state - excluded from git tracking\ndata/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.sock\nvellum.pid\nsession-token\nhttp-token\n';
+      writeFileSync(join(testDir, '.gitignore'), oldGitignore);
+      writeFileSync(join(testDir, 'file.txt'), 'content');
+      execFileSync('git', ['add', '-A'], { cwd: testDir });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: testDir });
+
+      // Verify the old broad rule is present
+      const contentBefore = readFileSync(join(testDir, '.gitignore'), 'utf-8');
+      expect(contentBefore).toContain('data/\n');
+
+      // Initialize the service — should migrate the gitignore
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const contentAfter = readFileSync(join(testDir, '.gitignore'), 'utf-8');
+
+      // Old broad rule should be removed
+      expect(contentAfter).not.toMatch(/^data\/$/m);
+
+      // New selective rules should be present
+      expect(contentAfter).toContain('data/db/');
+      expect(contentAfter).toContain('data/qdrant/');
+      expect(contentAfter).toContain('data/ipc-blobs/');
+
+      // Other existing rules should be preserved
+      expect(contentAfter).toContain('logs/');
+      expect(contentAfter).toContain('*.log');
+      expect(contentAfter).toContain('vellum.sock');
+    });
+
     test('existing repo gets local identity set on init', async () => {
       // Set up a pre-existing git repo with a different identity
       execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
