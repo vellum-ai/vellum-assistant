@@ -591,11 +591,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
 
-                // When the chat window is visible, the inline ToolConfirmationBubble
-                // handles the confirmation UX — skip the native notification to avoid
-                // showing a duplicate prompt.
+                // When the chat window is visible AND the confirmation belongs to the
+                // active thread, the inline ToolConfirmationBubble handles the
+                // confirmation UX — skip the native notification to avoid showing a
+                // duplicate prompt.  If the confirmation is for a background thread,
+                // the inline bubble won't be visible, so we must still fire the
+                // native notification.
                 if NSApp.isActive, let mainWindow = self.mainWindow, mainWindow.isVisible {
-                    return
+                    let activeSessionId = mainWindow.threadManager.activeViewModel?.sessionId
+                    let confirmationIsForActiveThread = msg.sessionId == nil || msg.sessionId == activeSessionId
+                    if confirmationIsForActiveThread {
+                        return
+                    }
                 }
 
                 let decision = await self.toolConfirmationNotificationService.showConfirmation(msg)
