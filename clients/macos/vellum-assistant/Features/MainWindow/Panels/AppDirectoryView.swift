@@ -38,51 +38,51 @@ struct AppDirectoryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                // Header
+                // Header row: title + search
                 HStack(alignment: .center) {
                     Text("Directory")
                         .font(VFont.panelTitle)
                         .foregroundColor(VColor.textPrimary)
+
                     Spacer()
+
+                    // Search bar (compact, fits within title line height)
+                    if !displayItems.isEmpty || !searchText.isEmpty {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(VColor.textMuted)
+
+                            TextField("Search apps...", text: $searchText)
+                                .textFieldStyle(.plain)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textPrimary)
+
+                            if !searchText.isEmpty {
+                                Button(action: { searchText = "" }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(VColor.textMuted)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, VSpacing.sm)
+                        .frame(height: 26)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        )
+                        .frame(maxWidth: 220)
+                    }
                 }
                 .padding(.top, VSpacing.xxl)
                 .padding(.bottom, VSpacing.xl)
 
                 Divider().background(VColor.surfaceBorder)
                     .padding(.bottom, VSpacing.xl)
-
-                // Search bar
-                if !displayItems.isEmpty || !searchText.isEmpty {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(VColor.textMuted)
-
-                        TextField("Search apps...", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-
-                        if !searchText.isEmpty {
-                            Button(action: { searchText = "" }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(VColor.textMuted)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, VSpacing.md)
-                    .frame(height: 30)
-                    .background(VColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
-                    .frame(maxWidth: 260, alignment: .leading)
-                    .padding(.bottom, VSpacing.lg)
-                }
 
                 // Content
                 if isLoading {
