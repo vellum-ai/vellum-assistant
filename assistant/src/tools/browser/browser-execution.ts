@@ -261,6 +261,28 @@ export async function executeBrowserNavigate(
     // "run browser_snapshot first" message.
     browserManager.clearSnapshotMap(context.sessionId);
 
+    // Auto-dismiss common blocker modals (regulatory notices, cookie banners)
+    // that aren't exposed in the accessibility tree. Runs silently — if no
+    // modal is present the evaluate is a no-op.
+    try {
+      await page.evaluate(`(() => {
+        const dismissPatterns = /^(got it|accept|ok|dismiss|i understand|close)$/i;
+        const buttons = document.querySelectorAll('button, [role="button"], input[type="submit"]');
+        for (const btn of buttons) {
+          const text = (btn.textContent || '').trim();
+          if (dismissPatterns.test(text)) {
+            const modal = btn.closest('[role="dialog"], [class*="modal"], [class*="Modal"], [class*="overlay"], [class*="Overlay"]');
+            if (modal) {
+              btn.click();
+              break;
+            }
+          }
+        }
+      })()`);
+    } catch {
+      // Page may have navigated during evaluate — safe to ignore
+    }
+
     const finalUrl = page.url();
     const safeFinalUrl = sanitizeUrlForOutput(new URL(finalUrl));
     const title = await page.title();
