@@ -11,13 +11,14 @@ struct AgentPanelContent: View {
     let daemonClient: DaemonClient
 
     @StateObject private var skillsManager: SkillsManager
+    @State private var selectedTab: SkillsTab = .installed
     @State private var expandedSkillId: String?
-    @State private var hoveredInstalledUseSkillId: String?
-    @State private var hoveredInstalledViewSkillId: String?
-    @State private var hoveredInstalledDeleteSkillId: String?
     @State private var selectedSkillSlug: String?
-    @State private var hoveredDetailInstall = false
     @State private var skillToDelete: SkillInfo?
+
+    private enum SkillsTab {
+        case installed, available
+    }
 
     init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: DaemonClient) {
         self.onInvokeSkill = onInvokeSkill
@@ -28,15 +29,25 @@ struct AgentPanelContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Installed skills section
-            sectionHeader("Installed", count: userSkills.count)
+            // Tab bar
+            VStack(spacing: 0) {
+                HStack(spacing: VSpacing.xl) {
+                    tabButton("Installed", tab: .installed)
+                    tabButton("Available", tab: .available)
+                    Spacer()
+                }
 
-            skillsContent
+                Divider().background(VColor.surfaceBorder)
+            }
+            .padding(.bottom, VSpacing.lg)
 
-            // Available skills section
-            sectionHeader("Available")
-
-            availableSkillsContent
+            // Tab content
+            switch selectedTab {
+            case .installed:
+                skillsContent
+            case .available:
+                availableSkillsContent
+            }
         }
         .onAppear {
             skillsManager.fetchSkills()
@@ -63,29 +74,27 @@ struct AgentPanelContent: View {
     }
 
     @ViewBuilder
-    private func sectionHeader(_ title: String, count: Int? = nil) -> some View {
-        HStack(spacing: VSpacing.sm) {
-            Text(title)
-                .font(VFont.captionMedium)
-                .foregroundColor(VColor.textMuted)
+    private func tabButton(_ label: String, tab: SkillsTab) -> some View {
+        let isActive = selectedTab == tab
+        Button {
+            withAnimation(VAnimation.fast) { selectedTab = tab }
+        } label: {
+            VStack(spacing: VSpacing.sm) {
+                Text(label)
+                    .font(VFont.body)
+                    .foregroundColor(isActive ? VColor.textPrimary : VColor.textMuted)
+                    .padding(.bottom, VSpacing.xs)
 
-            if let count {
-                Text("\(count)")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(VColor.backgroundSubtle)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                Rectangle()
+                    .fill(isActive ? VColor.textPrimary : Color.clear)
+                    .frame(height: 2)
             }
-
-            Rectangle()
-                .fill(VColor.surfaceBorder)
-                .frame(height: 1)
+            .fixedSize()
+            .contentShape(Rectangle())
         }
-        .padding(.top, VSpacing.lg)
-        .padding(.bottom, VSpacing.sm)
+        .buttonStyle(.plain)
     }
+
 
     // MARK: - Available Skills Tab
 
@@ -202,10 +211,10 @@ struct AgentPanelContent: View {
                     Button(action: { skillSortOrder = order }) {
                         Text(order.rawValue)
                             .font(VFont.caption)
-                            .foregroundColor(skillSortOrder == order ? Emerald._400 : VColor.textMuted)
+                            .foregroundColor(skillSortOrder == order ? VColor.accent : VColor.textMuted)
                             .padding(.horizontal, VSpacing.sm)
                             .padding(.vertical, VSpacing.xs)
-                            .background(skillSortOrder == order ? Emerald._400.opacity(0.15) : Color.clear)
+                            .background(skillSortOrder == order ? VColor.accent.opacity(0.15) : Color.clear)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                     }
                     .buttonStyle(.plain)
@@ -250,7 +259,7 @@ struct AgentPanelContent: View {
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "sparkles")
                         .font(.system(size: 10))
-                        .foregroundColor(Emerald._400)
+                        .foregroundColor(VColor.accent)
                     Text("Browse more on ClawhHub")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
@@ -264,7 +273,6 @@ struct AgentPanelContent: View {
 
     @State private var installingSlug: String?
     @State private var installAttemptId: UUID?
-    @State private var hoveredStarterInstall: String?
     @State private var skillSearchQuery = ""
     @State private var skillSortOrder: SkillSortOrder = .installs
 
@@ -281,7 +289,7 @@ struct AgentPanelContent: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(starter.name)
-                    .font(VFont.mono)
+                    .font(VFont.bodyBold)
                     .foregroundColor(VColor.textPrimary)
 
                 Text(starter.description)
@@ -294,15 +302,10 @@ struct AgentPanelContent: View {
 
             Text("Included")
                 .font(VFont.caption)
-                .foregroundColor(Emerald._400)
+                .foregroundColor(VColor.success)
         }
         .padding(VSpacing.lg)
-        .background(VColor.surfaceSubtle)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(Emerald._700.opacity(0.4), lineWidth: 1)
-        )
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     /// How long ago a skill was published, as a human-readable string.
@@ -320,7 +323,6 @@ struct AgentPanelContent: View {
 
     private func clawhubSkillCard(_ skill: ClawhubSkillItem) -> some View {
         let isInstalling = installingSlug == skill.slug
-        let isHovered = hoveredStarterInstall == skill.slug
         let isNew = skill.createdAt > 0 && Date().timeIntervalSince(
             Date(timeIntervalSince1970: Double(skill.createdAt) / 1000)
         ) < 7 * 86400
@@ -337,7 +339,7 @@ struct AgentPanelContent: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: VSpacing.sm) {
                             Text(skill.name)
-                                .font(VFont.mono)
+                                .font(VFont.bodyBold)
                                 .foregroundColor(VColor.textPrimary)
 
                             if isNew {
@@ -363,7 +365,12 @@ struct AgentPanelContent: View {
 
                 Spacer()
 
-                Button(action: {
+                VButton(
+                    label: isInstalling ? "Installing..." : "Install",
+                    icon: isInstalling ? nil : "arrow.down.circle.fill",
+                    style: .primary,
+                    isDisabled: installingSlug != nil
+                ) {
                     guard installingSlug == nil else { return }
                     let attemptId = UUID()
                     installingSlug = skill.slug
@@ -374,34 +381,6 @@ struct AgentPanelContent: View {
                             installingSlug = nil
                             installAttemptId = nil
                         }
-                    }
-                }) {
-                    HStack(spacing: VSpacing.sm) {
-                        if isInstalling {
-                            ProgressView()
-                                .controlSize(.mini)
-                        } else {
-                            Image(systemName: "arrow.down.circle.fill")
-                                .font(.system(size: 12))
-                        }
-                        Text(isInstalling ? "Installing..." : "Install")
-                            .font(VFont.mono)
-                    }
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.vertical, VSpacing.sm)
-                    .foregroundColor(isHovered ? Slate._900 : Emerald._400)
-                    .background(isHovered ? Emerald._400 : VColor.backgroundSubtle)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(Emerald._500.opacity(0.6), lineWidth: 1.5)
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(installingSlug != nil)
-                .onHover { hovering in
-                    withAnimation(VAnimation.fast) {
-                        hoveredStarterInstall = hovering ? skill.slug : nil
                     }
                 }
             }
@@ -441,12 +420,7 @@ struct AgentPanelContent: View {
             .padding(.leading, 24 + VSpacing.md)
         }
         .padding(VSpacing.lg)
-        .background(VColor.surfaceSubtle)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(isNew ? Amber._700.opacity(0.4) : Emerald._700.opacity(0.4), lineWidth: 1)
-        )
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Skill Detail View
@@ -596,7 +570,7 @@ struct AgentPanelContent: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("v\(version.version)")
                     .font(VFont.mono)
-                    .foregroundColor(Emerald._400)
+                    .foregroundColor(VColor.success)
                 if let changelog = version.changelog, !changelog.isEmpty {
                     Text(changelog)
                         .font(VFont.caption)
@@ -685,7 +659,13 @@ struct AgentPanelContent: View {
         let isError = result?.slug == slug && result?.success == false
         let errorMessage = result?.error
 
-        Button(action: {
+        VButton(
+            label: isSuccess ? "Installed!" : (isInstalling ? "Installing..." : "Install"),
+            icon: isSuccess ? "checkmark.circle.fill" : (isInstalling ? nil : "arrow.down.circle.fill"),
+            style: .primary,
+            isFullWidth: true,
+            isDisabled: isInstalling || isSuccess
+        ) {
             guard installingSlug == nil, !isSuccess else { return }
             let attemptId = UUID()
             installingSlug = slug
@@ -696,39 +676,6 @@ struct AgentPanelContent: View {
                     installingSlug = nil
                     installAttemptId = nil
                 }
-            }
-        }) {
-            HStack(spacing: VSpacing.sm) {
-                if isSuccess {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14))
-                    Text("Installed!")
-                } else if isInstalling {
-                    ProgressView()
-                        .controlSize(.mini)
-                    Text("Installing...")
-                } else {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 14))
-                    Text("Install")
-                }
-            }
-            .font(VFont.mono)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, VSpacing.md)
-            .foregroundColor(isSuccess ? Emerald._400 : (hoveredDetailInstall && !isInstalling ? Slate._900 : Emerald._400))
-            .background(isSuccess ? Emerald._400.opacity(0.15) : (hoveredDetailInstall && !isInstalling ? Emerald._400 : VColor.backgroundSubtle))
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(isSuccess ? Emerald._500 : Emerald._500.opacity(0.6), lineWidth: 1.5)
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(isInstalling || isSuccess)
-        .onHover { hovering in
-            withAnimation(VAnimation.fast) {
-                hoveredDetailInstall = hovering
             }
         }
 
@@ -779,9 +726,6 @@ struct AgentPanelContent: View {
 
     private func skillCard(_ skill: SkillInfo) -> some View {
         let isExpanded = expandedSkillId == skill.id
-        let useHovered = hoveredInstalledUseSkillId == skill.id
-        let viewHovered = hoveredInstalledViewSkillId == skill.id
-        let borderColor = skill.updateAvailable ? Amber._700.opacity(0.45) : Emerald._700.opacity(0.4)
 
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(alignment: .top, spacing: VSpacing.md) {
@@ -791,7 +735,7 @@ struct AgentPanelContent: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: VSpacing.sm) {
                             Text(skill.name)
-                                .font(VFont.mono)
+                                .font(VFont.bodyBold)
                                 .foregroundColor(VColor.textPrimary)
 
                             if skill.updateAvailable {
@@ -811,34 +755,12 @@ struct AgentPanelContent: View {
                 Spacer(minLength: VSpacing.lg)
 
                 VStack(alignment: .trailing, spacing: VSpacing.sm) {
-                    Button(action: {
+                    VButton(label: "Use", icon: "bolt.fill", style: .primary) {
                         onInvokeSkill?(skill)
-                    }) {
-                        HStack(spacing: VSpacing.sm) {
-                            Image(systemName: "bolt.fill")
-                                .font(.system(size: 10))
-                            Text("Use")
-                                .font(VFont.mono)
-                        }
-                        .padding(.horizontal, VSpacing.lg)
-                        .padding(.vertical, VSpacing.sm)
-                        .foregroundColor(useHovered ? Slate._900 : Emerald._400)
-                        .background(useHovered ? Emerald._400 : VColor.backgroundSubtle)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(Emerald._500.opacity(0.6), lineWidth: 1.5)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { hovering in
-                        withAnimation(VAnimation.fast) {
-                            hoveredInstalledUseSkillId = hovering ? skill.id : nil
-                        }
                     }
 
                     HStack(spacing: VSpacing.sm) {
-                        Button(action: {
+                        VButton(label: isExpanded ? "Hide" : "View", icon: isExpanded ? "chevron.up" : "chevron.down", style: .ghost) {
                             withAnimation(VAnimation.standard) {
                                 if isExpanded {
                                     expandedSkillId = nil
@@ -847,53 +769,11 @@ struct AgentPanelContent: View {
                                     skillsManager.fetchSkillBody(skillId: skill.id)
                                 }
                             }
-                        }) {
-                            HStack(spacing: VSpacing.sm) {
-                                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                    .font(.system(size: 9, weight: .semibold))
-                                Text(isExpanded ? "Hide" : "View")
-                                    .font(VFont.captionMedium)
-                            }
-                            .padding(.horizontal, VSpacing.md)
-                            .padding(.vertical, VSpacing.xs)
-                            .foregroundColor(viewHovered ? VColor.textPrimary : VColor.textMuted)
-                            .background(viewHovered ? VColor.ghostHover : VColor.backgroundSubtle)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.7), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .onHover { hovering in
-                            withAnimation(VAnimation.fast) {
-                                hoveredInstalledViewSkillId = hovering ? skill.id : nil
-                            }
                         }
 
                         if skill.source == "managed" {
-                            let deleteHovered = hoveredInstalledDeleteSkillId == skill.id
-                            Button(action: {
+                            VButton(label: "Delete", icon: "trash", style: .danger) {
                                 skillToDelete = skill
-                            }) {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 10))
-                                    .padding(.horizontal, VSpacing.sm)
-                                    .padding(.vertical, VSpacing.xs)
-                                    .foregroundColor(deleteHovered ? Rose._400 : VColor.textMuted)
-                                    .background(deleteHovered ? Rose._400.opacity(0.15) : VColor.backgroundSubtle)
-                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: VRadius.md)
-                                            .stroke(deleteHovered ? Rose._500.opacity(0.6) : VColor.surfaceBorder.opacity(0.7), lineWidth: 1)
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                            .help("Delete managed skill")
-                            .onHover { hovering in
-                                withAnimation(VAnimation.fast) {
-                                    hoveredInstalledDeleteSkillId = hovering ? skill.id : nil
-                                }
                             }
                         }
                     }
@@ -901,7 +781,7 @@ struct AgentPanelContent: View {
             }
 
             HStack(spacing: VSpacing.lg) {
-                skillMetaItem(icon: "checkmark.circle.fill", value: "Installed", color: Emerald._400)
+                skillMetaItem(icon: "checkmark.circle.fill", value: "Installed", color: VColor.success)
                 skillMetaItem(icon: "shippingbox", value: sourceLabel(skill.source))
 
                 if let installedVersion = skill.installedVersion, !installedVersion.isEmpty {
@@ -943,12 +823,7 @@ struct AgentPanelContent: View {
             }
         }
         .padding(VSpacing.lg)
-        .background(VColor.surfaceSubtle)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(borderColor, lineWidth: 1)
-        )
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     private func sourceLabel(_ source: String) -> String {
@@ -1014,10 +889,32 @@ struct AgentPanel: View {
     var onInvokeSkill: ((SkillInfo) -> Void)?
     let daemonClient: DaemonClient
 
+    /// Maximum width of the centered content area.
+    private let maxContentWidth: CGFloat = 1100
+
     var body: some View {
-        VSidePanel(title: "Skills", onClose: onClose) {
-            AgentPanelContent(onInvokeSkill: onInvokeSkill, daemonClient: daemonClient)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                // Header
+                HStack(alignment: .center) {
+                    Text("Skills")
+                        .font(VFont.panelTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Spacer()
+                }
+                .padding(.top, VSpacing.xxl)
+                .padding(.bottom, VSpacing.xl)
+
+                Divider().background(VColor.surfaceBorder)
+                    .padding(.bottom, VSpacing.md)
+
+                AgentPanelContent(onInvokeSkill: onInvokeSkill, daemonClient: daemonClient)
+            }
+            .frame(maxWidth: maxContentWidth)
+            .padding(.horizontal, VSpacing.xxl)
+            .frame(maxWidth: .infinity)
         }
+        .background(VColor.backgroundSubtle)
     }
 }
 

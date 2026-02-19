@@ -8,7 +8,7 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
     @ViewBuilder public let pinnedContent: () -> PinnedContent
     @ViewBuilder public let content: () -> Content
 
-    public init(title: String, titleFont: Font = VFont.panelTitle, uppercased: Bool = true, onClose: (() -> Void)? = nil, @ViewBuilder pinnedContent: @escaping () -> PinnedContent, @ViewBuilder content: @escaping () -> Content) {
+    public init(title: String, titleFont: Font = VFont.panelTitle, uppercased: Bool = false, onClose: (() -> Void)? = nil, @ViewBuilder pinnedContent: @escaping () -> PinnedContent, @ViewBuilder content: @escaping () -> Content) {
         self.title = title
         self.titleFont = titleFont
         self.uppercased = uppercased
@@ -61,7 +61,7 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
 
 // Backward-compatible init (no pinnedContent)
 public extension VSidePanel where PinnedContent == EmptyView {
-    init(title: String, titleFont: Font = VFont.panelTitle, uppercased: Bool = true, onClose: (() -> Void)? = nil,
+    init(title: String, titleFont: Font = VFont.panelTitle, uppercased: Bool = false, onClose: (() -> Void)? = nil,
          @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, titleFont: titleFont, uppercased: uppercased, onClose: onClose,
                   pinnedContent: { EmptyView() }, content: content)

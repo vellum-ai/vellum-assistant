@@ -7,8 +7,9 @@ import UIKit
 
 /// Font presets for the app. Always use these instead of raw Font.system() calls.
 ///
-/// **Silkscreen** — pixelated bitmap font for headings and display text.
-/// **DM Mono** — monospaced font for body/UI text.
+/// **Inter** — humanist sans-serif for headings, body, and UI text.
+/// **DM Mono** — monospaced font for code and debug views.
+/// **Silkscreen** — pixelated bitmap font, used sparingly for buttons.
 public enum VFont {
 
     /// DM Mono's default "f" has an exaggerated italic-style hook.
@@ -42,16 +43,16 @@ public enum VFont {
         return Font.custom(name, size: size)
         #endif
     }
-    // MARK: - Onboarding (Silkscreen pixel font)
+    // MARK: - Onboarding
 
-    public static let onboardingTitle = Font.custom("Silkscreen-Regular", size: 28)
-    public static let onboardingSubtitle = Font.custom("Silkscreen-Regular", size: 15)
+    public static let onboardingTitle = Font.custom("Fraunces", size: 28).weight(.semibold)
+    public static let onboardingSubtitle = Font.system(size: 15)
 
-    // MARK: - Headings (Silkscreen)
-    // TODO: Clean up typography once we solidify the design system - we dont seem to use Bold
-    public static let largeTitle = Font.custom("Silkscreen-Bold", size: 26)
-    public static let title      = Font.custom("Silkscreen-Bold", size: 22)
-    public static let headline   = Font.custom("Silkscreen-Bold", size: 13)
+    // MARK: - Headings (Inter)
+
+    public static let largeTitle = Font.custom("Inter-SemiBold", size: 26)
+    public static let title      = Font.custom("Inter-SemiBold", size: 22)
+    public static let headline   = Font.custom("Inter-SemiBold", size: 13)
 
     // MARK: - Body / UI (Inter)
 
@@ -70,11 +71,16 @@ public enum VFont {
     public static let monoSmall  = dmMono("DMMono-Regular", size: 11)
     public static let monoMedium = dmMono("DMMono-Medium", size: 16)
 
-    /// All-caps pixel display font (used for panel headers like "AGENT", "GENERATED CONTENT")
-    public static let display    = Font.custom("Silkscreen-Bold", size: 18)
-    public static let panelTitle   = Font.custom("Silkscreen-Regular", size: 24)
-    public static let sectionTitle   = Font.custom("Silkscreen-Regular", size: 18)
+    /// Display font (used for panel headers like "AGENT", "GENERATED CONTENT")
+    public static let display    = Font.custom("Inter-SemiBold", size: 18)
+    public static let panelTitle   = Font.custom("Inter-Medium", size: 24)
+    public static let sectionTitle   = Font.custom("Inter-Medium", size: 18)
 
-    /// Small Silkscreen label (used for thread tab names)
-    public static let tabLabel   = Font.custom("Silkscreen-Regular", size: 11)
+    /// Small label (used for thread tab names)
+    public static let tabLabel   = Font.custom("Inter", size: 11)
+
+    // MARK: - Pixel (Silkscreen — use sparingly, e.g. buttons)
+
+    public static let pixel      = Font.custom("Silkscreen-Regular", size: 13)
+    public static let pixelSmall = Font.custom("Silkscreen-Regular", size: 11)
 }

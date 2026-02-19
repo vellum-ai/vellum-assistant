@@ -313,12 +313,18 @@ struct MainWindowView: View {
                     windowState.activeDynamicParsedSurface = nil
                 }
 
-                // Close the left sidebar when the document editor panel opens to avoid crowding
-                if case .panel(let panel) = newSelection,
-                   panel == .documentEditor,
-                   sidebarOpen {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        sidebarOpen = false
+                // Close the left sidebar when any right-side content opens to avoid crowding
+                if sidebarOpen {
+                    let shouldClose: Bool = {
+                        switch newSelection {
+                        case .panel, .app, .appEditing: return true
+                        default: return false
+                        }
+                    }()
+                    if shouldClose {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            sidebarOpen = false
+                        }
                     }
                 }
             }
@@ -763,7 +769,7 @@ struct MainWindowView: View {
     @ViewBuilder
     private var sidebarView: some View {
         VStack(spacing: 0) {
-            // Top bar: sidebar toggle + new chat
+            // Top bar: sidebar toggle
             HStack {
                 Spacer()
                 VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true) {
@@ -771,23 +777,30 @@ struct MainWindowView: View {
                         sidebarOpen.toggle()
                     }
                 }
-                VIconButton(label: "New chat", icon: "square.and.pencil", iconOnly: true) {
-                    windowState.selection = nil
-                    threadManager.createThread()
-                }
             }
             .padding(.trailing, VSpacing.sm)
             .frame(height: 36)
 
             ScrollView {
                 VStack(spacing: 0) {
-                    // MARK: Nav Items
+                    // MARK: New Chat
                     Spacer().frame(height: VSpacing.md)
+                    SidebarNavRow(icon: "plus.circle", label: "New chat") {
+                        windowState.selection = nil
+                        threadManager.createThread()
+                    }
+
+                    Spacer().frame(height: VSpacing.lg)
+
+                    // MARK: Nav Items
                     SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: windowState.activePanel == .directory) {
                         windowState.togglePanel(.directory)
                     }
                     SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity) {
                         windowState.togglePanel(.identity)
+                    }
+                    SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
+                        windowState.togglePanel(.agent)
                     }
 
                     // MARK: Chats
@@ -1095,22 +1108,7 @@ struct MainWindowView: View {
         case .threadList:
             sidebarView
         case .identity:
-            IdentityPanel(onClose: { windowState.selection = nil }, onInvokeSkill: { skill in
-                if threadManager.activeViewModel == nil {
-                    threadManager.createThread()
-                }
-                if let viewModel = threadManager.activeViewModel {
-                    viewModel.pendingSkillInvocation = SkillInvocationData(
-                        name: skill.name,
-                        emoji: skill.emoji,
-                        description: skill.description
-                    )
-                    viewModel.inputText = "Use the \(skill.name) skill"
-                    viewModel.sendMessage()
-                    viewModel.pendingSkillInvocation = nil
-                }
-                windowState.selection = nil
-            }, daemonClient: daemonClient)
+            IdentityPanel(onClose: { windowState.selection = nil }, daemonClient: daemonClient)
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = nil })
         }
@@ -1324,22 +1322,7 @@ struct MainWindowView: View {
             DoctorPanel(onClose: { windowState.dismissOverlay() })
                 .overlay(alignment: .topTrailing) { panelDismissButton }
         case .identity:
-            IdentityPanel(onClose: { windowState.dismissOverlay() }, onInvokeSkill: { skill in
-                if threadManager.activeViewModel == nil {
-                    threadManager.createThread()
-                }
-                if let viewModel = threadManager.activeViewModel {
-                    viewModel.pendingSkillInvocation = SkillInvocationData(
-                        name: skill.name,
-                        emoji: skill.emoji,
-                        description: skill.description
-                    )
-                    viewModel.inputText = "Use the \(skill.name) skill"
-                    viewModel.sendMessage()
-                    viewModel.pendingSkillInvocation = nil
-                }
-                windowState.dismissOverlay()
-            }, daemonClient: daemonClient)
+            IdentityPanel(onClose: { windowState.dismissOverlay() }, daemonClient: daemonClient)
                 .overlay(alignment: .topTrailing) { panelDismissButton }
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.dismissOverlay() })
@@ -1454,15 +1437,19 @@ private struct SidebarNavRow: View {
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
             }
-            .padding(.leading, 20)
-            .padding(.trailing, VSpacing.md)
+            .padding(.leading, VSpacing.md)
+            .padding(.trailing, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
             .background(isActive || isHovered ? VColor.hoverOverlay.opacity(0.08) : .clear)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
+        .padding(.horizontal, VSpacing.sm)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
     }
 }
 

@@ -13,7 +13,7 @@ struct TasksWindowView: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text("TASKS")
+                Text("Tasks")
                     .font(VFont.display)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()

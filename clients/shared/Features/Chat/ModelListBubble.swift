@@ -63,7 +63,7 @@ public struct ModelListBubble: View {
             ForEach(groups) { group in
                 // Provider header
                 HStack(spacing: VSpacing.sm) {
-                    Text(group.name.uppercased())
+                    Text(group.name)
                         .font(VFont.small)
                         .foregroundColor(VColor.textMuted)
                         .tracking(0.5)

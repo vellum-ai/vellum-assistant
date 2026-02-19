@@ -175,10 +175,13 @@ private struct CategoryHubLabel: View {
 
 private struct DraggableNode<Content: View>: View {
     let nodeKey: String
+    /// Additional node keys that move together with this node (e.g. child leaves of a hub).
+    var childKeys: [String] = []
     @Binding var offsets: [String: CGSize]
     @ViewBuilder let content: () -> Content
 
     @State private var dragStartOffset: CGSize?
+    @State private var childStartOffsets: [String: CGSize] = [:]
 
     var body: some View {
         content()
@@ -188,15 +191,26 @@ private struct DraggableNode<Content: View>: View {
                     .onChanged { value in
                         if dragStartOffset == nil {
                             dragStartOffset = offsets[nodeKey] ?? .zero
+                            for key in childKeys {
+                                childStartOffsets[key] = offsets[key] ?? .zero
+                            }
                         }
                         let start = dragStartOffset ?? .zero
                         offsets[nodeKey] = CGSize(
                             width: start.width + value.translation.width,
                             height: start.height + value.translation.height
                         )
+                        for key in childKeys {
+                            let childStart = childStartOffsets[key] ?? .zero
+                            offsets[key] = CGSize(
+                                width: childStart.width + value.translation.width,
+                                height: childStart.height + value.translation.height
+                            )
+                        }
                     }
                     .onEnded { _ in
                         dragStartOffset = nil
+                        childStartOffsets.removeAll()
                     }
             )
     }
@@ -389,7 +403,8 @@ struct ConstellationView: View {
     private func canvasHubs(hubBasePositions: [CGPoint], layoutGroups: [CategoryGroup]) -> some View {
         ForEach(Array(layoutGroups.enumerated()), id: \.element.id) { groupIdx, group in
             let hubKey = "hub-\(group.category.rawValue)"
-            DraggableNode(nodeKey: hubKey, offsets: $nodeOffsets) {
+            let leafKeys = group.items.map(\.id)
+            DraggableNode(nodeKey: hubKey, childKeys: leafKeys, offsets: $nodeOffsets) {
                 CategoryHubLabel(category: group.category, itemCount: group.items.count)
             }
             .position(hubBasePositions[groupIdx])

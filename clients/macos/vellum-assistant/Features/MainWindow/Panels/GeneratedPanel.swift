@@ -76,7 +76,7 @@ struct GeneratedPanel: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(isExpanded ? "Exit full screen" : "Enter full screen")
 
-                Text("DYNAMIC")
+                Text("Dynamic")
                     .font(VFont.panelTitle)
                     .foregroundColor(VColor.textPrimary)
 
@@ -156,7 +156,7 @@ struct GeneratedPanel: View {
                             if !documentItems.isEmpty {
                                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                                     HStack {
-                                        Text("DOCUMENTS")
+                                        Text("Documents")
                                             .font(VFont.display)
                                             .foregroundColor(VColor.textMuted)
                                         Spacer()
@@ -180,7 +180,7 @@ struct GeneratedPanel: View {
                                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                                     if !documentItems.isEmpty {
                                         HStack {
-                                            Text("PAGES")
+                                            Text("Pages")
                                                 .font(VFont.display)
                                                 .foregroundColor(VColor.textMuted)
                                             Spacer()

@@ -22,7 +22,6 @@ public struct VEmptyState: View {
             Text(title)
                 .font(VFont.mono)
                 .foregroundColor(VColor.textMuted)
-                .textCase(.uppercase)
             if let subtitle = subtitle {
                 Text(subtitle)
                     .font(VFont.body)

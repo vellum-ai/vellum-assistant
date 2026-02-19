@@ -116,7 +116,6 @@ struct AvatarCustomizationPanel: View {
             Text("Profile Picture")
                 .font(VFont.headline)
                 .foregroundColor(VColor.textSecondary)
-                .textCase(.uppercase)
 
             if let customImage = appearance.customAvatarImage {
                 HStack(spacing: VSpacing.md) {
@@ -227,7 +226,6 @@ struct AvatarCustomizationPanel: View {
             Text("Outfit")
                 .font(VFont.headline)
                 .foregroundColor(VColor.textSecondary)
-                .textCase(.uppercase)
 
             outfitPicker(title: "Hat", field: .hat, options: hatOptions,
                          current: evolutionState.userOverrides[.hat] ?? appearance.config.hat)
@@ -276,7 +274,6 @@ struct AvatarCustomizationPanel: View {
             Text(title)
                 .font(VFont.headline)
                 .foregroundColor(VColor.textSecondary)
-                .textCase(.uppercase)
         }
     }
 

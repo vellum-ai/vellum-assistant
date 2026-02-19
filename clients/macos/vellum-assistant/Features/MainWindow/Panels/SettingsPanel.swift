@@ -1,6 +1,15 @@
 import SwiftUI
 import VellumAssistantShared
 
+enum SettingsTab: String, CaseIterable {
+    case integrations = "Integrations"
+    case trust = "Trust"
+    case tasks = "Tasks"
+    case reminders = "Reminders"
+    case appearance = "Appearance"
+    case advanced = "Advanced"
+}
+
 @MainActor
 struct SettingsPanel: View {
     var onClose: () -> Void
@@ -29,6 +38,7 @@ struct SettingsPanel: View {
     @State private var newAllowlistDomain = ""
     @State private var sessionToken: String = ""
     @State private var tokenCopied: Bool = false
+    @State private var selectedTab: SettingsTab = .integrations
     #if DEBUG
     @State private var showingEnvVars = false
     @State private var appEnvVars: [(String, String)] = []
@@ -36,665 +46,46 @@ struct SettingsPanel: View {
     #endif
 
     var body: some View {
-        VSidePanel(title: "Settings", onClose: onClose) {
-            VStack(alignment: .leading, spacing: VSpacing.xl) {
-                // ANTHROPIC section
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("ANTHROPIC")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    if store.hasKey {
-                        HStack(spacing: VSpacing.sm) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(VColor.success)
-                                .font(.system(size: 14))
-                            Text(store.maskedKey)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Spacer()
-                            VButton(label: "Clear", style: .danger) {
-                                store.clearAPIKey()
-                                apiKeyText = ""
-                            }
-                        }
-                    } else {
-                        HStack(spacing: VSpacing.xs) {
-                            Text("Enter API Key")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 12))
-                                .foregroundColor(VColor.textMuted)
-                        }
-
-                        SecureField("This is your private generated key", text: $apiKeyText)
-                            .textFieldStyle(.plain)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
-
-                        Text("Get your API key at console.anthropic.com")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-
-                        VButton(label: "Save", style: .primary) {
-                            store.saveAPIKey(apiKeyText)
-                            apiKeyText = ""
-                        }
-                    }
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-
-                // MODEL section (only when API key is configured)
-                if store.hasKey {
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("MODEL")
-                            .font(VFont.sectionTitle)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack {
-                            Text("Active Model")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Spacer()
-                            ModelPickerButton(
-                                store: store,
-                                isOpen: $showModelDropdown
-                            )
-                        }
-                    }
-                    .padding(VSpacing.lg)
-                    .vCard(background: VColor.surfaceSubtle)
-                    .overlay(alignment: .bottomTrailing) {
-                        if showModelDropdown {
-                            VStack(alignment: .leading, spacing: 0) {
-                                ForEach(SettingsStore.availableModels, id: \.self) { model in
-                                    ModelPickerItem(
-                                        name: SettingsStore.modelDisplayNames[model] ?? model,
-                                        isSelected: model == store.selectedModel
-                                    ) {
-                                        store.selectedModel = model
-                                        store.setModel(model)
-                                        withAnimation(VAnimation.fast) { showModelDropdown = false }
-                                    }
-                                }
-                            }
-                            .padding(.vertical, VSpacing.xs)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.lg)
-                                    .stroke(VColor.surfaceBorder, lineWidth: 1)
-                            )
-                            .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
-                            .fixedSize(horizontal: true, vertical: true)
-                            .alignmentGuide(.bottom) { d in d[.top] }
-                            .padding(.trailing, VSpacing.lg)
-                            .transition(.opacity)
-                            .background(
-                                GeometryReader { geo in
-                                    Color.clear.onAppear {
-                                        modelDropdownFrame = geo.frame(in: .global)
-                                    }
-                                    .onChange(of: geo.frame(in: .global)) { _, newFrame in
-                                        modelDropdownFrame = newFrame
-                                    }
-                                }
-                            )
-                        }
-                    }
-                    .animation(VAnimation.fast, value: showModelDropdown)
-                    .zIndex(showModelDropdown ? 1 : 0)
-                }
-
-                // PERPLEXITY SEARCH section
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("PERPLEXITY SEARCH")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    if store.hasPerplexityKey {
-                        HStack(spacing: VSpacing.sm) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(VColor.success)
-                                .font(.system(size: 14))
-                            Text(store.maskedPerplexityKey)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Spacer()
-                            VButton(label: "Clear", style: .danger) {
-                                store.clearPerplexityKey()
-                                perplexityKeyText = ""
-                            }
-                        }
-                    } else {
-                        HStack(spacing: VSpacing.xs) {
-                            Text("Enter Perplexity API Key")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 12))
-                                .foregroundColor(VColor.textMuted)
-                        }
-
-                        SecureField("Your Perplexity API key", text: $perplexityKeyText)
-                            .textFieldStyle(.plain)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
-
-                        Text("Get your API key at perplexity.ai/settings/api")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-
-                        VButton(label: "Save", style: .primary) {
-                            store.savePerplexityKey(perplexityKeyText)
-                            perplexityKeyText = ""
-                        }
-                    }
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-
-                // BRAVE SEARCH section
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("BRAVE SEARCH")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    if store.hasBraveKey {
-                        HStack(spacing: VSpacing.sm) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(VColor.success)
-                                .font(.system(size: 14))
-                            Text(store.maskedBraveKey)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Spacer()
-                            VButton(label: "Clear", style: .danger) {
-                                store.clearBraveKey()
-                                braveKeyText = ""
-                            }
-                        }
-                    } else {
-                        HStack(spacing: VSpacing.xs) {
-                            Text("Enter Brave Search API Key")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textSecondary)
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 12))
-                                .foregroundColor(VColor.textMuted)
-                        }
-
-                        SecureField("Your Brave Search API key", text: $braveKeyText)
-                            .textFieldStyle(.plain)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
-
-                        Text("Get your API key at brave.com/search/api")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-
-                        VButton(label: "Save", style: .primary) {
-                            store.saveBraveKey(braveKeyText)
-                            braveKeyText = ""
-                        }
-                    }
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-
-                // INTEGRATIONS section
-                if daemonClient != nil {
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("INTEGRATIONS")
-                            .font(VFont.sectionTitle)
-                            .foregroundColor(VColor.textPrimary)
-
-                        if integrations.isEmpty {
-                            Text("No integrations available")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        } else {
-                            ForEach(integrations, id: \.id) { integration in
-                                integrationRow(integration)
-                            }
-                        }
-                    }
-                    .padding(VSpacing.lg)
-                    .vCard(background: VColor.surfaceSubtle)
-                }
-
-                // COMPUTER USAGE section
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("COMPUTER USAGE")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    HStack {
-                        Text("Max Steps per Session")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 12))
-                            .foregroundColor(VColor.textMuted)
-                        Spacer()
-                        Text("\(Int(store.maxSteps))")
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-
-                    VSlider(value: $store.maxSteps, range: 1...100, step: 10, showTickMarks: true)
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-
-                // DISPLAY section
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("DISPLAY")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    HStack {
-                        Text("Theme")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        Picker("", selection: Binding(
-                            get: { themePreference },
-                            set: { newValue in
-                                themePreference = newValue
-                                if let delegate = NSApp.delegate as? AppDelegate {
-                                    delegate.applyThemePreference()
-                                }
-                            }
-                        )) {
-                            Text("System").tag("system")
-                            Text("Light").tag("light")
-                            Text("Dark").tag("dark")
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(width: 200)
-                    }
-
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-
-                // MEDIA EMBEDS section
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("MEDIA EMBEDS")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    HStack {
-                        Text("Auto media embeds")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        Toggle("", isOn: Binding(
-                            get: { store.mediaEmbedsEnabled },
-                            set: { store.setMediaEmbedsEnabled($0) }
-                        ))
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                    }
-
-                    Text("Automatically embed images, videos, and other media shared in chat messages.")
-                        .font(VFont.caption)
+        VStack(alignment: .leading, spacing: 0) {
+            // Header (matches VSidePanel style)
+            HStack {
+                Text("Settings")
+                    .font(VFont.panelTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundColor(VColor.textMuted)
-
-                    if store.mediaEmbedsEnabled {
-                        Divider()
-                            .background(VColor.surfaceBorder)
-
-                        Text("Video Domain Allowlist")
-                            .font(VFont.bodyBold)
-                            .foregroundColor(VColor.textSecondary)
-
-                        HStack(spacing: VSpacing.sm) {
-                            TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
-                                .textFieldStyle(.plain)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
-                                .padding(VSpacing.md)
-                                .background(VColor.surface)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: VRadius.md)
-                                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                                )
-
-                            VButton(label: "Add", style: .primary) {
-                                let domain = newAllowlistDomain
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                                guard !domain.isEmpty else { return }
-                                var domains = store.mediaEmbedVideoAllowlistDomains
-                                domains.append(domain)
-                                store.setMediaEmbedVideoAllowlistDomains(domains)
-                                newAllowlistDomain = ""
-                            }
-                        }
-
-                        ForEach(store.mediaEmbedVideoAllowlistDomains, id: \.self) { domain in
-                            HStack {
-                                Text(domain)
-                                    .font(VFont.body)
-                                    .foregroundColor(VColor.textSecondary)
-                                Spacer()
-                                Button {
-                                    var domains = store.mediaEmbedVideoAllowlistDomains
-                                    domains.removeAll { $0 == domain }
-                                    store.setMediaEmbedVideoAllowlistDomains(domains)
-                                } label: {
-                                    Image(systemName: "trash")
-                                        .foregroundColor(VColor.error)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.vertical, VSpacing.xs)
-                        }
-
-                        HStack {
-                            Spacer()
-                            VButton(label: "Reset to Defaults", style: .ghost) {
-                                store.setMediaEmbedVideoAllowlistDomains(MediaEmbedSettings.defaultDomains)
-                            }
-                        }
-                    }
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
                 }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close Settings")
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.lg)
 
-                // PRIVATE THREAD section
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("PRIVATE THREAD")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
+            Divider()
+                .background(VColor.surfaceBorder)
 
-                    HStack {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("New Private Thread")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textSecondary)
-                            Text("Private threads have isolated memory — facts learned in private threads stay private and won't appear in other conversations.")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        VButton(label: "New Private Thread", style: .primary) {
-                            threadManager.createPrivateThread()
-                            onClose()
-                        }
-                    }
+            // Two-column layout
+            HStack(spacing: 0) {
+                // Left: nav sidebar
+                settingsNav
+                    .frame(width: 160)
+
+                Divider()
+
+                // Right: content for selected tab
+                ScrollView {
+                    selectedTabContent
+                        .padding(VSpacing.lg)
+                        .frame(maxWidth: .infinity, alignment: .top)
                 }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-
-                // ARCHIVED THREADS section
-                if !threadManager.archivedThreads.isEmpty {
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("ARCHIVED THREADS")
-                            .font(VFont.sectionTitle)
-                            .foregroundColor(VColor.textPrimary)
-
-                        ForEach(threadManager.archivedThreads) { thread in
-                            HStack {
-                                Text(thread.title)
-                                    .font(VFont.body)
-                                    .foregroundColor(VColor.textSecondary)
-                                    .lineLimit(1)
-                                Spacer()
-                                Button(action: { threadManager.unarchiveThread(id: thread.id) }) {
-                                    Text("Unarchive")
-                                        .font(VFont.caption)
-                                        .foregroundColor(VColor.accent)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Unarchive \(thread.title)")
-                            }
-                            .padding(.vertical, VSpacing.xs)
-                        }
-                    }
-                    .padding(VSpacing.lg)
-                    .vCard(background: VColor.surfaceSubtle)
-                }
-
-                // iOS DEVICE section
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("IOS DEVICE")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        Text("Session Token")
-                            .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.textPrimary)
-                        Text("Paste this into the Vellum iOS app to connect it to this Mac.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-
-                        HStack(spacing: VSpacing.sm) {
-                            if sessionToken.isEmpty {
-                                Text("Token not found")
-                                    .font(VFont.mono)
-                                    .foregroundColor(VColor.textMuted)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            } else {
-                                Text(String(sessionToken.prefix(16)) + "...")
-                                    .font(VFont.mono)
-                                    .foregroundColor(VColor.textSecondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-
-                            Button(tokenCopied ? "Copied!" : "Copy") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(sessionToken, forType: .string)
-                                tokenCopied = true
-                                Task {
-                                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                                    tokenCopied = false
-                                }
-                            }
-                            .disabled(sessionToken.isEmpty)
-                        }
-                    }
-                    .padding(VSpacing.lg)
-                    .vCard(background: VColor.surfaceSubtle)
-                }
-
-                // PERMISSIONS section
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("PERMISSIONS")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    permissionRow(
-                        emoji: "\u{1F47B}",
-                        label: "Accessibility",
-                        granted: accessibilityGranted,
-                        action: {
-                            // Request accessibility permission (opens System Settings)
-                            _ = PermissionManager.accessibilityStatus(prompt: true)
-                            startPermissionPolling()
-                        }
-                    )
-
-                    permissionRow(
-                        emoji: "\u{1F355}",
-                        label: "Screen Recording",
-                        granted: screenRecordingGranted,
-                        action: {
-                            // Request screen recording permission (opens System Settings)
-                            PermissionManager.requestScreenRecordingAccess()
-                            startPermissionPolling()
-                        }
-                    )
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-
-                // SCHEDULED TASKS section
-                if daemonClient != nil {
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("SCHEDULED TASKS")
-                            .font(VFont.sectionTitle)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack {
-                            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                                Text("Manage Scheduled Tasks")
-                                    .font(VFont.body)
-                                    .foregroundColor(VColor.textSecondary)
-                                Text("View and manage recurring tasks created by the assistant")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
-                            }
-                            Spacer()
-                            VButton(label: "Manage...", style: .ghost) {
-                                showingScheduledTasks = true
-                            }
-                        }
-                    }
-                    .padding(VSpacing.lg)
-                    .vCard(background: VColor.surfaceSubtle)
-                }
-
-                // REMINDERS section
-                if daemonClient != nil {
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("REMINDERS")
-                            .font(VFont.sectionTitle)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack {
-                            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                                Text("Manage Reminders")
-                                    .font(VFont.body)
-                                    .foregroundColor(VColor.textSecondary)
-                                Text("View and manage one-shot reminders created by the assistant")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
-                            }
-                            Spacer()
-                            VButton(label: "Manage...", style: .ghost) {
-                                showingReminders = true
-                            }
-                        }
-                    }
-                    .padding(VSpacing.lg)
-                    .vCard(background: VColor.surfaceSubtle)
-                }
-
-                // TRUST RULES section
-                if daemonClient != nil {
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("TRUST RULES")
-                            .font(VFont.sectionTitle)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack {
-                            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                                Text("Manage Trust Rules")
-                                    .font(VFont.body)
-                                    .foregroundColor(VColor.textSecondary)
-                                Text("Control which tool actions are automatically allowed or denied")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
-                            }
-                            Spacer()
-                            VButton(label: "Manage...", style: .ghost) {
-                                daemonClient?.isTrustRulesSheetOpen = true
-                                showingTrustRules = true
-                            }
-                            .disabled(store.isAnyTrustRulesSheetOpen)
-                        }
-                    }
-                    .padding(VSpacing.lg)
-                    .vCard(background: VColor.surfaceSubtle)
-                }
-
-                // PRIVACY & SECURITY section
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("PRIVACY & SECURITY")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-
-                    VStack(alignment: .leading, spacing: 0) {
-                        privacyBullet(icon: "eye.slash", text: "AI only runs when you explicitly trigger it")
-                        Divider().background(VColor.surfaceBorder)
-                        privacyBullet(icon: "lock.shield", text: "API key stored in macOS Keychain")
-                        Divider().background(VColor.surfaceBorder)
-                        privacyBullet(icon: "xmark.shield", text: "Your data is not used to train AI models")
-                        Divider().background(VColor.surfaceBorder)
-                        privacyBullet(icon: "internaldrive", text: "Session logs and knowledge stored locally on your Mac")
-                    }
-                }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-
-                #if DEBUG
-                // DEVELOPER section (debug builds only)
-                if daemonClient != nil {
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("DEVELOPER")
-                            .font(VFont.sectionTitle)
-                            .foregroundColor(VColor.textPrimary)
-
-                        HStack {
-                            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                                Text("Environment Variables")
-                                    .font(VFont.body)
-                                    .foregroundColor(VColor.textSecondary)
-                                Text("View env vars for both the app and daemon processes")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
-                            }
-                            Spacer()
-                            VButton(label: "View...", style: .ghost) {
-                                appEnvVars = ProcessInfo.processInfo.environment
-                                    .sorted(by: { $0.key < $1.key })
-                                    .map { ($0.key, $0.value) }
-                                daemonEnvVars = []
-                                daemonClient?.onEnvVarsResponse = { response in
-                                    Task { @MainActor in
-                                        self.daemonEnvVars = response.vars
-                                            .sorted(by: { $0.key < $1.key })
-                                            .map { ($0.key, $0.value) }
-                                    }
-                                }
-                                try? daemonClient?.sendEnvVarsRequest()
-                                showingEnvVars = true
-                            }
-                        }
-                    }
-                    .padding(VSpacing.lg)
-                    .vCard(background: VColor.surfaceSubtle)
-                }
-                #endif
             }
         }
+        .background(VColor.backgroundSubtle)
         .task {
             // Refresh permission status when the view appears
             refreshPermissionStatus()
@@ -775,6 +166,730 @@ struct SettingsPanel: View {
             SettingsPanelEnvVarsSheet(appEnvVars: appEnvVars, daemonEnvVars: daemonEnvVars)
         }
         #endif
+    }
+
+    // MARK: - Nav Sidebar
+
+    private var settingsNav: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            ForEach(SettingsTab.allCases, id: \.self) { tab in
+                SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
+                    selectedTab = tab
+                }
+            }
+            Spacer()
+        }
+        .padding(VSpacing.lg)
+    }
+
+    // MARK: - Tab Content Router
+
+    @ViewBuilder
+    private var selectedTabContent: some View {
+        switch selectedTab {
+        case .integrations:
+            integrationsContent
+        case .trust:
+            trustContent
+        case .tasks:
+            tasksContent
+        case .reminders:
+            remindersContent
+        case .appearance:
+            appearanceContent
+        case .advanced:
+            advancedContent
+        }
+    }
+
+    // MARK: - Integrations Tab
+
+    private var integrationsContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xl) {
+            // ANTHROPIC section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Anthropic")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                if store.hasKey {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14))
+                        Text(store.maskedKey)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        VButton(label: "Clear", style: .danger) {
+                            store.clearAPIKey()
+                            apiKeyText = ""
+                        }
+                    }
+                } else {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Enter API Key")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.textMuted)
+                    }
+
+                    SecureField("This is your private generated key", text: $apiKeyText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    Text("Get your API key at console.anthropic.com")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    VButton(label: "Save", style: .primary) {
+                        store.saveAPIKey(apiKeyText)
+                        apiKeyText = ""
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
+            // MODEL section (only when API key is configured)
+            if store.hasKey {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Model")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    HStack {
+                        Text("Active Model")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        ModelPickerButton(
+                            store: store,
+                            isOpen: $showModelDropdown
+                        )
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: VColor.surfaceSubtle)
+                .overlay(alignment: .bottomTrailing) {
+                    if showModelDropdown {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(SettingsStore.availableModels, id: \.self) { model in
+                                ModelPickerItem(
+                                    name: SettingsStore.modelDisplayNames[model] ?? model,
+                                    isSelected: model == store.selectedModel
+                                ) {
+                                    store.selectedModel = model
+                                    store.setModel(model)
+                                    withAnimation(VAnimation.fast) { showModelDropdown = false }
+                                }
+                            }
+                        }
+                        .padding(.vertical, VSpacing.xs)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.lg)
+                                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+                        .fixedSize(horizontal: true, vertical: true)
+                        .alignmentGuide(.bottom) { d in d[.top] }
+                        .padding(.trailing, VSpacing.lg)
+                        .transition(.opacity)
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear.onAppear {
+                                    modelDropdownFrame = geo.frame(in: .global)
+                                }
+                                .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                                    modelDropdownFrame = newFrame
+                                }
+                            }
+                        )
+                    }
+                }
+                .animation(VAnimation.fast, value: showModelDropdown)
+                .zIndex(showModelDropdown ? 1 : 0)
+            }
+
+            // PERPLEXITY SEARCH section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Perplexity Search")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                if store.hasPerplexityKey {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14))
+                        Text(store.maskedPerplexityKey)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        VButton(label: "Clear", style: .danger) {
+                            store.clearPerplexityKey()
+                            perplexityKeyText = ""
+                        }
+                    }
+                } else {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Enter Perplexity API Key")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.textMuted)
+                    }
+
+                    SecureField("Your Perplexity API key", text: $perplexityKeyText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    Text("Get your API key at perplexity.ai/settings/api")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    VButton(label: "Save", style: .primary) {
+                        store.savePerplexityKey(perplexityKeyText)
+                        perplexityKeyText = ""
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
+            // BRAVE SEARCH section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Brave Search")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                if store.hasBraveKey {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14))
+                        Text(store.maskedBraveKey)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        VButton(label: "Clear", style: .danger) {
+                            store.clearBraveKey()
+                            braveKeyText = ""
+                        }
+                    }
+                } else {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Enter Brave Search API Key")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.textMuted)
+                    }
+
+                    SecureField("Your Brave Search API key", text: $braveKeyText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    Text("Get your API key at brave.com/search/api")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    VButton(label: "Save", style: .primary) {
+                        store.saveBraveKey(braveKeyText)
+                        braveKeyText = ""
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
+            // INTEGRATIONS section
+            if daemonClient != nil {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Integrations")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    if integrations.isEmpty {
+                        Text("No integrations available")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    } else {
+                        ForEach(integrations, id: \.id) { integration in
+                            integrationRow(integration)
+                        }
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: VColor.surfaceSubtle)
+            }
+        }
+    }
+
+    // MARK: - Trust Tab
+
+    private var trustContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xl) {
+            // PERMISSIONS section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Permissions")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                permissionRow(
+                    emoji: "\u{1F47B}",
+                    label: "Accessibility",
+                    granted: accessibilityGranted,
+                    action: {
+                        // Request accessibility permission (opens System Settings)
+                        _ = PermissionManager.accessibilityStatus(prompt: true)
+                        startPermissionPolling()
+                    }
+                )
+
+                permissionRow(
+                    emoji: "\u{1F355}",
+                    label: "Screen Recording",
+                    granted: screenRecordingGranted,
+                    action: {
+                        // Request screen recording permission (opens System Settings)
+                        PermissionManager.requestScreenRecordingAccess()
+                        startPermissionPolling()
+                    }
+                )
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
+            // TRUST RULES section
+            if daemonClient != nil {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Trust Rules")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Manage Trust Rules")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Text("Control which tool actions are automatically allowed or denied")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                        VButton(label: "Manage...", style: .ghost) {
+                            daemonClient?.isTrustRulesSheetOpen = true
+                            showingTrustRules = true
+                        }
+                        .disabled(store.isAnyTrustRulesSheetOpen)
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: VColor.surfaceSubtle)
+            }
+
+            // PRIVACY & SECURITY section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("PRIVACY & SECURITY")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    privacyBullet(icon: "eye.slash", text: "AI only runs when you explicitly trigger it")
+                    Divider().background(VColor.surfaceBorder)
+                    privacyBullet(icon: "lock.shield", text: "API key stored in macOS Keychain")
+                    Divider().background(VColor.surfaceBorder)
+                    privacyBullet(icon: "xmark.shield", text: "Your data is not used to train AI models")
+                    Divider().background(VColor.surfaceBorder)
+                    privacyBullet(icon: "internaldrive", text: "Session logs and knowledge stored locally on your Mac")
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+        }
+    }
+
+    // MARK: - Tasks Tab
+
+    private var tasksContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xl) {
+            if daemonClient != nil {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Scheduled Tasks")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Manage Scheduled Tasks")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Text("View and manage recurring tasks created by the assistant")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                        VButton(label: "Manage...", style: .ghost) {
+                            showingScheduledTasks = true
+                        }
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: VColor.surfaceSubtle)
+            }
+        }
+    }
+
+    // MARK: - Reminders Tab
+
+    private var remindersContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xl) {
+            if daemonClient != nil {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Reminders")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Manage Reminders")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Text("View and manage one-shot reminders created by the assistant")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                        VButton(label: "Manage...", style: .ghost) {
+                            showingReminders = true
+                        }
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: VColor.surfaceSubtle)
+            }
+        }
+    }
+
+    // MARK: - Appearance Tab
+
+    private var appearanceContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xl) {
+            // DISPLAY section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Display")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                HStack {
+                    Text("Theme")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Spacer()
+                    Picker("", selection: Binding(
+                        get: { themePreference },
+                        set: { newValue in
+                            themePreference = newValue
+                            if let delegate = NSApp.delegate as? AppDelegate {
+                                delegate.applyThemePreference()
+                            }
+                        }
+                    )) {
+                        Text("System").tag("system")
+                        Text("Light").tag("light")
+                        Text("Dark").tag("dark")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 200)
+                }
+
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
+            // MEDIA EMBEDS section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Media Embeds")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                HStack {
+                    Text("Auto media embeds")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { store.mediaEmbedsEnabled },
+                        set: { store.setMediaEmbedsEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                }
+
+                Text("Automatically embed images, videos, and other media shared in chat messages.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+
+                if store.mediaEmbedsEnabled {
+                    Divider()
+                        .background(VColor.surfaceBorder)
+
+                    Text("Video Domain Allowlist")
+                        .font(VFont.bodyBold)
+                        .foregroundColor(VColor.textSecondary)
+
+                    HStack(spacing: VSpacing.sm) {
+                        TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
+                            .textFieldStyle(.plain)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .padding(VSpacing.md)
+                            .background(VColor.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                            )
+
+                        VButton(label: "Add", style: .primary) {
+                            let domain = newAllowlistDomain
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !domain.isEmpty else { return }
+                            var domains = store.mediaEmbedVideoAllowlistDomains
+                            domains.append(domain)
+                            store.setMediaEmbedVideoAllowlistDomains(domains)
+                            newAllowlistDomain = ""
+                        }
+                    }
+
+                    ForEach(store.mediaEmbedVideoAllowlistDomains, id: \.self) { domain in
+                        HStack {
+                            Text(domain)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Spacer()
+                            Button {
+                                var domains = store.mediaEmbedVideoAllowlistDomains
+                                domains.removeAll { $0 == domain }
+                                store.setMediaEmbedVideoAllowlistDomains(domains)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundColor(VColor.error)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, VSpacing.xs)
+                    }
+
+                    HStack {
+                        Spacer()
+                        VButton(label: "Reset to Defaults", style: .ghost) {
+                            store.setMediaEmbedVideoAllowlistDomains(MediaEmbedSettings.defaultDomains)
+                        }
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+        }
+    }
+
+    // MARK: - Advanced Tab
+
+    private var advancedContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xl) {
+            // COMPUTER USAGE section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Computer Usage")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                HStack {
+                    Text("Max Steps per Session")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 12))
+                        .foregroundColor(VColor.textMuted)
+                    Spacer()
+                    Text("\(Int(store.maxSteps))")
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                VSlider(value: $store.maxSteps, range: 1...100, step: 10, showTickMarks: true)
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
+            // PRIVATE THREAD section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Private Thread")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                HStack {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("New Private Thread")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Text("Private threads have isolated memory — facts learned in private threads stay private and won't appear in other conversations.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    Spacer()
+                    VButton(label: "New Private Thread", style: .primary) {
+                        threadManager.createPrivateThread()
+                        onClose()
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
+            // ARCHIVED THREADS section
+            if !threadManager.archivedThreads.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Archived Threads")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    ForEach(threadManager.archivedThreads) { thread in
+                        HStack {
+                            Text(thread.title)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                                .lineLimit(1)
+                            Spacer()
+                            Button(action: { threadManager.unarchiveThread(id: thread.id) }) {
+                                Text("Unarchive")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.accent)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Unarchive \(thread.title)")
+                        }
+                        .padding(.vertical, VSpacing.xs)
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: VColor.surfaceSubtle)
+            }
+
+            // iOS DEVICE section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("iOS Device")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Text("Session Token")
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Paste this into the Vellum iOS app to connect it to this Mac.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+
+                    HStack(spacing: VSpacing.sm) {
+                        if sessionToken.isEmpty {
+                            Text("Token not found")
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textMuted)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            Text(String(sessionToken.prefix(16)) + "...")
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        Button(tokenCopied ? "Copied!" : "Copy") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(sessionToken, forType: .string)
+                            tokenCopied = true
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                tokenCopied = false
+                            }
+                        }
+                        .disabled(sessionToken.isEmpty)
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: VColor.surfaceSubtle)
+            }
+
+            #if DEBUG
+            // DEVELOPER section (debug builds only)
+            if daemonClient != nil {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Developer")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Environment Variables")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Text("View env vars for both the app and daemon processes")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                        VButton(label: "View...", style: .ghost) {
+                            appEnvVars = ProcessInfo.processInfo.environment
+                                .sorted(by: { $0.key < $1.key })
+                                .map { ($0.key, $0.value) }
+                            daemonEnvVars = []
+                            daemonClient?.onEnvVarsResponse = { response in
+                                Task { @MainActor in
+                                    self.daemonEnvVars = response.vars
+                                        .sorted(by: { $0.key < $1.key })
+                                        .map { ($0.key, $0.value) }
+                                }
+                            }
+                            try? daemonClient?.sendEnvVarsRequest()
+                            showingEnvVars = true
+                        }
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: VColor.surfaceSubtle)
+            }
+            #endif
+        }
     }
 
     // MARK: - Integration Row
@@ -1000,6 +1115,34 @@ struct SettingsPanel: View {
 
 }
 
+// MARK: - Settings Nav Row
+
+private struct SettingsNavRow: View {
+    let tab: SettingsTab
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(tab.rawValue)
+                .font(isSelected ? VFont.bodyMedium : VFont.body)
+                .foregroundColor(isSelected ? VColor.textPrimary : VColor.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+                .background(isSelected ? VColor.hoverOverlay.opacity(0.08) : (isHovered ? VColor.hoverOverlay.opacity(0.04) : Color.clear))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+}
+
 // MARK: - Custom Model Picker
 
 private struct ModelPickerButton: View {
@@ -1090,8 +1233,8 @@ private struct SettingsPanelEnvVarsSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
-                    envVarsSection(title: "APP PROCESS", vars: appEnvVars)
-                    envVarsSection(title: "DAEMON PROCESS", vars: daemonEnvVars)
+                    envVarsSection(title: "App Process", vars: appEnvVars)
+                    envVarsSection(title: "Daemon Process", vars: daemonEnvVars)
                 }
                 .padding(VSpacing.lg)
             }

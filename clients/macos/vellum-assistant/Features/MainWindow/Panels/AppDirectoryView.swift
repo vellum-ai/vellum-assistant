@@ -27,81 +27,103 @@ struct AppDirectoryView: View {
     @State private var previewTasks: [String: Task<Void, Never>] = [:]
 
     private let columns = [
-        GridItem(.flexible(minimum: 200), spacing: VSpacing.lg, alignment: .top),
-        GridItem(.flexible(minimum: 200), spacing: VSpacing.lg, alignment: .top),
+        GridItem(.flexible(minimum: 160), spacing: VSpacing.lg, alignment: .top),
+        GridItem(.flexible(minimum: 160), spacing: VSpacing.lg, alignment: .top),
+        GridItem(.flexible(minimum: 160), spacing: VSpacing.lg, alignment: .top),
     ]
 
-    var body: some View {
-        VSidePanel(title: "Directory", onClose: onBack, pinnedContent: {
-            // Search bar (only when there are items to search)
-            if !displayItems.isEmpty || !searchText.isEmpty {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
+    /// Maximum width of the centered content area.
+    private let maxContentWidth: CGFloat = 1100
 
-                    TextField("Search apps...", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .font(VFont.body)
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                // Header row: title + search
+                HStack(alignment: .center) {
+                    Text("Directory")
+                        .font(VFont.panelTitle)
                         .foregroundColor(VColor.textPrimary)
 
-                    if !searchText.isEmpty {
-                        Button(action: { searchText = "" }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 12))
+                    Spacer()
+
+                    // Search bar
+                    if !displayItems.isEmpty || !searchText.isEmpty {
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(VColor.textMuted)
+
+                            TextField("Search apps...", text: $searchText)
+                                .textFieldStyle(.plain)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
+
+                            if !searchText.isEmpty {
+                                Button(action: { searchText = "" }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(VColor.textMuted)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                        .buttonStyle(.plain)
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        )
+                        .frame(maxWidth: 260)
                     }
                 }
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
-                )
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.vertical, VSpacing.md)
+                .padding(.top, VSpacing.xxl)
+                .padding(.bottom, VSpacing.xl)
 
                 Divider().background(VColor.surfaceBorder)
-            }
-        }) {
-            if isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.regular)
-                    Spacer()
-                }
-                .frame(height: 300)
-            } else if displayItems.isEmpty {
-                VEmptyState(
-                    title: "No apps yet",
-                    subtitle: "Apps built with your assistant will appear here",
-                    icon: "square.grid.2x2"
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.top, VSpacing.xxxl)
-            } else if filteredItems.isEmpty {
-                VEmptyState(
-                    title: "No results",
-                    subtitle: "No apps matched \"\(searchText)\"",
-                    icon: "magnifyingglass"
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.top, VSpacing.xxxl)
-            } else {
-                LazyVGrid(columns: columns, spacing: VSpacing.lg) {
-                    ForEach(filteredItems) { item in
-                        appCard(item)
-                            .onAppear { fetchPreviewIfNeeded(item) }
+                    .padding(.bottom, VSpacing.xl)
+
+                // Content
+                if isLoading {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .controlSize(.regular)
+                        Spacer()
                     }
+                    .frame(height: 300)
+                } else if displayItems.isEmpty {
+                    VEmptyState(
+                        title: "No apps yet",
+                        subtitle: "Apps built with your assistant will appear here",
+                        icon: "square.grid.2x2"
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, VSpacing.xxxl)
+                } else if filteredItems.isEmpty {
+                    VEmptyState(
+                        title: "No results",
+                        subtitle: "No apps matched \"\(searchText)\"",
+                        icon: "magnifyingglass"
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, VSpacing.xxxl)
+                } else {
+                    LazyVGrid(columns: columns, spacing: VSpacing.lg) {
+                        ForEach(filteredItems) { item in
+                            appCard(item)
+                                .onAppear { fetchPreviewIfNeeded(item) }
+                        }
+                    }
+                    .padding(.bottom, VSpacing.xxl)
                 }
-                .padding(.bottom, VSpacing.md)
             }
+            .frame(maxWidth: maxContentWidth)
+            .padding(.horizontal, VSpacing.xxl)
+            .frame(maxWidth: .infinity)
         }
+        .background(VColor.backgroundSubtle)
         .onAppear { fetchApps() }
         .onDisappear {
             for task in previewTasks.values { task.cancel() }
