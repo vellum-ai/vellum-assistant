@@ -544,6 +544,18 @@ exports[`IPC message snapshots ClientMessage types twitter_integration_config se
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types twitter_auth_start serializes to expected JSON 1`] = `
+{
+  "type": "twitter_auth_start",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types twitter_auth_status serializes to expected JSON 1`] = `
+{
+  "type": "twitter_auth_status",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types link_open_request serializes to expected JSON 1`] = `
 {
   "type": "link_open_request",
@@ -1775,6 +1787,23 @@ exports[`IPC message snapshots ServerMessage types twitter_integration_config_re
   "mode": "local_byo",
   "success": true,
   "type": "twitter_integration_config_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types twitter_auth_result serializes to expected JSON 1`] = `
+{
+  "accountInfo": "@vellum_test",
+  "success": true,
+  "type": "twitter_auth_result",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types twitter_auth_status_response serializes to expected JSON 1`] = `
+{
+  "accountInfo": "@vellum_test",
+  "connected": true,
+  "mode": "local_byo",
+  "type": "twitter_auth_status_response",
 }
 `;
 

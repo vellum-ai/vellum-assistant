@@ -347,6 +347,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'twitter_integration_config',
     action: 'get',
   },
+  twitter_auth_start: {
+    type: 'twitter_auth_start',
+  },
+  twitter_auth_status: {
+    type: 'twitter_auth_status',
+  },
   link_open_request: {
     type: 'link_open_request',
     url: 'https://example.com',
@@ -1132,6 +1138,17 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     managedAvailable: false,
     localClientConfigured: true,
     connected: false,
+  },
+  twitter_auth_result: {
+    type: 'twitter_auth_result',
+    success: true,
+    accountInfo: '@vellum_test',
+  },
+  twitter_auth_status_response: {
+    type: 'twitter_auth_status_response',
+    connected: true,
+    accountInfo: '@vellum_test',
+    mode: 'local_byo',
   },
   open_url: {
     type: 'open_url',

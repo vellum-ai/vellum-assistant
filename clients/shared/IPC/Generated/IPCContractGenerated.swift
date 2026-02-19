@@ -1622,6 +1622,29 @@ public struct IPCTrustRulesListResponseRule: Codable, Sendable {
     public let createdAt: Int
 }
 
+public struct IPCTwitterAuthResult: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let accountInfo: String?
+    public let error: String?
+}
+
+public struct IPCTwitterAuthStartRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCTwitterAuthStatusRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCTwitterAuthStatusResponse: Codable, Sendable {
+    public let type: String
+    public let connected: Bool
+    public let accountInfo: String?
+    public let mode: String?
+    public let error: String?
+}
+
 public struct IPCTwitterIntegrationConfigRequest: Codable, Sendable {
     public let type: String
     public let action: String
