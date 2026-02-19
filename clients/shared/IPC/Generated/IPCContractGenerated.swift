@@ -1924,6 +1924,17 @@ public struct IPCWorkItemCompleteRequest: Codable, Sendable {
     public let id: String
 }
 
+public struct IPCWorkItemDeleteRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
+public struct IPCWorkItemDeleteResponse: Codable, Sendable {
+    public let type: String
+    public let id: String
+    public let success: Bool
+}
+
 public struct IPCWorkItemCreateRequest: Codable, Sendable {
     public let type: String
     public let taskId: String

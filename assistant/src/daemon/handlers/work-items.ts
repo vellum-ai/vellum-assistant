@@ -5,11 +5,13 @@ import type {
   WorkItemCreateRequest,
   WorkItemUpdateRequest,
   WorkItemCompleteRequest,
+  WorkItemDeleteRequest,
   WorkItemRunTaskRequest,
 } from '../ipc-protocol.js';
 import { log, type HandlerContext } from './shared.js';
 import {
   createWorkItem,
+  deleteWorkItem,
   getWorkItem,
   listWorkItems,
   updateWorkItem,
@@ -106,6 +108,21 @@ export function handleWorkItemComplete(
     });
     ctx.broadcast({ type: 'tasks_changed' });
   }
+}
+
+export function handleWorkItemDelete(
+  msg: WorkItemDeleteRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const existing = getWorkItem(msg.id);
+  if (!existing) {
+    ctx.send(socket, { type: 'work_item_delete_response', id: msg.id, success: false });
+    return;
+  }
+  deleteWorkItem(msg.id);
+  ctx.send(socket, { type: 'work_item_delete_response', id: msg.id, success: true });
+  ctx.broadcast({ type: 'tasks_changed' });
 }
 
 function broadcastWorkItemStatus(ctx: HandlerContext, id: string): void {

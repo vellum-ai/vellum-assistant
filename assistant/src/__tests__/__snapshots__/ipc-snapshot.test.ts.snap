@@ -695,6 +695,13 @@ exports[`IPC message snapshots ClientMessage types work_item_complete serializes
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types work_item_delete serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "type": "work_item_delete",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types work_item_run_task serializes to expected JSON 1`] = `
 {
   "id": "wi-001",
@@ -2021,6 +2028,14 @@ exports[`IPC message snapshots ServerMessage types work_item_update_response ser
     "updatedAt": 1700001000,
   },
   "type": "work_item_update_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types work_item_delete_response serializes to expected JSON 1`] = `
+{
+  "id": "wi-001",
+  "success": true,
+  "type": "work_item_delete_response",
 }
 `;
 
