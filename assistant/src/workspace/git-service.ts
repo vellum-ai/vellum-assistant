@@ -490,7 +490,7 @@ export class WorkspaceGitService {
       // Check whether `main` already exists as a branch.
       let mainExists = false;
       try {
-        await this.execGit(['rev-parse', '--verify', 'main']);
+        await this.execGit(['rev-parse', '--verify', 'refs/heads/main']);
         mainExists = true;
       } catch {
         // main branch does not exist
