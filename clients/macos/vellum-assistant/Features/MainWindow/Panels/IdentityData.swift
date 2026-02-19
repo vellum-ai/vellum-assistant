@@ -1,6 +1,95 @@
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - Home Location
+
+enum AssistantHome {
+    case local(workspacePath: String)
+    case gcp(project: String, zone: String, instance: String)
+    case aws(project: String, region: String, instance: String)
+    case custom(ip: String, port: String)
+
+    var displayLabel: String {
+        switch self {
+        case .local: return "Local"
+        case .gcp: return "GCP"
+        case .aws: return "AWS"
+        case .custom: return "Custom"
+        }
+    }
+
+    var displayDetails: [(label: String, value: String)] {
+        switch self {
+        case .local(let workspacePath):
+            return [("Path", workspacePath)]
+        case .gcp(let project, let zone, let instance):
+            return [("Project", project), ("Zone", zone), ("Instance", instance)]
+        case .aws(let project, let region, let instance):
+            return [("Project", project), ("Region", region), ("Instance", instance)]
+        case .custom(let ip, let port):
+            return [("IP", ip), ("Port", port)]
+        }
+    }
+
+    static func parse(_ raw: String) -> AssistantHome? {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        let lower = trimmed.lowercased()
+
+        if lower.hasPrefix("local") {
+            let detail = extractParenContent(trimmed)
+            let path = detail ?? NSHomeDirectory() + "/.vellum/workspace"
+            return .local(workspacePath: path)
+        }
+
+        if lower.hasPrefix("gcp") {
+            guard let detail = extractParenContent(trimmed) else { return .gcp(project: "", zone: "", instance: "") }
+            let parts = detail.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            return .gcp(
+                project: keyValue(parts, key: "project"),
+                zone: keyValue(parts, key: "zone"),
+                instance: keyValue(parts, key: "instance")
+            )
+        }
+
+        if lower.hasPrefix("aws") {
+            guard let detail = extractParenContent(trimmed) else { return .aws(project: "", region: "", instance: "") }
+            let parts = detail.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            return .aws(
+                project: keyValue(parts, key: "project"),
+                region: keyValue(parts, key: "region"),
+                instance: keyValue(parts, key: "instance")
+            )
+        }
+
+        if lower.hasPrefix("custom") {
+            guard let detail = extractParenContent(trimmed) else { return .custom(ip: "", port: "") }
+            let parts = detail.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            return .custom(
+                ip: keyValue(parts, key: "ip"),
+                port: keyValue(parts, key: "port")
+            )
+        }
+
+        return nil
+    }
+
+    private static func extractParenContent(_ str: String) -> String? {
+        guard let open = str.firstIndex(of: "("),
+              let close = str.lastIndex(of: ")") else { return nil }
+        return String(str[str.index(after: open)..<close])
+    }
+
+    private static func keyValue(_ parts: [String], key: String) -> String {
+        for part in parts {
+            let kv = part.components(separatedBy: ":")
+            if kv.count == 2, kv[0].trimmingCharacters(in: .whitespaces).lowercased() == key.lowercased() {
+                return kv[1].trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return parts.first(where: { !$0.contains(":") })?.trimmingCharacters(in: .whitespaces) ?? ""
+    }
+}
+
 // MARK: - Identity Info (parsed from IDENTITY.md)
 
 struct IdentityInfo {
@@ -8,6 +97,7 @@ struct IdentityInfo {
     let role: String
     let personality: String
     let emoji: String
+    let home: AssistantHome?
 
     static func load() -> IdentityInfo? {
         let path = NSHomeDirectory() + "/.vellum/workspace/IDENTITY.md"
@@ -17,6 +107,7 @@ struct IdentityInfo {
         var role = ""
         var personality = ""
         var emoji = ""
+        var homeRaw = ""
 
         for line in content.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -28,11 +119,14 @@ struct IdentityInfo {
                 personality = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
             } else if trimmed.lowercased().hasPrefix("- **emoji:**") {
                 emoji = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
+            } else if trimmed.lowercased().hasPrefix("- **home:**") {
+                homeRaw = trimmed.components(separatedBy: ":**").last?.trimmingCharacters(in: .whitespaces) ?? ""
             }
         }
 
         guard !name.isEmpty else { return nil }
-        return IdentityInfo(name: name, role: role, personality: personality, emoji: emoji)
+        let home = homeRaw.isEmpty ? nil : AssistantHome.parse(homeRaw)
+        return IdentityInfo(name: name, role: role, personality: personality, emoji: emoji, home: home)
     }
 
     /// Parses an optional `## Greetings` section from SOUL.md.
