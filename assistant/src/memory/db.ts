@@ -184,7 +184,6 @@ export function initializeDb(): void {
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS attachments (
       id TEXT PRIMARY KEY,
-      assistant_id TEXT NOT NULL,
       original_filename TEXT NOT NULL,
       mime_type TEXT NOT NULL,
       size_bytes INTEGER NOT NULL,
@@ -223,7 +222,6 @@ export function initializeDb(): void {
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS channel_inbound_events (
       id TEXT PRIMARY KEY,
-      assistant_id TEXT NOT NULL,
       source_channel TEXT NOT NULL,
       external_chat_id TEXT NOT NULL,
       external_message_id TEXT NOT NULL,
@@ -232,14 +230,13 @@ export function initializeDb(): void {
       delivery_status TEXT NOT NULL DEFAULT 'pending',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      UNIQUE (assistant_id, source_channel, external_chat_id, external_message_id)
+      UNIQUE (source_channel, external_chat_id, external_message_id)
     )
   `);
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS message_runs (
       id TEXT PRIMARY KEY,
-      assistant_id TEXT NOT NULL,
       conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
       status TEXT NOT NULL DEFAULT 'running',
@@ -506,11 +503,9 @@ export function initializeDb(): void {
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS conversation_keys (
       id TEXT PRIMARY KEY,
-      assistant_id TEXT NOT NULL,
-      conversation_key TEXT NOT NULL,
+      conversation_key TEXT NOT NULL UNIQUE,
       conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-      created_at INTEGER NOT NULL,
-      UNIQUE (assistant_id, conversation_key)
+      created_at INTEGER NOT NULL
     )
   `);
 
@@ -549,6 +544,7 @@ export function initializeDb(): void {
   migrateMemoryItemsFingerprintScopeUnique(database);
   migrateMemoryItemsScopeSaltedFingerprints(database);
   migrateAssistantIdToSelf(database);
+  migrateRemoveAssistantIdColumns(database);
 
   // Indexes for query performance on large datasets
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_request_logs_conv_created ON llm_request_logs(conversation_id, created_at)`);
@@ -589,17 +585,16 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_segments_scope_id ON memory_segments(scope_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_scope_id ON memory_items(scope_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_summaries_scope_id ON memory_summaries(scope_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversation_keys_assistant_key ON conversation_keys(assistant_id, conversation_key)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_attachments_assistant_id ON attachments(assistant_id)`);
-  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_content_dedup ON attachments(assistant_id, content_hash) WHERE content_hash IS NOT NULL`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversation_keys_key ON conversation_keys(conversation_key)`);
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_content_dedup ON attachments(content_hash) WHERE content_hash IS NOT NULL`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_attachments_message_id ON message_attachments(message_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment_id ON message_attachments(attachment_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_lookup ON channel_inbound_events(assistant_id, source_channel, external_chat_id, external_message_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_lookup ON channel_inbound_events(source_channel, external_chat_id, external_message_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_conversation ON channel_inbound_events(conversation_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_source_msg ON channel_inbound_events(assistant_id, source_channel, external_chat_id, source_message_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_source_msg ON channel_inbound_events(source_channel, external_chat_id, source_message_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_processing_retry ON channel_inbound_events(processing_status, retry_after)`);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_runs_assistant_status ON message_runs(assistant_id, status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_runs_status ON message_runs(status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_runs_conversation ON message_runs(conversation_id)`);
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_reminders_status_fire_at ON reminders(status, fire_at)`);
@@ -1392,6 +1387,170 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
   } catch (e) {
     try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
     throw e;
+  }
+}
+
+/**
+ * One-shot migration: rebuild the four tables that previously stored assistant_id
+ * to remove that column now that all rows are keyed to the implicit single-tenant
+ * identity ("self").
+ *
+ * Must run AFTER migrateAssistantIdToSelf (which normalises all values to "self")
+ * so there are no constraint violations when recreating the tables without the
+ * assistant_id dimension.
+ *
+ * Tables rebuilt:
+ *   - conversation_keys       UNIQUE (conversation_key)
+ *   - attachments             no structural unique; content-dedup index updated
+ *   - channel_inbound_events  UNIQUE (source_channel, external_chat_id, external_message_id)
+ *   - message_runs            no unique constraint on assistant_id
+ */
+function migrateRemoveAssistantIdColumns(database: ReturnType<typeof drizzle<typeof schema>>): void {
+  const raw = (database as unknown as { $client: Database }).$client;
+  const checkpointKey = 'migration_remove_assistant_id_columns_v1';
+  const checkpoint = raw.query(
+    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
+  ).get(checkpointKey);
+  if (checkpoint) return;
+
+  raw.exec('PRAGMA foreign_keys = OFF');
+  try {
+    raw.exec('BEGIN');
+
+    // --- conversation_keys ---
+    const ckDdl = raw.query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'conversation_keys'`,
+    ).get() as { sql: string } | null;
+    if (ckDdl?.sql.includes('assistant_id')) {
+      raw.exec(/*sql*/ `
+        CREATE TABLE conversation_keys_new (
+          id TEXT PRIMARY KEY,
+          conversation_key TEXT NOT NULL UNIQUE,
+          conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+          created_at INTEGER NOT NULL
+        )
+      `);
+      raw.exec(/*sql*/ `
+        INSERT INTO conversation_keys_new (id, conversation_key, conversation_id, created_at)
+        SELECT id, conversation_key, conversation_id, created_at FROM conversation_keys
+      `);
+      raw.exec(/*sql*/ `DROP TABLE conversation_keys`);
+      raw.exec(/*sql*/ `ALTER TABLE conversation_keys_new RENAME TO conversation_keys`);
+    }
+
+    // --- attachments ---
+    const attDdl = raw.query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'attachments'`,
+    ).get() as { sql: string } | null;
+    if (attDdl?.sql.includes('assistant_id')) {
+      raw.exec(/*sql*/ `
+        CREATE TABLE attachments_new (
+          id TEXT PRIMARY KEY,
+          original_filename TEXT NOT NULL,
+          mime_type TEXT NOT NULL,
+          size_bytes INTEGER NOT NULL,
+          kind TEXT NOT NULL,
+          data_base64 TEXT NOT NULL,
+          content_hash TEXT,
+          thumbnail_base64 TEXT,
+          created_at INTEGER NOT NULL
+        )
+      `);
+      raw.exec(/*sql*/ `
+        INSERT INTO attachments_new (id, original_filename, mime_type, size_bytes, kind, data_base64, content_hash, thumbnail_base64, created_at)
+        SELECT id, original_filename, mime_type, size_bytes, kind, data_base64, content_hash, thumbnail_base64, created_at FROM attachments
+      `);
+      raw.exec(/*sql*/ `DROP TABLE attachments`);
+      raw.exec(/*sql*/ `ALTER TABLE attachments_new RENAME TO attachments`);
+    }
+
+    // --- channel_inbound_events ---
+    const cieDdl = raw.query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'channel_inbound_events'`,
+    ).get() as { sql: string } | null;
+    if (cieDdl?.sql.includes('assistant_id')) {
+      raw.exec(/*sql*/ `
+        CREATE TABLE channel_inbound_events_new (
+          id TEXT PRIMARY KEY,
+          source_channel TEXT NOT NULL,
+          external_chat_id TEXT NOT NULL,
+          external_message_id TEXT NOT NULL,
+          source_message_id TEXT,
+          conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+          message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
+          delivery_status TEXT NOT NULL DEFAULT 'pending',
+          processing_status TEXT NOT NULL DEFAULT 'pending',
+          processing_attempts INTEGER NOT NULL DEFAULT 0,
+          last_processing_error TEXT,
+          retry_after INTEGER,
+          raw_payload TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE (source_channel, external_chat_id, external_message_id)
+        )
+      `);
+      raw.exec(/*sql*/ `
+        INSERT INTO channel_inbound_events_new (
+          id, source_channel, external_chat_id, external_message_id, source_message_id,
+          conversation_id, message_id, delivery_status, processing_status,
+          processing_attempts, last_processing_error, retry_after, raw_payload,
+          created_at, updated_at
+        )
+        SELECT
+          id, source_channel, external_chat_id, external_message_id, source_message_id,
+          conversation_id, message_id, delivery_status, processing_status,
+          processing_attempts, last_processing_error, retry_after, raw_payload,
+          created_at, updated_at
+        FROM channel_inbound_events
+      `);
+      raw.exec(/*sql*/ `DROP TABLE channel_inbound_events`);
+      raw.exec(/*sql*/ `ALTER TABLE channel_inbound_events_new RENAME TO channel_inbound_events`);
+    }
+
+    // --- message_runs ---
+    const mrDdl = raw.query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'message_runs'`,
+    ).get() as { sql: string } | null;
+    if (mrDdl?.sql.includes('assistant_id')) {
+      raw.exec(/*sql*/ `
+        CREATE TABLE message_runs_new (
+          id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+          message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
+          status TEXT NOT NULL DEFAULT 'running',
+          pending_confirmation TEXT,
+          input_tokens INTEGER NOT NULL DEFAULT 0,
+          output_tokens INTEGER NOT NULL DEFAULT 0,
+          estimated_cost REAL NOT NULL DEFAULT 0,
+          error TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `);
+      raw.exec(/*sql*/ `
+        INSERT INTO message_runs_new (
+          id, conversation_id, message_id, status, pending_confirmation,
+          input_tokens, output_tokens, estimated_cost, error, created_at, updated_at
+        )
+        SELECT
+          id, conversation_id, message_id, status, pending_confirmation,
+          input_tokens, output_tokens, estimated_cost, error, created_at, updated_at
+        FROM message_runs
+      `);
+      raw.exec(/*sql*/ `DROP TABLE message_runs`);
+      raw.exec(/*sql*/ `ALTER TABLE message_runs_new RENAME TO message_runs`);
+    }
+
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+
+    raw.exec('COMMIT');
+  } catch (e) {
+    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    throw e;
+  } finally {
+    raw.exec('PRAGMA foreign_keys = ON');
   }
 }
 
