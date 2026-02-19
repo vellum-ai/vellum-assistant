@@ -23,3 +23,4 @@ export { taskListTool } from './task-list.js';
 export { taskDeleteTool } from './task-delete.js';
 export { taskListShowTool } from './work-item-list.js';
 export { taskListAddTool } from './work-item-enqueue.js';
+export { taskListUpdateTool } from './work-item-update.js';
