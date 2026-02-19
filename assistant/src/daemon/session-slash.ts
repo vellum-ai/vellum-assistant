@@ -86,7 +86,7 @@ function resolveProviderModelCommand(content: string): SlashResolution | null {
   if (!trimmed.startsWith('/')) return null;
 
   // Extract the command (e.g., "/gpt4" → "gpt4")
-  const match = trimmed.match(/^\/([a-z0-9]+)(\s|$)/i);
+  const match = trimmed.match(/^\/([a-z0-9-]+)(\s|$)/i);
   if (!match) return null;
 
   const command = match[1].toLowerCase();
