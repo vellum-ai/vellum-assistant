@@ -41,9 +41,14 @@ When the user asks you to order food (e.g. "Order pizza from Andiamo's"):
 
 3b. **Search within a retail store** — for convenience/pharmacy stores, run `vellum doordash store-search <storeId> "<query>" --json` to find specific products. This returns items with IDs, prices, and menuIds that can be added to cart directly.
 
-4. **Get item details** (if needed) — run `vellum doordash item <storeId> <itemId> --json` to see options/customizations. If the item has required options (like size or toppings), ask the user or pick sensible defaults.
+4. **Get item details** (if needed) — run `vellum doordash item <storeId> <itemId> --json` to see options/customizations. The response includes:
+   - `options`: each option group has `minSelections`/`maxSelections` indicating how many choices are required
+   - Each choice has `unitAmount` (price impact in cents), `defaultQuantity`, and possibly `nestedOptions` (sub-choices like milk type within a size selection)
+   - `specialInstructionsConfig`: whether special instructions are accepted, max length, and placeholder text
 
-5. **Add to cart** — run `vellum doordash cart add --store-id <id> --menu-id <id> --item-id <id> --item-name "<name>" --unit-price <cents> --json`. For subsequent items at the same store, pass `--cart-id <id>` from the first add response.
+   If the item has required options (like size or toppings), construct the `nestedOptions` JSON from the option/choice IDs and pass it via `--options`. Ask the user for preferences or pick sensible defaults.
+
+5. **Add to cart** — run `vellum doordash cart add --store-id <id> --menu-id <id> --item-id <id> --item-name "<name>" --unit-price <cents> [--options '<json>'] [--special-instructions "<text>"] --json`. For subsequent items at the same store, pass `--cart-id <id>` from the first add response. Use `--special-instructions` for requests like "extra hot", "no ice", etc. Use `--options` to pass customization choices (see Customization Options below).
 
 6. **Review cart** — run `vellum doordash cart view <cartId> --json` and show the user what's in their cart with prices. Ask if they want to add anything else or proceed.
 
@@ -61,6 +66,65 @@ When the user asks you to order food (e.g. "Order pizza from Andiamo's"):
 - **Show prices.** Always show prices when presenting items or the cart summary.
 - **Use `--json` flag** on all commands for reliable parsing.
 - **Do NOT use the browser skill.** All DoorDash interaction goes through the CLI, not browser automation.
+- **Rate limiting.** DoorDash rate-limits rapid sequential requests. When adding multiple items (e.g. a team order), wait 8–10 seconds between `cart add` calls. If you get a 403 error, wait 15–20 seconds and retry. For large orders (5+ items), consider running `vellum doordash refresh --json` midway through if you hit repeated 403s.
+- **Special instructions are unreliable.** Some merchants disable special instructions entirely. Always prefer `--options` for customizations (size, milk type, etc.). Only use `--special-instructions` for free-text requests that aren't covered by the item's option groups. If the merchant rejects special instructions, drop them and proceed without.
+
+## Customization Options
+
+Many items (especially coffee, boba, sandwiches) have required customization options like size, milk type, or toppings. Here's how to handle them:
+
+### Constructing nestedOptions JSON
+
+1. Run `vellum doordash item <storeId> <itemId> --json` to get the item's option groups
+2. Each option group has `id`, `name`, `required`, `minSelections`, `maxSelections`, and `choices`
+3. Build a JSON array of selections matching the DoorDash format:
+
+```json
+[
+  {
+    "optionId": "<option-group-id>",
+    "optionChoiceId": "<choice-id>",
+    "quantity": 1,
+    "nestedOptions": []
+  }
+]
+```
+
+For choices with nested sub-options (e.g., selecting "Oat Milk" under the "Milk" option within a size), add them to the `nestedOptions` array of the parent choice.
+
+4. Pass the JSON string to `cart add --options '<json>'`
+
+### Special Instructions
+
+Use `--special-instructions` on `cart add` for free-text requests like "extra hot", "no ice", "light foam". The `item` command response includes `specialInstructionsConfig` with the max length and whether instructions are supported.
+
+**Warning:** Some merchants disable special instructions entirely. If `specialInstructionsConfig.isEnabled` is false, or if the add-to-cart call returns an error about special requests, drop the instructions and retry without them. Always prefer `--options` for customizations — special instructions are a last resort for requests not covered by the item's option groups.
+
+### Learning Customizations via Ride Shotgun
+
+For complex items where constructing the JSON manually is difficult, use `cart learn`:
+
+1. Run `vellum doordash cart learn --json`
+2. A Chrome window opens — navigate to the item, customize it visually, and click "Add to Cart"
+3. The command auto-detects the `updateCartItem` operation and extracts the exact `nestedOptions` and `specialInstructions`
+4. Use the extracted options directly with `cart add --options '<json>'`
+
+You can also extract options from an existing recording with `vellum doordash inspect <recordingId> --extract-options --json`.
+
+### Coffee Order Example
+
+**User**: "Order a large oat milk latte with an extra shot from Blue Bottle"
+
+1. `vellum doordash search "Blue Bottle" --json` -> finds store
+2. `vellum doordash menu <storeId> --json` -> finds "Latte" item
+3. `vellum doordash item <storeId> <latteItemId> --json` -> returns options:
+   - Size (required, min:1, max:1): Small (id:101), Medium (id:102), Large (id:103, +$1.00)
+   - Milk (required, min:1, max:1): Whole (id:201), Oat (id:202, +$0.70), Almond (id:203, +$0.70)
+   - Extras (optional, min:0, max:5): Extra Shot (id:301, +$0.90), Vanilla Syrup (id:302, +$0.60)
+4. Construct options JSON and add to cart:
+```
+vellum doordash cart add --store-id <id> --menu-id <id> --item-id <id> --item-name "Latte" --unit-price 550 --options '[{"optionId":"size-group-id","optionChoiceId":"103","quantity":1,"nestedOptions":[]},{"optionId":"milk-group-id","optionChoiceId":"202","quantity":1,"nestedOptions":[]},{"optionId":"extras-group-id","optionChoiceId":"301","quantity":1,"nestedOptions":[]}]' --special-instructions "Extra hot" --json
+```
 
 ## Command Reference
 
@@ -73,10 +137,12 @@ vellum doordash search "<query>" --json    # Search restaurants
 vellum doordash menu <storeId> --json      # Get store menu (auto-detects retail stores)
 vellum doordash store-search <storeId> "<query>" --json  # Search items within a convenience/pharmacy store
 vellum doordash item <storeId> <itemId> --json  # Get item details + options
-vellum doordash cart add --store-id <id> --menu-id <id> --item-id <id> --item-name "<name>" --unit-price <cents> [--quantity <n>] [--cart-id <id>] --json
+vellum doordash cart add --store-id <id> --menu-id <id> --item-id <id> --item-name "<name>" --unit-price <cents> [--quantity <n>] [--cart-id <id>] [--options '<json>'] [--special-instructions "<text>"] --json
 vellum doordash cart remove --cart-id <id> --item-id <orderItemId> --json
 vellum doordash cart view <cartId> --json
 vellum doordash cart list [--store-id <id>] --json
+vellum doordash cart learn --json                 # Learn customization options by recording browser interaction
+vellum doordash inspect <recordingId> --extract-options --json  # Extract nestedOptions from a recording
 vellum doordash checkout <cartId> [--address-id <id>] --json
 vellum doordash payment-methods --json     # List saved payment methods
 vellum doordash order place --cart-id <id> --store-id <id> --total <cents> [--tip <cents>] [--delivery-option <type>] [--dropoff-option <id>] [--payment-uuid <uuid>] --json

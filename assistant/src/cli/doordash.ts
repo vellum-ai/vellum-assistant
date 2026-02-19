@@ -326,7 +326,8 @@ export function registerDoordashCommand(program: Command): void {
     .description('Inspect GraphQL operations in a recording')
     .argument('<recordingId>', 'Recording ID or path to recording JSON file')
     .option('--op <operationName>', 'Filter to a specific operation name')
-    .action(async (recordingIdOrPath: string, opts: { op?: string }, cmd: Command) => {
+    .option('--extract-options', 'Extract item customization options from updateCartItem operations')
+    .action(async (recordingIdOrPath: string, opts: { op?: string; extractOptions?: boolean }, cmd: Command) => {
       const json = getJson(cmd);
 
       try {
@@ -351,6 +352,43 @@ export function registerDoordashCommand(program: Command): void {
         }
 
         const queries = extractQueries(recording);
+
+        if (opts.extractOptions) {
+          const cartOps = queries.filter(q => q.operationName === 'updateCartItem');
+          if (cartOps.length === 0) {
+            outputError('No updateCartItem operations found in this recording');
+            return;
+          }
+
+          const extracted = cartOps.map(q => {
+            const vars = (q.exampleVariables ?? {}) as Record<string, unknown>;
+            const params = (vars.updateCartItemApiParams ?? {}) as Record<string, unknown>;
+            return {
+              itemId: params.itemId as string | undefined,
+              itemName: params.itemName as string | undefined,
+              nestedOptions: params.nestedOptions as string | undefined,
+              specialInstructions: params.specialInstructions as string | undefined,
+              unitPrice: params.unitPrice as number | undefined,
+              menuId: params.menuId as string | undefined,
+              storeId: params.storeId as string | undefined,
+            };
+          });
+
+          if (json) {
+            output({ ok: true, items: extracted, count: extracted.length }, true);
+          } else {
+            for (const item of extracted) {
+              process.stderr.write(`\nItem: ${item.itemName ?? 'unknown'} (${item.itemId ?? '?'})\n`);
+              process.stderr.write(`  Store: ${item.storeId ?? '?'}, Menu: ${item.menuId ?? '?'}\n`);
+              process.stderr.write(`  Unit Price: ${item.unitPrice ?? '?'}\n`);
+              if (item.specialInstructions) {
+                process.stderr.write(`  Special Instructions: ${item.specialInstructions}\n`);
+              }
+              process.stderr.write(`  Options: ${item.nestedOptions ?? '[]'}\n`);
+            }
+          }
+          return;
+        }
 
         if (opts.op) {
           const match = queries.find(q => q.operationName === opts.op);
@@ -511,6 +549,7 @@ export function registerDoordashCommand(program: Command): void {
     .option('--quantity <n>', 'Quantity', '1')
     .option('--cart-id <cartId>', 'Existing cart ID (creates new if omitted)')
     .option('--special-instructions <text>', 'Special instructions')
+    .option('--options <json>', 'Item customization options as JSON array (from item details or recording)')
     .action(
       async (
         opts: {
@@ -522,6 +561,7 @@ export function registerDoordashCommand(program: Command): void {
           quantity: string;
           cartId?: string;
           specialInstructions?: string;
+          options?: string;
         },
         cmd: Command,
       ) => {
@@ -535,6 +575,7 @@ export function registerDoordashCommand(program: Command): void {
             quantity: parseInt(opts.quantity, 10),
             cartId: opts.cartId,
             specialInstructions: opts.specialInstructions,
+            nestedOptions: opts.options,
           });
           return { cart: result };
         });
@@ -578,6 +619,115 @@ export function registerDoordashCommand(program: Command): void {
         const carts = await listCarts(opts.storeId);
         return { carts, count: carts.length };
       });
+    });
+
+  // cart learn — capture customization options via CDP recording
+  cart
+    .command('learn')
+    .description(
+      'Learn item customization options by recording a browser interaction. ' +
+      'Opens Chrome and watches you customize an item — when you add it to cart, ' +
+      'the nestedOptions and specialInstructions are extracted and output.',
+    )
+    .option('--duration <seconds>', 'Max recording duration in seconds', '120')
+    .action(async (opts: { duration: string }, cmd: Command) => {
+      const json = getJson(cmd);
+      const duration = parseInt(opts.duration, 10);
+
+      try {
+        await ensureChromeWithCDP();
+
+        const startTime = Date.now() / 1000;
+        const recorder = new NetworkRecorder('doordash.com');
+        await recorder.startDirect('http://localhost:9222');
+
+        process.stderr.write('Recording... Navigate to an item, customize it, and add it to cart.\n');
+        process.stderr.write(`Will auto-stop when "updateCartItem" is detected. Timeout: ${duration}s.\n`);
+
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(() => {
+            if (poll) clearInterval(poll);
+            process.stderr.write(`\nTimeout reached (${duration}s).\n`);
+            resolve();
+          }, duration * 1000);
+
+          process.on('SIGINT', () => {
+            if (poll) clearInterval(poll);
+            clearTimeout(timer);
+            resolve();
+          });
+
+          const poll = setInterval(() => {
+            const entries = recorder.getEntries();
+            const found = entries.some(e => {
+              if (!e.request.postData) return false;
+              try {
+                const body = JSON.parse(e.request.postData) as { operationName?: string };
+                return body.operationName === 'updateCartItem';
+              } catch { return false; }
+            });
+            if (found) {
+              clearInterval(poll);
+              clearTimeout(timer);
+              process.stderr.write('\nDetected "updateCartItem" operation.\n');
+              setTimeout(() => resolve(), 3000);
+            }
+          }, 500);
+        });
+
+        process.stderr.write('Stopping recording...\n');
+        const cookies = await recorder.extractCookies('doordash.com');
+        const entries = await recorder.stop();
+
+        const recording: SessionRecording = {
+          id: crypto.randomUUID(),
+          startedAt: startTime,
+          endedAt: Date.now() / 1000,
+          targetDomain: 'doordash.com',
+          networkEntries: entries,
+          cookies,
+          observations: [],
+        };
+
+        // Extract updateCartItem operations
+        const queries = extractQueries(recording);
+        const cartOps = queries.filter(q => q.operationName === 'updateCartItem');
+
+        if (cartOps.length === 0) {
+          outputError('No updateCartItem operations captured. Did you add an item to cart?');
+          return;
+        }
+
+        const extracted = cartOps.map(q => {
+          const vars = (q.exampleVariables ?? {}) as Record<string, unknown>;
+          const params = (vars.updateCartItemApiParams ?? {}) as Record<string, unknown>;
+          return {
+            itemId: params.itemId as string | undefined,
+            itemName: params.itemName as string | undefined,
+            nestedOptions: params.nestedOptions as string | undefined,
+            specialInstructions: params.specialInstructions as string | undefined,
+            unitPrice: params.unitPrice as number | undefined,
+            menuId: params.menuId as string | undefined,
+            storeId: params.storeId as string | undefined,
+          };
+        });
+
+        // Also save the recording for future reference
+        const recordingPath = saveRecording(recording);
+
+        output(
+          {
+            ok: true,
+            items: extracted,
+            count: extracted.length,
+            recordingId: recording.id,
+            recordingPath,
+          },
+          json,
+        );
+      } catch (err) {
+        outputError(err instanceof Error ? err.message : String(err));
+      }
     });
 
   // =========================================================================

@@ -1304,9 +1304,8 @@ query paymentMethodQuery {
     id
     type
     last4
-    cardBrand
     isDefault
-    uuid
+    paymentMethodUuid
     __typename
   }
 }`;

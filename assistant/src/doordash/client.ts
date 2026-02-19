@@ -424,12 +424,31 @@ export interface ItemDetails {
     id: string;
     name: string;
     required: boolean;
+    minSelections?: number;
+    maxSelections?: number;
     choices: Array<{
       id: string;
       name: string;
       price?: string;
+      unitAmount?: number;
+      defaultQuantity?: number;
+      nestedOptions?: Array<{
+        id: string;
+        name: string;
+        required: boolean;
+        choices: Array<{
+          id: string;
+          name: string;
+          price?: string;
+        }>;
+      }>;
     }>;
   }>;
+  specialInstructionsConfig?: {
+    maxLength: number;
+    placeholderText?: string;
+    isEnabled: boolean;
+  };
 }
 
 export async function getItemDetails(
@@ -595,7 +614,6 @@ export interface PaymentMethod {
   id: string;
   type: string;
   last4: string;
-  cardBrand: string;
   isDefault: boolean;
   uuid: string;
 }
@@ -614,7 +632,6 @@ export async function getPaymentMethods(): Promise<PaymentMethod[]> {
     id: String(p.id ?? ''),
     type: String(p.type ?? ''),
     last4: String(p.last4 ?? ''),
-    cardBrand: String(p.cardBrand ?? ''),
     isDefault: Boolean(p.isDefault),
     uuid: String(p.paymentMethodUuid ?? p.uuid ?? ''),
   }));
@@ -800,11 +817,25 @@ function extractStoreInfo(feed: Record<string, unknown>): StoreInfo {
   };
 }
 
+function extractNestedOptions(extrasList: Array<Record<string, unknown>>): ItemDetails['options'][number]['choices'][number]['nestedOptions'] {
+  return extrasList.map(nested => ({
+    id: String(nested.id),
+    name: String(nested.name ?? ''),
+    required: !nested.isOptional,
+    choices: ((nested.options ?? []) as Array<Record<string, unknown>>).map(o => ({
+      id: String(o.id),
+      name: String(o.name ?? ''),
+      price: o.displayString as string | undefined,
+    })),
+  }));
+}
+
 function extractItemDetails(page: Record<string, unknown>): ItemDetails {
   const header = (page.itemHeader ?? {}) as Record<string, unknown>;
   const optionLists = (page.optionLists ?? []) as Array<Record<string, unknown>>;
+  const itemPreferences = page.itemPreferences as Record<string, unknown> | undefined;
 
-  return {
+  const result: ItemDetails = {
     id: String(header.id ?? ''),
     name: String(header.name ?? ''),
     description: header.description as string | undefined,
@@ -813,17 +844,42 @@ function extractItemDetails(page: Record<string, unknown>): ItemDetails {
     currency: header.currency as string | undefined,
     imageUrl: header.imgUrl as string | undefined,
     menuId: header.menuId as string | undefined,
-    options: optionLists.map(ol => ({
-      id: String(ol.id),
-      name: String(ol.name ?? ''),
-      required: !ol.isOptional,
-      choices: ((ol.options ?? []) as Array<Record<string, unknown>>).map(o => ({
-        id: String(o.id),
-        name: String(o.name ?? ''),
-        price: o.displayString as string | undefined,
-      })),
-    })),
+    options: optionLists.map(ol => {
+      const choices = ((ol.options ?? []) as Array<Record<string, unknown>>).map(o => {
+        const choice: ItemDetails['options'][number]['choices'][number] = {
+          id: String(o.id),
+          name: String(o.name ?? ''),
+          price: o.displayString as string | undefined,
+          unitAmount: o.unitAmount as number | undefined,
+          defaultQuantity: o.defaultQuantity as number | undefined,
+        };
+        const nestedExtrasList = (o.nestedExtrasList ?? []) as Array<Record<string, unknown>>;
+        if (nestedExtrasList.length > 0) {
+          choice.nestedOptions = extractNestedOptions(nestedExtrasList);
+        }
+        return choice;
+      });
+
+      return {
+        id: String(ol.id),
+        name: String(ol.name ?? ''),
+        required: !ol.isOptional,
+        minSelections: ol.minNumOptions as number | undefined,
+        maxSelections: ol.maxNumOptions as number | undefined,
+        choices,
+      };
+    }),
   };
+
+  if (itemPreferences) {
+    result.specialInstructionsConfig = {
+      maxLength: Number(itemPreferences.maxLength ?? 500),
+      placeholderText: itemPreferences.placeholderText as string | undefined,
+      isEnabled: itemPreferences.isEnabled !== false,
+    };
+  }
+
+  return result;
 }
 
 function extractRetailStoreInfo(feed: Record<string, unknown>): StoreInfo {
