@@ -1029,8 +1029,9 @@ The workspace sandbox (`~/.vellum/workspace`) is automatically tracked by a per-
 graph TB
     subgraph "Turn-boundary commits (primary)"
         SESSION["Session.processMessage()"]
-        TURN_COMMIT["commitTurnChanges()<br/>awaited"]
-        GIT_SERVICE["WorkspaceGitService<br/>mutex-protected"]
+        TURN_COMMIT["commitTurnChanges()<br/>awaited, timeout-protected"]
+        MSG_PROVIDER["CommitMessageProvider<br/>buildImmediateMessage()"]
+        GIT_SERVICE["WorkspaceGitService<br/>mutex + circuit breaker"]
     end
 
     subgraph "Heartbeat safety net (secondary)"
@@ -1038,17 +1039,27 @@ graph TB
         CHECK["check(): age > 5 min<br/>OR files > 20"]
     end
 
+    subgraph "Post-commit enrichment (async)"
+        ENRICHMENT["CommitEnrichmentService<br/>bounded queue, fire-and-forget"]
+        GIT_NOTES["git notes --ref=vellum<br/>JSON metadata"]
+    end
+
     subgraph "Lifecycle"
         STARTUP["Daemon startup<br/>lifecycle.ts"]
         SHUTDOWN["Graceful shutdown<br/>commitAllPending()"]
     end
 
-    SESSION -->|"await"| TURN_COMMIT
-    TURN_COMMIT --> GIT_SERVICE
+    SESSION -->|"await + timeout"| TURN_COMMIT
+    TURN_COMMIT --> MSG_PROVIDER
+    MSG_PROVIDER --> GIT_SERVICE
+    TURN_COMMIT -->|"fire-and-forget"| ENRICHMENT
     HEARTBEAT --> CHECK
-    CHECK --> GIT_SERVICE
+    CHECK --> MSG_PROVIDER
+    CHECK -->|"fire-and-forget"| ENRICHMENT
+    ENRICHMENT --> GIT_NOTES
     STARTUP --> HEARTBEAT
     SHUTDOWN -->|"await"| HEARTBEAT
+    SHUTDOWN -->|"drain in-flight"| ENRICHMENT
 ```
 
 ### How it works
@@ -1063,6 +1074,14 @@ graph TB
 
 5. **Corrupted repo recovery**: If a `.git` directory exists but is corrupted (e.g. missing HEAD), the service detects this via `git rev-parse --git-dir`, removes the corrupted directory, and reinitializes cleanly.
 
+6. **Commit message provider abstraction**: All commit message construction is handled by a `CommitMessageProvider` interface (`commit-message-provider.ts`). The `DefaultCommitMessageProvider` produces deterministic messages based on trigger type (turn, heartbeat, shutdown). Both `turn-commit.ts` and `heartbeat-service.ts` accept an optional custom provider, creating a seam for future LLM-powered enrichment without changing the synchronous commit path.
+
+7. **Circuit breaker with exponential backoff**: `WorkspaceGitService` tracks consecutive commit failures and backs off exponentially (2s, 4s, 8s... up to 60s configurable max). When the breaker is open, `commitIfDirty()` short-circuits without attempting git operations. On success, the breaker resets. State transitions are logged at info/warn level with structured fields (`consecutiveFailures`, `backoffMs`).
+
+8. **Turn-commit timeout protection**: The turn-boundary commit in `session.ts` uses `Promise.race` with a configurable timeout (`workspaceGit.turnCommitMaxWaitMs`, default 4s). If the commit exceeds the timeout, the turn proceeds immediately (the commit continues in the background). This prevents slow git operations from blocking the conversation loop.
+
+9. **Non-blocking enrichment queue**: After each successful commit, a `CommitEnrichmentService` runs async enrichment fire-and-forget. The queue has configurable max size (default 50), concurrency (default 1), per-job timeout (default 30s), and retry count (default 2 with exponential backoff). On queue overflow, the oldest job is dropped with a warning log. On graceful shutdown, in-flight jobs drain while pending jobs are discarded. Currently writes placeholder JSON metadata to git notes (`refs/notes/vellum`) as a scaffold for future LLM enrichment.
+
 ### Design decisions
 
 - **Commit at turn boundaries, not per-tool-call**: A single commit per turn captures all file mutations from that turn atomically. This avoids noisy per-file commits and keeps the history meaningful.
@@ -1076,11 +1095,14 @@ graph TB
 
 | File | Role |
 |------|------|
-| `assistant/src/workspace/git-service.ts` | `WorkspaceGitService`: lazy init, mutex, `commitChanges()`, `getStatus()`, singleton registry |
-| `assistant/src/workspace/turn-commit.ts` | `commitTurnChanges()`: turn-boundary commit with structured metadata |
-| `assistant/src/workspace/heartbeat-service.ts` | `HeartbeatService`: periodic safety-net auto-commits and shutdown commits |
-| `assistant/src/daemon/session.ts` | Integration: `await commitTurnChanges(...)` at turn boundary |
+| `assistant/src/workspace/git-service.ts` | `WorkspaceGitService`: lazy init, mutex, circuit breaker, `commitIfDirty()`, `getHeadHash()`, `writeNote()`, singleton registry |
+| `assistant/src/workspace/commit-message-provider.ts` | `CommitMessageProvider` interface, `DefaultCommitMessageProvider`, `CommitContext`/`CommitMessageResult` types |
+| `assistant/src/workspace/commit-message-enrichment-service.ts` | `CommitEnrichmentService`: bounded async queue, fire-and-forget enrichment, git notes output |
+| `assistant/src/workspace/turn-commit.ts` | `commitTurnChanges()`: turn-boundary commit with structured metadata + enrichment enqueue |
+| `assistant/src/workspace/heartbeat-service.ts` | `HeartbeatService`: periodic safety-net auto-commits, shutdown commits, enrichment enqueue |
+| `assistant/src/daemon/session.ts` | Integration: `await commitTurnChanges(...)` at turn boundary with timeout protection |
 | `assistant/src/daemon/lifecycle.ts` | Integration: `HeartbeatService` start/stop and shutdown commit |
+| `assistant/src/config/schema.ts` | `WorkspaceGitConfigSchema`: timeout, backoff, and enrichment queue configuration |
 
 ---
 

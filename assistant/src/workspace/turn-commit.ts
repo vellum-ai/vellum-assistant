@@ -54,6 +54,7 @@ export async function commitTurnChanges(
   const messageProvider = provider ?? new DefaultCommitMessageProvider();
   try {
     const gitService = getWorkspaceGitService(workspaceDir);
+    const commitStartMs = Date.now();
 
     // Atomic status check + commit within a single mutex lock to prevent
     // TOCTOU races with heartbeat commits.
@@ -72,10 +73,12 @@ export async function commitTurnChanges(
       return messageProvider.buildImmediateMessage(ctx);
     });
 
+    const commitDurationMs = Date.now() - commitStartMs;
+
     if (committed) {
       const uniqueFiles = [...new Set([...status.staged, ...status.modified, ...status.untracked])];
       log.info(
-        { sessionId, turnNumber, filesChanged: uniqueFiles.length },
+        { sessionId, turnNumber, filesChanged: uniqueFiles.length, durationMs: commitDurationMs },
         'Turn-boundary commit created',
       );
 
@@ -95,7 +98,7 @@ export async function commitTurnChanges(
         log.debug({ enrichErr }, 'Failed to enqueue enrichment (non-fatal)');
       }
     } else {
-      log.debug({ sessionId, turnNumber }, 'No workspace changes to commit for turn');
+      log.debug({ sessionId, turnNumber, durationMs: commitDurationMs }, 'No workspace changes to commit for turn');
     }
   } catch (err) {
     // Never let commit failures propagate — they must not affect the turn

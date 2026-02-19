@@ -182,12 +182,13 @@ export class CommitEnrichmentService {
         'Enrichment job completed',
       );
     } catch (err) {
+      const isTimeout = err instanceof Error && err.message === 'Enrichment job timed out';
       if (job.attempts <= this.maxRetries) {
         // Exponential backoff: 1s, 2s, 4s, ...
         const backoffMs = 1000 * Math.pow(2, job.attempts - 1);
         log.debug(
-          { commitHash: job.commitHash, attempts: job.attempts, backoffMs, err },
-          'Enrichment job failed, scheduling retry',
+          { commitHash: job.commitHash, attempts: job.attempts, backoffMs, timedOut: isTimeout, err },
+          isTimeout ? 'Enrichment job timed out, scheduling retry' : 'Enrichment job failed, scheduling retry',
         );
         await new Promise<void>((resolve) => setTimeout(resolve, backoffMs));
 
@@ -201,8 +202,8 @@ export class CommitEnrichmentService {
 
       this.failedCount++;
       log.warn(
-        { commitHash: job.commitHash, attempts: job.attempts, err },
-        'Enrichment job failed after max retries',
+        { commitHash: job.commitHash, attempts: job.attempts, timedOut: isTimeout, err },
+        isTimeout ? 'Enrichment job timed out after max retries' : 'Enrichment job failed after max retries',
       );
     }
   }
