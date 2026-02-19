@@ -901,6 +901,7 @@ extension ChatViewModel {
 
         case .toolOutputChunk(let msg):
             guard !isCancelling else { return }
+            guard belongsToSession(msg.sessionId) else { return }
             // Handle structured progress events from claude_code sub-tools
             if let subType = msg.subType, !subType.isEmpty,
                let existingId = currentAssistantMessageId,
