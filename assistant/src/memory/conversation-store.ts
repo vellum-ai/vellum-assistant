@@ -117,7 +117,7 @@ export function addMessage(conversationId: string, role: string, content: string
     role,
     content,
     createdAt: now,
-    ...(metadata ? { flags: JSON.stringify(metadata) } : {}),
+    ...(metadata ? { metadata: JSON.stringify(metadata) } : {}),
   };
   // Wrap insert + updatedAt bump in a transaction so they're atomic.
   db.transaction((tx) => {

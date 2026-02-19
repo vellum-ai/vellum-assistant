@@ -23,7 +23,7 @@ export const messages = sqliteTable('messages', {
   role: text('role').notNull(),
   content: text('content').notNull(),
   createdAt: integer('created_at').notNull(),
-  flags: text('flags'),
+  metadata: text('metadata'),
 });
 
 export const toolInvocations = sqliteTable('tool_invocations', {

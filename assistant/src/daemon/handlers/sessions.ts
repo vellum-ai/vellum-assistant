@@ -338,8 +338,15 @@ export function handleHistoryRequest(
       contentOrder = text ? ['text:0'] : [];
       surfaces = [];
     }
-    const subagentNotification = m.flags ? (JSON.parse(m.flags) as { subagentNotification?: { subagentId: string; label: string; status: string; error?: string } }).subagentNotification : undefined;
-    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls, toolCallsBeforeText, textSegments, contentOrder, surfaces, ...(subagentNotification ? { subagentNotification: subagentNotification as ParsedHistoryMessage['subagentNotification'] } : {}) };
+    let subagentNotification: ParsedHistoryMessage['subagentNotification'];
+    if (m.metadata) {
+      try {
+        subagentNotification = (JSON.parse(m.metadata) as { subagentNotification?: ParsedHistoryMessage['subagentNotification'] }).subagentNotification;
+      } catch (err) {
+        log.debug({ err, messageId: m.id }, 'Failed to parse message metadata as JSON, ignoring');
+      }
+    }
+    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls, toolCallsBeforeText, textSegments, contentOrder, surfaces, ...(subagentNotification ? { subagentNotification } : {}) };
   });
 
   // Merge tool_result data from user messages into the preceding assistant
