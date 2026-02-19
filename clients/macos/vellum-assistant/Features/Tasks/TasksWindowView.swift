@@ -262,10 +262,10 @@ private struct TasksWindowRow: View {
                             Text(buttonLabel)
                                 .font(VFont.caption)
                         }
-                        .foregroundColor(buttonColor)
+                        .foregroundColor(.white)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .background(buttonColor.opacity(0.12))
+                        .background(buttonColor)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .contentShape(Rectangle())
                     }

@@ -53,7 +53,7 @@ enum TasksTableContract {
     /// Fixed-width columns. The `task` column is flexible and fills remaining space.
     static let taskMinWidth: CGFloat = 200
     static let priorityWidth: CGFloat = 80
-    static let statusWidth: CGFloat = 100
+    static let statusWidth: CGFloat = 120
     static let actionsWidth: CGFloat = 90
 
     // MARK: Truncation
@@ -95,7 +95,7 @@ enum TasksTableContract {
         switch status {
         case .queued:          return StatusStyle(label: "Queued",    color: VColor.textSecondary)
         case .running:         return StatusStyle(label: "Running",   color: VColor.warning)
-        case .awaitingReview:  return StatusStyle(label: "Review",    color: VColor.accent)
+        case .awaitingReview:  return StatusStyle(label: "Awaiting Review", color: VColor.accent)
         case .failed:          return StatusStyle(label: "Failed",    color: VColor.error)
         case .done:            return StatusStyle(label: "Done",      color: VColor.success)
         case .archived:        return StatusStyle(label: "Archived",  color: VColor.textMuted)
