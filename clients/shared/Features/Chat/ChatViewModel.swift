@@ -511,6 +511,11 @@ public final class ChatViewModel: ObservableObject {
 
     /// Switch the active model via the daemon's `model_set` IPC command.
     public func setModel(_ modelId: String) {
+        // Ensure the message loop is running so we receive the model_info response.
+        // VMs restored with an existing sessionId may not have started it yet.
+        if messageLoopTask == nil {
+            startMessageLoop()
+        }
         try? daemonClient.send(ModelSetRequestMessage(model: modelId))
     }
 
