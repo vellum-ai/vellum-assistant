@@ -3,12 +3,6 @@ import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { listWorkItems, type WorkItemStatus } from '../../work-items/work-item-store.js';
 
-const PRIORITY_LABELS: Record<number, string> = {
-  0: 'high',
-  1: 'medium',
-  2: 'low',
-};
-
 const definition: ToolDefinition = {
   name: 'task_list_show',
   description: 'List the user\'s Task Queue (work items) with their status, priority, and last run info. Use this when the user says "show my tasks", "what\'s in my queue", "what\'s on my task list", or similar.',
@@ -54,28 +48,19 @@ class TaskListShowTool implements Tool {
         items = listWorkItems();
       }
 
-      if (items.length === 0) {
-        return { content: 'No Tasks found.', isError: false };
+      const count = items.length;
+      const filtered = statusFilter !== undefined;
+
+      if (count === 0) {
+        const suffix = filtered ? 'no items matching filter.' : 'no tasks queued.';
+        return { content: `Opened Tasks window \u2014 ${suffix}`, isError: false };
       }
 
-      const lines = [`Found ${items.length} work item(s):`, ''];
+      const label = filtered
+        ? `${count} ${Array.isArray(statusFilter) ? 'matching' : statusFilter} item${count === 1 ? '' : 's'}`
+        : `${count} item${count === 1 ? '' : 's'}`;
 
-      for (const item of items) {
-        const priority = PRIORITY_LABELS[item.priorityTier] ?? `tier ${item.priorityTier}`;
-        lines.push(`- ${item.title}`);
-        lines.push(`    ID: ${item.id}`);
-        lines.push(`    Status: ${item.status}`);
-        lines.push(`    Priority: ${priority}`);
-        if (item.notes) {
-          lines.push(`    Notes: ${item.notes}`);
-        }
-        if (item.lastRunStatus) {
-          lines.push(`    Last run: ${item.lastRunStatus}`);
-        }
-        lines.push('');
-      }
-
-      return { content: lines.join('\n'), isError: false };
+      return { content: `Opened Tasks window (${label}).`, isError: false };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { content: `Error: ${msg}`, isError: true };
