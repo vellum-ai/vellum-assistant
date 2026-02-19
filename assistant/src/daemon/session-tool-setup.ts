@@ -198,6 +198,47 @@ export function createToolExecutor(
       }
     }
 
+    // Auto-emit task_progress card on first DoorDash CLI command
+    if (name === 'bash' && !result.isError) {
+      const cmd = input.command as string | undefined;
+      if (cmd?.includes('vellum doordash') && !ctx.surfaceState.has('doordash-progress')) {
+        const surfaceId = 'doordash-progress';
+        const data = {
+          title: 'Ordering from DoorDash',
+          body: '',
+          template: 'task_progress' as const,
+          templateData: {
+            title: 'Ordering from DoorDash',
+            status: 'in_progress',
+            steps: [
+              { label: 'Check session', status: 'in_progress' },
+              { label: 'Search restaurants', status: 'pending' },
+              { label: 'Browse menu', status: 'pending' },
+              { label: 'Add to cart', status: 'pending' },
+              { label: 'Place order', status: 'pending' },
+            ],
+          },
+        } satisfies import('./ipc-contract.js').CardSurfaceData;
+        ctx.surfaceState.set(surfaceId, { surfaceType: 'card', data });
+        ctx.sendToClient({
+          type: 'ui_surface_show',
+          sessionId: ctx.conversationId,
+          surfaceId,
+          surfaceType: 'card',
+          title: 'Ordering from DoorDash',
+          data,
+          display: 'inline',
+        });
+        ctx.currentTurnSurfaces.push({
+          surfaceId,
+          surfaceType: 'card',
+          title: 'Ordering from DoorDash',
+          data,
+          display: 'inline',
+        });
+      }
+    }
+
     return result;
   };
 }
