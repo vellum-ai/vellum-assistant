@@ -1,20 +1,24 @@
 /**
  * Session Initialization Benchmark
  *
- * Measures latency of key session startup components:
- * - Tool registry initialization (initializeTools)
- * - System prompt assembly (buildSystemPrompt)
- * - Tool definitions retrieval (getAllToolDefinitions)
+ * Measures latency of key session startup components and end-to-end
+ * session creation timing (request to first-tool-ready state).
  *
- * Target ranges (first green run):
+ * Component targets:
  * - initializeTools: < 250ms
  * - buildSystemPrompt: < 50ms
  * - getAllToolDefinitions: < 10ms
+ *
+ * End-to-end targets:
+ * - Session creation (no preactivated skills): < 200ms
+ * - Session creation (3 preactivated skills): < 300ms
+ * - Event listener registration: < 10ms
  */
 import { afterAll, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { AssistantDomainEvents } from '../events/domain-events.js';
 
 const testDir = mkdtempSync(join(tmpdir(), 'session-init-bench-'));
 
@@ -94,10 +98,116 @@ mock.module('../config/loader.js', () => ({
   setNestedValue: () => {},
 }));
 
+// Additional mocks required for Session constructor and end-to-end tests
+
+mock.module('../memory/conversation-store.js', () => ({
+  addMessage: () => ({ id: 'msg-1' }),
+  getMessages: () => [],
+  listConversations: () => [],
+  getConversation: () => null,
+  getLatestConversation: () => null,
+  createConversation: () => ({ id: 'bench-conv', title: 'Bench', threadType: 'standard' }),
+  clearAll: () => {},
+  getConversationThreadType: () => 'standard',
+  getConversationMemoryScopeId: () => 'default',
+  updateConversationTitle: () => {},
+}));
+
+mock.module('../hooks/manager.js', () => ({
+  getHookManager: () => ({
+    trigger: () => Promise.resolve(),
+    initialize: () => {},
+  }),
+}));
+
+mock.module('../tools/watch/watch-state.js', () => ({
+  watchSessions: new Map(),
+  registerWatchStartNotifier: () => {},
+  unregisterWatchStartNotifier: () => {},
+  fireWatchStartNotifier: () => {},
+  registerWatchCommentaryNotifier: () => {},
+  unregisterWatchCommentaryNotifier: () => {},
+  fireWatchCommentaryNotifier: () => {},
+  registerWatchCompletionNotifier: () => {},
+  unregisterWatchCompletionNotifier: () => {},
+  fireWatchCompletionNotifier: () => {},
+  getActiveWatchSession: () => undefined,
+  addObservation: () => {},
+  pruneWatchSessions: () => {},
+}));
+
+mock.module('../calls/call-state.js', () => ({
+  registerCallQuestionNotifier: () => {},
+  unregisterCallQuestionNotifier: () => {},
+  fireCallQuestionNotifier: () => {},
+  registerCallCompletionNotifier: () => {},
+  unregisterCallCompletionNotifier: () => {},
+  fireCallCompletionNotifier: () => {},
+  registerCallOrchestrator: () => {},
+  unregisterCallOrchestrator: () => {},
+  getCallOrchestrator: () => undefined,
+}));
+
+mock.module('../calls/call-store.js', () => ({
+  createCallSession: () => ({ id: 'mock' }),
+  getCallSession: () => null,
+  getCallSessionByCallSid: () => null,
+  getActiveCallSessionForConversation: () => null,
+  updateCallSession: () => {},
+  listRecoverableCalls: () => [],
+  recordCallEvent: () => {},
+  getCallEvents: () => [],
+  createPendingQuestion: () => ({ id: 'mock' }),
+  getPendingQuestion: () => null,
+  answerPendingQuestion: () => {},
+  expirePendingQuestions: () => {},
+  buildCallbackDedupeKey: () => '',
+  isCallbackProcessed: () => false,
+  recordProcessedCallback: () => {},
+  tryRecordProcessedCallback: () => true,
+}));
+
+mock.module('../daemon/watch-handler.js', () => ({
+  lastCommentaryBySession: new Map(),
+  lastSummaryBySession: new Map(),
+}));
+
+mock.module('../tools/browser/browser-screencast.js', () => ({
+  registerSessionSender: () => {},
+  unregisterSessionSender: () => {},
+  ensureScreencast: () => Promise.resolve(),
+  updateBrowserStatus: () => {},
+  updatePagesList: () => Promise.resolve(),
+  stopBrowserScreencast: () => Promise.resolve(),
+  getElementBounds: () => Promise.resolve(null),
+  updateHighlights: () => {},
+  stopAllScreencasts: () => Promise.resolve(),
+  isScreencastActive: () => false,
+  getSender: () => undefined,
+  getScreencastSurfaceId: () => null,
+}));
+
+mock.module('../services/published-app-updater.js', () => ({
+  updatePublishedAppDeployment: () => Promise.resolve(),
+}));
+
 const { initializeTools, getAllToolDefinitions, __resetRegistryForTesting } = await import(
   '../tools/registry.js'
 );
 const { buildSystemPrompt } = await import('../config/system-prompt.js');
+const { EventBus } = await import('../events/bus.js');
+const { registerToolMetricsLoggingListener } = await import('../events/tool-metrics-listener.js');
+const { registerToolNotificationListener } = await import('../events/tool-notification-listener.js');
+const { registerToolTraceListener } = await import('../events/tool-trace-listener.js');
+const { registerToolProfilingListener, ToolProfiler } = await import('../events/tool-profiling-listener.js');
+const { createToolAuditListener } = await import('../events/tool-audit-listener.js');
+const { createToolDomainEventPublisher } = await import('../events/tool-domain-event-publisher.js');
+const { buildToolDefinitions } = await import('../daemon/session-tool-setup.js');
+const { projectSkillTools } = await import('../daemon/session-skill-tools.js');
+
+function createTypedEventBus() {
+  return new EventBus<AssistantDomainEvents>();
+}
 
 afterAll(() => {
   __resetRegistryForTesting();
@@ -165,5 +275,116 @@ describe('Session initialization benchmark', () => {
     // but not an unreasonable explosion (under 200)
     expect(definitions.length).toBeGreaterThanOrEqual(20);
     expect(definitions.length).toBeLessThan(200);
+  });
+});
+
+describe('End-to-end session creation benchmark', () => {
+  // Mirrors the real session creation path: tool init + system prompt +
+  // tool definitions + event listener registration + skill projection.
+  // This is what getOrCreateSession -> new Session() + loadFromDb() does.
+
+  test('session creation without preactivated skills completes under 200ms', async () => {
+    __resetRegistryForTesting();
+
+    const start = performance.now();
+
+    // Phase 1: Initialize tool registry (happens once per daemon, but
+    // measured here as worst-case cold start)
+    await initializeTools();
+
+    // Phase 2: Build system prompt
+    const systemPrompt = buildSystemPrompt();
+
+    // Phase 3: Collect all tool definitions (core + UI surface + app proxy)
+    const toolDefs = buildToolDefinitions();
+
+    // Phase 4: Set up event bus and register all listeners
+    const eventBus = createTypedEventBus();
+    const noop = () => {};
+    registerToolMetricsLoggingListener(eventBus);
+    registerToolNotificationListener(eventBus, noop);
+    registerToolTraceListener(eventBus, { emit: noop } as never);
+    const profiler = new ToolProfiler();
+    registerToolProfilingListener(eventBus, profiler);
+    createToolAuditListener();
+    createToolDomainEventPublisher(eventBus);
+
+    const elapsed = performance.now() - start;
+
+    // Validate outputs are meaningful
+    expect(systemPrompt.length).toBeGreaterThan(0);
+    expect(toolDefs.length).toBeGreaterThan(0);
+    expect(eventBus.listenerCount()).toBeGreaterThan(0);
+
+    expect(elapsed).toBeLessThan(200);
+
+    eventBus.dispose();
+  });
+
+  test('session creation with 3 preactivated skills completes under 300ms', async () => {
+    __resetRegistryForTesting();
+
+    const start = performance.now();
+
+    // Phase 1: Initialize tool registry
+    await initializeTools();
+
+    // Phase 2: Build system prompt
+    const systemPrompt = buildSystemPrompt();
+
+    // Phase 3: Collect tool definitions
+    const toolDefs = buildToolDefinitions();
+
+    // Phase 4: Event bus + listeners
+    const eventBus = createTypedEventBus();
+    const noop = () => {};
+    registerToolMetricsLoggingListener(eventBus);
+    registerToolNotificationListener(eventBus, noop);
+    registerToolTraceListener(eventBus, { emit: noop } as never);
+    const profiler = new ToolProfiler();
+    registerToolProfilingListener(eventBus, profiler);
+    createToolAuditListener();
+    createToolDomainEventPublisher(eventBus);
+
+    // Phase 5: Skill projection with preactivated skills
+    const projection = projectSkillTools([], {
+      preactivatedSkillIds: ['skill-a', 'skill-b', 'skill-c'],
+    });
+
+    const elapsed = performance.now() - start;
+
+    expect(systemPrompt.length).toBeGreaterThan(0);
+    expect(toolDefs.length).toBeGreaterThan(0);
+    // Skill projection returns a result (may have 0 tools if skills
+    // don't exist on disk, but the function itself must complete)
+    expect(projection).toBeDefined();
+
+    expect(elapsed).toBeLessThan(300);
+
+    eventBus.dispose();
+  });
+
+  test('event listener registration completes under 10ms', () => {
+    const start = performance.now();
+
+    const eventBus = createTypedEventBus();
+    const noop = () => {};
+    registerToolMetricsLoggingListener(eventBus);
+    registerToolNotificationListener(eventBus, noop);
+    registerToolTraceListener(eventBus, { emit: noop } as never);
+    const profiler = new ToolProfiler();
+    registerToolProfilingListener(eventBus, profiler);
+    createToolAuditListener();
+    createToolDomainEventPublisher(eventBus);
+
+    const elapsed = performance.now() - start;
+
+    // Should have registered listeners for tool lifecycle events
+    const totalListeners = eventBus.listenerCount() + eventBus.anyListenerCount();
+    expect(totalListeners).toBeGreaterThan(0);
+
+    expect(elapsed).toBeLessThan(10);
+
+    eventBus.dispose();
   });
 });
