@@ -5,6 +5,7 @@ import { homedir, tmpdir, userInfo } from "os";
 import { join } from "path";
 
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
+import { hatchAws } from "../lib/aws";
 import {
   FIREWALL_TAG,
   GATEWAY_PORT,
@@ -71,7 +72,7 @@ chown -R "$SSH_USER:$SSH_USER" "$SSH_USER_HOME" 2>/dev/null || true
 `;
 }
 
-function buildStartupScript(
+export function buildStartupScript(
   species: Species,
   bearerToken: string,
   sshUser: string,
@@ -182,7 +183,7 @@ function parseArgs(): HatchArgs {
   return { species, detached, name, remote };
 }
 
-interface PollResult {
+export interface PollResult {
   lastLine: string | null;
   done: boolean;
   failed: boolean;
@@ -305,10 +306,9 @@ async function recoverFromCurlFailure(
   ]);
 }
 
-async function watchHatching(
+export async function watchHatching(
+  pollFn: () => Promise<PollResult>,
   instanceName: string,
-  project: string,
-  zone: string,
   startTime: number,
   species: Species,
 ): Promise<boolean> {
@@ -362,7 +362,7 @@ async function watchHatching(
     if (pollInFlight || finished) return;
     pollInFlight = true;
     try {
-      const result = await pollInstance(instanceName, project, zone);
+      const result = await pollFn();
       if (result.lastLine) {
         lastLogLine = result.lastLine;
       }
@@ -588,9 +588,8 @@ async function hatchGcp(
       console.log("");
 
       const success = await watchHatching(
+        () => pollInstance(instanceName, project, DEFAULT_ZONE),
         instanceName,
-        project,
-        DEFAULT_ZONE,
         startTime,
         species,
       );
@@ -798,6 +797,11 @@ export async function hatch(): Promise<void> {
 
   if (remote === "custom") {
     await hatchCustom(species, detached, name);
+    return;
+  }
+
+  if (remote === "aws") {
+    await hatchAws(species, detached, name);
     return;
   }
 
