@@ -19,6 +19,7 @@ import { workItemHandlers } from './work-items.js';
 import { subagentHandlers } from './subagents.js';
 import { browserHandlers } from './browser.js';
 import { signingHandlers } from './signing.js';
+import { twitterAuthHandlers } from './twitter-auth.js';
 
 // Re-export types and utilities for backwards compatibility
 export type {
@@ -52,6 +53,7 @@ const handlers: DispatchMap = {
   ...subagentHandlers,
   ...browserHandlers,
   ...signingHandlers,
+  ...twitterAuthHandlers,
 
   // Handlers imported from outside the handlers/ directory
   ride_shotgun_start: handleRideShotgunStart,
