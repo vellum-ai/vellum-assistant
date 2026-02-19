@@ -7,6 +7,7 @@
  * - TWILIO_WEBHOOK_VALIDATION_DISABLED env flag bypass
  * - Duplicate callback replay (idempotency)
  * - Unknown status and malformed payload handling
+ * - Handler-level idempotency concurrency (concurrent duplicates, failure-retry)
  */
 import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { createHmac } from 'node:crypto';
@@ -115,6 +116,9 @@ import {
   createCallSession,
   updateCallSession,
   getCallEvents,
+  buildCallbackDedupeKey,
+  claimCallback,
+  releaseCallbackClaim,
 } from '../calls/call-store.js';
 
 initializeDb();
@@ -518,6 +522,133 @@ describe('twilio webhook routes', () => {
 
       const res = await fetch(url, { method: 'POST', headers, body });
       expect(res.status).toBe(200);
+
+      await stopServer();
+    });
+  });
+
+  // ── Handler-level idempotency concurrency tests ─────────────────
+
+  describe('handler-level idempotency concurrency', () => {
+    test('two concurrent identical status callbacks produce exactly one event', async () => {
+      await startServer();
+      const session = createTestSession('conv-conc-1', 'CA_conc_1');
+      const url = statusUrl();
+      const params = {
+        CallSid: 'CA_conc_1',
+        CallStatus: 'in-progress',
+        Timestamp: '2025-01-20T10:00:00Z',
+      };
+      const { body, headers } = signedRequest(url, params);
+
+      // Fire two identical callbacks concurrently
+      const [res1, res2] = await Promise.all([
+        fetch(url, { method: 'POST', headers, body }),
+        fetch(url, { method: 'POST', headers, body }),
+      ]);
+
+      // Both should return 200 (one processes, one is deduplicated)
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+
+      // Only one event should be recorded despite two concurrent requests
+      const events = getCallEvents(session.id);
+      const connectedEvents = events.filter(e => e.eventType === 'call_connected');
+      expect(connectedEvents.length).toBe(1);
+
+      await stopServer();
+    });
+
+    test('three concurrent identical status callbacks still produce exactly one event', async () => {
+      await startServer();
+      const session = createTestSession('conv-conc-2', 'CA_conc_2');
+      const url = statusUrl();
+      const params = {
+        CallSid: 'CA_conc_2',
+        CallStatus: 'completed',
+        Timestamp: '2025-01-20T11:00:00Z',
+      };
+      const { body, headers } = signedRequest(url, params);
+
+      // Fire three identical callbacks concurrently
+      const [res1, res2, res3] = await Promise.all([
+        fetch(url, { method: 'POST', headers, body }),
+        fetch(url, { method: 'POST', headers, body }),
+        fetch(url, { method: 'POST', headers, body }),
+      ]);
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+      expect(res3.status).toBe(200);
+
+      const events = getCallEvents(session.id);
+      const endedEvents = events.filter(e => e.eventType === 'call_ended');
+      expect(endedEvents.length).toBe(1);
+
+      await stopServer();
+    });
+
+    test('processing failure releases claim and allows successful retry', async () => {
+      await startServer();
+      const session = createTestSession('conv-conc-3', 'CA_conc_3');
+      const url = statusUrl();
+      const params = {
+        CallSid: 'CA_conc_3',
+        CallStatus: 'in-progress',
+        Timestamp: '2025-01-20T12:00:00Z',
+      };
+
+      // Simulate a prior failed processing attempt: claim the callback's dedupe key
+      // then release it, mimicking what the handler does on failure (catch block
+      // calls releaseCallbackClaim before re-throwing).
+      const dedupeKey = buildCallbackDedupeKey('CA_conc_3', 'in-progress', '2025-01-20T12:00:00Z', null);
+      const failedClaimId = claimCallback(dedupeKey, session.id);
+      expect(failedClaimId).not.toBeNull();
+
+      // Release the claim — this is what the handler does when processing throws
+      releaseCallbackClaim(dedupeKey, failedClaimId!);
+
+      // No events recorded (the "failed" attempt didn't write any)
+      const eventsAfterFailure = getCallEvents(session.id);
+      expect(eventsAfterFailure.length).toBe(0);
+
+      // Retry via the real HTTP handler — should succeed because the claim was released
+      const { body, headers } = signedRequest(url, params);
+      const res = await fetch(url, { method: 'POST', headers, body });
+      expect(res.status).toBe(200);
+
+      // Now exactly one event should exist from the successful retry
+      const eventsAfterRetry = getCallEvents(session.id);
+      const connectedEvents = eventsAfterRetry.filter(e => e.eventType === 'call_connected');
+      expect(connectedEvents.length).toBe(1);
+
+      await stopServer();
+    });
+
+    test('permanently claimed callback cannot be retried', async () => {
+      await startServer();
+      const session = createTestSession('conv-conc-4', 'CA_conc_4');
+      const url = statusUrl();
+      const params = {
+        CallSid: 'CA_conc_4',
+        CallStatus: 'completed',
+        Timestamp: '2025-01-20T13:00:00Z',
+      };
+      const { body, headers } = signedRequest(url, params);
+
+      // First request processes successfully and finalizes the claim
+      const res1 = await fetch(url, { method: 'POST', headers, body });
+      expect(res1.status).toBe(200);
+
+      const events1 = getCallEvents(session.id);
+      expect(events1.filter(e => e.eventType === 'call_ended').length).toBe(1);
+
+      // Second request (retry) — should be deduplicated, no new events
+      const res2 = await fetch(url, { method: 'POST', headers, body });
+      expect(res2.status).toBe(200);
+
+      const events2 = getCallEvents(session.id);
+      expect(events2.filter(e => e.eventType === 'call_ended').length).toBe(1);
 
       await stopServer();
     });
