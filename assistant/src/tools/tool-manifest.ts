@@ -51,6 +51,7 @@ export const eagerModules: string[] = [
   './contacts/contact-merge.js',
   './assets/search.js',
   './assets/materialize.js',
+  './filesystem/view-image.js',
 ];
 
 // Tool names registered by the eager modules above.  Listed explicitly so
@@ -85,6 +86,7 @@ export const eagerModuleToolNames: string[] = [
   'contact_merge',
   'asset_search',
   'asset_materialize',
+  'view_image',
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────
