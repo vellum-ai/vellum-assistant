@@ -239,10 +239,20 @@ describe('Parallel tool execution benchmarks', () => {
 
       const controller = new AbortController();
 
+      // Track each tool executor's promise so we can wait for them all to
+      // settle after abort, ensuring late rejections are caught by our listener.
+      const toolPromises: Promise<unknown>[] = [];
+
       const toolExecutor = async () => {
-        // Each tool takes 10 seconds — abort should fire during execution
+        const p = new Promise<void>((resolve) => {
+          // Each tool takes 500ms — abort fires at 50ms, well before completion.
+          // Shorter than the original 10s so we can actually wait for settlement.
+          setTimeout(resolve, 500);
+        });
+        toolPromises.push(p);
+
         setTimeout(() => controller.abort(), 50);
-        await new Promise((r) => setTimeout(r, 10_000));
+        await p;
         return { content: 'should not return', isError: false };
       };
 
@@ -251,7 +261,7 @@ describe('Parallel tool execution benchmarks', () => {
       const history = await loop.run([userMessage], () => {}, controller.signal);
       const elapsed = Date.now() - start;
 
-      // Should exit quickly after the 50ms abort, not wait 10s
+      // Should exit quickly after the 50ms abort, not wait 500ms
       expect(elapsed).toBeLessThan(200);
 
       // History should have: user msg, assistant (tool_use), user (cancelled tool_results)
@@ -271,8 +281,9 @@ describe('Parallel tool execution benchmarks', () => {
         expect(block.is_error).toBe(true);
       }
 
-      // Wait a tick for any late rejections to surface
-      await new Promise((r) => setTimeout(r, 50));
+      // Wait for all abandoned tool promises to settle so any late rejections
+      // fire while our listener is still active
+      await Promise.allSettled(toolPromises);
 
       // Verify no unhandled rejections occurred
       expect(unhandledRejections).toHaveLength(0);
