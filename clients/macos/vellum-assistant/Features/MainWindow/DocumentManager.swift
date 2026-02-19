@@ -89,11 +89,9 @@ final class DocumentManager: ObservableObject {
         scheduleAutoSave()
         guard let coordinator = editorCoordinator else {
             log.warning("Cannot update document: editor coordinator not ready, content tracked for later")
-            print("Cannot update document: editor coordinator not ready, content tracked for later")
             return
         }
 
-        print("Sending update to coordinator: mode=\(mode), length=\(markdown.count)")
         coordinator.sendContentUpdate(markdown: markdown, mode: mode)
         log.info("Document updated: mode=\(mode), length=\(markdown.count)")
 
@@ -132,19 +130,15 @@ final class DocumentManager: ObservableObject {
     }
 
     func save() {
-        print("save() called - surfaceId: \(surfaceId ?? "nil"), sessionId: \(sessionId ?? "nil"), daemonClient: \(daemonClient != nil)")
-
         guard let surfaceId = surfaceId,
               let sessionId = sessionId,
               let daemonClient = daemonClient else {
             log.warning("Cannot save: missing surfaceId, sessionId, or daemonClient")
             lastSaveError = "Cannot save: missing document information"
-            print("Save failed: missing information")
             return
         }
 
         let contentToSave = currentContent ?? ""
-        print("Starting save: title=\(title), contentLength=\(contentToSave.count), wordCount=\(wordCount)")
         isSaving = true
         lastSaveError = nil
 
@@ -157,7 +151,6 @@ final class DocumentManager: ObservableObject {
                 wordCount: wordCount
             )
             log.info("Document save requested: \(surfaceId) - \(self.wordCount) words")
-            print("IPC message sent successfully")
         } catch {
             log.error("Failed to send document save: \(error.localizedDescription)")
             lastSaveError = error.localizedDescription
