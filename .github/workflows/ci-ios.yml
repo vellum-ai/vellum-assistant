@@ -1,0 +1,29 @@
+name: PR iOS Build Check
+
+on:
+  pull_request:
+    paths:
+      - 'clients/ios/**'
+      - 'clients/shared/**'
+      - 'clients/Package.swift'
+      - '.github/workflows/ci-ios.yml'
+
+jobs:
+  build-check:
+    name: iOS Build
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Build for simulator
+        working-directory: clients/ios
+        run: ./build.sh
+
+      - name: Run iOS tests
+        working-directory: clients/ios
+        run: ./build.sh test
