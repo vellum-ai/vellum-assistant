@@ -45,6 +45,13 @@ Create a branch from the plan (or derive one from the PR title), then ship:
   --body "## Summary
 <1-3 bullet points>
 
+<details>
+<summary>Plan: <plan filename></summary>
+
+<contents of .private/plans/<plan file>>
+
+</details>
+
 🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
   --base main \
   --merge \

@@ -40,6 +40,9 @@ Review the changes, draft a commit message and PR title (use `$ARGUMENTS` as the
   --body "## Summary
 <1-3 bullet points>
 
+## Original prompt
+$ARGUMENTS
+
 🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
   --base main \
   --merge \
