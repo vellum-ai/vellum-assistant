@@ -242,7 +242,15 @@ export class RuntimeHttpServer {
       }
     }
 
-    // Match /v1/assistants/:assistantId/<endpoint>
+    // New assistant-less runtime routes: /v1/<endpoint>
+    // These supersede the legacy /v1/assistants/:assistantId/... shape.
+    // Paths already handled above (/v1/apps/..., /v1/secrets) will never reach here.
+    const newRouteMatch = path.match(/^\/v1\/(?!assistants\/)(.+)$/);
+    if (newRouteMatch) {
+      return this.dispatchEndpoint('self', newRouteMatch[1], req, url);
+    }
+
+    // Legacy: /v1/assistants/:assistantId/<endpoint>
     const match = path.match(/^\/v1\/assistants\/([^/]+)\/(.+)$/);
     if (!match) {
       return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });
@@ -250,7 +258,21 @@ export class RuntimeHttpServer {
 
     const assistantId = match[1];
     const endpoint = match[2];
+    log.warn({ endpoint, assistantId }, '[deprecated] /v1/assistants/:assistantId/... route used; migrate to /v1/...');
+    return this.dispatchEndpoint(assistantId, endpoint, req, url);
+  }
 
+  /**
+   * Dispatch a request to the appropriate endpoint handler.
+   * Used by both the new assistant-less routes (/v1/<endpoint>) and the
+   * legacy assistant-scoped routes (/v1/assistants/:assistantId/<endpoint>).
+   */
+  private async dispatchEndpoint(
+    assistantId: string,
+    endpoint: string,
+    req: Request,
+    url: URL,
+  ): Promise<Response> {
     try {
       if (endpoint === 'health' && req.method === 'GET') {
         return this.handleHealth();
