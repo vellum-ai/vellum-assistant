@@ -210,10 +210,10 @@ private struct TasksWindowRow: View {
     // MARK: - Status Column
 
     private var statusColumn: some View {
-        let style = TasksTableContract.statusStyle(for: item.status)
-        let showSpinner = item.status == "running"
+        let status = WorkItemStatus(rawStatus: item.status)
+        let style = TasksTableContract.statusStyle(for: status)
         return HStack(spacing: VSpacing.xs) {
-            if showSpinner {
+            if status == .running {
                 ProgressView()
                     .controlSize(.mini)
             }
@@ -231,8 +231,9 @@ private struct TasksWindowRow: View {
     // MARK: - Actions Column
 
     private var actionsColumn: some View {
-        HStack(spacing: VSpacing.xs) {
-            if item.status == "queued" {
+        let status = WorkItemStatus(rawStatus: item.status)
+        return HStack(spacing: VSpacing.xs) {
+            if status == .queued {
                 Button(action: onRun) {
                     HStack(spacing: VSpacing.xs) {
                         Image(systemName: "play.fill")
@@ -250,7 +251,7 @@ private struct TasksWindowRow: View {
                 .accessibilityLabel("Run task")
             }
 
-            if item.status == "awaiting_review" {
+            if status == .awaitingReview {
                 Button(action: onComplete) {
                     HStack(spacing: VSpacing.xs) {
                         Image(systemName: "checkmark")

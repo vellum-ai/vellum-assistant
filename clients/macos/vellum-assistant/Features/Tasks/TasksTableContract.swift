@@ -1,6 +1,33 @@
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - Work Item Status
+
+/// Normalized status enum that maps daemon status strings to typed cases.
+/// Case-insensitive matching protects against transport casing/serialization drift.
+enum WorkItemStatus: Equatable {
+    case queued
+    case running
+    case awaitingReview
+    case failed
+    case done
+    case archived
+    case unknown(String)
+
+    /// Case-insensitive mapping from the raw daemon status string.
+    init(rawStatus: String) {
+        switch rawStatus.lowercased() {
+        case "queued":          self = .queued
+        case "running":         self = .running
+        case "awaiting_review": self = .awaitingReview
+        case "failed":          self = .failed
+        case "done":            self = .done
+        case "archived":        self = .archived
+        default:                self = .unknown(rawStatus)
+        }
+    }
+}
+
 // MARK: - Table Column Definitions
 
 /// Single source of truth for the Tasks table layout, column sizing,
@@ -64,15 +91,15 @@ enum TasksTableContract {
         let color: Color
     }
 
-    static func statusStyle(for status: String) -> StatusStyle {
+    static func statusStyle(for status: WorkItemStatus) -> StatusStyle {
         switch status {
-        case "queued":          return StatusStyle(label: "Queued",    color: VColor.textSecondary)
-        case "running":         return StatusStyle(label: "Running",   color: VColor.warning)
-        case "awaiting_review": return StatusStyle(label: "Review",    color: VColor.accent)
-        case "failed":          return StatusStyle(label: "Failed",    color: VColor.error)
-        case "done":            return StatusStyle(label: "Done",      color: VColor.success)
-        case "archived":        return StatusStyle(label: "Archived",  color: VColor.textMuted)
-        default:                return StatusStyle(label: status,      color: VColor.textMuted)
+        case .queued:          return StatusStyle(label: "Queued",    color: VColor.textSecondary)
+        case .running:         return StatusStyle(label: "Running",   color: VColor.warning)
+        case .awaitingReview:  return StatusStyle(label: "Review",    color: VColor.accent)
+        case .failed:          return StatusStyle(label: "Failed",    color: VColor.error)
+        case .done:            return StatusStyle(label: "Done",      color: VColor.success)
+        case .archived:        return StatusStyle(label: "Archived",  color: VColor.textMuted)
+        case .unknown(let raw): return StatusStyle(label: raw,        color: VColor.textMuted)
         }
     }
 }
