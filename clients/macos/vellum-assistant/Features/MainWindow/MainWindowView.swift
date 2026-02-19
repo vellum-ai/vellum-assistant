@@ -313,11 +313,11 @@ struct MainWindowView: View {
                     windowState.activeDynamicParsedSurface = nil
                 }
 
-                // Close the left sidebar when any right-side content opens to avoid crowding
+                // Close the left sidebar when an app opens to avoid crowding
                 if sidebarOpen {
                     let shouldClose: Bool = {
                         switch newSelection {
-                        case .panel, .app, .appEditing: return true
+                        case .app, .appEditing: return true
                         default: return false
                         }
                     }()
@@ -409,23 +409,44 @@ struct MainWindowView: View {
 
                     Divider().background(VColor.surfaceBorder)
 
-                    // Content area with sidebar drawer overlay
-                    ZStack(alignment: .leading) {
-                        chatContentView(geometry: geometry)
+                    // Content area with sidebar
+                    // When a panel is selected, use HStack so sidebar pushes content.
+                    // Otherwise, use ZStack so sidebar overlays the chat.
+                    let sidebarVisible = sidebarOpen && windowState.layoutConfig.left.visible
+                    let sidebarPushesContent: Bool = {
+                        if case .panel = windowState.selection { return true }
+                        return false
+                    }()
 
-                        // Sidebar drawer overlay
-                        if sidebarOpen && windowState.layoutConfig.left.visible {
-                            // Sidebar panel + resize handle
+                    if sidebarVisible && sidebarPushesContent {
+                        HStack(spacing: 0) {
                             HStack(spacing: 0) {
                                 sidebarView
                                 drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
                             }
-                            .shadow(color: .black.opacity(0.2), radius: 8, x: 2, y: 0)
                             .transition(.move(edge: .leading))
                             .animation(nil, value: threadDrawerWidth)
+
+                            chatContentView(geometry: geometry)
                         }
+                        .coordinateSpace(name: drawerDragCoordinateSpaceName)
+                    } else {
+                        ZStack(alignment: .leading) {
+                            chatContentView(geometry: geometry)
+
+                            // Sidebar drawer overlay
+                            if sidebarVisible {
+                                HStack(spacing: 0) {
+                                    sidebarView
+                                    drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
+                                }
+                                .shadow(color: .black.opacity(0.2), radius: 8, x: 2, y: 0)
+                                .transition(.move(edge: .leading))
+                                .animation(nil, value: threadDrawerWidth)
+                            }
+                        }
+                        .coordinateSpace(name: drawerDragCoordinateSpaceName)
                     }
-                    .coordinateSpace(name: drawerDragCoordinateSpaceName)
                 }
                 .overlay {
                     // Click-outside-to-dismiss background for control center drawer
