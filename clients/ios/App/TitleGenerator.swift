@@ -10,6 +10,29 @@ actor TitleGenerator {
     /// Threads for which a title request has already been sent (prevents duplicates).
     private var titledThreads: Set<UUID> = []
 
+    private static let apiURL = URL(string: "https://api.anthropic.com/v1/messages")
+
+    // MARK: - Codable Types
+
+    private struct MessagesRequest: Encodable {
+        let model: String
+        let max_tokens: Int
+        let messages: [Message]
+
+        struct Message: Encodable {
+            let role: String
+            let content: String
+        }
+    }
+
+    private struct MessagesResponse: Decodable {
+        let content: [ContentBlock]
+
+        struct ContentBlock: Decodable {
+            let text: String?
+        }
+    }
+
     /// Generate a 3-5 word title for the thread's first user message.
     /// Returns nil if no API key is available, if the request fails, or if already titled.
     func generateTitle(for threadId: UUID, firstUserMessage: String) async -> String? {
@@ -22,21 +45,27 @@ actor TitleGenerator {
             return nil
         }
 
+        guard let url = Self.apiURL else {
+            titledThreads.remove(threadId)
+            return nil
+        }
+
         let prompt = "Reply with a 3-5 word title for a conversation that started with: \(firstUserMessage.prefix(200)). No punctuation."
 
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
 
-        let body: [String: Any] = [
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 32,
-            "messages": [["role": "user", "content": prompt]]
-        ]
+        let body = MessagesRequest(
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 32,
+            messages: [.init(role: "user", content: prompt)]
+        )
 
-        guard let httpBody = try? JSONSerialization.data(withJSONObject: body) else {
+        guard let httpBody = try? JSONEncoder().encode(body) else {
             titledThreads.remove(threadId)
             return nil
         }
@@ -44,10 +73,8 @@ actor TitleGenerator {
 
         do {
             let (data, _) = try await URLSession.shared.data(for: request)
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let content = json["content"] as? [[String: Any]],
-                  let firstBlock = content.first,
-                  let text = firstBlock["text"] as? String else {
+            let response = try JSONDecoder().decode(MessagesResponse.self, from: data)
+            guard let text = response.content.first?.text else {
                 titledThreads.remove(threadId)
                 return nil
             }
