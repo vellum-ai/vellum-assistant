@@ -7,6 +7,18 @@ metadata: {"vellum": {"emoji": "\uD83C\uDF55"}}
 
 You can order food from DoorDash for the user using the `vellum doordash` CLI.
 
+## CLI Setup
+
+`vellum doordash` is a built-in subcommand of the Vellum assistant CLI — it is NOT a separate tool you need to find or install. It should already be on your PATH. If `vellum` is not found, run:
+```
+export PATH="$HOME/.local/bin:$PATH"
+```
+If that still fails, invoke the CLI directly via bun:
+```
+bun run ~/vellum/workspace/vellum-assistant/assistant/src/index.ts doordash <subcommand> --json
+```
+Do NOT search for the binary, inspect `vel` wrapper scripts, or try to discover how the CLI works. Just run the commands as documented below.
+
 ## Task Progress Widget
 
 A task progress card is shown automatically when you run your first `vellum doordash` command. Its surface ID is `doordash-progress`. As each step completes, call `ui_update` with surface ID `doordash-progress` to update step statuses. Update `data.templateData.steps` — set completed steps to `"status": "completed"` with a `"detail"` string, the current step to `"status": "in_progress"`, and future steps to `"status": "pending"`. Adapt the steps to the actual flow (e.g. skip "Search restaurants" if the user named a specific store).
