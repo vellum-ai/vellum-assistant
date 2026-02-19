@@ -29,6 +29,8 @@ struct MainWindowView: View {
     /// so we can restore it when they exit instead of jumping to visibleThreads.first
     /// (which may be a pinned thread unrelated to what they were doing).
     @State private var preTemporaryChatThreadId: UUID?
+    @State private var showCopyThreadConfirmation = false
+    @State private var copyThreadConfirmationTimer: DispatchWorkItem?
 
     @AppStorage("sidebarOpen") private var sidebarOpen: Bool = false
     @AppStorage("themePreference") private var themePreference: String = "system"
@@ -196,6 +198,31 @@ struct MainWindowView: View {
         }
     }
 
+    /// Resolve display names for thread export.
+    private func resolveParticipantNames() -> ChatTranscriptFormatter.ParticipantNames {
+        // Assistant name: IdentityInfo → UserDefaults → fallback
+        let assistantName = IdentityInfo.load()?.name
+            ?? UserDefaults.standard.string(forKey: "assistantName")
+            ?? "Assistant"
+
+        // User name: stored profile → system name → fallback
+        let userName: String = {
+            if let data = UserDefaults.standard.data(forKey: "user.profile"),
+               let profile = try? JSONDecoder().decode(UserProfile.self, from: data),
+               let name = profile.name, !name.isEmpty {
+                return name
+            }
+            let fullName = NSFullUserName()
+            if !fullName.isEmpty { return fullName }
+            return "User"
+        }()
+
+        return ChatTranscriptFormatter.ParticipantNames(
+            assistantName: assistantName,
+            userName: userName
+        )
+    }
+
     var body: some View {
         coreLayoutView
             .onChange(of: windowState.selection) { oldSelection, newSelection in
@@ -310,6 +337,39 @@ struct MainWindowView: View {
                                 }
                                 Spacer()
                                 if windowState.isShowingChat {
+                                    // Copy Thread button
+                                    Button {
+                                        let messages = threadManager.activeViewModel?.messages ?? []
+                                        let title = threadManager.activeThread?.title
+                                        let names = resolveParticipantNames()
+                                        let markdown = ChatTranscriptFormatter.threadMarkdown(
+                                            messages: messages,
+                                            threadTitle: title,
+                                            participantNames: names
+                                        )
+                                        guard !markdown.isEmpty else { return }
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString(markdown, forType: .string)
+                                        copyThreadConfirmationTimer?.cancel()
+                                        showCopyThreadConfirmation = true
+                                        let timer = DispatchWorkItem { showCopyThreadConfirmation = false }
+                                        copyThreadConfirmationTimer = timer
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
+                                    } label: {
+                                        Image(systemName: showCopyThreadConfirmation ? "checkmark" : "list.clipboard")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundColor(showCopyThreadConfirmation ? VColor.success : VColor.textMuted)
+                                            .frame(width: 28, height: 28)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Copy thread")
+                                    .disabled({
+                                        let messages = threadManager.activeViewModel?.messages ?? []
+                                        return !messages.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                                    }())
+                                    .help(showCopyThreadConfirmation ? "Copied!" : "Copy thread")
+
                                     TemporaryChatToggle(
                                         isActive: threadManager.activeThread?.kind == .private,
                                         onToggle: { toggleTemporaryChat() }
