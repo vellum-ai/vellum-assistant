@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { commitTurnChanges } from '../workspace/turn-commit.js';
 import { WorkspaceGitService, _resetGitServiceRegistry } from '../workspace/git-service.js';
+import type { CommitMessageProvider, CommitContext, CommitMessageResult } from '../workspace/commit-message-provider.js';
 
 describe('commitTurnChanges', () => {
   let testDir: string;
@@ -215,5 +216,60 @@ describe('commitTurnChanges', () => {
       encoding: 'utf-8',
     });
     expect(turn1Msg).toContain('Turn: 1');
+  });
+
+  test('custom commit message provider output is used in commit', async () => {
+    const service = new WorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    const customProvider: CommitMessageProvider = {
+      buildImmediateMessage(ctx: CommitContext): CommitMessageResult {
+        return {
+          message: `CUSTOM-TURN: session=${ctx.sessionId} turn=${ctx.turnNumber} files=${ctx.changedFiles.length}`,
+          metadata: { custom: true, provider: 'test-provider' },
+        };
+      },
+    };
+
+    writeFileSync(join(testDir, 'provider-test.txt'), 'provider test content');
+
+    await commitTurnChanges(testDir, 'sess_provider', 42, customProvider);
+
+    const fullMessage = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      cwd: testDir,
+      encoding: 'utf-8',
+    });
+
+    // Verify the custom provider's message was used, not the default
+    expect(fullMessage).toContain('CUSTOM-TURN: session=sess_provider turn=42 files=1');
+    expect(fullMessage).toContain('custom: true');
+    expect(fullMessage).toContain('provider: "test-provider"');
+  });
+
+  test('custom provider metadata is included in commit message', async () => {
+    const service = new WorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    const customProvider: CommitMessageProvider = {
+      buildImmediateMessage(_ctx: CommitContext): CommitMessageResult {
+        return {
+          message: 'Minimal custom message',
+          metadata: { enriched: false, source: 'unit-test' },
+        };
+      },
+    };
+
+    writeFileSync(join(testDir, 'meta-test.txt'), 'metadata test');
+
+    await commitTurnChanges(testDir, 'sess_meta', 1, customProvider);
+
+    const fullMessage = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      cwd: testDir,
+      encoding: 'utf-8',
+    });
+
+    expect(fullMessage).toContain('Minimal custom message');
+    expect(fullMessage).toContain('enriched: false');
+    expect(fullMessage).toContain('source: "unit-test"');
   });
 });
