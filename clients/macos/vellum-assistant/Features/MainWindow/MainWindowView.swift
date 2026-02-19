@@ -372,6 +372,11 @@ struct MainWindowView: View {
                                 threadManager.createThread()
                             }
                         }
+                        if threadManager.activeThread?.kind == .private {
+                            Spacer().frame(width: VSpacing.sm)
+                            TemporaryChatIndicator(onExit: { toggleTemporaryChat() })
+                                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                        }
                         Spacer()
                         if windowState.isShowingChat {
                             // Copy Thread button
