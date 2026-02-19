@@ -100,26 +100,31 @@ export class CommitEnrichmentService {
 
   /**
    * Graceful shutdown: drain pending queue and wait for all jobs to complete.
+   *
+   * Jobs are processed serially to respect maxConcurrency (default 1),
+   * preventing concurrent git notes writes that can race.
    */
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
 
-    // Process remaining queue items instead of discarding them
+    // Wait for any in-flight workers to finish first
+    if (this.inFlightPromises.size > 0) {
+      log.debug({ inFlight: this.inFlightPromises.size }, 'Waiting for in-flight enrichment jobs');
+      await Promise.all(this.inFlightPromises);
+    }
+
+    // Now drain remaining queue items serially, respecting concurrency
     if (this.queue.length > 0) {
       log.info({ pending: this.queue.length }, 'Enrichment queue shutting down, draining pending jobs');
     }
     while (this.queue.length > 0) {
       const job = this.queue.shift()!;
-      const promise = this.executeJob(job).finally(() => {
-        this.inFlightPromises.delete(promise);
-      });
-      this.inFlightPromises.add(promise);
-    }
-
-    // Wait for all in-flight workers (including newly started ones) to finish
-    if (this.inFlightPromises.size > 0) {
-      log.debug({ inFlight: this.inFlightPromises.size }, 'Waiting for in-flight enrichment jobs');
-      await Promise.all(this.inFlightPromises);
+      this.activeWorkers++;
+      try {
+        await this.executeJob(job);
+      } finally {
+        this.activeWorkers--;
+      }
     }
 
     log.info(
@@ -202,6 +207,9 @@ export class CommitEnrichmentService {
           // Re-enqueue at front for retry (don't count against queue limit)
           this.queue.unshift(job);
           this.processNext();
+        } else {
+          // Can't retry during shutdown — count as failed
+          this.failedCount++;
         }
         return;
       }
