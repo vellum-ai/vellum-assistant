@@ -4,7 +4,7 @@ import { getSecureKey, setSecureKey } from '../../security/secure-keys.js';
 import { startOAuth2Flow } from '../../security/oauth2.js';
 import { upsertCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import type { TwitterAuthStartRequest, TwitterAuthStatusRequest } from '../ipc-protocol.js';
-import { log, type HandlerContext, type DispatchMap } from './shared.js';
+import { log, defineHandlers, type HandlerContext } from './shared.js';
 import type { OAuth2Config } from '../../security/oauth2.js';
 
 export async function handleTwitterAuthStart(
@@ -121,7 +121,7 @@ export function handleTwitterAuthStatus(
   }
 }
 
-export const twitterAuthHandlers: Partial<DispatchMap> = {
+export const twitterAuthHandlers = defineHandlers({
   twitter_auth_start: handleTwitterAuthStart,
   twitter_auth_status: handleTwitterAuthStatus,
-};
+});
