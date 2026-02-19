@@ -762,7 +762,9 @@ public final class ChatViewModel: ObservableObject {
     /// Remove a queued message from local state without a daemon round-trip.
     /// Used when the message hasn't been acknowledged by the daemon yet.
     private func removeQueuedMessageLocally(messageId: UUID) {
-        pendingMessageIds.removeAll { $0 == messageId }
+        // Do NOT remove from pendingMessageIds — the FIFO queue must stay
+        // intact so incoming message_queued acks map to the correct messages.
+        // The deferred deletion is tracked via pendingLocalDeletions instead.
         messages.removeAll { $0.id == messageId }
         pendingQueuedCount = max(0, pendingQueuedCount - 1)
         if pendingQueuedCount == 0 && !isThinking {
