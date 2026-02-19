@@ -229,6 +229,8 @@ export class SubagentManager {
       await managed.session.runAgentLoop(objective, messageId, onEvent);
 
       // Agent loop completed successfully.
+      // Copy usage stats from the session before sending status (which includes usage).
+      managed.state.usage = { ...managed.session.usageStats };
       // Only update state + notify if still non-terminal (guards against abort race).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         managed.state.completedAt = Date.now();
@@ -243,6 +245,7 @@ export class SubagentManager {
       const errorMsg = err instanceof Error ? err.message : String(err);
       managed.state.error = errorMsg;
       managed.state.completedAt = Date.now();
+      managed.state.usage = { ...managed.session.usageStats };
 
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {

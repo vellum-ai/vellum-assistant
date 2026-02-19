@@ -13,6 +13,7 @@ interface FakeManagedSubagent {
     loadFromDb?: () => Promise<void>;
     persistUserMessage?: (msg: string) => string;
     runAgentLoop?: () => Promise<void>;
+    usageStats: { inputTokens: number; outputTokens: number; estimatedCost: number };
   };
   state: SubagentState;
   parentSendToClient: () => void;
@@ -44,6 +45,7 @@ function injectFakeSubagent(
     dispose: () => {},
     messages: [],
     sendToClient: () => {},
+    usageStats: { inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 },
   };
 
   const internals = asInternals(manager);
@@ -250,6 +252,7 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
     await asInternals(manager).runSubagent(subagentId, 'Do something');
 
     expect(state.status).toBe('completed');
+    expect(state.usage).toEqual({ inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 });
     expect(notifications).toHaveLength(1);
     expect(notifications[0].parentSessionId).toBe('parent-sess-1');
     expect(notifications[0].message).toContain('[Subagent "Test subagent" completed]');
@@ -279,6 +282,7 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
 
     expect(state.status).toBe('failed');
     expect(state.error).toBe('API rate limit exceeded');
+    expect(state.usage).toEqual({ inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 });
     expect(notifications).toHaveLength(1);
     expect(notifications[0].message).toContain('failed');
     expect(notifications[0].message).toContain('API rate limit exceeded');
