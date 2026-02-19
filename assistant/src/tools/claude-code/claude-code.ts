@@ -23,6 +23,11 @@ const APPROVAL_REQUIRED_TOOLS = new Set([
 
 const VALID_PROFILES: readonly WorkerProfile[] = ['general', 'researcher', 'coder', 'reviewer'];
 
+// Maximum nesting depth for Claude Code subprocesses.
+// Depth 0 = top-level assistant, depth 1 = first subprocess, etc.
+const MAX_CLAUDE_CODE_DEPTH = 1;
+const DEPTH_ENV_VAR = 'VELLUM_CLAUDE_CODE_DEPTH';
+
 export const claudeCodeTool: Tool = {
   name: 'claude_code',
   description: 'Delegate a coding task to Claude Code, an AI-powered coding agent that can read, write, and edit files, run shell commands, and perform complex multi-step software engineering tasks autonomously.',
@@ -155,9 +160,23 @@ export const claudeCodeTool: Tool = {
       }
     };
 
-    // Build a clean env for the subprocess, stripping nesting-guard variables
-    // so the SDK doesn't refuse to start when we're already inside Claude Code.
-    const subprocessEnv: Record<string, string | undefined> = { ...process.env, ANTHROPIC_API_KEY: apiKey };
+    // Enforce nesting depth limit to prevent infinite recursion.
+    const currentDepth = parseInt(process.env[DEPTH_ENV_VAR] ?? '0', 10);
+    if (currentDepth >= MAX_CLAUDE_CODE_DEPTH) {
+      log.warn({ currentDepth, max: MAX_CLAUDE_CODE_DEPTH }, 'Claude Code nesting depth exceeded');
+      return {
+        content: `Error: Claude Code nesting depth exceeded (depth ${currentDepth}, max ${MAX_CLAUDE_CODE_DEPTH}). Cannot spawn another Claude Code subprocess.`,
+        isError: true,
+      };
+    }
+
+    // Build a clean env for the subprocess. Strip the SDK's own nesting guard
+    // (CLAUDECODE) so it can launch, but set our depth counter to enforce our limit.
+    const subprocessEnv: Record<string, string | undefined> = {
+      ...process.env,
+      ANTHROPIC_API_KEY: apiKey,
+      [DEPTH_ENV_VAR]: String(currentDepth + 1),
+    };
     delete subprocessEnv.CLAUDECODE;
     delete subprocessEnv.CLAUDE_CODE_ENTRYPOINT;
 

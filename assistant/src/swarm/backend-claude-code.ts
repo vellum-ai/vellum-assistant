@@ -12,6 +12,9 @@ import { getProfilePolicy } from './worker-backend.js';
 
 const log = getLogger('swarm-backend-claude-code');
 
+const MAX_CLAUDE_CODE_DEPTH = 1;
+const DEPTH_ENV_VAR = 'VELLUM_CLAUDE_CODE_DEPTH';
+
 /**
  * Create a Claude Code worker backend that enforces profile-based tool policies.
  * Uses the Claude Agent SDK to run autonomous worker tasks.
@@ -50,9 +53,19 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
           return { behavior: 'allow' as const };
         };
 
-        // Strip nesting-guard env vars so the subprocess doesn't refuse to start
-        // when we're already inside a Claude Code session.
-        const subprocessEnv: Record<string, string | undefined> = { ...process.env, ANTHROPIC_API_KEY: apiKey };
+        // Enforce nesting depth limit
+        const currentDepth = parseInt(process.env[DEPTH_ENV_VAR] ?? '0', 10);
+        if (currentDepth >= MAX_CLAUDE_CODE_DEPTH) {
+          log.warn({ currentDepth, max: MAX_CLAUDE_CODE_DEPTH }, 'Swarm worker nesting depth exceeded');
+          return { success: false, output: `Nesting depth exceeded (depth ${currentDepth}, max ${MAX_CLAUDE_CODE_DEPTH})`, failureReason: 'backend_unavailable' as const, durationMs: Date.now() - start };
+        }
+
+        // Strip the SDK's nesting guard but set our own depth counter.
+        const subprocessEnv: Record<string, string | undefined> = {
+          ...process.env,
+          ANTHROPIC_API_KEY: apiKey,
+          [DEPTH_ENV_VAR]: String(currentDepth + 1),
+        };
         delete subprocessEnv.CLAUDECODE;
         delete subprocessEnv.CLAUDE_CODE_ENTRYPOINT;
 
