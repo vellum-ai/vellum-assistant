@@ -14,8 +14,8 @@ class TasksWindowViewModel: ObservableObject {
     private let daemonClient: DaemonClient
     private var refreshTask: Task<Void, Never>?
     /// Tracks work item IDs with an in-flight run request so we can
-    /// detect duplicate taps and log them as a precondition failure.
-    private var runInFlightIds: Set<String> = []
+    /// detect duplicate taps and disable the Run button in the view.
+    @Published var runInFlightIds: Set<String> = []
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -50,6 +50,15 @@ class TasksWindowViewModel: ObservableObject {
             scheduleRefresh()
         }
         daemonClient.onTasksChanged = { _ in scheduleRefresh() }
+
+        daemonClient.onWorkItemRunTaskResponse = { [weak self] response in
+            guard let self else { return }
+            self.runInFlightIds.remove(response.id)
+            if !response.success {
+                self.logger.error("onWorkItemRunTaskResponse: run failed for id=\(response.id, privacy: .public) errorCode=\(response.errorCode ?? "none", privacy: .public) error=\(response.error ?? "none", privacy: .public)")
+                self.fetchItems()
+            }
+        }
 
         daemonClient.onWorkItemDeleteResponse = { [weak self] response in
             guard let self else { return }

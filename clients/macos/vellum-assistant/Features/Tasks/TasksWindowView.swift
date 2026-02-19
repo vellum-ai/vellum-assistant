@@ -97,6 +97,7 @@ struct TasksWindowView: View {
                         ForEach(viewModel.items, id: \.id) { item in
                             TasksWindowRow(
                                 item: item,
+                                runningIds: viewModel.runInFlightIds,
                                 onRun: { viewModel.runTask(id: item.id) },
                                 onComplete: { viewModel.completeTask(id: item.id) },
                                 onRemove: { viewModel.removeTask(id: item.id) },
@@ -121,6 +122,7 @@ struct TasksWindowView: View {
 /// Row view using explicit columns aligned to `TasksTableContract`.
 private struct TasksWindowRow: View {
     let item: IPCWorkItemsListResponseItem
+    let runningIds: Set<String>
     let onRun: () -> Void
     let onComplete: () -> Void
     let onRemove: () -> Void
@@ -232,7 +234,8 @@ private struct TasksWindowRow: View {
 
     private var actionsColumn: some View {
         let status = WorkItemStatus(rawStatus: item.status)
-        let runEnabled = status == .queued
+        let isRunning = runningIds.contains(item.id)
+        let runEnabled = status == .queued && !isRunning
         let showRun = status == .queued || status == .failed
         return HStack(spacing: VSpacing.xs) {
             if showRun {
@@ -240,7 +243,7 @@ private struct TasksWindowRow: View {
                     HStack(spacing: VSpacing.xs) {
                         Image(systemName: "play.fill")
                             .font(.system(size: 10))
-                        Text("Run")
+                        Text(isRunning ? "Starting..." : "Run")
                             .font(VFont.caption)
                     }
                     .foregroundColor(VColor.accent)
@@ -252,8 +255,8 @@ private struct TasksWindowRow: View {
                 .buttonStyle(.plain)
                 .disabled(!runEnabled)
                 .opacity(runEnabled ? 1.0 : 0.4)
-                .accessibilityLabel("Run task")
-                .accessibilityHint(runEnabled ? "" : "Task cannot be run because it has failed")
+                .accessibilityLabel(isRunning ? "Task is starting" : "Run task")
+                .accessibilityHint(runEnabled ? "" : isRunning ? "Task is already starting" : "Task cannot be run because it has failed")
             }
 
             if status == .awaitingReview {
