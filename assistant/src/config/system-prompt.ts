@@ -200,7 +200,7 @@ function buildTaskScheduleReminderRoutingSection(): string {
     '',
     'These three systems serve different purposes. Choose the right one based on user intent:',
     '',
-    '### Task Queue (task_list_add / task_list_show / task_list_update)',
+    '### Task Queue (task_list_add / task_list_show / task_list_update / task_list_remove)',
     'For tracking things the user wants to do or remember. Use when the user says:',
     '- "Add to my tasks", "add to my queue", "put this on my task list"',
     '- "Track this", "I need to do X", "queue this up"',
@@ -211,6 +211,10 @@ function buildTaskScheduleReminderRoutingSection(): string {
     '- "Change the status of X", "mark X as done"',
     '- "Update the notes on X"',
     'Do NOT use `task_list_add` for updates — it will detect duplicates and suggest using `task_list_update` instead.',
+    '',
+    'To remove a task from the queue, use `task_list_remove`:',
+    '- "Remove X from my tasks", "delete that task", "clean up the duplicate"',
+    '- "Take this off the list", "drop this task"',
     '',
     'You can create ad-hoc work items by providing just a `title` to `task_list_add` — no existing task template is needed. A lightweight template is auto-created behind the scenes. For reusable task definitions with templates and input schemas, use `task_save` first.',
     '',
@@ -233,6 +237,8 @@ function buildTaskScheduleReminderRoutingSection(): string {
     '- "Bump priority on X" → task_list_update (NOT task_list_add)',
     '- "Move this up" / "change this task priority" → task_list_update (NOT task_list_add)',
     '- "Mark X as done" → task_list_update (NOT task_list_add)',
+    '- "Remove X from my tasks" → task_list_remove (NOT task_list_update)',
+    '- "Delete that task" / "clean up the duplicate" → task_list_remove',
   ].join('\n');
 }
 
