@@ -11,7 +11,6 @@ const log = getLogger('session-usage');
 export interface UsageContext {
   conversationId: string;
   providerName: string;
-  assistantId: string | null;
   usageStats: UsageStats;
 }
 
@@ -60,7 +59,6 @@ export function recordUsage(
         outputTokens,
         cacheCreationInputTokens: null,
         cacheReadInputTokens: null,
-        assistantId: ctx.assistantId,
         conversationId: ctx.conversationId,
         runId: null,
         requestId,

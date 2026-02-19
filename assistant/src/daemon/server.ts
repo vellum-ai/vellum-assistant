@@ -987,9 +987,6 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
-    // Set the session identity AFTER the isProcessing check so a rejected
-    // request doesn't mutate the session state visible to an in-flight request.
-    session.setAssistantId('self');
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
 
     // Resolve attachment IDs to full attachment data for the session
@@ -1039,9 +1036,6 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
-    // Set the session identity AFTER the isProcessing check so a rejected
-    // request doesn't mutate the session state visible to an in-flight request.
-    session.setAssistantId('self');
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
 
     // Resolve attachment IDs to full attachment data for the session

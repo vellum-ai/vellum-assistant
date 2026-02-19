@@ -40,7 +40,6 @@ function makeSessionWithConfirmation(message: ServerMessage): Session {
     // Return undefined so createRun stores messageId as null and avoids
     // a foreign-key dependency on the conversation-store message table.
     persistUserMessage: () => undefined as unknown as string,
-    setAssistantId: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
     },
@@ -60,7 +59,6 @@ function makeSessionWithEvent(message: ServerMessage): Session {
   return {
     isProcessing: () => false,
     persistUserMessage: () => undefined as unknown as string,
-    setAssistantId: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       onEvent(message);

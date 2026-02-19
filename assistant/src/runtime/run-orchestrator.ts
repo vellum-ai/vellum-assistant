@@ -90,8 +90,9 @@ export class RunOrchestrator {
     const messageId = session.persistUserMessage(content, attachments, requestId);
     const run = runsStore.createRun('self', conversationId, messageId);
 
-    // Set the assistant ID so attachments are scoped correctly.
-    session.setAssistantId('self');
+    // Runs are always HTTP-originated; set channel capabilities so the attachment
+    // scope heuristic resolves to 'self' rather than 'local-assistant'.
+    session.setChannelCapabilities(resolveChannelCapabilities('http-api'));
 
     // Serialized publish chain so hub subscribers observe events in order.
     let hubChain: Promise<void> = Promise.resolve();
@@ -109,6 +110,7 @@ export class RunOrchestrator {
           log.warn({ err }, 'assistant-events hub subscriber threw during HTTP run');
         });
     };
+
 
     // Hook into session to intercept confirmation_request events.
     // When the prompter sends a confirmation_request, we record it in the

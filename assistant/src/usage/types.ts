@@ -12,7 +12,6 @@ export interface UsageEventInput {
   cacheCreationInputTokens: number | null;
   cacheReadInputTokens: number | null;
   actor: UsageActor;
-  assistantId: string | null;
   conversationId: string | null;
   runId: string | null;
   requestId: string | null;
