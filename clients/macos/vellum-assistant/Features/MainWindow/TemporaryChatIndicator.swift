@@ -44,7 +44,6 @@ private struct TemporaryChatIndicatorStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: VRadius.pill)
                     .stroke(VColor.textSecondary, lineWidth: 1)
             )
-            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(VAnimation.fast, value: configuration.isPressed)
             .animation(VAnimation.fast, value: isHovered)
     }
