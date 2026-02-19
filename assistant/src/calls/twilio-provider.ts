@@ -129,6 +129,15 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
   // ── Webhook signature verification ──────────────────────────────────
 
   /**
+   * Returns the Twilio auth token from the secure key store, or null if
+   * not configured. Exposed as a static method so callers (e.g. the
+   * HTTP server webhook middleware) can check availability independently.
+   */
+  static getAuthToken(): string | null {
+    return getSecureKey('twilio_auth_token') ?? null;
+  }
+
+  /**
    * Validates an X-Twilio-Signature header using HMAC-SHA1.
    *
    * Algorithm (from Twilio docs):
@@ -143,13 +152,8 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
     url: string,
     params: Record<string, string>,
     signature: string,
+    authToken: string,
   ): boolean {
-    const authToken = getSecureKey('twilio_auth_token');
-    if (!authToken) {
-      log.error('Cannot verify Twilio webhook signature: auth token not configured');
-      return false;
-    }
-
     const sortedKeys = Object.keys(params).sort();
     let data = url;
     for (const key of sortedKeys) {

@@ -13,6 +13,8 @@ import {
   updateCallSession,
   recordCallEvent,
   expirePendingQuestions,
+  buildCallbackDedupeKey,
+  tryRecordProcessedCallback,
 } from './call-store.js';
 import type { CallStatus } from './types.js';
 import { answerCall } from './call-domain.js';
@@ -142,6 +144,17 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
   if (!mappedStatus) {
     const rawPayload = Object.fromEntries(formBody.entries());
     logDeadLetterEvent(`Unknown Twilio status: ${callStatus}`, rawPayload, log);
+    return new Response(null, { status: 200 });
+  }
+
+  // ── Idempotency check ────────────────────────────────────────────
+  const timestamp = formBody.get('Timestamp');
+  const sequenceNumber = formBody.get('SequenceNumber');
+  const dedupeKey = buildCallbackDedupeKey(callSid, callStatus, timestamp, sequenceNumber);
+
+  const isNew = tryRecordProcessedCallback(dedupeKey, session.id);
+  if (!isNew) {
+    log.info({ callSid, callStatus, dedupeKey }, 'Duplicate status callback — skipping');
     return new Response(null, { status: 200 });
   }
 

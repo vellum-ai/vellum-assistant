@@ -1,7 +1,7 @@
 import { eq, and, notInArray, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../memory/db.js';
-import { callSessions, callEvents, callPendingQuestions } from '../memory/schema.js';
+import { callSessions, callEvents, callPendingQuestions, processedCallbacks } from '../memory/schema.js';
 import type { CallSession, CallEvent, CallPendingQuestion, CallEventType, CallStatus } from './types.js';
 import { validateTransition } from './call-state-machine.js';
 import { getLogger } from '../util/logger.js';
@@ -259,4 +259,43 @@ export function expirePendingQuestions(callSessionId: string): void {
       ),
     )
     .run();
+}
+
+// ── Callback Idempotency ─────────────────────────────────────────────
+
+/**
+ * Build a dedupe key for a Twilio status callback.
+ * Combines CallSid + CallStatus + Timestamp (or SequenceNumber if present)
+ * to uniquely identify each callback.
+ */
+export function buildCallbackDedupeKey(
+  callSid: string,
+  callStatus: string,
+  timestamp?: string | null,
+  sequenceNumber?: string | null,
+): string {
+  const discriminator = sequenceNumber ?? timestamp ?? '';
+  return `${callSid}:${callStatus}:${discriminator}`;
+}
+
+/**
+ * Try to record a processed callback. Returns true if this is a new callback
+ * (inserted successfully). Returns false if the callback was already processed
+ * (dedupe key already exists), indicating a replay.
+ *
+ * Uses INSERT ... ON CONFLICT DO NOTHING pattern for atomicity.
+ */
+export function tryRecordProcessedCallback(
+  dedupeKey: string,
+  callSessionId: string,
+): boolean {
+  const db = getDb();
+  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+
+  raw.query(
+    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
+  ).run(uuid(), dedupeKey, callSessionId, Date.now());
+
+  const changes = raw.query('SELECT changes() as c').get() as { c: number };
+  return changes.c > 0;
 }

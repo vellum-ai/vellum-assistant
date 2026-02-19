@@ -10,7 +10,6 @@ import { resolve } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
-import { getSecureKey } from '../security/secure-keys.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 
@@ -125,17 +124,28 @@ const TWILIO_WEBHOOK_RE = /^\/v1\/(?:assistants\/[^/]+\/)?calls\/twilio\/(.+)$/;
  * Returns the raw body text on success so callers can reconstruct the Request
  * for downstream handlers (which also need to read the body).
  * Returns a 403 Response if signature validation fails.
- * If the Twilio auth token is not configured, skips validation with a warning.
+ *
+ * Fail-closed: if the auth token is not configured, the request is rejected
+ * with 403 rather than silently skipping validation. An explicit local-dev
+ * bypass is available via TWILIO_WEBHOOK_VALIDATION_DISABLED=true.
  */
 async function validateTwilioWebhook(
   req: Request,
 ): Promise<{ body: string } | Response> {
   const rawBody = await req.text();
-  const authToken = getSecureKey('twilio_auth_token');
 
-  if (!authToken) {
-    log.warn('Twilio auth token not configured — skipping webhook signature validation');
+  // Allow explicit local-dev bypass — must be exactly "true"
+  if (process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED === 'true') {
+    log.warn('Twilio webhook signature validation explicitly disabled via TWILIO_WEBHOOK_VALIDATION_DISABLED');
     return { body: rawBody };
+  }
+
+  const authToken = TwilioConversationRelayProvider.getAuthToken();
+
+  // Fail-closed: reject if no auth token is configured
+  if (!authToken) {
+    log.error('Twilio auth token not configured — rejecting webhook request (fail-closed)');
+    return Response.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   const signature = req.headers.get('x-twilio-signature');
@@ -165,6 +175,7 @@ async function validateTwilioWebhook(
     publicUrl,
     params,
     signature,
+    authToken,
   );
 
   if (!isValid) {
