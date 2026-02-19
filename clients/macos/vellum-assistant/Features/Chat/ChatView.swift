@@ -1077,6 +1077,7 @@ private struct ChatBubble: View {
                         }
                         .menuStyle(.borderlessButton)
                         .menuIndicator(.hidden)
+                        .tint(VColor.textMuted)
                         .frame(width: 24, height: 24)
                         .opacity(isUser ? (isHovered ? 1 : 0) : 1)
                         .allowsHitTesting(isUser ? isHovered : true)
