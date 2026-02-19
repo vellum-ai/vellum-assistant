@@ -51,6 +51,7 @@ final class DocumentManager: ObservableObject {
         self.sessionId = sessionId
         self.title = title
         self.initialContent = initialContent
+        self.currentContent = initialContent
         self.wordCount = initialContent.split(whereSeparator: \.isWhitespace).count
         self.hasActiveDocument = true
 
@@ -85,6 +86,7 @@ final class DocumentManager: ObservableObject {
             currentContent = existing + sep + markdown
         }
 
+        scheduleAutoSave()
         guard let coordinator = editorCoordinator else {
             log.warning("Cannot update document: editor coordinator not ready, content tracked for later")
             print("Cannot update document: editor coordinator not ready, content tracked for later")
