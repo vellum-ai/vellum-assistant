@@ -27,6 +27,8 @@ const makeConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
   logFile: { dir: undefined, retentionDays: 30 },
   maxAttachmentBytes: 20971520,
   maxAttachmentConcurrency: 3,
+  twilioAuthToken: undefined,
+  twilioWebhookBaseUrl: undefined,
   ...overrides,
 });
 

@@ -145,6 +145,168 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/webhooks/twilio/voice": {
+        post: {
+          summary: "Twilio voice webhook",
+          description:
+            "Receives inbound Twilio voice webhooks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
+          operationId: "twilioVoiceWebhook",
+          security: [{ TwilioSignature: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/x-www-form-urlencoded": {
+                schema: { type: "object", additionalProperties: { type: "string" } },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Webhook processed, runtime response forwarded",
+            },
+            "403": {
+              description: "Twilio signature validation failed or auth token not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed (only POST accepted)",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "413": {
+              description: "Webhook payload too large",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "502": {
+              description: "Failed to forward to runtime",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/webhooks/twilio/status": {
+        post: {
+          summary: "Twilio status webhook",
+          description:
+            "Receives Twilio call status callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
+          operationId: "twilioStatusWebhook",
+          security: [{ TwilioSignature: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/x-www-form-urlencoded": {
+                schema: { type: "object", additionalProperties: { type: "string" } },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Status callback processed",
+            },
+            "403": {
+              description: "Twilio signature validation failed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "413": {
+              description: "Webhook payload too large",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "502": {
+              description: "Failed to forward to runtime",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/webhooks/twilio/connect-action": {
+        post: {
+          summary: "Twilio connect-action webhook",
+          description:
+            "Receives Twilio ConversationRelay connect-action callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
+          operationId: "twilioConnectActionWebhook",
+          security: [{ TwilioSignature: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/x-www-form-urlencoded": {
+                schema: { type: "object", additionalProperties: { type: "string" } },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Connect-action callback processed",
+            },
+            "403": {
+              description: "Twilio signature validation failed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "413": {
+              description: "Webhook payload too large",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "502": {
+              description: "Failed to forward to runtime",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/{path}": {
         get: {
           summary: "Runtime proxy",
@@ -376,6 +538,12 @@ export function buildSchema(): Record<string, unknown> {
           type: "apiKey",
           in: "header",
           name: "X-Telegram-Bot-Api-Secret-Token",
+        },
+        TwilioSignature: {
+          type: "apiKey",
+          in: "header",
+          name: "X-Twilio-Signature",
+          description: "HMAC-SHA1 signature computed by Twilio over the request URL and form parameters.",
         },
       },
     },

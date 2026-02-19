@@ -1,5 +1,11 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
-import { forwardToRuntime, downloadAttachment } from "../runtime/client.js";
+import {
+  forwardToRuntime,
+  downloadAttachment,
+  forwardTwilioVoiceWebhook,
+  forwardTwilioStatusWebhook,
+  forwardTwilioConnectActionWebhook,
+} from "../runtime/client.js";
 import type { RuntimeAttachmentMeta } from "../runtime/client.js";
 import type { GatewayConfig } from "../config.js";
 
@@ -27,6 +33,8 @@ const makeConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
   logFile: { dir: undefined, retentionDays: 30 },
   maxAttachmentBytes: 20971520,
   maxAttachmentConcurrency: 3,
+  twilioAuthToken: undefined,
+  twilioWebhookBaseUrl: undefined,
   ...overrides,
 });
 
@@ -224,5 +232,115 @@ describe("downloadAttachment", () => {
     await expect(
       downloadAttachment(config, "assistant-a", "nonexistent"),
     ).rejects.toThrow("Attachment download failed (404)");
+  });
+});
+
+describe("forwardTwilioVoiceWebhook", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("sends params and originalUrl to runtime internal endpoint", async () => {
+    const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
+    const fetchMock = mockFetch(() =>
+      Promise.resolve(
+        new Response(twiml, {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
+      ),
+    );
+
+    const config = makeConfig({ runtimeBearerToken: "rt-tok" });
+    const params = { CallSid: "CA123", AccountSid: "AC456" };
+    const originalUrl = "https://example.com/webhooks/twilio/voice?callSessionId=sess-1";
+
+    const result = await forwardTwilioVoiceWebhook(config, params, originalUrl);
+    expect(result.status).toBe(200);
+    expect(result.body).toBe(twiml);
+    expect(result.headers["Content-Type"]).toBe("text/xml");
+
+    const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
+    expect(calledUrl).toBe("http://localhost:7821/v1/internal/twilio/voice-webhook");
+
+    const calledInit = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
+    const sentBody = JSON.parse(calledInit.body as string);
+    expect(sentBody.params).toEqual(params);
+    expect(sentBody.originalUrl).toBe(originalUrl);
+
+    const headers = calledInit.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("Bearer rt-tok");
+  });
+});
+
+describe("forwardTwilioStatusWebhook", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("sends params to runtime internal status endpoint", async () => {
+    const fetchMock = mockFetch(() =>
+      Promise.resolve(new Response(null, { status: 200 })),
+    );
+
+    const config = makeConfig({ runtimeBearerToken: "rt-tok" });
+    const params = { CallSid: "CA123", CallStatus: "completed" };
+
+    const result = await forwardTwilioStatusWebhook(config, params);
+    expect(result.status).toBe(200);
+
+    const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
+    expect(calledUrl).toBe("http://localhost:7821/v1/internal/twilio/status");
+
+    const calledInit = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
+    const sentBody = JSON.parse(calledInit.body as string);
+    expect(sentBody.params).toEqual(params);
+  });
+});
+
+describe("forwardTwilioConnectActionWebhook", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("sends params to runtime internal connect-action endpoint", async () => {
+    const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
+    const fetchMock = mockFetch(() =>
+      Promise.resolve(
+        new Response(twiml, {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
+      ),
+    );
+
+    const config = makeConfig({ runtimeBearerToken: "rt-tok" });
+    const params = { CallSid: "CA123" };
+
+    const result = await forwardTwilioConnectActionWebhook(config, params);
+    expect(result.status).toBe(200);
+    expect(result.body).toBe(twiml);
+
+    const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
+    expect(calledUrl).toBe("http://localhost:7821/v1/internal/twilio/connect-action");
+  });
+
+  test("returns runtime error status and body", async () => {
+    mockFetch(() =>
+      Promise.resolve(
+        new Response('{"error":"Not found"}', { status: 404 }),
+      ),
+    );
+
+    const config = makeConfig();
+    const result = await forwardTwilioConnectActionWebhook(config, { CallSid: "CA999" });
+    expect(result.status).toBe(404);
+    expect(result.body).toContain("Not found");
   });
 });

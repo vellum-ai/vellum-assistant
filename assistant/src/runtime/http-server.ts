@@ -569,6 +569,45 @@ export class RuntimeHttpServer {
         }
       }
 
+      // ── Internal Twilio forwarding endpoints (gateway → runtime) ──
+      // These accept JSON payloads from the gateway (which already validated
+      // the Twilio signature) and reconstruct requests for the existing
+      // Twilio route handlers.
+      if (endpoint === 'internal/twilio/voice-webhook' && req.method === 'POST') {
+        const json = await req.json() as { params: Record<string, string>; originalUrl?: string };
+        const formBody = new URLSearchParams(json.params).toString();
+        // Reconstruct request URL: keep the original URL query string (callSessionId)
+        const reconstructedUrl = json.originalUrl ?? req.url;
+        const fakeReq = new Request(reconstructedUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formBody,
+        });
+        return await handleVoiceWebhook(fakeReq);
+      }
+
+      if (endpoint === 'internal/twilio/status' && req.method === 'POST') {
+        const json = await req.json() as { params: Record<string, string> };
+        const formBody = new URLSearchParams(json.params).toString();
+        const fakeReq = new Request(req.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formBody,
+        });
+        return await handleStatusCallback(fakeReq);
+      }
+
+      if (endpoint === 'internal/twilio/connect-action' && req.method === 'POST') {
+        const json = await req.json() as { params: Record<string, string> };
+        const formBody = new URLSearchParams(json.params).toString();
+        const fakeReq = new Request(req.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formBody,
+        });
+        return await handleConnectAction(fakeReq);
+      }
+
       return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });
     } catch (err) {
       if (err instanceof IngressBlockedError) {
