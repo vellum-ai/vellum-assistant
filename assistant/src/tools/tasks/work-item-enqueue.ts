@@ -1,7 +1,7 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { getTask, listTasks } from '../../tasks/task-store.js';
+import { getTask, listTasks, createTask } from '../../tasks/task-store.js';
 import { createWorkItem } from '../../work-items/work-item-store.js';
 
 const PRIORITY_LABELS: Record<number, string> = {
@@ -14,23 +14,23 @@ const PRIORITY_LABELS: Record<number, string> = {
 const definition: ToolDefinition = {
   name: 'work_item_enqueue',
   description:
-    'Add a task to the user\'s Task Queue. Use this when the user says "add to my tasks", "add to my queue", "put this on my task list", "track this task", or any variation of adding a one-off item they want to remember or work on. This creates a work item from a task definition (template) by name or ID. Do NOT use schedule_create or reminder for simple "add to tasks" requests — those are for timed/recurring automation only.',
+    'Add a task to the user\'s Task Queue. Use this when the user says "add to my tasks", "add to my queue", "put this on my task list", "track this task", or any variation of adding a one-off item they want to remember or work on. You can provide just a title for ad-hoc items, or reference an existing task definition by name or ID. Do NOT use schedule_create or reminder for simple "add to tasks" requests — those are for timed/recurring automation only.',
   input_schema: {
     type: 'object',
     properties: {
       task_id: {
         type: 'string',
-        description: 'ID of the task definition to enqueue. Provide this or task_name.',
+        description: 'ID of an existing task definition to enqueue. Provide this, task_name, or just title.',
       },
       task_name: {
         type: 'string',
         description:
-          'Title/name of the task definition to search for (case-insensitive substring match). Provide this or task_id.',
+          'Title/name of an existing task definition to search for (case-insensitive substring match). Provide this, task_id, or just title.',
       },
       title: {
         type: 'string',
         description:
-          'Override title for the work item. Defaults to the task definition title if omitted.',
+          'Title for the work item. When provided WITHOUT task_id or task_name, creates an ad-hoc work item directly (a lightweight task template is auto-created behind the scenes). When provided WITH task_id or task_name, overrides the task definition title.',
       },
       notes: {
         type: 'string',
@@ -67,11 +67,45 @@ class WorkItemEnqueueTool implements Tool {
       const priorityTier = input.priority_tier as number | undefined;
       const sortIndex = input.sort_index as number | undefined;
 
+      // Ad-hoc mode: title provided without task_id or task_name
       if (!taskId && !taskName) {
-        return {
-          content: 'Error: You must provide either task_id or task_name to identify the task definition.',
-          isError: true,
-        };
+        if (!titleOverride) {
+          return {
+            content: 'Error: You must provide either task_id, task_name, or title to create a work item.',
+            isError: true,
+          };
+        }
+
+        // Auto-create a lightweight task template for the ad-hoc item
+        const adHocTask = createTask({
+          title: titleOverride,
+          template: titleOverride,
+        });
+
+        const workItem = createWorkItem({
+          taskId: adHocTask.id,
+          title: titleOverride,
+          notes,
+          priorityTier: priorityTier ?? 2,
+          sortIndex,
+        });
+
+        const priority = PRIORITY_LABELS[workItem.priorityTier] ?? `tier ${workItem.priorityTier}`;
+        const lines = [
+          `Enqueued work item:`,
+          `  Title: ${workItem.title}`,
+          `  ID: ${workItem.id}`,
+          `  Priority: ${priority}`,
+          `  Status: ${workItem.status}`,
+        ];
+        if (workItem.notes) {
+          lines.push(`  Notes: ${workItem.notes}`);
+        }
+        if (workItem.sortIndex !== null) {
+          lines.push(`  Sort index: ${workItem.sortIndex}`);
+        }
+
+        return { content: lines.join('\n'), isError: false };
       }
 
       let resolvedTask;

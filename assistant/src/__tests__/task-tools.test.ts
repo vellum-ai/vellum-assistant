@@ -469,11 +469,53 @@ describe('work_item_enqueue tool', () => {
     expect(result.content).toContain('No task definition found matching "nonexistent"');
   });
 
-  test('returns error when neither task_id nor task_name provided', async () => {
+  test('returns error when no identifiers provided at all', async () => {
     const result = await workItemEnqueueTool.execute({}, stubContext);
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('You must provide either task_id or task_name');
+    expect(result.content).toContain('You must provide either task_id, task_name, or title');
+  });
+
+  test('creates ad-hoc work item with just title (no task_id or task_name)', async () => {
+    const result = await workItemEnqueueTool.execute(
+      { title: 'Check Gmail' },
+      stubContext,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Enqueued work item');
+    expect(result.content).toContain('Check Gmail');
+    expect(result.content).toContain('Status: queued');
+    // Ad-hoc items should not show "Task definition:" line
+    expect(result.content).not.toContain('Task definition:');
+  });
+
+  test('ad-hoc work item with notes and priority', async () => {
+    const result = await workItemEnqueueTool.execute(
+      {
+        title: 'Buy groceries',
+        notes: 'Milk, eggs, bread',
+        priority_tier: 1,
+      },
+      stubContext,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Buy groceries');
+    expect(result.content).toContain('Notes: Milk, eggs, bread');
+    expect(result.content).toContain('Priority: high');
+  });
+
+  test('ad-hoc work item shows up in work_item_list', async () => {
+    await workItemEnqueueTool.execute(
+      { title: 'Call dentist' },
+      stubContext,
+    );
+
+    const listResult = await workItemListTool.execute({}, stubContext);
+
+    expect(listResult.isError).toBe(false);
+    expect(listResult.content).toContain('Call dentist');
   });
 
   test('applies optional overrides (title, notes, priority_tier)', async () => {

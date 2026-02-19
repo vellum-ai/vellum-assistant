@@ -205,6 +205,8 @@ function buildTaskScheduleReminderRoutingSection(): string {
     '- "Track this", "I need to do X", "queue this up"',
     '- Any request to add a one-off item to their personal to-do list',
     '',
+    'You can create ad-hoc work items by providing just a `title` to `work_item_enqueue` — no existing task template is needed. A lightweight template is auto-created behind the scenes. For reusable task definitions with templates and input schemas, use `task_save` first.',
+    '',
     '### Schedules (schedule_create / schedule_list / schedule_update / schedule_delete)',
     'For recurring automated jobs that run on a cron schedule. Use ONLY when the user explicitly wants:',
     '- Recurring automation: "every day at 9am", "weekly on Mondays", "every hour"',
