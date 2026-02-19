@@ -43,9 +43,10 @@ Kill the running Vellum app, delete all persistent data so the next launch behav
    defaults delete com.vellum.vellum-assistant
    ```
 
-7. Remove workspace config (contains model selection that triggers onboarding skip):
+7. Remove workspace config and avatar appearance (contains model selection that triggers onboarding skip, and avatar state from previous sessions):
    ```bash
    rm -f ~/.vellum/workspace/config.json
+   rm -f ~/.vellum/workspace/LOOKS.md
    ```
 
 8. Reset workspace prompt files to templates so the BOOTSTRAP.md onboarding ritual runs again:
