@@ -119,6 +119,8 @@ extension DaemonClient {
             onSlackWebhookConfigResponse?(msg)
         case .vercelApiConfigResponse(let msg):
             onVercelApiConfigResponse?(msg)
+        case .twitterIntegrationConfigResponse(let msg):
+            onTwitterIntegrationConfigResponse?(msg)
         case .modelInfo(let msg):
             currentModel = msg.model
             onModelInfo?(msg)
