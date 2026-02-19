@@ -480,7 +480,29 @@ describe('GeminiProvider', () => {
     // The provider wraps the signal via createStreamTimeout, so the API
     // receives a different AbortSignal linked to the external one.
     const config = lastStreamParams!.config as Record<string, unknown>;
-    expect(config.abortSignal).toBeInstanceOf(AbortSignal);
+    const apiSignal = config.abortSignal as AbortSignal;
+    expect(apiSignal).toBeInstanceOf(AbortSignal);
+    // When the caller hasn't aborted, the API signal should also be non-aborted.
+    expect(apiSignal.aborted).toBe(false);
+  });
+
+  test('propagates pre-aborted signal in config', async () => {
+    fakeChunks = [textChunk('OK'), finishChunk('STOP', 10, 2)];
+    const controller = new AbortController();
+    controller.abort(new Error('cancelled'));
+
+    await provider.sendMessage(
+      [{ role: 'user', content: [{ type: 'text', text: 'Hi' }] }],
+      undefined,
+      undefined,
+      { signal: controller.signal },
+    );
+
+    // When the caller's signal is already aborted, createStreamTimeout
+    // immediately aborts the internal signal — proving the linkage.
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    const apiSignal = config.abortSignal as AbortSignal;
+    expect(apiSignal.aborted).toBe(true);
   });
 
   // -----------------------------------------------------------------------
