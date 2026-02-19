@@ -7,9 +7,9 @@
 
 import { createWriteStream } from 'node:fs';
 import { readFile, writeFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, extname } from 'node:path';
 import { tmpdir } from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import archiver from 'archiver';
 import JSZip from 'jszip';
 import { getApp } from '../memory/app-store.js';
@@ -26,6 +26,111 @@ import { APP_VERSION } from '../version.js';
 const PACKAGE_VERSION = APP_VERSION;
 
 const MAX_BUNDLE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
+const ASSET_FETCH_TIMEOUT_MS = 10_000;
+
+interface FetchedAsset {
+  archivePath: string; // e.g. "assets/a1b2c3d4.png"
+  data: Buffer;
+}
+
+/**
+ * Extract all remote (http/https) URLs from HTML content.
+ * Looks in src=, href=, and CSS url() references.
+ */
+export function extractRemoteUrls(html: string): string[] {
+  const urls = new Set<string>();
+
+  // Match src="..." and href="..." attributes (double or single quotes, or unquoted)
+  const attrRe = /\b(?:src|href)\s*=\s*(?:"([^"]*?)"|'([^']*?)'|([^\s>]+))/gi;
+  let m: RegExpExecArray | null;
+  while ((m = attrRe.exec(html)) !== null) {
+    const url = m[1] ?? m[2] ?? m[3];
+    if (url && /^https?:\/\//i.test(url)) {
+      urls.add(url);
+    }
+  }
+
+  // Match CSS url() references (inline styles and <style> blocks)
+  const urlRe = /url\(\s*(?:"([^"]*?)"|'([^']*?)'|([^)"'\s]+))\s*\)/gi;
+  while ((m = urlRe.exec(html)) !== null) {
+    const url = m[1] ?? m[2] ?? m[3];
+    if (url && /^https?:\/\//i.test(url)) {
+      urls.add(url);
+    }
+  }
+
+  return [...urls];
+}
+
+/**
+ * Derive a deterministic filename for a remote asset URL.
+ * Uses a hash of the URL to avoid collisions, preserving the original extension.
+ */
+function assetFilename(url: string): string {
+  const hash = createHash('sha256').update(url).digest('hex').slice(0, 12);
+  let ext = '';
+  try {
+    const parsed = new URL(url);
+    ext = extname(parsed.pathname);
+  } catch {
+    // no extension
+  }
+  // Fallback: if no extension or it's too long/weird, drop it
+  if (!ext || ext.length > 10 || !/^\.\w+$/.test(ext)) {
+    ext = '';
+  }
+  return `${hash}${ext}`;
+}
+
+/**
+ * Fetch remote assets referenced in HTML, returning the fetched buffers
+ * and the rewritten HTML with local asset paths. Assets that fail to fetch
+ * are left with their original URLs.
+ */
+export async function materializeAssets(
+  html: string,
+): Promise<{ rewrittenHtml: string; assets: FetchedAsset[] }> {
+  const urls = extractRemoteUrls(html);
+  if (urls.length === 0) {
+    return { rewrittenHtml: html, assets: [] };
+  }
+
+  const assets: FetchedAsset[] = [];
+  // Map from original URL to its local archive path
+  const urlMap = new Map<string, string>();
+
+  await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), ASSET_FETCH_TIMEOUT_MS);
+        const resp = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!resp.ok) {
+          bundlerLog.warn({ url, status: resp.status }, 'Failed to fetch asset, keeping original URL');
+          return;
+        }
+        const buf = Buffer.from(await resp.arrayBuffer());
+        const filename = assetFilename(url);
+        const archivePath = `assets/${filename}`;
+        assets.push({ archivePath, data: buf });
+        urlMap.set(url, archivePath);
+      } catch (err) {
+        bundlerLog.warn({ url, err }, 'Failed to fetch asset, keeping original URL');
+      }
+    }),
+  );
+
+  // Rewrite URLs in HTML — replace each occurrence of the original URL with the local path
+  let rewrittenHtml = html;
+  for (const [originalUrl, localPath] of urlMap) {
+    // Escape regex special chars in the URL
+    const escaped = originalUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    rewrittenHtml = rewrittenHtml.replace(new RegExp(escaped, 'g'), localPath);
+  }
+
+  return { rewrittenHtml, assets };
+}
 
 export interface BundleResult {
   bundlePath: string;
@@ -69,10 +174,26 @@ export async function packageApp(
     content_id: contentId,
   };
 
-  // NOTE: Asset fetching is not yet implemented, so we keep the original HTML
-  // with absolute URLs intact. Rewriting to relative paths will be done once
-  // asset downloading is added.
-  const rewrittenHtml = app.htmlDefinition;
+  // Fetch remote assets and rewrite HTML to reference local copies
+  const { rewrittenHtml, assets: fetchedAssets } = await materializeAssets(app.htmlDefinition);
+
+  // Also materialize assets in additional pages
+  const rewrittenPages: Record<string, string> = {};
+  const pageAssets: FetchedAsset[] = [];
+  if (app.pages) {
+    for (const [filename, content] of Object.entries(app.pages)) {
+      const result = await materializeAssets(content);
+      rewrittenPages[filename] = result.rewrittenHtml;
+      pageAssets.push(...result.assets);
+    }
+  }
+
+  // Deduplicate assets by archive path
+  const allAssetsMap = new Map<string, FetchedAsset>();
+  for (const asset of [...fetchedAssets, ...pageAssets]) {
+    allAssetsMap.set(asset.archivePath, asset);
+  }
+  const allAssets = [...allAssetsMap.values()];
 
   // Create the zip archive
   const bundleFilename = `${app.name.replace(/[^a-zA-Z0-9_-]/g, '_')}-${randomUUID().slice(0, 8)}.vellumapp`;
@@ -100,15 +221,18 @@ export async function packageApp(
     // Add index.html at root level
     archive.append(rewrittenHtml, { name: 'index.html' });
 
-    // Add additional pages alongside index.html
+    // Add additional pages alongside index.html (with rewritten asset URLs)
     if (app.pages) {
-      for (const [filename, content] of Object.entries(app.pages)) {
+      for (const filename of Object.keys(app.pages)) {
+        const content = rewrittenPages[filename] ?? app.pages[filename];
         archive.append(content, { name: filename });
       }
     }
 
-    // TODO: When asset downloading is implemented, fetch remote assets and
-    // add them here: archive.append(buffer, { name: relativePath });
+    // Add fetched remote assets
+    for (const asset of allAssets) {
+      archive.append(asset.data, { name: asset.archivePath });
+    }
 
     archive.finalize();
   });
