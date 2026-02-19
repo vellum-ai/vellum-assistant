@@ -2004,6 +2004,8 @@ public struct IPCWorkItemRunTaskResponse: Codable, Sendable {
     public let lastRunId: String
     public let success: Bool
     public let error: String?
+    /// Structured error code so the client can deterministically re-enable buttons or show contextual UI.
+    public let errorCode: String?
 }
 
 public struct IPCWorkItemsListRequest: Codable, Sendable {

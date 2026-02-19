@@ -151,7 +151,24 @@ export async function handleWorkItemRunTask(
 ): Promise<void> {
   const workItem = getWorkItem(msg.id);
   if (!workItem) {
-    ctx.send(socket, { type: 'work_item_run_task_response', id: msg.id, lastRunId: '', success: false, error: 'Work item not found' });
+    ctx.send(socket, { type: 'work_item_run_task_response', id: msg.id, lastRunId: '', success: false, error: 'Work item not found', errorCode: 'not_found' });
+    return;
+  }
+
+  if (workItem.status === 'running') {
+    ctx.send(socket, { type: 'work_item_run_task_response', id: msg.id, lastRunId: workItem.lastRunId ?? '', success: false, error: 'Work item is already running', errorCode: 'already_running' });
+    return;
+  }
+
+  const NON_RUNNABLE_STATUSES: readonly string[] = ['done', 'archived'];
+  if (NON_RUNNABLE_STATUSES.includes(workItem.status)) {
+    ctx.send(socket, { type: 'work_item_run_task_response', id: msg.id, lastRunId: workItem.lastRunId ?? '', success: false, error: `Work item has status '${workItem.status}' and cannot be run`, errorCode: 'invalid_status' });
+    return;
+  }
+
+  const task = getTask(workItem.taskId);
+  if (!task) {
+    ctx.send(socket, { type: 'work_item_run_task_response', id: msg.id, lastRunId: '', success: false, error: `Associated task not found: ${workItem.taskId}`, errorCode: 'no_task' });
     return;
   }
 
