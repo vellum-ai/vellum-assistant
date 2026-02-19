@@ -94,7 +94,7 @@ private struct UsedToolsRow: View {
     @Environment(\.displayScale) private var displayScale
 
     private var hasDetails: Bool {
-        !toolCall.inputSummary.isEmpty ||
+        !toolCall.inputFull.isEmpty ||
         (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true)) ||
         toolCall.cachedImage != nil
     }

@@ -60,8 +60,14 @@ extension ChatViewModel {
         return str.count > 80 ? String(str.prefix(77)) + "..." : str
     }
 
+    /// Argument keys whose values may contain credentials and must be redacted.
+    private static let sensitiveKeys: Set<String> = [
+        "value", "secret", "password", "token", "client_secret", "api_key"
+    ]
+
     /// Format all tool input arguments for display in expanded details.
     /// The primary value comes first, then remaining keys as `key: value` lines.
+    /// Sensitive keys (passwords, tokens, etc.) are redacted to prevent credential exposure.
     func formatAllToolInput(_ input: [String: AnyCodable]) -> String {
         guard !input.isEmpty else { return "" }
 
@@ -73,16 +79,24 @@ extension ChatViewModel {
 
         // Primary value first (undecorated)
         if let key = primaryKey, let value = input[key] {
-            lines.append(stringifyValue(value))
+            if Self.sensitiveKeys.contains(key) {
+                lines.append("[redacted]")
+            } else {
+                lines.append(stringifyValue(value))
+            }
         }
 
-        // Remaining keys sorted alphabetically
+        // Remaining keys sorted alphabetically, skipping sensitive values
         let otherKeys = input.keys
             .filter { $0 != primaryKey }
             .sorted()
         for key in otherKeys {
             guard let value = input[key] else { continue }
-            lines.append("\(key): \(stringifyValue(value))")
+            if Self.sensitiveKeys.contains(key) {
+                lines.append("\(key): [redacted]")
+            } else {
+                lines.append("\(key): \(stringifyValue(value))")
+            }
         }
 
         return lines.joined(separator: "\n")
