@@ -101,7 +101,9 @@ struct ChatView: View {
     /// Uses total message text length (monotonically increasing) rather than the last segment's
     /// length, which resets when a new text segment starts after a tool call.
     private var streamingScrollTrigger: Int {
-        let last = messages.last
+        // Use last non-queued message so streaming deltas still trigger
+        // auto-scroll even when queued user messages sit at the array tail.
+        let last = messages.last(where: { if case .queued = $0.status { return false }; return true })
         let textLen = last?.text.utf8.count ?? 0
         return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
     }
