@@ -1,4 +1,5 @@
 import type { Command } from 'commander';
+import { validateAllowlistFile } from '../security/secret-allowlist.js';
 
 import {
   loadRawConfig,
@@ -77,7 +78,6 @@ export function registerConfigCommand(program: Command): void {
     .command('validate-allowlist')
     .description('Validate regex patterns in secret-allowlist.json')
     .action(() => {
-      const { validateAllowlistFile } = require('../security/secret-allowlist.js') as typeof import('../security/secret-allowlist.js');
       try {
         const errors = validateAllowlistFile();
         if (errors === null) {

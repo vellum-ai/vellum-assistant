@@ -11,7 +11,7 @@ import { startCall, getCallStatus, cancelCall, answerCall } from '../../calls/ca
 import { getLogger } from '../../util/logger.js';
 import { getConfig } from '../../config/loader.js';
 
-const log = getLogger('call-routes');
+const _log = getLogger('call-routes');
 
 /**
  * POST /v1/calls/start

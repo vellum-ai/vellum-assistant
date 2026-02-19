@@ -84,7 +84,7 @@ import {
   updateCallSession,
   createPendingQuestion,
 } from '../calls/call-store.js';
-import { registerCallOrchestrator, unregisterCallOrchestrator } from '../calls/call-state.js';
+import { registerCallOrchestrator as _registerCallOrchestrator, unregisterCallOrchestrator as _unregisterCallOrchestrator } from '../calls/call-state.js';
 
 initializeDb();
 

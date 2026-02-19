@@ -9,7 +9,7 @@
  * - Unknown status and malformed payload handling
  */
 import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
-import { createHmac } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -59,16 +59,12 @@ mock.module('../security/secure-keys.js', () => ({
 // Use the real TwilioConversationRelayProvider (not mocked) for signature validation
 // but mock the instance methods that hit Twilio API
 mock.module('../calls/twilio-provider.js', () => {
-  const { createHmac: createHmacNode } = require('node:crypto');
-  const { timingSafeEqual: timingSafeEqualNode } = require('node:crypto');
-  const { getSecureKey } = require('../security/secure-keys.js');
-
   return {
     TwilioConversationRelayProvider: class {
       readonly name = 'twilio';
 
       static getAuthToken(): string | null {
-        return getSecureKey('twilio_auth_token') ?? null;
+        return mockAuthToken ?? null;
       }
 
       static verifyWebhookSignature(
@@ -82,11 +78,11 @@ mock.module('../calls/twilio-provider.js', () => {
         for (const key of sortedKeys) {
           data += key + params[key];
         }
-        const computed = createHmacNode('sha1', authToken).update(data).digest('base64');
+        const computed = createHmac('sha1', authToken).update(data).digest('base64');
         const a = Buffer.from(computed);
         const b = Buffer.from(signature);
         if (a.length !== b.length) return false;
-        return timingSafeEqualNode(a, b);
+        return timingSafeEqual(a, b);
       }
 
       async initiateCall() { return { callSid: 'CA_mock_test' }; }
@@ -227,7 +223,7 @@ describe('twilio webhook routes', () => {
   describe('signature validation', () => {
     test('valid signature returns 200', async () => {
       await startServer();
-      const session = createTestSession('conv-sig-1', 'CA_sig_valid');
+      const _session = createTestSession('conv-sig-1', 'CA_sig_valid');
       const url = statusUrl();
       const params = { CallSid: 'CA_sig_valid', CallStatus: 'completed' };
       const { body, headers } = signedRequest(url, params);
@@ -326,7 +322,7 @@ describe('twilio webhook routes', () => {
       mockAuthToken = undefined; // Token not configured, but bypass should work
       await startServer();
 
-      const session = createTestSession('conv-bypass-1', 'CA_bypass');
+      const _session = createTestSession('conv-bypass-1', 'CA_bypass');
       const url = statusUrl();
       const params = { CallSid: 'CA_bypass', CallStatus: 'completed' };
 

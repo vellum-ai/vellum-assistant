@@ -86,9 +86,9 @@ describe('view_image tool', () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Image loaded');
     expect(result.content).toContain('image/jpeg');
-    expect((result as any).contentBlocks).toBeDefined();
-    expect((result as any).contentBlocks[0].type).toBe('image');
-    expect((result as any).contentBlocks[0].source.media_type).toBe('image/jpeg');
+    expect((result as Record<string, unknown>).contentBlocks).toBeDefined();
+    expect(((result as Record<string, unknown>).contentBlocks as Array<Record<string, unknown>>)[0].type).toBe('image');
+    expect((((result as Record<string, unknown>).contentBlocks as Array<Record<string, unknown>>)[0].source as Record<string, unknown>).media_type).toBe('image/jpeg');
   });
 
   test('loads a PNG file', async () => {
@@ -138,9 +138,9 @@ describe('view_image tool', () => {
     const result = await tool.execute({ path: 'base64.jpg' }, makeContext());
 
     expect(result.isError).toBe(false);
-    const blocks = (result as any).contentBlocks;
-    expect(blocks[0].source.type).toBe('base64');
-    expect(blocks[0].source.data.length).toBeGreaterThan(0);
+    const blocks = (result as Record<string, unknown>).contentBlocks as Array<Record<string, unknown>>;
+    expect((blocks[0].source as Record<string, unknown>).type).toBe('base64');
+    expect(((blocks[0].source as Record<string, unknown>).data as string).length).toBeGreaterThan(0);
   });
 });
 

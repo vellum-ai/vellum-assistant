@@ -1,7 +1,7 @@
 import { describe, test, expect, afterAll } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve as _resolve } from 'node:path';
 import { runSkillToolScript } from '../tools/skills/skill-script-runner.js';
 import type { ToolContext } from '../tools/types.js';
 
