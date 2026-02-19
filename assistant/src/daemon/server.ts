@@ -382,8 +382,10 @@ export class DaemonServer {
    */
   clearAllSessions(): number {
     const count = this.sessions.size;
+    const subagentManager = getSubagentManager();
     for (const id of this.sessions.keys()) {
       this.evictor.remove(id);
+      subagentManager.abortAllForParent(id);
     }
     for (const session of this.sessions.values()) {
       session.dispose();
@@ -394,8 +396,10 @@ export class DaemonServer {
   }
 
   private evictSessionsForReload(): void {
+    const subagentManager = getSubagentManager();
     for (const [id, session] of this.sessions) {
       if (!session.isProcessing()) {
+        subagentManager.abortAllForParent(id);
         session.dispose();
         this.sessions.delete(id);
         this.evictor.remove(id);
@@ -693,6 +697,7 @@ export class DaemonServer {
         if (session) {
           session.abort();
         }
+        getSubagentManager().abortAllForParent(sessionId);
       }
       this.socketToSession.delete(socket);
       const cuSessionIds = this.socketToCuSession.get(socket);
@@ -790,6 +795,7 @@ export class DaemonServer {
     if (!session || (session.isStale() && !session.isProcessing())) {
       // Dispose the outgoing stale session before replacing it.
       if (session) {
+        getSubagentManager().abortAllForParent(conversationId);
         session.dispose();
       }
 

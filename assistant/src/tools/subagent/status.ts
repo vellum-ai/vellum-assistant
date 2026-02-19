@@ -38,7 +38,7 @@ export const subagentStatusTool: Tool = {
 
     if (subagentId) {
       const state = manager.getState(subagentId);
-      if (!state) {
+      if (!state || state.config.parentSessionId !== context.sessionId) {
         return { content: `No subagent found with ID "${subagentId}".`, isError: true };
       }
       return {
