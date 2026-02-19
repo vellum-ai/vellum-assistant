@@ -910,9 +910,12 @@ extension ChatViewModel {
                 activeSubagents[index].error = msg.error
             }
 
-        case .subagentEvent(let msg):
-            // Unwrap and route the nested event through existing handlers.
-            handleServerMessage(msg.event)
+        case .subagentEvent:
+            // Subagent internal events (assistant_message, tool_use, etc.) carry the
+            // subagent's session ID, not the parent's, so they cannot be routed through
+            // the normal belongsToSession-guarded handlers. These will be displayed in
+            // the dedicated subagents panel once it's built.
+            break
 
         default:
             break

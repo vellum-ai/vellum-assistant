@@ -48,6 +48,8 @@ function buildSubagentSystemPrompt(config: SubagentConfig): string {
 interface ManagedSubagent {
   session: Session;
   state: SubagentState;
+  /** Mutable reference to the parent's current sendToClient. Updated on reconnect. */
+  parentSendToClient: (msg: ServerMessage) => void;
 }
 
 export type ParentNotifyCallback = (
@@ -122,11 +124,28 @@ export class SubagentManager {
       strictSideEffects: false,
     };
 
+    // ── Initialise state ────────────────────────────────────────────
+    const now = Date.now();
+    const state: SubagentState = {
+      config: { ...config, id: subagentId },
+      status: 'pending',
+      conversationId: conversation.id,
+      createdAt: now,
+      usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+    };
+
+    // Store the managed subagent early so the wrapper can read the mutable
+    // parentSendToClient reference — this ensures reconnects are picked up.
+    const managed: ManagedSubagent = {
+      session: undefined as unknown as Session,
+      state,
+      parentSendToClient,
+    };
+
     // Wrap sendToClient to envelope all events with the subagent ID.
+    // Reads from managed.parentSendToClient so reconnects are picked up.
     const wrappedSendToClient = (msg: ServerMessage): void => {
-      // Forward confirmation requests and other interactive messages as-is
-      // so the client can render them in the subagent panel.
-      parentSendToClient({
+      managed.parentSendToClient({
         type: 'subagent_event',
         subagentId,
         event: msg,
@@ -148,17 +167,7 @@ export class SubagentManager {
     // This ensures interactive prompts (host attachment reads) fail fast.
     session.updateClient(wrappedSendToClient, true);
 
-    // ── Initialise state ────────────────────────────────────────────
-    const now = Date.now();
-    const state: SubagentState = {
-      config: { ...config, id: subagentId },
-      status: 'pending',
-      conversationId: conversation.id,
-      createdAt: now,
-      usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    };
-
-    const managed: ManagedSubagent = { session, state };
+    managed.session = session;
     this.subagents.set(subagentId, managed);
 
     // Track parent → child relationship.
@@ -351,6 +360,22 @@ export class SubagentManager {
     return [...this.subagents.values()].filter(
       (s) => !TERMINAL_STATUSES.has(s.state.status),
     ).length;
+  }
+
+  /**
+   * Update the parent sender for all active children of a session.
+   * Called when the parent client reconnects to a new socket.
+   */
+  updateParentSender(parentSessionId: string, newSendToClient: (msg: ServerMessage) => void): void {
+    const children = this.parentToChildren.get(parentSessionId);
+    if (!children) return;
+
+    for (const childId of children) {
+      const managed = this.subagents.get(childId);
+      if (managed && !TERMINAL_STATUSES.has(managed.state.status)) {
+        managed.parentSendToClient = newSendToClient;
+      }
+    }
   }
 
   // ── Cleanup ───────────────────────────────────────────────────────────

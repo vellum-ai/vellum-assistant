@@ -15,6 +15,7 @@ interface FakeManagedSubagent {
     runAgentLoop?: () => Promise<void>;
   };
   state: SubagentState;
+  parentSendToClient: () => void;
 }
 
 /** Type-safe accessor for SubagentManager's private internals via bracket notation. */
@@ -48,7 +49,7 @@ function injectFakeSubagent(
   const subagents = internals.subagents;
   const parentToChildren = internals.parentToChildren;
 
-  subagents.set(subagentId, { session: fakeSession, state });
+  subagents.set(subagentId, { session: fakeSession, state, parentSendToClient: () => {} });
 
   const parentId = state.config.parentSessionId;
   if (!parentToChildren.has(parentId)) {

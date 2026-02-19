@@ -774,6 +774,9 @@ export class DaemonServer {
       if (!rebindClient || !socket) return;
       target.updateClient(sendToClient);
       target.setSandboxOverride(this.socketSandboxOverride.get(socket));
+      // Update the sender for any active child subagents so they route
+      // through the new socket instead of the stale one from spawn time.
+      getSubagentManager().updateParentSender(conversationId, sendToClient);
     };
 
     // Persist session options so they survive eviction/recreation.

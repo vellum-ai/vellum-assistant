@@ -34,9 +34,11 @@ export function handleSubagentStatus(
 ): void {
   const manager = getSubagentManager();
 
+  const callerSessionId = ctx.socketToSession.get(socket);
+
   if (msg.subagentId) {
     const state = manager.getState(msg.subagentId);
-    if (!state) {
+    if (!state || (callerSessionId && state.config.parentSessionId !== callerSessionId)) {
       ctx.send(socket, {
         type: 'error',
         message: `Subagent "${msg.subagentId}" not found.`,
@@ -56,7 +58,6 @@ export function handleSubagentStatus(
   }
 
   // Return all subagents for the caller's session.
-  const callerSessionId = ctx.socketToSession.get(socket);
   const sessionId = callerSessionId ?? msg.sessionId;
   const children = manager.getChildrenOf(sessionId);
   for (const child of children) {
