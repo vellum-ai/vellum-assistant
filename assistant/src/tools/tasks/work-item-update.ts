@@ -52,6 +52,22 @@ const definition: ToolDefinition = {
         type: 'number',
         description: 'Manual sort order within the same priority tier',
       },
+      filter_priority_tier: {
+        type: 'number',
+        description:
+          'Disambiguation filter: narrow by current priority tier (0=high, 1=medium, 2=low) when multiple items share the same title/task_id. This identifies WHICH item to update — it is NOT the new priority value.',
+      },
+      filter_status: {
+        type: 'string',
+        enum: ['queued', 'running', 'awaiting_review', 'failed', 'done', 'archived'],
+        description:
+          'Disambiguation filter: narrow by current status when multiple items share the same title/task_id.',
+      },
+      created_order: {
+        type: 'number',
+        description:
+          'Disambiguation filter: pick the Nth oldest match (1 = oldest, 2 = second oldest, etc.) when multiple items share the same title/task_id.',
+      },
     },
   },
 };
@@ -75,6 +91,9 @@ class TaskListUpdateTool implements Tool {
         workItemId: input.work_item_id as string | undefined,
         taskId: input.task_id as string | undefined,
         title: (input.task_name ?? input.title) as string | undefined,
+        priorityTier: input.filter_priority_tier as number | undefined,
+        status: input.filter_status as WorkItemStatus | undefined,
+        createdOrder: input.created_order as number | undefined,
       };
 
       // Resolve the target work item
