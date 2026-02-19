@@ -155,6 +155,12 @@ export const claudeCodeTool: Tool = {
       }
     };
 
+    // Build a clean env for the subprocess, stripping nesting-guard variables
+    // so the SDK doesn't refuse to start when we're already inside Claude Code.
+    const subprocessEnv: Record<string, string | undefined> = { ...process.env, ANTHROPIC_API_KEY: apiKey };
+    delete subprocessEnv.CLAUDECODE;
+    delete subprocessEnv.CLAUDE_CODE_ENTRYPOINT;
+
     // Build query options
     const queryOptions: import('@anthropic-ai/claude-agent-sdk').Options = {
       cwd: workingDir,
@@ -162,10 +168,7 @@ export const claudeCodeTool: Tool = {
       canUseTool,
       permissionMode: 'default',
       allowedTools: [...AUTO_APPROVE_TOOLS],
-      env: {
-        ...process.env,
-        ANTHROPIC_API_KEY: apiKey,
-      },
+      env: subprocessEnv,
       maxTurns: 50,
       persistSession: true,
       stderr: (data: string) => {

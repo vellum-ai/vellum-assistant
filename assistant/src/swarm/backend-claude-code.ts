@@ -50,6 +50,12 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
           return { behavior: 'allow' as const };
         };
 
+        // Strip nesting-guard env vars so the subprocess doesn't refuse to start
+        // when we're already inside a Claude Code session.
+        const subprocessEnv: Record<string, string | undefined> = { ...process.env, ANTHROPIC_API_KEY: apiKey };
+        delete subprocessEnv.CLAUDECODE;
+        delete subprocessEnv.CLAUDE_CODE_ENTRYPOINT;
+
         const conversation = query({
           prompt: input.prompt,
           options: {
@@ -58,7 +64,7 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
             canUseTool,
             permissionMode: 'default',
             maxTurns: 30,
-            env: { ...process.env, ANTHROPIC_API_KEY: apiKey },
+            env: subprocessEnv,
             stderr: (data: string) => {
               const trimmed = data.trimEnd();
               if (trimmed) {
