@@ -30,7 +30,17 @@ mock.module('../util/logger.js', () => ({
 // ── Config mock ─────────────────────────────────────────────────────
 
 mock.module('../config/loader.js', () => ({
-  getConfig: () => ({ apiKeys: { anthropic: 'test-key' } }),
+  getConfig: () => ({
+    apiKeys: { anthropic: 'test-key' },
+    calls: {
+      enabled: true,
+      provider: 'twilio',
+      maxDurationSeconds: 3600,
+      userConsultTimeoutSeconds: 120,
+      disclosure: { enabled: false, text: '' },
+      safety: { denyCategories: [] },
+    },
+  }),
 }));
 
 // ── Helpers for building mock streaming responses ───────────────────
@@ -80,7 +90,7 @@ mock.module('@anthropic-ai/sdk', () => {
 
 // ── Import source modules after all mocks are registered ────────────
 
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { conversations } from '../memory/schema.js';
 import {
   createCallSession,
@@ -96,6 +106,7 @@ import type { RelayConnection } from '../calls/relay-server.js';
 initializeDb();
 
 afterAll(() => {
+  resetDb();
   try {
     rmSync(testDir, { recursive: true });
   } catch {
@@ -294,6 +305,91 @@ describe('call-orchestrator', () => {
     // Should have streamed a response for the answer
     const tokensAfterAnswer = relay.sentTokens.filter((t) => t.token.includes('3pm'));
     expect(tokensAfterAnswer.length).toBeGreaterThan(0);
+
+    orchestrator.destroy();
+  });
+
+  // ── Full mid-call question flow ──────────────────────────────────
+
+  test('mid-call question flow: unavailable time → ask user → user confirms → resumed call', async () => {
+    // Step 1: Caller says "7:30" but it's unavailable. The LLM asks the user.
+    mockStreamFn.mockImplementation(() =>
+      createMockStream(['I\'m sorry, 7:30 is not available. ', '[ASK_USER: Is 8:00 okay instead?]']),
+    );
+
+    const { session, relay, orchestrator } = setupOrchestrator('Schedule a haircut');
+
+    await orchestrator.handleCallerUtterance('Can I book for 7:30?');
+
+    // Verify we're in waiting_on_user state
+    expect(orchestrator.getState()).toBe('waiting_on_user');
+    const question = getPendingQuestion(session.id);
+    expect(question).not.toBeNull();
+    expect(question!.questionText).toBe('Is 8:00 okay instead?');
+
+    // Verify session status
+    const midSession = getCallSession(session.id);
+    expect(midSession!.status).toBe('waiting_on_user');
+
+    // Step 2: User answers "Yes, 8:00 works"
+    mockStreamFn.mockImplementation(() =>
+      createMockStream(['Great, I\'ve booked you for 8:00. See you then! ', '[END_CALL]']),
+    );
+
+    const accepted = await orchestrator.handleUserAnswer('Yes, 8:00 works for me');
+    expect(accepted).toBe(true);
+
+    // Give the fire-and-forget LLM call time to complete
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Step 3: Verify call completed
+    const endSession = getCallSession(session.id);
+    expect(endSession!.status).toBe('completed');
+    expect(endSession!.endedAt).not.toBeNull();
+
+    // Verify the END_CALL marker triggered endSession on relay
+    expect(relay.endCalled).toBe(true);
+
+    orchestrator.destroy();
+  });
+
+  // ── Provider / LLM failure paths ───────────────────────────────
+
+  test('LLM error: sends error message to caller and returns to idle', async () => {
+    // Make the stream throw an error on finalMessage
+    mockStreamFn.mockImplementation(() => {
+      const emitter = new EventEmitter();
+      return {
+        on: (event: string, handler: (...args: unknown[]) => void) => {
+          emitter.on(event, handler);
+          return { on: () => ({ on: () => ({}) }) };
+        },
+        finalMessage: () => Promise.reject(new Error('API rate limit exceeded')),
+      };
+    });
+
+    const { relay, orchestrator } = setupOrchestrator();
+
+    await orchestrator.handleCallerUtterance('Hello');
+
+    // Should have sent an error recovery message
+    const errorTokens = relay.sentTokens.filter((t) =>
+      t.token.includes('technical issue'),
+    );
+    expect(errorTokens.length).toBeGreaterThan(0);
+
+    // State should return to idle after error
+    expect(orchestrator.getState()).toBe('idle');
+
+    orchestrator.destroy();
+  });
+
+  test('handleUserAnswer: returns false when not in waiting_on_user state', async () => {
+    const { orchestrator } = setupOrchestrator();
+
+    // Orchestrator starts in idle state
+    const result = await orchestrator.handleUserAnswer('some answer');
+    expect(result).toBe(false);
 
     orchestrator.destroy();
   });

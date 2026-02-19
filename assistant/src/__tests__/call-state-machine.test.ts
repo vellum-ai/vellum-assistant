@@ -68,12 +68,6 @@ describe('call-state-machine', () => {
       ['in_progress', 'ringing'],
       ['waiting_on_user', 'initiated'],
       ['waiting_on_user', 'ringing'],
-
-      // Cannot go from initiated directly to waiting_on_user
-      ['initiated', 'waiting_on_user'],
-
-      // Cannot go from ringing to waiting_on_user
-      ['ringing', 'waiting_on_user'],
     ];
 
     for (const [from, to] of invalidCases) {

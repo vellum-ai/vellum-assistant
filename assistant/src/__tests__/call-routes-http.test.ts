@@ -39,6 +39,14 @@ mock.module('../config/loader.js', () => ({
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
+    calls: {
+      enabled: true,
+      provider: 'twilio',
+      maxDurationSeconds: 3600,
+      userConsultTimeoutSeconds: 120,
+      disclosure: { enabled: false, text: '' },
+      safety: { denyCategories: [] },
+    },
   }),
 }));
 
