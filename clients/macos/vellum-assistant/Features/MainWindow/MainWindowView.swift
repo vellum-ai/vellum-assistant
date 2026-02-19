@@ -406,7 +406,7 @@ struct MainWindowView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("Copy thread")
-                                .help(showCopyThreadConfirmation ? "Copied!" : "Copy thread")
+                                .vTooltip(showCopyThreadConfirmation ? "Copied!" : "Copy thread")
                             }
 
                             TemporaryChatToggle(
