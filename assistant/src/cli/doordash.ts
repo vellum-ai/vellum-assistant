@@ -167,6 +167,14 @@ export function registerDoordashCommand(program: Command): void {
             // Non-fatal: query extraction is best-effort
           }
 
+          // Best-effort: minimize Chrome window after capturing session
+          try {
+            await minimizeChromeWindow();
+            process.stderr.write('[doordash] Chrome window minimized\n');
+          } catch {
+            // Non-fatal: minimizing is best-effort
+          }
+
           output(
             {
               ok: true,
@@ -845,6 +853,7 @@ async function ensureChromeWithCDP(): Promise<void> {
     `--remote-debugging-port=9222`,
     `--force-renderer-accessibility`,
     `--user-data-dir=${CHROME_DATA_DIR}`,
+    `https://www.doordash.com/consumer/login/`,
   ], {
     detached: true,
     stdio: 'ignore',
@@ -856,6 +865,46 @@ async function ensureChromeWithCDP(): Promise<void> {
     if (await isCdpReady()) return;
   }
   throw new Error('Chrome started but CDP endpoint not responding after 15s');
+}
+
+async function minimizeChromeWindow(): Promise<void> {
+  const res = await fetch(`${CDP_BASE}/json/list`);
+  const targets = (await res.json()) as Array<{ type: string; webSocketDebuggerUrl: string }>;
+  const pageTarget = targets.find(t => t.type === 'page');
+  if (!pageTarget) return;
+
+  const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      ws.close();
+      reject(new Error('CDP minimize timed out'));
+    }, 5000);
+
+    ws.addEventListener('open', () => {
+      ws.send(JSON.stringify({ id: 1, method: 'Browser.getWindowForTarget' }));
+    });
+
+    ws.addEventListener('message', (event) => {
+      const msg = JSON.parse(String(event.data)) as { id: number; result?: { windowId: number } };
+      if (msg.id === 1 && msg.result) {
+        ws.send(JSON.stringify({
+          id: 2,
+          method: 'Browser.setWindowBounds',
+          params: { windowId: msg.result.windowId, bounds: { windowState: 'minimized' } },
+        }));
+      } else if (msg.id === 2) {
+        clearTimeout(timeout);
+        ws.close();
+        resolve();
+      }
+    });
+
+    ws.addEventListener('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
