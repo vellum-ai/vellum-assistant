@@ -73,3 +73,6 @@ next-env.d.ts
 *.tfstate
 *.tfstate.*
 .terraform.lock.hcl
+
+# MCP config
+.mcp.json
