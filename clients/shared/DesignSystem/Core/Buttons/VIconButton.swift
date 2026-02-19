@@ -25,22 +25,7 @@ public struct VIconButton: View {
     }
 
     public var body: some View {
-        buttonContent
-        #if os(macOS)
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering { NSCursor.pointingHand.set() }
-            else { NSCursor.arrow.set() }
-        }
-        #else
-        .onHover { isHovered = $0 }
-        #endif
-        .accessibilityLabel(label)
-    }
-
-    @ViewBuilder
-    private var buttonContent: some View {
-        let button = Button(action: action) {
+        Button(action: action) {
             HStack(spacing: VSpacing.xs) {
                 if let customIcon {
                     customIcon
@@ -56,12 +41,17 @@ public struct VIconButton: View {
             }
         }
         .buttonStyle(VIconButtonStyle(isActive: isActive, isHovered: isHovered, iconOnly: iconOnly))
-
-        if let tooltip {
-            button.help(tooltip)
-        } else {
-            button
+        #if os(macOS)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.set() }
+            else { NSCursor.arrow.set() }
         }
+        #else
+        .onHover { isHovered = $0 }
+        #endif
+        .accessibilityLabel(label)
+        .help(tooltip ?? "")
     }
 }
 
