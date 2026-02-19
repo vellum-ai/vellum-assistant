@@ -133,6 +133,25 @@ mock.module('../context/window-manager.js', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Workspace/git + attachment mocks.
+// ---------------------------------------------------------------------------
+
+const turnCommitCalls: Array<{ workspaceDir: string; sessionId: string; turnNumber: number }> = [];
+let usageStoreShouldThrow = false;
+
+mock.module('../workspace/git-service.js', () => ({
+  getWorkspaceGitService: () => ({
+    ensureInitialized: async () => {},
+  }),
+}));
+
+mock.module('../workspace/turn-commit.js', () => ({
+  commitTurnChanges: async (workspaceDir: string, sessionId: string, turnNumber: number) => {
+    turnCommitCalls.push({ workspaceDir, sessionId, turnNumber });
+  },
+}));
+
+// ---------------------------------------------------------------------------
 // Usage event capture for request-ID correlation tests.
 // ---------------------------------------------------------------------------
 
@@ -145,6 +164,9 @@ let capturedUsageEvents: CapturedUsageEvent[] = [];
 
 mock.module('../memory/llm-usage-store.js', () => ({
   recordUsageEvent: (input: { requestId: string | null; actor: string }) => {
+    if (usageStoreShouldThrow) {
+      throw new Error('Simulated usage store failure');
+    }
     capturedUsageEvents.push({ requestId: input.requestId, actor: input.actor });
     return { id: 'mock-id', createdAt: Date.now(), ...input };
   },
@@ -253,6 +275,11 @@ function resolveRun(index: number) {
   // Return updated history with the assistant message appended
   run.resolve([...run.messages, assistantMsg]);
 }
+
+beforeEach(() => {
+  turnCommitCalls.length = 0;
+  usageStoreShouldThrow = false;
+});
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -1349,6 +1376,27 @@ describe('Regression: cancel semantics and error channel split', () => {
     // session_error must never appear on cancel
     const sessionErr = msgEvents.find((e) => e.type === 'session_error');
     expect(sessionErr).toBeUndefined();
+  });
+
+  test('post-processing failure still attempts turn-boundary commit', async () => {
+    const events: ServerMessage[] = [];
+    const session = makeSession();
+    await session.loadFromDb();
+    usageStoreShouldThrow = true;
+
+    const p1 = session.processMessage('msg-1', [], (e) => events.push(e), 'req-1');
+    await waitForPendingRun(1);
+    resolveRun(0);
+    await p1;
+
+    expect(turnCommitCalls).toHaveLength(1);
+    expect(turnCommitCalls[0]).toEqual({
+      workspaceDir: '/tmp',
+      sessionId: 'conv-1',
+      turnNumber: 1,
+    });
+    const completion = events.find((e) => e.type === 'message_complete');
+    expect(completion).toBeDefined();
   });
 
   test('provider failure during processing emits both session_error and generic error', async () => {
