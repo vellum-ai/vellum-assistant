@@ -80,6 +80,7 @@ class TasksWindowViewModel: ObservableObject {
             self.cancelRunTimeout(id: response.id)
             if !response.success {
                 self.logger.error("onWorkItemRunTaskResponse: run failed for id=\(response.id, privacy: .public) errorCode=\(response.errorCode ?? "none", privacy: .public) error=\(response.error ?? "none", privacy: .public)")
+                self.errorMessage = response.error ?? "Failed to run task"
                 self.fetchItems()
             }
         }
