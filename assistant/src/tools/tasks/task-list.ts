@@ -5,7 +5,7 @@ import { listTasks } from '../../tasks/task-store.js';
 
 const definition: ToolDefinition = {
   name: 'task_list',
-  description: 'List saved task templates (reusable definitions). To see your active Tasks (work items), use work_item_list instead.',
+  description: 'List saved task templates (reusable definitions). To see your active Tasks (work items), use task_list_show instead.',
   input_schema: {
     type: 'object',
     properties: {},
@@ -27,7 +27,7 @@ class TaskListTool implements Tool {
       const tasks = listTasks();
 
       if (tasks.length === 0) {
-        return { content: 'No task templates found. Use task_save to create one from a conversation.\n\nTip: To see your active Tasks (work items in the queue), use the work_item_list tool.', isError: false };
+        return { content: 'No task templates found. Use task_save to create one from a conversation.\n\nTip: To see your active Tasks (work items in the queue), use the task_list_show tool.', isError: false };
       }
 
       const lines = [`Found ${tasks.length} task template(s):`, ''];
@@ -52,7 +52,7 @@ class TaskListTool implements Tool {
         lines.push('');
       }
 
-      lines.push('Tip: To see your active Tasks (work items in the queue), use the work_item_list tool.');
+      lines.push('Tip: To see your active Tasks (work items in the queue), use the task_list_show tool.');
 
       return { content: lines.join('\n'), isError: false };
     } catch (err) {

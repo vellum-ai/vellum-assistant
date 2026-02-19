@@ -40,8 +40,8 @@ import { createWorkItem } from '../work-items/work-item-store.js';
 import { taskSaveTool } from '../tools/tasks/task-save.js';
 import { taskRunTool } from '../tools/tasks/task-run.js';
 import { taskListTool } from '../tools/tasks/task-list.js';
-import { workItemListTool } from '../tools/tasks/work-item-list.js';
-import { workItemEnqueueTool } from '../tools/tasks/work-item-enqueue.js';
+import { taskListShowTool } from '../tools/tasks/work-item-list.js';
+import { taskListAddTool } from '../tools/tasks/work-item-enqueue.js';
 import { taskDeleteTool } from '../tools/tasks/task-delete.js';
 import type { ToolContext } from '../tools/types.js';
 
@@ -338,7 +338,7 @@ describe('task_list tool', () => {
     expect(result.content).toContain('file_read');
     expect(result.content).toContain('file_write');
     expect(result.content).toContain('file_path');
-    expect(result.content).toContain('Tip: To see your active Tasks (work items in the queue), use the work_item_list tool.');
+    expect(result.content).toContain('Tip: To see your active Tasks (work items in the queue), use the task_list_show tool.');
   });
 
   test('returns empty message when no tasks exist', async () => {
@@ -346,7 +346,7 @@ describe('task_list tool', () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('No task templates found');
-    expect(result.content).toContain('Tip: To see your active Tasks (work items in the queue), use the work_item_list tool.');
+    expect(result.content).toContain('Tip: To see your active Tasks (work items in the queue), use the task_list_show tool.');
   });
 
   test('shows task status and creation date', async () => {
@@ -363,9 +363,9 @@ describe('task_list tool', () => {
   });
 });
 
-// ── work_item_list ───────────────────────────────────────────────────
+// ── task_list_show ───────────────────────────────────────────────────
 
-describe('work_item_list tool', () => {
+describe('task_list_show tool', () => {
   beforeEach(() => {
     const raw = getRawDb();
     raw.run('DELETE FROM work_items');
@@ -378,7 +378,7 @@ describe('work_item_list tool', () => {
     createWorkItem({ taskId: task.id, title: 'Work Item Alpha', priorityTier: 1 });
     createWorkItem({ taskId: task.id, title: 'Work Item Beta', notes: 'some notes', priorityTier: 2 });
 
-    const result = await workItemListTool.execute({}, stubContext);
+    const result = await taskListShowTool.execute({}, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Found 2 work item(s)');
@@ -389,7 +389,7 @@ describe('work_item_list tool', () => {
   });
 
   test('returns empty message when no work items', async () => {
-    const result = await workItemListTool.execute({}, stubContext);
+    const result = await taskListShowTool.execute({}, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('No Tasks found');
@@ -403,13 +403,13 @@ describe('work_item_list tool', () => {
     const doneItem = createWorkItem({ taskId: task.id, title: 'Done Item', priorityTier: 2 });
     raw.query('UPDATE work_items SET status = ? WHERE id = ?').run('done', doneItem.id);
 
-    const resultQueued = await workItemListTool.execute({ status: 'queued' }, stubContext);
+    const resultQueued = await taskListShowTool.execute({ status: 'queued' }, stubContext);
     expect(resultQueued.isError).toBe(false);
     expect(resultQueued.content).toContain('Found 1 work item(s)');
     expect(resultQueued.content).toContain('Queued Item');
     expect(resultQueued.content).not.toContain('Done Item');
 
-    const resultDone = await workItemListTool.execute({ status: 'done' }, stubContext);
+    const resultDone = await taskListShowTool.execute({ status: 'done' }, stubContext);
     expect(resultDone.isError).toBe(false);
     expect(resultDone.content).toContain('Found 1 work item(s)');
     expect(resultDone.content).toContain('Done Item');
@@ -417,9 +417,9 @@ describe('work_item_list tool', () => {
   });
 });
 
-// ── work_item_enqueue ────────────────────────────────────────────────
+// ── task_list_add ────────────────────────────────────────────────────
 
-describe('work_item_enqueue tool', () => {
+describe('task_list_add tool', () => {
   beforeEach(() => {
     const raw = getRawDb();
     raw.run('DELETE FROM work_items');
@@ -430,7 +430,7 @@ describe('work_item_enqueue tool', () => {
   test('successfully enqueues by task_id', async () => {
     const task = createTask({ title: 'Deploy Service', template: 'deploy it' });
 
-    const result = await workItemEnqueueTool.execute({ task_id: task.id }, stubContext);
+    const result = await taskListAddTool.execute({ task_id: task.id }, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Enqueued work item');
@@ -441,7 +441,7 @@ describe('work_item_enqueue tool', () => {
   test('successfully enqueues by task_name (case-insensitive match)', async () => {
     createTask({ title: 'Run Database Migration', template: 'migrate' });
 
-    const result = await workItemEnqueueTool.execute({ task_name: 'database migration' }, stubContext);
+    const result = await taskListAddTool.execute({ task_name: 'database migration' }, stubContext);
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Enqueued work item');
@@ -452,7 +452,7 @@ describe('work_item_enqueue tool', () => {
     createTask({ title: 'Deploy Frontend', template: 'deploy fe' });
     createTask({ title: 'Deploy Backend', template: 'deploy be' });
 
-    const result = await workItemEnqueueTool.execute({ task_name: 'deploy' }, stubContext);
+    const result = await taskListAddTool.execute({ task_name: 'deploy' }, stubContext);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Multiple task definitions match');
@@ -463,21 +463,21 @@ describe('work_item_enqueue tool', () => {
   test('returns error when no matching task found', async () => {
     createTask({ title: 'Existing Task', template: 'do something' });
 
-    const result = await workItemEnqueueTool.execute({ task_name: 'nonexistent' }, stubContext);
+    const result = await taskListAddTool.execute({ task_name: 'nonexistent' }, stubContext);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('No task definition found matching "nonexistent"');
   });
 
   test('returns error when no identifiers provided at all', async () => {
-    const result = await workItemEnqueueTool.execute({}, stubContext);
+    const result = await taskListAddTool.execute({}, stubContext);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain('You must provide either task_id, task_name, or title');
   });
 
   test('creates ad-hoc work item with just title (no task_id or task_name)', async () => {
-    const result = await workItemEnqueueTool.execute(
+    const result = await taskListAddTool.execute(
       { title: 'Check Gmail' },
       stubContext,
     );
@@ -491,7 +491,7 @@ describe('work_item_enqueue tool', () => {
   });
 
   test('ad-hoc work item with notes and priority', async () => {
-    const result = await workItemEnqueueTool.execute(
+    const result = await taskListAddTool.execute(
       {
         title: 'Buy groceries',
         notes: 'Milk, eggs, bread',
@@ -506,13 +506,13 @@ describe('work_item_enqueue tool', () => {
     expect(result.content).toContain('Priority: high');
   });
 
-  test('ad-hoc work item shows up in work_item_list', async () => {
-    await workItemEnqueueTool.execute(
+  test('ad-hoc work item shows up in task_list_show', async () => {
+    await taskListAddTool.execute(
       { title: 'Call dentist' },
       stubContext,
     );
 
-    const listResult = await workItemListTool.execute({}, stubContext);
+    const listResult = await taskListShowTool.execute({}, stubContext);
 
     expect(listResult.isError).toBe(false);
     expect(listResult.content).toContain('Call dentist');
@@ -521,7 +521,7 @@ describe('work_item_enqueue tool', () => {
   test('applies optional overrides (title, notes, priority_tier)', async () => {
     const task = createTask({ title: 'Generic Task', template: 'do it' });
 
-    const result = await workItemEnqueueTool.execute(
+    const result = await taskListAddTool.execute(
       {
         task_id: task.id,
         title: 'Custom Title Override',

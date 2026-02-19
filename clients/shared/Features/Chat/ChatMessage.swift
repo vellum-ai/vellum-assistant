@@ -472,11 +472,11 @@ public struct ToolCallData: Identifiable, Equatable {
             return inputSummary.isEmpty ? "Ran a task" : "Ran \"\(truncated(inputSummary, to: 50))\""
         case "task_save":
             return "Saved a task"
-        case "task_list", "work_item_list":
+        case "task_list", "work_item_list", "task_list_show":
             return "Checked the task list"
         case "task_delete":
             return "Deleted a task"
-        case "work_item_enqueue":
+        case "work_item_enqueue", "task_list_add":
             return "Queued work"
         case "swarm_delegate":
             return inputSummary.isEmpty ? "Delegated to an agent" : "Delegated: \(truncated(inputSummary, to: 50))"

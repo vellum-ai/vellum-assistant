@@ -102,7 +102,7 @@ function cancelAction(input: Record<string, unknown>): ToolExecutionResult {
 
 class ReminderTool implements Tool {
   name = 'reminder';
-  description = 'Create, list, or cancel one-time time-based reminders. Reminders fire at a specific future time and either notify the user or execute a message through the assistant. Use this ONLY when the user wants a time-triggered notification (e.g. "remind me at 3pm", "remind me in 2 hours"). Do NOT use this for "add to my tasks" or "add to my queue" — use work_item_enqueue for those requests.';
+  description = 'Create, list, or cancel one-time time-based reminders. Reminders fire at a specific future time and either notify the user or execute a message through the assistant. Use this ONLY when the user wants a time-triggered notification (e.g. "remind me at 3pm", "remind me in 2 hours"). Do NOT use this for "add to my tasks" or "add to my queue" — use task_list_add for those requests.';
   category = 'reminder';
   defaultRiskLevel = RiskLevel.Low;
 

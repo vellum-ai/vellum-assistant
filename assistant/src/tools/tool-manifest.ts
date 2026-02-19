@@ -18,7 +18,7 @@ import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
 import { documentCreateTool, documentUpdateTool } from './document/index.js';
 import { cliDiscoverTool } from './host-terminal/cli-discover.js';
 import { followupCreateTool, followupListTool, followupResolveTool } from './followups/index.js';
-import { taskSaveTool, taskRunTool, taskListTool, taskDeleteTool, workItemListTool, workItemEnqueueTool } from './tasks/index.js';
+import { taskSaveTool, taskRunTool, taskListTool, taskDeleteTool, taskListShowTool, taskListAddTool } from './tasks/index.js';
 import {
   subagentSpawnTool,
   subagentStatusTool,
@@ -119,8 +119,8 @@ export const explicitTools: Tool[] = [
   taskRunTool,
   taskListTool,
   taskDeleteTool,
-  workItemListTool,
-  workItemEnqueueTool,
+  taskListShowTool,
+  taskListAddTool,
   subagentSpawnTool,
   subagentStatusTool,
   subagentAbortTool,

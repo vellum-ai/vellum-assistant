@@ -6,7 +6,7 @@ import { createSchedule, isValidCronExpression, formatLocalDate, describeCronExp
 
 class ScheduleCreateTool implements Tool {
   name = 'schedule_create';
-  description = 'Create a recurring scheduled automation that sends a message at a cron interval. ONLY use this when the user explicitly wants something to run on a schedule (e.g. "every day at 9am", "weekly on Mondays", "every hour"). Do NOT use this for "add to my tasks" or "add to my queue" — use work_item_enqueue for those requests instead.';
+  description = 'Create a recurring scheduled automation that sends a message at a cron interval. ONLY use this when the user explicitly wants something to run on a schedule (e.g. "every day at 9am", "weekly on Mondays", "every hour"). Do NOT use this for "add to my tasks" or "add to my queue" — use task_list_add for those requests instead.';
   category = 'schedule';
   defaultRiskLevel = RiskLevel.Medium;
 

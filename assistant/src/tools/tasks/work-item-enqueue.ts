@@ -12,7 +12,7 @@ const PRIORITY_LABELS: Record<number, string> = {
 };
 
 const definition: ToolDefinition = {
-  name: 'work_item_enqueue',
+  name: 'task_list_add',
   description:
     'Add a task to the user\'s Task Queue. Use this when the user says "add to my tasks", "add to my queue", "put this on my task list", "track this task", or any variation of adding a one-off item they want to remember or work on. You can provide just a title for ad-hoc items, or reference an existing task definition by name or ID. Do NOT use schedule_create or reminder for simple "add to tasks" requests — those are for timed/recurring automation only.',
   input_schema: {
@@ -48,8 +48,8 @@ const definition: ToolDefinition = {
   },
 };
 
-class WorkItemEnqueueTool implements Tool {
-  name = 'work_item_enqueue';
+class TaskListAddTool implements Tool {
+  name = 'task_list_add';
   description = definition.description;
   category = 'tasks';
   defaultRiskLevel = RiskLevel.Low;
@@ -174,4 +174,4 @@ class WorkItemEnqueueTool implements Tool {
   }
 }
 
-export const workItemEnqueueTool = new WorkItemEnqueueTool();
+export const taskListAddTool = new TaskListAddTool();

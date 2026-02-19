@@ -11,7 +11,7 @@ const PRIORITY_LABELS: Record<number, string> = {
 };
 
 const definition: ToolDefinition = {
-  name: 'work_item_list',
+  name: 'task_list_show',
   description: 'List the user\'s Task Queue (work items) with their status, priority, and last run info. Use this when the user says "show my tasks", "what\'s in my queue", "what\'s on my task list", or similar.',
   input_schema: {
     type: 'object',
@@ -28,8 +28,8 @@ const definition: ToolDefinition = {
   },
 };
 
-class WorkItemListTool implements Tool {
-  name = 'work_item_list';
+class TaskListShowTool implements Tool {
+  name = 'task_list_show';
   description = definition.description;
   category = 'tasks';
   defaultRiskLevel = RiskLevel.Low;
@@ -84,4 +84,4 @@ class WorkItemListTool implements Tool {
   }
 }
 
-export const workItemListTool = new WorkItemListTool();
+export const taskListShowTool = new TaskListShowTool();

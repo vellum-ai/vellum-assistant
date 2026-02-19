@@ -6,7 +6,7 @@ import { compileTaskFromConversation, saveCompiledTask } from '../../tasks/task-
 const definition: ToolDefinition = {
   name: 'task_save',
   description:
-    'Save the current conversation as a reusable task template (definition). This is NOT for adding items to the user\'s task queue — use work_item_enqueue for that. task_save extracts the conversation pattern into a reusable definition with placeholders that can be run later with different inputs.',
+    'Save the current conversation as a reusable task template (definition). This is NOT for adding items to the user\'s task queue — use task_list_add for that. task_save extracts the conversation pattern into a reusable definition with placeholders that can be run later with different inputs.',
   input_schema: {
     type: 'object',
     properties: {

@@ -51,7 +51,7 @@ mock.module('../config/loader.js', () => ({
 
 // ── Import after mocks ───────────────────────────────────────────────
 const { buildSystemPrompt } = await import('../config/system-prompt.js');
-const { workItemEnqueueTool } = await import('../tools/tasks/work-item-enqueue.js');
+const { taskListAddTool } = await import('../tools/tasks/work-item-enqueue.js');
 const { reminderTool } = await import('../tools/reminder/reminder.js');
 
 // schedule_create is registered via side-effect import; import the module
@@ -81,7 +81,7 @@ describe('Task/Schedule/Reminder routing section in system prompt', () => {
 
   test('routing section explains all three subsystems', () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain('### Task Queue (work_item_enqueue / work_item_list)');
+    expect(prompt).toContain('### Task Queue (task_list_add / task_list_show)');
     expect(prompt).toContain('### Schedules (schedule_create / schedule_list / schedule_update / schedule_delete)');
     expect(prompt).toContain('### Reminders (reminder)');
   });
@@ -116,14 +116,14 @@ describe('Task/Schedule/Reminder routing section in system prompt', () => {
   test('routing section includes common mistakes to avoid', () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain('### Common mistakes to avoid');
-    // The key mis-routing guard: "add this to my tasks" should go to work_item_enqueue
-    expect(prompt).toContain('"Add this to my tasks" → work_item_enqueue (NOT schedule_create or reminder)');
+    // The key mis-routing guard: "add this to my tasks" should go to task_list_add
+    expect(prompt).toContain('"Add this to my tasks" → task_list_add (NOT schedule_create or reminder)');
   });
 
   test('routing section distinguishes timed vs untimed "remind me"', () => {
     const prompt = buildSystemPrompt();
     // Without a time → task queue
-    expect(prompt).toContain('"Remind me to buy groceries" without a time → work_item_enqueue');
+    expect(prompt).toContain('"Remind me to buy groceries" without a time → task_list_add');
     // With a time → reminder
     expect(prompt).toContain('"Remind me at 5pm to buy groceries" → reminder');
   });
@@ -142,29 +142,29 @@ describe('Task/Schedule/Reminder routing section in system prompt', () => {
 // 2. Tool description content: routing keywords
 // =====================================================================
 
-describe('work_item_enqueue tool description', () => {
+describe('task_list_add tool description', () => {
   test('mentions "add to my tasks" routing phrase', () => {
-    const def = workItemEnqueueTool.getDefinition();
+    const def = taskListAddTool.getDefinition();
     expect(def.description).toContain('add to my tasks');
   });
 
   test('mentions "add to my queue" routing phrase', () => {
-    const def = workItemEnqueueTool.getDefinition();
+    const def = taskListAddTool.getDefinition();
     expect(def.description).toContain('add to my queue');
   });
 
   test('mentions "put this on my task list" routing phrase', () => {
-    const def = workItemEnqueueTool.getDefinition();
+    const def = taskListAddTool.getDefinition();
     expect(def.description).toContain('put this on my task list');
   });
 
   test('mentions ad-hoc title-only mode', () => {
-    const def = workItemEnqueueTool.getDefinition();
+    const def = taskListAddTool.getDefinition();
     expect(def.description).toContain('just a title');
   });
 
   test('explicitly warns NOT to use schedule_create or reminder for task requests', () => {
-    const def = workItemEnqueueTool.getDefinition();
+    const def = taskListAddTool.getDefinition();
     expect(def.description).toContain('Do NOT use schedule_create or reminder');
   });
 });
@@ -189,10 +189,10 @@ describe('schedule_create tool description', () => {
     expect(def.description).toContain('Do NOT use this for "add to my tasks"');
   });
 
-  test('redirects to work_item_enqueue for task queue items', () => {
+  test('redirects to task_list_add for task queue items', () => {
     const tool = getTool('schedule_create');
     const def = tool!.getDefinition();
-    expect(def.description).toContain('work_item_enqueue');
+    expect(def.description).toContain('task_list_add');
   });
 
   test('does NOT suggest it handles task queue items', () => {
@@ -220,9 +220,9 @@ describe('reminder tool description', () => {
     expect(def.description).toContain('Do NOT use this for "add to my tasks"');
   });
 
-  test('redirects to work_item_enqueue for task queue items', () => {
+  test('redirects to task_list_add for task queue items', () => {
     const def = reminderTool.getDefinition();
-    expect(def.description).toContain('work_item_enqueue');
+    expect(def.description).toContain('task_list_add');
   });
 });
 
@@ -231,16 +231,16 @@ describe('reminder tool description', () => {
 // =====================================================================
 
 describe('cross-tool routing consistency', () => {
-  test('all three tools reference work_item_enqueue as the task-queue tool', () => {
-    const enqueueDef = workItemEnqueueTool.getDefinition();
+  test('all three tools reference task_list_add as the task-queue tool', () => {
+    const enqueueDef = taskListAddTool.getDefinition();
     const scheduleTool = getTool('schedule_create')!;
     const scheduleDef = scheduleTool.getDefinition();
     const reminderDef = reminderTool.getDefinition();
 
-    // work_item_enqueue is the canonical name in all three descriptions
-    expect(enqueueDef.name).toBe('work_item_enqueue');
-    expect(scheduleDef.description).toContain('work_item_enqueue');
-    expect(reminderDef.description).toContain('work_item_enqueue');
+    // task_list_add is the canonical name in all three descriptions
+    expect(enqueueDef.name).toBe('task_list_add');
+    expect(scheduleDef.description).toContain('task_list_add');
+    expect(reminderDef.description).toContain('task_list_add');
   });
 
   test('schedule_create and reminder both reject "add to my queue" usage', () => {
