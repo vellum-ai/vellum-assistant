@@ -336,16 +336,21 @@ struct ChatBubble: View {
             }
             .frame(maxWidth: 520, alignment: .leading)
         } else if hasActuallyRunningTool && !permissionWasDenied {
-            // In progress — show single running indicator for the active tool
+            // In progress — show running indicator or claude_code progress view
             let current = message.toolCalls.first(where: { !$0.isComplete })!
-            let progressive = current.buildingStatus != nil ? [] : Self.progressiveLabels(for: current.toolName)
-            RunningIndicator(
-                label: Self.friendlyRunningLabel(current.toolName, inputSummary: current.inputSummary, buildingStatus: current.buildingStatus),
-                progressiveLabels: progressive,
-                labelInterval: progressive.isEmpty ? 6 : 15,
-                onTap: nil
-            )
-                .frame(maxWidth: 520, alignment: .leading)
+            if current.toolName == "claude_code" && !current.claudeCodeSteps.isEmpty {
+                ClaudeCodeProgressView(steps: current.claudeCodeSteps, isRunning: true)
+                    .frame(maxWidth: 520, alignment: .leading)
+            } else {
+                let progressive = current.buildingStatus != nil ? [] : Self.progressiveLabels(for: current.toolName)
+                RunningIndicator(
+                    label: Self.friendlyRunningLabel(current.toolName, inputSummary: current.inputSummary, buildingStatus: current.buildingStatus),
+                    progressiveLabels: progressive,
+                    labelInterval: progressive.isEmpty ? 6 : 15,
+                    onTap: nil
+                )
+                    .frame(maxWidth: 520, alignment: .leading)
+            }
         } else if toolsCompleteButStillStreaming && !permissionWasDenied {
             // All tools done but model is still working (generating next tool call)
             RunningIndicator(

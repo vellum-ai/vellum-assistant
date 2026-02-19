@@ -1,0 +1,203 @@
+import SwiftUI
+
+struct ClaudeCodeProgressView: View {
+    let steps: [ClaudeCodeSubStep]
+    let isRunning: Bool
+
+    @State private var isExpanded: Bool = true
+
+    // Show only the last 8 steps to keep the view manageable
+    private var visibleSteps: [ClaudeCodeSubStep] {
+        if steps.count <= 8 { return steps }
+        return Array(steps.suffix(8))
+    }
+
+    private var completedCount: Int {
+        steps.filter { $0.isComplete }.count
+    }
+
+    private var currentStep: ClaudeCodeSubStep? {
+        steps.last(where: { !$0.isComplete }) ?? steps.last
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header button
+            Button(action: {
+                withAnimation(VAnimation.fast) {
+                    isExpanded.toggle()
+                }
+            }) {
+                HStack(spacing: VSpacing.sm) {
+                    // Status indicator
+                    if isRunning {
+                        // Pulsing dot for running state
+                        Circle()
+                            .fill(VColor.accent)
+                            .frame(width: 8, height: 8)
+                            .modifier(PulsingModifier())
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.success)
+                    }
+
+                    // Label
+                    if isRunning, let current = currentStep {
+                        Text(current.friendlyName)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        if !current.inputSummary.isEmpty {
+                            Text(abbreviatePath(current.inputSummary))
+                                .font(VFont.monoSmall)
+                                .foregroundColor(VColor.textMuted)
+                                .lineLimit(1)
+                        }
+                    } else {
+                        Text("Completed \(completedCount) step\(completedCount == 1 ? "" : "s")")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+
+                    Spacer()
+
+                    // Chevron
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(VColor.textMuted)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+
+            // Expanded step list
+            if isExpanded {
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    ForEach(visibleSteps) { step in
+                        HStack(spacing: VSpacing.sm) {
+                            // Step status icon
+                            if step.isComplete {
+                                if step.isError {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(VColor.error)
+                                } else {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(VColor.success)
+                                }
+                            } else {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                    .frame(width: 11, height: 11)
+                            }
+
+                            // Tool icon + name
+                            Image(systemName: step.toolIcon)
+                                .font(.system(size: 10))
+                                .foregroundColor(VColor.textMuted)
+                                .frame(width: 14)
+
+                            Text(step.friendlyName)
+                                .font(VFont.captionMedium)
+                                .foregroundColor(VColor.textSecondary)
+
+                            // Input summary
+                            if !step.inputSummary.isEmpty {
+                                Text(abbreviatePath(step.inputSummary))
+                                    .font(VFont.monoSmall)
+                                    .foregroundColor(VColor.textMuted)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+
+                            Spacer()
+                        }
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xxs)
+                    }
+
+                    if steps.count > 8 {
+                        Text("+ \(steps.count - 8) earlier steps")
+                            .font(VFont.small)
+                            .foregroundColor(VColor.textMuted)
+                            .padding(.horizontal, VSpacing.sm)
+                    }
+                }
+                .padding(.bottom, VSpacing.xs)
+            }
+        }
+        .background(VColor.surface.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .onChange(of: isRunning) { _, newValue in
+            // Auto-collapse when done
+            if !newValue {
+                withAnimation(VAnimation.fast) {
+                    isExpanded = false
+                }
+            }
+        }
+    }
+
+    /// Abbreviate long file paths to just the last component
+    private func abbreviatePath(_ input: String) -> String {
+        // If it looks like a file path, show just the filename
+        if input.contains("/") && !input.contains(" ") {
+            return URL(fileURLWithPath: input).lastPathComponent
+        }
+        // For commands, truncate
+        if input.count > 60 {
+            return String(input.prefix(57)) + "..."
+        }
+        return input
+    }
+}
+
+/// A simple pulsing opacity modifier for the running indicator dot
+private struct PulsingModifier: ViewModifier {
+    @State private var isPulsing = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isPulsing ? 0.4 : 1.0)
+            .animation(
+                Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true),
+                value: isPulsing
+            )
+            .onAppear { isPulsing = true }
+    }
+}
+
+#Preview("Running") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        ClaudeCodeProgressView(
+            steps: [
+                ClaudeCodeSubStep(toolName: "Read", inputSummary: "/src/main.ts", isComplete: true),
+                ClaudeCodeSubStep(toolName: "Edit", inputSummary: "/src/main.ts", isComplete: true),
+                ClaudeCodeSubStep(toolName: "Bash", inputSummary: "npm test", isComplete: false),
+            ],
+            isRunning: true
+        )
+        .frame(width: 400)
+        .padding()
+    }
+}
+
+#Preview("Completed") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        ClaudeCodeProgressView(
+            steps: [
+                ClaudeCodeSubStep(toolName: "Read", inputSummary: "/src/main.ts", isComplete: true),
+                ClaudeCodeSubStep(toolName: "Edit", inputSummary: "/src/main.ts", isComplete: true),
+                ClaudeCodeSubStep(toolName: "Bash", inputSummary: "npm test", isComplete: true),
+            ],
+            isRunning: false
+        )
+        .frame(width: 400)
+        .padding()
+    }
+}
