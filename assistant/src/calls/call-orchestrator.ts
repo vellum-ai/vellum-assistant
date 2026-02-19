@@ -215,7 +215,8 @@ export class CallOrchestrator {
             '[ASK_USER:'.startsWith(afterBracket) ||
             '[END_CALL]'.startsWith(afterBracket) ||
             afterBracket.startsWith('[ASK_USER:') ||
-            afterBracket.startsWith('[END_CALL');
+            afterBracket === '[END_CALL' ||
+            afterBracket.startsWith('[END_CALL]');
 
           if (!couldBeControl) {
             // Not a control marker prefix — flush up to the next '[' (if any)
