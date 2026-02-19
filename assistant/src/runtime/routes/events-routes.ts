@@ -33,6 +33,11 @@ export function handleSubscribeAssistantEvents(
 
   const stream = new ReadableStream({
     start(controller) {
+      // 'self' is the assistantId that RunOrchestrator assigns to all HTTP-run events
+      // (see buildAssistantEvent('self', ...) in run-orchestrator.ts). This endpoint
+      // is part of the HTTP runtime API, so only HTTP-run events are relevant here.
+      // IPC/daemon events use a different assistantId ('default') and reach desktop
+      // clients through a separate channel — they are intentionally excluded.
       sub = assistantEventHub.subscribe(
         { assistantId: 'self', sessionId: mapping.conversationId },
         (event) => {
