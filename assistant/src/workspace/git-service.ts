@@ -217,7 +217,12 @@ export class WorkspaceGitService {
           // fall through to the initial commit logic below.
           try {
             await this.execGit(['rev-parse', 'HEAD']);
-            // HEAD resolves — repo is fully initialized
+            // HEAD resolves — repo is fully initialized.
+            // Run normalization for existing repos that may have been
+            // created before these helpers existed, or by external tools.
+            this.ensureGitignoreRulesLocked();
+            await this.ensureCommitIdentityLocked();
+            await this.ensureOnMainLocked();
             this.initialized = true;
             return;
           } catch (err: unknown) {
@@ -250,24 +255,13 @@ export class WorkspaceGitService {
       // Initialize new git repository
       await this.execGit(['init', '-b', 'main']);
 
-      // Ensure .gitignore contains runtime exclusions.
-      // Preserve any existing rules the workspace already had.
-      const gitignorePath = join(this.workspaceDir, '.gitignore');
-      if (existsSync(gitignorePath)) {
-        const existing = readFileSync(gitignorePath, 'utf-8');
-        const missingRules = WORKSPACE_GITIGNORE_RULES.filter(rule => !existing.includes(rule));
-        if (missingRules.length > 0) {
-          const section = '\n# Vellum runtime state (auto-added)\n' + missingRules.join('\n') + '\n';
-          writeFileSync(gitignorePath, existing + section, 'utf-8');
-        }
-      } else {
-        const gitignore = '# Runtime state - excluded from git tracking\n' + WORKSPACE_GITIGNORE_RULES.join('\n') + '\n';
-        writeFileSync(gitignorePath, gitignore, 'utf-8');
-      }
-
-      // Set git identity for automated commits
-      await this.execGit(['config', 'user.name', 'Vellum Assistant']);
-      await this.execGit(['config', 'user.email', 'assistant@vellum.ai']);
+      // Run normalization (gitignore + identity + branch enforcement).
+      // For fresh `git init -b main` the branch is already main, but
+      // in the corruption-recovery path we fall through here after
+      // removing .git, so branch enforcement is still useful.
+      this.ensureGitignoreRulesLocked();
+      await this.ensureCommitIdentityLocked();
+      await this.ensureOnMainLocked();
 
       // Create initial commit synchronously within the lock to prevent
       // races with the first commitChanges() call. Without this, the
@@ -422,6 +416,70 @@ export class WorkspaceGitService {
       untracked,
       clean: staged.length === 0 && modified.length === 0 && untracked.length === 0,
     };
+  }
+
+  /**
+   * Ensure .gitignore contains all required workspace exclusion rules.
+   * Idempotent: checks for missing rules and only appends what's needed.
+   * Must be called with the mutex lock held.
+   */
+  private ensureGitignoreRulesLocked(): void {
+    const gitignorePath = join(this.workspaceDir, '.gitignore');
+    if (existsSync(gitignorePath)) {
+      const existing = readFileSync(gitignorePath, 'utf-8');
+      const missingRules = WORKSPACE_GITIGNORE_RULES.filter(rule => !existing.includes(rule));
+      if (missingRules.length > 0) {
+        const section = '\n# Vellum runtime state (auto-added)\n' + missingRules.join('\n') + '\n';
+        writeFileSync(gitignorePath, existing + section, 'utf-8');
+      }
+    } else {
+      const gitignore = '# Runtime state - excluded from git tracking\n' + WORKSPACE_GITIGNORE_RULES.join('\n') + '\n';
+      writeFileSync(gitignorePath, gitignore, 'utf-8');
+    }
+  }
+
+  /**
+   * Ensure local git identity is configured for automated commits.
+   * Idempotent: git config set is a no-op if the value is already correct.
+   * Must be called with the mutex lock held.
+   */
+  private async ensureCommitIdentityLocked(): Promise<void> {
+    await this.execGit(['config', 'user.name', 'Vellum Assistant']);
+    await this.execGit(['config', 'user.email', 'assistant@vellum.ai']);
+  }
+
+  /**
+   * Ensure the workspace repo is on the `main` branch.
+   * If on a different branch or in detached HEAD state, switches to main
+   * (creating it if it doesn't exist).
+   * Must be called with the mutex lock held.
+   */
+  private async ensureOnMainLocked(): Promise<void> {
+    let currentBranch: string | null = null;
+    try {
+      const { stdout } = await this.execGit(['symbolic-ref', '--short', 'HEAD']);
+      currentBranch = stdout.trim();
+    } catch {
+      // symbolic-ref fails in detached HEAD state
+      currentBranch = null;
+    }
+
+    if (currentBranch === 'main') {
+      return;
+    }
+
+    const state = currentBranch === null ? 'detached HEAD' : `branch '${currentBranch}'`;
+    log.warn(
+      { workspaceDir: this.workspaceDir, currentBranch },
+      `Workspace repo is on ${state}; auto-switching to main`,
+    );
+
+    // Try switching to existing main branch first, fall back to creating it
+    try {
+      await this.execGit(['switch', 'main']);
+    } catch {
+      await this.execGit(['switch', '-c', 'main']);
+    }
   }
 
   /**

@@ -453,6 +453,162 @@ describe('WorkspaceGitService', () => {
     });
   });
 
+  describe('existing repo normalization', () => {
+    test('existing repo on feature branch auto-switches to main on init', async () => {
+      // Set up a pre-existing git repo on a feature branch
+      execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
+      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
+      execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
+      writeFileSync(join(testDir, 'file.txt'), 'content');
+      execFileSync('git', ['add', '-A'], { cwd: testDir });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: testDir });
+      execFileSync('git', ['checkout', '-b', 'feature-branch'], { cwd: testDir });
+
+      // Verify we're on feature-branch
+      const branchBefore = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      }).trim();
+      expect(branchBefore).toBe('feature-branch');
+
+      // Initialize the service — should auto-switch to main
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const branchAfter = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      }).trim();
+      expect(branchAfter).toBe('main');
+    });
+
+    test('detached HEAD recovers to main on init', async () => {
+      // Set up a pre-existing git repo then detach HEAD
+      execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
+      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
+      execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
+      writeFileSync(join(testDir, 'file.txt'), 'content');
+      execFileSync('git', ['add', '-A'], { cwd: testDir });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: testDir });
+      // Detach HEAD by checking out the commit hash
+      const commitHash = execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      }).trim();
+      execFileSync('git', ['checkout', commitHash], { cwd: testDir });
+
+      // Verify we're in detached HEAD
+      let isDetached = false;
+      try {
+        execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: testDir });
+      } catch {
+        isDetached = true;
+      }
+      expect(isDetached).toBe(true);
+
+      // Initialize the service — should recover to main
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const branchAfter = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      }).trim();
+      expect(branchAfter).toBe('main');
+    });
+
+    test('existing repo gets .gitignore rules appended on init', async () => {
+      // Set up a pre-existing git repo without our gitignore rules
+      execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
+      execFileSync('git', ['config', 'user.name', 'Test'], { cwd: testDir });
+      execFileSync('git', ['config', 'user.email', 'test@test.com'], { cwd: testDir });
+      writeFileSync(join(testDir, '.gitignore'), 'node_modules/\n');
+      writeFileSync(join(testDir, 'file.txt'), 'content');
+      execFileSync('git', ['add', '-A'], { cwd: testDir });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: testDir });
+
+      // Verify .gitignore does NOT have our rules yet
+      const contentBefore = readFileSync(join(testDir, '.gitignore'), 'utf-8');
+      expect(contentBefore).not.toContain('data/');
+      expect(contentBefore).not.toContain('vellum.sock');
+
+      // Initialize the service — should append rules
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const contentAfter = readFileSync(join(testDir, '.gitignore'), 'utf-8');
+      expect(contentAfter).toContain('node_modules/');  // original rule preserved
+      expect(contentAfter).toContain('data/');
+      expect(contentAfter).toContain('*.log');
+      expect(contentAfter).toContain('vellum.sock');
+      expect(contentAfter).toContain('session-token');
+    });
+
+    test('existing repo gets local identity set on init', async () => {
+      // Set up a pre-existing git repo with a different identity
+      execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
+      execFileSync('git', ['config', 'user.name', 'Old Name'], { cwd: testDir });
+      execFileSync('git', ['config', 'user.email', 'old@example.com'], { cwd: testDir });
+      writeFileSync(join(testDir, 'file.txt'), 'content');
+      execFileSync('git', ['add', '-A'], { cwd: testDir });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: testDir });
+
+      // Initialize the service — should set identity
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const userName = execFileSync('git', ['config', 'user.name'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      }).trim();
+      const userEmail = execFileSync('git', ['config', 'user.email'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      }).trim();
+
+      expect(userName).toBe('Vellum Assistant');
+      expect(userEmail).toBe('assistant@vellum.ai');
+    });
+
+    test('existing repo with correct config is idempotent', async () => {
+      // Set up a repo that already has everything configured correctly
+      execFileSync('git', ['init', '-b', 'main'], { cwd: testDir });
+      execFileSync('git', ['config', 'user.name', 'Vellum Assistant'], { cwd: testDir });
+      execFileSync('git', ['config', 'user.email', 'assistant@vellum.ai'], { cwd: testDir });
+      const gitignoreContent = '# Runtime state - excluded from git tracking\ndata/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.sock\nvellum.pid\nsession-token\nhttp-token\n';
+      writeFileSync(join(testDir, '.gitignore'), gitignoreContent);
+      writeFileSync(join(testDir, 'file.txt'), 'content');
+      execFileSync('git', ['add', '-A'], { cwd: testDir });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: testDir });
+
+      const gitignoreBefore = readFileSync(join(testDir, '.gitignore'), 'utf-8');
+
+      // Initialize the service — should be a no-op
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Verify nothing changed
+      const gitignoreAfter = readFileSync(join(testDir, '.gitignore'), 'utf-8');
+      expect(gitignoreAfter).toBe(gitignoreBefore);
+
+      const userName = execFileSync('git', ['config', 'user.name'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      }).trim();
+      expect(userName).toBe('Vellum Assistant');
+
+      const branch = execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+        cwd: testDir,
+        encoding: 'utf-8',
+      }).trim();
+      expect(branch).toBe('main');
+
+      // No errors, no duplicate rules
+      const ruleCount = (gitignoreAfter.match(/data\//g) || []).length;
+      expect(ruleCount).toBe(1);
+    });
+  });
+
   describe('gitignore behavior', () => {
     test('respects .gitignore for data directory', async () => {
       const service = new WorkspaceGitService(testDir);
