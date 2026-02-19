@@ -11,6 +11,7 @@ import {
 
 // Override getDataDir to use a temp directory during tests
 const TEST_DIR = join(tmpdir(), `vellum-dd-test-${process.pid}`);
+let originalDataDir: string | undefined;
 
 // We mock getDataDir by patching the module at the fs level:
 // session.ts calls getSessionDir() -> join(getDataDir(), 'doordash')
