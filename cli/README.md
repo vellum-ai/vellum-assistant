@@ -48,7 +48,7 @@ vellum-cli hatch [species] [options]
 
 | Variable              | Required For | Description |
 | --------------------- | ------------ | ----------- |
-| `ANTHROPIC_API_KEY`   | `gcp`, `custom` | Anthropic API key passed to the assistant runtime. |
+| `ANTHROPIC_API_KEY`   | All             | Anthropic API key passed to the assistant runtime. |
 | `GCP_PROJECT`         | `gcp`        | GCP project ID. Falls back to the active `gcloud` project. |
 | `GCP_DEFAULT_ZONE`    | `gcp`        | GCP zone for the compute instance. |
 | `VELLUM_CUSTOM_HOST`  | `custom`     | SSH host in `user@hostname` format. |
