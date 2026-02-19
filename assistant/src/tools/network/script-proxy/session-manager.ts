@@ -19,6 +19,10 @@ import { resolveById } from '../../credentials/resolve.js';
 import { listCredentialMetadata } from '../../credentials/metadata-store.js';
 import type { CredentialInjectionTemplate } from '../../credentials/policy-types.js';
 import { getSecureKey } from '../../../security/secure-keys.js';
+import { buildDecisionTrace } from './logging.js';
+import { getLogger } from '../../../util/logger.js';
+
+const log = getLogger('proxy-session');
 
 const DEFAULT_CONFIG: ProxySessionConfig = {
   idleTimeoutMs: 5 * 60 * 1000, // 5 minutes
@@ -201,6 +205,7 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
           if (perCredentialBest.length > 1) return null;
 
           const { credId, tpl } = perCredentialBest[0];
+          log.debug({ host: req.hostname, pattern: tpl.hostPattern, credentialId: credId }, 'MITM rewrite: injecting credential');
 
           if (tpl.injectionType === 'header' && tpl.headerName) {
             const resolved = resolveById(credId);
@@ -248,6 +253,8 @@ export async function startSession(sessionId: ProxySessionId, options?: { listen
       hostname, port, reqPath,
       managed.session.credentialIds, templates, getAllKnown(), scheme,
     );
+
+    log.debug({ trace: buildDecisionTrace(hostname, port, reqPath, scheme, decision) }, 'Policy decision');
 
     switch (decision.kind) {
       case 'matched': {

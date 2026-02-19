@@ -16,6 +16,7 @@ import {
 } from '../network/script-proxy/index.js';
 import { getDataDir } from '../../util/platform.js';
 import { resolveCredentialRef } from '../credentials/resolve.js';
+import { buildCredentialRefTrace } from '../network/script-proxy/logging.js';
 
 const log = getLogger('shell-tool');
 
@@ -127,11 +128,13 @@ class ShellTool implements Tool {
         }
       }
       if (unresolvedRefs.length > 0) {
+        log.warn({ trace: buildCredentialRefTrace(rawCredentialRefs, credentialIds, unresolvedRefs) }, 'Credential ref resolution failed');
         return {
           content: `Error: unknown credential reference(s): ${unresolvedRefs.join(', ')}. Use credential_store list to see available credentials.`,
           isError: true,
         };
       }
+      log.debug({ trace: buildCredentialRefTrace(rawCredentialRefs, credentialIds, []) }, 'Credential refs resolved');
     } else {
       credentialIds.push(...rawCredentialRefs);
     }
