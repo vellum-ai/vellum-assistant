@@ -1,3 +1,4 @@
+import { spawn as spawnChild } from "child_process";
 import { randomBytes } from "crypto";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir, userInfo } from "os";
@@ -5,6 +6,8 @@ import { join } from "path";
 
 import { buildStartupScript, watchHatching } from "../commands/hatch";
 import type { PollResult } from "../commands/hatch";
+import { saveAssistantEntry } from "./assistant-config";
+import type { AssistantEntry } from "./assistant-config";
 import { GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
 import { generateRandomSuffix } from "./random-name";
@@ -454,23 +457,18 @@ export async function hatchAws(
     const runtimeUrl = externalIp
       ? `http://${externalIp}:${GATEWAY_PORT}`
       : `http://${instanceName}:${GATEWAY_PORT}`;
-    const entryFilePath = process.env.VELLUM_HATCH_ENTRY_FILE;
-    if (entryFilePath) {
-      writeFileSync(
-        entryFilePath,
-        JSON.stringify({
-          assistantId: instanceName,
-          runtimeUrl,
-          bearerToken,
-          cloud: "aws",
-          instanceId,
-          region,
-          species,
-          sshUser,
-          hatchedAt: new Date().toISOString(),
-        }),
-      );
-    }
+    const awsEntry: AssistantEntry = {
+      assistantId: instanceName,
+      runtimeUrl,
+      bearerToken,
+      cloud: "aws",
+      instanceId,
+      region,
+      species,
+      sshUser,
+      hatchedAt: new Date().toISOString(),
+    };
+    saveAssistantEntry(awsEntry);
 
     if (detached) {
       console.log("\u{1F680} Startup script is running on the instance...");
@@ -519,4 +517,74 @@ export async function hatchAws(
     console.error("\u274c Error:", error instanceof Error ? error.message : error);
     process.exit(1);
   }
+}
+
+async function getInstanceIdByName(
+  name: string,
+  region: string,
+): Promise<string | null> {
+  try {
+    const output = await execOutput("aws", [
+      "ec2",
+      "describe-instances",
+      "--filters",
+      `Name=tag:Name,Values=${name}`,
+      "Name=instance-state-name,Values=pending,running,stopping,stopped",
+      "--query",
+      "Reservations[0].Instances[0].InstanceId",
+      "--output",
+      "text",
+      "--region",
+      region,
+    ]);
+    const id = output.trim();
+    return id && id !== "None" ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function retireInstance(
+  name: string,
+  region: string,
+): Promise<void> {
+  const instanceId = await getInstanceIdByName(name, region);
+  if (!instanceId) {
+    console.warn(
+      `\u26a0\ufe0f  Instance ${name} not found in AWS (region=${region}).`,
+    );
+    return;
+  }
+
+  console.log(`\u{1F5D1}\ufe0f  Terminating AWS instance ${name} (${instanceId})\n`);
+
+  const child = spawnChild(
+    "aws",
+    [
+      "ec2",
+      "terminate-instances",
+      "--instance-ids",
+      instanceId,
+      "--region",
+      region,
+    ],
+    { stdio: "inherit" },
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(
+          new Error(
+            `aws ec2 terminate-instances exited with code ${code}`,
+          ),
+        );
+      }
+    });
+    child.on("error", reject);
+  });
+
+  console.log(`\u2705 Instance ${name} (${instanceId}) terminated.`);
 }

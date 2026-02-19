@@ -152,15 +152,10 @@ enum PixelSpriteBuilder {
 
     // MARK: - NSImage for SwiftUI
 
-    /// Builds an NSImage of the dino pixel art with a custom palette.
-    static func buildDinoNSImage(pixelSize: CGFloat, palette: DinoPalette) -> NSImage {
-        let grid = PixelArtData.dino(palette: palette)
+    /// Builds an NSImage of the blob pixel art with a custom palette.
+    static func buildBlobNSImage(pixelSize: CGFloat, palette: DinoPalette) -> NSImage {
+        let grid = PixelArtData.blob(palette: palette)
         return buildNSImage(from: grid, pixelSize: pixelSize)
-    }
-
-    /// Builds an NSImage of the dino pixel art using the default palette.
-    static func buildDinoNSImage(pixelSize: CGFloat) -> NSImage {
-        return buildNSImage(from: PixelArtData.dino, pixelSize: pixelSize)
     }
 
     /// Renders any pixel grid into an NSImage.

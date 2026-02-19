@@ -41,6 +41,9 @@ final class OnboardingState {
     var cloudProvider: String = "local"
     var onboardingVariant: OnboardingVariant = .default
 
+    // Avatar evolution state for progressive visual changes during onboarding
+    var avatarEvolutionState = AvatarEvolutionState()
+
     /// When false, step changes are not written to UserDefaults (used by auth gate).
     var shouldPersist: Bool = true
 
@@ -126,6 +129,8 @@ final class OnboardingState {
         if currentStep > maxStep {
             currentStep = maxStep
         }
+
+        avatarEvolutionState.load()
     }
 
     func advance(by steps: Int = 1) {
@@ -152,5 +157,6 @@ final class OnboardingState {
         for key in ["onboarding.step", "onboarding.name", "onboarding.key", "onboarding.hatched", "onboarding.interviewCompleted", "onboarding.variant", "onboarding.firstMeetingCrackProgress", "onboarding.flowVersion", "onboarding.cloudProvider"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
+        AvatarEvolutionState.clearPersistedState()
     }
 }

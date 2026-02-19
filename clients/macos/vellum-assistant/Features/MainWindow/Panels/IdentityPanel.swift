@@ -5,7 +5,7 @@ struct IdentityPanel: View {
     let onClose: () -> Void
     var onInvokeSkill: ((SkillInfo) -> Void)?
     let daemonClient: DaemonClient
-    private let appearance = AvatarAppearanceManager.shared
+    @State private var appearance = AvatarAppearanceManager.shared
 
     @State private var identity: IdentityInfo?
     @State private var metadata: AssistantMetadata?

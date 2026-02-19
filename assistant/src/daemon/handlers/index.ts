@@ -105,6 +105,12 @@ import {
   handleWorkItemRunTask,
 } from './work-items.js';
 
+import {
+  handleSubagentAbort,
+  handleSubagentStatus,
+  handleSubagentMessage,
+} from './subagents.js';
+
 // Re-export types and utilities for backwards compatibility
 export type {
   HandlerContext,
@@ -321,6 +327,10 @@ const handlers: DispatchMap = {
   work_item_update: handleWorkItemUpdate,
   work_item_complete: handleWorkItemComplete,
   work_item_run_task: handleWorkItemRunTask,
+
+  subagent_abort: handleSubagentAbort,
+  subagent_status: handleSubagentStatus,
+  subagent_message: handleSubagentMessage,
 };
 
 export function handleMessage(

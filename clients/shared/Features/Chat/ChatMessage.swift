@@ -379,6 +379,285 @@ public struct ToolCallData: Identifiable, Equatable {
     #else
     #error("Unsupported platform")
     #endif
+
+    /// Human-readable label for the tool (e.g. "Run Command" instead of "bash").
+    public var friendlyName: String {
+        switch toolName {
+        case "bash", "host_bash":                  return "Run Command"
+        case "file_write", "host_file_write":      return "Write File"
+        case "file_edit", "host_file_edit":        return "Edit File"
+        case "file_read", "host_file_read":        return "Read File"
+        case "glob":                               return "Find Files"
+        case "grep":                               return "Search Files"
+        case "web_fetch":                          return "Fetch URL"
+        case "browser_navigate":                   return "Open Page"
+        case "browser_screenshot":                 return "Take Screenshot"
+        case "browser_click":                      return "Click Element"
+        case "browser_type":                       return "Type Text"
+        case "app_create":                         return "Create App"
+        case "app_update":                         return "Update App"
+        case "request_system_permission":          return "Request Permission"
+        default:
+            return toolName
+                .replacingOccurrences(of: "_", with: " ")
+                .split(separator: " ")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                .joined(separator: " ")
+        }
+    }
+
+    /// SF Symbol name appropriate for the tool type.
+    public var toolIcon: String {
+        switch toolName {
+        case "bash", "host_bash":                  return "terminal"
+        case "file_write", "host_file_write":      return "doc.badge.plus"
+        case "file_edit", "host_file_edit":        return "pencil.line"
+        case "file_read", "host_file_read":        return "doc.text"
+        case "glob":                               return "folder.badge.magnifyingglass"
+        case "grep":                               return "magnifyingglass"
+        case "web_fetch":                          return "arrow.down.circle"
+        case "browser_navigate":                   return "globe"
+        case "browser_screenshot":                 return "camera.viewfinder"
+        case "browser_click":                      return "cursorarrow.click"
+        case "browser_type":                       return "keyboard"
+        case "app_create", "app_update":           return "apps.iphone"
+        case "request_system_permission":          return "lock.shield"
+        default:                                   return "puzzlepiece.extension"
+        }
+    }
+
+    /// Brief past-tense plain-language description of what was done.
+    public var actionDescription: String {
+        let name = lastName(of: inputSummary)
+        switch toolName {
+        case "bash", "host_bash":
+            return inputSummary.isEmpty ? "Ran a command" : interpretBashCommand(inputSummary)
+        case "file_edit", "host_file_edit":
+            return name.isEmpty ? "Made some edits" : "Edited \(name)"
+        case "file_write", "host_file_write":
+            return name.isEmpty ? "Created a file" : "Created \(name)"
+        case "file_read", "host_file_read":
+            return name.isEmpty ? "Read a file" : "Read \(name)"
+        case "glob":
+            return interpretGlobPattern(inputSummary)
+        case "grep":
+            return inputSummary.isEmpty ? "Searched through files" : "Searched for \"\(truncated(inputSummary, to: 50))\""
+        case "web_fetch":
+            if let host = URL(string: inputSummary)?.host { return "Fetched data from \(host)" }
+            return "Fetched a webpage"
+        case "browser_navigate":
+            if let host = URL(string: inputSummary)?.host { return "Opened \(host)" }
+            return "Opened a page"
+        case "browser_screenshot":
+            return "Took a screenshot"
+        case "browser_click":
+            return inputSummary.isEmpty ? "Clicked something on the page" : "Clicked \"\(truncated(inputSummary, to: 50))\""
+        case "browser_type":
+            return "Typed in a field"
+        case "app_create":
+            return "Created an app"
+        case "app_update":
+            return "Updated the app"
+        case "app_open":
+            return inputSummary.isEmpty ? "Opened an app" : "Opened \(inputSummary)"
+        case "request_system_permission":
+            return "Requested system access"
+        case "web_search":
+            return inputSummary.isEmpty ? "Searched the web" : "Searched for \"\(truncated(inputSummary, to: 50))\""
+        case "memory_save", "memory_update":
+            return "Saved a memory"
+        case "memory_search":
+            return inputSummary.isEmpty ? "Recalled memories" : "Recalled info about \"\(truncated(inputSummary, to: 40))\""
+        case "task_run":
+            return inputSummary.isEmpty ? "Ran a task" : "Ran \"\(truncated(inputSummary, to: 50))\""
+        case "task_save":
+            return "Saved a task"
+        case "task_list", "work_item_list":
+            return "Checked the task list"
+        case "task_delete":
+            return "Deleted a task"
+        case "work_item_enqueue":
+            return "Queued work"
+        case "swarm_delegate":
+            return inputSummary.isEmpty ? "Delegated to an agent" : "Delegated: \(truncated(inputSummary, to: 50))"
+        case "claude_code":
+            return inputSummary.isEmpty ? "Ran Claude Code" : truncated(inputSummary, to: 60)
+        case "evaluate_typescript_code":
+            return "Evaluated a code snippet"
+        case "followup_create":
+            return inputSummary.isEmpty ? "Set a follow-up" : "Set a reminder: \(truncated(inputSummary, to: 50))"
+        case "followup_list":
+            return "Checked follow-ups"
+        case "followup_resolve":
+            return "Resolved a follow-up"
+        case "contact_search":
+            return inputSummary.isEmpty ? "Looked up a contact" : "Looked up \"\(truncated(inputSummary, to: 40))\""
+        case "contact_upsert":
+            return inputSummary.isEmpty ? "Saved a contact" : "Saved contact \"\(truncated(inputSummary, to: 40))\""
+        case "contact_merge":
+            return "Merged contacts"
+        case "asset_search":
+            return inputSummary.isEmpty ? "Searched assets" : "Searched for \"\(truncated(inputSummary, to: 40))\""
+        case "asset_materialize":
+            return "Prepared an asset"
+        case "computer_use_key":
+            return inputSummary.isEmpty ? "Pressed a key" : "Pressed \(inputSummary)"
+        case "computer_use_type_text":
+            return inputSummary.isEmpty ? "Typed text" : "Typed \"\(truncated(inputSummary, to: 40))\""
+        case "computer_use_scroll":
+            return "Scrolled the page"
+        case "computer_use_drag":
+            return "Dragged an element"
+        case "computer_use_open_app":
+            return inputSummary.isEmpty ? "Opened an app" : "Opened \(inputSummary)"
+        case "computer_use_run_applescript":
+            return "Ran an AppleScript"
+        case "computer_use_wait":
+            return "Waited for the screen"
+        case "computer_use_request_control":
+            return "Requested computer control"
+        case "computer_use_done", "computer_use_respond":
+            return "Finished the task"
+        case "ui_show":
+            return inputSummary.isEmpty ? "Showed a panel" : "Opened \(inputSummary)"
+        case "ui_update":
+            return "Updated the panel"
+        case "ui_dismiss":
+            return "Closed the panel"
+        case "request_file":
+            return "Requested a file"
+        case "playbook_create":
+            return "Created a playbook"
+        case "playbook_update":
+            return "Updated a playbook"
+        case "playbook_list":
+            return "Listed playbooks"
+        default:
+            return friendlyName
+        }
+    }
+
+    private func interpretBashCommand(_ cmd: String) -> String {
+        let tokens = cmd.trimmingCharacters(in: .whitespaces)
+            .components(separatedBy: .whitespaces)
+            .filter { !$0.isEmpty }
+        guard let first = tokens.first else { return "Ran a command" }
+        let base = (first as NSString).lastPathComponent.lowercased()
+
+        // Returns the last non-flag argument after `skip` tokens, or nil.
+        func target(skip: Int = 1) -> String? {
+            let t = tokens.dropFirst(skip).last(where: { !$0.hasPrefix("-") })
+            return t.map { lastName(of: $0) }.flatMap { $0.isEmpty ? nil : $0 }
+        }
+
+        switch base {
+        case "ls", "find", "tree":
+            if let dir = target() { return "Listed \(dir)" }
+            return "Listed files"
+        case "cat", "less", "more", "head", "tail":
+            let file = tokens.dropFirst().first(where: { !$0.hasPrefix("-") }).map { lastName(of: $0) } ?? ""
+            return file.isEmpty ? "Read file contents" : "Read \(file)"
+        case "git":
+            switch tokens.dropFirst().first ?? "" {
+            case "status":          return "Checked git status"
+            case "diff":            return "Reviewed code changes"
+            case "add":             return "Staged changes"
+            case "commit":          return "Committed changes"
+            case "push":            return "Pushed code"
+            case "pull":            return "Pulled latest changes"
+            case "fetch":           return "Fetched remote changes"
+            case "checkout", "switch":
+                let branch = tokens.dropFirst(2).first(where: { !$0.hasPrefix("-") }) ?? ""
+                return branch.isEmpty ? "Switched branch" : "Switched to \(branch)"
+            case "log":             return "Reviewed commit history"
+            case "clone":           return "Cloned repository"
+            case "merge":
+                let branch = tokens.dropFirst(2).first(where: { !$0.hasPrefix("-") }) ?? ""
+                return branch.isEmpty ? "Merged branch" : "Merged \(branch)"
+            case "rebase":          return "Rebased branch"
+            case "stash":           return "Stashed changes"
+            case "reset", "restore": return "Undid changes"
+            default:                return "Used git"
+            }
+        case "npm", "yarn", "bun", "pnpm":
+            switch tokens.dropFirst().first ?? "" {
+            case "install", "i":    return "Installed dependencies"
+            case "add":
+                let pkg = tokens.dropFirst(2).first(where: { !$0.hasPrefix("-") }) ?? ""
+                return pkg.isEmpty ? "Installed a package" : "Installed \(pkg)"
+            case "remove", "uninstall":
+                let pkg = tokens.dropFirst(2).first(where: { !$0.hasPrefix("-") }) ?? ""
+                return pkg.isEmpty ? "Removed a package" : "Removed \(pkg)"
+            case "run":
+                let script = tokens.dropFirst().dropFirst().first(where: { !$0.hasPrefix("-") }) ?? ""
+                return script.isEmpty ? "Ran a script" : "Ran \(script)"
+            case "test":    return "Ran tests"
+            case "build":   return "Built the project"
+            case "start":   return "Started the server"
+            default:        return "Ran a script"
+            }
+        case "swift":
+            return (tokens.dropFirst().first ?? "") == "test" ? "Ran tests" : "Built the project"
+        case "python", "python3":
+            let script = tokens.dropFirst().first(where: { !$0.hasPrefix("-") }).map { lastName(of: $0) } ?? ""
+            return script.isEmpty ? "Ran a Python script" : "Ran \(script)"
+        case "node":
+            let script = tokens.dropFirst().first(where: { !$0.hasPrefix("-") }).map { lastName(of: $0) } ?? ""
+            return script.isEmpty ? "Ran a Node script" : "Ran \(script)"
+        case "mkdir":
+            return target().map { "Created folder \($0)" } ?? "Created a folder"
+        case "rm", "rmdir":
+            return target().map { "Deleted \($0)" } ?? "Deleted files"
+        case "cp":
+            return target().map { "Copied \($0)" } ?? "Copied files"
+        case "mv":
+            return target().map { "Moved \($0)" } ?? "Moved files"
+        case "chmod", "chown":
+            return target().map { "Updated permissions on \($0)" } ?? "Updated file permissions"
+        case "curl", "wget":
+            let url = tokens.dropFirst().first(where: { !$0.hasPrefix("-") }) ?? ""
+            if let host = URL(string: url)?.host { return "Fetched from \(host)" }
+            return "Made a network request"
+        case "open":
+            return target().map { "Opened \($0)" } ?? "Opened a file"
+        case "defaults":            return "Updated system settings"
+        case "pkill", "kill", "killall":
+            return target().map { "Stopped \($0)" } ?? "Stopped a process"
+        case "build.sh":            return "Built the project"
+        case "echo", "printf":      return "Output text"
+        case "export", "env":       return "Set environment variables"
+        default:
+            // Show the command name itself as a last resort
+            return "Ran \(base)"
+        }
+    }
+
+    private func interpretGlobPattern(_ pattern: String) -> String {
+        guard !pattern.isEmpty else { return "Searched for files" }
+        let extMap: [String: String] = [
+            "swift": "Swift", "ts": "TypeScript", "js": "JavaScript",
+            "tsx": "TypeScript", "jsx": "JavaScript", "py": "Python",
+            "go": "Go", "rs": "Rust", "json": "JSON", "md": "Markdown",
+            "html": "HTML", "css": "CSS", "yaml": "YAML", "yml": "YAML",
+            "sh": "shell scripts", "sql": "SQL", "kt": "Kotlin", "java": "Java"
+        ]
+        if let ext = pattern.components(separatedBy: ".").last,
+           ext.count <= 6, !ext.contains("/"), !ext.contains("*"),
+           let lang = extMap[ext.lowercased()] {
+            return "Found \(lang) files"
+        }
+        // Fall back to showing the pattern itself
+        return "Found \"\(truncated(pattern, to: 50))\" files"
+    }
+
+    private func lastName(of path: String) -> String {
+        guard !path.isEmpty else { return "" }
+        return URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    private func truncated(_ s: String, to length: Int) -> String {
+        s.count > length ? String(s.prefix(length - 1)) + "…" : s
+    }
 }
 
 /// Data for an inline UI surface rendered within a chat message.
@@ -482,6 +761,46 @@ public struct ModelListData: Equatable {
 
 public struct CommandListData: Equatable {
     public init() {}
+}
+
+public enum SubagentStatus: String, Equatable, Sendable {
+    case pending
+    case running
+    case awaitingInput = "awaiting_input"
+    case completed
+    case failed
+    case aborted
+    case unknown
+
+    public init(wire: String) {
+        self = SubagentStatus(rawValue: wire) ?? .unknown
+    }
+
+    public var isTerminal: Bool {
+        switch self {
+        case .completed, .failed, .aborted: return true
+        default: return false
+        }
+    }
+}
+
+public struct SubagentInfo: Equatable, Identifiable {
+    public let id: String
+    public let label: String
+    public var status: SubagentStatus
+    public var error: String?
+    /// The chat message ID that was active when this subagent was spawned.
+    /// Used to render the subagent chip inline after the spawning message.
+    public var parentMessageId: UUID?
+
+    public init(id: String, label: String, status: SubagentStatus = .pending, parentMessageId: UUID? = nil) {
+        self.id = id
+        self.label = label
+        self.status = status
+        self.parentMessageId = parentMessageId
+    }
+
+    public var isTerminal: Bool { status.isTerminal }
 }
 
 public struct SkillInvocationData: Equatable {

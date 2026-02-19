@@ -137,6 +137,7 @@ final class MainWindow {
     let traceStore = TraceStore()
     let windowState = MainWindowState()
     let documentManager = DocumentManager()
+    let avatarEvolutionState: AvatarEvolutionState?
     var onMicrophoneToggle: (() -> Void)?
 
     // Forwarding accessors — keeps existing references working while
@@ -169,6 +170,13 @@ final class MainWindow {
             activityNotificationService: services.activityNotificationService,
             isFirstLaunch: isFirstLaunch
         )
+        if isFirstLaunch {
+            let evoState = AvatarEvolutionState()
+            evoState.load()
+            self.avatarEvolutionState = evoState
+        } else {
+            self.avatarEvolutionState = nil
+        }
         self.threadManager.ambientAgent = services.ambientAgent
         documentManager.daemonClient = daemonClient
         services.daemonClient.onTraceEvent = { [weak self] msg in
@@ -250,7 +258,7 @@ final class MainWindow {
             return
         }
 
-        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {})
+        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, documentManager: documentManager, avatarEvolutionState: avatarEvolutionState, onMicrophoneToggle: onMicrophoneToggle ?? {})
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)

@@ -21,6 +21,7 @@ import type {
   ServerMessage,
 } from '../ipc-protocol.js';
 import { getConfig } from '../../config/loader.js';
+import { getSubagentManager } from '../../subagent/index.js';
 import {
   log,
   wireEscalationHandler,
@@ -292,6 +293,11 @@ export function handleCancel(msg: CancelRequest, socket: net.Socket, ctx: Handle
     if (session) {
       ctx.touchSession(sessionId);
       session.abort();
+      // Also abort any child subagents spawned by this session.
+      // Omit sendToClient to suppress parent notifications — the parent is
+      // being cancelled, so enqueuing synthetic messages would trigger
+      // unwanted model activity after the user pressed stop.
+      getSubagentManager().abortAllForParent(sessionId);
     }
   }
 }

@@ -33,6 +33,7 @@ import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
 import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
 import { SessionEvictor } from './session-evictor.js';
+import { getSubagentManager } from '../subagent/index.js';
 
 const log = getLogger('server');
 
@@ -102,6 +103,40 @@ export class DaemonServer {
   constructor() {
     this.socketPath = getSocketPath();
     this.evictor = new SessionEvictor(this.sessions);
+    // Share the global rate-limit timestamps with the subagent manager.
+    getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
+    // Abort subagents when their parent session is evicted.
+    this.evictor.onEvict = (sessionId: string) => {
+      getSubagentManager().abortAllForParent(sessionId);
+    };
+    // Protect parent sessions that have active subagents from eviction.
+    this.evictor.shouldProtect = (sessionId: string) => {
+      const children = getSubagentManager().getChildrenOf(sessionId);
+      return children.some((c) => c.status === 'running' || c.status === 'pending');
+    };
+    // When a subagent finishes, inject the result into the parent session
+    // so the LLM automatically informs the user.
+    getSubagentManager().onSubagentFinished = (parentSessionId, message, sendToClient) => {
+      const parentSession = this.sessions.get(parentSessionId);
+      if (!parentSession) {
+        log.warn({ parentSessionId }, 'Subagent finished but parent session not found');
+        return;
+      }
+      const requestId = `subagent-notify-${Date.now()}`;
+      const enqueueResult = parentSession.enqueueMessage(message, [], sendToClient, requestId);
+      if (enqueueResult.rejected) {
+        log.warn({ parentSessionId }, 'Parent session queue full, dropping subagent notification');
+        return;
+      }
+      if (!enqueueResult.queued) {
+        // Parent is idle — send directly.
+        const messageId = parentSession.persistUserMessage(message, []);
+        parentSession.runAgentLoop(message, messageId, sendToClient).catch((err) => {
+          log.error({ parentSessionId, err }, 'Failed to process subagent notification in parent');
+        });
+      }
+      // If queued, it will be processed when the parent finishes its current turn.
+    };
   }
 
   async start(): Promise<void> {
@@ -185,6 +220,7 @@ export class DaemonServer {
   }
 
   async stop(): Promise<void> {
+    getSubagentManager().disposeAll();
     this.evictor.stop();
     if (this.blobSweepTimer) {
       clearInterval(this.blobSweepTimer);
@@ -346,8 +382,10 @@ export class DaemonServer {
    */
   clearAllSessions(): number {
     const count = this.sessions.size;
+    const subagentManager = getSubagentManager();
     for (const id of this.sessions.keys()) {
       this.evictor.remove(id);
+      subagentManager.abortAllForParent(id);
     }
     for (const session of this.sessions.values()) {
       session.dispose();
@@ -358,8 +396,10 @@ export class DaemonServer {
   }
 
   private evictSessionsForReload(): void {
+    const subagentManager = getSubagentManager();
     for (const [id, session] of this.sessions) {
       if (!session.isProcessing()) {
+        subagentManager.abortAllForParent(id);
         session.dispose();
         this.sessions.delete(id);
         this.evictor.remove(id);
@@ -657,6 +697,7 @@ export class DaemonServer {
         if (session) {
           session.abort();
         }
+        getSubagentManager().abortAllForParent(sessionId);
       }
       this.socketToSession.delete(socket);
       const cuSessionIds = this.socketToCuSession.get(socket);
@@ -738,6 +779,9 @@ export class DaemonServer {
       if (!rebindClient || !socket) return;
       target.updateClient(sendToClient);
       target.setSandboxOverride(this.socketSandboxOverride.get(socket));
+      // Update the sender for any active child subagents so they route
+      // through the new socket instead of the stale one from spawn time.
+      getSubagentManager().updateParentSender(conversationId, sendToClient);
     };
 
     // Persist session options so they survive eviction/recreation.
@@ -751,6 +795,7 @@ export class DaemonServer {
     if (!session || (session.isStale() && !session.isProcessing())) {
       // Dispose the outgoing stale session before replacing it.
       if (session) {
+        getSubagentManager().abortAllForParent(conversationId);
         session.dispose();
       }
 

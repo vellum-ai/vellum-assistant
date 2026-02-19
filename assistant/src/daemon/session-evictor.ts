@@ -50,6 +50,9 @@ export class SessionEvictor {
   /** Optional hook called for each evicted session (for cleanup in DaemonServer). */
   onEvict?: (sessionId: string) => void;
 
+  /** Optional guard: if this returns true, the session is protected from eviction. */
+  shouldProtect?: (sessionId: string) => boolean;
+
   constructor(
     sessions: Map<string, EvictableSession>,
     options?: EvictorOptions,
@@ -113,7 +116,7 @@ export class SessionEvictor {
     for (const [id, session] of this.sessions) {
       const lastAccessTime = this.lastAccess.get(id) ?? 0;
       if (now - lastAccessTime < this.ttlMs) continue;
-      if (session.isProcessing()) {
+      if (session.isProcessing() || this.shouldProtect?.(id)) {
         result.skipped++;
         continue;
       }
@@ -182,6 +185,7 @@ export class SessionEvictor {
     const idle: Array<[string, EvictableSession, number]> = [];
     for (const [id, session] of this.sessions) {
       if (session.isProcessing()) continue;
+      if (this.shouldProtect?.(id)) continue;
       idle.push([id, session, this.lastAccess.get(id) ?? 0]);
     }
     idle.sort((a, b) => a[2] - b[2]);

@@ -645,7 +645,7 @@ extension ChatViewModel {
                 }
             }()
             var toolCall = ToolCallData(
-                toolName: toolDisplayName(msg.toolName),
+                toolName: msg.toolName,
                 inputSummary: summarizeToolInput(msg.input),
                 inputFull: extractToolInput(msg.input),
                 arrivedBeforeText: !currentAssistantHasText,
@@ -897,6 +897,24 @@ extension ChatViewModel {
             guard belongsToSession(msg.sessionId) else { return }
             isWatchSessionActive = false
             onWatchCompleteRequest?(msg)
+
+        case .subagentSpawned(let msg):
+            guard belongsToSession(msg.parentSessionId) else { return }
+            let info = SubagentInfo(id: msg.subagentId, label: msg.label, status: .running, parentMessageId: currentAssistantMessageId)
+            activeSubagents.append(info)
+
+        case .subagentStatusChanged(let msg):
+            if let index = activeSubagents.firstIndex(where: { $0.id == msg.subagentId }) {
+                activeSubagents[index].status = SubagentStatus(wire: msg.status)
+                activeSubagents[index].error = msg.error
+            }
+
+        case .subagentEvent:
+            // Subagent internal events (assistant_message, tool_use, etc.) carry the
+            // subagent's session ID, not the parent's, so they cannot be routed through
+            // the normal belongsToSession-guarded handlers. These will be displayed in
+            // the dedicated subagents panel once it's built.
+            break
 
         default:
             break

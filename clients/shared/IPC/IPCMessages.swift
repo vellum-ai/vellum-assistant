@@ -44,6 +44,8 @@ import Foundation
 // │ BrowserFrameMessage             │ New message type for browser_view       │
 // │                                 │ surface frame updates; not yet in       │
 // │                                 │ generated contract                      │
+// │ SubagentEventMessage            │ Contains recursive ServerMessage ref;   │
+// │                                 │ codegen skips ServerMessage              │
 // └─────────────────────────────────┴──────────────────────────────────────────┘
 //
 // **Do not add new manual structs** without documenting the reason here.
@@ -1674,6 +1676,14 @@ extension IPCEnvVarsRequest {
 /// Backed by generated `IPCEnvVarsResponse`.
 public typealias EnvVarsResponseMessage = IPCEnvVarsResponse
 
+/// Wraps any ServerMessage emitted by a subagent session for routing to the client.
+/// Hand-maintained because `event` is a recursive `ServerMessage` reference (codegen skips ServerMessage).
+/// Wire type: `"subagent_event"`
+public struct SubagentEventMessage: Decodable, Sendable {
+    public let subagentId: String
+    public let event: ServerMessage
+}
+
 /// Discriminated union of all server → client message types relevant to the macOS client.
 /// Decodes via the `"type"` field in the JSON payload.
 public enum ServerMessage: Decodable, Sendable {
@@ -1762,6 +1772,9 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemsListResponse(IPCWorkItemsListResponse)
     case workItemStatusChanged(IPCWorkItemStatusChanged)
     case workItemRunTaskResponse(IPCWorkItemRunTaskResponse)
+    case subagentSpawned(IPCSubagentSpawned)
+    case subagentStatusChanged(IPCSubagentStatusChanged)
+    indirect case subagentEvent(SubagentEventMessage)
     case pong
     case unknown(String)
 
@@ -2029,6 +2042,15 @@ public enum ServerMessage: Decodable, Sendable {
         case "work_item_run_task_response":
             let message = try IPCWorkItemRunTaskResponse(from: decoder)
             self = .workItemRunTaskResponse(message)
+        case "subagent_spawned":
+            let message = try IPCSubagentSpawned(from: decoder)
+            self = .subagentSpawned(message)
+        case "subagent_status_changed":
+            let message = try IPCSubagentStatusChanged(from: decoder)
+            self = .subagentStatusChanged(message)
+        case "subagent_event":
+            let message = try SubagentEventMessage(from: decoder)
+            self = .subagentEvent(message)
         case "pong":
             self = .pong
         default:
@@ -2058,6 +2080,7 @@ public struct BrowserCDPResponseMessage: Encodable, Sendable {
         self.declined = declined
     }
 }
+
 
 // MARK: - App Files Changed
 

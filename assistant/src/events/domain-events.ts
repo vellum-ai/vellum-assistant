@@ -29,7 +29,7 @@ export interface ToolDomainEvents {
     sessionId: string;
     requestId?: string;
     toolName: string;
-    action: 'redact' | 'warn' | 'block';
+    action: 'redact' | 'warn' | 'block' | 'prompt';
     matches: Array<{ type: string; redactedValue: string }>;
     detectedAtMs: number;
   };

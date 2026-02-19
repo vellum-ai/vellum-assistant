@@ -5,12 +5,14 @@ import SwiftUI
 struct CreatureView: View {
     let visible: Bool
     var animated: Bool = true
-    private let appearance = AvatarAppearanceManager.shared
+    @State private var appearance = AvatarAppearanceManager.shared
 
     @State private var appeared = false
     @State private var bounceOffset: CGFloat = 0
     @State private var breatheScaleY: CGFloat = 1.0
     @State private var breatheScaleX: CGFloat = 1.0
+    @State private var cachedBlobImage: NSImage?
+    @State private var cachedPalette: DinoPalette?
 
     var body: some View {
         if visible {
@@ -52,11 +54,27 @@ struct CreatureView: View {
     }
 
     private var dinoImage: some View {
-        Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: Meadow.artPixelSize, palette: appearance.palette))
+        Image(nsImage: blobImage)
             .interpolation(.none)
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(width: 400, height: 360)
             .shadow(radius: 8)
+            .onChange(of: appearance.palette) { _, newPalette in
+                rebuildBlobImage(palette: newPalette)
+            }
+            .onAppear {
+                rebuildBlobImage(palette: appearance.palette)
+            }
+    }
+
+    private var blobImage: NSImage {
+        cachedBlobImage ?? PixelSpriteBuilder.buildBlobNSImage(pixelSize: Meadow.artPixelSize, palette: appearance.palette)
+    }
+
+    private func rebuildBlobImage(palette: DinoPalette) {
+        guard palette != cachedPalette else { return }
+        cachedPalette = palette
+        cachedBlobImage = PixelSpriteBuilder.buildBlobNSImage(pixelSize: Meadow.artPixelSize, palette: palette)
     }
 }

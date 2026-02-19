@@ -425,7 +425,7 @@ export class ToolExecutor {
             }
           } else if (sdConfig.action === 'block') {
             const types = [...new Set(allMatches.map((m) => m.type))].join(', ');
-            const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). Configure secretDetection.action to "redact" or "warn" to allow output.`;
+            const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). Configure secretDetection.action to "redact" or "prompt" to allow output.`;
             const durationMs = Date.now() - startTime;
             const blockedResult = {
               content: blockedContent,
@@ -456,6 +456,75 @@ export class ToolExecutor {
             });
 
             return blockedResult;
+          } else if (sdConfig.action === 'prompt') {
+            // Ask the user whether to allow tool output containing secrets
+            const types = [...new Set(allMatches.map((m) => m.type))].join(', ');
+            const promptInput = {
+              _secretDetection: true,
+              summary: `Tool output contains ${allMatches.length} potential secret(s): ${types}`,
+              tool: name,
+            };
+
+            emitLifecycleEvent(context, {
+              type: 'permission_prompt',
+              toolName: name,
+              executionTarget,
+              input: promptInput,
+              workingDir: context.workingDir,
+              sessionId: context.sessionId,
+              conversationId: context.conversationId,
+              requestId: context.requestId,
+              riskLevel: RiskLevel.High,
+              reason: `Secret detected in tool output: ${types}`,
+              allowlistOptions: [],
+              scopeOptions: [],
+              persistentDecisionsAllowed: false,
+            });
+
+            const response = await this.prompter.prompt(
+              name,
+              promptInput,
+              RiskLevel.High,
+              [],   // no allowlist options
+              [],   // no scope options
+              undefined, // no diff
+              undefined, // not sandboxed
+              context.conversationId,
+              executionTarget,
+              undefined, // no principal
+              false, // no persistent decisions
+            );
+
+            if (response.decision === 'deny' || response.decision === 'always_deny') {
+              const blockedContent = `Tool output blocked: user denied output containing ${allMatches.length} potential secret(s) (${types}).`;
+              const durationMs = Date.now() - startTime;
+              emitLifecycleEvent(context, {
+                type: 'executed',
+                toolName: name,
+                executionTarget,
+                input,
+                workingDir: context.workingDir,
+                sessionId: context.sessionId,
+                conversationId: context.conversationId,
+                requestId: context.requestId,
+                riskLevel,
+                decision: 'deny',
+                durationMs,
+                result: { content: blockedContent, isError: true },
+              });
+
+              void getHookManager().trigger('post-tool-execute', {
+                toolName: name,
+                input: sanitizeToolInput(name, input),
+                riskLevel,
+                isError: true,
+                durationMs,
+                sessionId: context.sessionId,
+              });
+
+              return { content: blockedContent, isError: true };
+            }
+            // User allowed — pass content through unchanged
           }
         }
       }

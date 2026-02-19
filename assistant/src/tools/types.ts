@@ -66,7 +66,7 @@ export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
 export interface ToolSecretDetectedEvent extends ToolLifecycleEventBase {
   type: 'secret_detected';
   matches: Array<{ type: string; redactedValue: string }>;
-  action: 'redact' | 'warn' | 'block';
+  action: 'redact' | 'warn' | 'block' | 'prompt';
   detectedAtMs: number;
 }
 

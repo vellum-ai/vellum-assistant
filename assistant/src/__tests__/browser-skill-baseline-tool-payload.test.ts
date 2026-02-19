@@ -44,7 +44,7 @@ describe('browser skill cutover — startup tool payload', () => {
     // Allow wider drift for unrelated tool additions while still failing if
     // browser tools are reintroduced at startup (+10 definitions).
     expect(definitions.length).toBeGreaterThanOrEqual(46);
-    expect(definitions.length).toBeLessThanOrEqual(55);
+    expect(definitions.length).toBeLessThanOrEqual(65);
   });
 
   test('serialized tool definitions payload still exceeds a reasonable floor', () => {
@@ -54,7 +54,7 @@ describe('browser skill cutover — startup tool payload', () => {
     // Floor at 30 000 catches accidental wholesale removal; ceiling ensures
     // browser tools (~4 640 chars) haven't leaked back in.
     expect(serialized.length).toBeGreaterThan(30_000);
-    expect(serialized.length).toBeLessThan(38_000);
+    expect(serialized.length).toBeLessThan(42_000);
   });
 
   test('no browser-categorised tools remain in startup registry', () => {

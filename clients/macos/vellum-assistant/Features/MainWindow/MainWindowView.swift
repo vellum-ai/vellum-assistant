@@ -49,9 +49,11 @@ struct MainWindowView: View {
     let ambientAgent: AmbientAgent
     let settingsStore: SettingsStore
     @ObservedObject var documentManager: DocumentManager
+    let avatarEvolutionState: AvatarEvolutionState?
+    @State private var lastAppliedBootstrapTurn: Int = 0
     let onMicrophoneToggle: () -> Void
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
@@ -62,6 +64,7 @@ struct MainWindowView: View {
         self.settingsStore = settingsStore
         self.windowState = windowState
         self.documentManager = documentManager
+        self.avatarEvolutionState = avatarEvolutionState
         self.onMicrophoneToggle = onMicrophoneToggle
     }
 
@@ -223,6 +226,46 @@ struct MainWindowView: View {
         )
     }
 
+    // MARK: - Bootstrap Avatar Milestones
+
+    /// Apply evolution milestones based on bootstrap conversation progress.
+    /// Mirrors the pattern from FirstMeetingIntroductionView.applyConversationMilestones.
+    private func applyBootstrapMilestones(turnCount: Int, messages: [ChatMessage], evoState: AvatarEvolutionState) {
+        if turnCount >= 2 {
+            DeterministicEvolutionEngine.applyMilestone(.nameChosen, to: evoState)
+        }
+        if turnCount >= 4 {
+            let personalityText = messages
+                .filter { $0.role == .assistant }
+                .map(\.text)
+                .joined(separator: " ")
+            DeterministicEvolutionEngine.applyMilestone(
+                .personalityDefined,
+                to: evoState,
+                context: MilestoneContext(personalityText: personalityText)
+            )
+        }
+        if turnCount >= 6 {
+            let emoji = IdentityInfo.load()?.emoji
+            DeterministicEvolutionEngine.applyMilestone(
+                .emojiChosen,
+                to: evoState,
+                context: MilestoneContext(emoji: emoji)
+            )
+        }
+        if turnCount >= 8 {
+            DeterministicEvolutionEngine.applyMilestone(.soulDiscussed, to: evoState)
+        }
+        if turnCount >= 10 {
+            DeterministicEvolutionEngine.applyMilestone(.homeBaseCreated, to: evoState)
+        }
+
+        // Resolve updated traits into appearance
+        let resolved = AvatarEvolutionResolver.resolve(state: evoState)
+        AvatarAppearanceManager.shared.applyEvolutionResult(resolved)
+        evoState.save()
+    }
+
     var body: some View {
         coreLayoutView
             .onChange(of: windowState.selection) { oldSelection, newSelection in
@@ -285,17 +328,13 @@ struct MainWindowView: View {
                 }
             }
             .onChange(of: threadManager.activeViewModel?.messages.map(\.id)) { _, _ in
-                // Close activity panel if the referenced message no longer exists.
-                // Watch message IDs (not just count) so that regenerate/undo flows
-                // that replace a message with a new ID at the same array position
-                // also trigger a close.
-                if let messageId = windowState.activityMessageId,
-                   windowState.activePanel == .activity,
+                // Bootstrap avatar: apply milestones based on assistant turn count
+                if let evoState = avatarEvolutionState, evoState.stage != .stabilized,
                    let viewModel = threadManager.activeViewModel {
-                    let messageExists = viewModel.messages.contains(where: { $0.id == messageId })
-                    if !messageExists {
-                        windowState.selection = nil
-                        windowState.activityMessageId = nil
+                    let turnCount = viewModel.messages.filter { $0.role == .assistant }.count
+                    if turnCount > lastAppliedBootstrapTurn {
+                        applyBootstrapMilestones(turnCount: turnCount, messages: viewModel.messages, evoState: evoState)
+                        lastAppliedBootstrapTurn = turnCount
                     }
                 }
             }
@@ -501,12 +540,7 @@ struct MainWindowView: View {
                     break
                 }
             }
-            // Close the activity panel when switching threads — the stored messageId
-            // belongs to the previous thread and won't exist in the new one.
-            if case .panel(.activity) = windowState.selection {
-                windowState.selection = nil
-                windowState.activityMessageId = nil
-            } else if case .panel(.identity) = windowState.selection {
+            if case .panel(.identity) = windowState.selection {
                 windowState.selection = nil
             }
             // Clear stale activeSurfaceId on the old thread and sync the new one
@@ -748,6 +782,7 @@ struct MainWindowView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     // MARK: Nav Items
+                    Spacer().frame(height: VSpacing.md)
                     SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: windowState.activePanel == .directory) {
                         windowState.togglePanel(.directory)
                     }
@@ -756,7 +791,7 @@ struct MainWindowView: View {
                     }
 
                     // MARK: Chats
-                    SidebarSubheader(title: "Chats")
+                    SidebarSubheader(title: "Recent Chats")
 
                     ForEach(displayedThreads) { thread in
                         threadItem(thread)
@@ -807,7 +842,6 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private func sidebarAppItem(_ app: AppListManager.AppItem) -> some View {
-        let isSelected = false
         Button(action: {
             // Clicking a different app exits edit mode; same app stays in .app mode
             windowState.selection = .app(app.id)
@@ -823,7 +857,7 @@ struct MainWindowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
-            .background(isSelected || isHoveredApp == app.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
+            .background(isHoveredApp == app.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
         }
@@ -991,15 +1025,6 @@ struct MainWindowView: View {
         switch panelId {
         case .chat:
             chatView
-        case .activity:
-            if let viewModel = threadManager.activeViewModel,
-               let messageId = windowState.activityMessageId {
-                ActivityPanel(
-                    viewModel: viewModel,
-                    messageId: messageId,
-                    onClose: { windowState.selection = nil }
-                )
-            }
         case .settings:
             SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
         case .agent:
@@ -1086,6 +1111,8 @@ struct MainWindowView: View {
                 }
                 windowState.selection = nil
             }, daemonClient: daemonClient)
+        case .avatarCustomization:
+            AvatarCustomizationPanel(onClose: { windowState.selection = nil })
         }
     }
 
@@ -1203,31 +1230,6 @@ struct MainWindowView: View {
                     }
                 )
                 .overlay(alignment: .topTrailing) { panelDismissButton }
-            } else if panelType == .activity {
-                // Activity panel shown as side panel alongside chat
-                let config = windowState.layoutConfig
-                let showActivity = threadManager.activeViewModel != nil
-                    && windowState.activityMessageId != nil
-                let showConfigPanel = config.right.visible && config.right.content != .empty
-
-                VSplitView(
-                    panelWidth: $sidePanelWidth,
-                    showPanel: showActivity || showConfigPanel,
-                    main: { slotView(for: config.center.content) },
-                    panel: {
-                        if showActivity,
-                           let viewModel = threadManager.activeViewModel,
-                           let messageId = windowState.activityMessageId {
-                            ActivityPanel(
-                                viewModel: viewModel,
-                                messageId: messageId,
-                                onClose: { windowState.selection = nil }
-                            )
-                        } else {
-                            slotView(for: config.right.content)
-                        }
-                    }
-                )
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(
@@ -1338,6 +1340,9 @@ struct MainWindowView: View {
                 }
                 windowState.dismissOverlay()
             }, daemonClient: daemonClient)
+                .overlay(alignment: .topTrailing) { panelDismissButton }
+        case .avatarCustomization:
+            AvatarCustomizationPanel(onClose: { windowState.dismissOverlay() })
                 .overlay(alignment: .topTrailing) { panelDismissButton }
         case .generated:
             // Generated panel is handled inline in chatContentView when expanded;
@@ -1660,10 +1665,6 @@ private struct ActiveChatViewWrapper: View {
             onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
             watchSession: ambientAgent.activeWatchSession,
             onStopWatch: { viewModel.stopWatchSession() },
-            onOpenActivity: { messageId in
-                windowState.toggleActivityPanel(with: messageId)
-            },
-            isActivityPanelOpen: { if case .panel(.activity) = windowState.selection { return true } else { return false } }(),
             onReportMessage: { daemonMessageId in
                 guard let sessionId = viewModel.sessionId else { return }
                 do {
@@ -1683,7 +1684,8 @@ private struct ActiveChatViewWrapper: View {
                 enabledSince: settingsStore.mediaEmbedsEnabledSince,
                 allowedDomains: settingsStore.mediaEmbedVideoAllowlistDomains
             ),
-            isTemporaryChat: isTemporaryChat
+            isTemporaryChat: isTemporaryChat,
+            activeSubagents: viewModel.activeSubagents
         )
     }
 }

@@ -791,34 +791,12 @@ describe('Trust Store', () => {
       // Remove one default rule by editing trust.json directly on disk
       // (removeRule() throws for default rules, so we simulate external editing)
       const raw = JSON.parse(readFileSync(trustPath, 'utf-8'));
-      raw.rules = raw.rules.filter((r: { id: string }) => r.id !== 'default:ask-file_read-protected');
+      raw.rules = raw.rules.filter((r: { id: string }) => r.id !== 'default:ask-host_file_read-global');
       writeFileSync(trustPath, JSON.stringify(raw, null, 2));
       // After reload, the rule is re-backfilled (defaults are always present)
       clearCache();
       const rules = getAllRules();
-      expect(rules.find((r) => r.id === 'default:ask-file_read-protected')).toBeDefined();
-    });
-
-    test('findHighestPriorityRule matches default ask for protected file_read', () => {
-      const protectedPath = join(testDir, 'protected', 'trust.json');
-      const match = findHighestPriorityRule('file_read', [`file_read:${protectedPath}`], '/tmp');
-      expect(match).not.toBeNull();
-      expect(match!.decision).toBe('ask');
-      expect(match!.priority).toBe(DEFAULT_PRIORITY_BY_ID.get('default:ask-file_read-protected')!);
-    });
-
-    test('findHighestPriorityRule matches default ask for protected file_write', () => {
-      const protectedPath = join(testDir, 'protected', 'keys.enc');
-      const match = findHighestPriorityRule('file_write', [`file_write:${protectedPath}`], '/tmp');
-      expect(match).not.toBeNull();
-      expect(match!.decision).toBe('ask');
-    });
-
-    test('findHighestPriorityRule matches default ask for protected file_edit', () => {
-      const protectedPath = join(testDir, 'protected', 'secret-allowlist.json');
-      const match = findHighestPriorityRule('file_edit', [`file_edit:${protectedPath}`], '/tmp');
-      expect(match).not.toBeNull();
-      expect(match!.decision).toBe('ask');
+      expect(rules.find((r) => r.id === 'default:ask-host_file_read-global')).toBeDefined();
     });
 
     test('findHighestPriorityRule matches default ask for host_file_read', () => {

@@ -2,13 +2,8 @@ import VellumAssistantShared
 import AppKit
 import SwiftUI
 
-final class VoiceTranscriptionViewModel: ObservableObject {
-    @Published var transcriptionText: String = ""
-}
-
 struct VoiceTranscriptionView: View {
-    @ObservedObject var viewModel: VoiceTranscriptionViewModel
-    private let appearance = AvatarAppearanceManager.shared
+    @State private var appearance = AvatarAppearanceManager.shared
 
     private let circleSize: CGFloat = 80
     private let dinoPixelSize: CGFloat = 3
@@ -20,7 +15,7 @@ struct VoiceTranscriptionView: View {
                     .stroke(VColor.accent, lineWidth: 2.5)
                     .frame(width: circleSize, height: circleSize)
 
-                Image(nsImage: PixelSpriteBuilder.buildDinoNSImage(pixelSize: dinoPixelSize, palette: appearance.palette))
+                Image(nsImage: PixelSpriteBuilder.buildBlobNSImage(pixelSize: dinoPixelSize, palette: appearance.palette))
                     .interpolation(.none)
             }
 
@@ -38,14 +33,13 @@ struct VoiceTranscriptionView: View {
 @MainActor
 final class VoiceTranscriptionWindow {
     private var panel: NSPanel?
-    private let viewModel = VoiceTranscriptionViewModel()
 
     private let panelWidth: CGFloat = 140
     private let panelHeight: CGFloat = 140
     private let margin: CGFloat = 16
 
     func show() {
-        let hostingController = NSHostingController(rootView: VoiceTranscriptionView(viewModel: viewModel))
+        let hostingController = NSHostingController(rootView: VoiceTranscriptionView())
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
@@ -73,10 +67,6 @@ final class VoiceTranscriptionWindow {
 
         panel.orderFront(nil)
         self.panel = panel
-    }
-
-    func updateText(_ text: String) {
-        viewModel.transcriptionText = text
     }
 
     func close() {

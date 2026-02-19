@@ -73,3 +73,25 @@ VELLUM_CUSTOM_HOST=user@10.0.0.1 vellum-cli hatch --remote custom
 ```
 
 When hatching on GCP in interactive mode (without `-d`), the CLI displays an animated progress TUI that polls the instance's startup script output in real time. Press `Ctrl+C` to detach -- the instance will continue running in the background.
+
+### `retire`
+
+Delete a provisioned assistant instance. The cloud provider and connection details are automatically resolved from the saved assistant config (written during `hatch`).
+
+```bash
+vellum-cli retire <name>
+```
+
+The CLI looks up the instance by name in `~/.vellum.lock.json` and determines how to retire it based on the saved `cloud` field:
+
+- **`gcp`** -- Deletes the GCP Compute Engine instance via `gcloud compute instances delete`.
+- **`aws`** -- Terminates the AWS EC2 instance by looking up the instance ID from its Name tag.
+- **`local`** -- Stops the local daemon (`bunx vellum daemon stop`) and removes the `~/.vellum` directory.
+- **`custom`** -- SSHs to the remote host to stop the daemon/gateway and remove the `~/.vellum` directory.
+
+#### Examples
+
+```bash
+# Retire an instance (cloud type resolved from config)
+vellum-cli retire my-assistant
+```

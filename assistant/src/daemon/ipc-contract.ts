@@ -872,7 +872,10 @@ export type ClientMessage =
   | WorkItemCreateRequest
   | WorkItemUpdateRequest
   | WorkItemCompleteRequest
-  | WorkItemRunTaskRequest;
+  | WorkItemRunTaskRequest
+  | SubagentAbortRequest
+  | SubagentStatusRequest
+  | SubagentMessageRequest;
 
 // ── Legacy integration IPC stubs ────────────────────────────────────
 // The macOS Settings panel still sends these messages. Stub types keep
@@ -1152,7 +1155,7 @@ export interface SecretDetected {
   type: 'secret_detected';
   toolName: string;
   matches: Array<{ type: string; redactedValue: string }>;
-  action: 'redact' | 'warn' | 'block';
+  action: 'redact' | 'warn' | 'block' | 'prompt';
 }
 
 export interface MemoryRecalledCandidateDebug {
@@ -2009,7 +2012,55 @@ export type ServerMessage =
   | WorkItemCreateResponse
   | WorkItemUpdateResponse
   | WorkItemRunTaskResponse
-  | WorkItemStatusChanged;
+  | WorkItemStatusChanged
+  | SubagentSpawned
+  | SubagentStatusChanged
+  | SubagentEvent;
+
+// === Subagent IPC ─────────────────────────────────────────────────────
+
+export interface SubagentSpawned {
+  type: 'subagent_spawned';
+  subagentId: string;
+  parentSessionId: string;
+  label: string;
+  objective: string;
+}
+
+export interface SubagentStatusChanged {
+  type: 'subagent_status_changed';
+  subagentId: string;
+  status: import('../subagent/types.js').SubagentStatus;
+  error?: string;
+  usage?: UsageStats;
+}
+
+/** Wraps any ServerMessage emitted by a subagent session for routing to the client. */
+export interface SubagentEvent {
+  type: 'subagent_event';
+  subagentId: string;
+  event: ServerMessage;
+}
+
+// === Client → Server subagent messages ───────────────────────────────
+
+export interface SubagentAbortRequest {
+  type: 'subagent_abort';
+  subagentId: string;
+}
+
+export interface SubagentStatusRequest {
+  type: 'subagent_status';
+  /** If omitted, returns all subagents for the session. */
+  subagentId?: string;
+  sessionId: string;
+}
+
+export interface SubagentMessageRequest {
+  type: 'subagent_message';
+  subagentId: string;
+  content: string;
+}
 
 // === Contract schema ===
 

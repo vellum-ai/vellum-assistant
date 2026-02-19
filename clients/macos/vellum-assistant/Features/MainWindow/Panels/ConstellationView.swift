@@ -208,7 +208,7 @@ struct ConstellationView: View {
     let identity: IdentityInfo?
     let skills: [SkillInfo]
     let workspaceFiles: [WorkspaceFileNode]
-    private let appearance = AvatarAppearanceManager.shared
+    @State private var appearance = AvatarAppearanceManager.shared
 
     @State private var phase: AnimationPhase = .hidden
     @State private var panOffset: CGSize = .zero

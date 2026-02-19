@@ -89,11 +89,10 @@ struct ChatView: View {
     let onCopyDebugInfo: () -> Void
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
-    let onOpenActivity: (UUID) -> Void
-    let isActivityPanelOpen: Bool
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
+    var activeSubagents: [SubagentInfo] = []
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     /// Uses utf8.count (O(1) for contiguous strings) instead of String.count (O(n) grapheme
@@ -111,7 +110,7 @@ struct ChatView: View {
     @State private var emptyStatePlaceholder: String = placeholderTexts.randomElement()!
     @State private var emptyStateVisible = false
     @State private var identity: IdentityInfo? = IdentityInfo.load()
-    private let appearance = AvatarAppearanceManager.shared
+    @State private var appearance = AvatarAppearanceManager.shared
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
     private static let defaultGreetings = [
@@ -594,14 +593,28 @@ struct ChatView: View {
                                 showRegenerate: isLastAssistant,
                                 onRegenerate: onRegenerate,
                                 onSurfaceAction: onSurfaceAction,
-                                onOpenActivity: onOpenActivity,
-                                isActivityPanelOpen: isActivityPanelOpen,
                                 onReportMessage: onReportMessage,
                                 mediaEmbedSettings: mediaEmbedSettings
                             )
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
+
+                        // Subagent chips anchored to the message that spawned them
+                        ForEach(activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
+                            SubagentStatusChip(subagent: subagent)
+                                .frame(maxWidth: 520, alignment: .leading)
+                                .id("subagent-\(subagent.id)")
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
+                    }
+
+                    // Subagents with no parent message (e.g. from history load)
+                    ForEach(activeSubagents.filter { $0.parentMessageId == nil }) { subagent in
+                        SubagentStatusChip(subagent: subagent)
+                            .frame(maxWidth: 520, alignment: .leading)
+                            .id("subagent-\(subagent.id)")
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
                     let hasPendingConfirmation = messages.last?.confirmation?.state == .pending
@@ -655,13 +668,6 @@ struct ChatView: View {
             .onChange(of: messages.count) {
                 withAnimation(VAnimation.fast) {
                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                }
-            }
-            .onChange(of: isActivityPanelOpen) {
-                if !isActivityPanelOpen {
-                    withAnimation(VAnimation.standard) {
-                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                    }
                 }
             }
         }
@@ -893,11 +899,10 @@ private struct ChatBubble: View {
     let showRegenerate: Bool
     let onRegenerate: () -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
-    let onOpenActivity: (UUID) -> Void
-    let isActivityPanelOpen: Bool
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
 
+    @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
     @State private var isRegenerateHovered = false
     @State private var isCopyHovered = false
@@ -905,6 +910,7 @@ private struct ChatBubble: View {
     @State private var showCopyConfirmation = false
     @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
+    @State private var stepsExpanded = false
 
     private var isUser: Bool { message.role == .user }
     private var canReportMessage: Bool {
@@ -986,8 +992,18 @@ private struct ChatBubble: View {
     }
 
     var body: some View {
-        HStack(spacing: VSpacing.sm) {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
             if isUser { Spacer(minLength: 0) }
+
+            if !isUser {
+                Image(nsImage: appearance.chatAvatarImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 28, height: 28)
+                    .clipShape(Circle())
+                    .padding(.top, 2)
+            }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
                 if !isUser && hasInterleavedContent {
@@ -1043,50 +1059,58 @@ private struct ChatBubble: View {
                     }
 
                     if canReportMessage {
-                        Menu {
-                            if let onReportMessage {
-                                Button("Export response for diagnostics") {
-                                    onReportMessage(message.daemonMessageId)
+                        // Use ZStack + conditional rendering so the NSPopUpButton is only
+                        // in the view hierarchy while hovered — avoiding per-message SF
+                        // Symbol and accessibility-string lookups on every scroll frame
+                        // that cause the scroll crash (see #4809).
+                        ZStack {
+                            Color.clear.frame(width: 24, height: 24)
+                            if isHovered {
+                                Menu {
+                                    if let onReportMessage {
+                                        Button("Export response for diagnostics") {
+                                            onReportMessage(message.daemonMessageId)
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(VColor.textMuted)
+                                        .frame(width: 24, height: 24)
+                                        .contentShape(Rectangle())
                                 }
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(VColor.textMuted)
+                                .menuStyle(.borderlessButton)
+                                .menuIndicator(.hidden)
+                                .tint(VColor.textMuted)
                                 .frame(width: 24, height: 24)
-                                .contentShape(Rectangle())
-                        }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .tint(VColor.textMuted)
-                        .frame(width: 24, height: 24)
-                        .opacity(isUser ? (isHovered ? 1 : 0) : 1)
-                        .allowsHitTesting(isUser ? isHovered : true)
-                        .accessibilityLabel("Message actions")
-                        .onHover { isMoreHovered = $0 }
-                        .overlay(alignment: .bottom) {
-                            if isMoreHovered {
-                                Text("More")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textPrimary)
-                                    .padding(.horizontal, VSpacing.sm)
-                                    .padding(.vertical, VSpacing.xs)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: VRadius.sm)
-                                            .fill(VColor.surface)
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: VRadius.sm)
-                                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                                    )
-                                    .vShadow(VShadow.sm)
-                                    .fixedSize()
-                                    .offset(y: 28)
-                                    .transition(.opacity)
-                                    .allowsHitTesting(false)
+                                .accessibilityLabel("Message actions")
+                                .onHover { isMoreHovered = $0 }
+                                .overlay(alignment: .bottom) {
+                                    if isMoreHovered {
+                                        Text("More")
+                                            .font(VFont.caption)
+                                            .foregroundColor(VColor.textPrimary)
+                                            .padding(.horizontal, VSpacing.sm)
+                                            .padding(.vertical, VSpacing.xs)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                                    .fill(VColor.surface)
+                                            )
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                                            )
+                                            .vShadow(VShadow.sm)
+                                            .fixedSize()
+                                            .offset(y: 28)
+                                            .transition(.opacity)
+                                            .allowsHitTesting(false)
+                                    }
+                                }
+                                .animation(VAnimation.fast, value: isMoreHovered)
+                                .transition(.opacity.animation(VAnimation.fast))
                             }
                         }
-                        .animation(VAnimation.fast, value: isMoreHovered)
                     }
                 }
             }
@@ -1228,12 +1252,11 @@ private struct ChatBubble: View {
 
         if hasStreamingCode {
             let rawName = message.streamingCodeToolName ?? ""
-            let displayName = rawName.replacingOccurrences(of: "_", with: " ")
             let activeBuildingStatus = message.toolCalls.last(where: { !$0.isComplete })?.buildingStatus
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 RunningIndicator(
-                    label: Self.friendlyRunningLabel(displayName, buildingStatus: activeBuildingStatus),
-                    onTap: { onOpenActivity(message.id) }
+                    label: Self.friendlyRunningLabel(rawName, buildingStatus: activeBuildingStatus),
+                    onTap: nil
                 )
                 CodePreviewView(code: message.streamingCodePreview!)
             }
@@ -1246,7 +1269,7 @@ private struct ChatBubble: View {
                 label: Self.friendlyRunningLabel(current.toolName, inputSummary: current.inputSummary, buildingStatus: current.buildingStatus),
                 progressiveLabels: progressive,
                 labelInterval: progressive.isEmpty ? 6 : 15,
-                onTap: { onOpenActivity(message.id) }
+                onTap: nil
             )
                 .frame(maxWidth: 520, alignment: .leading)
         } else if toolsCompleteButStillStreaming && !permissionWasDenied {
@@ -1255,23 +1278,32 @@ private struct ChatBubble: View {
                 label: "Thinking",
                 progressiveLabels: ["Thinking", "Figuring out next steps", "Almost ready"],
                 labelInterval: 8,
-                onTap: { onOpenActivity(message.id) }
+                onTap: nil
             )
                 .frame(maxWidth: 520, alignment: .leading)
         } else if hasCompletedTools || hasPermission || (hasInProgressTools && permissionWasDenied) {
-            // All done (or denied) — show chips on one line
-            let onlyPermissionTools = message.toolCalls.allSatisfy { $0.toolName.lowercased() == "request system permission" }
-            HStack(spacing: VSpacing.sm) {
-                if hasCompletedTools && !(onlyPermissionTools && decidedConfirmation != nil) {
-                    compactToolChip
-                } else if hasInProgressTools && permissionWasDenied {
-                    compactFailedToolChip
+            // All done (or denied) — steps pill + permission chip on one row,
+            // with the expanded steps list in the row below.
+            let onlyPermissionTools = message.toolCalls.allSatisfy { $0.toolName == "request_system_permission" }
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center, spacing: VSpacing.sm) {
+                    if hasCompletedTools && !(onlyPermissionTools && decidedConfirmation != nil) {
+                        UsedToolsList(toolCalls: message.toolCalls, isExpanded: $stepsExpanded)
+                    } else if hasInProgressTools && permissionWasDenied {
+                        compactFailedToolChip
+                    }
+                    if let confirmation = decidedConfirmation {
+                        compactPermissionChip(confirmation)
+                    }
+                    Spacer()
                 }
-                if let confirmation = decidedConfirmation {
-                    compactPermissionChip(confirmation)
+
+                if stepsExpanded && hasCompletedTools {
+                    StepsSection(toolCalls: message.toolCalls)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                Spacer()
             }
+            .animation(VAnimation.fast, value: stepsExpanded)
             .padding(.top, VSpacing.xxs)
         }
     }
@@ -1358,39 +1390,41 @@ private struct ChatBubble: View {
     private static func friendlyRunningLabel(_ toolName: String, inputSummary: String? = nil, buildingStatus: String? = nil) -> String {
         // For app file tools, prefer the descriptive building status from tool input
         if let status = buildingStatus {
-            let lower = toolName.lowercased()
-            if lower == "app file edit" || lower == "app file write" || lower == "app create" || lower == "app update" {
+            if toolName == "app_file_edit" || toolName == "app_file_write" || toolName == "app_create" || toolName == "app_update" {
                 return status
             }
         }
-        switch toolName.lowercased() {
-        case "run command":            return "Running a command"
-        case "read file":              return "Reading a file"
-        case "write file":             return "Writing a file"
-        case "edit file":              return "Editing a file"
-        case "search files":           return "Searching files"
-        case "find files":             return "Finding files"
-        case "web search":             return "Searching the web"
-        case "fetch url":              return "Fetching a webpage"
-        case "browser navigate":       return "Opening a page"
-        case "browser click":          return "Clicking on the page"
-        case "browser screenshot":     return "Taking a screenshot"
-        case "app create":             return "Building your app"
-        case "app update":             return "Updating your app"
-        case "skill load":
+        switch toolName {
+        case "bash", "host_bash":               return "Running a command"
+        case "file_read", "host_file_read":     return "Reading a file"
+        case "file_write", "host_file_write":   return "Writing a file"
+        case "file_edit", "host_file_edit":     return "Editing a file"
+        case "grep":                            return "Searching files"
+        case "glob":                            return "Finding files"
+        case "web_search":                      return "Searching the web"
+        case "web_fetch":                       return "Fetching a webpage"
+        case "browser_navigate":                return "Opening a page"
+        case "browser_click":                   return "Clicking on the page"
+        case "browser_screenshot":              return "Taking a screenshot"
+        case "app_create":                      return "Building your app"
+        case "app_update":                      return "Updating your app"
+        case "skill_load":
             if let name = inputSummary, !name.isEmpty {
                 let display = name.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ")
                 return "Loading \(display)"
             }
             return "Loading a skill"
-        default:                       return "Running \(toolName)"
+        default:
+            // Convert raw snake_case name to a readable fallback
+            let display = toolName.replacingOccurrences(of: "_", with: " ")
+            return "Running \(display)"
         }
     }
 
     /// Progressive labels for long-running tools. Cycles through these over time.
     private static func progressiveLabels(for toolName: String) -> [String] {
-        switch toolName.lowercased() {
-        case "app create":
+        switch toolName {
+        case "app_create":
             return [
                 "Choosing a visual direction",
                 "Designing the layout",
@@ -1400,7 +1434,7 @@ private struct ChatBubble: View {
                 "Polishing the details",
                 "Almost there",
             ]
-        case "app update":
+        case "app_update":
             return [
                 "Reviewing your app",
                 "Applying changes",
@@ -1414,17 +1448,17 @@ private struct ChatBubble: View {
 
     /// Icon for a tool category.
     private static func friendlyToolIcon(_ toolName: String) -> String {
-        switch toolName.lowercased() {
-        case "run command":                                 return "terminal"
-        case "read file":                                   return "doc.text"
-        case "write file":                                  return "doc.badge.plus"
-        case "edit file":                                   return "pencil"
-        case "search files", "find files", "web search":    return "magnifyingglass"
-        case "fetch url":                                   return "globe"
-        case "browser navigate", "browser click":           return "safari"
-        case "browser screenshot":                          return "camera"
-        case "request system permission":                   return "lock.shield"
-        default:                                            return "gearshape"
+        switch toolName {
+        case "bash", "host_bash":                               return "terminal"
+        case "file_read", "host_file_read":                     return "doc.text"
+        case "file_write", "host_file_write":                   return "doc.badge.plus"
+        case "file_edit", "host_file_edit":                     return "pencil"
+        case "grep", "glob", "web_search":                      return "magnifyingglass"
+        case "web_fetch":                                       return "globe"
+        case "browser_navigate", "browser_click":               return "safari"
+        case "browser_screenshot":                              return "camera"
+        case "request_system_permission":                       return "lock.shield"
+        default:                                                return "gearshape"
         }
     }
 
@@ -1443,57 +1477,6 @@ private struct ChatBubble: View {
         default:
             if rawType.isEmpty { return "Permission" }
             return rawType.replacingOccurrences(of: "_", with: " ").capitalized
-        }
-    }
-
-    private var compactToolChip: some View {
-        Button {
-            onOpenActivity(message.id)
-        } label: {
-            HStack(spacing: VSpacing.xs) {
-                let uniqueNames = Array(Set(message.toolCalls.map(\.toolName))).sorted()
-                let primary = uniqueNames.first ?? "Tool"
-
-                Image(systemName: Self.friendlyToolIcon(primary))
-                    .font(.system(size: 12))
-                    .foregroundColor(VColor.textMuted)
-
-                let label: String = {
-                    if uniqueNames.count == 1 {
-                        if message.toolCalls.count == 1, let first = message.toolCalls.first {
-                            // Single tool: contextual label with details
-                            return Self.friendlyToolLabel(primary, inputSummary: first.inputSummary)
-                        }
-                        // Multiple of the same tool: count-based
-                        return Self.friendlyToolLabelPlural(primary, count: message.toolCalls.count)
-                    }
-                    return "Used \(message.toolCalls.count) tools"
-                }()
-
-                Text(label)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundColor(VColor.textMuted)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.xs)
-            .background(
-                Capsule().fill(VColor.surface)
-            )
-            .overlay(
-                Capsule().stroke(VColor.surfaceBorder, lineWidth: 0.5)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            if hovering {
-                NSCursor.pointingHand.push()
-            } else {
-                NSCursor.pop()
-            }
         }
     }
 
@@ -2688,9 +2671,7 @@ private struct ChatViewPreviewWrapper: View {
                 onDismissSessionError: {},
                 onCopyDebugInfo: {},
                 watchSession: nil,
-                onStopWatch: {},
-                onOpenActivity: { _ in },
-                isActivityPanelOpen: false
+                onStopWatch: {}
             )
         }
     }
