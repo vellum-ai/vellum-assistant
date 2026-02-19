@@ -1094,7 +1094,7 @@ struct MainWindowView: View {
         case .identity:
             IdentityPanel(onClose: { windowState.selection = nil }, onCustomizeAvatar: { windowState.selection = .panel(.avatarCustomization) }, daemonClient: daemonClient)
         case .avatarCustomization:
-            AvatarCustomizationPanel(onClose: { windowState.selection = nil })
+            AvatarCustomizationPanel(onClose: { windowState.selection = .panel(.identity) })
         }
     }
 
@@ -1319,7 +1319,7 @@ struct MainWindowView: View {
             IdentityPanel(onClose: { windowState.dismissOverlay() }, onCustomizeAvatar: { windowState.selection = .panel(.avatarCustomization) }, daemonClient: daemonClient)
                 .overlay(alignment: .topTrailing) { panelDismissButton }
         case .avatarCustomization:
-            AvatarCustomizationPanel(onClose: { windowState.dismissOverlay() })
+            AvatarCustomizationPanel(onClose: { windowState.selection = .panel(.identity) })
                 .overlay(alignment: .topTrailing) { panelDismissButton }
         case .generated:
             // Generated panel is handled inline in chatContentView when expanded;
@@ -1337,8 +1337,17 @@ struct MainWindowView: View {
     }
 
     /// Consistent X close button for panel overlays.
+    private func panelDismissAction() {
+        // Avatar customization → back to Identity; everything else → dismiss overlay
+        if case .panel(.avatarCustomization) = windowState.selection {
+            windowState.selection = .panel(.identity)
+        } else {
+            windowState.dismissOverlay()
+        }
+    }
+
     private var panelDismissButton: some View {
-        Button(action: { windowState.dismissOverlay() }) {
+        Button(action: panelDismissAction) {
             Image(systemName: "xmark")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(VColor.textSecondary)
