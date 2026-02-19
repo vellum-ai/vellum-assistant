@@ -1,20 +1,16 @@
-import { readFileSync } from "fs";
-import { join } from "path";
-
-const COMPONENTS_DIR = join(import.meta.dir, "..", "components");
-const CONSTANTS_PATH = join(import.meta.dir, "constants.ts");
+// @ts-expect-error -- Bun embed: imports raw file content as a string, not supported by TypeScript
+import constantsSource from "./constants.ts" with { type: "text" };
+// @ts-expect-error -- Bun embed: imports raw file content as a string, not supported by TypeScript
+import defaultMainScreenSource from "../components/DefaultMainScreen.tsx" with { type: "text" };
 
 function inlineLocalImports(source: string): string {
-  const constantsSource = readFileSync(CONSTANTS_PATH, "utf-8");
-
   return source
     .replace(/import\s*\{[^}]*\}\s*from\s*["'][^"']*\/constants["'];?\s*\n/, constantsSource + "\n")
     .replace(/import\s*\{[^}]*\}\s*from\s*["']path["'];?\s*\n/, "");
 }
 
 export function buildInterfacesSeed(): string {
-  const rawSource = readFileSync(join(COMPONENTS_DIR, "DefaultMainScreen.tsx"), "utf-8");
-  const mainWindowSource = inlineLocalImports(rawSource);
+  const mainWindowSource = inlineLocalImports(defaultMainScreenSource);
 
   return `
 INTERFACES_SEED_DIR="/tmp/interfaces-seed"
