@@ -623,7 +623,8 @@ struct ChatView: View {
                         }
                     }
 
-                    if isSending && !(messages.last?.isStreaming == true) {
+                    let hasPendingConfirmation = messages.last?.confirmation?.state == .pending
+                    if isSending && !(messages.last?.isStreaming == true) && !hasPendingConfirmation {
                         RunningIndicator(
                             label: !hasEverSentMessage && messages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
                             showIcon: false

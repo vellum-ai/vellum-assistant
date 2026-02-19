@@ -60,7 +60,8 @@ struct ChatContentView: View {
                         }
 
                         // Current step indicator shown while generating
-                        if viewModel.isSending {
+                        let hasPendingConfirmation = viewModel.messages.last?.confirmation?.state == .pending
+                        if viewModel.isSending && !hasPendingConfirmation {
                             let allToolCalls = viewModel.messages.last?.toolCalls ?? []
                             CurrentStepIndicator(
                                 toolCalls: allToolCalls,
