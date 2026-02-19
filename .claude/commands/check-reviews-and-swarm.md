@@ -2,10 +2,11 @@ Run `/check-reviews` to triage pending PR reviews, then immediately `/swarm` to 
 
 Arguments (optional): $ARGUMENTS
 
-Parse positional arguments (these are passed through to `/swarm`):
+Parse positional arguments and flags (these are passed through to `/swarm`):
 
 - **First argument** (optional): number of parallel workers (default: 12).
 - **Second argument** (optional): maximum number of tasks to complete before shutting down.
+- **`--namespace NAME`** (optional): namespace for swarm branch naming (passed through to `/swarm`).
 
 ## Phase 1: Check reviews
 

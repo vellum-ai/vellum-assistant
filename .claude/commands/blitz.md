@@ -14,6 +14,12 @@ Extract these flags from `$ARGUMENTS` before treating the remainder as the featu
 
 Everything after stripping flags is the **feature description**.
 
+## Namespace
+
+Derive a short namespace slug from the feature description to avoid conflicts with parallel swarms. Take the first 3-4 meaningful words of the feature description, convert to kebab-case, and truncate to 20 characters max (e.g., "Add WebSocket transport for daemon IPC" → `ws-daemon-ipc`). This namespace is used for:
+- Prefixing milestone labels in TODO.md to distinguish tasks from different blitzes
+- Namespacing swarm branch names to avoid worktree collisions
+
 ## Repo-specific gotchas (include these in every agent prompt)
 
 - **gh pr view fields**: `merged` is NOT a valid --json field. Use `state` and `mergedAt` instead: `gh pr view <N> --json state,mergedAt,title,url`
@@ -123,11 +129,11 @@ EOF
 ## Phase 3: Populate TODO.md
 
 1. Read `.private/TODO.md` (preserve existing items).
-2. Prepend milestone issues as TODO items at the top:
+2. Prepend milestone issues as TODO items at the top, prefixed with the namespace:
 
 ```
-- M1: <title> (#<issue-number>)
-- M2: <title> (#<issue-number>)
+- [<namespace>] M1: <title> (#<issue-number>)
+- [<namespace>] M2: <title> (#<issue-number>)
 ...
 ```
 
@@ -138,6 +144,7 @@ EOF
 Read and follow the instructions in `.claude/commands/swarm.md` with these modifications:
 
 - Pass the `--workers` count (or default: 12) as the first argument.
+- Pass `--namespace <namespace>` to use the derived namespace for branch naming.
 - **After each milestone task completes and its PR merges**, update the corresponding GitHub issue. Skip this for non-milestone tasks (e.g., "Address the feedback on ..." items from Phase 5 — those are PR-based and have no associated milestone issue):
   1. Set the project board status to "Done" and close the issue:
 

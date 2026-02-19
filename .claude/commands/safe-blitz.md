@@ -17,6 +17,12 @@ Extract these flags from `$ARGUMENTS` before treating the remainder as the featu
 
 Everything after stripping flags is the **feature description**.
 
+## Namespace
+
+Derive a short namespace slug from the feature description to avoid conflicts with parallel swarms. Take the first 3-4 meaningful words of the feature description, convert to kebab-case, and truncate to 20 characters max (e.g., "Add WebSocket transport for daemon IPC" → `ws-daemon-ipc`). This namespace is used for:
+- Prefixing milestone labels in TODO.md to distinguish tasks from different blitzes
+- Namespacing swarm branch names to avoid worktree collisions
+
 ## Repo-specific gotchas (include these in every agent prompt)
 
 - **gh pr view fields**: `merged` is NOT a valid --json field. Use `state` and `mergedAt` instead: `gh pr view <N> --json state,mergedAt,title,url`
@@ -151,11 +157,11 @@ EOF
 ## Phase 3: Populate TODO.md
 
 1. Read `.private/TODO.md` (preserve existing items).
-2. Prepend milestone issues as TODO items at the top:
+2. Prepend milestone issues as TODO items at the top, prefixed with the namespace:
 
 ```
-- M1: <title> (#<issue-number>)
-- M2: <title> (#<issue-number>)
+- [<namespace>] M1: <title> (#<issue-number>)
+- [<namespace>] M2: <title> (#<issue-number>)
 ...
 ```
 
@@ -170,7 +176,7 @@ For each task being handed off:
 1. Create a worktree **from the feature branch** (not main):
 
 ```bash
-.claude/worktree create swarm/task-<counter> origin/<feature-branch-name>
+.claude/worktree create swarm/<namespace>/task-<counter> origin/<feature-branch-name>
 ```
 
 2. Create a `TaskCreate` entry for tracking.
@@ -222,7 +228,7 @@ For "Address the feedback on <PR URL>" tasks:
    - Append the PR link to .private/UNREVIEWED_PRS.md.
 3. Mark the TaskCreate entry as completed.
 4. Increment the **completed count**.
-5. Remove the worktree: `.claude/worktree remove swarm/task-<counter> --delete-branch`.
+5. Remove the worktree: `.claude/worktree remove swarm/<namespace>/task-<counter> --delete-branch`.
 6. **Report to the user**: show the completed item, the PR link, a summary of what changed, and which files were modified. Don't abbreviate.
 7. Remove the item from the in-flight list.
 8. Pull the latest **feature branch** (not main):

@@ -2,10 +2,11 @@ Work through .private/TODO.md using a pool of parallel agents. One task per agen
 
 Arguments (optional): $ARGUMENTS
 
-Parse positional arguments:
+Parse positional arguments and flags:
 
 - **First argument** (optional): number of parallel workers (default: 12). Example: `/swarm 5` runs 5 workers.
 - **Second argument** (optional): maximum number of tasks to complete before automatically shutting down. Example: `/swarm 8 10` runs 8 workers and stops after completing 10 tasks.
+- **`--namespace NAME`** (optional): a short identifier to namespace branch names and avoid conflicts with other parallel swarm runs. If not provided, generate a random 4-character hex string (e.g., `a3f2`) as the namespace.
 
 If no arguments are provided, default to 12 workers with no task limit (run until TODO.md is empty or the user says to stop).
 
@@ -19,7 +20,7 @@ If no arguments are provided, default to 12 workers with no task limit (run unti
 ## Phase 1: Setup
 
 1. Read .private/TODO.md. Keep an internal list of which items are currently in-flight.
-2. Parse the arguments: note the worker count (default: 12) and max-tasks limit (if provided). Track a **completed count** starting at 0.
+2. Parse the arguments: note the worker count (default: 12), max-tasks limit (if provided), and namespace (or generate a random 4-char hex default). Track a **completed count** starting at 0.
 3. Create a team with `TeamCreate` (team name: `swarm`).
 
 ## Phase 2: Pick the next task
@@ -40,7 +41,7 @@ These are tasks to read review comments on an already-merged PR, then create a N
 
 For each task being handed off:
 
-1. Create a worktree: `.claude/worktree create swarm/task-<counter>`.
+1. Create a worktree: `.claude/worktree create swarm/<namespace>/task-<counter>`.
 2. Create a `TaskCreate` entry for tracking.
 3. Spawn a `general-purpose` agent via the `Task` tool with `team_name: "swarm"`. The prompt must include:
 
@@ -102,7 +103,7 @@ For "Fix CI failures from merged PR <PR URL> (run: <run URL>)" tasks:
 3. Mark the TaskCreate entry as completed.
 4. Increment the **completed count**.
 5. Send the agent a shutdown request.
-6. Remove the worktree: `.claude/worktree remove swarm/task-<counter> --delete-branch`.
+6. Remove the worktree: `.claude/worktree remove swarm/<namespace>/task-<counter> --delete-branch`.
 7. **Report to the user**: show the completed item, the PR link, a summary of what changed, and which files were modified. Don't abbreviate — give enough detail that the user understands what happened without clicking the PR.
 8. Remove the item from the in-flight list.
 9. Pull the latest main branch to ensure the worktree is up to date.
