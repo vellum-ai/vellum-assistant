@@ -167,14 +167,14 @@ describe('Parallel tool execution benchmarks', () => {
     expect(lastStart).toBeLessThanOrEqual(firstEnd);
   });
 
-  // 3. Mixed latencies: 1 slow (2s) + 4 fast (10ms) = ~2s total
+  // 3. Mixed latencies: 1 slow (2s) + 4 fast (100ms) = ~2s parallel, ~2.4s sequential
   test('mixed latencies: 1 slow + 4 fast tools complete in slow-tool time', async () => {
     const toolUseBlocks = [
       { id: 'slow', name: 'delay_tool', input: { delayMs: 2000 } },
-      { id: 'fast1', name: 'delay_tool', input: { delayMs: 10 } },
-      { id: 'fast2', name: 'delay_tool', input: { delayMs: 10 } },
-      { id: 'fast3', name: 'delay_tool', input: { delayMs: 10 } },
-      { id: 'fast4', name: 'delay_tool', input: { delayMs: 10 } },
+      { id: 'fast1', name: 'delay_tool', input: { delayMs: 100 } },
+      { id: 'fast2', name: 'delay_tool', input: { delayMs: 100 } },
+      { id: 'fast3', name: 'delay_tool', input: { delayMs: 100 } },
+      { id: 'fast4', name: 'delay_tool', input: { delayMs: 100 } },
     ];
 
     const { provider } = createMockProvider([
@@ -199,9 +199,10 @@ describe('Parallel tool execution benchmarks', () => {
     await loop.run([userMessage], collectEvents(events));
     const elapsed = Date.now() - start;
 
-    // Total time should be dominated by the slow tool (~2s), not additive (~2.04s)
+    // Parallel: ~2000ms (dominated by slow tool). Sequential: ~2400ms (2000 + 4*100).
+    // Upper bound of 2200ms ensures a sequential implementation would fail.
     expect(elapsed).toBeGreaterThanOrEqual(1900);
-    expect(elapsed).toBeLessThan(2500);
+    expect(elapsed).toBeLessThan(2200);
 
     // tool_result events should be emitted in tool_use order (slow first),
     // even though fast tools finish earlier
