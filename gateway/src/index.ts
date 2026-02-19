@@ -114,7 +114,7 @@ function main() {
         return handleTwilioConnectActionWebhook(req);
       }
 
-      if (url.pathname === "/webhooks/twilio/relay") {
+      if (url.pathname === "/webhooks/twilio/relay" || url.pathname === "/v1/calls/relay") {
         const upgradeResult = handleTwilioRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         // If upgrade was handled, Bun doesn't need a response

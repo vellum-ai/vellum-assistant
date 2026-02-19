@@ -114,14 +114,12 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   }
 
   const config = getTwilioConfig();
-  let relayUrl: string;
-  if (config.wssBaseUrl) {
-    // wssBaseUrl points directly to runtime — use runtime's internal relay path
-    relayUrl = `${config.wssBaseUrl.replace(/\/$/, '')}/v1/calls/relay`;
-  } else {
-    // Fall back to gateway's public URL — use gateway's relay path
-    relayUrl = `${config.webhookBaseUrl.replace(/\/$/, '').replace(/^http/, 'ws')}/webhooks/twilio/relay`;
-  }
+  // Always use /v1/calls/relay — the canonical relay path on both runtime and
+  // gateway. wssBaseUrl (when set) points directly at runtime; otherwise
+  // webhookBaseUrl may point at the gateway OR at the runtime in gateway-less
+  // deployments, so we use the same path either way.
+  const wsBase = (config.wssBaseUrl || config.webhookBaseUrl).replace(/\/$/, '').replace(/^http/, 'ws');
+  const relayUrl = `${wsBase}/v1/calls/relay`;
   const welcomeGreeting = process.env.CALL_WELCOME_GREETING ?? 'Hello, how can I help you today?';
 
   const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting);
