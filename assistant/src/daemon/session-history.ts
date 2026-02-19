@@ -203,6 +203,20 @@ export function consolidateAssistantMessages(conversationId: string, userMessage
   const firstAssistantMsg = messagesToConsolidate[0];
   conversationStore.updateMessageContent(firstAssistantMsg.id, JSON.stringify(consolidatedContent));
 
+  // Re-link attachments from messages about to be deleted to the consolidated
+  // message. Without this, ON DELETE CASCADE on message_attachments destroys
+  // the attachment links, and deleteOrphanAttachments removes the data.
+  const messageIdsToDelete = [
+    ...messagesToConsolidate.slice(1).map((m) => m.id),
+    ...messagesToDelete,
+  ];
+  if (messageIdsToDelete.length > 0) {
+    const relinked = conversationStore.relinkAttachments(messageIdsToDelete, firstAssistantMsg.id);
+    if (relinked > 0) {
+      log.info({ relinked, targetMessageId: firstAssistantMsg.id }, 'Re-linked attachments to consolidated message');
+    }
+  }
+
   // Delete the other assistant messages and internal tool_result messages,
   // and collect IDs for vector cleanup
   const allSegmentIds: string[] = [];

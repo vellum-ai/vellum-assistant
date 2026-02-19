@@ -333,6 +333,32 @@ export function updateMessageContent(messageId: string, newContent: string): voi
 }
 
 /**
+ * Re-link all attachments from a set of source messages to a target message.
+ * Used during message consolidation so that attachments linked to deleted
+ * messages survive the ON DELETE CASCADE on message_attachments.
+ */
+export function relinkAttachments(fromMessageIds: string[], toMessageId: string): number {
+  if (fromMessageIds.length === 0) return 0;
+  const db = getDb();
+
+  // Count how many links will be moved before updating.
+  const [{ total }] = db
+    .select({ total: count() })
+    .from(messageAttachments)
+    .where(inArray(messageAttachments.messageId, fromMessageIds))
+    .all();
+
+  if (total === 0) return 0;
+
+  db.update(messageAttachments)
+    .set({ messageId: toMessageId })
+    .where(inArray(messageAttachments.messageId, fromMessageIds))
+    .run();
+
+  return total;
+}
+
+/**
  * Delete a single message by ID without cascading to message_runs or
  * channel_inbound_events. Nullable FK columns in those tables are set to
  * NULL before the message row is removed, so associated run and event
