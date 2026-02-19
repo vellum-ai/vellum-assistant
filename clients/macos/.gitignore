@@ -10,3 +10,4 @@ DerivedData/
 context.md
 Local.xcconfig
 daemon-bin/
+cli-bin/
