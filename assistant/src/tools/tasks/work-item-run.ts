@@ -1,5 +1,5 @@
 import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { getWorkItem, listWorkItems, identifyEntityById, buildWorkItemMismatchError } from '../../work-items/work-item-store.js';
+import { getWorkItem, listWorkItems, identifyEntityById } from '../../work-items/work-item-store.js';
 import { runWorkItemInBackground } from '../../work-items/work-item-runner.js';
 import { getTask } from '../../tasks/task-store.js';
 

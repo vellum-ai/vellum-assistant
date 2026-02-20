@@ -103,7 +103,7 @@ async function exchangeCodeForTokens(
 
   if (!tokenResp.ok) {
     const rawBody = await tokenResp.text().catch(() => '');
-    let safeDetail: Record<string, unknown> = {};
+    const safeDetail: Record<string, unknown> = {};
     let errorCode = '';
     try {
       const parsed = JSON.parse(rawBody) as Record<string, unknown>;
@@ -149,7 +149,9 @@ async function exchangeCodeForTokens(
  */
 function detectTransport(): 'loopback' | 'gateway' {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getPublicBaseUrl } = require('../inbound/public-ingress-urls.js') as typeof import('../inbound/public-ingress-urls.js');
     const appConfig = loadConfig();
     getPublicBaseUrl(appConfig); // throws if no public URL configured
@@ -265,8 +267,11 @@ async function runGatewayFlow(
   codeChallenge: string,
   state: string,
 ): Promise<OAuth2FlowResult> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getOAuthCallbackUrl } = require('../inbound/public-ingress-urls.js') as typeof import('../inbound/public-ingress-urls.js');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { registerPendingCallback } = require('./oauth-callback-registry.js') as typeof import('./oauth-callback-registry.js');
 
   const appConfig = loadConfig();
@@ -321,6 +326,7 @@ export async function startOAuth2Flow(
   // In gateway_only mode, enforce gateway transport and require a public ingress URL
   let ingressMode: string | undefined;
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
     ingressMode = loadConfig().ingress.mode;
   } catch {
@@ -334,7 +340,9 @@ export async function startOAuth2Flow(
     // Verify a public ingress URL is configured; fail fast with actionable error if not
     let hasPublicUrl = false;
     try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getPublicBaseUrl } = require('../inbound/public-ingress-urls.js') as typeof import('../inbound/public-ingress-urls.js');
       getPublicBaseUrl(loadConfig());
       hasPublicUrl = true;
@@ -390,7 +398,7 @@ export async function refreshOAuth2Token(
 
   if (!resp.ok) {
     const rawBody = await resp.text().catch(() => '');
-    let safeDetail: Record<string, unknown> = {};
+    const safeDetail: Record<string, unknown> = {};
     let errorCode = '';
     try {
       const parsed = JSON.parse(rawBody) as Record<string, unknown>;

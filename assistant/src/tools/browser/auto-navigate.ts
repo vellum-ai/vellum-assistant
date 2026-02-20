@@ -38,7 +38,7 @@ class MiniCDP {
           const cb = this.callbacks.get(msg.id);
           if (cb) {
             this.callbacks.delete(msg.id);
-            msg.error ? cb.reject(new Error(msg.error.message)) : cb.resolve(msg.result);
+            if (msg.error) { cb.reject(new Error(msg.error.message)); } else { cb.resolve(msg.result); }
           }
         }
       };
@@ -130,7 +130,7 @@ export async function autoNavigate(domain: string, abortSignal?: { aborted: bool
   await sleep(SCROLL_WAIT_MS);
 
   // Discover internal links from the current page
-  let discoveredLinks = await discoverInternalLinks(cdp, domain);
+  const discoveredLinks = await discoverInternalLinks(cdp, domain);
   log.info({ count: discoveredLinks.length }, 'Discovered internal links from root');
 
   // Visit discovered pages

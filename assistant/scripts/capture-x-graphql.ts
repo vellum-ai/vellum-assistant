@@ -63,7 +63,7 @@ class CDPClient {
         const msg = JSON.parse(String(event.data));
         if (msg.id != null) {
           const cb = this.callbacks.get(msg.id);
-          if (cb) { this.callbacks.delete(msg.id); msg.error ? cb.reject(new Error(msg.error.message)) : cb.resolve(msg.result); }
+          if (cb) { this.callbacks.delete(msg.id); if (msg.error) { cb.reject(new Error(msg.error.message)); } else { cb.resolve(msg.result); } }
         } else if (msg.method) {
           for (const h of this.eventHandlers.get(msg.method) ?? []) h(msg.params ?? {});
         }
@@ -216,6 +216,7 @@ function notifyQuerySeen(queryName: string) {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function waitForQuery(queryName: string, timeoutMs = 15000): Promise<boolean> {
   if (seenQueries.has(queryName)) return Promise.resolve(true);
   return new Promise(resolve => {
@@ -347,6 +348,7 @@ for (const page of pages) {
 if (!navigationClient && pages.length > 0) {
   navigationClient = new CDPClient();
   await navigationClient.connect(pages[0].webSocketDebuggerUrl);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   navigationWsUrl = pages[0].webSocketDebuggerUrl;
 }
 
