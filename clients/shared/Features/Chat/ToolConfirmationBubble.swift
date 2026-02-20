@@ -7,17 +7,17 @@ public struct ToolConfirmationBubble: View {
     public let confirmation: ToolConfirmationData
     public let onAllow: () -> Void
     public let onDeny: () -> Void
-    public let onAddTrustRule: (String, String, String, String) -> Bool
+    public let onAlwaysAllow: (String, String, String) -> Void
 
     @State private var showDiff = false
     @State private var showAlwaysAllowMenu = false
     @State private var showTechnicalDetails = true
 
-    public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAddTrustRule: @escaping (String, String, String, String) -> Bool) {
+    public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAlwaysAllow: @escaping (String, String, String) -> Void) {
         self.confirmation = confirmation
         self.onAllow = onAllow
         self.onDeny = onDeny
-        self.onAddTrustRule = onAddTrustRule
+        self.onAlwaysAllow = onAlwaysAllow
     }
 
     private var hasRuleOptions: Bool {
@@ -348,9 +348,10 @@ public struct ToolConfirmationBubble: View {
                 let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
                 let scope = confirmation.scopeOptions.first?.scope ?? ""
                 if !pattern.isEmpty && !scope.isEmpty {
-                    _ = onAddTrustRule(confirmation.toolName, pattern, scope, "allow")
+                    onAlwaysAllow(confirmation.requestId, pattern, scope)
+                } else {
+                    onAllow()
                 }
-                onAllow()
             }
             .help(patternDesc.isEmpty ? "Always allow this action" : patternDesc)
         }
@@ -372,9 +373,10 @@ public struct ToolConfirmationBubble: View {
                         showAlwaysAllowMenu = false
                         let scope = confirmation.scopeOptions.first?.scope ?? ""
                         if !option.pattern.isEmpty && !scope.isEmpty {
-                            _ = onAddTrustRule(confirmation.toolName, option.pattern, scope, "allow")
+                            onAlwaysAllow(confirmation.requestId, option.pattern, scope)
+                        } else {
+                            onAllow()
                         }
-                        onAllow()
                     }
 
                     if index < confirmation.allowlistOptions.count - 1 {
@@ -479,7 +481,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
 
         // File write — high risk, pending
@@ -493,7 +495,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
 
         // Bash — low risk, pending
@@ -507,7 +509,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
 
         // Always-allow dropdown — medium risk
@@ -529,7 +531,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
 
         // Collapsed — approved
@@ -543,7 +545,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
 
         // Collapsed — denied
@@ -557,7 +559,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
 
         // Unknown tool fallback
@@ -570,7 +572,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
 
         // System permission request (pending)
@@ -586,7 +588,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
     }
     .padding(VSpacing.xl)
