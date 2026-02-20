@@ -201,8 +201,8 @@ extension IPCCuObservation {
 public typealias RideShotgunStartMessage = IPCRideShotgunStart
 
 extension IPCRideShotgunStart {
-    public init(durationSeconds: Double, intervalSeconds: Double, mode: String? = nil, targetDomain: String? = nil) {
-        self.init(type: "ride_shotgun_start", durationSeconds: durationSeconds, intervalSeconds: intervalSeconds, mode: mode, targetDomain: targetDomain)
+    public init(durationSeconds: Double, intervalSeconds: Double, mode: String? = nil, targetDomain: String? = nil, autoNavigate: Bool? = nil) {
+        self.init(type: "ride_shotgun_start", durationSeconds: durationSeconds, intervalSeconds: intervalSeconds, mode: mode, targetDomain: targetDomain, autoNavigate: autoNavigate)
     }
 }
 
