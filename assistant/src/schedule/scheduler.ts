@@ -87,7 +87,7 @@ async function runScheduleOnce(
         const { runTask } = await import('../tasks/task-runner.js');
         const result = await runTask(
           { taskId, workingDir: process.cwd() },
-          processMessage as (conversationId: string, message: string) => Promise<void>,
+          processMessage as (conversationId: string, message: string, taskRunId: string) => Promise<void>,
         );
 
         // Track the schedule run using the task's conversation

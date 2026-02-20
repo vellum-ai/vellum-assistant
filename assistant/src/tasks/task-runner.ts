@@ -35,7 +35,7 @@ export function renderTemplate(template: string, inputs: Record<string, string>)
  */
 export async function runTask(
   opts: TaskRunOptions,
-  processMessage: (conversationId: string, message: string) => Promise<void>,
+  processMessage: (conversationId: string, message: string, taskRunId: string) => Promise<void>,
 ): Promise<TaskRunResult> {
   const task = getTask(opts.taskId);
   if (!task) {
@@ -64,7 +64,7 @@ export async function runTask(
     updateTaskRun(run.id, { status: 'running', startedAt: Date.now() });
 
     log.info({ taskId: task.id, taskRunId: run.id, conversationId: conversation.id }, 'Executing task');
-    await processMessage(conversation.id, renderedTemplate);
+    await processMessage(conversation.id, renderedTemplate, run.id);
 
     updateTaskRun(run.id, { status: 'completed', finishedAt: Date.now() });
 

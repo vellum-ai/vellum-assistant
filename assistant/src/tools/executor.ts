@@ -17,6 +17,7 @@ import { getConfig } from '../config/loader.js';
 import { scanText, redactSecrets } from '../security/secret-scanner.js';
 import { redactSensitiveFields } from '../security/redaction.js';
 import { getHookManager } from '../hooks/manager.js';
+import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
 
 const log = getLogger('tool-executor');
 
@@ -102,8 +103,9 @@ export class ToolExecutor {
       riskLevel = risk;
 
       // Build principal context from tool metadata so policy rules can
-      // distinguish skill-provided tools from core built-ins.
-      const policyContext = buildPolicyContext(tool);
+      // distinguish skill-provided tools from core built-ins. Also includes
+      // ephemeral rules when executing within a task run.
+      const policyContext = buildPolicyContext(tool, context);
       const result = await check(name, input, context.workingDir, policyContext);
 
       // Private threads force prompting for side-effect tools even when a
@@ -716,11 +718,16 @@ async function executeWithTimeout(
 }
 
 /**
- * Build a PolicyContext from tool metadata. Skill-origin tools carry a
- * principal identifying the owning skill; core tools yield an undefined
- * context so the checker applies default (user) policy.
+ * Build a PolicyContext from tool metadata and execution context. Skill-origin
+ * tools carry a principal identifying the owning skill. When executing within
+ * a task run, ephemeral permission rules are included so pre-approved tools
+ * are auto-allowed without prompting.
  */
-function buildPolicyContext(tool: Tool): PolicyContext | undefined {
+function buildPolicyContext(tool: Tool, context?: ToolContext): PolicyContext | undefined {
+  const ephemeralRules = context?.taskRunId
+    ? getTaskRunRules(context.taskRunId)
+    : undefined;
+
   if (tool.origin === 'skill') {
     return {
       principal: {
@@ -729,8 +736,22 @@ function buildPolicyContext(tool: Tool): PolicyContext | undefined {
         version: tool.ownerSkillVersionHash,
       },
       executionTarget: tool.executionTarget,
+      ephemeralRules: ephemeralRules?.length ? ephemeralRules : undefined,
     };
   }
+
+  // For non-skill tools in a task run, create a context with task principal
+  // and ephemeral rules so pre-approved tools are honored.
+  if (context?.taskRunId && ephemeralRules?.length) {
+    return {
+      principal: {
+        kind: 'task',
+        id: context.taskRunId,
+      },
+      ephemeralRules,
+    };
+  }
+
   return undefined;
 }
 

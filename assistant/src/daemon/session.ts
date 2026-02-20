@@ -121,6 +121,7 @@ export class Session {
   /** @internal */ currentRequestId?: string;
   /** @internal */ conflictGate = new ConflictGate();
   /** @internal */ hasNoClient = false;
+  /** @internal */ taskRunId?: string;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;

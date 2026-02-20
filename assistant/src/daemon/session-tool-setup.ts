@@ -47,6 +47,8 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   memoryPolicy: { scopeId: string; strictSideEffects: boolean };
   /** True when the session has no connected IPC client (HTTP-only path). */
   hasNoClient?: boolean;
+  /** When set, this session is executing a task run. Used to retrieve ephemeral permission rules. */
+  taskRunId?: string;
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -179,6 +181,7 @@ export function createToolExecutor(
       sessionId: ctx.conversationId,
       conversationId: ctx.conversationId,
       requestId: ctx.currentRequestId,
+      taskRunId: ctx.taskRunId,
       onOutput,
       signal: ctx.abortController?.signal,
       sandboxOverride: ctx.sandboxOverride,

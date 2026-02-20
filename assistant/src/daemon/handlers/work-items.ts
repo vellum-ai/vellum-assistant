@@ -281,12 +281,14 @@ export async function handleWorkItemRunTask(
     const approvedTools: string[] | undefined = workItem.approvedTools ? JSON.parse(workItem.approvedTools) : undefined;
     const result = await runTask(
       { taskId: workItem.taskId, workingDir: process.cwd(), approvedTools },
-      async (conversationId, message) => {
+      async (conversationId, message, taskRunId) => {
         if (!session) {
           // Store conversationId on the work item immediately so the cancel
           // handler can locate the session while the task is still running.
           updateWorkItem(msg.id, { lastRunConversationId: conversationId });
           session = await ctx.getOrCreateSession(conversationId);
+          // Wire the taskRunId so the executor can retrieve ephemeral permission rules
+          (session as unknown as { taskRunId?: string }).taskRunId = taskRunId;
         }
         await session.processMessage(message, [], (event) => {
           ctx.broadcast(event);
