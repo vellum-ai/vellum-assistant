@@ -1222,13 +1222,28 @@ public final class ChatViewModel: ObservableObject {
                     // Use sessionId from the view model (assumes history is for current session)
                     if let sessionId = self.sessionId,
                        let surface = Surface.from(surf, sessionId: sessionId) {
+                        // Reconstruct a UiSurfaceShowMessage so the card remains
+                        // clickable after the app restarts (history restore).
+                        let reconstructedActions: [SurfaceActionData]? = surf.actions?.map { action in
+                            SurfaceActionData(id: action.id, label: action.label, style: action.style)
+                        }
+                        let reconstructedMessage = UiSurfaceShowMessage(
+                            sessionId: sessionId,
+                            surfaceId: surf.surfaceId,
+                            surfaceType: surf.surfaceType,
+                            title: surf.title,
+                            data: AnyCodable(surf.data.mapValues { $0.value }),
+                            actions: reconstructedActions,
+                            display: surf.display,
+                            messageId: item.id
+                        )
                         let inlineSurface = InlineSurfaceData(
                             id: surface.id,
                             surfaceType: surface.type,
                             title: surface.title,
                             data: surface.data,
                             actions: surface.actions,
-                            surfaceMessage: nil  // No IPC message for history surfaces
+                            surfaceMessage: reconstructedMessage
                         )
                         inlineSurfaces.append(inlineSurface)
                     }
