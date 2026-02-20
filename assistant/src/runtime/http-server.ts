@@ -345,6 +345,11 @@ export class RuntimeHttpServer {
     this.interfacesDir = options.interfacesDir ?? null;
   }
 
+  /** The port the server is actually listening on (resolved after start). */
+  get actualPort(): number {
+    return this.server?.port ?? this.port;
+  }
+
   async start(): Promise<void> {
     this.server = Bun.serve<RelayWebSocketData>({
       port: this.port,
