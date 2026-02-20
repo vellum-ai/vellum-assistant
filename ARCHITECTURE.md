@@ -3607,6 +3607,13 @@ Signature validation is **fail-closed**: if the Twilio auth token is not configu
 
 All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/telegram`, `/webhooks/oauth/callback`, etc.) are appended automatically.
 
+For **inbound Twilio signature validation** at the gateway, URL reconstruction now supports multiple candidates in order:
+1. `config.ingressPublicBaseUrl` (if configured)
+2. Forwarded public URL headers from the tunnel/proxy (`X-Forwarded-Proto` + `X-Forwarded-Host`, with `X-Original-*`/`Host` fallbacks)
+3. Raw request URL fallback when no public candidates are available
+
+This makes ingress URL updates smoother in local tunnel workflows because Twilio webhooks can continue validating even before a gateway restart.
+
 ### Runtime HTTP Endpoints
 
 | Method | Path | Description |

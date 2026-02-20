@@ -134,6 +134,8 @@ Then point your tunnel to that same local target (for example `http://127.0.0.1:
 3. Set the URL as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section) **or** as the `INGRESS_PUBLIC_BASE_URL` environment variable.
 4. Use the Settings UI "Local Gateway Target" value as the source of truth for tunnel destination (it reflects `GATEWAY_PORT`).
 
+In local tunnel setups, updating `ingress.publicBaseUrl` in Settings is typically live for Twilio inbound validation (no manual gateway restart required) because the gateway also validates signatures against forwarded public URL headers.
+
 The assistant runtime uses this URL to construct all webhook and OAuth callback URLs automatically.
 
 ## Default Mode: Telegram-Only

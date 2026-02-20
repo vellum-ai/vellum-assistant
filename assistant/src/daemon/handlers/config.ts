@@ -428,8 +428,8 @@ export function handleIngressConfig(
       // Update ingress.publicBaseUrl — this is the single source of truth for
       // the canonical public ingress URL. The gateway receives this value via
       // the INGRESS_PUBLIC_BASE_URL env var at spawn time (see hatch.ts).
-      // A gateway restart is required for the new value to take effect in
-      // inbound Twilio signature validation.
+      // The gateway also validates Twilio signatures against forwarded public
+      // URL headers, so local tunnel updates generally apply without restarts.
       const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
       ingress.publicBaseUrl = value || undefined;
 
@@ -447,7 +447,7 @@ export function handleIngressConfig(
       ctx.debounceTimers.set('__suppress_reset__', resetTimer);
 
       // Propagate to the gateway's process environment so it picks up the
-      // new URL on its next config load. For the local-deployment path the
+      // new URL when it is restarted. For the local-deployment path the
       // gateway runs as a child process that inherited the assistant's env,
       // so updating process.env here ensures the value is visible when the
       // gateway is restarted (e.g. by the self-upgrade skill or a manual
