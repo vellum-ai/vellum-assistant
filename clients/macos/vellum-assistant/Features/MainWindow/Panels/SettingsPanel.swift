@@ -100,6 +100,9 @@ struct SettingsPanel: View {
                 mouseDownMonitor = nil
             }
         }
+        .onChange(of: store.twilioWebhookBaseUrl) { _, newValue in
+            twilioWebhookUrlText = newValue
+        }
         .onChange(of: showModelDropdown) { _, isOpen in
             if let monitor = mouseDownMonitor {
                 NSEvent.removeMonitor(monitor)
