@@ -164,9 +164,9 @@ export function handleAddTrustRule(
 ): void {
   try {
     addRule(msg.toolName, msg.pattern, msg.scope, msg.decision);
-    log.info({ tool: msg.toolName, pattern: msg.pattern, scope: msg.scope, decision: msg.decision }, 'Trust rule added via client');
+    log.info({ toolName: msg.toolName, pattern: msg.pattern, scope: msg.scope, decision: msg.decision }, 'Trust rule added via client');
   } catch (err) {
-    log.error({ err }, 'Failed to add trust rule');
+    log.error({ err, toolName: msg.toolName, pattern: msg.pattern, scope: msg.scope }, 'Failed to add trust rule via client');
   }
 }
 

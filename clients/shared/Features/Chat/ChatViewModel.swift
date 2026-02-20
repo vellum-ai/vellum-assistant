@@ -1077,16 +1077,23 @@ public final class ChatViewModel: ObservableObject {
 
     /// Respond to a tool confirmation with "always_allow", sending the selected pattern and scope
     /// so the backend atomically persists the trust rule alongside the confirmation response.
+    /// On failure (daemon disconnected or IPC error), falls back to a one-time allow so the
+    /// current action isn't blocked, and shows a warning that the persistent preference wasn't saved.
     public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String) {
         guard daemonClient.isConnected else {
-            errorText = "Failed to send confirmation response."
+            // Fallback: try one-time allow so the current action isn't blocked
+            respondToConfirmation(requestId: requestId, decision: "allow")
+            log.warning("Always-allow failed (daemon disconnected) — fell back to one-time allow")
+            errorText = "Preference could not be saved (daemon disconnected). This action was allowed once."
             return
         }
         do {
             try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: "always_allow", selectedPattern: selectedPattern, selectedScope: selectedScope))
         } catch {
-            log.error("Failed to send always_allow confirmation response: \(error.localizedDescription)")
-            errorText = "Failed to send confirmation response."
+            // Fallback: try one-time allow so the current action isn't blocked
+            respondToConfirmation(requestId: requestId, decision: "allow")
+            log.warning("Always-allow IPC failed — fell back to one-time allow: \(error.localizedDescription)")
+            errorText = "Preference could not be saved. This action was allowed once."
             return
         }
         // IPC send succeeded — update the message state
