@@ -781,8 +781,19 @@ export const WorkspaceGitConfigSchema = z.object({
         .int().positive().default(2000),
       backoffMaxMs: z.number({ error: 'workspaceGit.commitMessageLLM.breaker.backoffMaxMs must be a number' })
         .int().positive().default(60000),
-    }).default({}),
-  }).default({}),
+    }).default({ openAfterFailures: 3, backoffBaseMs: 2000, backoffMaxMs: 60000 }),
+  }).default({
+    enabled: false,
+    useConfiguredProvider: true,
+    providerFastModelOverrides: {},
+    timeoutMs: 600,
+    maxTokens: 120,
+    temperature: 0.2,
+    maxFilesInPrompt: 30,
+    maxDiffBytes: 12000,
+    minRemainingTurnBudgetMs: 1000,
+    breaker: { openAfterFailures: 3, backoffBaseMs: 2000, backoffMaxMs: 60000 },
+  }),
 });
 
 export const AgentHeartbeatConfigSchema = z.object({
