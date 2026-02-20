@@ -722,14 +722,14 @@ public struct IPCHistoryResponseMessageSubagentNotification: Codable, Sendable {
     /// Subagent objective text, populated from DB on history load.
     public let objective: String?
     /// Subagent events (text, tool_use, tool_result), populated from DB on history load.
-    public let events: [SubagentHistoryEvent]?
+    public let events: [IPCHistoryResponseMessageSubagentNotificationEvent]?
+}
 
-    public struct SubagentHistoryEvent: Codable, Sendable {
-        public let type: String
-        public let content: String
-        public let toolName: String?
-        public let isError: Bool?
-    }
+public struct IPCHistoryResponseMessageSubagentNotificationEvent: Codable, Sendable {
+    public let type: String
+    public let content: String
+    public let toolName: String?
+    public let isError: Bool?
 }
 
 public struct IPCHistoryResponseSurface: Codable, Sendable {
@@ -1676,19 +1676,6 @@ public struct IPCTrustRulesListResponseRule: Codable, Sendable {
     public let decision: String
     public let priority: Int
     public let createdAt: Int
-}
-
-public struct IPCTwilioWebhookConfigRequest: Codable, Sendable {
-    public let type: String
-    public let action: String
-    public let webhookBaseUrl: String?
-}
-
-public struct IPCTwilioWebhookConfigResponse: Codable, Sendable {
-    public let type: String
-    public let webhookBaseUrl: String
-    public let success: Bool
-    public let error: String?
 }
 
 public struct IPCTwitterAuthResult: Codable, Sendable {

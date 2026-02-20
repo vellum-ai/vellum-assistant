@@ -117,8 +117,6 @@ extension DaemonClient {
             onShareToSlackResponse?(msg)
         case .slackWebhookConfigResponse(let msg):
             onSlackWebhookConfigResponse?(msg)
-        case .twilioWebhookConfigResponse(let msg):
-            onTwilioWebhookConfigResponse?(msg)
         case .ingressConfigResponse(let msg):
             onIngressConfigResponse?(msg)
         case .vercelApiConfigResponse(let msg):

@@ -472,12 +472,6 @@ export interface SlackWebhookConfigRequest {
   webhookUrl?: string;
 }
 
-export interface TwilioWebhookConfigRequest {
-  type: 'twilio_webhook_config';
-  action: 'get' | 'set';
-  webhookBaseUrl?: string;
-}
-
 export interface IngressConfigRequest {
   type: 'ingress_config';
   action: 'get' | 'set';
@@ -947,7 +941,6 @@ export type ClientMessage =
   | ShareAppCloudRequest
   | ShareToSlackRequest
   | SlackWebhookConfigRequest
-  | TwilioWebhookConfigRequest
   | IngressConfigRequest
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
@@ -1707,13 +1700,6 @@ export interface SlackWebhookConfigResponse {
   error?: string;
 }
 
-export interface TwilioWebhookConfigResponse {
-  type: 'twilio_webhook_config_response';
-  webhookBaseUrl: string;
-  success: boolean;
-  error?: string;
-}
-
 export interface IngressConfigResponse {
   type: 'ingress_config_response';
   publicBaseUrl: string;
@@ -2204,7 +2190,6 @@ export type ServerMessage =
   | GalleryInstallResponse
   | ShareToSlackResponse
   | SlackWebhookConfigResponse
-  | TwilioWebhookConfigResponse
   | IngressConfigResponse
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse

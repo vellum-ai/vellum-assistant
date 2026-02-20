@@ -79,10 +79,6 @@ public final class SettingsStore: ObservableObject {
 
     @Published var ingressPublicBaseUrl: String = ""
 
-    // MARK: - Twilio Webhook State (legacy)
-
-    @Published var twilioWebhookBaseUrl: String = ""
-
     // MARK: - Trust Rules Coordination
 
     /// Whether any settings surface currently has a trust rules sheet open.
@@ -191,14 +187,6 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
-        // Wire up Twilio webhook config IPC response (legacy)
-        daemonClient?.onTwilioWebhookConfigResponse = { [weak self] response in
-            guard let self else { return }
-            if response.success {
-                self.twilioWebhookBaseUrl = response.webhookBaseUrl
-            }
-        }
-
         // Wire up Twitter auth result IPC response
         daemonClient?.onTwitterAuthResult = { [weak self] response in
             guard let self else { return }
@@ -224,9 +212,6 @@ public final class SettingsStore: ObservableObject {
 
         // Refresh ingress config on init
         refreshIngressConfig()
-
-        // Refresh Twilio webhook config on init (legacy)
-        refreshTwilioWebhookConfig()
     }
 
     // MARK: - API Key Actions
@@ -395,20 +380,6 @@ public final class SettingsStore: ObservableObject {
         // success response (handled by onIngressConfigResponse) so the UI
         // reverts automatically if the save fails.
         try? daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed))
-    }
-
-    // MARK: - Twilio Webhook Actions (legacy)
-
-    func refreshTwilioWebhookConfig() {
-        try? daemonClient?.send(TwilioWebhookConfigRequestMessage(action: "get"))
-    }
-
-    func saveTwilioWebhookBaseUrl(_ raw: String) {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Don't update local state optimistically — wait for the daemon's
-        // success response (handled by onTwilioWebhookConfigResponse) so the
-        // UI reverts automatically if the save fails.
-        try? daemonClient?.send(TwilioWebhookConfigRequestMessage(action: "set", webhookBaseUrl: trimmed))
     }
 
     // MARK: - Model Actions
