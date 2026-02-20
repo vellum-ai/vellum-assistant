@@ -640,6 +640,12 @@ struct SettingsPanel: View {
                         }
                     }
 
+                    if let error = store.twitterAuthError {
+                        Text(error)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.error)
+                    }
+
                     // Clear/reconfigure button
                     HStack {
                         Spacer()

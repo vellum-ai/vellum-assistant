@@ -6,6 +6,9 @@
  */
 
 import { randomBytes, createHash } from 'node:crypto';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('oauth2');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -171,7 +174,8 @@ export async function startOAuth2Flow(
 
     if (!tokenResp.ok) {
       const body = await tokenResp.text().catch(() => '');
-      throw new Error(`OAuth2 token exchange failed (${tokenResp.status}): ${body}`);
+      log.error({ status: tokenResp.status, body }, 'OAuth2 token exchange failed');
+      throw new Error(`OAuth2 token exchange failed (HTTP ${tokenResp.status})`);
     }
 
     const tokenData = await tokenResp.json() as Record<string, unknown>;
@@ -226,7 +230,8 @@ export async function refreshOAuth2Token(
 
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
-    throw new Error(`OAuth2 token refresh failed (${resp.status}): ${body}`);
+    log.error({ status: resp.status, body }, 'OAuth2 token refresh failed');
+    throw new Error(`OAuth2 token refresh failed (HTTP ${resp.status})`);
   }
 
   const data = await resp.json() as Record<string, unknown>;
