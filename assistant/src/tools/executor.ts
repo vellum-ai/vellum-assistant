@@ -141,6 +141,32 @@ export class ToolExecutor {
       }
 
       if (result.decision === 'prompt') {
+        // Non-interactive sessions have no client to respond to prompts —
+        // deny immediately instead of blocking for the full permission timeout.
+        if (context.isInteractive === false) {
+          decision = 'denied';
+          const durationMs = Date.now() - startTime;
+          log.info({ toolName: name, riskLevel }, 'Auto-denying prompt for non-interactive session');
+          emitLifecycleEvent(context, {
+            type: 'permission_denied',
+            toolName: name,
+            executionTarget,
+            input,
+            workingDir: context.workingDir,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            requestId: context.requestId,
+            riskLevel,
+            decision: 'deny',
+            reason: 'Non-interactive session: no client to approve prompt',
+            durationMs,
+          });
+          return {
+            content: `Permission denied: tool "${name}" requires user approval but no interactive client is connected. The tool was not executed. To allow this tool in non-interactive sessions, add a trust rule via permission settings.`,
+            isError: true,
+          };
+        }
+
         // Need user approval
         const allowlistOptions = generateAllowlistOptions(name, input);
         const scopeOptions = generateScopeOptions(context.workingDir, name);
@@ -470,6 +496,39 @@ export class ToolExecutor {
           } else if (sdConfig.action === 'prompt') {
             // Ask the user whether to allow tool output containing secrets
             const types = [...new Set(allMatches.map((m) => m.type))].join(', ');
+
+            // Non-interactive sessions: auto-block secret output instead of waiting for prompt
+            if (context.isInteractive === false) {
+              const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). No interactive client available to approve.`;
+              const durationMs = Date.now() - startTime;
+              log.info({ toolName: name }, 'Auto-blocking secret output for non-interactive session');
+              emitLifecycleEvent(context, {
+                type: 'permission_denied',
+                toolName: name,
+                executionTarget,
+                input,
+                workingDir: context.workingDir,
+                sessionId: context.sessionId,
+                conversationId: context.conversationId,
+                requestId: context.requestId,
+                riskLevel: RiskLevel.High,
+                decision: 'deny',
+                reason: 'Non-interactive session: auto-blocked secret output',
+                durationMs,
+              });
+
+              void getHookManager().trigger('post-tool-execute', {
+                toolName: name,
+                input: sanitizeToolInput(name, input),
+                riskLevel,
+                isError: true,
+                durationMs,
+                sessionId: context.sessionId,
+              });
+
+              return { content: blockedContent, isError: true };
+            }
+
             const promptInput = {
               _secretDetection: true,
               summary: `Tool output contains ${allMatches.length} potential secret(s): ${types}`,
