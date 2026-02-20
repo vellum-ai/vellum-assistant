@@ -684,7 +684,7 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
-        return await handleChannelInbound(req, this.processMessage);
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {
@@ -909,7 +909,7 @@ export class RuntimeHttpServer {
             chatId: externalChatId,
             text: rendered.text || undefined,
             attachments: replyAttachments.length > 0 ? replyAttachments : undefined,
-          });
+          }, this.bearerToken);
         }
         break;
       }
