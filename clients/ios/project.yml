@@ -1,0 +1,65 @@
+name: vellum-assistant-ios
+options:
+  deploymentTarget:
+    iOS: "17.0"
+
+packages:
+  VellumAssistant:
+    path: ../
+
+targets:
+  vellum-assistant-ios:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      - path: Views
+      - path: Resources
+        buildPhase: resources
+        excludes:
+          - Info.plist
+          - "*.entitlements"
+    dependencies:
+      - package: VellumAssistant
+        product: VellumAssistantShared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vellum.vellum-assistant-ios
+        INFOPLIST_FILE: Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+        CODE_SIGN_ENTITLEMENTS: Resources/vellum-assistant-ios.entitlements
+        MARKETING_VERSION: "0.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.9"
+        PRODUCT_NAME: vellum-assistant-ios
+
+  vellum-assistant-iosTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - package: VellumAssistant
+        product: VellumAssistantShared
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+
+schemes:
+  VellumAssistantIOS:
+    build:
+      targets:
+        vellum-assistant-ios: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - vellum-assistant-iosTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

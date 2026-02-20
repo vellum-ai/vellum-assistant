@@ -21,11 +21,8 @@ let package = Package(
         .executable(
             name: "vellum-assistant",
             targets: ["vellum-assistant"]
-        ),
-        .executable(
-            name: "vellum-assistant-ios",
-            targets: ["vellum-assistant-ios"]
         )
+        // iOS executable product removed — use ios/vellum-assistant-ios.xcodeproj instead.
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0"),
@@ -85,26 +82,8 @@ let package = Package(
             dependencies: ["VellumAssistantLib"],
             path: "macos/vellum-assistantTests"
         ),
-        .executableTarget(
-            name: "vellum-assistant-ios",
-            dependencies: ["VellumAssistantShared"],
-            path: "ios",
-            exclude: ["Resources/Info.plist", "Resources/vellum-assistant-ios.entitlements", "README.md", "Tests", "build.sh", "dist"],
-            resources: [
-                .process("Resources/Assets.xcassets"),
-                .process("Resources/background.png"),
-            ],
-            linkerSettings: [
-                .linkedFramework("UIKit", .when(platforms: [.iOS])),
-                .linkedFramework("SwiftUI", .when(platforms: [.iOS])),
-                .linkedFramework("AppIntents", .when(platforms: [.iOS]))
-            ]
-        ),
-        .testTarget(
-            name: "vellum-assistant-iosTests",
-            dependencies: ["VellumAssistantShared"],
-            path: "ios/Tests"
-        ),
+        // iOS app and tests are built via ios/vellum-assistant-ios.xcodeproj (not SPM).
+        // See ios/project.yml for the XcodeGen spec.
         .testTarget(
             name: "VellumAssistantSharedTests",
             dependencies: ["VellumAssistantShared"],
