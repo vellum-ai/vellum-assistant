@@ -474,9 +474,9 @@ describe('AssistantConfigSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  test('defaults permissions.mode to strict', () => {
+  test('defaults permissions.mode to workspace_full_access', () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.permissions).toEqual({ mode: 'strict' });
+    expect(result.permissions).toEqual({ mode: 'workspace_full_access' });
   });
 
   test('accepts explicit permissions.mode strict', () => {
@@ -491,6 +491,13 @@ describe('AssistantConfigSchema', () => {
       permissions: { mode: 'legacy' },
     });
     expect(result.permissions.mode).toBe('legacy');
+  });
+
+  test('accepts explicit permissions.mode workspace_full_access', () => {
+    const result = AssistantConfigSchema.parse({
+      permissions: { mode: 'workspace_full_access' },
+    });
+    expect(result.permissions.mode).toBe('workspace_full_access');
   });
 
   test('rejects invalid permissions.mode', () => {
@@ -1197,10 +1204,10 @@ describe('loadConfig with schema validation', () => {
     expect(config.auditLog.retentionDays).toBe(0);
   });
 
-  test('defaults permissions.mode to strict when not specified', () => {
+  test('defaults permissions.mode to workspace_full_access when not specified', () => {
     writeConfig({});
     const config = loadConfig();
-    expect(config.permissions).toEqual({ mode: 'strict' });
+    expect(config.permissions).toEqual({ mode: 'workspace_full_access' });
   });
 
   test('loads explicit permissions.mode strict', () => {
@@ -1209,10 +1216,16 @@ describe('loadConfig with schema validation', () => {
     expect(config.permissions.mode).toBe('strict');
   });
 
+  test('loads explicit permissions.mode workspace_full_access', () => {
+    writeConfig({ permissions: { mode: 'workspace_full_access' } });
+    const config = loadConfig();
+    expect(config.permissions.mode).toBe('workspace_full_access');
+  });
+
   test('falls back for invalid permissions.mode', () => {
     writeConfig({ permissions: { mode: 'yolo' } });
     const config = loadConfig();
-    expect(config.permissions.mode).toBe('strict');
+    expect(config.permissions.mode).toBe('workspace_full_access');
   });
 
   test('does not mutate default apiKeys when fallback config is overridden by env keys', () => {

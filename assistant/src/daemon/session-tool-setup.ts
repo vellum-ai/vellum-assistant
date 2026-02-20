@@ -31,6 +31,7 @@ import { openAppViaSurface } from '../tools/apps/open-proxy.js';
 import { registerSessionSender } from '../tools/browser/browser-screencast.js';
 import type { ProxyApprovalCallback, ProxyApprovalRequest } from '../tools/network/script-proxy/index.js';
 import { projectSkillTools, type SkillProjectionCache } from './session-skill-tools.js';
+import { getConfig } from '../config/loader.js';
 
 // ── Context Interface ────────────────────────────────────────────────
 
@@ -393,6 +394,10 @@ export function createProxyApprovalCallback(
   ctx: ToolSetupContext,
 ): ProxyApprovalCallback {
   return async (request: ProxyApprovalRequest): Promise<boolean> => {
+    if (getConfig().permissions.mode === 'workspace_full_access') {
+      return true;
+    }
+
     const { decision } = request;
     const { hostname, port, path } = decision.target;
 

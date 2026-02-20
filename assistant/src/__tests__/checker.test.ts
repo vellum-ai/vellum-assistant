@@ -31,9 +31,9 @@ mock.module('../util/logger.js', () => ({
 }));
 
 // Mutable config object so tests can switch permissions.mode between
-// 'legacy' and 'strict' without re-registering the mock.
+// legacy/strict/workspace_full_access without re-registering the mock.
 const testConfig: Record<string, any> = {
-  permissions: { mode: 'legacy' as 'legacy' | 'strict' },
+  permissions: { mode: 'legacy' as 'legacy' | 'strict' | 'workspace_full_access' },
   skills: { load: { extraDirs: [] as string[] } },
   sandbox: { enabled: true },
 };
@@ -3821,6 +3821,42 @@ describe('bash network_mode=proxied force prompt', () => {
     const result = await check('host_bash', { command: 'curl https://evil.com', network_mode: 'proxied' }, '/tmp');
     expect(result.decision).toBe('deny');
     expect(result.reason).toContain('deny rule');
+  });
+});
+
+describe('workspace_full_access mode', () => {
+  beforeEach(() => {
+    try { rmSync(join(checkerTestDir, 'protected', 'trust.json')); } catch { /* may not exist */ }
+    clearCache();
+    testConfig.permissions = { mode: 'workspace_full_access' };
+    testConfig.skills = { load: { extraDirs: [] } };
+  });
+
+  test('auto-allows non-host file mutation tools with no explicit rule', async () => {
+    const result = await check('file_write', { path: 'notes.txt', content: 'hello' }, '/tmp');
+    expect(result.decision).toBe('allow');
+    expect(result.reason).toContain('Workspace full-access');
+  });
+
+  test('auto-allows proxied sandbox bash (non-host tool)', async () => {
+    const result = await check('bash', { command: 'curl https://api.example.com', network_mode: 'proxied' }, '/tmp');
+    expect(result.decision).toBe('allow');
+  });
+
+  test('host file reads still prompt by default', async () => {
+    const result = await check('host_file_read', { path: '/Users/test/Downloads/example.txt' }, '/tmp');
+    expect(result.decision).toBe('prompt');
+  });
+
+  test('host_bash still prompts by default', async () => {
+    const result = await check('host_bash', { command: 'ls ~/Downloads' }, '/tmp');
+    expect(result.decision).toBe('prompt');
+  });
+
+  test('explicit deny rule still blocks non-host tools', async () => {
+    addRule('file_write', '**', 'everywhere', 'deny');
+    const result = await check('file_write', { path: 'notes.txt', content: 'hello' }, '/tmp');
+    expect(result.decision).toBe('deny');
   });
 });
 

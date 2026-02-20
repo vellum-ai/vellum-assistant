@@ -141,6 +141,7 @@ export class ToolExecutor {
       // only allow → prompt promotion happens here.
       if (
         context.forcePromptSideEffects
+        && getConfig().permissions.mode !== 'workspace_full_access'
         && result.decision === 'allow'
         && isSideEffectTool(name, input)
       ) {

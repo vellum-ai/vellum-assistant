@@ -7,7 +7,7 @@ const VALID_SECRET_ACTIONS = ['redact', 'warn', 'block', 'prompt'] as const;
 const VALID_MEMORY_EMBEDDING_PROVIDERS = ['auto', 'local', 'openai', 'gemini', 'ollama'] as const;
 const VALID_SANDBOX_BACKENDS = ['native', 'docker'] as const;
 const VALID_DOCKER_NETWORKS = ['none', 'bridge'] as const;
-const VALID_PERMISSIONS_MODES = ['legacy', 'strict'] as const;
+const VALID_PERMISSIONS_MODES = ['legacy', 'strict', 'workspace_full_access'] as const;
 const VALID_CALL_PROVIDERS = ['twilio'] as const;
 const VALID_CALL_VOICE_MODES = ['twilio_standard', 'twilio_elevenlabs_tts', 'elevenlabs_agent'] as const;
 const VALID_CALL_TRANSCRIPTION_PROVIDERS = ['Deepgram', 'Google'] as const;
@@ -128,7 +128,7 @@ export const PermissionsConfigSchema = z.object({
     .enum(VALID_PERMISSIONS_MODES, {
       error: `permissions.mode must be one of: ${VALID_PERMISSIONS_MODES.join(', ')}`,
     })
-    .default('strict'),
+    .default('workspace_full_access'),
 });
 
 export const AuditLogConfigSchema = z.object({
@@ -1200,7 +1200,7 @@ export const AssistantConfigSchema = z.object({
     blockIngress: true,
   }),
   permissions: PermissionsConfigSchema.default({
-    mode: 'strict',
+    mode: 'workspace_full_access',
   }),
   auditLog: AuditLogConfigSchema.default({
     retentionDays: 0,

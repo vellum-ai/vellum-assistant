@@ -342,6 +342,8 @@ export async function check(
   policyContext?: PolicyContext,
 ): Promise<PermissionCheckResult> {
   const risk = await classifyRisk(toolName, input, workingDir);
+  const permissionsMode = getConfig().permissions.mode;
+  const hostPermissionTarget = isHostPermissionTarget(toolName, policyContext);
 
   // Build command string candidates for rule matching
   const commandCandidates = buildCommandCandidates(toolName, input, workingDir);
@@ -353,6 +355,16 @@ export async function check(
   // Evaluate them first so hard blocks are never downgraded to a prompt.
   if (matchedRule && matchedRule.decision === 'deny') {
     return { decision: 'deny', reason: `Blocked by deny rule: ${matchedRule.pattern}`, matchedRule };
+  }
+
+  // Workspace full-access mode auto-allows all non-host tools. This keeps
+  // sandbox/workspace work frictionless while preserving host-level prompts.
+  if (permissionsMode === 'workspace_full_access' && !hostPermissionTarget) {
+    return {
+      decision: 'allow',
+      reason: 'Workspace full-access mode: non-host tool auto-allowed',
+      matchedRule: matchedRule ?? undefined,
+    };
   }
 
   // Proxied network mode requires explicit user approval for every
@@ -393,12 +405,17 @@ export async function check(
     }
   }
 
+  // In workspace full-access mode, host-targeted tools require an explicit
+  // allow rule before they can auto-run.
+  if (permissionsMode === 'workspace_full_access' && hostPermissionTarget && !matchedRule) {
+    return { decision: 'prompt', reason: 'Host tool: requires approval in workspace full-access mode' };
+  }
+
   // In strict mode, every tool without an explicit matching rule must be
   // prompted — there is no implicit auto-allow for any risk level.
   // This explicitly covers skill_load: activating a skill can grant the
   // agent new capabilities, so in strict mode users must approve each
   // skill load via an exact-version or wildcard trust rule.
-  const permissionsMode = getConfig().permissions.mode;
   if (permissionsMode === 'strict' && !matchedRule) {
     return { decision: 'prompt', reason: `Strict mode: no matching rule, requires approval` };
   }
@@ -425,6 +442,20 @@ export async function check(
   }
 
   return { decision: 'prompt', reason: `${risk} risk: requires approval` };
+}
+
+function isHostPermissionTarget(
+  toolName: string,
+  policyContext?: PolicyContext,
+): boolean {
+  if (policyContext?.executionTarget === 'host') {
+    return true;
+  }
+  if (toolName.startsWith('host_') || toolName.startsWith('computer_use_')) {
+    return true;
+  }
+  const tool = getTool(toolName);
+  return tool?.executionTarget === 'host';
 }
 
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
