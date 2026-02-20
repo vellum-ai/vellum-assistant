@@ -11,6 +11,8 @@ import { timingSafeEqual } from 'node:crypto';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
+import { loadConfig } from '../config/loader.js';
+import { getWebhookBaseUrl } from '../calls/twilio-webhook-urls.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 
 // Route handlers — grouped by domain
@@ -182,10 +184,15 @@ async function validateTwilioWebhook(
   // Behind proxies/gateways, req.url is the local server URL (e.g.
   // http://127.0.0.1:7821/...) which differs from the public URL Twilio
   // used to compute the HMAC-SHA1 signature.
-  const publicBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL;
+  let publicBaseUrl: string | undefined;
+  try {
+    publicBaseUrl = getWebhookBaseUrl(loadConfig());
+  } catch {
+    // No webhook base URL configured — fall back to using req.url as-is
+  }
   const parsedUrl = new URL(req.url);
   const publicUrl = publicBaseUrl
-    ? publicBaseUrl.replace(/\/$/, '') + parsedUrl.pathname + parsedUrl.search
+    ? publicBaseUrl + parsedUrl.pathname + parsedUrl.search
     : req.url;
 
   const isValid = TwilioConversationRelayProvider.verifyWebhookSignature(

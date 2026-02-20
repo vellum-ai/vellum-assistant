@@ -646,6 +646,7 @@ describe('AssistantConfigSchema', () => {
     expect(result.calls).toEqual({
       enabled: true,
       provider: 'twilio',
+      webhookBaseUrl: '',
       maxDurationSeconds: 3600,
       userConsultTimeoutSeconds: 120,
       disclosure: {
@@ -656,6 +657,11 @@ describe('AssistantConfigSchema', () => {
         denyCategories: [],
       },
     });
+  });
+
+  test('calls.webhookBaseUrl defaults to empty string', () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.calls.webhookBaseUrl).toBe('');
   });
 
   test('accepts valid calls config overrides', () => {
