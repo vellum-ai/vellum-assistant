@@ -1,12 +1,10 @@
 import { describe, test, expect, afterAll } from "bun:test";
 
-const PORT = 19831;
-
 const env: Record<string, string> = {
   TELEGRAM_BOT_TOKEN: "test-tok",
   TELEGRAM_WEBHOOK_SECRET: "wh-sec",
   ASSISTANT_RUNTIME_BASE_URL: "http://localhost:7821",
-  GATEWAY_PORT: String(PORT),
+  GATEWAY_PORT: "7830",
 };
 
 const saved: Record<string, string | undefined> = {};
@@ -29,7 +27,7 @@ const handleTelegramWebhook = createTelegramWebhookHandler(config);
 let draining = false;
 
 const server = Bun.serve({
-  port: PORT,
+  port: 0,
   async fetch(req) {
     const url = new URL(req.url);
 
@@ -62,7 +60,7 @@ afterAll(() => {
 
 describe("/healthz", () => {
   test("returns 200 with ok status", async () => {
-    const res = await fetch(`http://localhost:${PORT}/healthz`);
+    const res = await fetch(`http://localhost:${server.port}/healthz`);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("ok");
@@ -71,7 +69,7 @@ describe("/healthz", () => {
 
 describe("/readyz", () => {
   test("returns 200 when not draining", async () => {
-    const res = await fetch(`http://localhost:${PORT}/readyz`);
+    const res = await fetch(`http://localhost:${server.port}/readyz`);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("ok");
@@ -80,7 +78,7 @@ describe("/readyz", () => {
   test("returns 503 when draining", async () => {
     draining = true;
     try {
-      const res = await fetch(`http://localhost:${PORT}/readyz`);
+      const res = await fetch(`http://localhost:${server.port}/readyz`);
       expect(res.status).toBe(503);
       const body = await res.json();
       expect(body.status).toBe("draining");

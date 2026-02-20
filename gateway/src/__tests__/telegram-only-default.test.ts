@@ -7,14 +7,12 @@ import { describe, test, expect, afterAll } from "bun:test";
  * enabling the proxy by default) will be caught by this test.
  */
 
-const PORT = 19830 + Math.floor(Math.random() * 1000);
-
 // Minimal env for loadConfig
 const env: Record<string, string> = {
   TELEGRAM_BOT_TOKEN: "test-tok",
   TELEGRAM_WEBHOOK_SECRET: "wh-sec",
   ASSISTANT_RUNTIME_BASE_URL: "http://localhost:7821",
-  GATEWAY_PORT: String(PORT),
+  GATEWAY_PORT: "7830",
   // GATEWAY_RUNTIME_PROXY_ENABLED intentionally unset → defaults to false
 };
 
@@ -48,7 +46,7 @@ const handleRuntimeProxy = config.runtimeProxyEnabled
   : null;
 
 const server = Bun.serve({
-  port: PORT,
+  port: 0,
   async fetch(req) {
     const url = new URL(req.url);
 
@@ -82,19 +80,19 @@ afterAll(() => {
 
 describe("Telegram-only default: non-Telegram requests return 404", () => {
   test("GET / returns 404", async () => {
-    const res = await fetch(`http://localhost:${PORT}/`);
+    const res = await fetch(`http://localhost:${server.port}/`);
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("Not found");
   });
 
   test("GET /v1/health returns 404", async () => {
-    const res = await fetch(`http://localhost:${PORT}/v1/health`);
+    const res = await fetch(`http://localhost:${server.port}/v1/health`);
     expect(res.status).toBe(404);
   });
 
   test("POST /v1/assistants/foo/chat returns 404", async () => {
-    const res = await fetch(`http://localhost:${PORT}/v1/assistants/foo/chat`, {
+    const res = await fetch(`http://localhost:${server.port}/v1/assistants/foo/chat`, {
       method: "POST",
       body: "{}",
       headers: { "content-type": "application/json" },
@@ -103,7 +101,7 @@ describe("Telegram-only default: non-Telegram requests return 404", () => {
   });
 
   test("GET /random-path returns 404", async () => {
-    const res = await fetch(`http://localhost:${PORT}/random-path`);
+    const res = await fetch(`http://localhost:${server.port}/random-path`);
     expect(res.status).toBe(404);
   });
 
@@ -116,14 +114,14 @@ describe("Telegram-only default: non-Telegram requests return 404", () => {
   });
 
   test("GET /healthz returns 200 (infrastructure routes still work)", async () => {
-    const res = await fetch(`http://localhost:${PORT}/healthz`);
+    const res = await fetch(`http://localhost:${server.port}/healthz`);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("ok");
   });
 
   test("GET /readyz returns 200 (infrastructure routes still work)", async () => {
-    const res = await fetch(`http://localhost:${PORT}/readyz`);
+    const res = await fetch(`http://localhost:${server.port}/readyz`);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("ok");
