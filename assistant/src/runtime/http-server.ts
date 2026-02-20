@@ -406,7 +406,7 @@ export class RuntimeHttpServer {
       // Config loading may fail during startup — don't block server start
     }
 
-    log.info({ port: this.port, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
+    log.info({ port: this.actualPort, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
   }
 
   async stop(): Promise<void> {
