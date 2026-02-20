@@ -42,6 +42,12 @@ export function handleSubscribeAssistantEvents(
         { assistantId: 'self', sessionId: mapping.conversationId },
         (event) => {
           try {
+            // Shed slow consumers: if the queue is full the client can't keep up.
+            if (controller.desiredSize !== null && controller.desiredSize <= 0) {
+              sub?.dispose();
+              try { controller.close(); } catch { /* already closed */ }
+              return;
+            }
             controller.enqueue(encoder.encode(formatSseFrame(event)));
           } catch {
             sub?.dispose();
