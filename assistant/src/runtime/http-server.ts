@@ -139,6 +139,35 @@ const GATEWAY_SUBPATH_MAP: Record<string, string> = {
 };
 
 /**
+ * Direct Twilio webhook subpaths that are blocked in gateway_only mode.
+ * Internal forwarding endpoints (gateway→runtime) are unaffected.
+ */
+const GATEWAY_ONLY_BLOCKED_SUBPATHS = new Set(['voice-webhook', 'status', 'connect-action']);
+
+/**
+ * Check if a request origin is from localhost / loopback.
+ */
+function isLoopbackOrigin(req: Request): boolean {
+  const origin = req.headers.get('origin');
+  // No origin header (e.g., server-initiated or same-origin) — allow
+  if (!origin) return true;
+  try {
+    const url = new URL(origin);
+    const host = url.hostname;
+    return host === '127.0.0.1' || host === '::1' || host === 'localhost';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if a hostname is a loopback address.
+ */
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === '127.0.0.1' || hostname === '::1' || hostname === 'localhost';
+}
+
+/**
  * Validate a Twilio webhook request's X-Twilio-Signature header.
  *
  * Returns the raw body text on success so callers can reconstruct the Request
@@ -290,6 +319,19 @@ export class RuntimeHttpServer {
       }, 30_000);
     }
 
+    // Startup guard: log gateway-only mode warnings
+    try {
+      const config = loadConfig();
+      if (config.ingress.mode === 'gateway_only') {
+        log.info('Running in gateway-only ingress mode. Direct webhook routes disabled.');
+        if (!isLoopbackHost(this.hostname)) {
+          log.warn('gateway-only mode is enabled but RUNTIME_HTTP_HOST is not bound to loopback. This may expose the runtime to direct public access.');
+        }
+      }
+    } catch {
+      // Config loading may fail during startup — don't block server start
+    }
+
     log.info({ port: this.port, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
   }
 
@@ -328,6 +370,15 @@ export class RuntimeHttpServer {
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.
     if (path.startsWith('/v1/calls/relay') && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      // In gateway_only mode, only allow relay connections from localhost
+      const config = loadConfig();
+      if (config.ingress.mode === 'gateway_only' && !isLoopbackOrigin(req)) {
+        return Response.json(
+          { error: 'Direct relay access disabled in gateway-only mode', code: 'GATEWAY_ONLY' },
+          { status: 403 },
+        );
+      }
+
       const wsUrl = new URL(req.url);
       const callSessionId = wsUrl.searchParams.get('callSessionId');
       if (!callSessionId) {
@@ -356,6 +407,15 @@ export class RuntimeHttpServer {
         : null;
     if (resolvedTwilioSubpath && req.method === 'POST') {
       const twilioSubpath = resolvedTwilioSubpath;
+
+      // In gateway_only mode, block direct Twilio webhook routes
+      const ingressConfig = loadConfig();
+      if (ingressConfig.ingress.mode === 'gateway_only' && GATEWAY_ONLY_BLOCKED_SUBPATHS.has(twilioSubpath)) {
+        return Response.json(
+          { error: 'Direct webhook access disabled in gateway-only mode. Use the gateway.', code: 'GATEWAY_ONLY' },
+          { status: 410 },
+        );
+      }
 
       // Validate Twilio request signature before dispatching
       const validation = await validateTwilioWebhook(req);
