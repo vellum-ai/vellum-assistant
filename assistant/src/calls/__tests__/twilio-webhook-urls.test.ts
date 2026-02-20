@@ -134,4 +134,29 @@ describe('getWebhookBaseUrl', () => {
     const result = getWebhookBaseUrl({ calls: { webhookBaseUrl: '  https://example.com/  ' } });
     expect(result).toBe('https://example.com');
   });
+
+  test('falls through when config value is whitespace-only', () => {
+    process.env.TWILIO_WEBHOOK_BASE_URL = 'https://env.example.com';
+    const result = getWebhookBaseUrl({ calls: { webhookBaseUrl: '   ' } });
+    expect(result).toBe('https://env.example.com');
+  });
+
+  test('falls through when config value is slash-only', () => {
+    process.env.TWILIO_WEBHOOK_BASE_URL = 'https://env.example.com';
+    const result = getWebhookBaseUrl({ calls: { webhookBaseUrl: '///' } });
+    expect(result).toBe('https://env.example.com');
+  });
+
+  test('throws when config is whitespace-only and env var is unset', () => {
+    expect(() => getWebhookBaseUrl({ calls: { webhookBaseUrl: '   ' } })).toThrow(
+      /No webhook base URL configured/,
+    );
+  });
+
+  test('throws when env var is whitespace-only and config is empty', () => {
+    process.env.TWILIO_WEBHOOK_BASE_URL = '   ';
+    expect(() => getWebhookBaseUrl({ calls: {} })).toThrow(
+      /No webhook base URL configured/,
+    );
+  });
 });
