@@ -126,6 +126,17 @@ export function handleSubagentDetailRequest(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
+  // Ownership check: verify the caller's session owns this subagent.
+  const callerSessionId = ctx.socketToSession.get(socket);
+  if (callerSessionId) {
+    const manager = getSubagentManager();
+    const state = manager.getState(msg.subagentId);
+    if (state && state.config.parentSessionId !== callerSessionId) {
+      log.warn({ subagentId: msg.subagentId, callerSessionId }, 'Detail request rejected: subagent not owned by caller');
+      return;
+    }
+  }
+
   const subagentMsgs = conversationStore.getMessages(msg.conversationId);
 
   // Extract objective from the first user message
@@ -143,37 +154,30 @@ export function handleSubagentDetailRequest(
     } catch { /* ignore */ }
   }
 
-  // Extract events from assistant messages
+  // Extract events from both assistant and user messages.
+  // Subagent conversations are not consolidated, so tool_result blocks
+  // live in separate user-role messages following the assistant's tool_use.
   const events: Array<{ type: string; content: string; toolName?: string; isError?: boolean }> = [];
+  const pendingTools = new Map<string, string>();
   for (const m of subagentMsgs) {
-    if (m.role !== 'assistant') continue;
+    if (m.role !== 'assistant' && m.role !== 'user') continue;
     let content: unknown[];
     try {
       const parsed = JSON.parse(m.content);
       content = Array.isArray(parsed) ? parsed : [];
     } catch { continue; }
 
-    const textParts: string[] = [];
-    for (const block of content) {
-      if (isRecord(block) && block.type === 'text' && typeof block.text === 'string') {
-        textParts.push(block.text);
-      }
-    }
-    if (textParts.length > 0) {
-      events.push({ type: 'text', content: textParts.join('') });
-    }
-
-    const pendingTools = new Map<string, string>();
     for (const block of content) {
       if (!isRecord(block) || typeof block.type !== 'string') continue;
-      if (block.type === 'tool_use') {
+      if (m.role === 'assistant' && block.type === 'text' && typeof block.text === 'string') {
+        events.push({ type: 'text', content: block.text });
+      } else if (block.type === 'tool_use') {
         const name = typeof block.name === 'string' ? block.name : 'unknown';
         const input = isRecord(block.input) ? block.input as Record<string, unknown> : {};
         const id = typeof block.id === 'string' ? block.id : '';
         events.push({ type: 'tool_use', content: JSON.stringify(input), toolName: name });
         if (id) pendingTools.set(id, name);
-      }
-      if (block.type === 'tool_result') {
+      } else if (block.type === 'tool_result') {
         const toolUseId = typeof block.tool_use_id === 'string' ? block.tool_use_id : '';
         const resultContent = typeof block.content === 'string' ? block.content : '';
         const isError = block.is_error === true;
