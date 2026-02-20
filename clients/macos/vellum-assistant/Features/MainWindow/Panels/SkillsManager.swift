@@ -30,6 +30,7 @@ final class SkillsManager: ObservableObject {
 
     private let daemonClient: DaemonClient
     private var currentInspectSlug: String?
+    private var lastSearchQuery: String?
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -92,7 +93,7 @@ final class SkillsManager: ObservableObject {
     func searchSkills(query: String = "", force: Bool = false) {
         guard !isSearching else { return }
         // Skip if we already have results for this query (unless forced)
-        if !force && !searchResults.isEmpty { return }
+        if !force && !searchResults.isEmpty && lastSearchQuery == query { return }
         isSearching = true
 
         Task {
@@ -110,6 +111,7 @@ final class SkillsManager: ObservableObject {
                    response.operation == "search" {
                     if response.success, let data = response.data {
                         searchResults = data.skills
+                        lastSearchQuery = query
                     }
                     isSearching = false
                     return
