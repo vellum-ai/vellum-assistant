@@ -1323,6 +1323,41 @@ public final class ChatViewModel: ObservableObject {
                 info.error = notification.error
                 reconstructedSubagents.append(info)
                 chatMsg.isSubagentNotification = true
+
+                // Populate detail store from embedded data so the side panel works after reload
+                if let objective = notification.objective {
+                    subagentDetailStore.recordSpawned(subagentId: notification.subagentId, objective: objective)
+                }
+                if let events = notification.events {
+                    for event in events {
+                        switch event.type {
+                        case "text":
+                            subagentDetailStore.handleEvent(
+                                subagentId: notification.subagentId,
+                                event: .assistantTextDelta(IPCAssistantTextDelta(type: "assistant_text_delta", text: event.content, sessionId: nil))
+                            )
+                        case "tool_use":
+                            let input: [String: AnyCodable]
+                            if let data = event.content.data(using: .utf8),
+                               let parsed = try? JSONDecoder().decode([String: AnyCodable].self, from: data) {
+                                input = parsed
+                            } else {
+                                input = [:]
+                            }
+                            subagentDetailStore.handleEvent(
+                                subagentId: notification.subagentId,
+                                event: .toolUseStart(IPCToolUseStart(type: "tool_use_start", toolName: event.toolName ?? "unknown", input: input, sessionId: nil))
+                            )
+                        case "tool_result":
+                            subagentDetailStore.handleEvent(
+                                subagentId: notification.subagentId,
+                                event: .toolResult(IPCToolResult(type: "tool_result", toolName: event.toolName ?? "unknown", result: event.content, isError: event.isError, diff: nil, status: nil, sessionId: nil, imageData: nil))
+                            )
+                        default:
+                            break
+                        }
+                    }
+                }
             }
 
             chatMessages.append(chatMsg)

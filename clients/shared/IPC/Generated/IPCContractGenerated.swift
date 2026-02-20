@@ -718,6 +718,18 @@ public struct IPCHistoryResponseMessageSubagentNotification: Codable, Sendable {
     public let label: String
     public let status: String
     public let error: String?
+    public let conversationId: String?
+    /// Subagent objective text, populated from DB on history load.
+    public let objective: String?
+    /// Subagent events (text, tool_use, tool_result), populated from DB on history load.
+    public let events: [SubagentHistoryEvent]?
+
+    public struct SubagentHistoryEvent: Codable, Sendable {
+        public let type: String
+        public let content: String
+        public let toolName: String?
+        public let isError: Bool?
+    }
 }
 
 public struct IPCHistoryResponseSurface: Codable, Sendable {
