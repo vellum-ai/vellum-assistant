@@ -217,7 +217,6 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   calls: {
     enabled: true,
     provider: 'twilio' as const,
-    webhookBaseUrl: '',
     maxDurationSeconds: 3600,
     userConsultTimeoutSeconds: 120,
     disclosure: {

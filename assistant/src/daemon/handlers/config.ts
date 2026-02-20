@@ -408,17 +408,18 @@ export function handleTwilioWebhookConfig(
   try {
     if (msg.action === 'get') {
       const raw = loadRawConfig();
-      const webhookBaseUrl = (raw?.calls as Record<string, unknown>)?.webhookBaseUrl as string ?? '';
+      const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+      const webhookBaseUrl = (ingress.publicBaseUrl as string) ?? '';
       ctx.send(socket, { type: 'twilio_webhook_config_response', webhookBaseUrl, success: true });
     } else if (msg.action === 'set') {
       const value = (msg.webhookBaseUrl ?? '').trim().replace(/\/+$/, '');
       const raw = loadRawConfig();
-      const calls = (raw?.calls ?? {}) as Record<string, unknown>;
-      calls.webhookBaseUrl = value || undefined;
+      const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+      ingress.publicBaseUrl = value || undefined;
       const wasSuppressed = ctx.suppressConfigReload;
       ctx.setSuppressConfigReload(true);
       try {
-        saveRawConfig({ ...raw, calls });
+        saveRawConfig({ ...raw, ingress });
       } catch (err) {
         ctx.setSuppressConfigReload(wasSuppressed);
         throw err;
@@ -456,14 +457,10 @@ export function handleIngressConfig(
       const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
       ingress.publicBaseUrl = value || undefined;
 
-      // Also update calls.webhookBaseUrl for backward compat
-      const calls = (raw?.calls ?? {}) as Record<string, unknown>;
-      calls.webhookBaseUrl = value || undefined;
-
       const wasSuppressed = ctx.suppressConfigReload;
       ctx.setSuppressConfigReload(true);
       try {
-        saveRawConfig({ ...raw, ingress, calls });
+        saveRawConfig({ ...raw, ingress });
       } catch (err) {
         ctx.setSuppressConfigReload(wasSuppressed);
         throw err;

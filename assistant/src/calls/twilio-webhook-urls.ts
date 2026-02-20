@@ -11,13 +11,12 @@ import {
 } from '../inbound/public-ingress-urls.js';
 
 /**
- * Resolve the webhook base URL from config, falling back to the
- * TWILIO_WEBHOOK_BASE_URL environment variable with a deprecation warning.
- * Throws if neither source provides a value.
+ * Resolve the webhook base URL from config via ingress.publicBaseUrl
+ * or INGRESS_PUBLIC_BASE_URL env var. Throws if no value is configured.
  *
  * @deprecated Use `getPublicBaseUrl` from `inbound/public-ingress-urls.ts` instead.
  */
-export function getWebhookBaseUrl(config: { calls: { webhookBaseUrl?: string }; ingress?: { publicBaseUrl?: string } }): string {
+export function getWebhookBaseUrl(config: { ingress?: { publicBaseUrl?: string } }): string {
   return getPublicBaseUrl(config as IngressConfig);
 }
 

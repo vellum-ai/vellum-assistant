@@ -1,19 +1,14 @@
 /**
  * Centralized URL builders for all public-facing ingress endpoints.
  *
- * Resolves the canonical public base URL via a fallback chain:
- *   ingress.publicBaseUrl → calls.webhookBaseUrl → env INGRESS_PUBLIC_BASE_URL → env TWILIO_WEBHOOK_BASE_URL
+ * Resolves the canonical public base URL via:
+ *   ingress.publicBaseUrl → env INGRESS_PUBLIC_BASE_URL
  *
  * Supersedes the per-domain URL helpers in calls/twilio-webhook-urls.ts.
  */
 
-import { getLogger } from '../util/logger.js';
-
-const log = getLogger('public-ingress-urls');
-
 export interface IngressConfig {
   ingress?: { publicBaseUrl?: string };
-  calls?: { webhookBaseUrl?: string };
 }
 
 /**
@@ -24,11 +19,9 @@ function normalizeUrl(url: string): string {
 }
 
 /**
- * Resolve the canonical public base URL with a four-level fallback chain:
+ * Resolve the canonical public base URL:
  *   1. ingress.publicBaseUrl (preferred, workspace config)
- *   2. calls.webhookBaseUrl (workspace config, deprecated)
- *   3. INGRESS_PUBLIC_BASE_URL env var (gateway-compatible)
- *   4. TWILIO_WEBHOOK_BASE_URL env var (legacy, deprecated)
+ *   2. INGRESS_PUBLIC_BASE_URL env var
  *
  * Throws if no source provides a non-empty value.
  */
@@ -39,34 +32,14 @@ export function getPublicBaseUrl(config: IngressConfig): string {
     if (normalized) return normalized;
   }
 
-  const callsValue = config.calls?.webhookBaseUrl;
-  if (callsValue) {
-    const normalized = normalizeUrl(callsValue);
-    if (normalized) {
-      log.warn(
-        'Using calls.webhookBaseUrl as public base URL — set ingress.publicBaseUrl instead.',
-      );
-      return normalized;
-    }
-  }
-
   const ingressEnvValue = process.env.INGRESS_PUBLIC_BASE_URL;
   if (ingressEnvValue) {
     const normalized = normalizeUrl(ingressEnvValue);
     if (normalized) return normalized;
   }
 
-  const envValue = process.env.TWILIO_WEBHOOK_BASE_URL;
-  if (envValue) {
-    log.warn(
-      'TWILIO_WEBHOOK_BASE_URL env var is deprecated — set ingress.publicBaseUrl in config or INGRESS_PUBLIC_BASE_URL env var instead.',
-    );
-    const normalized = normalizeUrl(envValue);
-    if (normalized) return normalized;
-  }
-
   throw new Error(
-    'No public base URL configured. Set ingress.publicBaseUrl in config, INGRESS_PUBLIC_BASE_URL env var, or TWILIO_WEBHOOK_BASE_URL env var.',
+    'No public base URL configured. Set ingress.publicBaseUrl in config or INGRESS_PUBLIC_BASE_URL env var.',
   );
 }
 

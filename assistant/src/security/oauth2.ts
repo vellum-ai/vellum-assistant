@@ -144,8 +144,8 @@ async function exchangeCodeForTokens(
 
 /**
  * Determine which callback transport to use when not explicitly specified.
- * Uses gateway if any public base URL source is configured (ingress.publicBaseUrl,
- * calls.webhookBaseUrl, or TWILIO_WEBHOOK_BASE_URL), otherwise loopback.
+ * Uses gateway if a public base URL is configured (ingress.publicBaseUrl or
+ * INGRESS_PUBLIC_BASE_URL), otherwise loopback.
  */
 function detectTransport(): 'loopback' | 'gateway' {
   try {
