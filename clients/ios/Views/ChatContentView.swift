@@ -344,7 +344,8 @@ struct ChatContentView: View {
         if colorScheme == .dark, let uiImage = chatBackgroundImage {
             Image(uiImage: uiImage)
                 .resizable()
-                .scaledToFit()
+                .scaledToFill()
+                .clipped()
                 .allowsHitTesting(false)
         }
     }
