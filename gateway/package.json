@@ -3,7 +3,6 @@
   "version": "0.1.9",
   "type": "module",
   "scripts": {
-    "bump": "bun run scripts/bump.ts",
     "dev": "bun run --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
     "schema": "bun run src/cli/schema.ts",
