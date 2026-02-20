@@ -168,15 +168,66 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 /**
- * Check if the actual peer/remote address of a connection is loopback.
- * Uses Bun's server.requestIP() to get the real peer address,
- * which cannot be spoofed unlike the Origin header.
+ * Check if the actual peer/remote address of a connection is from a
+ * private/internal network. Uses Bun's server.requestIP() to get the
+ * real peer address, which cannot be spoofed unlike the Origin header.
+ *
+ * Accepts loopback, RFC 1918 private IPv4, link-local, and RFC 4193
+ * unique-local IPv6 — including their IPv4-mapped IPv6 forms. This
+ * supports container/pod deployments (e.g. Kubernetes sidecars) where
+ * gateway and runtime communicate over pod-internal private IPs.
  */
-function isLoopbackPeer(server: { requestIP(req: Request): { address: string; family: string; port: number } | null }, req: Request): boolean {
+function isPrivateNetworkPeer(server: { requestIP(req: Request): { address: string; family: string; port: number } | null }, req: Request): boolean {
   const ip = server.requestIP(req);
   if (!ip) return false;
-  const addr = ip.address;
-  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+  return isPrivateAddress(ip.address);
+}
+
+/**
+ * @internal Exported for testing.
+ *
+ * Determine whether an IP address string belongs to a private/internal
+ * network range:
+ *   - Loopback: 127.0.0.0/8, ::1
+ *   - RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+ *   - Link-local: 169.254.0.0/16
+ *   - IPv6 unique local: fc00::/7 (fc00::–fdff::)
+ *   - IPv4-mapped IPv6 variants of all of the above (::ffff:x.x.x.x)
+ */
+export function isPrivateAddress(addr: string): boolean {
+  // Handle IPv4-mapped IPv6 (e.g. ::ffff:10.0.0.1) — extract the IPv4 part
+  const v4Mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  const normalized = v4Mapped ? v4Mapped[1] : addr;
+
+  // IPv4 checks
+  if (normalized.includes('.')) {
+    const parts = normalized.split('.').map(Number);
+    if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) return false;
+
+    // Loopback: 127.0.0.0/8
+    if (parts[0] === 127) return true;
+    // 10.0.0.0/8
+    if (parts[0] === 10) return true;
+    // 172.16.0.0/12 (172.16.x.x – 172.31.x.x)
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    // 192.168.0.0/16
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    // Link-local: 169.254.0.0/16
+    if (parts[0] === 169 && parts[1] === 254) return true;
+
+    return false;
+  }
+
+  // IPv6 checks
+  const lower = normalized.toLowerCase();
+  // Loopback
+  if (lower === '::1') return true;
+  // Unique local: fc00::/7 (fc00:: through fdff::)
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
+  // Link-local: fe80::/10
+  if (lower.startsWith('fe80')) return true;
+
+  return false;
 }
 
 /**
@@ -382,11 +433,12 @@ export class RuntimeHttpServer {
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.
     if (path.startsWith('/v1/calls/relay') && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-      // In gateway_only mode, only allow relay connections from loopback peers.
-      // Primary check: actual peer address (cannot be spoofed).
+      // In gateway_only mode, only allow relay connections from private network peers.
+      // Primary check: actual peer address (cannot be spoofed) — accepts loopback
+      // and RFC 1918/4193 private addresses to support container deployments.
       // Secondary check: Origin header (defense in depth).
       const config = loadConfig();
-      if (config.ingress.mode === 'gateway_only' && (!isLoopbackPeer(server, req) || !isLoopbackOrigin(req))) {
+      if (config.ingress.mode === 'gateway_only' && (!isPrivateNetworkPeer(server, req) || !isLoopbackOrigin(req))) {
         return Response.json(
           { error: 'Direct relay access disabled in gateway-only mode', code: 'GATEWAY_ONLY' },
           { status: 403 },
