@@ -249,6 +249,7 @@ struct HatchingStepView: View {
 
     private func startHatching() {
         let apiKey = APIKeyManager.getKey() ?? ""
+        let selectedModel = state.selectedModel
 
         let config = CLILauncher.RemoteHatchConfig(
             remote: state.cloudProvider,
@@ -262,7 +263,7 @@ struct HatchingStepView: View {
             anthropicApiKey: apiKey
         )
 
-        Task.detached { [config] in
+        Task.detached { [config, selectedModel] in
             do {
                 try await cliLauncher.runRemoteHatch(config: config) { line in
                     Task { @MainActor in
@@ -291,6 +292,8 @@ struct HatchingStepView: View {
                         UserDefaults.standard.set(assistantId, forKey: "connectedAssistantId")
                     }
                 }
+
+                try? WorkspaceConfigIO.merge(["model": selectedModel])
 
                 await MainActor.run {
                     state.hatchCompleted = true
