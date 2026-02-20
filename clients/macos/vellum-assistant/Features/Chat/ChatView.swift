@@ -35,7 +35,6 @@ struct ChatView: View {
     let onConfirmationDeny: (String) -> Void
     let onAlwaysAllow: (String, String, String, String) -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
-    let onRegenerate: () -> Void
     let sessionError: SessionError?
     let onRetry: () -> Void
     let onDismissSessionError: () -> Void
@@ -358,7 +357,7 @@ struct ChatView: View {
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: VSpacing.lg) {
+                LazyVStack(alignment: .leading, spacing: VSpacing.md) {
                     // Render all chat messages inline except subagent notification placeholders.
                     let displayMessages = messages.filter { msg in
                         if msg.isSubagentNotification { return false }
@@ -431,20 +430,10 @@ struct ChatView: View {
                                 return conf
                             }()
 
-                            let isLastAssistant = message.role == .assistant
-                                && !message.isStreaming
-                                && (index == displayMessages.count - 1
-                                    || (index == displayMessages.count - 2
-                                        && displayMessages[displayMessages.count - 1].confirmation != nil && displayMessages[displayMessages.count - 1].confirmation?.state != .pending))
-                                && !isSending
-                                && !isThinking
-
                             ChatBubble(
                                 message: message,
                                 hideToolCalls: nextIsPendingConfirmation,
                                 decidedConfirmation: nextDecidedConfirmation,
-                                showRegenerate: isLastAssistant,
-                                onRegenerate: onRegenerate,
                                 onSurfaceAction: onSurfaceAction,
                                 onDismissDocumentWidget: { surfaceId in
                                     onDismissDocumentWidget?(surfaceId)
@@ -735,7 +724,6 @@ private struct ChatViewPreviewWrapper: View {
                 onConfirmationDeny: { _ in },
                 onAlwaysAllow: { _, _, _, _ in },
                 onSurfaceAction: { _, _, _ in },
-                onRegenerate: {},
                 sessionError: nil,
                 onRetry: {},
                 onDismissSessionError: {},
