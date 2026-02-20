@@ -7,9 +7,9 @@ import type { AgentHeartbeatAlert } from '../daemon/ipc-contract.js';
 
 const log = getLogger('agent-heartbeat');
 
-const DEFAULT_CHECKLIST = `- Check workspace git status for uncommitted changes
-- Review any pending notifications or alerts
-- Verify daemon services are healthy`;
+const DEFAULT_CHECKLIST = `- Check the current weather and note anything notable
+- Review any recent news headlines worth flagging
+- Look for calendar events or reminders coming up soon`;
 
 export interface AgentHeartbeatDeps {
   processMessage: (conversationId: string, content: string) => Promise<{ messageId: string }>;

@@ -117,7 +117,7 @@ describe('AgentHeartbeatService', () => {
     await service.runOnce();
 
     expect(processMessageCalls).toHaveLength(1);
-    expect(processMessageCalls[0].content).toContain('Check workspace git status');
+    expect(processMessageCalls[0].content).toContain('Check the current weather');
   });
 
   test('creates background conversation titled "Agent Heartbeat"', async () => {
