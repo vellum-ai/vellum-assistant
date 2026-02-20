@@ -9,16 +9,10 @@ import type { WorkerProfile } from '../../swarm/worker-backend.js';
 
 const log = getLogger('claude-code-tool');
 
-// Tools that CC can use without user approval
-const AUTO_APPROVE_TOOLS = new Set([
+// Tools passed to the SDK's allowedTools list (hints for the subprocess).
+const ALLOWED_TOOLS = new Set([
   'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch',
   'LS', 'Task', 'Bash(grep *)', 'Bash(rg *)', 'Bash(find *)',
-]);
-
-// Tools that always require user approval via confirmation IPC
-const APPROVAL_REQUIRED_TOOLS = new Set([
-  'Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit',
-
 ]);
 
 const VALID_PROFILES: readonly WorkerProfile[] = ['general', 'researcher', 'coder', 'reviewer'];
@@ -248,45 +242,14 @@ export const claudeCodeTool: Tool = {
 
     log.info({ prompt: truncate(resolvedPrompt, 100, ''), workingDir, model, resume: !!resumeSessionId }, 'Starting Claude Code session');
 
-    // Build the canUseTool callback, enforcing profile-based restrictions
-    const canUseTool: import('@anthropic-ai/claude-agent-sdk').CanUseTool = async (toolName, toolInput, _options) => {
-      // Profile hard-deny check first
+    // Build the canUseTool callback, matching swarm backend behavior:
+    // deny-list only, everything else auto-approved.
+    const canUseTool: import('@anthropic-ai/claude-agent-sdk').CanUseTool = async (toolName) => {
       if (profilePolicy.deny.has(toolName)) {
         log.debug({ toolName, profile: profileName }, 'Tool denied by profile policy');
         return { behavior: 'deny' as const, message: `Tool "${toolName}" is denied by profile "${profileName}"` };
       }
-
-      // Profile explicit allow (auto-approve)
-      if (profilePolicy.allow.has(toolName)) {
-        return { behavior: 'allow' as const };
-      }
-
-      // Auto-approve safe read-only tools (backward compat for general profile)
-      if (AUTO_APPROVE_TOOLS.has(toolName)) {
-        return { behavior: 'allow' as const };
-      }
-
-      // For tools that need approval, bridge to Velly's confirmation flow
-      if (!context.requestConfirmation) {
-        log.warn({ toolName }, 'Claude Code tool requires approval but no requestConfirmation callback available');
-        return { behavior: 'deny' as const, message: 'Tool approval not available in this context' };
-      }
-
-      try {
-        const result = await context.requestConfirmation({
-          toolName,
-          input: toolInput,
-          riskLevel: APPROVAL_REQUIRED_TOOLS.has(toolName) ? 'Medium' : 'Low',
-          principal: context.principal,
-        });
-        if (result.decision === 'allow') {
-          return { behavior: 'allow' as const };
-        }
-        return { behavior: 'deny' as const, message: `User denied ${toolName}` };
-      } catch (err) {
-        log.debug({ err, toolName }, 'requestConfirmation rejected (likely abort)');
-        return { behavior: 'deny' as const, message: 'Approval request cancelled' };
-      }
+      return { behavior: 'allow' as const };
     };
 
     // Enforce nesting depth limit to prevent infinite recursion.
@@ -315,7 +278,7 @@ export const claudeCodeTool: Tool = {
       model,
       canUseTool,
       permissionMode: 'default',
-      allowedTools: [...AUTO_APPROVE_TOOLS],
+      allowedTools: [...ALLOWED_TOOLS],
       env: subprocessEnv,
       maxTurns,
       persistSession: true,
