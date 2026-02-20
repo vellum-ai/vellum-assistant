@@ -242,13 +242,39 @@ export const claudeCodeTool: Tool = {
 
     log.info({ prompt: truncate(resolvedPrompt, 100, ''), workingDir, model, resume: !!resumeSessionId }, 'Starting Claude Code session');
 
-    // Build the canUseTool callback, matching swarm backend behavior:
-    // deny-list only, everything else auto-approved.
+    // Build the canUseTool callback with 5-tier permission logic:
+    // 1. deny-list → block  2. allow-list → auto-approve  3. approvalRequired → bubble up or fast-deny  4. default → allow
     const canUseTool: import('@anthropic-ai/claude-agent-sdk').CanUseTool = async (toolName) => {
+      // 1. Deny-list: block unconditionally
       if (profilePolicy.deny.has(toolName)) {
         log.debug({ toolName, profile: profileName }, 'Tool denied by profile policy');
         return { behavior: 'deny' as const, message: `Tool "${toolName}" is denied by profile "${profileName}"` };
       }
+      // 2. Allow-list: auto-approve
+      if (profilePolicy.allow.has(toolName)) {
+        log.debug({ toolName, profile: profileName }, 'Tool auto-allowed by profile policy');
+        return { behavior: 'allow' as const };
+      }
+      // 3. Approval-required: bubble up to user or fast-deny when non-interactive
+      if (profilePolicy.approvalRequired.has(toolName)) {
+        if (context.requestConfirmation) {
+          log.debug({ toolName, profile: profileName }, 'Bubbling up tool approval to user');
+          const result = await context.requestConfirmation({
+            toolName,
+            input: {},
+            riskLevel: 'medium',
+            principal: context.principal,
+          });
+          log.debug({ toolName, decision: result.decision }, 'User permission decision');
+          return { behavior: result.decision === 'allow' ? 'allow' as const : 'deny' as const };
+        }
+        // Non-interactive: fast-deny
+        if (!context.isInteractive) {
+          log.debug({ toolName, profile: profileName }, 'Tool requires approval but session is non-interactive');
+          return { behavior: 'deny' as const, message: `Tool "${toolName}" requires approval but session is non-interactive` };
+        }
+      }
+      // 4. Default: allow (backward compat for tools not in any set)
       return { behavior: 'allow' as const };
     };
 
