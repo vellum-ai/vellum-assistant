@@ -1,7 +1,8 @@
 import * as net from 'node:net';
-import { loadRawConfig } from '../../config/loader.js';
+import { loadRawConfig, loadConfig } from '../../config/loader.js';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
 import { startOAuth2Flow } from '../../security/oauth2.js';
+import { getPublicBaseUrl } from '../../inbound/public-ingress-urls.js';
 import { upsertCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import type { TwitterAuthStartRequest, TwitterAuthStatusRequest } from '../ipc-protocol.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
@@ -36,6 +37,20 @@ export async function handleTwitterAuthStart(
 
     const clientSecret = getSecureKey('credential:integration:twitter:oauth_client_secret') || undefined;
 
+    // Fail fast if no public ingress URL is configured — Twitter OAuth
+    // callbacks must route through the gateway, never via loopback.
+    try {
+      getPublicBaseUrl(loadConfig());
+    } catch {
+      ctx.send(socket, {
+        type: 'twitter_auth_result',
+        success: false,
+        error:
+          'Set ingress.publicBaseUrl (or INGRESS_PUBLIC_BASE_URL) so OAuth callbacks can route through /webhooks/oauth/callback on the gateway.',
+      });
+      return;
+    }
+
     const oauthConfig: OAuth2Config = {
       authUrl: 'https://twitter.com/i/oauth2/authorize',
       tokenUrl: 'https://api.x.com/2/oauth2/token',
@@ -49,7 +64,7 @@ export async function handleTwitterAuthStart(
       openUrl: (url: string) => {
         ctx.send(socket, { type: 'open_url', url });
       },
-    });
+    }, { callbackTransport: 'gateway' });
 
     // Verify identity via Twitter API before persisting any tokens
     let accountInfo: string;

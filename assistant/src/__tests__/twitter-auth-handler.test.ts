@@ -8,16 +8,30 @@ const testDir = mkdtempSync(join(tmpdir(), 'handlers-twitter-auth-test-'));
 
 // Track loadRawConfig / saveRawConfig calls
 let rawConfigStore: Record<string, unknown> = {};
+let mockIngressPublicBaseUrl: string | undefined = 'https://test.example.com';
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({}),
-  loadConfig: () => ({}),
+  loadConfig: () => ({ ingress: { publicBaseUrl: mockIngressPublicBaseUrl } }),
   loadRawConfig: () => ({ ...rawConfigStore }),
   saveRawConfig: (cfg: Record<string, unknown>) => {
     rawConfigStore = { ...cfg };
   },
   saveConfig: () => {},
   invalidateConfigCache: () => {},
+}));
+
+mock.module('../inbound/public-ingress-urls.js', () => ({
+  getPublicBaseUrl: (config: { ingress?: { publicBaseUrl?: string } }) => {
+    const url = config?.ingress?.publicBaseUrl;
+    if (url) return url;
+    throw new Error('No public base URL configured.');
+  },
+  getOAuthCallbackUrl: (config: { ingress?: { publicBaseUrl?: string } }) => {
+    const url = config?.ingress?.publicBaseUrl;
+    if (!url) throw new Error('No public base URL configured.');
+    return `${url}/webhooks/oauth/callback`;
+  },
 }));
 
 mock.module('../util/platform.js', () => ({
@@ -77,9 +91,15 @@ mock.module('../security/secure-keys.js', () => ({
 // Mock OAuth2 flow
 let oauthFlowResult: unknown = null;
 let oauthFlowError: Error | null = null;
+let lastOAuthFlowOptions: Record<string, unknown> | undefined;
 
 mock.module('../security/oauth2.js', () => ({
-  startOAuth2Flow: async (_config: unknown, callbacks: { openUrl: (url: string) => void }) => {
+  startOAuth2Flow: async (
+    _config: unknown,
+    callbacks: { openUrl: (url: string) => void },
+    options?: Record<string, unknown>,
+  ) => {
+    lastOAuthFlowOptions = options;
     // Trigger the openUrl callback so tests can verify the open_url message is sent
     callbacks.openUrl('https://twitter.com/i/oauth2/authorize?test=1');
     if (oauthFlowError) throw oauthFlowError;
@@ -163,6 +183,8 @@ describe('Twitter auth handler', () => {
     oauthFlowResult = null;
     oauthFlowError = null;
     lastUpsertPolicy = undefined;
+    lastOAuthFlowOptions = undefined;
+    mockIngressPublicBaseUrl = 'https://test.example.com';
     // Mock fetch for Twitter API
     globalThis.fetch = (async (_url: string | URL | Request) => {
       return mockFetchResponse;
@@ -265,6 +287,69 @@ describe('Twitter auth handler', () => {
       );
       expect(meta).toBeDefined();
       expect(meta!.accountInfo).toBe('@testuser');
+    });
+
+    test('passes callbackTransport: gateway to startOAuth2Flow', async () => {
+      rawConfigStore = { twitterIntegrationMode: 'local_byo' };
+      secureKeyStore['credential:integration:twitter:oauth_client_id'] = 'test-client-id';
+
+      oauthFlowResult = {
+        tokens: {
+          accessToken: 'mock-access-token',
+          refreshToken: 'mock-refresh-token',
+          expiresIn: 7200,
+          scope: 'tweet.read users.read offline.access',
+          tokenType: 'bearer',
+        },
+        grantedScopes: ['tweet.read', 'users.read', 'offline.access'],
+        rawTokenResponse: {},
+      };
+
+      const msg: TwitterAuthStartRequest = { type: 'twitter_auth_start' };
+      const { ctx, sent } = createTestContext();
+      await handleMessage(msg, {} as net.Socket, ctx);
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Verify startOAuth2Flow was called with gateway transport
+      expect(lastOAuthFlowOptions).toBeDefined();
+      expect(lastOAuthFlowOptions!.callbackTransport).toBe('gateway');
+    });
+
+    test('fails fast with actionable error when no ingress URL is configured', async () => {
+      rawConfigStore = { twitterIntegrationMode: 'local_byo' };
+      secureKeyStore['credential:integration:twitter:oauth_client_id'] = 'test-client-id';
+      mockIngressPublicBaseUrl = undefined;
+
+      oauthFlowResult = {
+        tokens: { accessToken: 'should-not-reach', refreshToken: undefined },
+        grantedScopes: [],
+        rawTokenResponse: {},
+      };
+
+      const msg: TwitterAuthStartRequest = { type: 'twitter_auth_start' };
+      const { ctx, sent } = createTestContext();
+      await handleMessage(msg, {} as net.Socket, ctx);
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Should NOT have sent open_url — the flow should fail before reaching OAuth
+      const openUrlMsg = sent.find((m) => m.type === 'open_url');
+      expect(openUrlMsg).toBeUndefined();
+
+      const result = sent.find((m) => m.type === 'twitter_auth_result') as {
+        type: string;
+        success: boolean;
+        error?: string;
+      };
+      expect(result).toBeDefined();
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('ingress.publicBaseUrl');
+      expect(result.error).toContain('INGRESS_PUBLIC_BASE_URL');
+      expect(result.error).toContain('/webhooks/oauth/callback');
+
+      // startOAuth2Flow should not have been called
+      expect(lastOAuthFlowOptions).toBeUndefined();
     });
 
     describe('auth hardening', () => {
