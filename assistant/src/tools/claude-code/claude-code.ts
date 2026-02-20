@@ -201,14 +201,15 @@ export const claudeCodeTool: Tool = {
         };
       }
 
-      // Substitute $ARGUMENTS
-      resolvedPrompt = template.replace(/\$ARGUMENTS/g, args ?? '');
+      // Substitute $ARGUMENTS (escape $ in replacement to prevent $& etc. special patterns)
+      resolvedPrompt = template.replace(/\$ARGUMENTS/g, (args ?? '').replace(/\$/g, '$$$$'));
 
       // Substitute template_vars: {{key}} patterns
       if (templateVars) {
         for (const [key, value] of Object.entries(templateVars)) {
           const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          resolvedPrompt = resolvedPrompt.replace(new RegExp(`\\{\\{${escaped}\\}\\}`, 'g'), value);
+          const safeValue = value.replace(/\$/g, '$$$$');
+          resolvedPrompt = resolvedPrompt.replace(new RegExp(`\\{\\{${escaped}\\}\\}`, 'g'), safeValue);
         }
       }
 
@@ -217,8 +218,9 @@ export const claudeCodeTool: Tool = {
       resolvedPrompt = prompt!;
     }
 
-    // If the project has .claude/commands/ or .claude/skills/, hint the subprocess
-    try {
+    // If the project has .claude/commands/ or .claude/skills/, hint the subprocess.
+    // Only append the hint for free-form prompts — command templates are self-contained.
+    if (!command) try {
       const { discoverCCCommands } = await import('../../commands/cc-command-registry.js');
       const registry = discoverCCCommands(workingDir);
       if (registry.entries.size > 0) {
@@ -287,7 +289,7 @@ export const claudeCodeTool: Tool = {
         log.debug({ toolName, profile: profileName }, 'Tool auto-allowed by profile policy');
         return { behavior: 'allow' as const };
       }
-      // 3. Approval-required: bubble up to user or fast-deny when non-interactive
+      // 3. Approval-required: bubble up to user or deny when no confirmation callback
       if (profilePolicy.approvalRequired.has(toolName)) {
         if (context.requestConfirmation) {
           log.debug({ toolName, profile: profileName }, 'Bubbling up tool approval to user');
@@ -300,11 +302,9 @@ export const claudeCodeTool: Tool = {
           log.debug({ toolName, decision: result.decision }, 'User permission decision');
           return { behavior: result.decision === 'allow' ? 'allow' as const : 'deny' as const };
         }
-        // Non-interactive: fast-deny
-        if (!context.isInteractive) {
-          log.debug({ toolName, profile: profileName }, 'Tool requires approval but session is non-interactive');
-          return { behavior: 'deny' as const, message: `Tool "${toolName}" requires approval but session is non-interactive` };
-        }
+        // No requestConfirmation callback — deny regardless of interactivity
+        log.warn({ toolName, profile: profileName }, 'Tool requires approval but no requestConfirmation callback available');
+        return { behavior: 'deny' as const, message: `Tool "${toolName}" requires approval but no confirmation callback is available` };
       }
       // 4. Default: allow (backward compat for tools not in any set)
       return { behavior: 'allow' as const };
