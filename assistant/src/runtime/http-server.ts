@@ -65,6 +65,7 @@ import {
 } from '../calls/twilio-routes.js';
 import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
+import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
 
 // Re-export shared types so existing consumers don't need to update imports
 export type {
@@ -626,6 +627,27 @@ export class RuntimeHttpServer {
           body: formBody,
         });
         return await handleConnectAction(fakeReq);
+      }
+
+      // ── Internal OAuth callback endpoint (gateway → runtime) ──
+      if (endpoint === 'internal/oauth/callback' && req.method === 'POST') {
+        const json = await req.json() as { state: string; code?: string; error?: string };
+        if (!json.state) {
+          return Response.json({ error: 'Missing state parameter' }, { status: 400 });
+        }
+        if (json.error) {
+          const consumed = consumeCallbackError(json.state, json.error);
+          return consumed
+            ? Response.json({ ok: true })
+            : Response.json({ error: 'Unknown state' }, { status: 404 });
+        }
+        if (json.code) {
+          const consumed = consumeCallback(json.state, json.code);
+          return consumed
+            ? Response.json({ ok: true })
+            : Response.json({ error: 'Unknown state' }, { status: 404 });
+        }
+        return Response.json({ error: 'Missing code or error parameter' }, { status: 400 });
       }
 
       return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });

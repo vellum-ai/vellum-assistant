@@ -294,3 +294,34 @@ export async function uploadAttachment(
 
   return (await response.json()) as UploadAttachmentResponse;
 }
+
+// ── OAuth callback forwarding ────────────────────────────────────────
+
+export type OAuthCallbackResponse = {
+  status: number;
+  body: string;
+};
+
+/**
+ * Forward an OAuth callback to the runtime's internal endpoint.
+ * This is a one-shot operation — no retries, since the state token
+ * can only be consumed once.
+ */
+export async function forwardOAuthCallback(
+  config: GatewayConfig,
+  state: string,
+  code?: string,
+  error?: string,
+): Promise<OAuthCallbackResponse> {
+  const url = `${config.assistantRuntimeBaseUrl}/v1/internal/oauth/callback`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
+    body: JSON.stringify({ state, code, error }),
+    signal: AbortSignal.timeout(config.runtimeTimeoutMs),
+  });
+
+  const body = await response.text();
+  return { status: response.status, body };
+}
