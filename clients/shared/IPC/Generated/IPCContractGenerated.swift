@@ -29,6 +29,12 @@ public struct IPCAddTrustRule: Codable, Sendable {
     public let decision: String
 }
 
+public struct IPCAgentHeartbeatAlert: Codable, Sendable {
+    public let type: String
+    public let title: String
+    public let body: String
+}
+
 public struct IPCAppDataRequest: Codable, Sendable {
     public let type: String
     public let surfaceId: String
