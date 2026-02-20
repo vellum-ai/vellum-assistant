@@ -87,7 +87,6 @@ struct SettingsPanel: View {
             store.refreshAPIKeyState()
             store.refreshTwitterStatus()
             store.refreshTwilioWebhookConfig()
-            twilioWebhookUrlText = store.twilioWebhookBaseUrl
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
         }
