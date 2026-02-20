@@ -50,8 +50,14 @@ class TasksWindowViewModel: ObservableObject {
     /// normal latency while still recovering from connection drops quickly.
     private static let runTimeoutSeconds: UInt64 = 10
 
-    init(daemonClient: DaemonClient) {
+    /// Called when the user taps "Open in Chat" — creates the thread in
+    /// the main window and brings it forward. Parameters: conversationId,
+    /// workItemId, title.
+    private let onOpenInChat: ((String, String, String) -> Void)?
+
+    init(daemonClient: DaemonClient, onOpenInChat: ((String, String, String) -> Void)? = nil) {
         self.daemonClient = daemonClient
+        self.onOpenInChat = onOpenInChat
         setupCallbacks()
         fetchItems()
     }
@@ -366,6 +372,25 @@ class TasksWindowViewModel: ObservableObject {
     /// Dismisses the output detail sheet.
     func dismissOutput() {
         selectedOutputItem = nil
+    }
+
+    /// Whether the currently loaded output has a conversation that can be
+    /// opened in chat.
+    var canOpenInChat: Bool {
+        guard onOpenInChat != nil else { return false }
+        if case .loaded(let output) = outputState {
+            return output.conversationId != nil
+        }
+        return false
+    }
+
+    /// Opens the current task output's conversation in the main chat window.
+    func openInChat() {
+        guard let item = selectedOutputItem,
+              case .loaded(let output) = outputState,
+              let conversationId = output.conversationId else { return }
+        onOpenInChat?(conversationId, item.id, item.title)
+        dismissOutput()
     }
 
     func updatePriority(id: String, tier: Double) {

@@ -466,13 +466,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showTasksWindow()
         }
 
-        daemonClient.onTaskRunThreadCreated = { [weak self] msg in
-            self?.mainWindow?.threadManager.createTaskRunThread(
-                conversationId: msg.conversationId,
-                workItemId: msg.workItemId,
-                title: msg.title
-            )
-        }
+        // Task run threads are no longer created automatically. Users can
+        // opt in via the "Open in Chat" button in the task output view.
 
         // Handle escalation: text_qa -> computer_use via computer_use_request_control
         daemonClient.onTaskRouted = { [weak self] routed in
@@ -1142,7 +1137,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showTasksWindow() {
         NSApp.setActivationPolicy(.regular)
         if tasksWindow == nil {
-            tasksWindow = TasksWindow(daemonClient: daemonClient)
+            let window = TasksWindow(daemonClient: daemonClient)
+            window.onOpenInChat = { [weak self] conversationId, workItemId, title in
+                guard let self else { return }
+                self.mainWindow?.threadManager.createTaskRunThread(
+                    conversationId: conversationId,
+                    workItemId: workItemId,
+                    title: title
+                )
+                if let thread = self.mainWindow?.threadManager.threads.first(where: { $0.sessionId == conversationId }) {
+                    self.mainWindow?.threadManager.activeThreadId = thread.id
+                }
+                self.showMainWindow()
+            }
+            tasksWindow = window
         }
         tasksWindow?.show()
     }
