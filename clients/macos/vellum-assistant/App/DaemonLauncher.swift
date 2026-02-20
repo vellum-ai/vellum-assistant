@@ -205,8 +205,39 @@ final class DaemonLauncher {
         }
     }
 
+    /// Kill any existing daemon process found via the PID file.
+    /// Prevents orphaned daemons from accumulating across hatch attempts.
+    private func killExistingDaemon() {
+        guard let pidData = try? Data(contentsOf: pidFileURL),
+              let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let pid = pid_t(pidString),
+              kill(pid, 0) == 0 else {
+            return
+        }
+
+        log.info("Killing existing daemon process (pid \(pid)) before relaunch")
+        kill(pid, SIGTERM)
+
+        // Wait up to 2s for graceful exit
+        let deadline = Date().addingTimeInterval(2.0)
+        while kill(pid, 0) == 0 && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+
+        // Force kill if still alive
+        if kill(pid, 0) == 0 {
+            log.warning("Existing daemon did not exit after SIGTERM, sending SIGKILL")
+            kill(pid, SIGKILL)
+        }
+
+        cleanupPIDFile()
+    }
+
     private func launch(binaryURL: URL) throws {
         log.info("Launching daemon from \(binaryURL.path)")
+
+        // Kill any existing daemon to prevent orphaned processes
+        killExistingDaemon()
 
         // Remove stale socket file before launching so waitForSocket()
         // doesn't return prematurely on a leftover socket from a previous run.

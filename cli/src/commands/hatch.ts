@@ -762,33 +762,14 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
   console.log(`   Species: ${species}`);
   console.log("");
 
-  console.log("🔨 Starting local daemon...");
-
   if (process.env.VELLUM_DESKTOP_APP) {
-    const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
-    const child = spawn(daemonBinary, [], {
-      detached: true,
-      stdio: "ignore",
-      env: { ...process.env },
-    });
-    child.unref();
-
-    const homeDir = process.env.HOME ?? userInfo().homedir;
-    const socketPath = join(homeDir, ".vellum", "vellum.sock");
-    const maxWait = 10000;
-    const pollInterval = 100;
-    let waited = 0;
-    while (waited < maxWait) {
-      if (existsSync(socketPath)) {
-        break;
-      }
-      await new Promise((r) => setTimeout(r, pollInterval));
-      waited += pollInterval;
-    }
-    if (!existsSync(socketPath)) {
-      console.warn("⚠️  Daemon socket did not appear within 10s — continuing anyway");
-    }
+    // When running inside the desktop app, the macOS DaemonLauncher manages
+    // the daemon lifecycle directly. The CLI only needs to register the
+    // assistant entry — no daemon spawn needed here.
+    console.log("   Daemon managed by desktop app\n");
   } else {
+    console.log("🔨 Starting local daemon...");
+
     const sourceTreeIndex = join(import.meta.dir, "..", "..", "..", "assistant", "src", "index.ts");
     let assistantIndex = sourceTreeIndex;
 
@@ -825,22 +806,31 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
     });
   }
 
-  console.log("🌐 Starting gateway...");
-  const gatewayDir = resolveGatewayDir();
-  const gateway = spawn("bun", ["run", "src/index.ts"], {
-    cwd: gatewayDir,
-    detached: true,
-    stdio: "ignore",
-    env: {
-      ...process.env,
-      GATEWAY_RUNTIME_PROXY_ENABLED: "true",
-      GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
-    },
-  });
-  gateway.unref();
-  console.log("✅ Gateway started\n");
+  // The desktop app communicates with the daemon directly via Unix socket,
+  // so the HTTP gateway is only needed for non-desktop (CLI) usage.
+  let runtimeUrl: string;
 
-  const runtimeUrl = `http://localhost:${GATEWAY_PORT}`;
+  if (process.env.VELLUM_DESKTOP_APP) {
+    // No gateway needed — the macOS app uses DaemonClient over the Unix socket.
+    runtimeUrl = "local";
+  } else {
+    console.log("🌐 Starting gateway...");
+    const gatewayDir = resolveGatewayDir();
+    const gateway = spawn("bun", ["run", "src/index.ts"], {
+      cwd: gatewayDir,
+      detached: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        GATEWAY_RUNTIME_PROXY_ENABLED: "true",
+        GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
+      },
+    });
+    gateway.unref();
+    console.log("✅ Gateway started\n");
+    runtimeUrl = `http://localhost:${GATEWAY_PORT}`;
+  }
+
   const localEntry: AssistantEntry = {
     assistantId: instanceName,
     runtimeUrl,
