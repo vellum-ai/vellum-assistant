@@ -46,8 +46,10 @@ struct SettingsAdvancedTab: View {
             Button("Retire", role: .destructive) {
                 isRetiring = true
                 Task {
-                    await (NSApp.delegate as? AppDelegate)?.performRetireAsync()
-                    isRetiring = false
+                    let completed = await (NSApp.delegate as? AppDelegate)?.performRetireAsync() ?? false
+                    if !completed {
+                        isRetiring = false
+                    }
                 }
             }
         } message: {

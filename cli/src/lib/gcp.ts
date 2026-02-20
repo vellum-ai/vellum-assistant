@@ -313,12 +313,30 @@ export async function fetchAndDisplayStartupLogs(
   }
 }
 
+async function checkGcloudAvailable(): Promise<boolean> {
+  try {
+    await execOutput("gcloud", ["--version"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function retireInstance(
   name: string,
   project: string,
   zone: string,
   source?: string,
 ): Promise<void> {
+  const gcloudOk = await checkGcloudAvailable();
+  if (!gcloudOk) {
+    throw new Error(
+      `Cannot retire GCP instance '${name}': gcloud CLI is not installed or not in PATH. ` +
+        `Please install the Google Cloud SDK and try again, or delete the instance manually ` +
+        `via the GCP Console (project=${project}, zone=${zone}).`,
+    );
+  }
+
   const exists = await instanceExists(name, project, zone);
   if (!exists) {
     console.warn(

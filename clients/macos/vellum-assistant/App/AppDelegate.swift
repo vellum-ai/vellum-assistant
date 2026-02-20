@@ -337,7 +337,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Async retire implementation callable from SwiftUI so callers can
     /// await completion and dismiss their loading UI.
-    func performRetireAsync() async {
+    ///
+    /// Returns `true` if the retire completed (or the user chose to force-remove),
+    /// `false` if the user cancelled after a failure.
+    @discardableResult
+    func performRetireAsync() async -> Bool {
         let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
         if assistantName == nil {
@@ -345,7 +349,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if let name = assistantName {
-            try? await assistantCli.retire(name: name)
+            do {
+                try await assistantCli.retire(name: name)
+            } catch {
+                log.error("CLI retire failed: \(error.localizedDescription)")
+                let alert = NSAlert()
+                alert.messageText = "Failed to Retire Remote Instance"
+                alert.informativeText = "\(error.localizedDescription)\n\nYou can force-remove the local configuration, but the remote cloud instance may still be running and will need to be deleted manually."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Force Remove")
+                alert.addButton(withTitle: "Cancel")
+                if alert.runModal() != .alertFirstButtonReturn {
+                    return false
+                }
+            }
         } else {
             assistantCli.stop()
         }
@@ -357,7 +374,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             settingsWindow?.close()
             settingsWindow = nil
             performSwitchAssistant(to: next)
-            return
+            return true
         }
 
         // No assistants left — tear down fully and show onboarding
@@ -402,6 +419,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         hasSetupApp = false
         hasSetupDaemon = false
         showOnboarding()
+        return true
     }
 
     /// Applies the user's theme preference to the app appearance.
