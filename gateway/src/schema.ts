@@ -684,6 +684,8 @@ export function buildSchema(): Record<string, unknown> {
         TelegramDeliverRequest: {
           type: "object",
           required: ["chatId"],
+          description:
+            "Request to deliver a message to a Telegram chat. At least one of `text` or `attachments` must be provided.",
           properties: {
             chatId: { type: "string", description: "Telegram chat ID to deliver the message to" },
             text: { type: "string", description: "Text content to send" },
@@ -694,6 +696,10 @@ export function buildSchema(): Record<string, unknown> {
               items: { $ref: "#/components/schemas/RuntimeAttachmentMeta" },
             },
           },
+          anyOf: [
+            { required: ["text"] },
+            { required: ["attachments"] },
+          ],
         },
         RuntimeAttachmentMeta: {
           type: "object",
