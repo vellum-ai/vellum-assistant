@@ -206,12 +206,18 @@ struct AssistantMetadata {
 struct LockfileAssistant {
     let assistantId: String
     let runtimeUrl: String?
+    let bearerToken: String?
     let cloud: String
     let project: String?
     let region: String?
     let zone: String?
     let instanceId: String?
     let hatchedAt: String?
+
+    /// Whether this assistant is running remotely (not on the local machine).
+    var isRemote: Bool {
+        cloud.lowercased() != "local"
+    }
 
     var home: AssistantHome {
         switch cloud.lowercased() {
@@ -272,6 +278,7 @@ struct LockfileAssistant {
                 return LockfileAssistant(
                     assistantId: assistantId,
                     runtimeUrl: entry["runtimeUrl"] as? String,
+                    bearerToken: entry["bearerToken"] as? String,
                     cloud: entry["cloud"] as? String ?? "local",
                     project: entry["project"] as? String,
                     region: entry["region"] as? String,

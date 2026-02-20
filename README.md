@@ -494,6 +494,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 |---------|---------|
 | `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists). |
 | `/release [version]` | Cut a release: pull main, determine/create version tag, generate release notes, publish GitHub Release, and verify CI trigger. |
+| `/update` | Pull latest from `main`, restart daemon/app, preserve any source-run gateway process, and launch app with `VELLUM_GATEWAY_DIR` pinned to local `gateway/`. |
 
 
 ### Review

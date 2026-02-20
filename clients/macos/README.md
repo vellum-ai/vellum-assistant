@@ -19,12 +19,12 @@ The iOS app can be tested in three ways:
 
 **1. Xcode Simulator (Recommended for development)**
 ```bash
-# Open the iOS target in Xcode (from the clients/macos/ directory)
-open ../Package.swift
+# Open the iOS project in Xcode
+open ../ios/vellum-assistant-ios.xcodeproj
 
 # In Xcode:
-# - Select the vellum-assistant-ios scheme
-# - Choose an iOS Simulator (iPhone 15, iPad Pro, etc.)
+# - Select the VellumAssistantIOS scheme
+# - Choose an iOS Simulator (iPhone 16 Pro, iPad Pro, etc.)
 # - Click Run (⌘R)
 ```
 

@@ -209,8 +209,9 @@ export const messageRuns = sqliteTable('message_runs', {
     .references(() => conversations.id, { onDelete: 'cascade' }),
   messageId: text('message_id')
     .references(() => messages.id, { onDelete: 'cascade' }),
-  status: text('status').notNull().default('running'),          // running | needs_confirmation | completed | failed
+  status: text('status').notNull().default('running'),          // running | needs_confirmation | needs_secret | completed | failed
   pendingConfirmation: text('pending_confirmation'),            // JSON when status=needs_confirmation
+  pendingSecret: text('pending_secret'),                        // JSON when status=needs_secret
   inputTokens: integer('input_tokens').notNull().default(0),
   outputTokens: integer('output_tokens').notNull().default(0),
   estimatedCost: real('estimated_cost').notNull().default(0),

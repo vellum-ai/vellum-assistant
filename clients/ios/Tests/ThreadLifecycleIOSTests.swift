@@ -27,7 +27,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         let vm = ChatViewModel(daemonClient: mockClient)
         vm.createSessionIfNeeded()
 
-        XCTAssertTrue(vm.isSending, "Should enter sending state during bootstrap")
+        XCTAssertFalse(vm.isSending, "Message-less session creates should not set isSending")
         XCTAssertTrue(vm.isBootstrapping, "Should be bootstrapping after createSessionIfNeeded")
     }
 

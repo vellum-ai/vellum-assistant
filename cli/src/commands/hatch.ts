@@ -763,32 +763,47 @@ async function hatchCustom(
   }
 }
 
-/**
- * Read `ingress.publicBaseUrl` from the assistant's workspace config file
- * (~/.vellum/workspace/config.json). Returns undefined if the file doesn't
- * exist or the value isn't set. This is intentionally a best-effort read
- * — the CLI should not fail if the config file is absent.
- */
-function readIngressPublicBaseUrl(): string | undefined {
-  try {
-    const baseDataDir = process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir());
-    const configPath = join(baseDataDir, ".vellum", "workspace", "config.json");
-    if (!existsSync(configPath)) return undefined;
-    const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-    const value = raw?.ingress?.publicBaseUrl;
-    if (typeof value === "string" && value.trim()) {
-      return value.trim().replace(/\/+$/, "");
+function isGatewaySourceDir(dir: string): boolean {
+  return existsSync(join(dir, "package.json")) && existsSync(join(dir, "src", "index.ts"));
+}
+
+function findGatewaySourceFromCwd(): string | undefined {
+  let current = process.cwd();
+  while (true) {
+    if (isGatewaySourceDir(current)) {
+      return current;
     }
-    return undefined;
-  } catch {
-    return undefined;
+    const nestedCandidate = join(current, "gateway");
+    if (isGatewaySourceDir(nestedCandidate)) {
+      return nestedCandidate;
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return undefined;
+    }
+    current = parent;
   }
 }
 
 function resolveGatewayDir(): string {
+  const override = process.env.VELLUM_GATEWAY_DIR?.trim();
+  if (override) {
+    if (!isGatewaySourceDir(override)) {
+      throw new Error(
+        `VELLUM_GATEWAY_DIR is set to "${override}", but it is not a valid gateway source directory.`,
+      );
+    }
+    return override;
+  }
+
   const sourceDir = join(import.meta.dir, "..", "..", "..", "gateway");
-  if (existsSync(sourceDir)) {
+  if (isGatewaySourceDir(sourceDir)) {
     return sourceDir;
+  }
+
+  const cwdSourceDir = findGatewaySourceFromCwd();
+  if (cwdSourceDir) {
+    return cwdSourceDir;
   }
 
   try {
@@ -796,8 +811,26 @@ function resolveGatewayDir(): string {
     return dirname(pkgPath);
   } catch {
     throw new Error(
-      "Gateway not found. Ensure @vellumai/vellum-gateway is installed or run from the source tree.",
+      "Gateway not found. Ensure @vellumai/vellum-gateway is installed, run from the source tree, or set VELLUM_GATEWAY_DIR.",
     );
+  }
+}
+
+function normalizeIngressUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().replace(/\/+$/, "");
+  return normalized || undefined;
+}
+
+function readWorkspaceIngressPublicBaseUrl(): string | undefined {
+  const baseDataDir = process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir());
+  const workspaceConfigPath = join(baseDataDir, ".vellum", "workspace", "config.json");
+  try {
+    const raw = JSON.parse(readFileSync(workspaceConfigPath, "utf-8")) as Record<string, unknown>;
+    const ingress = raw.ingress as Record<string, unknown> | undefined;
+    return normalizeIngressUrl(ingress?.publicBaseUrl);
+  } catch {
+    return undefined;
   }
 }
 
@@ -1016,13 +1049,18 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
       GATEWAY_RUNTIME_PROXY_ENABLED: "true",
       GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
     };
+    const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl();
+    const ingressPublicBaseUrl =
+      workspaceIngressPublicBaseUrl
+      ?? normalizeIngressUrl(process.env.INGRESS_PUBLIC_BASE_URL);
+    if (ingressPublicBaseUrl) {
+      gatewayEnv.INGRESS_PUBLIC_BASE_URL = ingressPublicBaseUrl;
+      console.log(`   Ingress URL: ${ingressPublicBaseUrl}`);
+      if (!workspaceIngressPublicBaseUrl) {
+        console.log("   (using INGRESS_PUBLIC_BASE_URL env fallback)");
+      }
+    }
     if (publicUrl) gatewayEnv.GATEWAY_PUBLIC_URL = publicUrl;
-
-    // Forward ingress.publicBaseUrl from the assistant's workspace config to
-    // the gateway so Twilio signature validation reconstructs the same
-    // canonical URL the assistant uses for outbound callback generation.
-    const ingressUrl = readIngressPublicBaseUrl();
-    if (ingressUrl) gatewayEnv.INGRESS_PUBLIC_BASE_URL = ingressUrl;
 
     const gateway = spawn("bun", ["run", "src/index.ts"], {
       cwd: gatewayDir,

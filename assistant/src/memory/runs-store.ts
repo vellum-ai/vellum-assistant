@@ -3,6 +3,7 @@
  *
  * Runs track the lifecycle of an agent loop triggered by a user message:
  *   running → needs_confirmation → running → completed | failed
+ *   running → needs_secret       → running → completed | failed
  */
 
 import { eq, inArray } from 'drizzle-orm';
@@ -14,7 +15,7 @@ import { messageRuns } from './schema.js';
 // Types
 // ---------------------------------------------------------------------------
 
-export type RunStatus = 'running' | 'needs_confirmation' | 'completed' | 'failed';
+export type RunStatus = 'running' | 'needs_confirmation' | 'needs_secret' | 'completed' | 'failed';
 
 export interface PendingConfirmation {
   toolName: string;
@@ -34,12 +35,24 @@ export interface PendingConfirmation {
   persistentDecisionsAllowed?: boolean;
 }
 
+export interface PendingSecret {
+  requestId: string;
+  service: string;
+  field: string;
+  label: string;
+  description?: string;
+  placeholder?: string;
+  purpose?: string;
+  allowOneTimeSend?: boolean;
+}
+
 export interface Run {
   id: string;
   conversationId: string;
   messageId: string | null;
   status: RunStatus;
   pendingConfirmation: PendingConfirmation | null;
+  pendingSecret: PendingSecret | null;
   inputTokens: number;
   outputTokens: number;
   estimatedCost: number;
@@ -63,12 +76,17 @@ function rowToRun(row: typeof messageRuns.$inferSelect): Run {
   if (row.pendingConfirmation) {
     try { pendingConfirmation = JSON.parse(row.pendingConfirmation); } catch { /* malformed */ }
   }
+  let pendingSecret: PendingSecret | null = null;
+  if (row.pendingSecret) {
+    try { pendingSecret = JSON.parse(row.pendingSecret); } catch { /* malformed */ }
+  }
   return {
     id: row.id,
     conversationId: row.conversationId,
     messageId: row.messageId,
     status: row.status as RunStatus,
     pendingConfirmation,
+    pendingSecret,
     inputTokens: row.inputTokens,
     outputTokens: row.outputTokens,
     estimatedCost: row.estimatedCost,
@@ -96,6 +114,7 @@ export function createRun(
     messageId: messageId ?? null,
     status: 'running' as const,
     pendingConfirmation: null,
+    pendingSecret: null,
     inputTokens: 0,
     outputTokens: 0,
     estimatedCost: 0,
@@ -144,6 +163,35 @@ export function clearRunConfirmation(runId: string): void {
     .run();
 }
 
+export function setRunSecret(
+  runId: string,
+  secret: PendingSecret,
+): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(messageRuns)
+    .set({
+      status: 'needs_secret',
+      pendingSecret: JSON.stringify(secret),
+      updatedAt: now,
+    })
+    .where(eq(messageRuns.id, runId))
+    .run();
+}
+
+export function clearRunSecret(runId: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(messageRuns)
+    .set({
+      status: 'running',
+      pendingSecret: null,
+      updatedAt: now,
+    })
+    .where(eq(messageRuns.id, runId))
+    .run();
+}
+
 export function completeRun(runId: string, usage?: RunUsage): void {
   const db = getDb();
   const now = Date.now();
@@ -177,13 +225,13 @@ export function failRun(runId: string, error: string): void {
 /**
  * Mark all non-terminal runs as failed.
  * Called on startup to recover from daemon restarts that left runs
- * in running/needs_confirmation with no in-memory state to resolve them.
+ * in running/needs_confirmation/needs_secret with no in-memory state to resolve them.
  * Returns the number of rows affected.
  */
 export function failOrphanedRuns(): number {
   const db = getDb();
   const now = Date.now();
-  const activeStatuses = ['running', 'needs_confirmation'];
+  const activeStatuses = ['running', 'needs_confirmation', 'needs_secret'];
 
   // Count first so we can report how many were recovered.
   const active = db.select({ id: messageRuns.id })

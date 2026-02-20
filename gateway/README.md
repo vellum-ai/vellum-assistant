@@ -105,9 +105,33 @@ The following legacy paths are aliases that map to their canonical equivalents a
 
 To receive external callbacks during local development, point a tunnel service at the local gateway (default `http://127.0.0.1:7830`) and configure the resulting public URL:
 
+#### Test Gateway Source Changes Locally (No Release Needed)
+
+Use this flow when you are changing files under `gateway/` and need to validate immediately without publishing `@vellumai/vellum-gateway`.
+
+```bash
+# Terminal 1: restart assistant runtime HTTP server
+cd assistant
+bun run daemon:restart:http
+
+# Terminal 2: run gateway from local source with runtime proxy enabled
+cd gateway
+bun run dev:proxy
+```
+
+If `7830` is already in use, start the gateway on another port:
+
+```bash
+cd gateway
+GATEWAY_PORT=7840 bun run dev:proxy
+```
+
+Then point your tunnel to that same local target (for example `http://127.0.0.1:7840`).
+
 1. Start your tunnel (e.g. ngrok, Cloudflare Tunnel, or similar) targeting `http://127.0.0.1:7830`
 2. Copy the public URL provided by the tunnel service (e.g. `https://abc123.ngrok-free.app`)
-3. Set the URL as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section) **or** as the `INGRESS_PUBLIC_BASE_URL` environment variable
+3. Set the URL as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section) **or** as the `INGRESS_PUBLIC_BASE_URL` environment variable.
+4. Use the Settings UI "Local Gateway Target" value as the source of truth for tunnel destination (it reflects `GATEWAY_PORT`).
 
 The assistant runtime uses this URL to construct all webhook and OAuth callback URLs automatically.
 

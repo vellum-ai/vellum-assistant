@@ -14,10 +14,10 @@ import { resolve } from 'node:path';
  * a split-brain ingress problem.
  *
  * Forbidden symbols:
- *   - TWILIO_WEBHOOK_BASE_URL  — legacy env var for direct Twilio webhook base
- *   - twilioWebhookBaseUrl     — camelCase variant used in runtime config
- *   - twilio_webhook_config    — legacy config object key
- *   - calls.webhookBaseUrl     — nested config path for call webhook URL
+ *   - legacy uppercase Twilio webhook base env var
+ *   - twilioWebhookBaseUrl
+ *   - twilio_webhook_config
+ *   - calls.webhookBaseUrl
  *
  * Excluded directories:
  *   - node_modules  — third-party code, not under our control
@@ -27,11 +27,22 @@ import { resolve } from 'node:path';
  */
 describe('forbidden legacy symbols', () => {
   test('no production code references removed Twilio ingress symbols', () => {
+    const legacyEnvVar = ['TWILIO', 'WEBHOOK', 'BASE', 'URL'].join('_');
+    const forbiddenSymbols = [
+      legacyEnvVar,
+      'twilioWebhookBaseUrl',
+      'twilio_webhook_config',
+      'calls.webhookBaseUrl',
+    ];
+    const escapedPattern = forbiddenSymbols
+      .map((symbol) => symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('|');
+
     const repoRoot = resolve(__dirname, '..', '..', '..');
     let matches = '';
     try {
       matches = execSync(
-        'grep -rn -E "TWILIO_WEBHOOK_BASE_URL|twilioWebhookBaseUrl|twilio_webhook_config|calls\\.webhookBaseUrl"' +
+        `grep -rn -E "${escapedPattern}"` +
         ' --include="*.ts" --include="*.tsx" --include="*.js" --include="*.mjs" --include="*.swift"' +
         ' --include="*.json" --include="*.md" --include="*.yml" --include="*.yaml"' +
         ' --include="*.sh"' +

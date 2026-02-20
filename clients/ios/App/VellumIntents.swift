@@ -34,9 +34,8 @@ struct VellumShortcutsProvider: AppShortcutsProvider {
         AppShortcut(
             intent: SendMessageIntent(),
             phrases: [
-                "Ask \(.applicationName) \(\.$message)",
-                "Send \(.applicationName) \(\.$message)",
-                "Tell \(.applicationName) \(\.$message)"
+                "Ask \(.applicationName)",
+                "Open \(.applicationName)"
             ],
             shortTitle: "Ask Vellum",
             systemImageName: "message"

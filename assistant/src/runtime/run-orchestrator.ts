@@ -3,11 +3,14 @@
  *
  * A "run" wraps a single agent-loop execution, tracking its state through:
  *   running → needs_confirmation → running → completed | failed
+ *   running → needs_secret       → running → completed | failed
  *
  * When a tool needs permission, the orchestrator intercepts the
  * confirmation_request from the session's prompter and records it in
- * the run store.  The web UI can then poll the run status and submit
- * a decision via the /decision endpoint.
+ * the run store.  Similarly, when a tool needs a secret (e.g.
+ * credential_store prompt), the orchestrator intercepts the
+ * secret_request and records it.  The client can then poll the run
+ * status and submit a decision or secret via the respective endpoints.
  */
 
 import * as runsStore from '../memory/runs-store.js';
@@ -113,11 +116,10 @@ export class RunOrchestrator {
     };
 
 
-    // Hook into session to intercept confirmation_request events.
-    // When the prompter sends a confirmation_request, we record it in the
-    // run store so the web UI can poll and submit a decision.
-    // Do NOT set hasNoClient — run sessions have a client (the HTTP caller)
-    // and confirmations are handled via the /runs/:id/decision endpoint.
+    // Hook into session to intercept confirmation_request and secret_request events.
+    // When the prompter sends one of these, we record it in the run store so
+    // the client can poll and submit a decision/secret via the respective endpoint.
+    // Do NOT set hasNoClient — run sessions have a client (the HTTP caller).
     let lastError: string | null = null;
     session.updateClient((msg: ServerMessage) => {
       if (msg.type === 'confirmation_request') {
@@ -133,6 +135,21 @@ export class RunOrchestrator {
           principalId: msg.principalId,
           principalVersion: msg.principalVersion,
           persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
+        });
+        this.pending.set(run.id, {
+          prompterRequestId: msg.requestId,
+          session,
+        });
+      } else if (msg.type === 'secret_request') {
+        runsStore.setRunSecret(run.id, {
+          requestId: msg.requestId,
+          service: msg.service,
+          field: msg.field,
+          label: msg.label,
+          description: msg.description,
+          placeholder: msg.placeholder,
+          purpose: msg.purpose,
+          allowOneTimeSend: msg.allowOneTimeSend,
         });
         this.pending.set(run.id, {
           prompterRequestId: msg.requestId,
@@ -235,5 +252,45 @@ export class RunOrchestrator {
     // agent loop hasn't reached a confirmation point yet. Reject so
     // the client doesn't mistakenly treat the decision as accepted.
     return 'no_pending_decision';
+  }
+
+  /**
+   * Submit a secret value for a pending secret request.
+   *
+   * Returns:
+   * - `'applied'`           – secret was forwarded to the session
+   * - `'run_not_found'`     – no run exists with the given ID
+   * - `'no_pending_secret'` – run exists but is not awaiting a secret
+   */
+  submitSecret(
+    runId: string,
+    value?: string,
+    delivery?: 'store' | 'transient_send',
+  ): 'applied' | 'run_not_found' | 'no_pending_secret' {
+    const pendingState = this.pending.get(runId);
+    if (pendingState) {
+      runsStore.clearRunSecret(runId);
+      pendingState.session.handleSecretResponse(
+        pendingState.prompterRequestId,
+        value,
+        delivery,
+      );
+      this.pending.delete(runId);
+      return 'applied';
+    }
+
+    const run = runsStore.getRun(runId);
+    if (!run) return 'run_not_found';
+
+    if (run.status === 'needs_secret') {
+      runsStore.failRun(runId, 'Secret prompter timed out (no active handler)');
+      return 'applied';
+    }
+
+    if (run.status === 'completed' || run.status === 'failed') {
+      return 'applied';
+    }
+
+    return 'no_pending_secret';
   }
 }
