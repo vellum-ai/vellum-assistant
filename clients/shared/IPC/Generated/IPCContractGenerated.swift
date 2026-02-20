@@ -1651,6 +1651,19 @@ public struct IPCTrustRulesListResponseRule: Codable, Sendable {
     public let createdAt: Int
 }
 
+public struct IPCTwilioWebhookConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let webhookBaseUrl: String?
+}
+
+public struct IPCTwilioWebhookConfigResponse: Codable, Sendable {
+    public let type: String
+    public let webhookBaseUrl: String
+    public let success: Bool
+    public let error: String?
+}
+
 public struct IPCTwitterAuthResult: Codable, Sendable {
     public let type: String
     public let success: Bool
