@@ -360,7 +360,7 @@ struct ComposerView: View {
                 }
             }
         }
-        .padding(.trailing, -(VSpacing.lg - 2))
+        .padding(.trailing, -(VSpacing.lg - VSpacing.sm))
         .animation(VAnimation.spring, value: canSend)
     }
 
