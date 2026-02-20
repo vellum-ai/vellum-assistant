@@ -470,6 +470,12 @@ export interface SlackWebhookConfigRequest {
   webhookUrl?: string;
 }
 
+export interface TwilioWebhookConfigRequest {
+  type: 'twilio_webhook_config';
+  action: 'get' | 'set';
+  webhookBaseUrl?: string;
+}
+
 export interface VercelApiConfigRequest {
   type: 'vercel_api_config';
   action: 'get' | 'set' | 'delete';
@@ -933,6 +939,7 @@ export type ClientMessage =
   | ShareAppCloudRequest
   | ShareToSlackRequest
   | SlackWebhookConfigRequest
+  | TwilioWebhookConfigRequest
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
   | TwitterAuthStartRequest
@@ -1681,6 +1688,13 @@ export interface SlackWebhookConfigResponse {
   error?: string;
 }
 
+export interface TwilioWebhookConfigResponse {
+  type: 'twilio_webhook_config_response';
+  webhookBaseUrl: string;
+  success: boolean;
+  error?: string;
+}
+
 export interface OpenUrl {
   type: 'open_url';
   url: string;
@@ -2164,6 +2178,7 @@ export type ServerMessage =
   | GalleryInstallResponse
   | ShareToSlackResponse
   | SlackWebhookConfigResponse
+  | TwilioWebhookConfigResponse
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse
   | TwitterAuthResult

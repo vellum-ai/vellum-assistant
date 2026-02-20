@@ -19,6 +19,7 @@ import type {
   ReminderCancel,
   ShareToSlackRequest,
   SlackWebhookConfigRequest,
+  TwilioWebhookConfigRequest,
   VercelApiConfigRequest,
   TwitterIntegrationConfigRequest,
 } from '../ipc-protocol.js';
@@ -396,6 +397,35 @@ export function handleSlackWebhookConfig(
   }
 }
 
+export function handleTwilioWebhookConfig(
+  msg: TwilioWebhookConfigRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    if (msg.action === 'get') {
+      const raw = loadRawConfig();
+      const webhookBaseUrl = (raw?.calls as Record<string, unknown>)?.webhookBaseUrl as string ?? '';
+      ctx.send(socket, { type: 'twilio_webhook_config_response', webhookBaseUrl, success: true });
+    } else if (msg.action === 'set') {
+      const value = (msg.webhookBaseUrl ?? '').trim().replace(/\/+$/, '');
+      const raw = loadRawConfig();
+      const calls = (raw?.calls ?? {}) as Record<string, unknown>;
+      calls.webhookBaseUrl = value || undefined;
+      saveRawConfig({ ...raw, calls });
+      ctx.setSuppressConfigReload(true);
+      const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
+      if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
+      const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
+      ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+      ctx.send(socket, { type: 'twilio_webhook_config_response', webhookBaseUrl: value, success: true });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    ctx.send(socket, { type: 'twilio_webhook_config_response', webhookBaseUrl: '', success: false, error: message });
+  }
+}
+
 export function handleVercelApiConfig(
   msg: VercelApiConfigRequest,
   socket: net.Socket,
@@ -621,6 +651,7 @@ export const configHandlers = defineHandlers({
   reminder_cancel: handleReminderCancel,
   share_to_slack: handleShareToSlack,
   slack_webhook_config: handleSlackWebhookConfig,
+  twilio_webhook_config: handleTwilioWebhookConfig,
   vercel_api_config: handleVercelApiConfig,
   twitter_integration_config: handleTwitterIntegrationConfig,
   env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
