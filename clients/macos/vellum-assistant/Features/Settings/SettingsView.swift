@@ -375,6 +375,7 @@ public struct SettingsView: View {
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Copy gateway address")
+                    .help("Copy address")
                 }
 
                 Text("Point your tunnel service at this local address.")
