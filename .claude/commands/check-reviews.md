@@ -4,7 +4,7 @@ Arguments (optional): $ARGUMENTS
 
 Parse optional flags from `$ARGUMENTS`:
 
-- **`--namespace NAME`** (optional): when provided, only process PRs whose head branch starts with `swarm/<NAME>/`. Any TODO items added will be prefixed with `[<NAME>]` (e.g., `- [<NAME>] Address the feedback on <link>`). When omitted, process all PRs and add items without a namespace prefix (default behavior).
+- **`--namespace NAME`** (optional): when provided, only process PRs whose head branch starts with `swarm/<NAME>/`. Any TODO items added will be prefixed with `[<NAME>]` (e.g., `- [<NAME>] Address the feedback on <link>`). When omitted, process all PRs. TODO items will still be namespaced if the PR's branch name matches `swarm/<NAME>/...` (the namespace is inferred from the branch).
 
 To check a PR's head branch name, include `headRefName` in the `--json` fields when fetching PR data.
 
@@ -24,7 +24,7 @@ Extract all PR numbers from UNREVIEWED_PRS.md and check them in a single call:
 .claude/check-pr-reviews <number1> <number2> <number3> ...
 ```
 
-With multiple PR numbers, this outputs a JSON array of results. Each element has `title`, `codex.status` and `devin.status` fields (each one of: `approved`, `changes_requested`, `rate_limited`, `skipped`, `pending`), plus the raw review data (`reviews`, `inline_comments`) for contextual assessment. It also includes `age_seconds` for computing the age column. All PRs are fetched in parallel for speed.
+With multiple PR numbers, this outputs a JSON array of results. Each element has `title`, `head_ref_name`, `codex.status` and `devin.status` fields (each one of: `approved`, `changes_requested`, `rate_limited`, `skipped`, `pending`), plus the raw review data (`reviews`, `inline_comments`) for contextual assessment. It also includes `age_seconds` for computing the age column. All PRs are fetched in parallel for speed.
 
 ## Contextual review assessment
 
@@ -65,7 +65,10 @@ Examples of feedback that would cause a regression:
 - **Rate-limited Codex:** If Codex is rate-limited, re-trigger the review by commenting `@codex review` on the PR and keep the PR in UNREVIEWED_PRS.md. Do NOT remove the PR.
 - **Skipped Devin:** If Devin's status is `skipped` (pending for 30+ minutes), treat it as if Devin approved — Devin likely errored out and won't review.
 - If either reviewer hasn't reviewed yet (status is `pending`, not `skipped`), keep the PR in UNREVIEWED_PRS.md for next time.
-- If both have reviewed and either review requested changes with **valid feedback**, add the feedback item to the **top** of .private/TODO.md (ordered by PR number, lowest first). If `--namespace` was provided, prefix the item: `- [<namespace>] Address the feedback on <link to PR>`. Otherwise: `- Address the feedback on <link to PR>`.
+- If both have reviewed and either review requested changes with **valid feedback**, add the feedback item to the **top** of .private/TODO.md (ordered by PR number, lowest first). Determine the namespace prefix for the TODO item using this priority:
+  1. If `--namespace` was explicitly provided, use it: `- [<namespace>] Address the feedback on <link to PR>`.
+  2. Otherwise, if the PR's `head_ref_name` matches `swarm/<NAME>/...`, extract `<NAME>` and use it: `- [<NAME>] Address the feedback on <link to PR>`.
+  3. Otherwise, no prefix: `- Address the feedback on <link to PR>`.
 - If all feedback on a PR was classified as nonsensical, treat that reviewer as having approved.
 - If any feedback is classified as **regression risk**, do NOT add it to TODO. Instead, flag it to the user (see output section) and **stop processing further PRs**. Keep the PR in .private/UNREVIEWED_PRS.md so it is revisited on the next run. Wait for the user to decide what to do.
 - If fully reviewed (both have reviewed), Codex is not rate-limited, and no feedback was classified as regression risk, remove the PR from .private/UNREVIEWED_PRS.md.
@@ -122,7 +125,10 @@ This returns failed workflow runs on main. For each failed run:
 1. **Find the associated PR**: Use `gh pr list --state merged --search "<headSha>" --json number,url,title,mergedAt,headRefName --limit 1` or cross-reference the run's `displayTitle` / `headSha` with merged PRs. If you can't find a matching PR, use the run URL directly.
 2. **Namespace filter**: If `--namespace` was provided, check the PR's `headRefName`. Skip this failure if the branch does NOT start with `swarm/<namespace>/`.
 3. **Skip if already in TODO**: Read .private/TODO.md and check if there's already a `Fix CI failures` entry for that PR or run. Don't add duplicates.
-4. **Add to TODO**: For each new CI failure, add the item to the **top** of .private/TODO.md (after any "Address the feedback" items, but before other tasks). If `--namespace` was provided, prefix it: `- [<namespace>] Fix CI failures from merged PR <link to PR> (run: <link to failed run>)`. Otherwise: `- Fix CI failures from merged PR <link to PR> (run: <link to failed run>)`.
+4. **Add to TODO**: For each new CI failure, add the item to the **top** of .private/TODO.md (after any "Address the feedback" items, but before other tasks). Determine the namespace prefix using this priority:
+   1. If `--namespace` was explicitly provided, use it: `- [<namespace>] Fix CI failures from merged PR <link to PR> (run: <link to failed run>)`.
+   2. Otherwise, if the PR's `headRefName` matches `swarm/<NAME>/...`, extract `<NAME>` and use it: `- [<NAME>] Fix CI failures from merged PR <link to PR> (run: <link to failed run>)`.
+   3. Otherwise, no prefix: `- Fix CI failures from merged PR <link to PR> (run: <link to failed run>)`.
 
 ### Output
 

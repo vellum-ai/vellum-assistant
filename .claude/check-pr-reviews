@@ -17,6 +17,7 @@ Output per PR:
 {
   "pr_number": 123,
   "title": "Fix login validation",
+  "head_ref_name": "swarm/ws-daemon-ipc/task-1",
   "created_at": "2024-01-15T10:00:00Z",
   "age_seconds": 3600,
   "codex": {
@@ -75,7 +76,7 @@ check_pr() {
   mkdir -p "$pr_dir"
 
   # Fetch all data in parallel
-  gh pr view "$pr_number" --json comments,reviews,createdAt,title > "$pr_dir/pr.json" &
+  gh pr view "$pr_number" --json comments,reviews,createdAt,title,headRefName > "$pr_dir/pr.json" &
   local pid1=$!
 
   gh api "repos/$REPO_SLUG/issues/$pr_number/reactions" \
@@ -88,9 +89,12 @@ check_pr() {
 
   wait $pid1 $pid2 $pid3
 
-  # Parse title and creation time
+  # Parse title, head branch, and creation time
   local title
   title=$(jq -r '.title // ""' "$pr_dir/pr.json")
+
+  local head_ref_name
+  head_ref_name=$(jq -r '.headRefName // ""' "$pr_dir/pr.json")
 
   # Parse creation time and compute age
   local created_at
@@ -171,6 +175,7 @@ check_pr() {
   jq -n \
     --argjson pr_number "$pr_number" \
     --arg title "$title" \
+    --arg head_ref_name "$head_ref_name" \
     --arg created_at "$created_at" \
     --argjson age_seconds "$age_seconds" \
     --arg codex_status "$codex_status" \
@@ -183,6 +188,7 @@ check_pr() {
     '{
       pr_number: $pr_number,
       title: $title,
+      head_ref_name: $head_ref_name,
       created_at: $created_at,
       age_seconds: $age_seconds,
       codex: {
