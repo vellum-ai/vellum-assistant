@@ -117,7 +117,7 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
 
               const parts: string[] = [`[${message.subtype}] (${message.num_turns} turns, ${(message.duration_ms / 1000).toFixed(1)}s)`];
               if (errors.length > 0) parts.push(`Errors: ${errors.join('; ')}`);
-              if (denials.length > 0) parts.push(`Permission denied: ${denials.map(d => d.tool_name).join(', ')}`);
+              if (denials.length > 0) parts.push(`Permission denied: ${denials.map((d: { tool_name: string }) => d.tool_name).join(', ')}`);
               resultText += `\n${parts.join('\n')}`;
             }
           }

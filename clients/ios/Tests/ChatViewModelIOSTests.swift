@@ -435,4 +435,89 @@ final class ChatViewModelIOSTests: XCTestCase {
         let confirmations = mockClient.sentMessages.compactMap { $0 as? ConfirmationResponseMessage }
         XCTAssertTrue(confirmations.isEmpty)
     }
+
+    func testRespondToAlwaysAllowConnectedSendFailureFallsBackToAllow() {
+        // Use a test double that fails the first send but succeeds on the second.
+        let failOnceClient = FailOnceDaemonClient()
+        failOnceClient.isConnected = true
+        let vm = ChatViewModel(daemonClient: failOnceClient)
+        vm.sessionId = "sess-fail-once"
+
+        // Seed a confirmation message so the fallback path can update its state
+        let confirmation = ToolConfirmationData(
+            requestId: "req-fail",
+            toolName: "bash",
+            input: ["command": AnyCodable("rm -rf *")],
+            riskLevel: "high",
+            diff: nil,
+            allowlistOptions: [],
+            scopeOptions: [],
+            executionTarget: nil,
+            persistentDecisionsAllowed: true
+        )
+        let msg = ChatMessage(role: .assistant, text: "Run rm -rf?", confirmation: confirmation)
+        vm.messages.append(msg)
+
+        vm.respondToAlwaysAllow(
+            requestId: "req-fail",
+            selectedPattern: "rm -rf *",
+            selectedScope: "project",
+            decision: "always_allow_high_risk"
+        )
+
+        // First attempted decision should be always_allow_high_risk (the one that failed)
+        XCTAssertEqual(failOnceClient.allAttemptedMessages.count, 2)
+        let first = failOnceClient.allAttemptedMessages[0] as? ConfirmationResponseMessage
+        XCTAssertEqual(first?.decision, "always_allow_high_risk")
+
+        // Fallback should be a one-time "allow"
+        let second = failOnceClient.allAttemptedMessages[1] as? ConfirmationResponseMessage
+        XCTAssertEqual(second?.decision, "allow")
+
+        // The fallback succeeded, so errorText should reflect the preference-not-saved message
+        XCTAssertEqual(vm.errorText, "Preference could not be saved. This action was allowed once.")
+
+        // The client was connected the whole time — no disconnected error
+        XCTAssertTrue(failOnceClient.isConnected)
+    }
+}
+
+// MARK: - Test Doubles
+
+/// A `DaemonClientProtocol` implementation that throws on the first `send` call
+/// and succeeds on subsequent calls. Used to test the connected send-failure
+/// fallback path in `respondToAlwaysAllow`.
+@MainActor
+private final class FailOnceDaemonClient: DaemonClientProtocol {
+    var isConnected: Bool = false
+    var isBlobTransportAvailable: Bool = false
+
+    /// All messages attempted (including failed ones).
+    private(set) var allAttemptedMessages: [Any] = []
+
+    /// Messages that were successfully sent (after the first failure).
+    private(set) var sentMessages: [Any] = []
+
+    private var sendCount = 0
+
+    func subscribe() -> AsyncStream<ServerMessage> {
+        AsyncStream { _ in }
+    }
+
+    func send<T: Encodable>(_ message: T) throws {
+        allAttemptedMessages.append(message)
+        sendCount += 1
+        if sendCount == 1 {
+            throw NSError(domain: "TestSendFailure", code: 1, userInfo: [NSLocalizedDescriptionKey: "Simulated first-send failure"])
+        }
+        sentMessages.append(message)
+    }
+
+    func connect() async throws {
+        isConnected = true
+    }
+
+    func disconnect() {
+        isConnected = false
+    }
 }

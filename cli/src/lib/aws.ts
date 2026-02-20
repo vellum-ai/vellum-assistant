@@ -426,6 +426,7 @@ export async function hatchAws(
       sshUser,
       anthropicApiKey,
       instanceName,
+      "aws",
     );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);

@@ -251,6 +251,31 @@
       },
       "executor": "tools/task-list-remove.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "task_queue_run",
+      "description": "Run a task from the Task Queue in the background. Use this when the user says \"run this task\", \"execute this task\", \"start this task\", or wants to kick off a queued work item. The task runs asynchronously — the user can continue chatting while it executes. Required tool permissions are auto-approved since the user is explicitly requesting execution.",
+      "category": "tasks",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "work_item_id": {
+            "type": "string",
+            "description": "Direct work item ID (most precise selector)"
+          },
+          "task_name": {
+            "type": "string",
+            "description": "Task name/title to search for (case-insensitive substring match)"
+          },
+          "title": {
+            "type": "string",
+            "description": "Work item title to search for (case-insensitive substring match)"
+          }
+        }
+      },
+      "executor": "tools/task-queue-run.ts",
+      "execution_target": "host"
     }
   ]
 }

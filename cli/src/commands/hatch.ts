@@ -85,6 +85,7 @@ export async function buildStartupScript(
   sshUser: string,
   anthropicApiKey: string,
   instanceName: string,
+  cloud: RemoteHost,
 ): Promise<string> {
   const platformUrl = process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai";
   const timestampRedirect = buildTimestampRedirect();
@@ -115,6 +116,7 @@ ANTHROPIC_API_KEY=${anthropicApiKey}
 GATEWAY_RUNTIME_PROXY_ENABLED=true
 RUNTIME_PROXY_BEARER_TOKEN=${bearerToken}
 VELLUM_ASSISTANT_NAME=${instanceName}
+VELLUM_CLOUD=${cloud}
 ${interfacesSeed}
 mkdir -p "\$HOME/.vellum"
 cat > "\$HOME/.vellum/.env" << DOTENV_EOF
@@ -123,6 +125,7 @@ GATEWAY_RUNTIME_PROXY_ENABLED=\$GATEWAY_RUNTIME_PROXY_ENABLED
 RUNTIME_PROXY_BEARER_TOKEN=\$RUNTIME_PROXY_BEARER_TOKEN
 INTERFACES_SEED_DIR=\$INTERFACES_SEED_DIR
 RUNTIME_HTTP_PORT=7821
+VELLUM_CLOUD=\$VELLUM_CLOUD
 DOTENV_EOF
 
 mkdir -p "\$HOME/.vellum/workspace"
@@ -511,6 +514,7 @@ async function hatchGcp(
       sshUser,
       anthropicApiKey,
       instanceName,
+      "gcp",
     );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
@@ -689,6 +693,7 @@ async function hatchCustom(
       sshUser,
       anthropicApiKey,
       instanceName,
+      "custom",
     );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
@@ -770,6 +775,46 @@ function resolveGatewayDir(): string {
   }
 }
 
+async function discoverPublicUrl(): Promise<string | undefined> {
+  const cloud = process.env.VELLUM_CLOUD;
+  if (!cloud || cloud === "local") {
+    return `http://localhost:${GATEWAY_PORT}`;
+  }
+
+  let externalIp: string | undefined;
+  try {
+    if (cloud === "gcp") {
+      const resp = await fetch(
+        "http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip",
+        { headers: { "Metadata-Flavor": "Google" } },
+      );
+      if (resp.ok) externalIp = (await resp.text()).trim();
+    } else if (cloud === "aws") {
+      // Use IMDSv2 (token-based) for compatibility with HttpTokens=required
+      const tokenResp = await fetch(
+        "http://169.254.169.254/latest/api/token",
+        { method: "PUT", headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" } },
+      );
+      if (tokenResp.ok) {
+        const token = await tokenResp.text();
+        const ipResp = await fetch(
+          "http://169.254.169.254/latest/meta-data/public-ipv4",
+          { headers: { "X-aws-ec2-metadata-token": token } },
+        );
+        if (ipResp.ok) externalIp = (await ipResp.text()).trim();
+      }
+    }
+  } catch {
+    // metadata service not reachable
+  }
+
+  if (externalIp) {
+    console.log(`   Discovered external IP: ${externalIp}`);
+    return `http://${externalIp}:${GATEWAY_PORT}`;
+  }
+  return undefined;
+}
+
 async function hatchLocal(species: Species, name: string | null): Promise<void> {
   const instanceName =
     name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
@@ -848,17 +893,24 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
     });
   }
 
+  const publicUrl = await discoverPublicUrl();
+  if (publicUrl) {
+    console.log(`   Public URL: ${publicUrl}`);
+  }
+
   console.log("🌐 Starting gateway...");
   const gatewayDir = resolveGatewayDir();
+  const gatewayEnv: Record<string, string> = {
+    ...process.env as Record<string, string>,
+    GATEWAY_RUNTIME_PROXY_ENABLED: "true",
+    GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
+  };
+  if (publicUrl) gatewayEnv.GATEWAY_PUBLIC_URL = publicUrl;
   const gateway = spawn("bun", ["run", "src/index.ts"], {
     cwd: gatewayDir,
     detached: true,
     stdio: "ignore",
-    env: {
-      ...process.env,
-      GATEWAY_RUNTIME_PROXY_ENABLED: "true",
-      GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
-    },
+    env: gatewayEnv,
   });
   gateway.unref();
   console.log("✅ Gateway started\n");

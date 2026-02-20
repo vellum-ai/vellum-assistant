@@ -432,6 +432,8 @@ func openFilePicker(viewModel: ChatViewModel) {
     panel.allowedContentTypes = [
         .png, .jpeg, .gif, .webP, .pdf, .plainText, .commaSeparatedText,
         UTType("net.daringfireball.markdown") ?? .plainText,
+        .movie, .mpeg4Movie, .quickTimeMovie, .avi,
+        .mp3, .wav, .aiff, .audio,
     ]
     guard panel.runModal() == .OK else { return }
     for url in panel.urls {

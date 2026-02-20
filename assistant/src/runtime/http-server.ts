@@ -12,7 +12,7 @@ import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import { loadConfig } from '../config/loader.js';
-import { getWebhookBaseUrl } from '../calls/twilio-webhook-urls.js';
+import { getPublicBaseUrl } from '../inbound/public-ingress-urls.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 
 // Route handlers — grouped by domain
@@ -65,6 +65,7 @@ import {
 } from '../calls/twilio-routes.js';
 import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
+import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
 
 // Re-export shared types so existing consumers don't need to update imports
 export type {
@@ -138,6 +139,98 @@ const GATEWAY_SUBPATH_MAP: Record<string, string> = {
 };
 
 /**
+ * Direct Twilio webhook subpaths that are blocked in gateway_only mode.
+ * Internal forwarding endpoints (gateway→runtime) are unaffected.
+ */
+const GATEWAY_ONLY_BLOCKED_SUBPATHS = new Set(['voice-webhook', 'status', 'connect-action']);
+
+/**
+ * Check if a request origin is from localhost / loopback.
+ */
+function isLoopbackOrigin(req: Request): boolean {
+  const origin = req.headers.get('origin');
+  // No origin header (e.g., server-initiated or same-origin) — allow
+  if (!origin) return true;
+  try {
+    const url = new URL(origin);
+    const host = url.hostname;
+    return host === '127.0.0.1' || host === '::1' || host === 'localhost';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if a hostname is a loopback address.
+ */
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === '127.0.0.1' || hostname === '::1' || hostname === 'localhost';
+}
+
+/**
+ * Check if the actual peer/remote address of a connection is from a
+ * private/internal network. Uses Bun's server.requestIP() to get the
+ * real peer address, which cannot be spoofed unlike the Origin header.
+ *
+ * Accepts loopback, RFC 1918 private IPv4, link-local, and RFC 4193
+ * unique-local IPv6 — including their IPv4-mapped IPv6 forms. This
+ * supports container/pod deployments (e.g. Kubernetes sidecars) where
+ * gateway and runtime communicate over pod-internal private IPs.
+ */
+function isPrivateNetworkPeer(server: { requestIP(req: Request): { address: string; family: string; port: number } | null }, req: Request): boolean {
+  const ip = server.requestIP(req);
+  if (!ip) return false;
+  return isPrivateAddress(ip.address);
+}
+
+/**
+ * @internal Exported for testing.
+ *
+ * Determine whether an IP address string belongs to a private/internal
+ * network range:
+ *   - Loopback: 127.0.0.0/8, ::1
+ *   - RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+ *   - Link-local: 169.254.0.0/16
+ *   - IPv6 unique local: fc00::/7 (fc00::–fdff::)
+ *   - IPv4-mapped IPv6 variants of all of the above (::ffff:x.x.x.x)
+ */
+export function isPrivateAddress(addr: string): boolean {
+  // Handle IPv4-mapped IPv6 (e.g. ::ffff:10.0.0.1) — extract the IPv4 part
+  const v4Mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  const normalized = v4Mapped ? v4Mapped[1] : addr;
+
+  // IPv4 checks
+  if (normalized.includes('.')) {
+    const parts = normalized.split('.').map(Number);
+    if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) return false;
+
+    // Loopback: 127.0.0.0/8
+    if (parts[0] === 127) return true;
+    // 10.0.0.0/8
+    if (parts[0] === 10) return true;
+    // 172.16.0.0/12 (172.16.x.x – 172.31.x.x)
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    // 192.168.0.0/16
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    // Link-local: 169.254.0.0/16
+    if (parts[0] === 169 && parts[1] === 254) return true;
+
+    return false;
+  }
+
+  // IPv6 checks
+  const lower = normalized.toLowerCase();
+  // Loopback
+  if (lower === '::1') return true;
+  // Unique local: fc00::/7 (fc00:: through fdff::)
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
+  // Link-local: fe80::/10
+  if (lower.startsWith('fe80')) return true;
+
+  return false;
+}
+
+/**
  * Validate a Twilio webhook request's X-Twilio-Signature header.
  *
  * Returns the raw body text on success so callers can reconstruct the Request
@@ -186,7 +279,7 @@ async function validateTwilioWebhook(
   // used to compute the HMAC-SHA1 signature.
   let publicBaseUrl: string | undefined;
   try {
-    publicBaseUrl = getWebhookBaseUrl(loadConfig());
+    publicBaseUrl = getPublicBaseUrl(loadConfig());
   } catch {
     // No webhook base URL configured — fall back to using req.url as-is
   }
@@ -289,6 +382,19 @@ export class RuntimeHttpServer {
       }, 30_000);
     }
 
+    // Startup guard: log gateway-only mode warnings
+    try {
+      const config = loadConfig();
+      if (config.ingress.mode === 'gateway_only') {
+        log.info('Running in gateway-only ingress mode. Direct webhook routes disabled.');
+        if (!isLoopbackHost(this.hostname)) {
+          log.warn('gateway-only mode is enabled but RUNTIME_HTTP_HOST is not bound to loopback. This may expose the runtime to direct public access.');
+        }
+      }
+    } catch {
+      // Config loading may fail during startup — don't block server start
+    }
+
     log.info({ port: this.port, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
   }
 
@@ -327,6 +433,18 @@ export class RuntimeHttpServer {
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.
     if (path.startsWith('/v1/calls/relay') && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      // In gateway_only mode, only allow relay connections from private network peers.
+      // Primary check: actual peer address (cannot be spoofed) — accepts loopback
+      // and RFC 1918/4193 private addresses to support container deployments.
+      // Secondary check: Origin header (defense in depth).
+      const config = loadConfig();
+      if (config.ingress.mode === 'gateway_only' && (!isPrivateNetworkPeer(server, req) || !isLoopbackOrigin(req))) {
+        return Response.json(
+          { error: 'Direct relay access disabled in gateway-only mode', code: 'GATEWAY_ONLY' },
+          { status: 403 },
+        );
+      }
+
       const wsUrl = new URL(req.url);
       const callSessionId = wsUrl.searchParams.get('callSessionId');
       if (!callSessionId) {
@@ -355,6 +473,15 @@ export class RuntimeHttpServer {
         : null;
     if (resolvedTwilioSubpath && req.method === 'POST') {
       const twilioSubpath = resolvedTwilioSubpath;
+
+      // In gateway_only mode, block direct Twilio webhook routes
+      const ingressConfig = loadConfig();
+      if (ingressConfig.ingress.mode === 'gateway_only' && GATEWAY_ONLY_BLOCKED_SUBPATHS.has(twilioSubpath)) {
+        return Response.json(
+          { error: 'Direct webhook access disabled in gateway-only mode. Use the gateway.', code: 'GATEWAY_ONLY' },
+          { status: 410 },
+        );
+      }
 
       // Validate Twilio request signature before dispatching
       const validation = await validateTwilioWebhook(req);
@@ -626,6 +753,27 @@ export class RuntimeHttpServer {
           body: formBody,
         });
         return await handleConnectAction(fakeReq);
+      }
+
+      // ── Internal OAuth callback endpoint (gateway → runtime) ──
+      if (endpoint === 'internal/oauth/callback' && req.method === 'POST') {
+        const json = await req.json() as { state: string; code?: string; error?: string };
+        if (!json.state) {
+          return Response.json({ error: 'Missing state parameter' }, { status: 400 });
+        }
+        if (json.error) {
+          const consumed = consumeCallbackError(json.state, json.error);
+          return consumed
+            ? Response.json({ ok: true })
+            : Response.json({ error: 'Unknown state' }, { status: 404 });
+        }
+        if (json.code) {
+          const consumed = consumeCallback(json.state, json.code);
+          return consumed
+            ? Response.json({ ok: true })
+            : Response.json({ error: 'Unknown state' }, { status: 404 });
+        }
+        return Response.json({ error: 'Missing code or error parameter' }, { status: 400 });
       }
 
       return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });

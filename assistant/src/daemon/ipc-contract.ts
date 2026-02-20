@@ -478,6 +478,12 @@ export interface TwilioWebhookConfigRequest {
   webhookBaseUrl?: string;
 }
 
+export interface IngressConfigRequest {
+  type: 'ingress_config';
+  action: 'get' | 'set';
+  publicBaseUrl?: string;
+}
+
 export interface VercelApiConfigRequest {
   type: 'vercel_api_config';
   action: 'get' | 'set' | 'delete';
@@ -942,6 +948,7 @@ export type ClientMessage =
   | ShareToSlackRequest
   | SlackWebhookConfigRequest
   | TwilioWebhookConfigRequest
+  | IngressConfigRequest
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
   | TwitterAuthStartRequest
@@ -1697,6 +1704,13 @@ export interface TwilioWebhookConfigResponse {
   error?: string;
 }
 
+export interface IngressConfigResponse {
+  type: 'ingress_config_response';
+  publicBaseUrl: string;
+  success: boolean;
+  error?: string;
+}
+
 export interface OpenUrl {
   type: 'open_url';
   url: string;
@@ -2015,7 +2029,7 @@ export interface WorkItemDeleteResponse {
   success: boolean;
 }
 
-export type WorkItemRunTaskErrorCode = 'not_found' | 'already_running' | 'invalid_status' | 'no_task';
+export type WorkItemRunTaskErrorCode = 'not_found' | 'already_running' | 'invalid_status' | 'no_task' | 'permission_required';
 
 export interface WorkItemRunTaskResponse {
   type: 'work_item_run_task_response';
@@ -2181,6 +2195,7 @@ export type ServerMessage =
   | ShareToSlackResponse
   | SlackWebhookConfigResponse
   | TwilioWebhookConfigResponse
+  | IngressConfigResponse
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse
   | TwitterAuthResult

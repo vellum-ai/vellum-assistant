@@ -147,7 +147,7 @@ graph TB
 
         subgraph "Integrations"
             INT_REGISTRY["IntegrationRegistry<br/>in-memory definitions"]
-            INT_OAUTH["OAuth2 PKCE Flow<br/>Bun.serve loopback"]
+            INT_OAUTH["OAuth2 PKCE Flow<br/>gateway callback transport"]
             INT_TOKEN["TokenManager<br/>auto-refresh + retry"]
             GMAIL_CLIENT["GmailClient<br/>REST API wrapper"]
             GMAIL_TOOLS["Gmail Tools<br/>(bundled skill: gmail)"]
@@ -2528,7 +2528,7 @@ Note: The `tweet.read` and `users.read` OAuth2 scopes are used for identity veri
 | Decision | Rationale |
 |----------|-----------|
 | PKCE by default, optional client_secret | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh |
-| `127.0.0.1` not `localhost` | Google OAuth requires IP literal for loopback redirect URIs |
+| Gateway callback transport | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments. |
 | Unified `MessagingProvider` interface | All platforms implement the same contract; generic tools work immediately for new providers |
 | Twitter outside unified messaging | Twitter is a broadcast platform (post-only), not a conversation platform — it doesn't fit the `MessagingProvider` contract |
 | Provider auto-selection | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX |
@@ -3363,6 +3363,58 @@ The avatar evolves during onboarding based on conversation and identity choices.
 
 **Persistence:** Evolution state in UserDefaults, resolved appearance in LOOKS.md
 
+## Ingress Boundary Architecture — Gateway-Only Public Ingress
+
+All public-facing HTTP callbacks (Twilio webhooks, OAuth authorization callbacks, Telegram webhooks) terminate at the gateway, which validates and forwards them to the assistant runtime. The runtime HTTP server is not directly exposed to the internet.
+
+```
+Internet
+  |
+  +-- Twilio ----------> Gateway POST /webhooks/twilio/*    --> Runtime /v1/calls/*
+  +-- OAuth Provider ---> Gateway GET  /webhooks/oauth/callback --> Runtime /v1/oauth/callback
+  +-- Telegram --------> Gateway POST /webhooks/telegram    --> Runtime /v1/assistants/:id/channels/inbound
+  |
+  +-- Tunnel (ngrok, Cloudflare, etc.)
+       |
+       v
+     Gateway (http://127.0.0.1:7830)
+```
+
+### Configuration
+
+The public URL where the gateway is reachable is configured via:
+
+| Source | Priority | Description |
+|--------|----------|-------------|
+| `ingress.publicBaseUrl` (workspace config) | 1 (preferred) | Set via Settings UI > Public Ingress, or directly in workspace `config.json` |
+| `INGRESS_PUBLIC_BASE_URL` (env var) | 1 | Environment variable equivalent of `ingress.publicBaseUrl` |
+| `calls.webhookBaseUrl` (workspace config) | 2 (deprecated) | Legacy Twilio-specific setting, still honored as fallback |
+| `TWILIO_WEBHOOK_BASE_URL` (env var) | 3 (deprecated) | Legacy env var, still honored as fallback |
+
+### Tunnel-Agnostic Setup
+
+To expose the gateway for external callbacks during local development:
+
+1. **Start your tunnel** service (ngrok, Cloudflare Tunnel, or any similar tool), pointing it at the local gateway: `http://127.0.0.1:7830`
+2. **Set the public URL** provided by the tunnel as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section) or as the `INGRESS_PUBLIC_BASE_URL` environment variable
+
+The assistant runtime reads this URL via the centralized `public-ingress-urls.ts` module and uses it to construct all webhook and callback URLs automatically (Twilio voice/status/relay webhooks, OAuth redirect URIs, etc.).
+
+### URL Builders
+
+All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-urls.ts`:
+
+| Function | URL Pattern |
+|----------|-------------|
+| `getPublicBaseUrl()` | Resolves the base URL via the fallback chain above |
+| `getTwilioVoiceWebhookUrl()` | `${base}/webhooks/twilio/voice?callSessionId=...` |
+| `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status` |
+| `getTwilioConnectActionUrl()` | `${base}/webhooks/twilio/connect-action` |
+| `getTwilioRelayUrl()` | `ws(s)://.../webhooks/twilio/relay` |
+| `getOAuthCallbackUrl()` | `${base}/webhooks/oauth/callback` |
+
+---
+
 ## Outgoing AI Phone Calls — Twilio ConversationRelay
 
 The Calls subsystem enables the assistant to place outgoing phone calls on behalf of the user via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak with the callee in real time, and can pause to consult the user (in the chat UI) when it encounters questions it cannot answer on its own.
@@ -3529,9 +3581,15 @@ In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice w
 
 Signature validation is **fail-closed**: if the Twilio auth token is not configured, all webhook requests are rejected with `403`. Missing or invalid `X-Twilio-Signature` headers are also rejected with `403`. Payload size is capped by `maxWebhookPayloadBytes` (checked via both `Content-Length` header and actual body size).
 
-**Webhook base URL resolution:** The base URL used when constructing Twilio webhook URLs (passed to the Twilio REST API during call initiation) is read from `calls.webhookBaseUrl` in workspace config. If not set, the system falls back to the `TWILIO_WEBHOOK_BASE_URL` environment variable (deprecated — see below). Setting the base URL via workspace config (or the Settings UI) is the recommended approach. Twilio-specific paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, etc.) are appended automatically.
+**Webhook base URL resolution:** The base URL used when constructing all public ingress URLs (Twilio webhooks, OAuth callbacks, etc.) is resolved via a three-level fallback chain managed by `public-ingress-urls.ts`:
 
-> **Deprecation:** The `TWILIO_WEBHOOK_BASE_URL` environment variable is deprecated. Use `calls.webhookBaseUrl` in workspace config instead. The env var will continue to work as a fallback during the compatibility window, but a deprecation warning is logged when it is used.
+1. `ingress.publicBaseUrl` in workspace config (preferred)
+2. `calls.webhookBaseUrl` in workspace config (backward compat, deprecated)
+3. `TWILIO_WEBHOOK_BASE_URL` environment variable (legacy, deprecated)
+
+Setting `ingress.publicBaseUrl` via the Settings UI (Public Ingress section) or the `INGRESS_PUBLIC_BASE_URL` environment variable is the recommended approach. All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/oauth/callback`, etc.) are appended automatically.
+
+> **Deprecation:** Both `calls.webhookBaseUrl` and the `TWILIO_WEBHOOK_BASE_URL` environment variable are deprecated in favor of `ingress.publicBaseUrl` / `INGRESS_PUBLIC_BASE_URL`. They continue to work as fallbacks during the compatibility window, but deprecation warnings are logged when they are used.
 
 ### Runtime HTTP Endpoints
 
@@ -3584,7 +3642,7 @@ Call behavior is controlled via the `calls` config block in the assistant config
 |-------|------|---------|-------------|
 | `calls.enabled` | boolean | `true` | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors. |
 | `calls.provider` | enum | `'twilio'` | Voice provider to use (currently only Twilio is supported). |
-| `calls.webhookBaseUrl` | string | `""` | Base URL for Twilio webhooks (e.g., `https://abc123.ngrok-free.app`). Twilio-specific paths like `/webhooks/twilio/voice` and `/webhooks/twilio/status` are appended automatically. Falls back to `TWILIO_WEBHOOK_BASE_URL` env var if not set (deprecated). |
+| `calls.webhookBaseUrl` | string | `""` | **Deprecated** — use `ingress.publicBaseUrl` instead. Legacy base URL for Twilio webhooks. Falls back to `TWILIO_WEBHOOK_BASE_URL` env var if not set (also deprecated). See `ingress.publicBaseUrl` for the preferred configuration. |
 | `calls.maxDurationSeconds` | int | `3600` | Maximum allowed duration per call. |
 | `calls.userConsultTimeoutSeconds` | int | `120` | How long to wait for a user answer before timing out a pending question. |
 | `calls.disclosure.enabled` | boolean | `true` | Whether the AI should disclose it is an AI at the start of the call. |

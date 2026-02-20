@@ -201,8 +201,8 @@ extension IPCCuObservation {
 public typealias RideShotgunStartMessage = IPCRideShotgunStart
 
 extension IPCRideShotgunStart {
-    public init(durationSeconds: Double, intervalSeconds: Double, mode: String? = nil, targetDomain: String? = nil, autoNavigate: Bool? = nil) {
-        self.init(type: "ride_shotgun_start", durationSeconds: durationSeconds, intervalSeconds: intervalSeconds, mode: mode, targetDomain: targetDomain, autoNavigate: autoNavigate)
+    public init(durationSeconds: Double, intervalSeconds: Double, mode: String? = nil, targetDomain: String? = nil, navigateDomain: String? = nil, autoNavigate: Bool? = nil) {
+        self.init(type: "ride_shotgun_start", durationSeconds: durationSeconds, intervalSeconds: intervalSeconds, mode: mode, targetDomain: targetDomain, navigateDomain: navigateDomain, autoNavigate: autoNavigate)
     }
 }
 
@@ -1637,6 +1637,26 @@ public struct TwilioWebhookConfigResponseMessage: Decodable, Sendable {
     public let error: String?
 }
 
+// MARK: - Ingress Config Messages
+
+public struct IngressConfigRequestMessage: Encodable, Sendable {
+    public let type = "ingress_config"
+    public let action: String
+    public let publicBaseUrl: String?
+
+    public init(action: String, publicBaseUrl: String? = nil) {
+        self.action = action
+        self.publicBaseUrl = publicBaseUrl
+    }
+}
+
+public struct IngressConfigResponseMessage: Decodable, Sendable {
+    public let type: String
+    public let publicBaseUrl: String
+    public let success: Bool
+    public let error: String?
+}
+
 // MARK: - Model Config Messages
 
 /// Request the current model/provider configuration.
@@ -1877,6 +1897,7 @@ public enum ServerMessage: Decodable, Sendable {
     case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
     case twilioWebhookConfigResponse(TwilioWebhookConfigResponseMessage)
+    case ingressConfigResponse(IngressConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
     case twitterIntegrationConfigResponse(TwitterIntegrationConfigResponseMessage)
     case twitterAuthResult(TwitterAuthResultMessage)
@@ -2127,6 +2148,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "twilio_webhook_config_response":
             let message = try TwilioWebhookConfigResponseMessage(from: decoder)
             self = .twilioWebhookConfigResponse(message)
+        case "ingress_config_response":
+            let message = try IngressConfigResponseMessage(from: decoder)
+            self = .ingressConfigResponse(message)
         case "vercel_api_config_response":
             let message = try VercelApiConfigResponseMessage(from: decoder)
             self = .vercelApiConfigResponse(message)

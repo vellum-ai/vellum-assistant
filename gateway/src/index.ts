@@ -7,6 +7,7 @@ import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webh
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
 import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
 import { createTwilioRelayWebsocketHandler, getRelayWebsocketHandlers } from "./http/routes/twilio-relay-websocket.js";
+import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { getLogger, initLogger } from "./logger.js";
 import { buildSchema } from "./schema.js";
 import { callTelegramApi } from "./telegram/api.js";
@@ -31,6 +32,7 @@ function main() {
   const handleTwilioStatusWebhook = createTwilioStatusWebhookHandler(config);
   const handleTwilioConnectActionWebhook = createTwilioConnectActionWebhookHandler(config);
   const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config);
+  const handleOAuthCallback = createOAuthCallbackHandler(config);
 
   const handleRuntimeProxy = config.runtimeProxyEnabled
     ? createRuntimeProxyHandler(config)
@@ -103,6 +105,10 @@ function main() {
         if (upgradeResult !== undefined) return upgradeResult;
         // If upgrade was handled, Bun doesn't need a response
         return undefined as unknown as Response;
+      }
+
+      if (url.pathname === "/webhooks/oauth/callback" && req.method === "GET") {
+        return handleOAuthCallback(req);
       }
 
       if (handleRuntimeProxy) {
