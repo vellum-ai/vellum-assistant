@@ -271,8 +271,7 @@ extension MainWindowView {
                    let viewModel = threadManager.activeViewModel {
                     SubagentDetailPanel(
                         subagentId: subagentId,
-                        detailStore: viewModel.subagentDetailStore,
-                        subagentInfo: viewModel.activeSubagents.first(where: { $0.id == subagentId }),
+                        viewModel: viewModel,
                         onClose: { windowState.selectedSubagentId = nil }
                     )
                 } else {
