@@ -124,74 +124,85 @@ struct ChatBubble: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: VSpacing.sm) {
+        // Outer HStack: Spacer pushes the content group to the correct side.
+        HStack(alignment: .top, spacing: 0) {
             if isUser { Spacer(minLength: 0) }
 
-            if !isUser {
-                Image(nsImage: appearance.chatAvatarImage)
-                    .interpolation(.none)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 28, height: 28)
-                    .clipShape(Circle())
-                    .padding(.top, 2)
-            }
+            // Inner HStack: avatar/button and bubble are grouped so the button
+            // is always immediately adjacent to the bubble, not the screen edge.
+            HStack(alignment: .top, spacing: VSpacing.sm) {
+                if !isUser {
+                    Image(nsImage: appearance.chatAvatarImage)
+                        .interpolation(.none)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 28, height: 28)
+                        .clipShape(Circle())
+                        .padding(.top, 2)
+                }
 
-            VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
-                if !isUser && hasInterleavedContent {
-                    interleavedContent
-                } else {
-                    if shouldShowBubble {
-                        bubbleContent
-                    }
+                if isUser && hasOverflowActions {
+                    overflowMenuButton
+                        .opacity(showOverflowMenu ? 1 : 0)
+                        .animation(VAnimation.fast, value: showOverflowMenu)
+                }
 
-                    // Inline surfaces render below the bubble as full-width cards
-                    // Skip surfaces that are currently shown in the floating overlay
-                    if !message.inlineSurfaces.isEmpty {
-                        ForEach(message.inlineSurfaces.filter { $0.id != taskProgressOverlay.activeSurfaceId }) { surface in
-                            InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
+                VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
+                    if !isUser && hasInterleavedContent {
+                        interleavedContent
+                    } else {
+                        if shouldShowBubble {
+                            bubbleContent
+                        }
+
+                        // Inline surfaces render below the bubble as full-width cards
+                        // Skip surfaces that are currently shown in the floating overlay
+                        if !message.inlineSurfaces.isEmpty {
+                            ForEach(message.inlineSurfaces.filter { $0.id != taskProgressOverlay.activeSurfaceId }) { surface in
+                                InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
+                            }
+                        }
+
+                        // Document widget for document_create tool calls
+                        if let documentToolCall = message.toolCalls.first(where: { $0.toolName == "document_create" && $0.isComplete }) {
+                            documentWidget(for: documentToolCall)
                         }
                     }
 
-                    // Document widget for document_create tool calls
-                    if let documentToolCall = message.toolCalls.first(where: { $0.toolName == "document_create" && $0.isComplete }) {
-                        documentWidget(for: documentToolCall)
+                    // Media embeds rendered below the text, preserving source order
+                    ForEach(mediaEmbedIntents.indices, id: \.self) { idx in
+                        switch mediaEmbedIntents[idx] {
+                        case .image(let url):
+                            InlineImageEmbedView(url: url)
+                        case .video(let provider, let videoID, let embedURL):
+                            InlineVideoEmbedCard(provider: provider, videoID: videoID, embedURL: embedURL)
+                        }
+                    }
+
+                    // Single unified status area at the bottom of the message:
+                    // - In-progress: shows "Running a terminal command ..."
+                    // - Complete: shows compact chips ("Ran a terminal command" + "Permission granted")
+                    if !isUser {
+                        trailingStatus
                     }
                 }
+                // Prevent LazyVStack from compressing the bubble height, which causes the
+                // trailing tool-chip to overlap long text content.
+                .fixedSize(horizontal: false, vertical: true)
+                .contextMenu {}
 
-                // Media embeds rendered below the text, preserving source order
-                ForEach(mediaEmbedIntents.indices, id: \.self) { idx in
-                    switch mediaEmbedIntents[idx] {
-                    case .image(let url):
-                        InlineImageEmbedView(url: url)
-                    case .video(let provider, let videoID, let embedURL):
-                        InlineVideoEmbedCard(provider: provider, videoID: videoID, embedURL: embedURL)
-                    }
-                }
-
-                // Single unified status area at the bottom of the message:
-                // - In-progress: shows "Running a terminal command ..."
-                // - Complete: shows compact chips ("Ran a terminal command" + "Permission granted")
-                if !isUser {
-                    trailingStatus
+                if !isUser && hasOverflowActions {
+                    overflowMenuButton
+                        .opacity(showOverflowMenu ? 1 : 0)
+                        .animation(VAnimation.fast, value: showOverflowMenu)
                 }
             }
-            // Prevent LazyVStack from compressing the bubble height, which causes the
-            // trailing tool-chip to overlap long text content.
-            .fixedSize(horizontal: false, vertical: true)
-            .contextMenu {}
 
             if !isUser { Spacer(minLength: 0) }
         }
         .contentShape(Rectangle())
         .onHover { hovering in
             isHovered = hovering
-        }
-        .overlay(alignment: isUser ? .leading : .trailing) {
-            if showOverflowMenu {
-                overflowMenuButton
-                    .transition(.opacity)
-            }
         }
         .task(id: mediaEmbedTaskID) {
             guard !message.isStreaming else { return }
