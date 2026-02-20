@@ -379,6 +379,7 @@ export function registerDoctorCommand(program: Command): void {
         gemini: 'GEMINI_API_KEY',
         ollama: 'OLLAMA_API_KEY',
         fireworks: 'FIREWORKS_API_KEY',
+        openrouter: 'OPENROUTER_API_KEY',
       };
       const configKey = (raw.apiKeys as Record<string, string> | undefined)?.[provider];
       const envVar = providerEnvVar[provider];

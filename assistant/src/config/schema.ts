@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { getDataDir } from '../util/platform.js';
 
-const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks'] as const;
+const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'openrouter'] as const;
 const VALID_WEB_SEARCH_PROVIDERS = ['perplexity', 'brave', 'anthropic-native'] as const;
 const VALID_SECRET_ACTIONS = ['redact', 'warn', 'block', 'prompt'] as const;
 const VALID_MEMORY_EMBEDDING_PROVIDERS = ['auto', 'local', 'openai', 'gemini', 'ollama'] as const;

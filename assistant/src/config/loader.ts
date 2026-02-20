@@ -10,7 +10,7 @@ import type { AssistantConfig } from './types.js';
 const log = getLogger('config');
 
 // Providers that store API keys in secure storage (superset of VALID_PROVIDERS)
-export const API_KEY_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'brave', 'perplexity'] as const;
+export const API_KEY_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'openrouter', 'brave', 'perplexity'] as const;
 
 let cached: AssistantConfig | null = null;
 let loading = false;
@@ -197,6 +197,9 @@ export function loadConfig(): AssistantConfig {
     }
     if (process.env.FIREWORKS_API_KEY) {
       config.apiKeys.fireworks = process.env.FIREWORKS_API_KEY;
+    }
+    if (process.env.OPENROUTER_API_KEY) {
+      config.apiKeys.openrouter = process.env.OPENROUTER_API_KEY;
     }
     if (process.env.BRAVE_API_KEY) {
       config.apiKeys.brave = process.env.BRAVE_API_KEY;
