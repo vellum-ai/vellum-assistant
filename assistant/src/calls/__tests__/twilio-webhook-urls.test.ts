@@ -89,74 +89,74 @@ describe('getWebhookBaseUrl', () => {
   let savedEnv: string | undefined;
 
   beforeEach(() => {
-    savedEnv = process.env.TWILIO_WEBHOOK_BASE_URL;
-    delete process.env.TWILIO_WEBHOOK_BASE_URL;
+    savedEnv = process.env.INGRESS_PUBLIC_BASE_URL;
+    delete process.env.INGRESS_PUBLIC_BASE_URL;
   });
 
   afterEach(() => {
     if (savedEnv !== undefined) {
-      process.env.TWILIO_WEBHOOK_BASE_URL = savedEnv;
+      process.env.INGRESS_PUBLIC_BASE_URL = savedEnv;
     } else {
-      delete process.env.TWILIO_WEBHOOK_BASE_URL;
+      delete process.env.INGRESS_PUBLIC_BASE_URL;
     }
   });
 
   test('uses config value when set', () => {
-    const result = getWebhookBaseUrl({ calls: { webhookBaseUrl: 'https://config.example.com/' } });
+    const result = getWebhookBaseUrl({ ingress: { publicBaseUrl: 'https://config.example.com/' } });
     expect(result).toBe('https://config.example.com');
   });
 
   test('falls back to env var when config value is empty', () => {
-    process.env.TWILIO_WEBHOOK_BASE_URL = 'https://env.example.com/';
-    const result = getWebhookBaseUrl({ calls: { webhookBaseUrl: '' } });
+    process.env.INGRESS_PUBLIC_BASE_URL = 'https://env.example.com/';
+    const result = getWebhookBaseUrl({ ingress: { publicBaseUrl: '' } });
     expect(result).toBe('https://env.example.com');
   });
 
   test('falls back to env var when config value is undefined', () => {
-    process.env.TWILIO_WEBHOOK_BASE_URL = 'https://env.example.com';
-    const result = getWebhookBaseUrl({ calls: {} });
+    process.env.INGRESS_PUBLIC_BASE_URL = 'https://env.example.com';
+    const result = getWebhookBaseUrl({});
     expect(result).toBe('https://env.example.com');
   });
 
   test('throws when neither config nor env var is set', () => {
-    expect(() => getWebhookBaseUrl({ calls: { webhookBaseUrl: '' } })).toThrow(
-      /No webhook base URL configured/,
+    expect(() => getWebhookBaseUrl({ ingress: { publicBaseUrl: '' } })).toThrow(
+      /No public base URL configured/,
     );
   });
 
   test('throws when config is undefined and env var is unset', () => {
-    expect(() => getWebhookBaseUrl({ calls: {} })).toThrow(
-      /No webhook base URL configured/,
+    expect(() => getWebhookBaseUrl({})).toThrow(
+      /No public base URL configured/,
     );
   });
 
   test('normalizes the returned URL', () => {
-    const result = getWebhookBaseUrl({ calls: { webhookBaseUrl: '  https://example.com/  ' } });
+    const result = getWebhookBaseUrl({ ingress: { publicBaseUrl: '  https://example.com/  ' } });
     expect(result).toBe('https://example.com');
   });
 
   test('falls through when config value is whitespace-only', () => {
-    process.env.TWILIO_WEBHOOK_BASE_URL = 'https://env.example.com';
-    const result = getWebhookBaseUrl({ calls: { webhookBaseUrl: '   ' } });
+    process.env.INGRESS_PUBLIC_BASE_URL = 'https://env.example.com';
+    const result = getWebhookBaseUrl({ ingress: { publicBaseUrl: '   ' } });
     expect(result).toBe('https://env.example.com');
   });
 
   test('falls through when config value is slash-only', () => {
-    process.env.TWILIO_WEBHOOK_BASE_URL = 'https://env.example.com';
-    const result = getWebhookBaseUrl({ calls: { webhookBaseUrl: '///' } });
+    process.env.INGRESS_PUBLIC_BASE_URL = 'https://env.example.com';
+    const result = getWebhookBaseUrl({ ingress: { publicBaseUrl: '///' } });
     expect(result).toBe('https://env.example.com');
   });
 
   test('throws when config is whitespace-only and env var is unset', () => {
-    expect(() => getWebhookBaseUrl({ calls: { webhookBaseUrl: '   ' } })).toThrow(
-      /No webhook base URL configured/,
+    expect(() => getWebhookBaseUrl({ ingress: { publicBaseUrl: '   ' } })).toThrow(
+      /No public base URL configured/,
     );
   });
 
   test('throws when env var is whitespace-only and config is empty', () => {
-    process.env.TWILIO_WEBHOOK_BASE_URL = '   ';
-    expect(() => getWebhookBaseUrl({ calls: {} })).toThrow(
-      /No webhook base URL configured/,
+    process.env.INGRESS_PUBLIC_BASE_URL = '   ';
+    expect(() => getWebhookBaseUrl({})).toThrow(
+      /No public base URL configured/,
     );
   });
 });
