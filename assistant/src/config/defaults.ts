@@ -230,6 +230,5 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   ingress: {
     enabled: false,
     publicBaseUrl: '',
-    mode: 'gateway_only' as const,
   },
 };

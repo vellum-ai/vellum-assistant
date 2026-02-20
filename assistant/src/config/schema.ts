@@ -9,7 +9,6 @@ const VALID_SANDBOX_BACKENDS = ['native', 'docker'] as const;
 const VALID_DOCKER_NETWORKS = ['none', 'bridge'] as const;
 const VALID_PERMISSIONS_MODES = ['legacy', 'strict'] as const;
 const VALID_CALL_PROVIDERS = ['twilio'] as const;
-const VALID_INGRESS_MODES = ['gateway_only', 'compat'] as const;
 
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
@@ -930,11 +929,6 @@ export const IngressConfigSchema = z.object({
   publicBaseUrl: z
     .string({ error: 'ingress.publicBaseUrl must be a string' })
     .default(''),
-  mode: z
-    .enum(VALID_INGRESS_MODES, {
-      error: `ingress.mode must be one of: ${VALID_INGRESS_MODES.join(', ')}`,
-    })
-    .default('gateway_only'),
 });
 
 export const AssistantConfigSchema = z.object({
@@ -1188,7 +1182,6 @@ export const AssistantConfigSchema = z.object({
   ingress: IngressConfigSchema.default({
     enabled: false,
     publicBaseUrl: '',
-    mode: 'gateway_only',
   }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {

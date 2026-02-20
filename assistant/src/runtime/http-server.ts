@@ -398,16 +398,9 @@ export class RuntimeHttpServer {
     }
 
     // Startup guard: log gateway-only mode warnings
-    try {
-      const config = loadConfig();
-      if (config.ingress.mode === 'gateway_only') {
-        log.info('Running in gateway-only ingress mode. Direct webhook routes disabled.');
-        if (!isLoopbackHost(this.hostname)) {
-          log.warn('gateway-only mode is enabled but RUNTIME_HTTP_HOST is not bound to loopback. This may expose the runtime to direct public access.');
-        }
-      }
-    } catch {
-      // Config loading may fail during startup — don't block server start
+    log.info('Running in gateway-only ingress mode. Direct webhook routes disabled.');
+    if (!isLoopbackHost(this.hostname)) {
+      log.warn('RUNTIME_HTTP_HOST is not bound to loopback. This may expose the runtime to direct public access.');
     }
 
     log.info({ port: this.actualPort, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
@@ -448,14 +441,13 @@ export class RuntimeHttpServer {
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.
     if (path.startsWith('/v1/calls/relay') && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-      // In gateway_only mode, only allow relay connections from private network peers.
+      // Only allow relay connections from private network peers.
       // Primary check: actual peer address (cannot be spoofed) — accepts loopback
       // and RFC 1918/4193 private addresses to support container deployments.
       // Secondary check: Origin header (defense in depth).
-      const config = loadConfig();
-      if (config.ingress.mode === 'gateway_only' && (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req))) {
+      if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
         return Response.json(
-          { error: 'Direct relay access disabled in gateway-only mode', code: 'GATEWAY_ONLY' },
+          { error: 'Direct relay access disabled — only private network peers allowed', code: 'GATEWAY_ONLY' },
           { status: 403 },
         );
       }
@@ -489,11 +481,10 @@ export class RuntimeHttpServer {
     if (resolvedTwilioSubpath && req.method === 'POST') {
       const twilioSubpath = resolvedTwilioSubpath;
 
-      // In gateway_only mode, block direct Twilio webhook routes
-      const ingressConfig = loadConfig();
-      if (ingressConfig.ingress.mode === 'gateway_only' && GATEWAY_ONLY_BLOCKED_SUBPATHS.has(twilioSubpath)) {
+      // Block direct Twilio webhook routes — must go through the gateway
+      if (GATEWAY_ONLY_BLOCKED_SUBPATHS.has(twilioSubpath)) {
         return Response.json(
-          { error: 'Direct webhook access disabled in gateway-only mode. Use the gateway.', code: 'GATEWAY_ONLY' },
+          { error: 'Direct webhook access disabled. Use the gateway.', code: 'GATEWAY_ONLY' },
           { status: 410 },
         );
       }
