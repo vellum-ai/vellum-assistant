@@ -4,8 +4,8 @@
  * Verifies:
  * - Direct Twilio webhook routes return 410 in gateway_only mode
  * - Internal forwarding routes (gateway→runtime) still work in gateway_only mode
- * - Relay WebSocket upgrade blocked for non-localhost origins in gateway_only mode
- * - Relay WebSocket upgrade allowed from localhost in gateway_only mode
+ * - Relay WebSocket upgrade blocked for non-private-network origins in gateway_only mode
+ * - Relay WebSocket upgrade allowed from private network peers in gateway_only mode
  * - All routes work normally in compat mode
  * - Startup warning when RUNTIME_HTTP_HOST is not loopback in gateway_only mode
  */
@@ -133,7 +133,7 @@ mock.module('../security/oauth-callback-registry.js', () => ({
   consumeCallbackError: () => true,
 }));
 
-import { RuntimeHttpServer } from '../runtime/http-server.js';
+import { RuntimeHttpServer, isPrivateAddress } from '../runtime/http-server.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -294,7 +294,9 @@ describe('gateway-only ingress enforcement', () => {
     beforeEach(() => { mockIngressMode = 'gateway_only'; });
     afterEach(() => { mockIngressMode = 'compat'; });
 
-    test('blocks non-localhost origin', async () => {
+    test('blocks non-private-network origin', async () => {
+      // The peer address (127.0.0.1) passes the private network check,
+      // but the external Origin header triggers the secondary defense-in-depth block.
       const res = await fetch(`http://127.0.0.1:${port}/v1/calls/relay?callSessionId=sess-123`, {
         headers: {
           'Upgrade': 'websocket',
@@ -310,8 +312,9 @@ describe('gateway-only ingress enforcement', () => {
       expect(body.error).toContain('gateway-only mode');
     });
 
-    test('allows request with no origin header (localhost)', async () => {
-      // Without an origin header, isLoopbackOrigin returns true
+    test('allows request with no origin header (private network peer)', async () => {
+      // Without an origin header, isLoopbackOrigin returns true.
+      // The peer address (127.0.0.1) passes the private network peer check.
       const res = await fetch(`http://127.0.0.1:${port}/v1/calls/relay?callSessionId=sess-123`, {
         headers: {
           'Upgrade': 'websocket',
@@ -325,7 +328,7 @@ describe('gateway-only ingress enforcement', () => {
       expect(res.status).not.toBe(403);
     });
 
-    test('allows localhost origin', async () => {
+    test('allows localhost origin from loopback peer', async () => {
       const res = await fetch(`http://127.0.0.1:${port}/v1/calls/relay?callSessionId=sess-123`, {
         headers: {
           'Upgrade': 'websocket',
@@ -397,6 +400,83 @@ describe('gateway-only ingress enforcement', () => {
       });
       // In compat mode, the gateway-only guard should not activate
       expect(res.status).not.toBe(403);
+    });
+  });
+
+  // ── isPrivateAddress unit tests ─────────────────────────────────────
+
+  describe('isPrivateAddress', () => {
+    // Loopback
+    test.each([
+      '127.0.0.1',
+      '127.0.0.2',
+      '127.255.255.255',
+      '::1',
+      '::ffff:127.0.0.1',
+    ])('accepts loopback address %s', (addr) => {
+      expect(isPrivateAddress(addr)).toBe(true);
+    });
+
+    // RFC 1918 private ranges
+    test.each([
+      '10.0.0.1',
+      '10.255.255.255',
+      '172.16.0.1',
+      '172.31.255.255',
+      '192.168.0.1',
+      '192.168.1.100',
+    ])('accepts RFC 1918 private address %s', (addr) => {
+      expect(isPrivateAddress(addr)).toBe(true);
+    });
+
+    // Link-local
+    test.each([
+      '169.254.0.1',
+      '169.254.255.255',
+    ])('accepts link-local address %s', (addr) => {
+      expect(isPrivateAddress(addr)).toBe(true);
+    });
+
+    // IPv6 unique local (fc00::/7)
+    test.each([
+      'fc00::1',
+      'fd12:3456:789a::1',
+      'fdff::1',
+    ])('accepts IPv6 unique local address %s', (addr) => {
+      expect(isPrivateAddress(addr)).toBe(true);
+    });
+
+    // IPv6 link-local (fe80::/10)
+    test.each([
+      'fe80::1',
+      'fe80::abcd:1234',
+    ])('accepts IPv6 link-local address %s', (addr) => {
+      expect(isPrivateAddress(addr)).toBe(true);
+    });
+
+    // IPv4-mapped IPv6 private addresses
+    test.each([
+      '::ffff:10.0.0.1',
+      '::ffff:172.16.0.1',
+      '::ffff:192.168.1.1',
+      '::ffff:169.254.0.1',
+    ])('accepts IPv4-mapped IPv6 private address %s', (addr) => {
+      expect(isPrivateAddress(addr)).toBe(true);
+    });
+
+    // Public addresses — should be rejected
+    test.each([
+      '8.8.8.8',
+      '1.1.1.1',
+      '203.0.113.1',
+      '172.32.0.1',
+      '172.15.255.255',
+      '11.0.0.1',
+      '192.169.0.1',
+      '::ffff:8.8.8.8',
+      '2001:db8::1',
+    ])('rejects public address %s', (addr) => {
+      expect(isPrivateAddress(addr)).toBe(false);
     });
   });
 
