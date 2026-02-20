@@ -25,6 +25,8 @@ import { lastCommentaryBySession, lastSummaryBySession } from './watch-handler.j
 import {
   registerCallQuestionNotifier,
   unregisterCallQuestionNotifier,
+  registerCallTranscriptNotifier,
+  unregisterCallTranscriptNotifier,
   registerCallCompletionNotifier,
   unregisterCallCompletionNotifier,
 } from '../calls/call-state.js';
@@ -114,6 +116,32 @@ export function registerSessionNotifiers(
     });
   });
 
+  registerCallTranscriptNotifier(
+    conversationId,
+    (_callSessionId: string, speaker: 'caller' | 'assistant', text: string) => {
+      const speakerLabel = speaker === 'caller' ? 'Caller' : 'Assistant';
+      const transcriptText = `**Live call transcript**\n${speakerLabel}: ${text}`;
+
+      conversationStore.addMessage(
+        conversationId,
+        'assistant',
+        JSON.stringify([{ type: 'text', text: transcriptText }]),
+      );
+
+      ctx.messages.push(createAssistantMessage(transcriptText));
+
+      ctx.sendToClient({
+        type: 'assistant_text_delta',
+        text: transcriptText,
+        sessionId: conversationId,
+      });
+      ctx.sendToClient({
+        type: 'message_complete',
+        sessionId: conversationId,
+      });
+    },
+  );
+
   registerCallCompletionNotifier(conversationId, (callSessionId: string) => {
     const callSession = getCallSession(callSessionId);
     const events = getCallEvents(callSessionId);
@@ -160,5 +188,6 @@ export function unregisterWatchNotifiers(conversationId: string): void {
  */
 export function unregisterCallNotifiers(conversationId: string): void {
   unregisterCallQuestionNotifier(conversationId);
+  unregisterCallTranscriptNotifier(conversationId);
   unregisterCallCompletionNotifier(conversationId);
 }

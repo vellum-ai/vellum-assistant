@@ -92,6 +92,9 @@ import {
 import {
   registerCallQuestionNotifier,
   unregisterCallQuestionNotifier,
+  registerCallTranscriptNotifier,
+  unregisterCallTranscriptNotifier,
+  fireCallTranscriptNotifier,
   registerCallCompletionNotifier,
   unregisterCallCompletionNotifier,
   fireCallQuestionNotifier,
@@ -333,6 +336,43 @@ describe('call-bridge', () => {
     expect(emittedEvents[1].type).toBe('message_complete');
 
     unregisterCallQuestionNotifier('conv-notifier-q');
+  });
+
+  // ── Call transcript notifier ─────────────────────────────────────
+
+  test('call transcript notifier persists transcript line and emits events', () => {
+    ensureConversation('conv-notifier-t');
+
+    const emittedEvents: Array<{ type: string; text?: string }> = [];
+    const sendToClient = (msg: { type: string; text?: string }) => {
+      emittedEvents.push(msg);
+    };
+
+    registerCallTranscriptNotifier('conv-notifier-t', (_callSessionId: string, speaker: 'caller' | 'assistant', text: string) => {
+      const speakerLabel = speaker === 'caller' ? 'Caller' : 'Assistant';
+      const transcriptText = `**Live call transcript**\n${speakerLabel}: ${text}`;
+      conversationStore.addMessage(
+        'conv-notifier-t',
+        'assistant',
+        JSON.stringify([{ type: 'text', text: transcriptText }]),
+      );
+      sendToClient({ type: 'assistant_text_delta', text: transcriptText });
+      sendToClient({ type: 'message_complete' });
+    });
+
+    fireCallTranscriptNotifier('conv-notifier-t', 'call-session-1', 'caller', 'Can you confirm the appointment?');
+
+    const msgs = getMessagesForConversation('conv-notifier-t');
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].role).toBe('assistant');
+    expect(msgs[0].content).toContain('Caller: Can you confirm the appointment?');
+
+    expect(emittedEvents.length).toBe(2);
+    expect(emittedEvents[0].type).toBe('assistant_text_delta');
+    expect(emittedEvents[0].text).toContain('Live call transcript');
+    expect(emittedEvents[1].type).toBe('message_complete');
+
+    unregisterCallTranscriptNotifier('conv-notifier-t');
   });
 
   // ── Call completion notifier ────────────────────────────────────

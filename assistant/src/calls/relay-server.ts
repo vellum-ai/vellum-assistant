@@ -14,6 +14,7 @@ import {
   recordCallEvent,
 } from './call-store.js';
 import { CallOrchestrator } from './call-orchestrator.js';
+import { fireCallTranscriptNotifier } from './call-state.js';
 import {
   extractPromptSpeakerMetadata,
   SpeakerIdentityTracker,
@@ -285,6 +286,11 @@ export class RelayConnection {
       speakerConfidence: speaker.speakerConfidence,
       speakerSource: speaker.source,
     });
+
+    const session = getCallSession(this.callSessionId);
+    if (session) {
+      fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'caller', msg.voicePrompt);
+    }
 
     // Route to orchestrator for LLM-driven response
     if (this.orchestrator) {

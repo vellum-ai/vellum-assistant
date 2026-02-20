@@ -119,6 +119,7 @@ import { RuntimeHttpServer } from '../runtime/http-server.js';
 import * as callStore from '../calls/call-store.js';
 import {
   createCallSession,
+  getCallSession,
   updateCallSession,
   getCallEvents,
   buildCallbackDedupeKey,
@@ -126,6 +127,7 @@ import {
   releaseCallbackClaim,
 } from '../calls/call-store.js';
 import { resolveRelayUrl, handleStatusCallback } from '../calls/twilio-routes.js';
+import { registerCallCompletionNotifier, unregisterCallCompletionNotifier } from '../calls/call-state.js';
 
 initializeDb();
 
@@ -532,6 +534,112 @@ describe('twilio webhook routes', () => {
       expect(res.status).toBe(200);
 
       await stopServer();
+    });
+  });
+
+  describe('status mapping and completion notifications', () => {
+    test('initiated status callback is accepted and recorded as call_started', async () => {
+      const session = createTestSession('conv-status-init-1', 'CA_status_init_1');
+      const params = new URLSearchParams({
+        CallSid: 'CA_status_init_1',
+        CallStatus: 'initiated',
+        Timestamp: '2025-01-21T10:00:00Z',
+      });
+
+      const req = new Request('http://127.0.0.1/v1/calls/twilio/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      const res = await handleStatusCallback(req);
+      expect(res.status).toBe(200);
+
+      const updated = getCallSession(session.id);
+      expect(updated).not.toBeNull();
+      expect(updated!.status).toBe('initiated');
+      const events = getCallEvents(session.id);
+      expect(events.filter((e) => e.eventType === 'call_started').length).toBe(1);
+    });
+
+    test('answered status callback transitions to in_progress', async () => {
+      const session = createTestSession('conv-status-answered-1', 'CA_status_answered_1');
+      const params = new URLSearchParams({
+        CallSid: 'CA_status_answered_1',
+        CallStatus: 'answered',
+        Timestamp: '2025-01-21T10:05:00Z',
+      });
+
+      const req = new Request('http://127.0.0.1/v1/calls/twilio/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      const res = await handleStatusCallback(req);
+      expect(res.status).toBe(200);
+
+      const updated = getCallSession(session.id);
+      expect(updated).not.toBeNull();
+      expect(updated!.status).toBe('in_progress');
+      expect(updated!.startedAt).not.toBeNull();
+      const events = getCallEvents(session.id);
+      expect(events.filter((e) => e.eventType === 'call_connected').length).toBe(1);
+    });
+
+    test('completed status callback fires completion notifier when first entering terminal state', async () => {
+      const session = createTestSession('conv-status-complete-1', 'CA_status_complete_1');
+      updateCallSession(session.id, { status: 'in_progress', startedAt: Date.now() - 20_000 });
+      const params = new URLSearchParams({
+        CallSid: 'CA_status_complete_1',
+        CallStatus: 'completed',
+        Timestamp: '2025-01-21T10:10:00Z',
+      });
+
+      let fired = 0;
+      registerCallCompletionNotifier('conv-status-complete-1', () => {
+        fired += 1;
+      });
+
+      const req = new Request('http://127.0.0.1/v1/calls/twilio/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      const res = await handleStatusCallback(req);
+      expect(res.status).toBe(200);
+
+      const updated = getCallSession(session.id);
+      expect(updated).not.toBeNull();
+      expect(updated!.status).toBe('completed');
+      expect(updated!.endedAt).not.toBeNull();
+      expect(fired).toBe(1);
+
+      unregisterCallCompletionNotifier('conv-status-complete-1');
+    });
+
+    test('completed callback does not re-fire completion notifier for already terminal call', async () => {
+      const session = createTestSession('conv-status-complete-2', 'CA_status_complete_2');
+      updateCallSession(session.id, { status: 'completed', startedAt: Date.now() - 20_000, endedAt: Date.now() - 5_000 });
+      const params = new URLSearchParams({
+        CallSid: 'CA_status_complete_2',
+        CallStatus: 'completed',
+        Timestamp: '2025-01-21T10:15:00Z',
+      });
+
+      let fired = 0;
+      registerCallCompletionNotifier('conv-status-complete-2', () => {
+        fired += 1;
+      });
+
+      const req = new Request('http://127.0.0.1/v1/calls/twilio/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      const res = await handleStatusCallback(req);
+      expect(res.status).toBe(200);
+      expect(fired).toBe(0);
+
+      unregisterCallCompletionNotifier('conv-status-complete-2');
     });
   });
 
