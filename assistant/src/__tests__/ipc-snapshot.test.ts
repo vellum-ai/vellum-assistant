@@ -1429,6 +1429,17 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       sessionId: 'sub-sess-001',
     },
   },
+  agent_heartbeat_alert: {
+    type: 'agent_heartbeat_alert',
+    title: 'Agent unresponsive',
+    body: 'The agent has not responded for 5 minutes.',
+  },
+  task_run_thread_created: {
+    type: 'task_run_thread_created',
+    conversationId: 'conv-task-001',
+    workItemId: 'work-item-001',
+    title: 'Task run thread',
+  },
 };
 
 // ---------------------------------------------------------------------------
