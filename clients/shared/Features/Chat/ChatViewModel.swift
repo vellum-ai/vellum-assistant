@@ -256,6 +256,7 @@ public final class ChatViewModel: ObservableObject {
         // so it gets sent when session_info arrives instead of being dropped.
         if (isSending || isBootstrapping) && sessionId == nil {
             if pendingUserMessage == nil {
+                isSending = true
                 let attachments = pendingAttachments
                 pendingAttachments = []
                 pendingUserMessage = text
