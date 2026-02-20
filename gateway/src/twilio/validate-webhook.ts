@@ -68,9 +68,11 @@ export async function validateTwilioWebhookRequest(
   }
 
   // Reconstruct the public-facing URL that Twilio signed against.
+  // Prefer ingressPublicBaseUrl (which already falls back to twilioWebhookBaseUrl at config load).
   const parsedUrl = new URL(req.url);
-  const publicUrl = config.twilioWebhookBaseUrl
-    ? config.twilioWebhookBaseUrl.replace(/\/$/, "") + parsedUrl.pathname + parsedUrl.search
+  const effectiveBaseUrl = config.ingressPublicBaseUrl ?? config.twilioWebhookBaseUrl;
+  const publicUrl = effectiveBaseUrl
+    ? effectiveBaseUrl.replace(/\/$/, "") + parsedUrl.pathname + parsedUrl.search
     : req.url;
 
   const isValid = verifyTwilioSignature(

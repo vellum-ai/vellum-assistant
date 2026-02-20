@@ -9,6 +9,7 @@ const VALID_SANDBOX_BACKENDS = ['native', 'docker'] as const;
 const VALID_DOCKER_NETWORKS = ['none', 'bridge'] as const;
 const VALID_PERMISSIONS_MODES = ['legacy', 'strict'] as const;
 const VALID_CALL_PROVIDERS = ['twilio'] as const;
+const VALID_INGRESS_MODES = ['gateway_only', 'compat'] as const;
 
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
@@ -914,6 +915,17 @@ export const SkillsConfigSchema = z.object({
   allowBundled: z.array(z.string()).nullable().default(null),
 });
 
+export const IngressConfigSchema = z.object({
+  publicBaseUrl: z
+    .string({ error: 'ingress.publicBaseUrl must be a string' })
+    .default(''),
+  mode: z
+    .enum(VALID_INGRESS_MODES, {
+      error: `ingress.mode must be one of: ${VALID_INGRESS_MODES.join(', ')}`,
+    })
+    .default('compat'),
+});
+
 export const AssistantConfigSchema = z.object({
   provider: z
     .enum(VALID_PROVIDERS, {
@@ -1163,6 +1175,10 @@ export const AssistantConfigSchema = z.object({
       denyCategories: [],
     },
   }),
+  ingress: IngressConfigSchema.default({
+    publicBaseUrl: '',
+    mode: 'compat',
+  }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
     ctx.addIssue({
@@ -1223,3 +1239,4 @@ export type WorkspaceGitConfig = z.infer<typeof WorkspaceGitConfigSchema>;
 export type CallsConfig = z.infer<typeof CallsConfigSchema>;
 export type CallsDisclosureConfig = z.infer<typeof CallsDisclosureConfigSchema>;
 export type CallsSafetyConfig = z.infer<typeof CallsSafetyConfigSchema>;
+export type IngressConfig = z.infer<typeof IngressConfigSchema>;

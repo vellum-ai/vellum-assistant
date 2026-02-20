@@ -781,6 +781,19 @@ public struct IPCImageGenModelSetRequest: Codable, Sendable {
     public let model: String
 }
 
+public struct IPCIngressConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let publicBaseUrl: String?
+}
+
+public struct IPCIngressConfigResponse: Codable, Sendable {
+    public let type: String
+    public let publicBaseUrl: String
+    public let success: Bool
+    public let error: String?
+}
+
 public struct IPCIntegrationConnectRequest: Codable, Sendable {
     public let type: String
     public let integrationId: String
