@@ -43,6 +43,7 @@ public final class ChatViewModel: ObservableObject {
     @Published public var pendingSkillInvocation: SkillInvocationData?
     @Published public var isWatchSessionActive: Bool = false
     @Published public var activeSubagents: [SubagentInfo] = []
+    public let subagentDetailStore = SubagentDetailStore()
     /// Widget IDs dismissed by the user, persisted across view recreation.
     @Published public var dismissedDocumentSurfaceIds: Set<String> = []
 

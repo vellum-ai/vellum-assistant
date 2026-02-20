@@ -1180,19 +1180,17 @@ extension ChatViewModel {
             guard belongsToSession(msg.parentSessionId) else { return }
             let info = SubagentInfo(id: msg.subagentId, label: msg.label, status: .running, parentMessageId: currentAssistantMessageId)
             activeSubagents.append(info)
+            subagentDetailStore.recordSpawned(subagentId: msg.subagentId, objective: msg.objective)
 
         case .subagentStatusChanged(let msg):
             if let index = activeSubagents.firstIndex(where: { $0.id == msg.subagentId }) {
                 activeSubagents[index].status = SubagentStatus(wire: msg.status)
                 activeSubagents[index].error = msg.error
             }
+            subagentDetailStore.recordStatusChanged(subagentId: msg.subagentId, usage: msg.usage)
 
-        case .subagentEvent:
-            // Subagent internal events (assistant_message, tool_use, etc.) carry the
-            // subagent's session ID, not the parent's, so they cannot be routed through
-            // the normal belongsToSession-guarded handlers. These will be displayed in
-            // the dedicated subagents panel once it's built.
-            break
+        case .subagentEvent(let msg):
+            subagentDetailStore.handleEvent(subagentId: msg.subagentId, event: msg.event)
 
         case .modelInfo(let msg):
             selectedModel = msg.model
