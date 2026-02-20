@@ -21,21 +21,25 @@ export function clearTaskRunRules(taskRunId: string): void {
 /**
  * Build ephemeral TrustRule entries from a task's required_tools list.
  *
- * Each rule allows the specified tool with a wildcard pattern scoped to the
- * given working directory. Priority is set to 75 — above default rules (50)
- * so pre-approved tools aren't shadowed by default `ask` rules (which would
- * trigger prompting and auto-deny in non-interactive task runs), but below
- * user rules (100) so user deny rules still take precedence. `allowHighRisk`
- * is set because task runs execute asynchronously without interactive
- * confirmation — the client pre-approves tools via the preflight flow before
- * execution begins, so there is no interactive prompt during the run itself.
+ * Each rule allows the specified tool with a wildcard pattern scoped
+ * globally ('everywhere'). The scope is intentionally broad because the
+ * session's workingDir (sandbox path like ~/.vellum/workspace) differs
+ * from process.cwd() — using a directory-scoped rule would fail
+ * matchesScope() and silently miss. Priority is set to 75 — above
+ * default rules (50) so pre-approved tools aren't shadowed by default
+ * `ask` rules (which would trigger prompting and auto-deny in
+ * non-interactive task runs), but below user rules (100) so user deny
+ * rules still take precedence. `allowHighRisk` is set because task runs
+ * execute asynchronously without interactive confirmation — the client
+ * pre-approves tools via the preflight flow before execution begins,
+ * so there is no interactive prompt during the run itself.
  */
-export function buildTaskRules(taskRunId: string, requiredTools: string[], workingDir: string): TrustRule[] {
+export function buildTaskRules(taskRunId: string, requiredTools: string[], _workingDir: string): TrustRule[] {
   return requiredTools.map((tool) => ({
     id: `ephemeral:${taskRunId}:${tool}`,
     tool,
     pattern: '**',
-    scope: workingDir,
+    scope: 'everywhere',
     decision: 'allow' as const,
     allowHighRisk: true,
     priority: 75,
