@@ -1,8 +1,7 @@
 import { getSecureKey } from '../security/secure-keys.js';
 import { getLogger } from '../util/logger.js';
 import { loadConfig } from '../config/loader.js';
-import { getWebhookBaseUrl } from './twilio-webhook-urls.js';
-import { getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
+import { getPublicBaseUrl, getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
 
 const log = getLogger('twilio-config');
 
@@ -19,7 +18,7 @@ export function getTwilioConfig(): TwilioConfig {
   const authToken = getSecureKey('credential:twilio:auth_token');
   const phoneNumber = process.env.TWILIO_PHONE_NUMBER || getSecureKey('credential:twilio:phone_number') || '';
   const config = loadConfig();
-  const webhookBaseUrl = getWebhookBaseUrl(config);
+  const webhookBaseUrl = getPublicBaseUrl(config);
 
   // In gateway_only mode, ignore TWILIO_WSS_BASE_URL and always use the
   // centralized relay URL derived from the public ingress base URL.

@@ -4,7 +4,7 @@
  * Resolves the canonical public base URL via:
  *   ingress.publicBaseUrl → env INGRESS_PUBLIC_BASE_URL
  *
- * Supersedes the per-domain URL helpers in calls/twilio-webhook-urls.ts.
+ * All public-facing ingress URL construction is centralized here.
  */
 
 export interface IngressConfig {
