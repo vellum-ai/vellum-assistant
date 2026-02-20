@@ -305,8 +305,8 @@ public struct SettingsView: View {
 
                         if let error = store.twitterAuthError {
                             Text(error)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.error)
+                                .font(.caption)
+                                .foregroundColor(.red)
                         }
 
                         HStack {
