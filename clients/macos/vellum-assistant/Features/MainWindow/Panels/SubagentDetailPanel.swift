@@ -108,13 +108,6 @@ struct SubagentDetailPanel: View {
                 onRequestDetail?()
             }
         }
-        .onChange(of: subagentId) { _ in
-            // When switching between subagents, onAppear doesn't fire since the panel
-            // stays on screen — trigger lazy load for the newly selected subagent.
-            if events.isEmpty, subagentInfo?.conversationId != nil {
-                onRequestDetail?()
-            }
-        }
     }
 
     // MARK: - Status Badge
