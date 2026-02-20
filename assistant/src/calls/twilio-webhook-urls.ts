@@ -10,7 +10,8 @@ const log = getLogger('twilio-webhook-urls');
 export function getWebhookBaseUrl(config: { calls: { webhookBaseUrl?: string } }): string {
   const configValue = config.calls.webhookBaseUrl;
   if (configValue) {
-    return normalizeBaseUrl(configValue);
+    const normalized = normalizeBaseUrl(configValue);
+    if (normalized) return normalized;
   }
 
   const envValue = process.env.TWILIO_WEBHOOK_BASE_URL;
@@ -18,7 +19,8 @@ export function getWebhookBaseUrl(config: { calls: { webhookBaseUrl?: string } }
     log.warn(
       'TWILIO_WEBHOOK_BASE_URL env var is deprecated — set calls.webhookBaseUrl in config instead.',
     );
-    return normalizeBaseUrl(envValue);
+    const normalized = normalizeBaseUrl(envValue);
+    if (normalized) return normalized;
   }
 
   throw new Error(
