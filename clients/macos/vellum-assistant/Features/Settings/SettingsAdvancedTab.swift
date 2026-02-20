@@ -45,7 +45,10 @@ struct SettingsAdvancedTab: View {
             Button("Cancel", role: .cancel) {}
             Button("Retire", role: .destructive) {
                 isRetiring = true
-                NSApp.sendAction(#selector(AppDelegate.performRetire), to: nil, from: nil)
+                Task {
+                    await (NSApp.delegate as? AppDelegate)?.performRetireAsync()
+                    isRetiring = false
+                }
             }
         } message: {
             if lockfileAssistants.count > 1 {

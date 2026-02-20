@@ -332,72 +332,76 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func performRetire() {
+        Task { await performRetireAsync() }
+    }
+
+    /// Async retire implementation callable from SwiftUI so callers can
+    /// await completion and dismiss their loading UI.
+    func performRetireAsync() async {
         let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
         if assistantName == nil {
             log.error("No stored connected assistant ID found — skipping retire")
         }
 
-        Task {
-            if let name = assistantName {
-                try? await assistantCli.retire(name: name)
-            } else {
-                assistantCli.stop()
-            }
+        if let name = assistantName {
+            try? await assistantCli.retire(name: name)
+        } else {
+            assistantCli.stop()
+        }
 
-            // Check if other assistants remain in the lockfile
-            let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName }
-            if let next = remaining.first {
-                // Auto-switch to the next available assistant
-                settingsWindow?.close()
-                settingsWindow = nil
-                performSwitchAssistant(to: next)
-                return
-            }
-
-            // No assistants left — tear down fully and show onboarding
-            OnboardingState.clearPersistedState()
-
-            mainWindow?.close()
-            mainWindow = nil
+        // Check if other assistants remain in the lockfile
+        let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName }
+        if let next = remaining.first {
+            // Auto-switch to the next available assistant
             settingsWindow?.close()
             settingsWindow = nil
-
-            if let hotKeyMonitor {
-                NSEvent.removeMonitor(hotKeyMonitor)
-                self.hotKeyMonitor = nil
-            }
-            if let escapeMonitor {
-                NSEvent.removeMonitor(escapeMonitor)
-                self.escapeMonitor = nil
-            }
-            voiceInput?.stop()
-            voiceInput = nil
-            ambientAgent.teardown()
-
-            if let observer = windowObserver {
-                NotificationCenter.default.removeObserver(observer)
-                windowObserver = nil
-            }
-            statusIconCancellable?.cancel()
-            statusIconCancellable = nil
-
-            if let item = statusItem {
-                NSStatusBar.system.removeStatusItem(item)
-                statusItem = nil
-            }
-
-            if let mainMenu = NSApp.mainMenu {
-                for title in ["File", "View"] {
-                    let idx = mainMenu.indexOfItem(withTitle: title)
-                    if idx >= 0 { mainMenu.removeItem(at: idx) }
-                }
-            }
-
-            hasSetupApp = false
-            hasSetupDaemon = false
-            showOnboarding()
+            performSwitchAssistant(to: next)
+            return
         }
+
+        // No assistants left — tear down fully and show onboarding
+        OnboardingState.clearPersistedState()
+
+        mainWindow?.close()
+        mainWindow = nil
+        settingsWindow?.close()
+        settingsWindow = nil
+
+        if let hotKeyMonitor {
+            NSEvent.removeMonitor(hotKeyMonitor)
+            self.hotKeyMonitor = nil
+        }
+        if let escapeMonitor {
+            NSEvent.removeMonitor(escapeMonitor)
+            self.escapeMonitor = nil
+        }
+        voiceInput?.stop()
+        voiceInput = nil
+        ambientAgent.teardown()
+
+        if let observer = windowObserver {
+            NotificationCenter.default.removeObserver(observer)
+            windowObserver = nil
+        }
+        statusIconCancellable?.cancel()
+        statusIconCancellable = nil
+
+        if let item = statusItem {
+            NSStatusBar.system.removeStatusItem(item)
+            statusItem = nil
+        }
+
+        if let mainMenu = NSApp.mainMenu {
+            for title in ["File", "View"] {
+                let idx = mainMenu.indexOfItem(withTitle: title)
+                if idx >= 0 { mainMenu.removeItem(at: idx) }
+            }
+        }
+
+        hasSetupApp = false
+        hasSetupDaemon = false
+        showOnboarding()
     }
 
     /// Applies the user's theme preference to the app appearance.
