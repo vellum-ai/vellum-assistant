@@ -50,6 +50,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+          no-cache: true
 
       - name: Build daemon binary
         working-directory: assistant
