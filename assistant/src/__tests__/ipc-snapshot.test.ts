@@ -501,6 +501,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     subagentId: 'sub-001',
     content: 'Hello subagent',
   },
+  subagent_detail_request: {
+    type: 'subagent_detail_request',
+    subagentId: 'sub-001',
+    conversationId: 'conv-001',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1440,6 +1445,16 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       text: 'Searching for docs...',
       sessionId: 'sub-sess-001',
     },
+  },
+  subagent_detail_response: {
+    type: 'subagent_detail_response',
+    subagentId: 'sub-001',
+    events: [
+      {
+        type: 'assistant_text_delta',
+        content: 'Searching for docs...',
+      },
+    ],
   },
 };
 
