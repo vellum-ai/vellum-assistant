@@ -59,6 +59,7 @@ export async function executeTaskListAdd(
     const taskId = input.task_id as string | undefined;
     const taskName = input.task_name as string | undefined;
     const titleOverride = input.title as string | undefined;
+    const executionPrompt = input.execution_prompt as string | undefined;
     const notes = input.notes as string | undefined;
     const priorityTier = input.priority_tier as number | undefined;
     const sortIndex = input.sort_index as number | undefined;
@@ -89,10 +90,15 @@ export async function executeTaskListAdd(
 
       log.debug({ title: titleOverride }, 'task_list_add: creating new item');
 
-      // Auto-create a lightweight task template for the ad-hoc item
+      // Auto-create a lightweight task template for the ad-hoc item.
+      // Use execution_prompt as the template (the actual instruction sent to the
+      // model at run time), falling back to notes then title. This preserves
+      // detailed instructions (e.g. full file paths) that may be shortened in
+      // the display title.
+      const adHocTemplate = executionPrompt ?? notes ?? titleOverride;
       const adHocTask = createTask({
         title: titleOverride,
-        template: titleOverride,
+        template: adHocTemplate,
       });
 
       // For ad-hoc items: explicit tools → persist; omitted → null

@@ -120,6 +120,10 @@
             "type": "string",
             "description": "Title for the work item. When provided WITHOUT task_id or task_name, creates an ad-hoc work item directly (a lightweight task template is auto-created behind the scenes). When provided WITH task_id or task_name, overrides the task definition title."
           },
+          "execution_prompt": {
+            "type": "string",
+            "description": "The full instruction to execute when this task runs. If omitted, the title is used as the execution prompt. Use this to preserve detailed instructions (e.g. full file paths, specific parameters) that would be lost in a short display title."
+          },
           "notes": {
             "type": "string",
             "description": "Notes to attach to the work item."
