@@ -1,16 +1,16 @@
+import { readFileSync } from "fs";
 import { join } from "path";
 
-const constantsSource = await Bun.file(join(import.meta.dir, "constants.ts")).text();
-const defaultMainScreenSource = await Bun.file(join(import.meta.dir, "..", "components", "DefaultMainScreen.tsx")).text();
-
-function inlineLocalImports(source: string): string {
+function inlineLocalImports(source: string, constantsSource: string): string {
   return source
     .replace(/import\s*\{[^}]*\}\s*from\s*["'][^"']*\/constants["'];?\s*\n/, constantsSource + "\n")
     .replace(/import\s*\{[^}]*\}\s*from\s*["']path["'];?\s*\n/, "");
 }
 
 export function buildInterfacesSeed(): string {
-  const mainWindowSource = inlineLocalImports(defaultMainScreenSource);
+  const constantsSource = readFileSync(join(import.meta.dir, "constants.ts"), "utf-8");
+  const defaultMainScreenSource = readFileSync(join(import.meta.dir, "..", "components", "DefaultMainScreen.tsx"), "utf-8");
+  const mainWindowSource = inlineLocalImports(defaultMainScreenSource, constantsSource);
 
   return `
 INTERFACES_SEED_DIR="/tmp/interfaces-seed"
