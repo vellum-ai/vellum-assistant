@@ -240,6 +240,7 @@ final class ChatViewModelIOSTests: XCTestCase {
     func testGenerationCancelledClearsLoadingState() {
         viewModel.isSending = true
         viewModel.isThinking = true
+        viewModel.isCancelling = true
 
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
