@@ -124,7 +124,7 @@ Tell the user: "Consent screen is configured! Almost there — just need to crea
 
 > **Create OAuth Credentials**
 >
-> I'm about to create OAuth Desktop credentials for Vellum Assistant. This generates a client ID that Vellum uses to initiate the authorization flow. No secret keys are involved — we use the secure PKCE method.
+> I'm about to create OAuth Web Application credentials for Vellum Assistant. This generates a client ID that Vellum uses to initiate the authorization flow. The redirect URI will point to the gateway's OAuth callback endpoint.
 
 Wait for the user to approve. If they decline, explain that credentials are the final step needed and offer to try again or cancel.
 
@@ -133,8 +133,9 @@ Once approved, navigate to `https://console.cloud.google.com/apis/credentials?pr
 Use `browser_click` on "+ Create Credentials" at the top, then select "OAuth client ID" from the dropdown.
 
 Take a `browser_snapshot` and fill in:
-1. **Application type:** Select "Desktop app" from the dropdown
-2. **Name:** "Vellum Assistant Desktop"
+1. **Application type:** Select "Web application" from the dropdown
+2. **Name:** "Vellum Assistant"
+3. **Authorized redirect URIs:** Click "Add URI" and enter `${ingress.publicBaseUrl}/webhooks/oauth/callback` (e.g. `https://abc123.ngrok-free.app/webhooks/oauth/callback`). Read the `ingress.publicBaseUrl` value from the assistant's workspace config (Settings > Public Ingress) or the `INGRESS_PUBLIC_BASE_URL` environment variable.
 
 Use `browser_click` on the "Create" button.
 
@@ -179,7 +180,7 @@ Summarize what was accomplished:
 - Created a Google Cloud project (or used an existing one)
 - Enabled the Gmail API and Google Calendar API
 - Configured the OAuth consent screen with appropriate scopes (including calendar)
-- Created OAuth Desktop credentials using secure PKCE
+- Created OAuth Web Application credentials with gateway callback redirect URI
 - Connected your Gmail and Google Calendar accounts
 
 ## Error Handling
