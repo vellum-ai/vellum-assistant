@@ -6,10 +6,12 @@
  */
 
 import { existsSync, readFileSync, statfsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
+import { getWorkspacePromptPath } from '../util/platform.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import { loadConfig } from '../config/loader.js';
 import { getPublicBaseUrl } from '../inbound/public-ingress-urls.js';
@@ -770,6 +772,10 @@ export class RuntimeHttpServer {
         return await handleConnectAction(fakeReq);
       }
 
+      if (endpoint === 'identity' && req.method === 'GET') {
+        return this.handleGetIdentity();
+      }
+
       if (endpoint === 'events' && req.method === 'GET') {
         return handleSubscribeAssistantEvents(req, url);
       }
@@ -923,6 +929,54 @@ export class RuntimeHttpServer {
         break;
       }
     }
+  }
+
+  private handleGetIdentity(): Response {
+    const identityPath = getWorkspacePromptPath('IDENTITY.md');
+    if (!existsSync(identityPath)) {
+      return Response.json({ error: 'IDENTITY.md not found' }, { status: 404 });
+    }
+
+    const content = readFileSync(identityPath, 'utf-8');
+    const fields: Record<string, string> = {};
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      const lower = trimmed.toLowerCase();
+      const extract = (prefix: string): string | null => {
+        if (!lower.startsWith(prefix)) return null;
+        return trimmed.split(':**').pop()?.trim() ?? null;
+      };
+
+      const name = extract('- **name:**');
+      if (name) { fields.name = name; continue; }
+      const role = extract('- **role:**');
+      if (role) { fields.role = role; continue; }
+      const personality = extract('- **personality:**') ?? extract('- **vibe:**');
+      if (personality) { fields.personality = personality; continue; }
+      const emoji = extract('- **emoji:**');
+      if (emoji) { fields.emoji = emoji; continue; }
+      const home = extract('- **home:**');
+      if (home) { fields.home = home; continue; }
+    }
+
+    // Read version from package.json
+    let version: string | undefined;
+    try {
+      const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+      version = pkg.version;
+    } catch {
+      // ignore
+    }
+
+    return Response.json({
+      name: fields.name ?? '',
+      role: fields.role ?? '',
+      personality: fields.personality ?? '',
+      emoji: fields.emoji ?? '',
+      home: fields.home ?? '',
+      version,
+    });
   }
 
   private handleHealth(): Response {

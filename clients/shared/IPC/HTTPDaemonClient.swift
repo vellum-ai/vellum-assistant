@@ -357,6 +357,26 @@ final class HTTPTransport {
         }
     }
 
+    // MARK: - Remote Identity
+
+    /// Fetch identity info from the remote daemon's `GET /v1/identity` endpoint.
+    func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
+        guard let url = URL(string: "\(baseURL)/v1/identity") else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            return try? JSONDecoder().decode(RemoteIdentityInfo.self, from: data)
+        } catch {
+            log.error("fetchRemoteIdentity failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     // MARK: - Disconnect
 
     func disconnect() {

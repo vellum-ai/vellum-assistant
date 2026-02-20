@@ -8,6 +8,7 @@ struct IdentityPanel: View {
     @State private var appearance = AvatarAppearanceManager.shared
 
     @State private var identity: IdentityInfo?
+    @State private var remoteIdentity: RemoteIdentityInfo?
     @State private var metadata: AssistantMetadata?
     @State private var lockfileAssistant: LockfileAssistant?
     @State private var workspaceFiles: [WorkspaceFileNode] = []
@@ -34,13 +35,11 @@ struct IdentityPanel: View {
 
                 // Avatar + ID card + CTA
                 HStack(alignment: .center, spacing: VSpacing.lg) {
-                    DinoSceneView(seed: identity?.name ?? "default", palette: appearance.palette, outfit: appearance.outfit)
+                    DinoSceneView(seed: identity?.name ?? remoteIdentity?.name ?? lockfileAssistant?.assistantId ?? "default", palette: appearance.palette, outfit: appearance.outfit)
                         .frame(width: 180, height: 200)
 
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        if let identity {
-                            idCardSection(identity: identity)
-                        }
+                        idCardSection(identity: identity, remoteIdentity: remoteIdentity)
 
                         // Customize Avatar CTA
                         Button(action: onCustomizeAvatar) {
@@ -101,6 +100,13 @@ struct IdentityPanel: View {
             lockfileAssistant = LockfileAssistant.loadLatest()
             workspaceFiles = WorkspaceFileNode.scan()
             fetchSkills()
+
+            // For remote assistants without local IDENTITY.md, fetch from daemon
+            if identity == nil, lockfileAssistant?.isRemote == true {
+                Task {
+                    remoteIdentity = await daemonClient.fetchRemoteIdentity()
+                }
+            }
         }
     }
 
@@ -128,24 +134,38 @@ struct IdentityPanel: View {
     // MARK: - ID Card
 
     @ViewBuilder
-    private func idCardSection(identity: IdentityInfo) -> some View {
+    private func idCardSection(identity: IdentityInfo?, remoteIdentity: RemoteIdentityInfo?) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             if let assistantId = lockfileAssistant?.assistantId {
                 idRow(label: "Assistant ID", value: assistantId, mono: true)
             }
 
-            idRow(label: "Agent ID", value: identity.agentID, mono: true)
-            idRow(label: "Given name", value: identity.name)
-
-            if !identity.role.isEmpty {
-                idRow(label: "Role", value: identity.role)
+            // Agent ID (only available from local identity)
+            if let identity {
+                idRow(label: "Agent ID", value: identity.agentID, mono: true)
             }
 
-            if !identity.personality.isEmpty {
-                idRow(label: "Personality", value: identity.personality)
+            // Given name: remote > local > assistantId
+            let name = remoteIdentity?.name.nilIfEmpty ?? identity?.name ?? lockfileAssistant?.assistantId
+            if let name {
+                idRow(label: "Given name", value: name)
             }
 
-            idRow(label: "Version", value: daemonClient.daemonVersion ?? metadata?.version ?? "—")
+            // Role: remote > local
+            let role = remoteIdentity?.role.nilIfEmpty ?? identity?.role
+            if let role, !role.isEmpty {
+                idRow(label: "Role", value: role)
+            }
+
+            // Personality: remote > local
+            let personality = remoteIdentity?.personality.nilIfEmpty ?? identity?.personality
+            if let personality, !personality.isEmpty {
+                idRow(label: "Personality", value: personality)
+            }
+
+            // Version: remote > daemon > metadata
+            let version = remoteIdentity?.version ?? daemonClient.daemonVersion ?? metadata?.version
+            idRow(label: "Version", value: version ?? "—")
 
             if let date = metadata?.createdAt {
                 idRow(label: "Created at", value: formatDate(date))
@@ -153,7 +173,7 @@ struct IdentityPanel: View {
 
             idRow(label: "Origin system", value: metadata?.originSystem ?? "local")
 
-            let home = lockfileAssistant?.home ?? identity.home ?? .local(workspacePath: NSHomeDirectory() + "/.vellum/workspace")
+            let home = lockfileAssistant?.home ?? identity?.home ?? .local(workspacePath: NSHomeDirectory() + "/.vellum/workspace")
             homeRow(home: home)
         }
     }
@@ -210,6 +230,10 @@ struct IdentityPanel: View {
         formatter.timeStyle = .short
         return formatter.string(from: date)
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
 // MARK: - Workspace File Sheet
