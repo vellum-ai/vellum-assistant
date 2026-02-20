@@ -763,6 +763,28 @@ async function hatchCustom(
   }
 }
 
+/**
+ * Read `ingress.publicBaseUrl` from the assistant's workspace config file
+ * (~/.vellum/workspace/config.json). Returns undefined if the file doesn't
+ * exist or the value isn't set. This is intentionally a best-effort read
+ * — the CLI should not fail if the config file is absent.
+ */
+function readIngressPublicBaseUrl(): string | undefined {
+  try {
+    const baseDataDir = process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir());
+    const configPath = join(baseDataDir, ".vellum", "workspace", "config.json");
+    if (!existsSync(configPath)) return undefined;
+    const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+    const value = raw?.ingress?.publicBaseUrl;
+    if (typeof value === "string" && value.trim()) {
+      return value.trim().replace(/\/+$/, "");
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function resolveGatewayDir(): string {
   const sourceDir = join(import.meta.dir, "..", "..", "..", "gateway");
   if (existsSync(sourceDir)) {
@@ -995,6 +1017,13 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
       GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
     };
     if (publicUrl) gatewayEnv.GATEWAY_PUBLIC_URL = publicUrl;
+
+    // Forward ingress.publicBaseUrl from the assistant's workspace config to
+    // the gateway so Twilio signature validation reconstructs the same
+    // canonical URL the assistant uses for outbound callback generation.
+    const ingressUrl = readIngressPublicBaseUrl();
+    if (ingressUrl) gatewayEnv.INGRESS_PUBLIC_BASE_URL = ingressUrl;
+
     const gateway = spawn("bun", ["run", "src/index.ts"], {
       cwd: gatewayDir,
       detached: true,
