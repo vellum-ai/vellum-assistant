@@ -213,12 +213,10 @@ private struct WorkspaceFileSheet: View {
     let filePath: String
     let onClose: () -> Void
 
+    @State private var fileContent: String = ""
+
     private var fileName: String {
         (filePath as NSString).lastPathComponent
-    }
-
-    private var fileContent: String {
-        (try? String(contentsOfFile: filePath, encoding: .utf8)) ?? "Unable to read file."
     }
 
     var body: some View {
@@ -258,5 +256,8 @@ private struct WorkspaceFileSheet: View {
             }
         }
         .background(VColor.backgroundSubtle)
+        .task {
+            fileContent = (try? String(contentsOfFile: filePath, encoding: .utf8)) ?? "Unable to read file."
+        }
     }
 }
