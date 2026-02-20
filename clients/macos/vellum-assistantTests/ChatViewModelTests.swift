@@ -201,8 +201,8 @@ final class ChatViewModelTests: XCTestCase {
     func testGenerationCancelledWithoutStreamingMessage() {
         viewModel.isSending = true
         viewModel.isThinking = true
-        viewModel.isCancelling = true
 
+        viewModel.isCancelling = true
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
 
         XCTAssertFalse(viewModel.isSending)
