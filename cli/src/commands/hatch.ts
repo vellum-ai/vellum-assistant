@@ -789,8 +789,17 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
       console.warn("⚠️  Daemon socket did not appear within 10s — continuing anyway");
     }
   } else {
-    const assistantDir = join(import.meta.dir, "..", "..", "..", "assistant");
-    const assistantIndex = join(assistantDir, "src", "index.ts");
+    const sourceTreeIndex = join(import.meta.dir, "..", "..", "..", "assistant", "src", "index.ts");
+    let assistantIndex = sourceTreeIndex;
+
+    if (!existsSync(assistantIndex)) {
+      try {
+        const vellumPkgPath = _require.resolve("vellum/package.json");
+        assistantIndex = join(dirname(vellumPkgPath), "src", "index.ts");
+      } catch {
+        // resolve failed, will fall through to existsSync check below
+      }
+    }
 
     if (!existsSync(assistantIndex)) {
       throw new Error(
@@ -852,7 +861,7 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
 
 function getCliVersion(): string {
   try {
-    const pkgPath = join(import.meta.dir, "..", "package.json");
+    const pkgPath = join(import.meta.dir, "..", "..", "package.json");
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
     return pkg.version ?? "unknown";
   } catch {
