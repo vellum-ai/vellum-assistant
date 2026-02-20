@@ -168,6 +168,18 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 /**
+ * Check if the actual peer/remote address of a connection is loopback.
+ * Uses Bun's server.requestIP() to get the real peer address,
+ * which cannot be spoofed unlike the Origin header.
+ */
+function isLoopbackPeer(server: { requestIP(req: Request): { address: string; family: string; port: number } | null }, req: Request): boolean {
+  const ip = server.requestIP(req);
+  if (!ip) return false;
+  const addr = ip.address;
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+}
+
+/**
  * Validate a Twilio webhook request's X-Twilio-Signature header.
  *
  * Returns the raw body text on success so callers can reconstruct the Request
@@ -370,9 +382,11 @@ export class RuntimeHttpServer {
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.
     if (path.startsWith('/v1/calls/relay') && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-      // In gateway_only mode, only allow relay connections from localhost
+      // In gateway_only mode, only allow relay connections from loopback peers.
+      // Primary check: actual peer address (cannot be spoofed).
+      // Secondary check: Origin header (defense in depth).
       const config = loadConfig();
-      if (config.ingress.mode === 'gateway_only' && !isLoopbackOrigin(req)) {
+      if (config.ingress.mode === 'gateway_only' && (!isLoopbackPeer(server, req) || !isLoopbackOrigin(req))) {
         return Response.json(
           { error: 'Direct relay access disabled in gateway-only mode', code: 'GATEWAY_ONLY' },
           { status: 403 },
