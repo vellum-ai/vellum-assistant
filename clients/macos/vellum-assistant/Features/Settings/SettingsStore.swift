@@ -357,8 +357,9 @@ public final class SettingsStore: ObservableObject {
 
     func setModel(_ model: String) {
         guard model != lastDaemonModel else { return }
+        guard let daemonClient else { return }
         do {
-            try daemonClient?.sendModelSet(model: model)
+            try daemonClient.sendModelSet(model: model)
             lastDaemonModel = model
         } catch {
             // Send failed — don't update lastDaemonModel so the next attempt isn't suppressed
