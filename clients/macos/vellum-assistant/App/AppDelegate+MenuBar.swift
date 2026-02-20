@@ -135,11 +135,6 @@ extension AppDelegate {
         newChatItem.image = NSImage(systemSymbolName: "plus.message", accessibilityDescription: nil)
         menu.addItem(newChatItem)
 
-        let tasksItem = NSMenuItem(title: "Tasks", action: #selector(showTasksWindow), keyEquivalent: "t")
-        tasksItem.target = self
-        tasksItem.image = NSImage(systemSymbolName: "list.bullet.clipboard", accessibilityDescription: nil)
-        menu.addItem(tasksItem)
-
         // My Apps submenu
         let myAppsItem = NSMenuItem(title: "My Apps", action: nil, keyEquivalent: "")
         myAppsItem.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil)
