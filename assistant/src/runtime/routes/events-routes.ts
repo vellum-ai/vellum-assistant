@@ -73,6 +73,7 @@ export function handleSubscribeAssistantEvents(
           controller.enqueue(encoder.encode(formatSseFrame(event)));
         } catch {
           sub.dispose();
+          if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
         }
       },
     );
@@ -90,10 +91,26 @@ export function handleSubscribeAssistantEvents(
     start(controller) {
       controllerRef = controller;
 
+      // If the client already disconnected before start() ran, clean up
+      // immediately — the abort event fires once and won't be re-dispatched.
+      if (req.signal.aborted) {
+        sub.dispose();
+        try { controller.close(); } catch { /* already closed */ }
+        return;
+      }
+
       // Send a keep-alive comment on each interval to prevent proxies and
       // load-balancers from treating idle connections as timed out.
       heartbeatTimer = setInterval(() => {
         try {
+          // Apply the same slow-consumer guard as the event path: stop
+          // feeding heartbeats into a queue the client is not draining.
+          if (controller.desiredSize !== null && controller.desiredSize <= 0) {
+            sub.dispose();
+            if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+            try { controller.close(); } catch { /* already closed */ }
+            return;
+          }
           controller.enqueue(encoder.encode(formatSseHeartbeat()));
         } catch {
           // Controller already closed (e.g. client disconnected).
