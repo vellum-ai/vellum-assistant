@@ -2481,7 +2481,7 @@ When the OAuth2 flow completes, the handler stores credential metadata at `integ
 ```
 {
   accountInfo: "@username",
-  allowedTools: ["twitter_post", "twitter_read"],
+  allowedTools: ["twitter_post"],
   allowedDomains: [],
   oauth2TokenUrl: "https://api.x.com/2/oauth2/token",
   oauth2ClientId: "<user's client ID>",
@@ -2501,7 +2501,7 @@ The `vellum x post` CLI command uses an alternative mechanism that does not requ
 |------|-----------|-------------|
 | `twitter_post` | OAuth2 or CDP | Post a tweet. Available via the `X` bundled skill (`vellum x post`). |
 
-Note: `twitter_read` is listed in `allowedTools` metadata but has no tool implementation. The `tweet.read` and `users.read` OAuth2 scopes are used for identity verification during the auth flow.
+Note: The `tweet.read` and `users.read` OAuth2 scopes are used for identity verification during the auth flow, but read functionality is not exposed as a tool.
 
 ### Key Design Decisions
 

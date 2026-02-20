@@ -213,11 +213,11 @@ Connect via the Settings UI or `integration_connect` IPC message. OAuth2 tokens 
 
 Twitter integration supports posting to X via two mechanisms:
 
-1. **OAuth2 PKCE flow** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The daemon runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. Tokens are stored in the credential vault with `allowedTools: ["twitter_post", "twitter_read"]`. Connect via the Settings UI or `twitter_auth_start` IPC message.
+1. **OAuth2 PKCE flow** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The daemon runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. Tokens are stored in the credential vault with `allowedTools: ["twitter_post"]`. Connect via the Settings UI or `twitter_auth_start` IPC message.
 
 2. **Browser session** (CDP): The `vellum x post` CLI command posts via Chrome DevTools Protocol, executing GraphQL mutations through an authenticated x.com browser tab. Session cookies are captured via Ride Shotgun (`vellum x refresh`).
 
-**Available tool**: `twitter_post` — posts a tweet. There is no `twitter_read` tool implementation; the OAuth2 scopes include `tweet.read` and `users.read` for identity verification, but read functionality is not currently exposed as a tool.
+**Available tool**: `twitter_post` — posts a tweet. The OAuth2 scopes include `tweet.read` and `users.read` for identity verification, but read functionality is not exposed as a tool.
 
 **Setup (OAuth2 mode)**: Store your Twitter app's Client ID via the credential vault (`credential:integration:twitter:oauth_client_id`). Optionally store a Client Secret. Then initiate the OAuth2 flow from the Settings UI.
 
