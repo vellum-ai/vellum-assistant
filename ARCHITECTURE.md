@@ -3387,9 +3387,7 @@ The public URL where the gateway is reachable is configured via:
 | Source | Priority | Description |
 |--------|----------|-------------|
 | `ingress.publicBaseUrl` (workspace config) | 1 (preferred) | Set via Settings UI > Public Ingress, or directly in workspace `config.json` |
-| `INGRESS_PUBLIC_BASE_URL` (env var) | 1 | Environment variable equivalent of `ingress.publicBaseUrl` |
-| `calls.webhookBaseUrl` (workspace config) | 2 (deprecated) | Legacy Twilio-specific setting, still honored as fallback |
-| `TWILIO_WEBHOOK_BASE_URL` (env var) | 3 (deprecated) | Legacy env var, still honored as fallback |
+| `INGRESS_PUBLIC_BASE_URL` (env var) | 2 | Environment variable fallback for `ingress.publicBaseUrl` |
 
 ### Tunnel-Agnostic Setup
 
@@ -3398,7 +3396,7 @@ To expose the gateway for external callbacks during local development:
 1. **Start your tunnel** service (ngrok, Cloudflare Tunnel, or any similar tool), pointing it at the local gateway: `http://127.0.0.1:7830`
 2. **Set the public URL** provided by the tunnel as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section) or as the `INGRESS_PUBLIC_BASE_URL` environment variable
 
-The assistant runtime reads this URL via the centralized `public-ingress-urls.ts` module and uses it to construct all webhook and callback URLs automatically (Twilio voice/status/relay webhooks, OAuth redirect URIs, etc.).
+The assistant runtime reads this URL via the centralized `public-ingress-urls.ts` module and uses it to construct all webhook and callback URLs automatically (Twilio voice/status/relay webhooks, Telegram webhooks, OAuth redirect URIs, etc.).
 
 ### URL Builders
 
@@ -3406,12 +3404,13 @@ All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-
 
 | Function | URL Pattern |
 |----------|-------------|
-| `getPublicBaseUrl()` | Resolves the base URL via the fallback chain above |
+| `getPublicBaseUrl()` | Resolves the canonical base URL from `ingress.publicBaseUrl` or `INGRESS_PUBLIC_BASE_URL` |
 | `getTwilioVoiceWebhookUrl()` | `${base}/webhooks/twilio/voice?callSessionId=...` |
 | `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status` |
 | `getTwilioConnectActionUrl()` | `${base}/webhooks/twilio/connect-action` |
 | `getTwilioRelayUrl()` | `ws(s)://.../webhooks/twilio/relay` |
 | `getOAuthCallbackUrl()` | `${base}/webhooks/oauth/callback` |
+| `getTelegramWebhookUrl()` | `${base}/webhooks/telegram` |
 
 ---
 
@@ -3581,15 +3580,12 @@ In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice w
 
 Signature validation is **fail-closed**: if the Twilio auth token is not configured, all webhook requests are rejected with `403`. Missing or invalid `X-Twilio-Signature` headers are also rejected with `403`. Payload size is capped by `maxWebhookPayloadBytes` (checked via both `Content-Length` header and actual body size).
 
-**Webhook base URL resolution:** The base URL used when constructing all public ingress URLs (Twilio webhooks, OAuth callbacks, etc.) is resolved via a three-level fallback chain managed by `public-ingress-urls.ts`:
+**Webhook base URL resolution:** The base URL used when constructing all public ingress URLs (Twilio webhooks, OAuth callbacks, Telegram webhooks, etc.) is resolved by `public-ingress-urls.ts`:
 
-1. `ingress.publicBaseUrl` in workspace config (preferred)
-2. `calls.webhookBaseUrl` in workspace config (backward compat, deprecated)
-3. `TWILIO_WEBHOOK_BASE_URL` environment variable (legacy, deprecated)
+1. `ingress.publicBaseUrl` in workspace config (preferred — set via Settings UI > Public Ingress)
+2. `INGRESS_PUBLIC_BASE_URL` environment variable (fallback)
 
-Setting `ingress.publicBaseUrl` via the Settings UI (Public Ingress section) or the `INGRESS_PUBLIC_BASE_URL` environment variable is the recommended approach. All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/oauth/callback`, etc.) are appended automatically.
-
-> **Deprecation:** Both `calls.webhookBaseUrl` and the `TWILIO_WEBHOOK_BASE_URL` environment variable are deprecated in favor of `ingress.publicBaseUrl` / `INGRESS_PUBLIC_BASE_URL`. They continue to work as fallbacks during the compatibility window, but deprecation warnings are logged when they are used.
+All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/telegram`, `/webhooks/oauth/callback`, etc.) are appended automatically.
 
 ### Runtime HTTP Endpoints
 
@@ -3642,7 +3638,6 @@ Call behavior is controlled via the `calls` config block in the assistant config
 |-------|------|---------|-------------|
 | `calls.enabled` | boolean | `true` | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors. |
 | `calls.provider` | enum | `'twilio'` | Voice provider to use (currently only Twilio is supported). |
-| `calls.webhookBaseUrl` | string | `""` | **Deprecated** — use `ingress.publicBaseUrl` instead. Legacy base URL for Twilio webhooks. Falls back to `TWILIO_WEBHOOK_BASE_URL` env var if not set (also deprecated). See `ingress.publicBaseUrl` for the preferred configuration. |
 | `calls.maxDurationSeconds` | int | `3600` | Maximum allowed duration per call. |
 | `calls.userConsultTimeoutSeconds` | int | `120` | How long to wait for a user answer before timing out a pending question. |
 | `calls.disclosure.enabled` | boolean | `true` | Whether the AI should disclose it is an AI at the start of the call. |
