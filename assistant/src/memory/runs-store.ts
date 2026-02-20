@@ -36,7 +36,6 @@ export interface PendingConfirmation {
 
 export interface Run {
   id: string;
-  assistantId: string;
   conversationId: string;
   messageId: string | null;
   status: RunStatus;
@@ -66,7 +65,6 @@ function rowToRun(row: typeof messageRuns.$inferSelect): Run {
   }
   return {
     id: row.id,
-    assistantId: row.assistantId,
     conversationId: row.conversationId,
     messageId: row.messageId,
     status: row.status as RunStatus,
@@ -94,7 +92,6 @@ export function createRun(
 
   const row = {
     id,
-    assistantId: 'self',
     conversationId,
     messageId: messageId ?? null,
     status: 'running' as const,

@@ -148,7 +148,6 @@ export const memoryJobs = sqliteTable('memory_jobs', {
 
 export const conversationKeys = sqliteTable('conversation_keys', {
   id: text('id').primaryKey(),
-  assistantId: text('assistant_id').notNull(),
   conversationKey: text('conversation_key').notNull(),
   conversationId: text('conversation_id')
     .notNull()
@@ -158,7 +157,6 @@ export const conversationKeys = sqliteTable('conversation_keys', {
 
 export const attachments = sqliteTable('attachments', {
   id: text('id').primaryKey(),
-  assistantId: text('assistant_id').notNull(),
   originalFilename: text('original_filename').notNull(),
   mimeType: text('mime_type').notNull(),
   sizeBytes: integer('size_bytes').notNull(),
@@ -183,7 +181,6 @@ export const messageAttachments = sqliteTable('message_attachments', {
 
 export const channelInboundEvents = sqliteTable('channel_inbound_events', {
   id: text('id').primaryKey(),
-  assistantId: text('assistant_id').notNull(),
   sourceChannel: text('source_channel').notNull(),
   externalChatId: text('external_chat_id').notNull(),
   externalMessageId: text('external_message_id').notNull(),
@@ -207,7 +204,6 @@ export const channelInboundEvents = sqliteTable('channel_inbound_events', {
 
 export const messageRuns = sqliteTable('message_runs', {
   id: text('id').primaryKey(),
-  assistantId: text('assistant_id').notNull(),
   conversationId: text('conversation_id')
     .notNull()
     .references(() => conversations.id, { onDelete: 'cascade' }),
@@ -523,7 +519,6 @@ export const llmRequestLogs = sqliteTable('llm_request_logs', {
 export const llmUsageEvents = sqliteTable('llm_usage_events', {
   id: text('id').primaryKey(),
   createdAt: integer('created_at').notNull(),
-  assistantId: text('assistant_id'),
   conversationId: text('conversation_id'),
   runId: text('run_id'),
   requestId: text('request_id'),

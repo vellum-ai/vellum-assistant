@@ -184,7 +184,6 @@ export function initializeDb(): void {
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS attachments (
       id TEXT PRIMARY KEY,
-      assistant_id TEXT NOT NULL,
       original_filename TEXT NOT NULL,
       mime_type TEXT NOT NULL,
       size_bytes INTEGER NOT NULL,
@@ -223,7 +222,6 @@ export function initializeDb(): void {
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS channel_inbound_events (
       id TEXT PRIMARY KEY,
-      assistant_id TEXT NOT NULL,
       source_channel TEXT NOT NULL,
       external_chat_id TEXT NOT NULL,
       external_message_id TEXT NOT NULL,
@@ -232,14 +230,13 @@ export function initializeDb(): void {
       delivery_status TEXT NOT NULL DEFAULT 'pending',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      UNIQUE (assistant_id, source_channel, external_chat_id, external_message_id)
+      UNIQUE (source_channel, external_chat_id, external_message_id)
     )
   `);
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS message_runs (
       id TEXT PRIMARY KEY,
-      assistant_id TEXT NOT NULL,
       conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
       status TEXT NOT NULL DEFAULT 'running',
@@ -421,7 +418,6 @@ export function initializeDb(): void {
     CREATE TABLE IF NOT EXISTS llm_usage_events (
       id TEXT PRIMARY KEY,
       created_at INTEGER NOT NULL,
-      assistant_id TEXT,
       conversation_id TEXT,
       run_id TEXT,
       request_id TEXT,
@@ -507,11 +503,9 @@ export function initializeDb(): void {
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS conversation_keys (
       id TEXT PRIMARY KEY,
-      assistant_id TEXT NOT NULL,
-      conversation_key TEXT NOT NULL,
+      conversation_key TEXT NOT NULL UNIQUE,
       conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-      created_at INTEGER NOT NULL,
-      UNIQUE (assistant_id, conversation_key)
+      created_at INTEGER NOT NULL
     )
   `);
 
@@ -552,6 +546,7 @@ export function initializeDb(): void {
   migrateMemoryItemsFingerprintScopeUnique(database);
   migrateMemoryItemsScopeSaltedFingerprints(database);
   migrateAssistantIdToSelf(database);
+  migrateDropAssistantIdColumns(database);
 
   // Indexes for query performance on large datasets
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_request_logs_conv_created ON llm_request_logs(conversation_id, created_at)`);
@@ -592,17 +587,16 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_segments_scope_id ON memory_segments(scope_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_scope_id ON memory_items(scope_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_summaries_scope_id ON memory_summaries(scope_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversation_keys_assistant_key ON conversation_keys(assistant_id, conversation_key)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_attachments_assistant_id ON attachments(assistant_id)`);
-  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_content_dedup ON attachments(assistant_id, content_hash) WHERE content_hash IS NOT NULL`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversation_keys_conversation_key ON conversation_keys(conversation_key)`);
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_content_dedup ON attachments(content_hash) WHERE content_hash IS NOT NULL`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_attachments_message_id ON message_attachments(message_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment_id ON message_attachments(attachment_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_lookup ON channel_inbound_events(assistant_id, source_channel, external_chat_id, external_message_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_lookup ON channel_inbound_events(source_channel, external_chat_id, external_message_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_conversation ON channel_inbound_events(conversation_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_source_msg ON channel_inbound_events(assistant_id, source_channel, external_chat_id, source_message_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_source_msg ON channel_inbound_events(source_channel, external_chat_id, source_message_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_processing_retry ON channel_inbound_events(processing_status, retry_after)`);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_runs_assistant_status ON message_runs(assistant_id, status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_runs_status ON message_runs(status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_runs_conversation ON message_runs(conversation_id)`);
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_reminders_status_fire_at ON reminders(status, fire_at)`);
@@ -615,7 +609,6 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status)`);
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_created_at ON llm_usage_events(created_at)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_assistant_id ON llm_usage_events(assistant_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_provider ON llm_usage_events(provider)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_model ON llm_usage_events(model)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_actor ON llm_usage_events(actor)`);
@@ -1402,6 +1395,168 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
   } catch (e) {
     try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
     throw e;
+  }
+}
+
+/**
+ * One-shot migration: physically remove the `assistant_id` column from the five
+ * tables that previously used it for scoping. By the time this migration runs,
+ * `migrateAssistantIdToSelf` has already normalised every row to `assistant_id =
+ * 'self'`, so no data is lost. SQLite requires a table rebuild to drop a column
+ * that participates in indexes or constraints.
+ *
+ * Unique-constraint changes:
+ *   conversation_keys:      UNIQUE (assistant_id, conversation_key) → UNIQUE (conversation_key)
+ *   attachments:            no inline constraint changed (content_hash index updated separately)
+ *   channel_inbound_events: UNIQUE (assistant_id, source_channel, ...) → UNIQUE (source_channel, ...)
+ *   message_runs:           no unique constraint on assistant_id
+ *   llm_usage_events:       nullable column with no constraint
+ */
+function migrateDropAssistantIdColumns(database: ReturnType<typeof drizzle<typeof schema>>): void {
+  const raw = (database as unknown as { $client: Database }).$client;
+  const checkpointKey = 'migration_drop_assistant_id_columns_v1';
+  const checkpoint = raw.query(
+    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
+  ).get(checkpointKey);
+  if (checkpoint) return;
+
+  raw.exec('PRAGMA foreign_keys = OFF');
+  try {
+    raw.exec('BEGIN');
+
+    // conversation_keys
+    raw.exec(/*sql*/ `
+      CREATE TABLE conversation_keys_new (
+        id TEXT PRIMARY KEY,
+        conversation_key TEXT NOT NULL UNIQUE,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL
+      )
+    `);
+    raw.exec(/*sql*/ `
+      INSERT INTO conversation_keys_new SELECT id, conversation_key, conversation_id, created_at
+      FROM conversation_keys
+    `);
+    raw.exec(`DROP TABLE conversation_keys`);
+    raw.exec(`ALTER TABLE conversation_keys_new RENAME TO conversation_keys`);
+
+    // attachments
+    raw.exec(/*sql*/ `
+      CREATE TABLE attachments_new (
+        id TEXT PRIMARY KEY,
+        original_filename TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        data_base64 TEXT NOT NULL,
+        content_hash TEXT,
+        thumbnail_base64 TEXT,
+        created_at INTEGER NOT NULL
+      )
+    `);
+    raw.exec(/*sql*/ `
+      INSERT INTO attachments_new SELECT id, original_filename, mime_type, size_bytes, kind, data_base64, content_hash, thumbnail_base64, created_at
+      FROM attachments
+    `);
+    raw.exec(`DROP TABLE attachments`);
+    raw.exec(`ALTER TABLE attachments_new RENAME TO attachments`);
+
+    // channel_inbound_events
+    raw.exec(/*sql*/ `
+      CREATE TABLE channel_inbound_events_new (
+        id TEXT PRIMARY KEY,
+        source_channel TEXT NOT NULL,
+        external_chat_id TEXT NOT NULL,
+        external_message_id TEXT NOT NULL,
+        source_message_id TEXT,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
+        delivery_status TEXT NOT NULL DEFAULT 'pending',
+        processing_status TEXT NOT NULL DEFAULT 'pending',
+        processing_attempts INTEGER NOT NULL DEFAULT 0,
+        last_processing_error TEXT,
+        retry_after INTEGER,
+        raw_payload TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE (source_channel, external_chat_id, external_message_id)
+      )
+    `);
+    raw.exec(/*sql*/ `
+      INSERT INTO channel_inbound_events_new
+      SELECT id, source_channel, external_chat_id, external_message_id, source_message_id,
+             conversation_id, message_id, delivery_status, processing_status, processing_attempts,
+             last_processing_error, retry_after, raw_payload, created_at, updated_at
+      FROM channel_inbound_events
+    `);
+    raw.exec(`DROP TABLE channel_inbound_events`);
+    raw.exec(`ALTER TABLE channel_inbound_events_new RENAME TO channel_inbound_events`);
+
+    // message_runs
+    raw.exec(/*sql*/ `
+      CREATE TABLE message_runs_new (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
+        status TEXT NOT NULL DEFAULT 'running',
+        pending_confirmation TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        estimated_cost REAL NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    raw.exec(/*sql*/ `
+      INSERT INTO message_runs_new
+      SELECT id, conversation_id, message_id, status, pending_confirmation,
+             input_tokens, output_tokens, estimated_cost, error, created_at, updated_at
+      FROM message_runs
+    `);
+    raw.exec(`DROP TABLE message_runs`);
+    raw.exec(`ALTER TABLE message_runs_new RENAME TO message_runs`);
+
+    // llm_usage_events
+    raw.exec(/*sql*/ `
+      CREATE TABLE llm_usage_events_new (
+        id TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL,
+        conversation_id TEXT,
+        run_id TEXT,
+        request_id TEXT,
+        actor TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        input_tokens INTEGER NOT NULL,
+        output_tokens INTEGER NOT NULL,
+        cache_creation_input_tokens INTEGER,
+        cache_read_input_tokens INTEGER,
+        estimated_cost_usd REAL,
+        pricing_status TEXT NOT NULL,
+        metadata_json TEXT
+      )
+    `);
+    raw.exec(/*sql*/ `
+      INSERT INTO llm_usage_events_new
+      SELECT id, created_at, conversation_id, run_id, request_id, actor, provider, model,
+             input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+             estimated_cost_usd, pricing_status, metadata_json
+      FROM llm_usage_events
+    `);
+    raw.exec(`DROP TABLE llm_usage_events`);
+    raw.exec(`ALTER TABLE llm_usage_events_new RENAME TO llm_usage_events`);
+
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+
+    raw.exec('COMMIT');
+  } catch (e) {
+    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    throw e;
+  } finally {
+    raw.exec('PRAGMA foreign_keys = ON');
   }
 }
 
