@@ -73,6 +73,34 @@ export class ToolExecutor {
       return { content: msg, isError: true };
     }
 
+    // Belt-and-suspenders guard for task runs: only preflight-approved tools
+    // may execute. This catches cases where ephemeral rules might not cover
+    // a tool, ensuring unapproved calls fail deterministically instead of
+    // falling through to the interactive prompter.
+    if (context.taskRunId) {
+      const taskRules = getTaskRunRules(context.taskRunId);
+      const approvedToolNames = new Set(taskRules.map((r) => r.tool));
+      if (approvedToolNames.size > 0 && !approvedToolNames.has(name)) {
+        const msg = `Tool '${name}' was not approved in the task's preflight. Add it to required tools and re-approve.`;
+        const durationMs = Date.now() - startTime;
+        emitLifecycleEvent(context, {
+          type: 'permission_denied',
+          toolName: name,
+          executionTarget,
+          input,
+          workingDir: context.workingDir,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          requestId: context.requestId,
+          riskLevel,
+          decision: 'deny',
+          reason: msg,
+          durationMs,
+        });
+        return { content: msg, isError: true };
+      }
+    }
+
     const tool = getTool(name);
     if (!tool) {
       const available = getAllTools().filter((t) => t.executionMode !== 'proxy' || context.proxyToolResolver).map((t) => t.name).sort().join(', ');
