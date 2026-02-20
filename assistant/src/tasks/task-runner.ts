@@ -52,7 +52,6 @@ export async function runTask(
 
   // Build and register ephemeral permission rules. If the user pre-approved
   // specific tools via the preflight flow, use those instead of all requiredTools.
-  // Both paths go through sanitizeToolList to ensure only canonical tools get rules.
   const requiredTools = sanitizeToolList(task.requiredTools ? JSON.parse(task.requiredTools) : []);
   const toolsForRules = opts.approvedTools ? sanitizeToolList(opts.approvedTools) : requiredTools;
   const rules = buildTaskRules(run.id, toolsForRules, opts.workingDir);
