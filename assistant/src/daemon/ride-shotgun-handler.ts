@@ -16,6 +16,7 @@ import { NetworkRecorder } from '../tools/browser/network-recorder.js';
 import { saveRecording } from '../tools/browser/recording-store.js';
 import type { SessionRecording } from '../tools/browser/network-recording-types.js';
 import { navigateXPages } from '../tools/browser/x-auto-navigate.js';
+import { autoNavigate } from '../tools/browser/auto-navigate.js';
 
 const log = getLogger('ride-shotgun-handler');
 
@@ -159,8 +160,29 @@ export async function handleRideShotgunStart(
                 completeSession(session);
               }
             });
+          } else if (targetDomain) {
+            const abortSignal = { aborted: false };
+            const checkInterval = setInterval(() => {
+              if (session.status !== 'active') {
+                abortSignal.aborted = true;
+                clearInterval(checkInterval);
+              }
+            }, 1000);
+            autoNavigate(targetDomain, abortSignal).then(visited => {
+              clearInterval(checkInterval);
+              log.info({ watchId, visitedPages: visited.length }, 'Generic auto-navigation finished');
+              if (session.status === 'active') {
+                completeSession(session);
+              }
+            }).catch(err => {
+              clearInterval(checkInterval);
+              log.warn({ err, watchId }, 'Generic auto-navigation failed');
+              if (session.status === 'active') {
+                completeSession(session);
+              }
+            });
           } else {
-            // Non-X domains: use login detection as before
+            // No targetDomain: use login detection as before
             recorder.onLoginDetected = () => {
               log.info({ watchId }, 'Login detected — auto-stopping learn session');
               completeSession(session);

@@ -29,6 +29,7 @@ import { registerContactsCommand } from './cli/contacts.js';
 import { registerAutonomyCommand } from './cli/autonomy.js';
 import { registerDoordashCommand } from './cli/doordash.js';
 import { registerTwitterCommand } from './cli/twitter.js';
+import { registerMapCommand } from './cli/map.js';
 
 const program = new Command();
 
@@ -55,6 +56,7 @@ registerDoordashCommand(program);
 registerCompletionsCommand(program);
 
 registerTwitterCommand(program);
+registerMapCommand(program);
 
 const knownCommands = new Set(program.commands.map(cmd => cmd.name()));
 const firstArg = process.argv[2];
