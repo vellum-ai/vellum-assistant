@@ -447,7 +447,7 @@ export function handleHistoryRequest(
 
       for (const block of content) {
         if (!isRecord(block) || typeof block.type !== 'string') continue;
-        if (block.type === 'text' && typeof block.text === 'string') {
+        if (m.role === 'assistant' && block.type === 'text' && typeof block.text === 'string') {
           events.push({ type: 'text', content: block.text });
         } else if (block.type === 'tool_use') {
           const name = typeof block.name === 'string' ? block.name : 'unknown';
