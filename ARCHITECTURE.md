@@ -2444,7 +2444,7 @@ sequenceDiagram
 
 ### Twitter Integration Architecture
 
-Twitter uses a standalone OAuth2 flow separate from the unified messaging layer. It supports two posting mechanisms: an OAuth2 PKCE flow for API-based access, and a browser-session (CDP) approach for posting via Chrome.
+Twitter uses a standalone OAuth2 flow separate from the unified messaging layer. The OAuth2 flow handles identity verification only (confirming the user's Twitter account). Posting is done exclusively via Chrome DevTools Protocol (CDP).
 
 #### Twitter OAuth2 Flow
 
@@ -2489,7 +2489,7 @@ sequenceDiagram
 | Auth URL | `https://twitter.com/i/oauth2/authorize` |
 | Token URL | `https://api.x.com/2/oauth2/token` |
 | Flow | PKCE (S256), optional client secret |
-| Requested scopes | `tweet.read`, `users.read`, `offline.access` |
+| Requested scopes | `tweet.read`, `tweet.write`, `users.read`, `offline.access` |
 | Identity verification | `GET https://api.x.com/2/users/me` with Bearer token, before persisting tokens |
 | Integration mode | `local_byo` — user provides their own Twitter app Client ID |
 | IPC messages | `twitter_auth_start`, `twitter_auth_status` / `twitter_auth_result`, `twitter_auth_status_response` |
@@ -2506,22 +2506,22 @@ When the OAuth2 flow completes, the handler stores credential metadata at `integ
   oauth2TokenUrl: "https://api.x.com/2/oauth2/token",
   oauth2ClientId: "<user's client ID>",
   oauth2ClientSecret: "<optional>",
-  grantedScopes: ["tweet.read", "users.read", "offline.access"],
+  grantedScopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
   expiresAt: <epoch ms>
 }
 ```
 
 #### Twitter CDP Posting Path
 
-The `vellum x post` CLI command uses an alternative mechanism that does not require OAuth2 credentials. It connects to Chrome via CDP (`localhost:9222`), finds an authenticated x.com tab, and executes a `CreateTweet` GraphQL mutation through the browser's session cookies. Session management is handled by Ride Shotgun recordings (`vellum x refresh`).
+The `vellum x post` CLI command is the sole posting mechanism. It connects to Chrome via CDP (`localhost:9222`), finds an authenticated x.com tab, and executes a `CreateTweet` GraphQL mutation through the browser's session cookies. It does not use OAuth2 tokens for posting. Session management is handled by Ride Shotgun recordings (`vellum x refresh`).
 
 #### Available Twitter Tools
 
 | Tool | Mechanism | Description |
 |------|-----------|-------------|
-| `twitter_post` | OAuth2 or CDP | Post a tweet. Available via the `X` bundled skill (`vellum x post`). |
+| `twitter_post` | CDP | Post a tweet. Available via the `X` bundled skill (`vellum x post`). |
 
-Note: The `tweet.read` and `users.read` OAuth2 scopes are used for identity verification during the auth flow, but read functionality is not exposed as a tool.
+Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`) are requested during the auth flow for identity verification. Posting is handled exclusively via CDP, not through the OAuth2 tokens.
 
 ### Key Design Decisions
 
