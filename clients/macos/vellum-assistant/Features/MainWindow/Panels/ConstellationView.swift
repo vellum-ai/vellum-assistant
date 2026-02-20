@@ -589,6 +589,7 @@ private struct ConstellationPill: View {
         .onDisappear {
             if isHovered && isTappable {
                 NSCursor.pop()
+                isHovered = false
             }
         }
         #endif
