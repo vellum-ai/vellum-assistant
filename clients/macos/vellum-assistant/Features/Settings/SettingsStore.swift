@@ -320,24 +320,32 @@ public final class SettingsStore: ObservableObject {
     }
 
     func saveTwitterLocalClient(clientId: String, clientSecret: String?) {
+        let trimmedId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSecret = clientSecret?.trimmingCharacters(in: .whitespacesAndNewlines)
         try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(
             action: "set_local_client",
-            clientId: clientId,
-            clientSecret: clientSecret
+            clientId: trimmedId,
+            clientSecret: trimmedSecret
         ))
     }
 
     func clearTwitterLocalClient() {
+        twitterAuthInProgress = false
         try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "clear_local_client"))
     }
 
     func connectTwitter() {
         twitterAuthInProgress = true
         twitterAuthError = nil
-        try? daemonClient?.send(TwitterAuthStartMessage())
+        do {
+            try daemonClient?.send(TwitterAuthStartMessage())
+        } catch {
+            twitterAuthInProgress = false
+        }
     }
 
     func disconnectTwitter() {
+        twitterAuthInProgress = false
         try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "disconnect"))
     }
 
