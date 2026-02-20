@@ -766,33 +766,27 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
 
   if (process.env.VELLUM_DESKTOP_APP) {
     const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
+    const child = spawn(daemonBinary, [], {
+      detached: true,
+      stdio: "ignore",
+      env: { ...process.env },
+    });
+    child.unref();
 
-    if (!existsSync(daemonBinary)) {
-      console.log("   No bundled daemon binary found — skipping (dev mode)");
-      console.log("   The app will manage the daemon directly\n");
-    } else {
-      const child = spawn(daemonBinary, [], {
-        detached: true,
-        stdio: "ignore",
-        env: { ...process.env },
-      });
-      child.unref();
-
-      const homeDir = process.env.HOME ?? userInfo().homedir;
-      const socketPath = join(homeDir, ".vellum", "vellum.sock");
-      const maxWait = 10000;
-      const pollInterval = 100;
-      let waited = 0;
-      while (waited < maxWait) {
-        if (existsSync(socketPath)) {
-          break;
-        }
-        await new Promise((r) => setTimeout(r, pollInterval));
-        waited += pollInterval;
+    const homeDir = process.env.HOME ?? userInfo().homedir;
+    const socketPath = join(homeDir, ".vellum", "vellum.sock");
+    const maxWait = 10000;
+    const pollInterval = 100;
+    let waited = 0;
+    while (waited < maxWait) {
+      if (existsSync(socketPath)) {
+        break;
       }
-      if (!existsSync(socketPath)) {
-        console.warn("⚠️  Daemon socket did not appear within 10s — continuing anyway");
-      }
+      await new Promise((r) => setTimeout(r, pollInterval));
+      waited += pollInterval;
+    }
+    if (!existsSync(socketPath)) {
+      console.warn("⚠️  Daemon socket did not appear within 10s — continuing anyway");
     }
   } else {
     const sourceTreeIndex = join(import.meta.dir, "..", "..", "..", "assistant", "src", "index.ts");
