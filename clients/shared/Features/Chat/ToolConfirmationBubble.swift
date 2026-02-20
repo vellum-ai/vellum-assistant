@@ -383,12 +383,37 @@ public struct ToolConfirmationBubble: View {
         case .allowOnce:
             onAllow()
         case .alwaysAllow:
-            withAnimation(VAnimation.fast) {
-                pendingPattern = nil
-                showAlwaysAllowMenu.toggle()
+            if confirmation.allowlistOptions.count > 1 {
+                withAnimation(VAnimation.fast) {
+                    pendingPattern = nil
+                    showAlwaysAllowMenu.toggle()
+                }
+            } else {
+                handleSingleOptionAlwaysAllow()
             }
         case .dontAllow:
             onDeny()
+        }
+    }
+
+    /// Shared logic for the single-option Always Allow action, used by both the
+    /// inline button click handler and keyboard Enter activation.
+    private func handleSingleOptionAlwaysAllow() {
+        let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
+        if pattern.isEmpty {
+            onAllow()
+            return
+        }
+        if needsScopeChoice {
+            pendingPattern = pattern
+            showScopePickerMenu = true
+        } else {
+            let scope = confirmation.scopeOptions.first?.scope ?? ""
+            if !scope.isEmpty {
+                onAlwaysAllow(confirmation.requestId, pattern, scope, alwaysAllowDecision)
+            } else {
+                onAllow()
+            }
         }
     }
 
@@ -422,22 +447,7 @@ public struct ToolConfirmationBubble: View {
         } else {
             let patternDesc = confirmation.allowlistOptions.first?.description ?? ""
             confirmationButton("Always Allow", isPrimary: false, isDanger: false, isKeyboardSelected: keyboardModel?.selectedAction == .alwaysAllow) {
-                let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
-                if pattern.isEmpty {
-                    onAllow()
-                    return
-                }
-                if needsScopeChoice {
-                    pendingPattern = pattern
-                    showScopePickerMenu = true
-                } else {
-                    let scope = confirmation.scopeOptions.first?.scope ?? ""
-                    if !scope.isEmpty {
-                        onAlwaysAllow(confirmation.requestId, pattern, scope, alwaysAllowDecision)
-                    } else {
-                        onAllow()
-                    }
-                }
+                handleSingleOptionAlwaysAllow()
             }
             .help(patternDesc.isEmpty ? "Always allow this action" : patternDesc)
             .popover(isPresented: $showScopePickerMenu, arrowEdge: .bottom) {
