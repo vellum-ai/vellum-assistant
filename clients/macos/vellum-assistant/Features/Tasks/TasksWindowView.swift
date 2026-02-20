@@ -236,6 +236,7 @@ private struct TasksWindowRow: View {
     private var statusColumn: some View {
         let status = WorkItemStatus(rawStatus: item.status)
         let style = TasksTableContract.statusStyle(for: status)
+        let badgeBackgroundOpacity: Double = status == .awaitingReview ? 0.22 : 0.12
         return VStack(spacing: VSpacing.xs) {
             HStack(spacing: VSpacing.xs) {
                 if status == .running {
@@ -246,12 +247,12 @@ private struct TasksWindowRow: View {
                     .fill(style.color)
                     .frame(width: 6, height: 6)
                 Text(style.label)
-                    .font(VFont.caption)
+                    .font(VFont.captionMedium)
                     .foregroundColor(style.color)
             }
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, 2)
-            .background(style.color.opacity(0.12))
+            .background(style.color.opacity(badgeBackgroundOpacity))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
 
         }

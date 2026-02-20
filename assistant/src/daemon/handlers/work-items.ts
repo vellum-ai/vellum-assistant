@@ -148,15 +148,23 @@ function broadcastWorkItemStatus(ctx: HandlerContext, id: string): void {
   }
 }
 
-/** Extract plain text from a message content string (handles JSON content block arrays). */
-function extractTextFromContent(content: string): string {
+/**
+ * Extract only the latest assistant text block from stored content.
+ * Consolidation merges multiple assistant messages into one DB row; scanning
+ * from the end keeps task output focused on the final assistant response.
+ */
+function extractLatestTextFromContent(content: string): string {
   try {
     const parsed = JSON.parse(content);
     if (Array.isArray(parsed)) {
-      return parsed
-        .filter((b: { type: string }) => b.type === 'text')
-        .map((b: { text: string }) => b.text)
-        .join('\n');
+      for (let i = parsed.length - 1; i >= 0; i--) {
+        const block = parsed[i] as { type?: unknown; text?: unknown };
+        if (block.type !== 'text') continue;
+        if (typeof block.text !== 'string') continue;
+        if (!block.text.trim()) continue;
+        return block.text;
+      }
+      return '';
     }
   } catch {
     // Plain text content — use as-is
@@ -299,7 +307,7 @@ export function handleWorkItemOutput(
       const m = msgs[i];
       if (m.role !== 'assistant') continue;
 
-      const text = extractTextFromContent(m.content);
+      const text = extractLatestTextFromContent(m.content);
       if (!text.trim()) continue;
 
       summary = truncate(text, 2000, '');

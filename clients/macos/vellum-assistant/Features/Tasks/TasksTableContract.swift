@@ -20,10 +20,10 @@ enum WorkItemStatus: Equatable {
         switch rawStatus.lowercased() {
         case "queued":          self = .queued
         case "running":         self = .running
-        case "awaiting_review": self = .awaitingReview
+        case "awaiting_review", "awaiting review": self = .awaitingReview
         case "failed":          self = .failed
         case "cancelled":       self = .cancelled
-        case "done":            self = .done
+        case "done", "complete", "completed": self = .done
         case "archived":        self = .archived
         default:                self = .unknown(rawStatus)
         }
