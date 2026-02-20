@@ -32,7 +32,16 @@ struct AvatarCustomizationPanel: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 // Header
-                HStack(alignment: .center) {
+                HStack(alignment: .center, spacing: VSpacing.sm) {
+                    Button(action: onClose) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(VColor.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Back to identity")
                     Text("Customize Avatar")
                         .font(VFont.panelTitle)
                         .foregroundColor(VColor.textPrimary)

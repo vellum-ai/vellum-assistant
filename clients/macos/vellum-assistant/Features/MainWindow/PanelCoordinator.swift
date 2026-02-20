@@ -340,7 +340,6 @@ extension MainWindowView {
                 .overlay(alignment: .topTrailing) { panelDismissButton }
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(.identity) })
-                .overlay(alignment: .topTrailing) { panelDismissButton }
         case .generated:
             // Generated panel is handled inline in chatContentView when expanded;
             // if we reach here, isDynamicExpanded is false — clear selection so
