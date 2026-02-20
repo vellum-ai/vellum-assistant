@@ -175,7 +175,10 @@ export async function startOAuth2Flow(
     if (!tokenResp.ok) {
       const body = await tokenResp.text().catch(() => '');
       log.error({ status: tokenResp.status, body }, 'OAuth2 token exchange failed');
-      throw new Error(`OAuth2 token exchange failed (HTTP ${tokenResp.status})`);
+      let errorCode = '';
+      try { errorCode = (JSON.parse(body) as Record<string, unknown>).error as string ?? ''; } catch {}
+      const detail = errorCode ? `HTTP ${tokenResp.status}: ${errorCode}` : `HTTP ${tokenResp.status}`;
+      throw new Error(`OAuth2 token exchange failed (${detail})`);
     }
 
     const tokenData = await tokenResp.json() as Record<string, unknown>;
@@ -231,7 +234,10 @@ export async function refreshOAuth2Token(
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
     log.error({ status: resp.status, body }, 'OAuth2 token refresh failed');
-    throw new Error(`OAuth2 token refresh failed (HTTP ${resp.status})`);
+    let errorCode = '';
+    try { errorCode = (JSON.parse(body) as Record<string, unknown>).error as string ?? ''; } catch {}
+    const detail = errorCode ? `HTTP ${resp.status}: ${errorCode}` : `HTTP ${resp.status}`;
+    throw new Error(`OAuth2 token refresh failed (${detail})`);
   }
 
   const data = await resp.json() as Record<string, unknown>;
