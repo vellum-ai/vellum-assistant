@@ -17,6 +17,8 @@ import {
   type CommitMessageProvider,
 } from './commit-message-provider.js';
 import { getEnrichmentService } from './commit-message-enrichment-service.js';
+import { getCommitMessageGenerator } from './provider-commit-message-generator.js';
+import type { CommitMessageSource, LLMFallbackReason } from './provider-commit-message-generator.js';
 
 const log = getLogger('turn-commit');
 
@@ -58,8 +60,36 @@ export async function commitTurnChanges(
     const gitService = getWorkspaceGitService(workspaceDir);
     const commitStartMs = Date.now();
 
-    // Atomic status check + commit within a single mutex lock to prevent
-    // TOCTOU races with heartbeat commits.
+    // Attempt LLM message generation BEFORE entering commitIfDirty so
+    // the LLM call never runs while holding the git mutex.
+    let llmMessage: string | undefined;
+    let commitMessageSource: CommitMessageSource = 'deterministic';
+    let llmFallbackReason: LLMFallbackReason | undefined;
+
+    try {
+      const generator = getCommitMessageGenerator();
+      const result = await generator.generateCommitMessage(
+        {
+          workspaceDir,
+          trigger: 'turn',
+          sessionId,
+          turnNumber,
+          changedFiles: [], // File list unavailable outside the git mutex; generator handles empty arrays
+          timestampMs: Date.now(),
+        },
+        { deadlineMs, changedFiles: [] },
+      );
+      commitMessageSource = result.source;
+      llmFallbackReason = result.reason;
+      if (result.source === 'llm') {
+        llmMessage = result.message;
+      }
+    } catch (llmErr) {
+      // Never let LLM errors affect the commit path
+      log.debug({ err: llmErr }, 'LLM commit message generation failed (non-fatal)');
+      llmFallbackReason = 'provider_error';
+    }
+
     const { committed, status } = await gitService.commitIfDirty((st) => {
       const uniqueFiles = [...new Set([...st.staged, ...st.modified, ...st.untracked])];
 
@@ -72,6 +102,10 @@ export async function commitTurnChanges(
         timestampMs: Date.now(),
       };
 
+      // Use LLM message if available, otherwise deterministic
+      if (llmMessage) {
+        return { message: llmMessage };
+      }
       return messageProvider.buildImmediateMessage(ctx);
     }, deadlineMs !== undefined ? { deadlineMs } : undefined);
 
@@ -80,7 +114,14 @@ export async function commitTurnChanges(
     if (committed) {
       const uniqueFiles = [...new Set([...status.staged, ...status.modified, ...status.untracked])];
       log.info(
-        { sessionId, turnNumber, filesChanged: uniqueFiles.length, durationMs: commitDurationMs },
+        {
+          sessionId,
+          turnNumber,
+          filesChanged: uniqueFiles.length,
+          durationMs: commitDurationMs,
+          commitMessageSource,
+          ...(llmFallbackReason ? { llmFallbackReason } : {}),
+        },
         'Turn-boundary commit created',
       );
 
