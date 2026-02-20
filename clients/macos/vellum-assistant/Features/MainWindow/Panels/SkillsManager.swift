@@ -226,7 +226,7 @@ final class SkillsManager: ObservableObject {
                    response.operation == "uninstall" {
                     if response.success {
                         uninstallResult = UninstallResult(id: id, success: true, error: nil)
-                        inspectCache.removeValue(forKey: id)
+                        inspectCache.removeAll()
                         fetchSkills(force: true)
                     } else {
                         uninstallResult = UninstallResult(id: id, success: false, error: response.error)
