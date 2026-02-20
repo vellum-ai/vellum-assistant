@@ -151,9 +151,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func createTaskRunThread(conversationId: String, workItemId: String, title: String) {
         // Avoid creating a duplicate thread if one already exists for this conversation
         if threads.contains(where: { $0.sessionId == conversationId }) {
-            if let existing = threads.first(where: { $0.sessionId == conversationId }) {
-                activeThreadId = existing.id
-            }
             return
         }
 
@@ -165,7 +162,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         threads.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
-        activeThreadId = thread.id
 
         log.info("Created task run thread \(thread.id) for conversation \(conversationId) (work item \(workItemId))")
     }
