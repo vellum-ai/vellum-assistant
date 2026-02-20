@@ -40,18 +40,21 @@ describe('prebuilt home base seed', () => {
     const first = ensurePrebuiltHomeBaseSeeded();
     const second = ensurePrebuiltHomeBaseSeeded();
 
-    expect(first.created).toBe(true);
-    expect(second.created).toBe(false);
-    expect(second.appId).toBe(first.appId);
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(first!.created).toBe(true);
+    expect(second!.created).toBe(false);
+    expect(second!.appId).toBe(first!.appId);
     expect(listApps().filter((app) => app.name === 'Home Base').length).toBe(1);
   });
 
   test('findSeededHomeBaseApp resolves the seeded app', () => {
     const seeded = ensurePrebuiltHomeBaseSeeded();
+    expect(seeded).not.toBeNull();
     const found = findSeededHomeBaseApp();
 
     expect(found).not.toBeNull();
-    expect(found?.id).toBe(seeded.appId);
+    expect(found?.id).toBe(seeded!.appId);
     // listApps() (used by findSeededHomeBaseApp) no longer stores htmlDefinition
     // in the JSON file — it is persisted as index.html on disk.
     // Use getApp() to load the full definition including htmlDefinition.
@@ -61,9 +64,10 @@ describe('prebuilt home base seed', () => {
 
   test('rejects updates that remove required Home Base anchors', () => {
     const seeded = ensurePrebuiltHomeBaseSeeded();
+    expect(seeded).not.toBeNull();
 
     expect(() => {
-      updateApp(seeded.appId, {
+      updateApp(seeded!.appId, {
         htmlDefinition: '<main id="home-base-root"></main>',
       });
     }).toThrow('missing required anchors');

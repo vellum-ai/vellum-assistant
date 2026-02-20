@@ -66,9 +66,10 @@ export function handleHomeBaseGet(
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Failed to resolve home base metadata');
-    ctx.send(socket, { type: 'error', message: `Failed to resolve home base metadata: ${message}` });
+    // Return null rather than surfacing an error banner to the user —
+    // the chat still works fine without home base metadata.
+    ctx.send(socket, { type: 'home_base_get_response', homeBase: null });
   }
 }
 
