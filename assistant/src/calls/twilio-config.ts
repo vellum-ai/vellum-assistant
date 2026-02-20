@@ -1,5 +1,7 @@
 import { getSecureKey } from '../security/secure-keys.js';
 import { getLogger } from '../util/logger.js';
+import { loadConfig } from '../config/loader.js';
+import { getWebhookBaseUrl } from './twilio-webhook-urls.js';
 
 const log = getLogger('twilio-config');
 
@@ -15,7 +17,8 @@ export function getTwilioConfig(): TwilioConfig {
   const accountSid = getSecureKey('credential:twilio:account_sid');
   const authToken = getSecureKey('credential:twilio:auth_token');
   const phoneNumber = process.env.TWILIO_PHONE_NUMBER || getSecureKey('credential:twilio:phone_number') || '';
-  const webhookBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL || '';
+  const config = loadConfig();
+  const webhookBaseUrl = getWebhookBaseUrl(config);
   const wssBaseUrl = process.env.TWILIO_WSS_BASE_URL || '';
 
   if (!accountSid || !authToken) {
@@ -23,9 +26,6 @@ export function getTwilioConfig(): TwilioConfig {
   }
   if (!phoneNumber) {
     throw new Error('TWILIO_PHONE_NUMBER not configured.');
-  }
-  if (!webhookBaseUrl) {
-    throw new Error('TWILIO_WEBHOOK_BASE_URL not configured.');
   }
 
   log.debug('Twilio config loaded successfully');

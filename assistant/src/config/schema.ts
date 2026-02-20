@@ -883,6 +883,9 @@ export const CallsConfigSchema = z.object({
       error: `calls.provider must be one of: ${VALID_CALL_PROVIDERS.join(', ')}`,
     })
     .default('twilio'),
+  webhookBaseUrl: z
+    .string({ error: 'calls.webhookBaseUrl must be a string' })
+    .default(''),
   maxDurationSeconds: z
     .number({ error: 'calls.maxDurationSeconds must be a number' })
     .int('calls.maxDurationSeconds must be an integer')
@@ -1149,6 +1152,7 @@ export const AssistantConfigSchema = z.object({
   calls: CallsConfigSchema.default({
     enabled: true,
     provider: 'twilio',
+    webhookBaseUrl: '',
     maxDurationSeconds: 3600,
     userConsultTimeoutSeconds: 120,
     disclosure: {
