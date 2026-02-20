@@ -212,6 +212,8 @@ export interface RideShotgunStart {
   intervalSeconds: number;
   mode?: 'observe' | 'learn';
   targetDomain?: string;
+  /** Domain to auto-navigate (may differ from targetDomain, e.g. open.spotify.com vs spotify.com). */
+  navigateDomain?: string;
   autoNavigate?: boolean;
 }
 

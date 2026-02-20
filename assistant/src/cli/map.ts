@@ -15,8 +15,19 @@ import {
   serialize,
   createMessageParser,
 } from '../daemon/ipc-protocol.js';
+import { parse as parseTld } from 'tldts';
 import { loadRecording } from '../tools/browser/recording-store.js';
 import { analyzeApiMap, saveApiMap, printApiMapTable } from '../tools/browser/api-map.js';
+
+/**
+ * Extract the registrable base domain from a hostname.
+ * e.g. "open.spotify.com" → "spotify.com", "connect.garmin.com" → "garmin.com"
+ * Falls back to the input if tldts can't parse it.
+ */
+function getBaseDomain(domain: string): string {
+  const result = parseTld(domain);
+  return result.domain ?? domain;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -95,8 +106,12 @@ interface LearnResult {
   recordingPath?: string;
 }
 
-async function startLearnSession(domain: string, durationSeconds: number): Promise<LearnResult> {
-  await ensureChromeWithCDP(domain);
+async function startLearnSession(
+  navigateDomain: string,
+  recordDomain: string,
+  durationSeconds: number,
+): Promise<LearnResult> {
+  await ensureChromeWithCDP(navigateDomain);
 
   return new Promise((resolve, reject) => {
     const socketPath = getSocketPath();
@@ -123,7 +138,8 @@ async function startLearnSession(domain: string, durationSeconds: number): Promi
           durationSeconds,
           intervalSeconds: 5,
           mode: 'learn',
-          targetDomain: domain,
+          targetDomain: recordDomain,
+          navigateDomain,
           autoNavigate: true,
         } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
       );
@@ -196,11 +212,19 @@ export function registerMapCommand(program: Command): void {
       const duration = parseInt(opts.duration, 10);
 
       try {
-        // 1. Start learn session (launches Chrome + auto-navigates)
+        // Split into navigation domain (what Chrome browses) and recording domain (network filter).
+        // e.g. "open.spotify.com" → navigate open.spotify.com, record *.spotify.com
+        const navigateDomain = domain;
+        const recordDomain = getBaseDomain(domain);
+
         if (!json) {
-          console.log(`Starting API map session for ${domain} (${duration}s)...`);
+          if (navigateDomain !== recordDomain) {
+            console.log(`Starting API map session: navigating ${navigateDomain}, recording *.${recordDomain} (${duration}s)...`);
+          } else {
+            console.log(`Starting API map session for ${domain} (${duration}s)...`);
+          }
         }
-        const result = await startLearnSession(domain, duration);
+        const result = await startLearnSession(navigateDomain, recordDomain, duration);
 
         if (!result.recordingId) {
           outputError('Recording completed but no recording ID returned');

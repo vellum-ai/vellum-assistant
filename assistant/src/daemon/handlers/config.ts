@@ -412,11 +412,12 @@ export function handleTwilioWebhookConfig(
       const raw = loadRawConfig();
       const calls = (raw?.calls ?? {}) as Record<string, unknown>;
       calls.webhookBaseUrl = value || undefined;
+      const wasSuppressed = ctx.suppressConfigReload;
       ctx.setSuppressConfigReload(true);
       try {
         saveRawConfig({ ...raw, calls });
       } catch (err) {
-        ctx.setSuppressConfigReload(false);
+        ctx.setSuppressConfigReload(wasSuppressed);
         throw err;
       }
       const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
