@@ -1125,6 +1125,8 @@ graph TB
 
 9. **Non-blocking enrichment queue**: After each successful commit, a `CommitEnrichmentService` runs async enrichment fire-and-forget. The queue has configurable max size (default 50), concurrency (default 1), per-job timeout (default 30s), and retry count (default 2 with exponential backoff). On queue overflow, the oldest job is dropped with a warning log. On graceful shutdown, in-flight jobs drain while pending jobs are discarded. Currently writes placeholder JSON metadata to git notes (`refs/notes/vellum`) as a scaffold for future LLM enrichment.
 
+10. **Provider-aware commit message generation (optional)**: When `workspaceGit.commitMessageLLM.enabled` is `true`, turn-boundary commits attempt to generate a descriptive commit message using the configured LLM provider before falling back to deterministic messages. The LLM call runs BEFORE entering the `commitIfDirty` mutex to ensure it never holds the git lock during a network call. Pre-flight checks gate the attempt: the configured provider must have an API key, the generator's circuit breaker must be closed, and sufficient turn budget must remain (`minRemainingTurnBudgetMs`). On any failure — timeout, provider error, invalid output, or missing credentials — the deterministic message is used immediately with a structured `llmFallbackReason` log field. The feature ships disabled by default and is designed to never degrade turn completion guarantees.
+
 ### Design decisions
 
 - **Commit at turn boundaries, not per-tool-call**: A single commit per turn captures all file mutations from that turn atomically. This avoids noisy per-file commits and keeps the history meaningful.
@@ -1142,6 +1144,7 @@ graph TB
 | `assistant/src/workspace/commit-message-provider.ts` | `CommitMessageProvider` interface, `DefaultCommitMessageProvider`, `CommitContext`/`CommitMessageResult` types |
 | `assistant/src/workspace/commit-message-enrichment-service.ts` | `CommitEnrichmentService`: bounded async queue, fire-and-forget enrichment, git notes output |
 | `assistant/src/workspace/turn-commit.ts` | `commitTurnChanges()`: turn-boundary commit with structured metadata + enrichment enqueue |
+| `assistant/src/workspace/provider-commit-message-generator.ts` | `ProviderCommitMessageGenerator`: LLM-based commit message generation with circuit breaker and deterministic fallback |
 | `assistant/src/workspace/heartbeat-service.ts` | `HeartbeatService`: periodic safety-net auto-commits, shutdown commits, enrichment enqueue |
 | `assistant/src/daemon/session-agent-loop.ts` | Integration: turn-boundary commit with `raceWithTimeout` protection in `runAgentLoop` finally block |
 | `assistant/src/daemon/lifecycle.ts` | Integration: `HeartbeatService` start/stop and shutdown commit |
