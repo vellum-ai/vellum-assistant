@@ -2288,13 +2288,14 @@ graph LR
 
 ---
 
-## Integrations — OAuth2 + Unified Messaging
+## Integrations — OAuth2 + Unified Messaging + Twitter
 
 The integration framework lets Vellum connect to third-party services via OAuth2. The architecture follows these principles:
 
 - **Secrets never reach the LLM** — OAuth tokens are stored in the credential vault and accessed exclusively through the `TokenManager`, which provides tokens to tool executors via `withValidToken()`. The LLM never sees raw tokens.
-- **PKCE or client_secret flows** — Desktop apps use PKCE by default (S256). Providers that require a client secret (e.g. Slack) pass it during the OAuth2 flow and store it in credential metadata for autonomous refresh.
+- **PKCE or client_secret flows** — Desktop apps use PKCE by default (S256). Providers that require a client secret (e.g. Slack) pass it during the OAuth2 flow and store it in credential metadata for autonomous refresh. Twitter uses PKCE with an optional client secret in `local_byo` mode.
 - **Unified messaging layer** — All messaging platforms implement the `MessagingProvider` interface. Generic tools delegate to the provider, so adding a new platform is just implementing one adapter + an OAuth setup skill.
+- **Standalone integrations** — Not all integrations fit the messaging model. Twitter has its own OAuth2 flow and IPC handlers (`twitter_auth_start`, `twitter_auth_status`) separate from the unified messaging layer.
 - **Provider registry** — Messaging providers register at daemon startup. The registry tracks which providers have stored credentials, enabling auto-selection when only one is connected.
 
 ### Unified Messaging Architecture
@@ -2418,6 +2419,87 @@ sequenceDiagram
     end
 ```
 
+### Twitter Integration Architecture
+
+Twitter uses a standalone OAuth2 flow separate from the unified messaging layer. It supports two posting mechanisms: an OAuth2 PKCE flow for API-based access, and a browser-session (CDP) approach for posting via Chrome.
+
+#### Twitter OAuth2 Flow
+
+```mermaid
+sequenceDiagram
+    participant UI as Settings UI (Swift)
+    participant IPC as IPC Socket
+    participant Handler as twitter-auth handler
+    participant OAuth as OAuth2 PKCE Flow
+    participant Browser as System Browser
+    participant Twitter as Twitter OAuth Server
+    participant Vault as Credential Vault
+    participant API as X API (v2)
+
+    Note over UI,API: Connection Flow (local_byo mode)
+    UI->>IPC: twitter_auth_start
+    IPC->>Handler: dispatch
+    Handler->>Handler: load config (twitterIntegrationMode)
+    Handler->>Vault: getSecureKey (oauth_client_id)
+    Handler->>OAuth: startOAuth2Flow(config)
+    OAuth->>OAuth: generate code_verifier + code_challenge (S256)
+    OAuth->>OAuth: start Bun.serve on random port
+    OAuth->>IPC: open_url (twitter.com/i/oauth2/authorize)
+    IPC->>Browser: open URL
+    Browser->>Twitter: user authorizes
+    Twitter->>OAuth: callback with auth code
+    OAuth->>Twitter: exchange code + code_verifier at api.x.com/2/oauth2/token
+    Twitter-->>OAuth: access + refresh tokens
+    OAuth-->>Handler: tokens + grantedScopes
+    Handler->>API: GET /2/users/me (verify identity)
+    API-->>Handler: username
+    Handler->>Vault: setSecureKey (access + refresh tokens)
+    Handler->>Vault: upsertCredentialMetadata
+    Handler->>IPC: twitter_auth_result {success, accountInfo: "@username"}
+    IPC->>UI: show connected state
+```
+
+#### Twitter OAuth2 Specifics
+
+| Aspect | Detail |
+|--------|--------|
+| Auth URL | `https://twitter.com/i/oauth2/authorize` |
+| Token URL | `https://api.x.com/2/oauth2/token` |
+| Flow | PKCE (S256), optional client secret |
+| Requested scopes | `tweet.read`, `users.read`, `offline.access` |
+| Identity verification | `GET https://api.x.com/2/users/me` with Bearer token, before persisting tokens |
+| Integration mode | `local_byo` — user provides their own Twitter app Client ID |
+| IPC messages | `twitter_auth_start`, `twitter_auth_status` / `twitter_auth_result`, `twitter_auth_status_response` |
+
+#### Twitter Credential Metadata Structure
+
+When the OAuth2 flow completes, the handler stores credential metadata at `integration:twitter` / `access_token`:
+
+```
+{
+  accountInfo: "@username",
+  allowedTools: ["twitter_post", "twitter_read"],
+  allowedDomains: [],
+  oauth2TokenUrl: "https://api.x.com/2/oauth2/token",
+  oauth2ClientId: "<user's client ID>",
+  oauth2ClientSecret: "<optional>",
+  grantedScopes: ["tweet.read", "users.read", "offline.access"],
+  expiresAt: <epoch ms>
+}
+```
+
+#### Twitter CDP Posting Path
+
+The `vellum x post` CLI command uses an alternative mechanism that does not require OAuth2 credentials. It connects to Chrome via CDP (`localhost:9222`), finds an authenticated x.com tab, and executes a `CreateTweet` GraphQL mutation through the browser's session cookies. Session management is handled by Ride Shotgun recordings (`vellum x refresh`).
+
+#### Available Twitter Tools
+
+| Tool | Mechanism | Description |
+|------|-----------|-------------|
+| `twitter_post` | OAuth2 or CDP | Post a tweet. Available via the `X` bundled skill (`vellum x post`). |
+
+Note: `twitter_read` is listed in `allowedTools` metadata but has no tool implementation. The `tweet.read` and `users.read` OAuth2 scopes are used for identity verification during the auth flow.
+
 ### Key Design Decisions
 
 | Decision | Rationale |
@@ -2425,10 +2507,12 @@ sequenceDiagram
 | PKCE by default, optional client_secret | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh |
 | `127.0.0.1` not `localhost` | Google OAuth requires IP literal for loopback redirect URIs |
 | Unified `MessagingProvider` interface | All platforms implement the same contract; generic tools work immediately for new providers |
+| Twitter outside unified messaging | Twitter is a broadcast platform (post-only), not a conversation platform — it doesn't fit the `MessagingProvider` contract |
 | Provider auto-selection | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX |
 | Token expiry in credential metadata | Reuses existing `CredentialMetadata` store; `expiresAt` field enables proactive refresh with 5min buffer |
 | Confidence scores on medium-risk tools | LLM self-reports confidence (0-1); enables future trust calibration without blocking execution |
 | Platform-specific extension tools | Operations unique to one platform (e.g. Gmail labels, Slack reactions) are separate tools, not forced into the generic interface |
+| Twitter identity verification before token storage | OAuth2 tokens are only persisted after a successful `GET /2/users/me` call, preventing storage of invalid or mismatched credentials |
 
 ### Source Files
 
@@ -2447,6 +2531,11 @@ sequenceDiagram
 | `assistant/src/config/bundled-skills/messaging/` | Unified messaging skill (SKILL.md, TOOLS.json, tools/) |
 | `assistant/src/watcher/providers/slack.ts` | Slack watcher for DMs, mentions, thread replies |
 | `assistant/src/watcher/providers/gmail.ts` | Gmail watcher using History API |
+| `assistant/src/daemon/handlers/twitter-auth.ts` | Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`) |
+| `assistant/src/twitter/client.ts` | Twitter CDP client: GraphQL mutations via Chrome DevTools Protocol |
+| `assistant/src/twitter/session.ts` | Twitter browser session persistence (cookie import/export) |
+| `assistant/src/cli/twitter.ts` | `vellum x` CLI command group (post, refresh, status, login, logout) |
+| `assistant/src/config/bundled-skills/twitter/SKILL.md` | X (Twitter) bundled skill instructions |
 
 ---
 
