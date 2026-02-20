@@ -87,7 +87,8 @@ private struct UsedToolsRow: View {
     private var hasDetails: Bool {
         !toolCall.inputFull.isEmpty ||
         (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true)) ||
-        toolCall.cachedImage != nil
+        toolCall.cachedImage != nil ||
+        !toolCall.claudeCodeSteps.isEmpty
     }
 
     var body: some View {
@@ -166,6 +167,22 @@ private struct UsedToolsRow: View {
                         }
                     }
                     .padding(.horizontal, VSpacing.md)
+
+                    // Claude Code sub-steps (if any)
+                    if !toolCall.claudeCodeSteps.isEmpty {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Sub-steps")
+                                .font(VFont.small)
+                                .foregroundColor(VColor.textMuted)
+                                .textCase(.uppercase)
+
+                            ClaudeCodeProgressView(
+                                steps: toolCall.claudeCodeSteps,
+                                isRunning: false
+                            )
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                    }
 
                     // Screenshot — use CGImage + displayScale for pixel-perfect Retina rendering
                     if let img = toolCall.cachedImage,

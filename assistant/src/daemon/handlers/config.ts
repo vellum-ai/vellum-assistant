@@ -503,6 +503,7 @@ export function handleTwitterIntegrationConfig(
         });
         return;
       }
+      const previousClientId = getSecureKey('credential:integration:twitter:oauth_client_id');
       const storedId = setSecureKey('credential:integration:twitter:oauth_client_id', msg.clientId);
       if (!storedId) {
         ctx.send(socket, {
@@ -518,8 +519,12 @@ export function handleTwitterIntegrationConfig(
       if (msg.clientSecret) {
         const storedSecret = setSecureKey('credential:integration:twitter:oauth_client_secret', msg.clientSecret);
         if (!storedSecret) {
-          // Roll back the already-persisted client ID to avoid inconsistent OAuth state
-          deleteSecureKey('credential:integration:twitter:oauth_client_id');
+          // Roll back the client ID to its previous value to avoid inconsistent OAuth state
+          if (previousClientId) {
+            setSecureKey('credential:integration:twitter:oauth_client_id', previousClientId);
+          } else {
+            deleteSecureKey('credential:integration:twitter:oauth_client_id');
+          }
           ctx.send(socket, {
             type: 'twitter_integration_config_response',
             success: false,

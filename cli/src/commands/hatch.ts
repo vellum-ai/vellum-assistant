@@ -805,8 +805,15 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
       console.warn("⚠️  Daemon socket did not appear within 10s — continuing anyway");
     }
   } else {
+    // Source tree layout: cli/src/commands/ -> ../../.. -> repo root -> assistant/src/index.ts
     const sourceTreeIndex = join(import.meta.dir, "..", "..", "..", "assistant", "src", "index.ts");
+    // bunx layout: @vellumai/cli/src/commands/ -> ../../../.. -> node_modules/ -> vellum/src/index.ts
+    const bunxIndex = join(import.meta.dir, "..", "..", "..", "..", "vellum", "src", "index.ts");
     let assistantIndex = sourceTreeIndex;
+
+    if (!existsSync(assistantIndex)) {
+      assistantIndex = bunxIndex;
+    }
 
     if (!existsSync(assistantIndex)) {
       try {

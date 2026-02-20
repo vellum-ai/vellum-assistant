@@ -17,11 +17,11 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
   // ── Credential helpers ──────────────────────────────────────────────
 
   private getCredentials(): { accountSid: string; authToken: string } {
-    const accountSid = getSecureKey('twilio_account_sid');
-    const authToken = getSecureKey('twilio_auth_token');
+    const accountSid = getSecureKey('credential:twilio:account_sid');
+    const authToken = getSecureKey('credential:twilio:auth_token');
     if (!accountSid || !authToken) {
       throw new Error(
-        'Twilio credentials not configured. Set twilio_account_sid and twilio_auth_token via the credential_store tool.',
+        'Twilio credentials not configured. Set credential:twilio:account_sid and credential:twilio:auth_token via the credential_store tool.',
       );
     }
     return { accountSid, authToken };
@@ -134,7 +134,7 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
    * HTTP server webhook middleware) can check availability independently.
    */
   static getAuthToken(): string | null {
-    return getSecureKey('twilio_auth_token') ?? null;
+    return getSecureKey('credential:twilio:auth_token') ?? null;
   }
 
   /**

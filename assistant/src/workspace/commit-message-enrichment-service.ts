@@ -183,6 +183,9 @@ export class CommitEnrichmentService {
       // has already settled with the timeout error, that rejection is orphaned.
       // The .catch() swallows it to prevent an unhandled promise rejection.
       const enrichmentPromise = this.doEnrichment(job, controller.signal);
+      enrichmentPromise.catch(() => {
+        // Intentionally swallowed — the timeout branch already handled the error
+      });
       await Promise.race([
         enrichmentPromise,
         new Promise<never>((_, reject) => {
@@ -192,9 +195,6 @@ export class CommitEnrichmentService {
           }, this.jobTimeoutMs);
         }),
       ]);
-      enrichmentPromise.catch(() => {
-        // Intentionally swallowed — the timeout branch already handled the error
-      });
       this.succeededCount++;
       log.debug(
         { commitHash: job.commitHash, attempts: job.attempts },

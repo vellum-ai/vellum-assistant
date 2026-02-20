@@ -949,7 +949,7 @@ describe('Memory regressions', () => {
         id: 'msg-conflicts-bg',
         conversationId: 'conv-conflicts-bg',
         role: 'user',
-        content: JSON.stringify([{ type: 'text', text: 'Keep the new one instead.' }]),
+        content: JSON.stringify([{ type: 'text', text: 'Keep the new MySQL default instead.' }]),
         createdAt: now + 1,
       }).run();
 
@@ -1047,7 +1047,7 @@ describe('Memory regressions', () => {
         id: 'msg-conflicts-age',
         conversationId: 'conv-conflicts-age',
         role: 'user',
-        content: JSON.stringify([{ type: 'text', text: 'Keep the new one instead.' }]),
+        content: JSON.stringify([{ type: 'text', text: 'Keep the new Bun runtime instead.' }]),
         createdAt: now + 1,
       }).run();
 
@@ -1105,6 +1105,104 @@ describe('Memory regressions', () => {
         .select()
         .from(memoryItems)
         .where(eq(memoryItems.id, 'item-conflict-candidate-age'))
+        .get();
+      const updatedConflict = getConflictById(conflict.id);
+
+      expect(existing?.status).toBe('active');
+      expect(existing?.invalidAt).toBeNull();
+      expect(candidate?.status).toBe('pending_clarification');
+      expect(updatedConflict?.status).toBe('pending_clarification');
+      expect(updatedConflict?.resolutionNote).toBeNull();
+    } finally {
+      TEST_CONFIG.memory.conflicts.enabled = originalConflictsEnabled;
+    }
+  });
+
+  test('background conflict resolver ignores clarification-like replies with no topical overlap when conflict was never asked', async () => {
+    const db = getDb();
+    const now = 1_700_001_400_000;
+    const originalConflictsEnabled = TEST_CONFIG.memory.conflicts.enabled;
+    TEST_CONFIG.memory.conflicts.enabled = true;
+
+    try {
+      db.insert(conversations).values({
+        id: 'conv-conflicts-unrelated',
+        title: null,
+        createdAt: now,
+        updatedAt: now,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalEstimatedCost: 0,
+        contextSummary: null,
+        contextCompactedMessageCount: 0,
+        contextCompactedAt: null,
+      }).run();
+
+      db.insert(messages).values({
+        id: 'msg-conflicts-unrelated',
+        conversationId: 'conv-conflicts-unrelated',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: 'Keep the new one instead.' }]),
+        createdAt: now + 1,
+      }).run();
+
+      db.insert(memoryItems).values([
+        {
+          id: 'item-conflict-existing-unrelated',
+          kind: 'preference',
+          subject: 'database',
+          statement: 'Use Postgres by default.',
+          status: 'active',
+          confidence: 0.8,
+          fingerprint: 'fp-conflict-existing-unrelated',
+          verificationState: 'assistant_inferred',
+          scopeId: 'scope-conflicts-unrelated',
+          firstSeenAt: now - 10_000,
+          lastSeenAt: now - 5_000,
+          validFrom: now - 10_000,
+          invalidAt: null,
+        },
+        {
+          id: 'item-conflict-candidate-unrelated',
+          kind: 'preference',
+          subject: 'database',
+          statement: 'Use MySQL by default.',
+          status: 'pending_clarification',
+          confidence: 0.8,
+          fingerprint: 'fp-conflict-candidate-unrelated',
+          verificationState: 'assistant_inferred',
+          scopeId: 'scope-conflicts-unrelated',
+          firstSeenAt: now - 9_000,
+          lastSeenAt: now - 4_000,
+          validFrom: now - 9_000,
+          invalidAt: null,
+        },
+      ]).run();
+
+      const conflict = createOrUpdatePendingConflict({
+        scopeId: 'scope-conflicts-unrelated',
+        existingItemId: 'item-conflict-existing-unrelated',
+        candidateItemId: 'item-conflict-candidate-unrelated',
+        relationship: 'ambiguous_contradiction',
+      });
+      db.update(memoryItemConflicts)
+        .set({ createdAt: now, updatedAt: now, lastAskedAt: null })
+        .where(eq(memoryItemConflicts.id, conflict.id))
+        .run();
+
+      enqueueResolvePendingConflictsForMessageJob('msg-conflicts-unrelated', 'scope-conflicts-unrelated');
+      const processed = await runMemoryJobsOnce();
+      expect(processed).toBe(1);
+
+      const existing = db
+        .select()
+        .from(memoryItems)
+        .where(eq(memoryItems.id, 'item-conflict-existing-unrelated'))
+        .get();
+      const candidate = db
+        .select()
+        .from(memoryItems)
+        .where(eq(memoryItems.id, 'item-conflict-candidate-unrelated'))
         .get();
       const updatedConflict = getConflictById(conflict.id);
 

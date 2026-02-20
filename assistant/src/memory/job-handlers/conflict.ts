@@ -1,6 +1,11 @@
 import { and, asc, eq, inArray, lt, ne } from 'drizzle-orm';
 import type { AssistantConfig } from '../../config/types.js';
 import { getLogger } from '../../util/logger.js';
+import {
+  computeConflictRelevance,
+  looksLikeClarificationReply,
+  shouldAttemptConflictResolution,
+} from '../conflict-intent.js';
 import { getDb } from '../db.js';
 import { resolveConflictClarification } from '../clarification-resolver.js';
 import { applyConflictResolution, listPendingConflictDetails } from '../conflict-store.js';
@@ -12,6 +17,7 @@ import { memoryItemConflicts, messages } from '../schema.js';
 const log = getLogger('memory-jobs-worker');
 
 const CLEANUP_BATCH_LIMIT = 250;
+const BACKGROUND_RECENT_ASK_WINDOW_MS = 6 * 60 * 60 * 1000;
 
 export async function resolvePendingConflictsForMessageJob(job: MemoryJob, config: AssistantConfig): Promise<void> {
   if (!config.memory.conflicts.enabled) return;
@@ -33,13 +39,28 @@ export async function resolvePendingConflictsForMessageJob(job: MemoryJob, confi
 
   const userMessage = extractTextFromStoredMessageContent(message.content).trim();
   if (userMessage.length === 0) return;
+  const clarificationReply = looksLikeClarificationReply(userMessage);
+  if (!clarificationReply) return;
 
   const pending = listPendingConflictDetails(scopeId, 25);
   const eligible = pending.filter((conflict) => conflict.createdAt <= message.createdAt);
   if (eligible.length === 0) return;
+  const candidates = eligible.filter((conflict) => {
+    const askedAt = conflict.lastAskedAt;
+    const wasRecentlyAsked = typeof askedAt === 'number'
+      && askedAt <= message.createdAt
+      && message.createdAt - askedAt <= BACKGROUND_RECENT_ASK_WINDOW_MS;
+    const relevance = computeConflictRelevance(userMessage, conflict);
+    return shouldAttemptConflictResolution({
+      clarificationReply,
+      relevance,
+      wasRecentlyAsked,
+    });
+  });
+  if (candidates.length === 0) return;
 
   let resolvedCount = 0;
-  for (const conflict of eligible) {
+  for (const conflict of candidates) {
     const resolution = await resolveConflictClarification(
       {
         existingStatement: conflict.existingStatement,
@@ -63,6 +84,7 @@ export async function resolvePendingConflictsForMessageJob(job: MemoryJob, confi
     scopeId,
     pendingConflicts: pending.length,
     eligibleConflicts: eligible.length,
+    candidateConflicts: candidates.length,
     resolvedConflicts: resolvedCount,
   }, 'Processed pending conflict resolution job');
 }
