@@ -538,8 +538,6 @@ struct ActiveChatViewWrapper: View {
                     )
                 }
             },
-            onDeleteQueuedMessage: { messageId in viewModel.deleteQueuedMessage(messageId: messageId) },
-            onSendDirectQueuedMessage: { messageId in viewModel.sendDirectQueuedMessage(messageId: messageId) },
             mediaEmbedSettings: MediaEmbedResolverSettings(
                 enabled: settingsStore.mediaEmbedsEnabled,
                 enabledSince: settingsStore.mediaEmbedsEnabledSince,

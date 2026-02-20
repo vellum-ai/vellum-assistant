@@ -666,13 +666,8 @@ extension ChatViewModel {
             // so assistantTextDelta tags the response correctly.
             if let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId),
                let index = messages.firstIndex(where: { $0.id == messageId }) {
-                // Move the dequeued message to the end so it appears after the
-                // agent's response to the previous message, preserving chronological order.
-                var message = messages.remove(at: index)
-                message.status = .processing
-                message.timestamp = Date()
-                messages.append(message)
-                currentTurnUserText = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                messages[index].status = .processing
+                currentTurnUserText = messages[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             // Recompute positions for remaining queued messages
             for i in messages.indices {
