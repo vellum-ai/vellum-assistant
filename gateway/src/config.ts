@@ -136,11 +136,14 @@ export function loadConfig(): GatewayConfig {
   }
   const runtimeProxyRequireAuth = proxyRequireAuthRaw !== "false";
 
+  // Gateway -> runtime auth should use the same daemon-issued token source as
+  // runtime-proxy auth, unless explicitly overridden by env vars.
+  const runtimeTokenFromFile = readHttpTokenFile() || undefined;
   const runtimeBearerToken =
-    process.env.RUNTIME_BEARER_TOKEN || undefined;
+    process.env.RUNTIME_BEARER_TOKEN || runtimeTokenFromFile;
 
   const runtimeProxyBearerToken =
-    process.env.RUNTIME_PROXY_BEARER_TOKEN || readHttpTokenFile() || undefined;
+    process.env.RUNTIME_PROXY_BEARER_TOKEN || runtimeTokenFromFile;
 
   const MAX_TIMEOUT_MS = 2_147_483_647; // 2^31 - 1, max safe setTimeout delay
 
