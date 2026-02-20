@@ -56,9 +56,64 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+      version: ${{ steps.version.outputs.current }}
+
+  update-assistant:
+    needs: [publish]
+    if: needs.publish.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.8'
+
+      - name: Update assistant dependency and bump version
+        env:
+          NEW_VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          cd assistant
+
+          CURRENT_ASSISTANT_VERSION=$(jq -r '.version' package.json)
+          IFS='.' read -r major minor patch <<< "$CURRENT_ASSISTANT_VERSION"
+          BUMPED_ASSISTANT_VERSION="${major}.${minor}.$((patch + 1))"
+
+          jq --arg v "$NEW_VERSION" '.dependencies["@vellumai/cli"] = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+          jq --arg v "$BUMPED_ASSISTANT_VERSION" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+
+          bun install
+
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          BRANCH="auto/bump-cli-${NEW_VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add assistant/package.json assistant/bun.lock
+          git commit -m "Bump @vellumai/cli to ${NEW_VERSION} in assistant"
+          git push origin "$BRANCH"
+          PR_URL=$(gh pr create \
+            --title "Bump @vellumai/cli to ${NEW_VERSION} in assistant" \
+            --body "Auto-generated PR to update @vellumai/cli to ${NEW_VERSION} and bump assistant version." \
+            --base main \
+            --head "$BRANCH")
+          gh pr merge "$PR_URL" --auto --squash
+
   notify-failure:
     if: failure()
-    needs: [publish]
+    needs: [publish, update-assistant]
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack of publish failure

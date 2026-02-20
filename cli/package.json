@@ -7,7 +7,6 @@
     "vellum-cli": "./src/index.ts"
   },
   "scripts": {
-    "bump": "bun run scripts/bump.ts",
     "lint": "eslint",
     "typecheck": "bunx tsc --noEmit"
   },
