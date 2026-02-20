@@ -38,12 +38,31 @@ export interface ApiMapResult {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NUMERIC_RE = /^\d+$/;
 const HEX_HASH_RE = /^[0-9a-f]{8,}$/i;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** URL path patterns that indicate non-API noise. */
+const NOISE_PATH_PATTERNS = [
+  /\/web-translations\//,
+  /\/cdn-cgi\//,
+  /\.properties$/,
+  /\.js$/,
+  /\.css$/,
+  /\.woff2?$/,
+  /\.png$/,
+  /\.jpg$/,
+  /\.svg$/,
+  /\.ico$/,
+  /\.map$/,
+  /\/preference\//,
+  /\/userpreference-service\//,
+];
 
 /** Returns true when a path segment looks like a dynamic ID. */
 function isIdSegment(segment: string): boolean {
   if (NUMERIC_RE.test(segment)) return true;
   if (UUID_RE.test(segment)) return true;
   if (HEX_HASH_RE.test(segment)) return true;
+  if (DATE_RE.test(segment)) return true;
   return false;
 }
 
@@ -69,27 +88,43 @@ function tryParseJson(text: string | undefined): Record<string, unknown> | undef
   return undefined;
 }
 
+/** Extract GraphQL operation name from request body. */
+function extractGraphQLOperationName(postData: string | undefined): string | null {
+  if (!postData) return null;
+  const body = tryParseJson(postData);
+  if (!body) return null;
+  if (typeof body.operationName === 'string' && body.operationName) return body.operationName;
+  // Try extracting from query string: "query FooBar { ..." or "mutation FooBar { ..."
+  if (typeof body.query === 'string') {
+    const named = body.query.match(/(?:query|mutation|subscription)\s+(\w+)/);
+    if (named) return named[1];
+    // Unnamed query — extract the first field name: "query{fooBar(" or "query { fooBar {"
+    const firstField = body.query.match(/(?:query|mutation|subscription)\s*\{?\s*(\w+)/);
+    if (firstField) return firstField[1];
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Core analysis
 // ---------------------------------------------------------------------------
+
+interface GroupData {
+  method: string;
+  urlPattern: string;
+  exampleUrl: string;
+  queryParams: Set<string>;
+  requestBodyKeys: Set<string>;
+  responseStatus: Set<number>;
+  responseBodyKeys: Set<string>;
+  count: number;
+}
 
 export function analyzeApiMap(
   entries: NetworkRecordedEntry[],
   domain: string,
 ): ApiMapResult {
-  const groups = new Map<
-    string,
-    {
-      method: string;
-      urlPattern: string;
-      exampleUrl: string;
-      queryParams: Set<string>;
-      requestBodyKeys: Set<string>;
-      responseStatus: Set<number>;
-      responseBodyKeys: Set<string>;
-      count: number;
-    }
-  >();
+  const groups = new Map<string, GroupData>();
 
   for (const entry of entries) {
     const { request, response } = entry;
@@ -97,11 +132,30 @@ export function analyzeApiMap(
     try {
       parsed = new URL(request.url);
     } catch {
-      continue; // skip malformed URLs
+      continue;
     }
 
+    // Skip non-API noise
+    if (NOISE_PATH_PATTERNS.some(p => p.test(parsed.pathname))) continue;
+
+    // Skip non-JSON responses
+    const mimeType = response?.mimeType ?? '';
+    if (response && !mimeType.includes('json') && !mimeType.includes('graphql')) continue;
+
     const method = request.method.toUpperCase();
-    const urlPattern = `${parsed.hostname}${normalizePathSegments(parsed.pathname)}`;
+    const normalizedPath = normalizePathSegments(parsed.pathname);
+    const basePattern = `${parsed.hostname}${normalizedPath}`;
+
+    // For GraphQL endpoints, split by operation name
+    let urlPattern = basePattern;
+    const isGraphQL = normalizedPath.includes('graphql');
+    if (isGraphQL && method === 'POST') {
+      const opName = extractGraphQLOperationName(request.postData);
+      if (opName) {
+        urlPattern = `${basePattern} → ${opName}`;
+      }
+    }
+
     const key = `${method} ${urlPattern}`;
 
     let group = groups.get(key);
@@ -121,26 +175,23 @@ export function analyzeApiMap(
 
     group.count++;
 
-    // Collect query param keys
     for (const paramKey of parsed.searchParams.keys()) {
       group.queryParams.add(paramKey);
     }
 
-    // Request body keys (POST/PUT/PATCH)
     if (['POST', 'PUT', 'PATCH'].includes(method)) {
       const body = tryParseJson(request.postData);
       if (body) {
         for (const k of Object.keys(body)) {
-          group.requestBodyKeys.add(k);
+          if (k !== 'query' && k !== 'operationName' && k !== 'extensions') {
+            group.requestBodyKeys.add(k);
+          }
         }
       }
     }
 
-    // Response status
     if (response) {
       group.responseStatus.add(response.status);
-
-      // Response body keys
       const resBody = tryParseJson(response.body);
       if (resBody) {
         for (const k of Object.keys(resBody)) {
@@ -161,13 +212,21 @@ export function analyzeApiMap(
     count: g.count,
   }));
 
-  // Sort by count descending, then by urlPattern for stability
-  endpoints.sort((a, b) => b.count - a.count || a.urlPattern.localeCompare(b.urlPattern));
+  // Sort: data endpoints first (low count = unique pages), then boilerplate
+  // Within each tier, sort alphabetically by pattern for readability
+  endpoints.sort((a, b) => {
+    const aIsBoilerplate = a.count > 15;
+    const bIsBoilerplate = b.count > 15;
+    if (aIsBoilerplate !== bIsBoilerplate) return aIsBoilerplate ? 1 : -1;
+    return a.urlPattern.localeCompare(b.urlPattern);
+  });
+
+  const totalApiRequests = endpoints.reduce((sum, ep) => sum + ep.count, 0);
 
   return {
     domain,
     analyzedAt: Date.now(),
-    totalRequests: entries.length,
+    totalRequests: totalApiRequests,
     endpoints,
   };
 }
@@ -191,30 +250,44 @@ export function saveApiMap(domain: string, result: ApiMapResult): string {
 // ---------------------------------------------------------------------------
 
 export function printApiMapTable(result: ApiMapResult): void {
-  console.log(`\nAPI Map for ${result.domain} — ${result.totalRequests} total requests, ${result.endpoints.length} unique endpoints\n`);
+  const dataEndpoints = result.endpoints.filter(ep => ep.count <= 15);
+  const boilerplate = result.endpoints.filter(ep => ep.count > 15);
 
-  const header = ['Method', 'URL Pattern', 'Count', 'Status', 'Query Params'];
-  const rows = result.endpoints.map((ep) => [
-    ep.method,
-    ep.urlPattern,
-    String(ep.count),
-    ep.responseStatus.join(',') || '-',
-    ep.queryParams.join(',') || '-',
-  ]);
+  console.log(`\nAPI Map for ${result.domain} — ${result.endpoints.length} endpoints discovered\n`);
 
-  // Calculate column widths
-  const widths = header.map((h, i) =>
-    Math.max(h.length, ...rows.map((r) => r[i].length)),
-  );
+  const stripDomain = (pattern: string) => {
+    const idx = pattern.indexOf('/');
+    return idx >= 0 ? pattern.slice(idx) : pattern;
+  };
 
-  const sep = widths.map((w) => '-'.repeat(w)).join(' | ');
-  const fmt = (row: string[]) =>
-    row.map((cell, i) => cell.padEnd(widths[i])).join(' | ');
+  const printSection = (title: string, eps: ApiEndpoint[]) => {
+    if (eps.length === 0) return;
+    console.log(`  ${title} (${eps.length})\n`);
 
-  console.log(fmt(header));
-  console.log(sep);
-  for (const row of rows) {
-    console.log(fmt(row));
-  }
-  console.log();
+    const header = ['Method', 'Endpoint', 'Hits', 'Response Keys'];
+    const rows = eps.map((ep) => [
+      ep.method,
+      stripDomain(ep.urlPattern),
+      String(ep.count),
+      ep.responseBodyKeys.slice(0, 5).join(', ') || '-',
+    ]);
+
+    const widths = header.map((h, i) =>
+      Math.min(i === 1 ? 72 : i === 3 ? 50 : 200, Math.max(h.length, ...rows.map((r) => r[i].length))),
+    );
+
+    const sep = widths.map((w) => '-'.repeat(w)).join(' | ');
+    const fmt = (row: string[]) =>
+      row.map((cell, i) => cell.slice(0, widths[i]).padEnd(widths[i])).join(' | ');
+
+    console.log(`  ${fmt(header)}`);
+    console.log(`  ${sep}`);
+    for (const row of rows) {
+      console.log(`  ${fmt(row)}`);
+    }
+    console.log();
+  };
+
+  printSection('DATA ENDPOINTS', dataEndpoints);
+  printSection('PAGE-LOAD BOILERPLATE', boilerplate);
 }
