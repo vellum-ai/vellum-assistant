@@ -104,3 +104,11 @@ export function getOAuthCallbackUrl(config: IngressConfig): string {
   const base = getPublicBaseUrl(config);
   return `${base}/webhooks/oauth/callback`;
 }
+
+/**
+ * Build the Telegram webhook URL.
+ */
+export function getTelegramWebhookUrl(config: IngressConfig): string {
+  const base = getPublicBaseUrl(config);
+  return `${base}/webhooks/telegram`;
+}

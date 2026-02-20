@@ -10,9 +10,9 @@ You are helping your user connect a Telegram bot to the Vellum Assistant gateway
 ## What You Need
 
 1. **Bot token** from Telegram's @BotFather (the user provides this)
-2. **Gateway webhook URL** where the gateway receives webhooks (e.g. `https://their-domain/webhooks/telegram`)
+2. **Gateway webhook URL** where the gateway receives webhooks — this should be `${ingress.publicBaseUrl}/webhooks/telegram`. If `ingress.publicBaseUrl` is configured, use it to auto-derive the webhook URL. If it is not configured, ask the user to either set `ingress.publicBaseUrl` in the assistant config or provide the webhook URL manually as a fallback.
 
-If the user has already provided the bot token in the conversation, use it directly. Otherwise, ask for it. Always confirm the gateway webhook URL if not provided.
+If the user has already provided the bot token in the conversation, use it directly. Otherwise, ask for it.
 
 ## Setup Steps
 

@@ -23,6 +23,7 @@ import {
   getTwilioConnectActionUrl,
   getTwilioRelayUrl,
   getOAuthCallbackUrl,
+  getTelegramWebhookUrl,
 } from '../inbound/public-ingress-urls.js';
 
 // ---------------------------------------------------------------------------
@@ -202,5 +203,26 @@ describe('getOAuthCallbackUrl', () => {
       ingress: { publicBaseUrl: 'https://example.com' },
     });
     expect(url).toBe('https://example.com/webhooks/oauth/callback');
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// getTelegramWebhookUrl
+// ---------------------------------------------------------------------------
+
+describe('getTelegramWebhookUrl', () => {
+  test('builds correct URL', () => {
+    const url = getTelegramWebhookUrl({
+      ingress: { publicBaseUrl: 'https://example.com' },
+    });
+    expect(url).toBe('https://example.com/webhooks/telegram');
+  });
+
+  test('normalizes trailing slash before composing', () => {
+    const url = getTelegramWebhookUrl({
+      ingress: { publicBaseUrl: 'https://example.com/' },
+    });
+    expect(url).toBe('https://example.com/webhooks/telegram');
   });
 });
