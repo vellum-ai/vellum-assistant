@@ -70,8 +70,18 @@ export async function commitTurnChanges(
     let llmFallbackReason: LLMFallbackReason | undefined;
 
     if (!provider) {
-      const preStatus = await gitService.getStatus();
-      if (!preStatus.clean) {
+      // Guard: skip pre-check if deadline already elapsed to avoid unnecessary mutex contention
+      let preClean = false;
+      if (!deadlineMs || Date.now() < deadlineMs) {
+        try {
+          const preStatus = await gitService.getStatus();
+          preClean = preStatus.clean;
+        } catch {
+          // If we can't determine status, assume dirty so we don't skip the commit
+        }
+      }
+
+      if (!preClean) {
         try {
           const generator = getCommitMessageGenerator();
           const result = await generator.generateCommitMessage(
