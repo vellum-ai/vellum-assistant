@@ -426,8 +426,8 @@ export async function handleWorkItemRunTask(
   // Execute task asynchronously — lazily create a session inside the callback
   // using the conversationId provided by runTask, so the session references
   // the conversation that was actually inserted into the database.
+  let session: Awaited<ReturnType<typeof ctx.getOrCreateSession>> | null = null;
   try {
-    let session: Awaited<ReturnType<typeof ctx.getOrCreateSession>> | null = null;
     const result = await runTask(
       { taskId: workItem.taskId, workingDir: process.cwd(), approvedTools },
       async (conversationId, message, taskRunId) => {
