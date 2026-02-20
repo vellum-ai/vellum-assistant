@@ -506,7 +506,7 @@ struct ActiveChatViewWrapper: View {
             configuredProviders: settingsStore.configuredProviders,
             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
             onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
-            onAlwaysAllow: { requestId, selectedPattern, selectedScope in viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope) },
+            onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision) },
             onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
             onRegenerate: { viewModel.regenerateLastMessage() },
             sessionError: viewModel.sessionError,

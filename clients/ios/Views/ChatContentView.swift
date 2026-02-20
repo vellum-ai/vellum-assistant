@@ -67,8 +67,8 @@ struct ChatContentView: View {
                                         viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data)
                                     },
                                     onRegenerate: isLastAssistant ? { viewModel.regenerateLastMessage() } : nil,
-                                    onAlwaysAllow: { requestId, selectedPattern, selectedScope in
-                                        viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope)
+                                    onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in
+                                        viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision)
                                     }
                                 )
                                 .id(message.id)

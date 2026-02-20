@@ -33,7 +33,7 @@ struct ChatView: View {
     var configuredProviders: Set<String> = []
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
-    let onAlwaysAllow: (String, String, String) -> Void
+    let onAlwaysAllow: (String, String, String, String) -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onRegenerate: () -> Void
     let sessionError: SessionError?
@@ -642,7 +642,7 @@ private struct ChatViewPreviewWrapper: View {
                 onMicrophoneToggle: {},
                 onConfirmationAllow: { _ in },
                 onConfirmationDeny: { _ in },
-                onAlwaysAllow: { _, _, _ in },
+                onAlwaysAllow: { _, _, _, _ in },
                 onSurfaceAction: { _, _, _ in },
                 onRegenerate: {},
                 sessionError: nil,

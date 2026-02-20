@@ -7,7 +7,7 @@ public struct ToolConfirmationBubble: View {
     public let confirmation: ToolConfirmationData
     public let onAllow: () -> Void
     public let onDeny: () -> Void
-    public let onAlwaysAllow: (String, String, String) -> Void
+    public let onAlwaysAllow: (String, String, String, String) -> Void
 
     @State private var showDiff = false
     @State private var showAlwaysAllowMenu = false
@@ -16,7 +16,7 @@ public struct ToolConfirmationBubble: View {
     @State private var pendingPattern: String?
     @State private var showScopePickerMenu = false
 
-    public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAlwaysAllow: @escaping (String, String, String) -> Void) {
+    public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAlwaysAllow: @escaping (String, String, String, String) -> Void) {
         self.confirmation = confirmation
         self.onAllow = onAllow
         self.onDeny = onDeny
@@ -33,6 +33,13 @@ public struct ToolConfirmationBubble: View {
 
     private var isDecided: Bool {
         confirmation.state != .pending
+    }
+
+    /// The decision value to send when "Always Allow" is clicked.
+    /// High-risk prompts use `always_allow_high_risk` so the daemon persists
+    /// a rule with `allowHighRisk: true`.
+    private var alwaysAllowDecision: String {
+        confirmation.riskLevel.lowercased() == "high" ? "always_allow_high_risk" : "always_allow"
     }
 
     /// The raw command/path preview for the inline display.
@@ -347,7 +354,7 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var alwaysAllowInlineButton: some View {
-        if hasRuleOptions && confirmation.allowlistOptions.count > 2 {
+        if hasRuleOptions && confirmation.allowlistOptions.count > 1 {
             alwaysAllowDropdown
         } else {
             let patternDesc = confirmation.allowlistOptions.first?.description ?? ""
@@ -363,7 +370,7 @@ public struct ToolConfirmationBubble: View {
                 } else {
                     let scope = confirmation.scopeOptions.first?.scope ?? ""
                     if !scope.isEmpty {
-                        onAlwaysAllow(confirmation.requestId, pattern, scope)
+                        onAlwaysAllow(confirmation.requestId, pattern, scope, alwaysAllowDecision)
                     } else {
                         onAllow()
                     }
@@ -414,7 +421,7 @@ public struct ToolConfirmationBubble: View {
                         ScopePickerRow(label: scopeOption.label) {
                             showAlwaysAllowMenu = false
                             pendingPattern = nil
-                            onAlwaysAllow(confirmation.requestId, pending, scopeOption.scope)
+                            onAlwaysAllow(confirmation.requestId, pending, scopeOption.scope, alwaysAllowDecision)
                         }
 
                         if index < confirmation.scopeOptions.count - 1 {
@@ -435,7 +442,7 @@ public struct ToolConfirmationBubble: View {
                                 showAlwaysAllowMenu = false
                                 let scope = confirmation.scopeOptions.first?.scope ?? ""
                                 if !scope.isEmpty {
-                                    onAlwaysAllow(confirmation.requestId, option.pattern, scope)
+                                    onAlwaysAllow(confirmation.requestId, option.pattern, scope, alwaysAllowDecision)
                                 } else {
                                     onAllow()
                                 }
@@ -472,7 +479,7 @@ public struct ToolConfirmationBubble: View {
                 ScopePickerRow(label: scopeOption.label) {
                     showScopePickerMenu = false
                     if let pattern = pendingPattern {
-                        onAlwaysAllow(confirmation.requestId, pattern, scopeOption.scope)
+                        onAlwaysAllow(confirmation.requestId, pattern, scopeOption.scope, alwaysAllowDecision)
                         pendingPattern = nil
                     }
                 }
@@ -613,7 +620,7 @@ private struct ScopePickerRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAlwaysAllow: { _, _, _ in }
+            onAlwaysAllow: { _, _, _, _ in }
         )
 
         // File write — high risk, pending
@@ -627,7 +634,7 @@ private struct ScopePickerRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAlwaysAllow: { _, _, _ in }
+            onAlwaysAllow: { _, _, _, _ in }
         )
 
         // Bash — low risk, pending
@@ -641,7 +648,7 @@ private struct ScopePickerRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAlwaysAllow: { _, _, _ in }
+            onAlwaysAllow: { _, _, _, _ in }
         )
 
         // Always-allow dropdown — medium risk
@@ -663,7 +670,7 @@ private struct ScopePickerRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAlwaysAllow: { _, _, _ in }
+            onAlwaysAllow: { _, _, _, _ in }
         )
 
         // Collapsed — approved
@@ -677,7 +684,7 @@ private struct ScopePickerRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAlwaysAllow: { _, _, _ in }
+            onAlwaysAllow: { _, _, _, _ in }
         )
 
         // Collapsed — denied
@@ -691,7 +698,7 @@ private struct ScopePickerRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAlwaysAllow: { _, _, _ in }
+            onAlwaysAllow: { _, _, _, _ in }
         )
 
         // Unknown tool fallback
@@ -704,7 +711,7 @@ private struct ScopePickerRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAlwaysAllow: { _, _, _ in }
+            onAlwaysAllow: { _, _, _, _ in }
         )
 
         // System permission request (pending)
@@ -720,7 +727,7 @@ private struct ScopePickerRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAlwaysAllow: { _, _, _ in }
+            onAlwaysAllow: { _, _, _, _ in }
         )
 
         // Inline always-allow with multiple scopes (scope picker on click)
@@ -741,7 +748,7 @@ private struct ScopePickerRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAlwaysAllow: { _, _, _ in }
+            onAlwaysAllow: { _, _, _, _ in }
         )
 
         // Dropdown always-allow with multiple scopes (two-step selection)
@@ -764,7 +771,7 @@ private struct ScopePickerRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAlwaysAllow: { _, _, _ in }
+            onAlwaysAllow: { _, _, _, _ in }
         )
     }
     .padding(VSpacing.xl)

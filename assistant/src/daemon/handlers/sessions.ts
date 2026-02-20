@@ -145,7 +145,7 @@ export function handleConfirmationResponse(
       ctx.touchSession(sessionId);
       session.handleConfirmationResponse(
         msg.requestId,
-        msg.decision as 'allow' | 'always_allow' | 'deny',
+        msg.decision,
         msg.selectedPattern,
         msg.selectedScope,
       );
@@ -158,7 +158,7 @@ export function handleConfirmationResponse(
     if (cuSession.hasPendingConfirmation(msg.requestId)) {
       cuSession.handleConfirmationResponse(
         msg.requestId,
-        msg.decision as 'allow' | 'always_allow' | 'deny',
+        msg.decision,
         msg.selectedPattern,
         msg.selectedScope,
       );

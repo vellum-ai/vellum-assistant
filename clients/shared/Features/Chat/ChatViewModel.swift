@@ -1080,14 +1080,14 @@ public final class ChatViewModel: ObservableObject {
     /// If the daemon is disconnected, shows an error without attempting a fallback (since
     /// respondToConfirmation would also fail). On IPC send errors, attempts a one-time allow
     /// fallback and only claims success if the fallback actually went through.
-    public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String) {
+    public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String, decision: String = "always_allow") {
         guard daemonClient.isConnected else {
             log.warning("Cannot persist always-allow: daemon not connected")
             errorText = "Cannot send confirmation — daemon is not connected."
             return
         }
         do {
-            try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: "always_allow", selectedPattern: selectedPattern, selectedScope: selectedScope))
+            try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope))
         } catch {
             log.warning("Always-allow IPC failed: \(error.localizedDescription)")
             // Try one-time allow as fallback (daemon may still be connected)
