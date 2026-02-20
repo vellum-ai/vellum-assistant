@@ -163,6 +163,19 @@ if [ ! -f "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" ] || [ "$EXECUTABLE" -nt "$MACOS_DIR
     NEEDS_REBUILD=true
 fi
 
+# Auto-build daemon binary for local dev if missing and bun is available
+ASSISTANT_SRC_DIR="$SCRIPT_DIR/../../assistant"
+if [ ! -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ] && [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+    echo "Building daemon binary from source..."
+    mkdir -p "$SCRIPT_DIR/daemon-bin"
+    (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    bun build --compile "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
+      --external electron --external "chromium-bidi/*" \
+      --outfile "$SCRIPT_DIR/daemon-bin/vellum-daemon"
+    chmod +x "$SCRIPT_DIR/daemon-bin/vellum-daemon"
+    echo "Daemon binary built: $SCRIPT_DIR/daemon-bin/vellum-daemon"
+fi
+
 # Also rebuild if daemon binary changed or newly added
 if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
     if [ ! -f "$MACOS_DIR/vellum-daemon" ] || [ "$SCRIPT_DIR/daemon-bin/vellum-daemon" -nt "$MACOS_DIR/vellum-daemon" ]; then
