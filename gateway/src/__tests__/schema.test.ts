@@ -1,10 +1,8 @@
 import { describe, test, expect, afterAll } from "bun:test";
 import { buildSchema } from "../schema.js";
 
-const PORT = 19836 + Math.floor(Math.random() * 1000);
-
 const server = Bun.serve({
-  port: PORT,
+  port: 0,
   fetch(req) {
     const url = new URL(req.url);
 
@@ -30,7 +28,7 @@ describe("/schema route", () => {
     // GIVEN a running gateway server
 
     // WHEN we request the schema endpoint
-    const res = await fetch(`http://localhost:${PORT}/schema`);
+    const res = await fetch(`http://localhost:${server.port}/schema`);
 
     // THEN we receive a 200 with valid JSON
     expect(res.status).toBe(200);
@@ -56,7 +54,7 @@ describe("/schema route", () => {
     // GIVEN a running gateway server
 
     // WHEN we request the schema endpoint
-    const res = await fetch(`http://localhost:${PORT}/schema`);
+    const res = await fetch(`http://localhost:${server.port}/schema`);
     const body = await res.json();
 
     // THEN the paths include every gateway endpoint
@@ -76,7 +74,7 @@ describe("/schema route", () => {
     const pkg = (await import("../../package.json")).default;
 
     // WHEN we request the schema endpoint
-    const res = await fetch(`http://localhost:${PORT}/schema`);
+    const res = await fetch(`http://localhost:${server.port}/schema`);
     const body = await res.json();
 
     // THEN the schema version matches the package version
