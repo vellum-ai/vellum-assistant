@@ -2029,7 +2029,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testCreateSessionIfNeededSetsBootstrapping() {
         viewModel.createSessionIfNeeded(threadType: "private")
-        XCTAssertTrue(viewModel.isSending, "Should enter sending state during bootstrap")
+        XCTAssertFalse(viewModel.isSending, "Message-less session creates should not set isSending")
         XCTAssertFalse(viewModel.isThinking, "Should not show thinking for message-less session create")
         XCTAssertNotNil(viewModel.bootstrapCorrelationId, "Should set correlation ID")
         XCTAssertEqual(viewModel.threadType, "private")
