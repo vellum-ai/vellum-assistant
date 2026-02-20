@@ -781,7 +781,14 @@ async function hatchCustom(
 }
 
 function isGatewaySourceDir(dir: string): boolean {
-  return existsSync(join(dir, "package.json")) && existsSync(join(dir, "src", "index.ts"));
+  const pkgPath = join(dir, "package.json");
+  if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "index.ts"))) return false;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    return pkg.name === "@vellumai/vellum-gateway";
+  } catch {
+    return false;
+  }
 }
 
 function findGatewaySourceFromCwd(): string | undefined {
