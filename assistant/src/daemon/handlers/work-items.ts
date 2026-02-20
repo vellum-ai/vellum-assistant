@@ -432,8 +432,17 @@ export function handleWorkItemApprovePermissions(
     return;
   }
 
+  // Merge newly approved tools with any previously approved ones so reruns
+  // that only need a subset of previously-approved tools don't require
+  // re-approval.
+  const existingApproved: string[] = workItem.approvedTools
+    ? JSON.parse(workItem.approvedTools)
+    : [];
+  const newApproved = sanitizeToolList(msg.approvedTools);
+  const merged = [...new Set([...existingApproved, ...newApproved])];
+
   updateWorkItem(msg.id, {
-    approvedTools: JSON.stringify(sanitizeToolList(msg.approvedTools)),
+    approvedTools: JSON.stringify(sanitizeToolList(merged)),
     approvalStatus: 'approved',
   });
 
