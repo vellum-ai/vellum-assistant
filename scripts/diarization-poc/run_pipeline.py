@@ -91,11 +91,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run continuous diarization + speaker-learning pipeline in one process."
     )
-    parser.add_argument("--chunks-dir", default="scripts/diarization-poc/out/chunks")
-    parser.add_argument("--transcripts-dir", default="scripts/diarization-poc/out/transcripts")
-    parser.add_argument("--labeled-dir", default="scripts/diarization-poc/out/labeled")
-    parser.add_argument("--state-file", default="scripts/diarization-poc/out/pipeline_state.json")
-    parser.add_argument("--registry", default="scripts/diarization-poc/out/speaker_registry.json")
+    parser.add_argument("--chunks-dir", default="out/chunks")
+    parser.add_argument("--transcripts-dir", default="out/transcripts")
+    parser.add_argument("--labeled-dir", default="out/labeled")
+    parser.add_argument("--state-file", default="out/pipeline_state.json")
+    parser.add_argument("--registry", default="out/speaker_registry.json")
     parser.add_argument("--model", default="gpt-4o-transcribe-diarize")
     parser.add_argument("--identity-model", default="gpt-4o-mini")
     parser.add_argument("--poll-interval-s", type=float, default=2.0)
@@ -120,7 +120,6 @@ def main() -> int:
     parser.add_argument("--api-key-env", default="OPENAI_API_KEY")
     args = parser.parse_args()
 
-    # Load local script .env first, then parent cwd fallback.
     script_dir = pathlib.Path(__file__).resolve().parent
     load_dotenv(script_dir / ".env", override=False)
     load_dotenv(override=False)
@@ -136,14 +135,14 @@ def main() -> int:
     registry_path = pathlib.Path(args.registry)
     identity_dir = transcripts_dir / "identity-evidence"
 
+    chunks_dir.mkdir(parents=True, exist_ok=True)
     transcripts_dir.mkdir(parents=True, exist_ok=True)
     labeled_dir.mkdir(parents=True, exist_ok=True)
-    chunks_dir.mkdir(parents=True, exist_ok=True)
     identity_dir.mkdir(parents=True, exist_ok=True)
 
     state = load_json(state_path, {"processed": [], "failed": {}, "permanent_failed": []})
     processed: set[str] = set(state.get("processed", []))
-    failed: dict[str, dict[str, Any]] = state.get("failed", {})
+    failed: dict[str, dict[str, Any]] = dict(state.get("failed", {}))
     permanent_failed: set[str] = set(state.get("permanent_failed", []))
     registry = load_json(registry_path, create_registry())
     encoder, encoder_backend = create_voice_encoder(prefer_resemblyzer=not args.no_resemblyzer)
@@ -165,8 +164,6 @@ def main() -> int:
         nonlocal stop
         stop = True
 
-    # Keep Ctrl-C on default behavior (KeyboardInterrupt) so blocking calls
-    # interrupt promptly; use SIGTERM for graceful shutdown in non-interactive runs.
     signal.signal(signal.SIGTERM, on_sigterm)
     atexit.register(shutdown_capture)
 
@@ -189,66 +186,65 @@ def main() -> int:
                 stop = True
                 break
 
-        wavs = sorted(chunks_dir.glob("*.wav"))
-        for wav in wavs:
-            if stop:
-                break
-            if wav.name in processed:
-                continue
-            if wav.name in permanent_failed:
-                continue
-            failure_entry = failed.get(wav.name) or {}
-            next_retry_at = float(failure_entry.get("next_retry_at", 0.0) or 0.0)
-            if next_retry_at > time.time():
-                continue
-
-            try:
-                raw = transcribe_file(
-                    wav_path=wav,
-                    api_key=api_key,
-                        model=args.model,
-                        language=None,
-                    temperature=None,
-                )
-            except Exception as exc:
-                now = time.time()
-                status = extract_http_status(exc)
-                attempts = int(failure_entry.get("attempts", 0)) + 1
-                backoff_s = min(args.max_failure_backoff_s, float(2 ** min(attempts, 7)))
-                failed[wav.name] = {
-                    "attempts": attempts,
-                    "last_error": str(exc),
-                    "last_status": status,
-                    "next_retry_at": now + backoff_s,
-                    "last_failed_at": now,
-                }
-                state["failed"] = failed
-                write_json(state_path, state)
-
-                # 4xx errors are usually caller/config issues; stop retrying after threshold.
-                if status is not None and 400 <= status < 500 and attempts >= args.max_transcribe_retries_per_chunk:
-                    permanent_failed.add(wav.name)
-                    state["permanent_failed"] = sorted(permanent_failed)
-                    processed.add(wav.name)
-                    state["processed"] = sorted(processed)
-                    write_json(state_path, state)
-                    print(
-                        f"[pipeline] transcribe permanently failed {wav.name} after {attempts} attempts "
-                        f"(status={status}). Skipping this chunk."
-                    )
-                else:
-                    print(
-                        f"[pipeline] transcribe failed {wav.name} (attempt {attempts}, "
-                        f"retry in {backoff_s:.0f}s): {exc}"
-                    )
-                continue
-            if wav.name in failed:
-                del failed[wav.name]
-                state["failed"] = failed
-                write_json(state_path, state)
-
+            wavs = sorted(chunks_dir.glob("*.wav"))
+            for wav in wavs:
                 if stop:
                     break
+                if wav.name in processed:
+                    continue
+                if wav.name in permanent_failed:
+                    continue
+
+                failure_entry = failed.get(wav.name) or {}
+                next_retry_at = float(failure_entry.get("next_retry_at", 0.0) or 0.0)
+                if next_retry_at > time.time():
+                    continue
+
+                print(f"[pipeline] processing {wav.name}")
+                try:
+                    raw = transcribe_file(
+                        wav_path=wav,
+                        api_key=api_key,
+                        model=args.model,
+                        language=None,
+                        temperature=None,
+                    )
+                except Exception as exc:
+                    now = time.time()
+                    status = extract_http_status(exc)
+                    attempts = int(failure_entry.get("attempts", 0)) + 1
+                    backoff_s = min(args.max_failure_backoff_s, float(2 ** min(attempts, 7)))
+                    failed[wav.name] = {
+                        "attempts": attempts,
+                        "last_error": str(exc),
+                        "last_status": status,
+                        "next_retry_at": now + backoff_s,
+                        "last_failed_at": now,
+                    }
+                    state["failed"] = failed
+                    write_json(state_path, state)
+
+                    if status is not None and 400 <= status < 500 and attempts >= args.max_transcribe_retries_per_chunk:
+                        permanent_failed.add(wav.name)
+                        processed.add(wav.name)
+                        state["permanent_failed"] = sorted(permanent_failed)
+                        state["processed"] = sorted(processed)
+                        write_json(state_path, state)
+                        print(
+                            f"[pipeline] transcribe permanently failed {wav.name} after {attempts} attempts "
+                            f"(status={status}). Skipping this chunk."
+                        )
+                    else:
+                        print(
+                            f"[pipeline] transcribe failed {wav.name} (attempt {attempts}, "
+                            f"retry in {backoff_s:.0f}s): {exc}"
+                        )
+                    continue
+
+                if wav.name in failed:
+                    del failed[wav.name]
+                    state["failed"] = failed
+                    write_json(state_path, state)
 
                 raw_path = transcripts_dir / f"{wav.stem}.json"
                 segments_path = transcripts_dir / f"{wav.stem}.segments.json"
@@ -289,6 +285,8 @@ def main() -> int:
 
                 processed.add(wav.name)
                 state["processed"] = sorted(processed)
+                state["failed"] = failed
+                state["permanent_failed"] = sorted(permanent_failed)
                 write_json(state_path, state)
                 write_json(registry_path, registry)
                 print(f"[pipeline] processed {wav.name} -> {labeled_path.name}")

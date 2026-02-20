@@ -51,7 +51,7 @@ def main() -> int:
     parser.add_argument("--anonymous-s", type=float, default=10.0)
     parser.add_argument("--identify-s", type=float, default=8.0)
     parser.add_argument("--post-s", type=float, default=8.0)
-    parser.add_argument("--out-root", default="scripts/diarization-poc/out/fixtures")
+    parser.add_argument("--out-root", default="out/fixtures")
     args = parser.parse_args()
 
     fixture_id = args.fixture_id or time.strftime("fixture-%Y%m%d-%H%M%S")

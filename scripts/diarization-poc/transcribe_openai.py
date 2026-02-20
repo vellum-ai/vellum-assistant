@@ -114,12 +114,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Transcribe/diarize WAVs with OpenAI API.")
     parser.add_argument(
         "--input",
-        default="scripts/diarization-poc/out/chunks",
+        default="out/chunks",
         help="WAV file, folder, or glob",
     )
     parser.add_argument(
         "--out-dir",
-        default="scripts/diarization-poc/out/transcripts",
+        default="out/transcripts",
     )
     parser.add_argument(
         "--model",

@@ -68,7 +68,7 @@ def save_wav(path: pathlib.Path, pcm_bytes: bytes, sample_rate: int) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Capture speech chunks from microphone using VAD.")
-    parser.add_argument("--out-dir", default="scripts/diarization-poc/out/chunks")
+    parser.add_argument("--out-dir", default="out/chunks")
     parser.add_argument("--sample-rate", type=int, default=16000)
     parser.add_argument("--frame-ms", type=int, default=30, choices=[10, 20, 30])
     parser.add_argument("--vad-mode", type=int, default=2, choices=[0, 1, 2, 3])

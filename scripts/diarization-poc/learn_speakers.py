@@ -474,13 +474,13 @@ def process_pair(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Learn persistent speaker identities from diarized chunks.")
-    parser.add_argument("--chunks-dir", default="scripts/diarization-poc/out/chunks")
-    parser.add_argument("--transcripts-dir", default="scripts/diarization-poc/out/transcripts")
-    parser.add_argument("--out-dir", default="scripts/diarization-poc/out/labeled")
-    parser.add_argument("--registry", default="scripts/diarization-poc/out/speaker_registry.json")
+    parser.add_argument("--chunks-dir", default="out/chunks")
+    parser.add_argument("--transcripts-dir", default="out/transcripts")
+    parser.add_argument("--out-dir", default="out/labeled")
+    parser.add_argument("--registry", default="out/speaker_registry.json")
     parser.add_argument("--similarity-threshold", type=float, default=0.72)
     parser.add_argument("--min-segment-s", type=float, default=1.0)
-    parser.add_argument("--identity-evidence-dir", default="scripts/diarization-poc/out/identity-evidence")
+    parser.add_argument("--identity-evidence-dir", default="out/transcripts/identity-evidence")
     parser.add_argument("--min-name-score", type=float, default=2.2)
     parser.add_argument("--min-name-margin", type=float, default=0.8)
     parser.add_argument("--min-name-confidence", type=float, default=0.72)
