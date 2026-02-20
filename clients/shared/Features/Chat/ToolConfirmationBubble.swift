@@ -378,6 +378,13 @@ public struct ToolConfirmationBubble: View {
         removeKeyMonitor()
         keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Pass through when the first responder is a text view (e.g. the
+            // composer) so typing, Enter-to-send, Tab-to-accept-suggestion,
+            // and Escape-to-dismiss-slash-menu continue to work normally.
+            if let firstResponder = NSApp.keyWindow?.firstResponder,
+               firstResponder is NSTextView {
+                return event
+            }
             // Nested popover is open — handle up/down/enter/escape within it
             if showAlwaysAllowMenu || showScopePickerMenu {
                 return handlePopoverKey(event)
