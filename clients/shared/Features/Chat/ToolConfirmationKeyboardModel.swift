@@ -33,13 +33,13 @@ struct ToolConfirmationKeyboardModel {
         actions[selectedIndex]
     }
 
-    /// Move selection one step to the right, clamped at the end.
+    /// Move selection one step to the right, wrapping around to the start.
     mutating func moveRight() {
-        selectedIndex = min(selectedIndex + 1, actions.count - 1)
+        selectedIndex = (selectedIndex + 1) % actions.count
     }
 
-    /// Move selection one step to the left, clamped at the start.
+    /// Move selection one step to the left, wrapping around to the end.
     mutating func moveLeft() {
-        selectedIndex = max(selectedIndex - 1, 0)
+        selectedIndex = (selectedIndex - 1 + actions.count) % actions.count
     }
 }

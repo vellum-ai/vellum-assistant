@@ -34,23 +34,22 @@ final class ToolConfirmationKeyboardModelTests: XCTestCase {
         XCTAssertEqual(model.selectedIndex, 2)
     }
 
-    func testMoveRightClampsAtEnd() {
+    func testMoveRightWrapsToStart() {
         var model = ToolConfirmationKeyboardModel(actions: [.allowOnce, .alwaysAllow, .dontAllow])
-        model.moveRight()
-        model.moveRight()
-        model.moveRight() // should stay clamped
-        model.moveRight() // should still be clamped
-        XCTAssertEqual(model.selectedAction, .dontAllow)
-        XCTAssertEqual(model.selectedIndex, 2)
+        model.moveRight() // 1
+        model.moveRight() // 2
+        model.moveRight() // wraps to 0
+        XCTAssertEqual(model.selectedAction, .allowOnce)
+        XCTAssertEqual(model.selectedIndex, 0)
     }
 
     // MARK: - Left movement
 
-    func testMoveLeftClampsAtStart() {
+    func testMoveLeftWrapsToEnd() {
         var model = ToolConfirmationKeyboardModel(actions: [.allowOnce, .alwaysAllow, .dontAllow])
-        model.moveLeft() // already at 0, should stay
-        XCTAssertEqual(model.selectedAction, .allowOnce)
-        XCTAssertEqual(model.selectedIndex, 0)
+        model.moveLeft() // wraps to 2
+        XCTAssertEqual(model.selectedAction, .dontAllow)
+        XCTAssertEqual(model.selectedIndex, 2)
     }
 
     func testMoveLeftFromMiddle() {
@@ -70,14 +69,11 @@ final class ToolConfirmationKeyboardModelTests: XCTestCase {
         model.moveRight()
         XCTAssertEqual(model.selectedAction, .dontAllow)
 
-        model.moveRight() // clamp
+        model.moveRight() // wraps to 0
+        XCTAssertEqual(model.selectedAction, .allowOnce)
+
+        model.moveLeft() // wraps to 1
         XCTAssertEqual(model.selectedAction, .dontAllow)
-
-        model.moveLeft()
-        XCTAssertEqual(model.selectedAction, .allowOnce)
-
-        model.moveLeft() // clamp
-        XCTAssertEqual(model.selectedAction, .allowOnce)
     }
 
     // MARK: - Round-trip
@@ -90,5 +86,33 @@ final class ToolConfirmationKeyboardModelTests: XCTestCase {
         model.moveLeft()  // 0
         XCTAssertEqual(model.selectedAction, .allowOnce)
         XCTAssertEqual(model.selectedIndex, 0)
+    }
+
+    // MARK: - Full cycle
+
+    func testFullCycleForward() {
+        var model = ToolConfirmationKeyboardModel(actions: [.allowOnce, .alwaysAllow, .dontAllow])
+        XCTAssertEqual(model.selectedIndex, 0)
+        model.moveRight() // 1
+        XCTAssertEqual(model.selectedIndex, 1)
+        model.moveRight() // 2
+        XCTAssertEqual(model.selectedIndex, 2)
+        model.moveRight() // wraps to 0
+        XCTAssertEqual(model.selectedIndex, 0)
+        model.moveRight() // 1
+        XCTAssertEqual(model.selectedIndex, 1)
+    }
+
+    func testFullCycleBackward() {
+        var model = ToolConfirmationKeyboardModel(actions: [.allowOnce, .alwaysAllow, .dontAllow])
+        XCTAssertEqual(model.selectedIndex, 0)
+        model.moveLeft() // wraps to 2
+        XCTAssertEqual(model.selectedIndex, 2)
+        model.moveLeft() // 1
+        XCTAssertEqual(model.selectedIndex, 1)
+        model.moveLeft() // 0
+        XCTAssertEqual(model.selectedIndex, 0)
+        model.moveLeft() // wraps to 2
+        XCTAssertEqual(model.selectedIndex, 2)
     }
 }

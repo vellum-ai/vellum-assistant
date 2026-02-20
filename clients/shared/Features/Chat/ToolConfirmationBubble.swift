@@ -16,6 +16,9 @@ public struct ToolConfirmationBubble: View {
     @State private var pendingPattern: String?
     @State private var showScopePickerMenu = false
     @State private var keyboardModel: ToolConfirmationKeyboardModel?
+    #if os(macOS)
+    @State private var keyMonitor: Any?
+    #endif
 
     public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAlwaysAllow: @escaping (String, String, String, String) -> Void) {
         self.confirmation = confirmation
@@ -353,29 +356,62 @@ public struct ToolConfirmationBubble: View {
             Spacer()
         }
         .onAppear {
+            #if os(macOS)
+            installKeyMonitor(actions: actions)
+            #else
             keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
+            #endif
         }
-        .focusable()
-        #if os(macOS)
-        .onKeyPress(.leftArrow) {
-            guard !showAlwaysAllowMenu && !showScopePickerMenu else { return .ignored }
-            keyboardModel?.moveLeft()
-            return .handled
+        .onDisappear {
+            #if os(macOS)
+            removeKeyMonitor()
+            #endif
         }
-        .onKeyPress(.rightArrow) {
-            guard !showAlwaysAllowMenu && !showScopePickerMenu else { return .ignored }
-            keyboardModel?.moveRight()
-            return .handled
-        }
-        .onKeyPress(.return) {
-            guard !showAlwaysAllowMenu && !showScopePickerMenu else { return .ignored }
-            if let action = keyboardModel?.selectedAction {
-                activateAction(action)
-            }
-            return .handled
-        }
-        #endif
     }
+
+    // MARK: - Key Monitor (macOS)
+
+    #if os(macOS)
+    private func installKeyMonitor(actions: [ToolConfirmationKeyboardModel.Action]) {
+        removeKeyMonitor()
+        keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Pass through when a popover menu is open
+            if showAlwaysAllowMenu || showScopePickerMenu {
+                return event
+            }
+            switch event.keyCode {
+            case 48 where event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .shift:
+                // Shift+Tab — move left
+                keyboardModel?.moveLeft()
+                return nil
+            case 48:
+                // Tab — move right
+                keyboardModel?.moveRight()
+                return nil
+            case 36, 76:
+                // Return / numpad Enter — activate
+                if let action = keyboardModel?.selectedAction {
+                    activateAction(action)
+                }
+                return nil
+            case 53:
+                // Escape — deny
+                activateAction(.dontAllow)
+                return nil
+            default:
+                return event
+            }
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
+        }
+    }
+    #endif
 
     /// Trigger the callback for a given top-level action.
     private func activateAction(_ action: ToolConfirmationKeyboardModel.Action) {
