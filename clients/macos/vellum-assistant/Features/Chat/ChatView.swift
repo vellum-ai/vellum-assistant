@@ -528,9 +528,10 @@ struct ChatView: View {
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
             .background {
-                ScrollWheelDetector {
-                    isNearBottom = false
-                }
+                ScrollWheelDetector(
+                    onScrollUp: { isNearBottom = false },
+                    onScrollToBottom: { isNearBottom = true }
+                )
             }
             .overlay(alignment: .bottom) {
                 if !isNearBottom {
@@ -628,10 +629,12 @@ struct ChatView: View {
 
 // MARK: - Scroll Wheel Detection
 
-/// Detects user-initiated scroll-up events via NSEvent monitoring.
-/// Used to untether auto-scroll when the user scrolls away from the bottom during streaming.
+/// Detects user-initiated scroll events scoped to the chat scroll view.
+/// Fires `onScrollUp` when the user scrolls toward older content (untethers auto-scroll),
+/// and `onScrollToBottom` when the user manually scrolls back to the bottom (re-tethers).
 private struct ScrollWheelDetector: NSViewRepresentable {
     let onScrollUp: () -> Void
+    let onScrollToBottom: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -640,12 +643,32 @@ private struct ScrollWheelDetector: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         let coordinator = context.coordinator
+        coordinator.view = view
         coordinator.onScrollUp = onScrollUp
+        coordinator.onScrollToBottom = onScrollToBottom
         coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-            // Only act on direct user scroll gestures (not momentum),
-            // and only when scrolling up (positive deltaY = toward older content).
-            if event.scrollingDeltaY > 3 && event.momentumPhase.isEmpty {
+            // Only process events within this view's bounds (scoped to the chat scroll area)
+            guard let view = coordinator.view,
+                  let window = view.window,
+                  event.window == window else { return event }
+            let locationInView = view.convert(event.locationInWindow, from: nil)
+            guard view.bounds.width > 0, view.bounds.contains(locationInView) else { return event }
+
+            // Only act on direct user gestures, not momentum
+            guard event.momentumPhase.isEmpty else { return event }
+
+            if event.scrollingDeltaY > 3 {
+                // Scrolling up (toward older content) — untether
                 coordinator.onScrollUp?()
+            } else if event.scrollingDeltaY < -1 {
+                // Scrolling down — check if the underlying NSScrollView is at the bottom
+                if let scrollView = coordinator.findEnclosingScrollView() {
+                    let clipBounds = scrollView.contentView.bounds
+                    let docHeight = scrollView.documentView?.frame.height ?? 0
+                    if docHeight - clipBounds.maxY < 50 {
+                        coordinator.onScrollToBottom?()
+                    }
+                }
             }
             return event
         }
@@ -654,6 +677,7 @@ private struct ScrollWheelDetector: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.onScrollUp = onScrollUp
+        context.coordinator.onScrollToBottom = onScrollToBottom
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -663,8 +687,19 @@ private struct ScrollWheelDetector: NSViewRepresentable {
     }
 
     class Coordinator {
+        weak var view: NSView?
         var onScrollUp: (() -> Void)?
+        var onScrollToBottom: (() -> Void)?
         var monitor: Any?
+
+        func findEnclosingScrollView() -> NSScrollView? {
+            var current = view?.superview
+            while let v = current {
+                if let sv = v as? NSScrollView { return sv }
+                current = v.superview
+            }
+            return nil
+        }
     }
 }
 
