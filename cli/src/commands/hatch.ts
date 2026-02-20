@@ -916,7 +916,7 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
   console.log("✅ Gateway started\n");
 
   const runtimeUrl = `http://localhost:${GATEWAY_PORT}`;
-  const baseDataDir = join(process.env.HOME ?? userInfo().homedir, ".vellum");
+  const baseDataDir = join(process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? userInfo().homedir), ".vellum");
   const localEntry: AssistantEntry = {
     assistantId: instanceName,
     runtimeUrl,
