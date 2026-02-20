@@ -139,15 +139,14 @@ export async function syncFirewallRules(
       "firewall-rules",
       "list",
       `--project=${project}`,
-      `--filter=targetTags:${tag}`,
-      "--format=value(name)",
+      "--format=json(name,targetTags)",
     ];
     if (account) listArgs.push(`--account=${account}`);
     const output = await execOutput("gcloud", listArgs);
-    existingNames = output
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const allRules = JSON.parse(output) as Array<{ name: string; targetTags?: string[] }>;
+    existingNames = allRules
+      .filter((r) => r.targetTags?.includes(tag))
+      .map((r) => r.name);
   } catch {
     existingNames = [];
   }
@@ -190,10 +189,11 @@ export async function fetchFirewallRules(
     "firewall-rules",
     "list",
     `--project=${project}`,
-    `--filter=targetTags:${tag}`,
     "--format=json",
   ]);
-  return output;
+  const rules = JSON.parse(output) as Array<{ targetTags?: string[] }>;
+  const filtered = rules.filter((r) => r.targetTags?.includes(tag));
+  return JSON.stringify(filtered, null, 2);
 }
 
 export interface GcpInstance {
