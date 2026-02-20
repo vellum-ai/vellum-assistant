@@ -179,13 +179,9 @@ export class ProviderCommitMessageGenerator {
         },
       ];
 
-      // Resolve fast model
+      // Resolve fast model — if no override or default, the provider will use its configured model
       const fastModel = llmConfig.providerFastModelOverrides[config.provider]
         ?? PROVIDER_DEFAULT_FAST_MODELS[config.provider];
-      if (!fastModel) {
-        log.debug({ provider: config.provider }, 'No default fast model for provider; falling back to deterministic');
-        return buildDeterministicResult(context, 'provider_error');
-      }
 
       // AbortController with timeout
       const ac = new AbortController();
@@ -199,7 +195,11 @@ export class ProviderCommitMessageGenerator {
           SYSTEM_PROMPT,
           {
             signal: ac.signal,
-            config: { model: fastModel, max_tokens: llmConfig.maxTokens, temperature: llmConfig.temperature },
+            config: {
+              ...(fastModel ? { model: fastModel } : {}),
+              max_tokens: llmConfig.maxTokens,
+              temperature: llmConfig.temperature,
+            },
           },
         );
       } catch (err: unknown) {
