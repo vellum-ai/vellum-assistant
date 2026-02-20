@@ -39,7 +39,7 @@ export async function handleTwitterAuthStart(
     const oauthConfig: OAuth2Config = {
       authUrl: 'https://twitter.com/i/oauth2/authorize',
       tokenUrl: 'https://api.x.com/2/oauth2/token',
-      scopes: ['tweet.read', 'users.read', 'offline.access'],
+      scopes: ['tweet.read', 'tweet.write', 'users.read', 'offline.access'],
       clientId,
       clientSecret,
       extraParams: {},
