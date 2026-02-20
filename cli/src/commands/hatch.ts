@@ -76,19 +76,19 @@ chown -R "$SSH_USER:$SSH_USER" "$SSH_USER_HOME" 2>/dev/null || true
 `;
 }
 
-export function buildStartupScript(
+export async function buildStartupScript(
   species: Species,
   bearerToken: string,
   sshUser: string,
   anthropicApiKey: string,
-): string {
+): Promise<string> {
   const platformUrl = process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai";
   const timestampRedirect = buildTimestampRedirect();
   const userSetup = buildUserSetup(sshUser);
   const ownershipFixup = buildOwnershipFixup();
 
   if (species === "openclaw") {
-    return buildOpenclawStartupScript(
+    return await buildOpenclawStartupScript(
       bearerToken,
       sshUser,
       anthropicApiKey,
@@ -486,7 +486,7 @@ async function hatchGcp(
       console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
       process.exit(1);
     }
-    const startupScript = buildStartupScript(species, bearerToken, sshUser, anthropicApiKey);
+    const startupScript = await buildStartupScript(species, bearerToken, sshUser, anthropicApiKey);
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
 
@@ -651,7 +651,7 @@ async function hatchCustom(
       process.exit(1);
     }
 
-    const startupScript = buildStartupScript(species, bearerToken, sshUser, anthropicApiKey);
+    const startupScript = await buildStartupScript(species, bearerToken, sshUser, anthropicApiKey);
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
 

@@ -1,8 +1,7 @@
 import { join } from "path";
 
-const serverSource = await Bun.file(join(import.meta.dir, "..", "adapters", "openclaw-http-server.ts")).text();
-
-export function buildOpenclawRuntimeServer(): string {
+export async function buildOpenclawRuntimeServer(): Promise<string> {
+  const serverSource = await Bun.file(join(import.meta.dir, "..", "adapters", "openclaw-http-server.ts")).text();
 
   return `
 cat > /opt/openclaw-runtime-server.ts << 'RUNTIME_SERVER_EOF'
