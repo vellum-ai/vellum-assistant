@@ -197,7 +197,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // (setupDaemonClient already started connecting — don't interfere).
         guard !daemonClient.isConnected, !daemonClient.isConnecting else { return }
         Task {
-            try? await assistantCli.hatch()
+            try? await assistantCli.hatch(daemonOnly: true)
             assistantCli.startMonitoring()
             // Only connect if setupDaemonClient's connect hasn't already started
             guard !daemonClient.isConnected, !daemonClient.isConnecting else { return }
@@ -310,6 +310,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Switches the app to a different lockfile assistant: stops the current
+    /// daemon, updates persisted state, and restarts with the new assistant.
+    func performSwitchAssistant(to assistant: LockfileAssistant) {
+        assistantCli.stop()
+        UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
+        assistant.writeToWorkspaceConfig()
+
+        hasSetupDaemon = false
+        setupDaemonClient()
+    }
+
     @objc func performRetire() {
         let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
@@ -324,6 +335,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 assistantCli.stop()
             }
 
+            // Check if other assistants remain in the lockfile
+            let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName }
+            if let next = remaining.first {
+                // Auto-switch to the next available assistant
+                settingsWindow?.close()
+                settingsWindow = nil
+                performSwitchAssistant(to: next)
+                return
+            }
+
+            // No assistants left — tear down fully and show onboarding
             OnboardingState.clearPersistedState()
 
             mainWindow?.close()
@@ -390,9 +412,30 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Reads `connectedAssistantId` from UserDefaults, looks it up in the lockfile
+    /// (falling back to the latest entry), and writes its config so the daemon connects
+    /// to the correct assistant.
+    private func loadAssistantFromLockfile() {
+        let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let assistant: LockfileAssistant?
+
+        if let storedId, let found = LockfileAssistant.loadByName(storedId) {
+            assistant = found
+        } else {
+            assistant = LockfileAssistant.loadLatest()
+        }
+
+        guard let assistant else { return }
+
+        UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
+        assistant.writeToWorkspaceConfig()
+    }
+
     func setupDaemonClient() {
         guard !hasSetupDaemon else { return }
         hasSetupDaemon = true
+
+        loadAssistantFromLockfile()
 
         // Show macOS notification when a reminder fires
         daemonClient.onReminderFired = { msg in
@@ -526,8 +569,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Task {
-            // Hatch the assistant via CLI (spawns daemon in release builds)
-            try? await assistantCli.hatch()
+            // Hatch the assistant via CLI (spawns daemon in release builds).
+            // daemonOnly: true prevents creating a new lockfile entry on every launch.
+            try? await assistantCli.hatch(daemonOnly: true)
             assistantCli.startMonitoring()
             try? await daemonClient.connect()
             // Once connected, start ambient agent if it was waiting for daemon

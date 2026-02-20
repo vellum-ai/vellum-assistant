@@ -157,6 +157,7 @@ interface HatchArgs {
   detached: boolean;
   name: string | null;
   remote: RemoteHost;
+  daemonOnly: boolean;
 }
 
 function parseArgs(): HatchArgs {
@@ -165,11 +166,14 @@ function parseArgs(): HatchArgs {
   let detached = false;
   let name: string | null = null;
   let remote: RemoteHost = DEFAULT_REMOTE;
+  let daemonOnly = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "-d") {
       detached = true;
+    } else if (arg === "--daemon-only") {
+      daemonOnly = true;
     } else if (arg === "--name") {
       const next = args[i + 1];
       if (!next || next.startsWith("-")) {
@@ -192,13 +196,13 @@ function parseArgs(): HatchArgs {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --daemon-only, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>`,
       );
       process.exit(1);
     }
   }
 
-  return { species, detached, name, remote };
+  return { species, detached, name, remote, daemonOnly };
 }
 
 export interface PollResult {
@@ -815,7 +819,7 @@ async function discoverPublicUrl(): Promise<string | undefined> {
   return undefined;
 }
 
-async function hatchLocal(species: Species, name: string | null): Promise<void> {
+async function hatchLocal(species: Species, name: string | null, daemonOnly: boolean = false): Promise<void> {
   const instanceName =
     name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
 
@@ -1011,15 +1015,17 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
     species,
     hatchedAt: new Date().toISOString(),
   };
-  saveAssistantEntry(localEntry);
+  if (!daemonOnly) {
+    saveAssistantEntry(localEntry);
 
-  console.log("");
-  console.log(`✅ Local assistant hatched!`);
-  console.log("");
-  console.log("Instance details:");
-  console.log(`  Name: ${instanceName}`);
-  console.log(`  Runtime: ${runtimeUrl}`);
-  console.log("");
+    console.log("");
+    console.log(`✅ Local assistant hatched!`);
+    console.log("");
+    console.log("Instance details:");
+    console.log(`  Name: ${instanceName}`);
+    console.log(`  Runtime: ${runtimeUrl}`);
+    console.log("");
+  }
 }
 
 function getCliVersion(): string {
@@ -1036,10 +1042,10 @@ export async function hatch(): Promise<void> {
   const cliVersion = getCliVersion();
   console.log(`@vellumai/cli v${cliVersion}`);
 
-  const { species, detached, name, remote } = parseArgs();
+  const { species, detached, name, remote, daemonOnly } = parseArgs();
 
   if (remote === "local") {
-    await hatchLocal(species, name);
+    await hatchLocal(species, name, daemonOnly);
     return;
   }
 
