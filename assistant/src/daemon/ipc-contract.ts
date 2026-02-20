@@ -2015,7 +2015,7 @@ export interface WorkItemDeleteResponse {
   success: boolean;
 }
 
-export type WorkItemRunTaskErrorCode = 'not_found' | 'already_running' | 'invalid_status' | 'no_task';
+export type WorkItemRunTaskErrorCode = 'not_found' | 'already_running' | 'invalid_status' | 'no_task' | 'permission_required';
 
 export interface WorkItemRunTaskResponse {
   type: 'work_item_run_task_response';
