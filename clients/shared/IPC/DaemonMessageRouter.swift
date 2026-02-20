@@ -119,6 +119,8 @@ extension DaemonClient {
             onSlackWebhookConfigResponse?(msg)
         case .twilioWebhookConfigResponse(let msg):
             onTwilioWebhookConfigResponse?(msg)
+        case .ingressConfigResponse(let msg):
+            onIngressConfigResponse?(msg)
         case .vercelApiConfigResponse(let msg):
             onVercelApiConfigResponse?(msg)
         case .twitterIntegrationConfigResponse(let msg):
