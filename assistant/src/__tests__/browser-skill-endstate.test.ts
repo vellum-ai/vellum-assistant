@@ -50,6 +50,7 @@ describe('browser skill migration end-state', () => {
 
   test('browser tools are NOT in startup core registry', async () => {
     const { tools } = await captureStartupTools();
+    // Guard against accidental eager re-registration of browser wrappers.
     const toolNames = tools.map((t) => t.name);
     for (const name of BROWSER_TOOLS) {
       expect(toolNames).not.toContain(name);
