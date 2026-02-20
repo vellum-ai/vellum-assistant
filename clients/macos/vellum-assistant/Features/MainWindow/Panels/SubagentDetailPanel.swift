@@ -214,8 +214,7 @@ struct SubagentDetailPanel: View {
     private func eventContent(_ event: SubagentEventItem) -> some View {
         switch event.kind {
         case .text:
-            MarkdownRenderer(text: event.content)
-                .font(VFont.monoSmall)
+            MarkdownSegmentView(segments: parseMarkdownSegments(event.content), maxContentWidth: nil)
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
