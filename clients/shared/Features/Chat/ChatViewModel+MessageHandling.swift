@@ -912,18 +912,27 @@ extension ChatViewModel {
                     if let toolName = msg.subToolName {
                         let step = ClaudeCodeSubStep(
                             toolName: toolName,
-                            inputSummary: msg.subToolInput ?? ""
+                            inputSummary: msg.subToolInput ?? "",
+                            subToolId: msg.subToolId
                         )
                         messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.append(step)
                     }
                 case "tool_complete":
-                    if let toolName = msg.subToolName,
-                       let stepIndex = messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.firstIndex(where: { $0.toolName == toolName && !$0.isComplete }) {
+                    // Prefer matching by subToolId (stable SDK identifier) over tool name.
+                    let stepIndex: Int?
+                    if let subToolId = msg.subToolId {
+                        stepIndex = messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.firstIndex(where: { $0.subToolId == subToolId && !$0.isComplete })
+                    } else if let toolName = msg.subToolName {
+                        stepIndex = messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.firstIndex(where: { $0.toolName == toolName && !$0.isComplete })
+                    } else {
+                        stepIndex = nil
+                    }
+                    if let stepIndex {
                         messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIndex].isComplete = true
                         messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIndex].isError = msg.subToolIsError ?? false
                     }
                 case "status":
-                    messages[msgIndex].toolCalls[tcIndex].buildingStatus = msg.chunk
+                    messages[msgIndex].toolCalls[tcIndex].buildingStatus = msg.subToolInput ?? ""
                 default:
                     break
                 }

@@ -318,14 +318,17 @@ public struct ClaudeCodeSubStep: Identifiable, Equatable {
     public var isComplete: Bool
     public var isError: Bool
     public let startedAt: Date
+    /// Stable identifier from the Claude Code SDK (tool_use_id), used for precise matching on tool_complete events.
+    public let subToolId: String?
 
-    public init(id: UUID = UUID(), toolName: String, inputSummary: String, isComplete: Bool = false, isError: Bool = false, startedAt: Date = Date()) {
+    public init(id: UUID = UUID(), toolName: String, inputSummary: String, isComplete: Bool = false, isError: Bool = false, startedAt: Date = Date(), subToolId: String? = nil) {
         self.id = id
         self.toolName = toolName
         self.inputSummary = inputSummary
         self.isComplete = isComplete
         self.isError = isError
         self.startedAt = startedAt
+        self.subToolId = subToolId
     }
 
     /// Human-readable label for the sub-tool.

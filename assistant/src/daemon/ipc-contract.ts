@@ -1020,6 +1020,7 @@ export interface ToolOutputChunk {
   subToolName?: string;
   subToolInput?: string;
   subToolIsError?: boolean;
+  subToolId?: string;
 }
 
 export interface ToolInputDelta {

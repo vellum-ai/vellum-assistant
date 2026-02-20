@@ -676,11 +676,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(IPCWorkItemCancelRequest(type: "work_item_cancel", id: id))
     }
 
-    /// Request the rendered template content for a work item.
-    public func sendWorkItemRender(id: String) throws {
-        try send(IPCWorkItemRenderRequest(type: "work_item_render", id: id))
-    }
-
     // MARK: - Subagent Management
 
     /// Abort a running subagent.

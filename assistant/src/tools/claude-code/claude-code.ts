@@ -222,12 +222,14 @@ export const claudeCodeTool: Tool = {
       queryOptions.resume = resumeSessionId;
     }
 
+    // Declared outside try so the catch block can emit a final tool_complete on error.
+    let lastSubToolName: string | null = null;
+
     try {
       const conversation = query({ prompt, options: queryOptions });
       let resultText = '';
       let sessionId = '';
       let hasError = false;
-      let lastSubToolName: string | null = null;
 
       // Track tool_use_id → {name, inputSummary} for enriching progress events.
       const toolUseIdInfo = new Map<string, { name: string; inputSummary: string }>();
@@ -258,20 +260,20 @@ export const claudeCodeTool: Tool = {
                   toolUseIdInfo.set(block.id, { name: block.name, inputSummary });
 
                   // Emit tool_start if we haven't already (tool_progress may have fired first).
+                  // NOTE: Do NOT emit tool_complete for the previous tool here. An assistant
+                  // message may contain multiple tool_use blocks (parallel tool use) and none
+                  // of them have executed yet at this point. Completions are handled by
+                  // tool_use_summary and tool_progress events.
                   if (!emittedToolUseIds.has(block.id)) {
-                    if (lastSubToolName) {
-                      context.onOutput?.(JSON.stringify({
-                        subType: 'tool_complete',
-                        subToolName: lastSubToolName,
-                      }));
-                    }
                     context.onOutput?.(JSON.stringify({
                       subType: 'tool_start',
                       subToolName: block.name,
                       subToolInput: inputSummary,
+                      subToolId: block.id,
                     }));
                     emittedToolUseIds.add(block.id);
                     lastSubToolName = block.name;
+                    activeToolUseId = block.id;
                   }
                 }
               }
@@ -297,6 +299,7 @@ export const claudeCodeTool: Tool = {
                 context.onOutput?.(JSON.stringify({
                   subType: 'tool_complete',
                   subToolName: lastSubToolName,
+                  subToolId: activeToolUseId,
                 }));
               }
               const inputSummary = toolUseIdInfo.get(toolUseId)?.inputSummary ?? '';
@@ -304,6 +307,7 @@ export const claudeCodeTool: Tool = {
                 subType: 'tool_start',
                 subToolName: toolName,
                 subToolInput: inputSummary,
+                subToolId: toolUseId,
               }));
               emittedToolUseIds.add(toolUseId);
               lastSubToolName = toolName;
@@ -322,6 +326,7 @@ export const claudeCodeTool: Tool = {
                 context.onOutput?.(JSON.stringify({
                   subType: 'tool_complete',
                   subToolName: completedName,
+                  subToolId: completedId,
                 }));
                 if (lastSubToolName === completedName) {
                   lastSubToolName = null;
@@ -335,11 +340,13 @@ export const claudeCodeTool: Tool = {
             break;
           }
           case 'result': {
-            // Mark the final sub-tool as complete
+            // Mark the final sub-tool as complete (flag error if the session failed).
             if (lastSubToolName) {
+              const isFailure = message.subtype !== 'success';
               context.onOutput?.(JSON.stringify({
                 subType: 'tool_complete',
                 subToolName: lastSubToolName,
+                ...(isFailure && { subToolIsError: true }),
               }));
               lastSubToolName = null;
             }
@@ -393,6 +400,16 @@ export const claudeCodeTool: Tool = {
         isError: hasError,
       };
     } catch (err) {
+      // Mark the last sub-tool as failed so the UI shows an error icon.
+      if (lastSubToolName) {
+        context.onOutput?.(JSON.stringify({
+          subType: 'tool_complete',
+          subToolName: lastSubToolName,
+          subToolIsError: true,
+        }));
+        lastSubToolName = null;
+      }
+
       const errMessage = err instanceof Error ? err.message : String(err);
       const recentStderr = stderrLines.slice(-20);
       log.error({ err, stderrTail: recentStderr }, 'Claude Code execution failed');

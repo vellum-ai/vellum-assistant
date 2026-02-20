@@ -353,7 +353,7 @@ export async function runAgentLoopImpl(
         case 'tool_output_chunk': {
           // Try to parse structured progress fields from the chunk.
           // Cheap pre-check: only attempt JSON.parse when the chunk looks like an object.
-          let structured: { subType?: 'tool_start' | 'tool_complete' | 'status'; subToolName?: string; subToolInput?: string; subToolIsError?: boolean } | undefined;
+          let structured: { subType?: 'tool_start' | 'tool_complete' | 'status'; subToolName?: string; subToolInput?: string; subToolIsError?: boolean; subToolId?: string } | undefined;
           const trimmed = event.chunk.trimStart();
           if (trimmed.length > 0 && trimmed.length < 4096 && trimmed[0] === '{') {
             try {
@@ -365,6 +365,7 @@ export async function runAgentLoopImpl(
                   subToolName: typeof parsed.subToolName === 'string' ? parsed.subToolName : undefined,
                   subToolInput: typeof parsed.subToolInput === 'string' ? parsed.subToolInput : undefined,
                   subToolIsError: typeof parsed.subToolIsError === 'boolean' ? parsed.subToolIsError : undefined,
+                  subToolId: typeof parsed.subToolId === 'string' ? parsed.subToolId : undefined,
                 };
               }
             } catch {
@@ -380,6 +381,7 @@ export async function runAgentLoopImpl(
               subToolName: structured.subToolName,
               subToolInput: structured.subToolInput,
               subToolIsError: structured.subToolIsError,
+              subToolId: structured.subToolId,
             });
           } else {
             onEvent({ type: 'tool_output_chunk', chunk: event.chunk, sessionId: ctx.conversationId });
