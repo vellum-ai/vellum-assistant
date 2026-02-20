@@ -80,23 +80,6 @@ struct ClaudeCodeProgressView: View {
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     ForEach(visibleSteps) { step in
                         HStack(spacing: VSpacing.sm) {
-                            // Step status icon
-                            if step.isComplete {
-                                if step.isError {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(VColor.error)
-                                } else {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(VColor.success)
-                                }
-                            } else {
-                                ProgressView()
-                                    .controlSize(.mini)
-                                    .frame(width: 11, height: 11)
-                            }
-
                             // Tool icon + name
                             Image(systemName: step.toolIcon)
                                 .font(.system(size: 10))
