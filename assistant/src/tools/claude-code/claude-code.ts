@@ -224,6 +224,7 @@ export const claudeCodeTool: Tool = {
 
     // Declared outside try so the catch block can emit a final tool_complete on error.
     let lastSubToolName: string | null = null;
+    let activeToolUseId: string | null = null;
 
     try {
       const conversation = query({ prompt, options: queryOptions });
@@ -235,8 +236,6 @@ export const claudeCodeTool: Tool = {
       const toolUseIdInfo = new Map<string, { name: string; inputSummary: string }>();
       // Track tool_use_ids that we've already emitted tool_start for (to avoid duplicates).
       const emittedToolUseIds = new Set<string>();
-      // Track the currently active tool_use_id from tool_progress events.
-      let activeToolUseId: string | null = null;
 
       for await (const message of conversation) {
         switch (message.type) {
@@ -406,6 +405,7 @@ export const claudeCodeTool: Tool = {
         context.onOutput?.(JSON.stringify({
           subType: 'tool_complete',
           subToolName: lastSubToolName,
+          subToolId: activeToolUseId,
           subToolIsError: true,
         }));
         lastSubToolName = null;
