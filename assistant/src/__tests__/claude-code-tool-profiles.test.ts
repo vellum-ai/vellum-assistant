@@ -85,4 +85,38 @@ describe('claude_code tool profile support', () => {
     );
     expect(result.isError).toBeFalsy();
   });
+
+  test('worker profile allows all tools', () => {
+    const { getProfilePolicy } = require('../swarm/worker-backend.js') as typeof import('../swarm/worker-backend.js');
+    const policy = getProfilePolicy('worker');
+
+    // Worker should allow all tool categories
+    expect(policy.allow.has('Bash')).toBe(true);
+    expect(policy.allow.has('Write')).toBe(true);
+    expect(policy.allow.has('Edit')).toBe(true);
+    expect(policy.allow.has('Task')).toBe(true);
+    expect(policy.allow.has('Read')).toBe(true);
+    expect(policy.allow.has('Glob')).toBe(true);
+    expect(policy.allow.has('Grep')).toBe(true);
+
+    // Deny and approvalRequired should be empty
+    expect(policy.deny.size).toBe(0);
+    expect(policy.approvalRequired.size).toBe(0);
+  });
+
+  test('worker profile is valid in tool definition', () => {
+    const def = claudeCodeTool.getDefinition();
+    const props = (def.input_schema as Record<string, unknown>).properties as Record<string, { enum?: string[] }>;
+    const profileEnum = props.profile.enum;
+    expect(profileEnum).toBeDefined();
+    expect(profileEnum).toContain('worker');
+  });
+
+  test('accepts worker profile without error', async () => {
+    const result = await claudeCodeTool.execute(
+      { prompt: 'test', profile: 'worker' },
+      makeContext(),
+    );
+    expect(result.isError).toBeFalsy();
+  });
 });
