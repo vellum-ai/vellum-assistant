@@ -1,7 +1,7 @@
 import { describe, test, expect, afterAll } from "bun:test";
 import { buildSchema } from "../schema.js";
 
-const PORT = 19836;
+const PORT = 19836 + Math.floor(Math.random() * 1000);
 
 const server = Bun.serve({
   port: PORT,

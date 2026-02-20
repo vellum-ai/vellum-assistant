@@ -7,7 +7,7 @@ import { describe, test, expect, afterAll } from "bun:test";
  * enabling the proxy by default) will be caught by this test.
  */
 
-const PORT = 19830; // ephemeral port for test
+const PORT = 19830 + Math.floor(Math.random() * 1000);
 
 // Minimal env for loadConfig
 const env: Record<string, string> = {
