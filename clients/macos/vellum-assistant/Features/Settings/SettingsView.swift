@@ -12,6 +12,7 @@ public struct SettingsView: View {
     @State private var twitterClientId = ""
     @State private var twitterClientSecret = ""
     @State private var ingressUrlText = ""
+    @FocusState private var isIngressUrlFocused: Bool
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
     @State private var showingPrivacy = false
@@ -326,6 +327,7 @@ public struct SettingsView: View {
 
             Section("Public Ingress") {
                 TextField("Public Ingress URL (e.g. https://abc123.ngrok-free.app)", text: $ingressUrlText)
+                    .focused($isIngressUrlFocused)
                     .textFieldStyle(.roundedBorder)
 
                 HStack(alignment: .top, spacing: 6) {
@@ -579,6 +581,7 @@ public struct SettingsView: View {
             store.refreshVercelKeyState()
             store.refreshTwitterStatus()
             store.refreshIngressConfig()
+            ingressUrlText = store.ingressPublicBaseUrl
             checkPermissions()
         }
         .onDisappear {
@@ -590,7 +593,11 @@ public struct SettingsView: View {
             checkPermissions()
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
-            ingressUrlText = newValue
+            // Only sync from store when the field is not focused, so
+            // background IPC responses don't overwrite in-progress edits.
+            if !isIngressUrlFocused {
+                ingressUrlText = newValue
+            }
         }
         .sheet(isPresented: $showingSkills, onDismiss: {
             skillsViewModel = nil

@@ -90,11 +90,12 @@ export function handleModelSet(
     // Suppress the file watcher callback — handleModelSet already does
     // the full reload sequence; a redundant watcher-triggered reload
     // would incorrectly evict sessions created after this method returns.
+    const wasSuppressed = ctx.suppressConfigReload;
     ctx.setSuppressConfigReload(true);
     try {
       saveRawConfig(raw);
     } catch (err) {
-      ctx.setSuppressConfigReload(false);
+      ctx.setSuppressConfigReload(wasSuppressed);
       throw err;
     }
     const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
@@ -139,11 +140,12 @@ export function handleImageGenModelSet(
     const raw = loadRawConfig();
     raw.imageGenModel = msg.model;
 
+    const wasSuppressed = ctx.suppressConfigReload;
     ctx.setSuppressConfigReload(true);
     try {
       saveRawConfig(raw);
     } catch (err) {
-      ctx.setSuppressConfigReload(false);
+      ctx.setSuppressConfigReload(wasSuppressed);
       throw err;
     }
     const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');

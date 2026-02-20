@@ -25,6 +25,7 @@ struct SettingsPanel: View {
     @State private var twitterClientId: String = ""
     @State private var twitterClientSecret: String = ""
     @State private var ingressUrlText: String = ""
+    @FocusState private var isIngressUrlFocused: Bool
     @State private var gatewayReachable: Bool? = nil
     @State private var checkingGateway: Bool = false
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
@@ -89,6 +90,7 @@ struct SettingsPanel: View {
             store.refreshAPIKeyState()
             store.refreshTwitterStatus()
             store.refreshIngressConfig()
+            ingressUrlText = store.ingressPublicBaseUrl
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
         }
@@ -102,7 +104,11 @@ struct SettingsPanel: View {
             }
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
-            ingressUrlText = newValue
+            // Only sync from store when the field is not focused, so
+            // background IPC responses don't overwrite in-progress edits.
+            if !isIngressUrlFocused {
+                ingressUrlText = newValue
+            }
         }
         .onChange(of: showModelDropdown) { _, isOpen in
             if let monitor = mouseDownMonitor {
@@ -532,6 +538,7 @@ struct SettingsPanel: View {
                 }
 
                 TextField("https://abc123.ngrok-free.app", text: $ingressUrlText)
+                    .focused($isIngressUrlFocused)
                     .textFieldStyle(.plain)
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
