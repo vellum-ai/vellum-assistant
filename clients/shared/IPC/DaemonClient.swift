@@ -926,6 +926,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(LinkOpenRequestMessage(url: url, metadata: metadata))
     }
 
+    // MARK: - Remote Identity
+
+    /// Fetch identity info from the remote daemon. Returns nil for local (socket) transports.
+    #if os(macOS)
+    public func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
+        return await httpTransport?.fetchRemoteIdentity()
+    }
+    #endif
+
     // MARK: - Document Persistence
 
     public func sendDocumentSave(surfaceId: String, conversationId: String, title: String, content: String, wordCount: Int) throws {

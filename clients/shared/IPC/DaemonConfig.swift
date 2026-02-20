@@ -1,5 +1,14 @@
 import Foundation
 
+/// Identity fields fetched from a remote assistant's `GET /v1/identity` endpoint.
+public struct RemoteIdentityInfo: Decodable {
+    public let name: String
+    public let role: String
+    public let personality: String
+    public let emoji: String
+    public let version: String?
+}
+
 public struct DaemonConfig {
     #if os(macOS)
     /// Transport mode for communicating with the assistant daemon.
