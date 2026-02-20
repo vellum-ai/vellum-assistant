@@ -5,6 +5,7 @@ import { join } from "path";
 export interface AssistantEntry {
   assistantId: string;
   runtimeUrl: string;
+  baseDataDir?: string;
   bearerToken?: string;
   cloud: string;
   instanceId?: string;
