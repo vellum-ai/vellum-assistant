@@ -97,7 +97,7 @@ export async function handleTwitterAuthStart(
 
     upsertCredentialMetadata('integration:twitter', 'access_token', {
       accountInfo,
-      allowedTools: ['twitter_post', 'twitter_read'],
+      allowedTools: ['twitter_post'],
       allowedDomains: [],
       oauth2TokenUrl: 'https://api.x.com/2/oauth2/token',
       oauth2ClientId: clientId,

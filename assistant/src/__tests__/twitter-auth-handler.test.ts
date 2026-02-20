@@ -520,7 +520,7 @@ describe('Twitter auth handler', () => {
         expect(lastUpsertPolicy!.oauth2ClientSecret).toBe('my-client-secret');
         expect(lastUpsertPolicy!.grantedScopes).toEqual(['tweet.read', 'users.read', 'offline.access']);
         expect(lastUpsertPolicy!.allowedDomains).toEqual([]);
-        expect(lastUpsertPolicy!.allowedTools).toEqual(['twitter_post', 'twitter_read']);
+        expect(lastUpsertPolicy!.allowedTools).toEqual(['twitter_post']);
 
         // expiresAt should be roughly Date.now() + 7200 * 1000
         const expiresAt = lastUpsertPolicy!.expiresAt as number;
