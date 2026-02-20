@@ -274,7 +274,7 @@ export function createToolExecutor(
         const refreshed = refreshSurfacesForApp(ctx, appId);
         broadcastToAllClients?.({ type: 'app_files_changed', appId });
         void updatePublishedAppDeployment(appId);
-        if (!refreshed) {
+        if (!refreshed && !ctx.hasNoClient && !ctx.headlessLock) {
           const resolver = (tn: string, pi: Record<string, unknown>) => surfaceProxyResolver(ctx, tn, pi);
           void openAppViaSurface(appId, resolver);
         }
@@ -301,7 +301,7 @@ export function createToolExecutor(
         const refreshed = refreshSurfacesForApp(ctx, appId, { fileChange: true, status });
         broadcastToAllClients?.({ type: 'app_files_changed', appId });
         void updatePublishedAppDeployment(appId);
-        if (!refreshed) {
+        if (!refreshed && !ctx.hasNoClient && !ctx.headlessLock) {
           const resolver = (tn: string, pi: Record<string, unknown>) => surfaceProxyResolver(ctx, tn, pi);
           void openAppViaSurface(appId, resolver);
         }
