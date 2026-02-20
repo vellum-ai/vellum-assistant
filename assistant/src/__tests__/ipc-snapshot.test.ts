@@ -892,6 +892,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     title: 'Urgent email from Alice',
     body: 'Meeting rescheduled to 3pm today.',
   },
+  agent_heartbeat_alert: {
+    type: 'agent_heartbeat_alert',
+    title: 'Agent heartbeat stalled',
+    body: 'No activity detected in the last 60 minutes.',
+  },
   watch_started: {
     type: 'watch_started',
     sessionId: 'sess-001',
@@ -1407,6 +1412,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   open_tasks_window: {
     type: 'open_tasks_window',
+  },
+  task_run_thread_created: {
+    type: 'task_run_thread_created',
+    conversationId: 'conv-task-run-001',
+    workItemId: 'wi-001',
+    title: 'Process report',
   },
   subagent_spawned: {
     type: 'subagent_spawned',
