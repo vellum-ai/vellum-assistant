@@ -49,7 +49,8 @@ export class AgentHeartbeatService {
       this.timer = null;
     }
     if (this.activeRun) {
-      await this.activeRun;
+      const timeout = new Promise<void>((resolve) => setTimeout(resolve, 5_000));
+      await Promise.race([this.activeRun, timeout]);
     }
     log.info('Agent heartbeat service stopped');
   }
