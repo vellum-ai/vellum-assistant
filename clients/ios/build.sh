@@ -128,9 +128,10 @@ xcodebuild archive \
     -destination 'generic/platform=iOS' \
     -archivePath "$ARCHIVE_PATH" \
     -configuration Release \
-    -allowProvisioningUpdates \
     DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-    CODE_SIGN_STYLE=Automatic \
+    CODE_SIGN_STYLE=Manual \
+    CODE_SIGN_IDENTITY="Apple Distribution" \
+    PROVISIONING_PROFILE_SPECIFIER="Vellum Assistant iOS Distribution" \
     MARKETING_VERSION="$DISPLAY_VERSION" \
     CURRENT_PROJECT_VERSION="$BUILD_VERSION"
 
