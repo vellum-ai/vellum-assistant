@@ -225,6 +225,18 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 100,
   };
 
+  // claude_code is an orchestration tool that spawns a Claude Code subprocess.
+  // The subprocess manages its own tool permissions via profile-based deny lists,
+  // so the outer permission prompt is redundant friction.
+  const claudeCodeRule: DefaultRuleTemplate = {
+    id: 'default:allow-claude_code-global',
+    tool: 'claude_code',
+    pattern: '**',
+    scope: 'everywhere',
+    decision: 'allow',
+    priority: 100,
+  };
+
   return [
     ...hostFileRules,
     hostShellRule,
@@ -239,5 +251,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     ...browserToolRules,
     ...uiSurfaceRules,
     viewImageRule,
+    claudeCodeRule,
   ];
 }
