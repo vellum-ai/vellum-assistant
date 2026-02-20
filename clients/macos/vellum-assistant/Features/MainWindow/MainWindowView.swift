@@ -691,7 +691,7 @@ struct MainWindowView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.md)
-            .padding(.trailing, VSpacing.sm)
+            .padding(.trailing, isHovered ? (VSpacing.xs + 20 + VSpacing.xs + 20 + VSpacing.xs) : VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
             .background {
                 if isSelected || isHovered {
