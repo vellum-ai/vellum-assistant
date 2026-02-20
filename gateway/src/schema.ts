@@ -688,12 +688,13 @@ export function buildSchema(): Record<string, unknown> {
             "Request to deliver a message to a Telegram chat. At least one of `text` or `attachments` must be provided.",
           properties: {
             chatId: { type: "string", description: "Telegram chat ID to deliver the message to" },
-            text: { type: "string", description: "Text content to send" },
+            text: { type: "string", description: "Text content to send", minLength: 1 },
             assistantId: { type: "string", description: "Assistant ID (required when sending attachments)" },
             attachments: {
               type: "array",
               description: "Attachments to deliver (images sent via sendPhoto, others via sendDocument)",
               items: { $ref: "#/components/schemas/RuntimeAttachmentMeta" },
+              minItems: 1,
             },
           },
           anyOf: [
