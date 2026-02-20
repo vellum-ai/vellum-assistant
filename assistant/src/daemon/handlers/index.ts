@@ -3,7 +3,6 @@ import type { ClientMessage } from '../ipc-protocol.js';
 import { handleRideShotgunStart, handleRideShotgunStop } from '../ride-shotgun-handler.js';
 import { handleWatchObservation } from '../watch-handler.js';
 import { handleOpenBundle } from './open-bundle-handler.js';
-import { loadRawConfig } from '../../config/loader.js';
 import { log, defineHandlers, type HandlerContext, type DispatchMap } from './shared.js';
 
 import { sessionHandlers } from './sessions.js';
@@ -85,32 +84,6 @@ const inlineHandlers = defineHandlers({
     });
   },
   integration_disconnect: () => { /* no-op — integration registry removed */ },
-
-  // Compat stub: twilio_webhook_config was replaced by ingress_config but
-  // older clients may still send this message type. Forward reads to
-  // ingress.publicBaseUrl; reject writes with an actionable error.
-  twilio_webhook_config: (msg, socket, ctx) => {
-    log.warn('Received deprecated twilio_webhook_config IPC — client should migrate to ingress_config');
-    try {
-      if (msg.action === 'get') {
-        const raw = loadRawConfig();
-        const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-        const webhookBaseUrl = (ingress.publicBaseUrl as string) ?? '';
-        ctx.send(socket, { type: 'twilio_webhook_config_response', webhookBaseUrl, success: true });
-      } else {
-        // Don't allow writes via the deprecated path — tell the client to use ingress_config
-        ctx.send(socket, {
-          type: 'twilio_webhook_config_response',
-          webhookBaseUrl: '',
-          success: false,
-          error: 'twilio_webhook_config is deprecated. Use ingress_config instead.',
-        });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      ctx.send(socket, { type: 'twilio_webhook_config_response', webhookBaseUrl: '', success: false, error: message });
-    }
-  },
 });
 
 const handlers = {
