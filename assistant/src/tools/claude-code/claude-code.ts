@@ -229,6 +229,13 @@ export const claudeCodeTool: Tool = {
       let hasError = false;
       let lastSubToolName: string | null = null;
 
+      // Track tool_use_id → {name, inputSummary} for enriching progress events.
+      const toolUseIdInfo = new Map<string, { name: string; inputSummary: string }>();
+      // Track tool_use_ids that we've already emitted tool_start for (to avoid duplicates).
+      const emittedToolUseIds = new Set<string>();
+      // Track the currently active tool_use_id from tool_progress events.
+      let activeToolUseId: string | null = null;
+
       for await (const message of conversation) {
         switch (message.type) {
           case 'assistant': {
@@ -246,24 +253,85 @@ export const claudeCodeTool: Tool = {
                   resultText += block.text;
                 }
                 if (block.type === 'tool_use') {
-                  // Mark previous sub-tool as complete
-                  if (lastSubToolName) {
-                    context.onOutput?.(JSON.stringify({
-                      subType: 'tool_complete',
-                      subToolName: lastSubToolName,
-                    }));
-                  }
+                  // Capture info keyed by tool_use_id for enriching tool_progress events.
                   const inputSummary = summarizeToolInput(block.name, block.input as Record<string, unknown>);
-                  context.onOutput?.(JSON.stringify({
-                    subType: 'tool_start',
-                    subToolName: block.name,
-                    subToolInput: inputSummary,
-                  }));
-                  lastSubToolName = block.name;
+                  toolUseIdInfo.set(block.id, { name: block.name, inputSummary });
+
+                  // Emit tool_start if we haven't already (tool_progress may have fired first).
+                  if (!emittedToolUseIds.has(block.id)) {
+                    if (lastSubToolName) {
+                      context.onOutput?.(JSON.stringify({
+                        subType: 'tool_complete',
+                        subToolName: lastSubToolName,
+                      }));
+                    }
+                    context.onOutput?.(JSON.stringify({
+                      subType: 'tool_start',
+                      subToolName: block.name,
+                      subToolInput: inputSummary,
+                    }));
+                    emittedToolUseIds.add(block.id);
+                    lastSubToolName = block.name;
+                  }
                 }
               }
             }
             sessionId = message.session_id;
+            break;
+          }
+          case 'tool_progress': {
+            // The SDK fires tool_progress periodically DURING tool execution.
+            // This is our primary signal for live sub-tool progress.
+            const toolUseId = message.tool_use_id;
+            const toolName = message.tool_name;
+            sessionId = message.session_id;
+
+            // Record tool name if we don't have it yet (tool_progress fires before assistant sometimes).
+            if (!toolUseIdInfo.has(toolUseId)) {
+              toolUseIdInfo.set(toolUseId, { name: toolName, inputSummary: '' });
+            }
+
+            if (!emittedToolUseIds.has(toolUseId)) {
+              // New tool — mark previous as complete and emit tool_start.
+              if (lastSubToolName && activeToolUseId !== toolUseId) {
+                context.onOutput?.(JSON.stringify({
+                  subType: 'tool_complete',
+                  subToolName: lastSubToolName,
+                }));
+              }
+              const inputSummary = toolUseIdInfo.get(toolUseId)?.inputSummary ?? '';
+              context.onOutput?.(JSON.stringify({
+                subType: 'tool_start',
+                subToolName: toolName,
+                subToolInput: inputSummary,
+              }));
+              emittedToolUseIds.add(toolUseId);
+              lastSubToolName = toolName;
+            }
+            activeToolUseId = toolUseId;
+            break;
+          }
+          case 'tool_use_summary': {
+            // The SDK fires tool_use_summary after tool execution with a summary
+            // and the IDs of tools that were executed.
+            sessionId = message.session_id;
+            for (const completedId of message.preceding_tool_use_ids) {
+              const info = toolUseIdInfo.get(completedId);
+              const completedName: string | null = info?.name ?? lastSubToolName;
+              if (completedName && emittedToolUseIds.has(completedId)) {
+                context.onOutput?.(JSON.stringify({
+                  subType: 'tool_complete',
+                  subToolName: completedName,
+                }));
+                if (lastSubToolName === completedName) {
+                  lastSubToolName = null;
+                }
+              }
+              // Prune completed entries to keep memory flat across long sessions.
+              toolUseIdInfo.delete(completedId);
+              emittedToolUseIds.delete(completedId);
+            }
+            activeToolUseId = null;
             break;
           }
           case 'result': {

@@ -1,10 +1,12 @@
 import SwiftUI
+import VellumAssistantShared
 
 struct ClaudeCodeProgressView: View {
     let steps: [ClaudeCodeSubStep]
     let isRunning: Bool
 
     @State private var isExpanded: Bool = true
+    @State private var userHasToggled: Bool = false
 
     // Show only the last 8 steps to keep the view manageable
     private var visibleSteps: [ClaudeCodeSubStep] {
@@ -26,6 +28,7 @@ struct ClaudeCodeProgressView: View {
             Button(action: {
                 withAnimation(VAnimation.fast) {
                     isExpanded.toggle()
+                    userHasToggled = true
                 }
             }) {
                 HStack(spacing: VSpacing.sm) {
@@ -132,8 +135,8 @@ struct ClaudeCodeProgressView: View {
         .background(VColor.surface.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .onChange(of: isRunning) { _, newValue in
-            // Auto-collapse when done
-            if !newValue {
+            // Auto-collapse when done, unless the user has manually toggled
+            if !newValue && !userHasToggled {
                 withAnimation(VAnimation.fast) {
                     isExpanded = false
                 }

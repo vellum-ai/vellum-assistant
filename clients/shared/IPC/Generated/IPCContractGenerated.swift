@@ -2023,6 +2023,11 @@ public struct IPCWorkItemOutputRequest: Codable, Sendable {
     public let id: String
 }
 
+public struct IPCWorkItemRenderRequest: Codable, Sendable {
+    public let type: String
+    public let id: String
+}
+
 public struct IPCWorkItemOutputResponse: Codable, Sendable {
     public let type: String
     public let id: String

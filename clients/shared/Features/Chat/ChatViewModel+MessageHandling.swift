@@ -918,7 +918,7 @@ extension ChatViewModel {
                     }
                 case "tool_complete":
                     if let toolName = msg.subToolName,
-                       let stepIndex = messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.lastIndex(where: { $0.toolName == toolName && !$0.isComplete }) {
+                       let stepIndex = messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.firstIndex(where: { $0.toolName == toolName && !$0.isComplete }) {
                         messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIndex].isComplete = true
                         messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIndex].isError = msg.subToolIsError ?? false
                     }

@@ -353,15 +353,15 @@ export async function runAgentLoopImpl(
         case 'tool_output_chunk': {
           // Try to parse structured progress fields from the chunk.
           // Cheap pre-check: only attempt JSON.parse when the chunk looks like an object.
-          let structured: { subType?: string; subToolName?: string; subToolInput?: string; subToolIsError?: boolean } | undefined;
+          let structured: { subType?: 'tool_start' | 'tool_complete' | 'status'; subToolName?: string; subToolInput?: string; subToolIsError?: boolean } | undefined;
           const trimmed = event.chunk.trimStart();
-          if (trimmed.length > 0 && trimmed[0] === '{') {
+          if (trimmed.length > 0 && trimmed.length < 4096 && trimmed[0] === '{') {
             try {
               const parsed = JSON.parse(event.chunk);
               const VALID_SUB_TYPES = new Set(['tool_start', 'tool_complete', 'status']);
               if (parsed && typeof parsed === 'object' && typeof parsed.subType === 'string' && VALID_SUB_TYPES.has(parsed.subType)) {
                 structured = {
-                  subType: parsed.subType as string,
+                  subType: parsed.subType as 'tool_start' | 'tool_complete' | 'status',
                   subToolName: typeof parsed.subToolName === 'string' ? parsed.subToolName : undefined,
                   subToolInput: typeof parsed.subToolInput === 'string' ? parsed.subToolInput : undefined,
                   subToolIsError: typeof parsed.subToolIsError === 'boolean' ? parsed.subToolIsError : undefined,
