@@ -15,7 +15,7 @@ describe('forbidden legacy symbols', () => {
     try {
       matches = execSync(
         'grep -rn -E "TWILIO_WEBHOOK_BASE_URL|twilioWebhookBaseUrl|twilio_webhook_config|calls\\.webhookBaseUrl"' +
-        ' --include="*.ts" --include="*.js" --include="*.swift" --include="*.json"' +
+        ' --include="*.ts" --include="*.tsx" --include="*.js" --include="*.mjs" --include="*.swift" --include="*.json" --include="*.md" --include="*.yml" --include="*.yaml"' +
         ' --exclude-dir=node_modules --exclude-dir=__tests__ --exclude-dir=.private' +
         ' .',
         { cwd: repoRoot, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
