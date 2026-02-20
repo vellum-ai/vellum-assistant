@@ -18,7 +18,7 @@ import {
 } from "../lib/constants";
 import type { RemoteHost, Species } from "../lib/constants";
 import type { FirewallRuleSpec } from "../lib/gcp";
-import { getActiveProject, instanceExists, syncFirewallRules } from "../lib/gcp";
+import { fetchAndDisplayStartupLogs, getActiveProject, instanceExists, syncFirewallRules } from "../lib/gcp";
 import { buildInterfacesSeed } from "../lib/interfaces-seed";
 import { generateRandomSuffix } from "../lib/random-name";
 import { exec, execOutput } from "../lib/step-runner";
@@ -628,45 +628,6 @@ async function hatchGcp(
   } catch (error) {
     console.error("❌ Error:", error instanceof Error ? error.message : error);
     process.exit(1);
-  }
-}
-
-async function fetchAndDisplayStartupLogs(
-  instanceName: string,
-  project: string,
-  zone: string,
-  account?: string,
-): Promise<void> {
-  try {
-    const remoteCmd =
-      'echo "=== Last 50 lines of /var/log/startup-script.log ==="; ' +
-      "tail -50 /var/log/startup-script.log 2>/dev/null || echo '(no startup log found)'; " +
-      'echo ""; ' +
-      'echo "=== /var/log/startup-error ==="; ' +
-      "cat /var/log/startup-error 2>/dev/null || echo '(no error file found)'";
-    const args = [
-      "compute",
-      "ssh",
-      instanceName,
-      `--project=${project}`,
-      `--zone=${zone}`,
-      "--quiet",
-      "--ssh-flag=-o StrictHostKeyChecking=no",
-      "--ssh-flag=-o UserKnownHostsFile=/dev/null",
-      "--ssh-flag=-o ConnectTimeout=10",
-      "--ssh-flag=-o LogLevel=ERROR",
-      `--command=${remoteCmd}`,
-    ];
-    if (account) args.push(`--account=${account}`);
-    const output = await execOutput("gcloud", args);
-    console.log("📋 Startup logs from instance:");
-    for (const line of output.split("\n")) {
-      console.log(`   ${line}`);
-    }
-    console.log("");
-  } catch {
-    console.log("⚠️  Could not retrieve startup logs from instance");
-    console.log("");
   }
 }
 
