@@ -156,13 +156,13 @@ describe('gateway-only ingress enforcement', () => {
 
   beforeEach(async () => {
     logMessages.length = 0;
-    port = 17800 + Math.floor(Math.random() * 1000);
     server = new RuntimeHttpServer({
-      port,
+      port: 0,
       hostname: '127.0.0.1',
       bearerToken: TEST_TOKEN,
     });
     await server.start();
+    port = server.actualPort;
   });
 
   afterEach(async () => {
@@ -488,7 +488,7 @@ describe('gateway-only ingress enforcement', () => {
       logMessages.length = 0;
 
       const warnServer = new RuntimeHttpServer({
-        port: port + 100,
+        port: 0,
         hostname: '0.0.0.0',
         bearerToken: TEST_TOKEN,
       });
@@ -515,7 +515,7 @@ describe('gateway-only ingress enforcement', () => {
       // The main test server already uses 127.0.0.1, so restart with
       // a fresh server and capture logs
       const loopbackServer = new RuntimeHttpServer({
-        port: port + 200,
+        port: 0,
         hostname: '127.0.0.1',
         bearerToken: TEST_TOKEN,
       });

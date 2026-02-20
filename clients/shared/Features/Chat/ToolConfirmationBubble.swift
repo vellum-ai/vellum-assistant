@@ -15,6 +15,10 @@ public struct ToolConfirmationBubble: View {
     /// Tracks a selected pattern while waiting for the user to pick a scope.
     @State private var pendingPattern: String?
     @State private var showScopePickerMenu = false
+    @State private var keyboardModel: ToolConfirmationKeyboardModel?
+    #if os(macOS)
+    @State private var keyMonitor: Any?
+    #endif
 
     public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAlwaysAllow: @escaping (String, String, String, String) -> Void) {
         self.confirmation = confirmation
@@ -322,18 +326,135 @@ public struct ToolConfirmationBubble: View {
 
     // MARK: - Button Row
 
+    /// Build the ordered list of top-level actions based on current confirmation state.
+    private var topLevelActions: [ToolConfirmationKeyboardModel.Action] {
+        var actions: [ToolConfirmationKeyboardModel.Action] = [.allowOnce]
+        if hasRuleOptions && confirmation.persistentDecisionsAllowed {
+            actions.append(.alwaysAllow)
+        }
+        actions.append(.dontAllow)
+        return actions
+    }
+
     @ViewBuilder
     private var buttonRow: some View {
+        let actions = topLevelActions
         HStack(spacing: VSpacing.xs) {
+            confirmationButton(
+                "Allow Once",
+                isPrimary: true,
+                isDanger: false,
+                isKeyboardSelected: keyboardModel?.selectedAction == .allowOnce
+            ) { onAllow() }
             if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
-            confirmationButton("Allow Once", isPrimary: false, isDanger: false) { onAllow() }
-            confirmationButton("Don\u{2019}t Allow", isPrimary: false, isDanger: false) { onDeny() }
+            confirmationButton(
+                "Don\u{2019}t Allow",
+                isPrimary: false,
+                isDanger: false,
+                isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
+            ) { onDeny() }
             Spacer()
+        }
+        .onAppear {
+            #if os(macOS)
+            installKeyMonitor(actions: actions)
+            #else
+            keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
+            #endif
+        }
+        .onDisappear {
+            #if os(macOS)
+            removeKeyMonitor()
+            #endif
+        }
+    }
+
+    // MARK: - Key Monitor (macOS)
+
+    #if os(macOS)
+    private func installKeyMonitor(actions: [ToolConfirmationKeyboardModel.Action]) {
+        removeKeyMonitor()
+        keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Pass through when a popover menu is open
+            if showAlwaysAllowMenu || showScopePickerMenu {
+                return event
+            }
+            switch event.keyCode {
+            case 48 where event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .shift:
+                // Shift+Tab — move left
+                keyboardModel?.moveLeft()
+                return nil
+            case 48:
+                // Tab — move right
+                keyboardModel?.moveRight()
+                return nil
+            case 36, 76:
+                // Return / numpad Enter — activate
+                if let action = keyboardModel?.selectedAction {
+                    activateAction(action)
+                }
+                return nil
+            case 53:
+                // Escape — deny
+                activateAction(.dontAllow)
+                return nil
+            default:
+                return event
+            }
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
+        }
+    }
+    #endif
+
+    /// Trigger the callback for a given top-level action.
+    private func activateAction(_ action: ToolConfirmationKeyboardModel.Action) {
+        switch action {
+        case .allowOnce:
+            onAllow()
+        case .alwaysAllow:
+            if confirmation.allowlistOptions.count > 1 {
+                withAnimation(VAnimation.fast) {
+                    pendingPattern = nil
+                    showAlwaysAllowMenu.toggle()
+                }
+            } else {
+                handleSingleOptionAlwaysAllow()
+            }
+        case .dontAllow:
+            onDeny()
+        }
+    }
+
+    /// Shared logic for the single-option Always Allow action, used by both the
+    /// inline button click handler and keyboard Enter activation.
+    private func handleSingleOptionAlwaysAllow() {
+        let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
+        if pattern.isEmpty {
+            onAllow()
+            return
+        }
+        if needsScopeChoice {
+            pendingPattern = pattern
+            showScopePickerMenu = true
+        } else {
+            let scope = confirmation.scopeOptions.first?.scope ?? ""
+            if !scope.isEmpty {
+                onAlwaysAllow(confirmation.requestId, pattern, scope, alwaysAllowDecision)
+            } else {
+                onAllow()
+            }
         }
     }
 
     @ViewBuilder
-    private func confirmationButton(_ label: String, isPrimary: Bool, isDanger: Bool, action: @escaping () -> Void) -> some View {
+    private func confirmationButton(_ label: String, isPrimary: Bool, isDanger: Bool, isKeyboardSelected: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
                 .font(VFont.caption)
@@ -344,7 +465,10 @@ public struct ToolConfirmationBubble: View {
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(isPrimary || isDanger ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(
+                            isKeyboardSelected ? VColor.accent : (isPrimary || isDanger ? Color.clear : VColor.surfaceBorder),
+                            lineWidth: isKeyboardSelected ? 2 : 1
+                        )
                 )
         }
         .buttonStyle(.plain)
@@ -358,23 +482,8 @@ public struct ToolConfirmationBubble: View {
             alwaysAllowDropdown
         } else {
             let patternDesc = confirmation.allowlistOptions.first?.description ?? ""
-            confirmationButton("Always Allow", isPrimary: true, isDanger: false) {
-                let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
-                if pattern.isEmpty {
-                    onAllow()
-                    return
-                }
-                if needsScopeChoice {
-                    pendingPattern = pattern
-                    showScopePickerMenu = true
-                } else {
-                    let scope = confirmation.scopeOptions.first?.scope ?? ""
-                    if !scope.isEmpty {
-                        onAlwaysAllow(confirmation.requestId, pattern, scope, alwaysAllowDecision)
-                    } else {
-                        onAllow()
-                    }
-                }
+            confirmationButton("Always Allow", isPrimary: false, isDanger: false, isKeyboardSelected: keyboardModel?.selectedAction == .alwaysAllow) {
+                handleSingleOptionAlwaysAllow()
             }
             .help(patternDesc.isEmpty ? "Always allow this action" : patternDesc)
             .popover(isPresented: $showScopePickerMenu, arrowEdge: .bottom) {
@@ -387,7 +496,7 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var alwaysAllowDropdown: some View {
-        confirmationButton("Always Allow", isPrimary: true, isDanger: false) {
+        confirmationButton("Always Allow", isPrimary: false, isDanger: false, isKeyboardSelected: keyboardModel?.selectedAction == .alwaysAllow) {
             withAnimation(VAnimation.fast) {
                 pendingPattern = nil
                 showAlwaysAllowMenu.toggle()

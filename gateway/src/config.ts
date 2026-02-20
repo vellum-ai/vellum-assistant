@@ -209,6 +209,10 @@ export function loadConfig(): GatewayConfig {
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN || undefined;
   const publicUrl = process.env.GATEWAY_PUBLIC_URL || undefined;
 
+  // In the default local deployment, the assistant's hatch process sets this
+  // env var from config.ingress.publicBaseUrl when spawning the gateway.
+  // This ensures the gateway reconstructs the same canonical URL that the
+  // assistant used to register Twilio webhooks, preventing signature mismatch.
   const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
 
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;

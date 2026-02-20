@@ -205,9 +205,9 @@ describe('twilio webhook routes', () => {
   });
 
   async function startServer(): Promise<void> {
-    port = 20000 + Math.floor(Math.random() * 1000);
-    server = new RuntimeHttpServer({ port, bearerToken: TEST_TOKEN });
+    server = new RuntimeHttpServer({ port: 0, bearerToken: TEST_TOKEN });
     await server.start();
+    port = server.actualPort;
   }
 
   async function stopServer(): Promise<void> {

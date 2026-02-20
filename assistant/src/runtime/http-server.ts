@@ -345,6 +345,11 @@ export class RuntimeHttpServer {
     this.interfacesDir = options.interfacesDir ?? null;
   }
 
+  /** The port the server is actually listening on (resolved after start). */
+  get actualPort(): number {
+    return this.server?.port ?? this.port;
+  }
+
   async start(): Promise<void> {
     this.server = Bun.serve<RelayWebSocketData>({
       port: this.port,
@@ -401,7 +406,7 @@ export class RuntimeHttpServer {
       // Config loading may fail during startup — don't block server start
     }
 
-    log.info({ port: this.port, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
+    log.info({ port: this.actualPort, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
   }
 
   async stop(): Promise<void> {
@@ -684,7 +689,7 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
-        return await handleChannelInbound(req, this.processMessage);
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {
@@ -909,7 +914,7 @@ export class RuntimeHttpServer {
             chatId: externalChatId,
             text: rendered.text || undefined,
             attachments: replyAttachments.length > 0 ? replyAttachments : undefined,
-          });
+          }, this.bearerToken);
         }
         break;
       }

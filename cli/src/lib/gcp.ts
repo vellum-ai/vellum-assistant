@@ -354,6 +354,7 @@ export async function retireInstance(
       name,
       `--project=${project}`,
       `--zone=${zone}`,
+      "--quiet",
     ],
     { stdio: "inherit" },
   );

@@ -1,4 +1,5 @@
 import type { GatewayConfig } from "../../config.js";
+import { validateBearerToken } from "../auth/bearer.js";
 import { getLogger } from "../../logger.js";
 import type { RuntimeAttachmentMeta } from "../../runtime/client.js";
 import { sendTelegramAttachments, sendTelegramReply } from "../../telegram/send.js";
@@ -9,6 +10,18 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
   return async (req: Request): Promise<Response> => {
     if (req.method !== "POST") {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
+    }
+
+    // Require bearer auth when a token is configured, preventing unauthenticated
+    // public access to the delivery endpoint.
+    if (config.runtimeProxyBearerToken) {
+      const authResult = validateBearerToken(
+        req.headers.get("authorization"),
+        config.runtimeProxyBearerToken,
+      );
+      if (!authResult.authorized) {
+        return Response.json({ error: "Unauthorized" }, { status: 401 });
+      }
     }
 
     let body: {

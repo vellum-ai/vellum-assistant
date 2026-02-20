@@ -1,10 +1,8 @@
 import { describe, test, expect, afterAll } from "bun:test";
 import { buildSchema } from "../schema.js";
 
-const PORT = 19836 + Math.floor(Math.random() * 1000);
-
 const server = Bun.serve({
-  port: PORT,
+  port: 0,
   fetch(req) {
     const url = new URL(req.url);
 
@@ -30,7 +28,7 @@ describe("/schema route", () => {
     // GIVEN a running gateway server
 
     // WHEN we request the schema endpoint
-    const res = await fetch(`http://localhost:${PORT}/schema`);
+    const res = await fetch(`http://localhost:${server.port}/schema`);
 
     // THEN we receive a 200 with valid JSON
     expect(res.status).toBe(200);
@@ -56,7 +54,7 @@ describe("/schema route", () => {
     // GIVEN a running gateway server
 
     // WHEN we request the schema endpoint
-    const res = await fetch(`http://localhost:${PORT}/schema`);
+    const res = await fetch(`http://localhost:${server.port}/schema`);
     const body = await res.json();
 
     // THEN the paths include every gateway endpoint
@@ -64,6 +62,12 @@ describe("/schema route", () => {
     expect(body.paths["/readyz"]).toBeDefined();
     expect(body.paths["/schema"]).toBeDefined();
     expect(body.paths["/webhooks/telegram"]).toBeDefined();
+    expect(body.paths["/webhooks/twilio/voice"]).toBeDefined();
+    expect(body.paths["/webhooks/twilio/status"]).toBeDefined();
+    expect(body.paths["/webhooks/twilio/connect-action"]).toBeDefined();
+    expect(body.paths["/webhooks/twilio/relay"]).toBeDefined();
+    expect(body.paths["/webhooks/oauth/callback"]).toBeDefined();
+    expect(body.paths["/deliver/telegram"]).toBeDefined();
     expect(body.paths["/{path}"]).toBeDefined();
   });
 
@@ -76,7 +80,7 @@ describe("/schema route", () => {
     const pkg = (await import("../../package.json")).default;
 
     // WHEN we request the schema endpoint
-    const res = await fetch(`http://localhost:${PORT}/schema`);
+    const res = await fetch(`http://localhost:${server.port}/schema`);
     const body = await res.json();
 
     // THEN the schema version matches the package version
@@ -108,6 +112,8 @@ describe("buildSchema()", () => {
     expect(schemaNames).toContain("TelegramMessage");
     expect(schemaNames).toContain("TelegramPhotoSize");
     expect(schemaNames).toContain("TelegramDocument");
+    expect(schemaNames).toContain("TelegramDeliverRequest");
+    expect(schemaNames).toContain("RuntimeAttachmentMeta");
   });
 
   test("returns a JSON-serializable object", () => {
