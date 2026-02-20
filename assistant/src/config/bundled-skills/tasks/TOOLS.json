@@ -136,6 +136,11 @@
             "type": "string",
             "enum": ["create_duplicate", "reuse_existing", "update_existing"],
             "description": "What to do if an active work item with the same title already exists. Defaults to \"reuse_existing\"."
+          },
+          "required_tools": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Tools the task needs permission for (e.g. [\"bash\", \"web_fetch\"]). Omit to inherit from the task template; pass [] to explicitly require no tools."
           }
         }
       },

@@ -1,6 +1,7 @@
 import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { getTask, listTasks, createTask } from '../../tasks/task-store.js';
 import { createWorkItemWithPermissions, findActiveWorkItemsByTitle, updateWorkItem, identifyEntityById, buildWorkItemMismatchError } from '../../work-items/work-item-store.js';
+import { sanitizeToolList } from '../../tasks/tool-sanitizer.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('task-list-add');
@@ -61,8 +62,13 @@ export async function executeTaskListAdd(
     const notes = input.notes as string | undefined;
     const priorityTier = input.priority_tier as number | undefined;
     const sortIndex = input.sort_index as number | undefined;
+    const rawRequiredTools = input.required_tools as string[] | undefined;
 
     const ifExists = (input.if_exists as string) || 'reuse_existing';
+
+    // Sanitize explicit required_tools if provided (including empty array)
+    const hasExplicitTools = rawRequiredTools !== undefined;
+    const sanitizedTools = hasExplicitTools ? sanitizeToolList(rawRequiredTools) : undefined;
 
     // Ad-hoc mode: title provided without task_id or task_name
     if (!taskId && !taskName) {
@@ -89,12 +95,16 @@ export async function executeTaskListAdd(
         template: titleOverride,
       });
 
+      // For ad-hoc items: explicit tools → persist; omitted → null
+      const adHocRequiredTools = hasExplicitTools ? JSON.stringify(sanitizedTools) : undefined;
+
       const workItem = createWorkItemWithPermissions({
         taskId: adHocTask.id,
         title: titleOverride,
         notes,
         priorityTier: priorityTier ?? 1,
         sortIndex,
+        requiredTools: adHocRequiredTools,
       });
 
       log.info({ selectorType: 'title', workItemId: workItem.id, title: workItem.title }, 'ad-hoc work item created');
@@ -171,12 +181,24 @@ export async function executeTaskListAdd(
     log.debug({ title: finalTitle }, 'task_list_add: creating new item');
 
     const selectorType = taskId ? 'task_id' : 'task_name';
+
+    // Snapshot precedence: explicit required_tools > template tools > null
+    let resolvedRequiredTools: string | undefined;
+    if (hasExplicitTools) {
+      resolvedRequiredTools = JSON.stringify(sanitizedTools);
+    } else if (resolvedTask.requiredTools) {
+      // Snapshot template tools at add time
+      const templateTools = sanitizeToolList(JSON.parse(resolvedTask.requiredTools));
+      resolvedRequiredTools = JSON.stringify(templateTools);
+    }
+
     const workItem = createWorkItemWithPermissions({
       taskId: resolvedTask.id,
       title: finalTitle,
       notes,
       priorityTier: priorityTier ?? 1,
       sortIndex,
+      requiredTools: resolvedRequiredTools,
     });
 
     log.info({ selectorType, taskId: resolvedTask.id, workItemId: workItem.id, title: workItem.title }, 'work item created from task definition');
