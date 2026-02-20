@@ -1635,6 +1635,7 @@ public struct IngressConfigRequestMessage: Encodable, Sendable {
 public struct IngressConfigResponseMessage: Decodable, Sendable {
     public let type: String
     public let publicBaseUrl: String
+    public let localGatewayTarget: String
     public let success: Bool
     public let error: String?
 }

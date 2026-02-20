@@ -360,13 +360,13 @@ public struct SettingsView: View {
                 }
 
                 HStack(spacing: 6) {
-                    Text("http://127.0.0.1:7830")
+                    Text(store.localGatewayTarget)
                         .font(.body.monospaced())
                         .textSelection(.enabled)
                     Spacer()
                     Button {
                         NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString("http://127.0.0.1:7830", forType: .string)
+                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
                     } label: {
                         Image(systemName: "doc.on.doc")
                             .font(.system(size: 12))

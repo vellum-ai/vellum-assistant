@@ -802,6 +802,8 @@ public struct IPCIngressConfigRequest: Codable, Sendable {
 public struct IPCIngressConfigResponse: Codable, Sendable {
     public let type: String
     public let publicBaseUrl: String
+    /// Read-only gateway target computed from GATEWAY_PORT env var (default 7830) + loopback host.
+    public let localGatewayTarget: String
     public let success: Bool
     public let error: String?
 }

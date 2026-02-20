@@ -78,6 +78,8 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Ingress Config State
 
     @Published var ingressPublicBaseUrl: String = ""
+    /// Read-only gateway target derived from daemon config (GATEWAY_PORT env var, default 7830).
+    @Published var localGatewayTarget: String = "http://127.0.0.1:7830"
 
     // MARK: - Trust Rules Coordination
 
@@ -182,6 +184,7 @@ public final class SettingsStore: ObservableObject {
         // Wire up ingress config IPC response
         daemonClient?.onIngressConfigResponse = { [weak self] response in
             guard let self else { return }
+            self.localGatewayTarget = response.localGatewayTarget
             if response.success {
                 self.ingressPublicBaseUrl = response.publicBaseUrl
             }

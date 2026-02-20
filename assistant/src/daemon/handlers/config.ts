@@ -399,17 +399,23 @@ export function handleSlackWebhookConfig(
   }
 }
 
+function computeLocalGatewayTarget(): string {
+  const port = process.env.GATEWAY_PORT || '7830';
+  return `http://127.0.0.1:${port}`;
+}
+
 export function handleIngressConfig(
   msg: IngressConfigRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
+  const localGatewayTarget = computeLocalGatewayTarget();
   try {
     if (msg.action === 'get') {
       const raw = loadRawConfig();
       const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
       const publicBaseUrl = (ingress.publicBaseUrl as string) ?? '';
-      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl, success: true });
+      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl, localGatewayTarget, success: true });
     } else if (msg.action === 'set') {
       const value = (msg.publicBaseUrl ?? '').trim().replace(/\/+$/, '');
       const raw = loadRawConfig();
@@ -430,13 +436,13 @@ export function handleIngressConfig(
       if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
       const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
       ctx.debounceTimers.set('__suppress_reset__', resetTimer);
-      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: value, success: true });
+      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: value, localGatewayTarget, success: true });
     } else {
-      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
+      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', success: false, error: message });
+    ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', localGatewayTarget, success: false, error: message });
   }
 }
 

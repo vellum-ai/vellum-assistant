@@ -1703,6 +1703,8 @@ export interface SlackWebhookConfigResponse {
 export interface IngressConfigResponse {
   type: 'ingress_config_response';
   publicBaseUrl: string;
+  /** Read-only gateway target computed from GATEWAY_PORT env var (default 7830) + loopback host. */
+  localGatewayTarget: string;
   success: boolean;
   error?: string;
 }

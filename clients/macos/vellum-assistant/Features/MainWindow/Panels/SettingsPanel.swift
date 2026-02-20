@@ -578,7 +578,7 @@ struct SettingsPanel: View {
                 }
 
                 HStack(spacing: VSpacing.sm) {
-                    Text("http://127.0.0.1:7830")
+                    Text(store.localGatewayTarget)
                         .font(VFont.mono)
                         .foregroundColor(VColor.textPrimary)
                         .textSelection(.enabled)
@@ -593,7 +593,7 @@ struct SettingsPanel: View {
 
                     Button {
                         NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString("http://127.0.0.1:7830", forType: .string)
+                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
                     } label: {
                         Image(systemName: "doc.on.doc")
                             .font(.system(size: 12, weight: .medium))
@@ -1050,7 +1050,7 @@ struct SettingsPanel: View {
         Task {
             defer { checkingGateway = false }
 
-            guard let url = URL(string: "http://127.0.0.1:7830/healthz") else {
+            guard let url = URL(string: "\(store.localGatewayTarget)/healthz") else {
                 gatewayReachable = false
                 return
             }
