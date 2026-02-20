@@ -25,7 +25,7 @@ import { runTask } from '../../tasks/task-runner.js';
 import { getMessages } from '../../memory/conversation-store.js';
 import { classifyRisk, check } from '../../permissions/checker.js';
 import { truncate } from '../../util/truncate.js';
-import { CANONICAL_TOOLS, sanitizeToolList, getToolDescription } from '../../tasks/tool-sanitizer.js';
+import { sanitizeToolList, getRegisteredToolNames, getToolDescription } from '../../tasks/tool-sanitizer.js';
 
 export function handleWorkItemsList(
   msg: WorkItemsListRequest,
@@ -383,14 +383,14 @@ export async function handleWorkItemRunTask(
   }
 
   // Compute required tools using the same resolution logic as preflight:
-  // work-item snapshot first, then task template, then CANONICAL_TOOLS fallback.
+  // work-item snapshot first, then task template, then all registered tools.
   let requiredTools: string[];
   if (workItem.requiredTools !== null && workItem.requiredTools !== undefined) {
     requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
   } else {
     requiredTools = task.requiredTools
       ? sanitizeToolList(JSON.parse(task.requiredTools))
-      : Object.keys(CANONICAL_TOOLS);
+      : getRegisteredToolNames();
   }
 
   // Permission checkpoint: if the task requires tools, verify all have been approved.
@@ -502,7 +502,7 @@ export async function handleWorkItemPreflight(
   }
 
   // Compute required tools from the work-item snapshot first; only fall
-  // back to the task template (or CANONICAL_TOOLS default) when the
+  // back to the task template (or all registered tools) when the
   // snapshot is null.
   let requiredTools: string[];
   if (workItem.requiredTools !== null && workItem.requiredTools !== undefined) {
@@ -515,7 +515,7 @@ export async function handleWorkItemPreflight(
     }
     requiredTools = task.requiredTools
       ? sanitizeToolList(JSON.parse(task.requiredTools))
-      : Object.keys(CANONICAL_TOOLS);
+      : getRegisteredToolNames();
   }
 
   // If the work item explicitly requires no tools, skip the dialog.

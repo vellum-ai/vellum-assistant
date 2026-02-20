@@ -46,8 +46,7 @@ export function compileTaskFromConversation(conversationId: string): CompiledTas
   // Extract user message text content
   const userText = extractTextContent(firstUserMsg.content);
 
-  // Extract unique tool names from assistant messages, then sanitize against
-  // the canonical set so only recognized tools are persisted.
+  // Extract unique tool names from assistant messages.
   const requiredTools = sanitizeToolList(extractToolNames(msgs));
 
   // Build template with placeholder substitutions
