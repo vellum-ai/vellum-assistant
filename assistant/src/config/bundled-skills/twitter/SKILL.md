@@ -15,6 +15,24 @@ vellum x post "The post text here"
 
 The command returns JSON with `ok`, `tweetId`, `text`, and `url` fields. Share the URL with the user so they can verify the post.
 
+## Replying
+
+```bash
+vellum x reply <tweetUrl> "The reply text here"
+```
+
+The first argument is a tweet URL (e.g. `https://x.com/user/status/123456`) or a bare tweet ID. The command returns the same JSON fields as `post`, plus `inReplyToTweetId`.
+
+## Fetching Tweets
+
+```bash
+vellum x timeline <screenName> [--count N]
+```
+
+The `screenName` argument is **required** (without the `@` prefix). To find the user's own screen name, check `vellum x status` or ask them.
+
+Returns JSON with `user` (userId, screenName, name) and `tweets` (array of tweetId, text, url, createdAt). Use this to look up a user's recent posts — e.g. to find the latest tweet before replying to it.
+
 ## Session Management
 
 Before posting, check if a session exists:

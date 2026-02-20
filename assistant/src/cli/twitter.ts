@@ -14,6 +14,8 @@ import {
 } from '../twitter/session.js';
 import {
   postTweet,
+  getUserByScreenName,
+  getUserTweets,
   SessionExpiredError,
 } from '../twitter/client.js';
 import { getSocketPath, readSessionToken } from '../util/platform.js';
@@ -197,6 +199,45 @@ export function registerTwitterCommand(program: Command): void {
           text: result.text,
           url: result.url,
         };
+      });
+    });
+
+  // =========================================================================
+  // reply — reply to a tweet
+  // =========================================================================
+  tw.command('reply')
+    .description('Reply to a tweet')
+    .argument('<tweetUrl>', 'Tweet URL or tweet ID')
+    .argument('<text>', 'Reply text')
+    .action(async (tweetUrl: string, text: string, _opts: unknown, cmd: Command) => {
+      await run(cmd, async () => {
+        // Extract tweet ID: either a bare numeric ID or the last numeric segment of a URL
+        const idMatch = tweetUrl.match(/(\d+)\s*$/);
+        if (!idMatch) {
+          throw new Error(`Could not extract tweet ID from: ${tweetUrl}`);
+        }
+        const inReplyToTweetId = idMatch[1];
+        const result = await postTweet(text, { inReplyToTweetId });
+        return {
+          tweetId: result.tweetId,
+          text: result.text,
+          url: result.url,
+          inReplyToTweetId,
+        };
+      });
+    });
+  // =========================================================================
+  // timeline — fetch a user's recent tweets
+  // =========================================================================
+  tw.command('timeline')
+    .description("Fetch a user's recent tweets")
+    .argument('<screenName>', 'Twitter screen name (without @)')
+    .option('--count <n>', 'Number of tweets to fetch', '20')
+    .action(async (screenName: string, opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const user = await getUserByScreenName(screenName.replace(/^@/, ''));
+        const tweets = await getUserTweets(user.userId, parseInt(opts.count, 10));
+        return { user, tweets };
       });
     });
 }

@@ -18,6 +18,12 @@ const BEARER_TOKEN =
 /** Query ID for CreateTweet persisted query. */
 const CREATE_TWEET_QUERY_ID = 'Ah3G_byjEDs_HSlgU0PyZw';
 
+/** Query ID for UserByScreenName persisted query. */
+const USER_BY_SCREEN_NAME_QUERY_ID = 'AWbeRIdkLtqTRN7yL_H8yw';
+
+/** Query ID for UserTweets persisted query. */
+const USER_TWEETS_QUERY_ID = 'eApPT8jppbYXlweF_ByTyA';
+
 /** Feature flags required by the CreateTweet mutation. */
 const CREATE_TWEET_FEATURES: Record<string, boolean> = {
   premium_content_api_read_enabled: false,
@@ -183,6 +189,98 @@ async function cdpFetch(wsUrl: string, url: string, body: string): Promise<unkno
   });
 }
 
+/**
+ * Execute a GET fetch() inside Chrome's page context via CDP Runtime.evaluate.
+ */
+async function cdpGet(wsUrl: string, url: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(wsUrl);
+    const id = 1;
+
+    const timeout = setTimeout(() => {
+      ws.close();
+      reject(new Error('CDP fetch timed out after 30s'));
+    }, 30000);
+
+    ws.onopen = () => {
+      const fetchScript = `
+        (function() {
+          var csrf = (document.cookie.match(/ct0=([^;]+)/) || [])[1] || '';
+          return fetch(${JSON.stringify(url)}, {
+            method: 'GET',
+            headers: {
+              'authorization': 'Bearer ${BEARER_TOKEN}',
+              'x-csrf-token': csrf,
+              'x-twitter-auth-type': 'OAuth2Session',
+              'x-twitter-active-user': 'yes',
+              'x-twitter-client-language': 'en',
+            },
+            credentials: 'include',
+          })
+          .then(function(r) {
+            if (!r.ok) return r.text().then(function(t) {
+              return JSON.stringify({ __status: r.status, __error: true, __body: t.substring(0, 500) });
+            });
+            return r.text();
+          })
+          .catch(function(e) { return JSON.stringify({ __error: true, __message: e.message }); });
+        })()
+      `;
+
+      ws.send(JSON.stringify({
+        id,
+        method: 'Runtime.evaluate',
+        params: {
+          expression: fetchScript,
+          awaitPromise: true,
+          returnByValue: true,
+        },
+      }));
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(typeof event.data === 'string' ? event.data : '');
+        if (msg.id === id) {
+          clearTimeout(timeout);
+          ws.close();
+
+          if (msg.error) {
+            reject(new Error(`CDP error: ${msg.error.message}`));
+            return;
+          }
+
+          const value = msg.result?.result?.value;
+          if (!value) {
+            reject(new Error('Empty CDP response'));
+            return;
+          }
+
+          const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+          if (parsed.__error) {
+            if (parsed.__status === 403 || parsed.__status === 401) {
+              reject(new SessionExpiredError('Twitter session has expired.'));
+            } else {
+              reject(new Error(parsed.__message ?? `HTTP ${parsed.__status}: ${parsed.__body ?? ''}`));
+            }
+            return;
+          }
+          resolve(parsed);
+        }
+      } catch (err) {
+        clearTimeout(timeout);
+        ws.close();
+        reject(err);
+      }
+    };
+
+    ws.onerror = () => {
+      clearTimeout(timeout);
+      reject(new SessionExpiredError('CDP connection failed.'));
+    };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -193,22 +291,29 @@ export interface PostTweetResult {
   url: string;
 }
 
-export async function postTweet(text: string): Promise<PostTweetResult> {
+export async function postTweet(text: string, opts?: { inReplyToTweetId?: string }): Promise<PostTweetResult> {
   requireSession();
 
   const wsUrl = await findTwitterTab();
   const url = `https://x.com/i/api/graphql/${CREATE_TWEET_QUERY_ID}/CreateTweet`;
-  const body = JSON.stringify({
-    variables: {
-      tweet_text: text,
-      dark_request: false,
-      media: {
-        media_entities: [],
-        possibly_sensitive: false,
-      },
-      semantic_annotation_ids: [],
-      disallowed_reply_options: null,
+  const variables: Record<string, unknown> = {
+    tweet_text: text,
+    dark_request: false,
+    media: {
+      media_entities: [],
+      possibly_sensitive: false,
     },
+    semantic_annotation_ids: [],
+    disallowed_reply_options: null,
+  };
+  if (opts?.inReplyToTweetId) {
+    variables.reply = {
+      in_reply_to_tweet_id: opts.inReplyToTweetId,
+      exclude_reply_user_ids: [],
+    };
+  }
+  const body = JSON.stringify({
+    variables,
     features: CREATE_TWEET_FEATURES,
     queryId: CREATE_TWEET_QUERY_ID,
   });
@@ -263,4 +368,148 @@ export async function postTweet(text: string): Promise<PostTweetResult> {
     text,
     url: `https://x.com/${screenName}/status/${result.rest_id}`,
   };
+}
+
+// ---------------------------------------------------------------------------
+// User lookup
+// ---------------------------------------------------------------------------
+
+export interface UserInfo {
+  userId: string;
+  screenName: string;
+  name: string;
+}
+
+export async function getUserByScreenName(screenName: string): Promise<UserInfo> {
+  requireSession();
+  const wsUrl = await findTwitterTab();
+
+  const variables = JSON.stringify({ screen_name: screenName, withGrokTranslatedBio: true });
+  const features = JSON.stringify(CREATE_TWEET_FEATURES);
+  const url = `https://x.com/i/api/graphql/${USER_BY_SCREEN_NAME_QUERY_ID}/UserByScreenName?variables=${encodeURIComponent(variables)}&features=${encodeURIComponent(features)}`;
+
+  const json = (await cdpGet(wsUrl, url)) as {
+    data?: {
+      user?: {
+        result?: {
+          rest_id?: string;
+          legacy?: { screen_name?: string; name?: string };
+        };
+      };
+    };
+    errors?: Array<{ message: string }>;
+  };
+
+  if (json.errors?.length) {
+    const msgs = json.errors.map(e => e.message).join('; ');
+    throw new Error(`Twitter API errors: ${msgs}`);
+  }
+
+  const user = json.data?.user?.result;
+  if (!user?.rest_id) {
+    throw new Error(`User @${screenName} not found`);
+  }
+
+  return {
+    userId: user.rest_id,
+    screenName: user.legacy?.screen_name ?? screenName,
+    name: user.legacy?.name ?? screenName,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// User tweets (timeline)
+// ---------------------------------------------------------------------------
+
+export interface TweetEntry {
+  tweetId: string;
+  text: string;
+  url: string;
+  createdAt: string;
+}
+
+export async function getUserTweets(userId: string, count = 20): Promise<TweetEntry[]> {
+  requireSession();
+  const wsUrl = await findTwitterTab();
+
+  const variables = JSON.stringify({
+    userId,
+    count,
+    includePromotedContent: true,
+    withQuickPromoteEligibilityTweetFields: true,
+    withVoice: true,
+  });
+  const features = JSON.stringify(CREATE_TWEET_FEATURES);
+  const url = `https://x.com/i/api/graphql/${USER_TWEETS_QUERY_ID}/UserTweets?variables=${encodeURIComponent(variables)}&features=${encodeURIComponent(features)}`;
+
+  const json = (await cdpGet(wsUrl, url)) as {
+    data?: {
+      user?: {
+        result?: {
+          timeline_v2?: {
+            timeline?: {
+              instructions?: Array<{
+                type: string;
+                entries?: Array<{
+                  content?: {
+                    entryType?: string;
+                    itemContent?: {
+                      tweet_results?: {
+                        result?: {
+                          rest_id?: string;
+                          core?: {
+                            user_results?: {
+                              result?: {
+                                legacy?: { screen_name?: string };
+                              };
+                            };
+                          };
+                          legacy?: {
+                            full_text?: string;
+                            created_at?: string;
+                          };
+                        };
+                      };
+                    };
+                  };
+                }>;
+              }>;
+            };
+          };
+        };
+      };
+    };
+    errors?: Array<{ message: string }>;
+  };
+
+  if (json.errors?.length) {
+    const msgs = json.errors.map(e => e.message).join('; ');
+    throw new Error(`Twitter API errors: ${msgs}`);
+  }
+
+  const timelineData = json.data?.user?.result?.timeline_v2 ?? json.data?.user?.result?.timeline;
+  const instructions = timelineData?.timeline?.instructions ?? [];
+  const tweets: TweetEntry[] = [];
+
+  for (const instruction of instructions) {
+    if (instruction.type !== 'TimelineAddEntries') continue;
+    for (const entry of instruction.entries ?? []) {
+      const tweetResult = entry.content?.itemContent?.tweet_results?.result;
+      if (!tweetResult?.rest_id) continue;
+
+      const screenName =
+        tweetResult.core?.user_results?.result?.legacy?.screen_name ??
+        tweetResult.core?.user_results?.result?.core?.screen_name ??
+        'i';
+
+      tweets.push({
+        tweetId: tweetResult.rest_id,
+        text: tweetResult.legacy?.full_text ?? '',
+        url: `https://x.com/${screenName}/status/${tweetResult.rest_id}`,
+        createdAt: tweetResult.legacy?.created_at ?? '',
+      });
+    }
+  }
+
+  return tweets;
 }
