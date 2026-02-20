@@ -51,7 +51,22 @@ public struct VIconButton: View {
         .onHover { isHovered = $0 }
         #endif
         .accessibilityLabel(label)
-        .help(tooltip ?? "")
+        .modifier(OptionalHelpModifier(tooltip: tooltip))
+    }
+}
+
+/// Applies `.help()` only when a tooltip string is provided, avoiding an
+/// empty help wrapper that can affect hit-testing and hover behavior.
+private struct OptionalHelpModifier: ViewModifier {
+    let tooltip: String?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let tooltip {
+            content.help(tooltip)
+        } else {
+            content
+        }
     }
 }
 
