@@ -14,6 +14,19 @@ struct AssistantEvent: Decodable {
     let message: ServerMessage
 }
 
+// MARK: - Conversations List Response
+
+/// Response shape from `GET /v1/conversations`.
+struct ConversationsListResponse: Decodable {
+    struct Session: Decodable {
+        let id: String
+        let title: String
+        let updatedAt: Int
+        let threadType: String?
+    }
+    let sessions: [Session]
+}
+
 // MARK: - HTTP Transport
 
 /// Internal helper that handles HTTP REST + SSE communication with a remote
@@ -198,6 +211,8 @@ final class HTTPTransport {
                 SessionInfoMessage(sessionId: sessionId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
             )
             onMessage?(info)
+        } else if message is SessionListRequestMessage {
+            Task { await self.fetchSessionList() }
         } else if message is HistoryRequestMessage {
             Task { await self.fetchHistory() }
         } else if message is PingMessage {
@@ -311,6 +326,35 @@ final class HTTPTransport {
             }
         } catch {
             log.error("Secret response error: \(error.localizedDescription)")
+        }
+    }
+
+    private func fetchSessionList() async {
+        guard let url = URL(string: "\(baseURL)/v1/conversations") else { return }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                log.error("Fetch session list failed")
+                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [])))
+                return
+            }
+
+            if let decoded = try? decoder.decode(ConversationsListResponse.self, from: data) {
+                let sessions = decoded.sessions.map {
+                    IPCSessionListResponseSession(id: $0.id, title: $0.title, updatedAt: $0.updatedAt, threadType: $0.threadType)
+                }
+                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions)))
+            } else {
+                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [])))
+            }
+        } catch {
+            log.error("Fetch session list error: \(error.localizedDescription)")
+            onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [])))
         }
     }
 

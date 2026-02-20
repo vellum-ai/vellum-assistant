@@ -622,6 +622,19 @@ export class RuntimeHttpServer {
         return this.handleHealth();
       }
 
+      if (endpoint === 'conversations' && req.method === 'GET') {
+        const limit = Number(url.searchParams.get('limit') ?? 50);
+        const conversations = conversationStore.listConversations(limit);
+        return Response.json({
+          sessions: conversations.map((c) => ({
+            id: c.id,
+            title: c.title ?? 'Untitled',
+            updatedAt: c.updatedAt,
+            threadType: c.threadType === 'private' ? 'private' : 'standard',
+          })),
+        });
+      }
+
       if (endpoint === 'messages' && req.method === 'GET') {
         return handleListMessages(url, this.interfacesDir);
       }
