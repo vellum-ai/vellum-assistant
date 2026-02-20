@@ -421,6 +421,9 @@ jobs:
             echo "::warning::macOS build artifacts not available - releasing without macOS app"
           fi
 
+          INSTALL_SH="cli/src/adapters/install.sh"
+          [ -f "$INSTALL_SH" ] && ASSETS+=("$INSTALL_SH#install.sh")
+
           echo "Release assets: ${ASSETS[*]}"
 
           # Create release on vellum-assistant (this repo)
