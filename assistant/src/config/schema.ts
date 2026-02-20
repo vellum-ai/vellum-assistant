@@ -745,6 +745,43 @@ export const WorkspaceGitConfigSchema = z.object({
     .int('workspaceGit.enrichmentMaxRetries must be an integer')
     .nonnegative('workspaceGit.enrichmentMaxRetries must be non-negative')
     .default(2),
+  commitMessageLLM: z.object({
+    enabled: z.boolean({ error: 'workspaceGit.commitMessageLLM.enabled must be a boolean' }).default(false),
+    useConfiguredProvider: z.boolean({ error: 'workspaceGit.commitMessageLLM.useConfiguredProvider must be a boolean' }).default(true),
+    providerFastModelOverrides: z.record(z.string(), z.string()).default({}),
+    timeoutMs: z.number({ error: 'workspaceGit.commitMessageLLM.timeoutMs must be a number' })
+      .int('workspaceGit.commitMessageLLM.timeoutMs must be an integer')
+      .positive('workspaceGit.commitMessageLLM.timeoutMs must be a positive integer')
+      .default(600),
+    maxTokens: z.number({ error: 'workspaceGit.commitMessageLLM.maxTokens must be a number' })
+      .int('workspaceGit.commitMessageLLM.maxTokens must be an integer')
+      .positive('workspaceGit.commitMessageLLM.maxTokens must be a positive integer')
+      .default(120),
+    temperature: z.number({ error: 'workspaceGit.commitMessageLLM.temperature must be a number' })
+      .min(0, 'workspaceGit.commitMessageLLM.temperature must be >= 0')
+      .max(2, 'workspaceGit.commitMessageLLM.temperature must be <= 2')
+      .default(0.2),
+    maxFilesInPrompt: z.number({ error: 'workspaceGit.commitMessageLLM.maxFilesInPrompt must be a number' })
+      .int('workspaceGit.commitMessageLLM.maxFilesInPrompt must be an integer')
+      .positive('workspaceGit.commitMessageLLM.maxFilesInPrompt must be a positive integer')
+      .default(30),
+    maxDiffBytes: z.number({ error: 'workspaceGit.commitMessageLLM.maxDiffBytes must be a number' })
+      .int('workspaceGit.commitMessageLLM.maxDiffBytes must be an integer')
+      .positive('workspaceGit.commitMessageLLM.maxDiffBytes must be a positive integer')
+      .default(12000),
+    minRemainingTurnBudgetMs: z.number({ error: 'workspaceGit.commitMessageLLM.minRemainingTurnBudgetMs must be a number' })
+      .int('workspaceGit.commitMessageLLM.minRemainingTurnBudgetMs must be an integer')
+      .nonnegative('workspaceGit.commitMessageLLM.minRemainingTurnBudgetMs must be non-negative')
+      .default(1000),
+    breaker: z.object({
+      openAfterFailures: z.number({ error: 'workspaceGit.commitMessageLLM.breaker.openAfterFailures must be a number' })
+        .int().positive().default(3),
+      backoffBaseMs: z.number({ error: 'workspaceGit.commitMessageLLM.breaker.backoffBaseMs must be a number' })
+        .int().positive().default(2000),
+      backoffMaxMs: z.number({ error: 'workspaceGit.commitMessageLLM.breaker.backoffMaxMs must be a number' })
+        .int().positive().default(60000),
+    }).default({}),
+  }).default({}),
 });
 
 export const SwarmConfigSchema = z.object({
@@ -1048,6 +1085,22 @@ export const AssistantConfigSchema = z.object({
     enrichmentConcurrency: 1,
     enrichmentJobTimeoutMs: 30000,
     enrichmentMaxRetries: 2,
+    commitMessageLLM: {
+      enabled: false,
+      useConfiguredProvider: true,
+      providerFastModelOverrides: {},
+      timeoutMs: 600,
+      maxTokens: 120,
+      temperature: 0.2,
+      maxFilesInPrompt: 30,
+      maxDiffBytes: 12000,
+      minRemainingTurnBudgetMs: 1000,
+      breaker: {
+        openAfterFailures: 3,
+        backoffBaseMs: 2000,
+        backoffMaxMs: 60000,
+      },
+    },
   }),
   calls: CallsConfigSchema.default({
     enabled: true,
