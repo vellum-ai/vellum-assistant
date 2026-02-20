@@ -815,6 +815,13 @@ export const AgentHeartbeatConfigSchema = z.object({
       message: 'agentHeartbeat.activeHoursStart and agentHeartbeat.activeHoursEnd must both be set or both be omitted',
     });
   }
+  if (hasStart && hasEnd && config.activeHoursStart === config.activeHoursEnd) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['activeHoursEnd'],
+      message: 'agentHeartbeat.activeHoursStart and agentHeartbeat.activeHoursEnd must not be equal (would create an empty window)',
+    });
+  }
 });
 
 export const SwarmConfigSchema = z.object({
