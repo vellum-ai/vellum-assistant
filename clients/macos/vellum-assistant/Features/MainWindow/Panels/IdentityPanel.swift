@@ -79,14 +79,21 @@ struct IdentityPanel: View {
             .background(VColor.background)
         }
         .background(VColor.backgroundSubtle)
-        .sheet(isPresented: Binding(
-            get: { viewingFilePath != nil },
-            set: { if !$0 { viewingFilePath = nil } }
-        )) {
+        .overlay {
             if let path = viewingFilePath {
+                // Dismiss backdrop
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .onTapGesture { viewingFilePath = nil }
+
                 WorkspaceFileSheet(filePath: path, onClose: { viewingFilePath = nil })
+                    .frame(width: 600, height: 500)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                    .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
         }
+        .animation(VAnimation.standard, value: viewingFilePath != nil)
         .onAppear {
             identity = IdentityInfo.load()
             metadata = AssistantMetadata.load()
@@ -250,8 +257,6 @@ private struct WorkspaceFileSheet: View {
                     .padding(VSpacing.xl)
             }
         }
-        .frame(minWidth: 500, minHeight: 400)
-        .frame(idealWidth: 600, idealHeight: 500)
         .background(VColor.backgroundSubtle)
     }
 }
