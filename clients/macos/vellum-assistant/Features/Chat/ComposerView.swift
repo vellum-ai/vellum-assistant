@@ -113,7 +113,6 @@ struct ComposerView: View {
                     composerTextField
                         .frame(height: clampedComposerHeight)
                         .frame(maxHeight: isComposerExpanded ? clampedComposerHeight : .infinity, alignment: .center)
-                        .clipped()
                     if !isComposerExpanded {
                         composerActionButtons
                             .frame(maxHeight: .infinity, alignment: .center)
@@ -247,9 +246,11 @@ struct ComposerView: View {
             }
         }
         .onChange(of: editorContentHeight) {
-            if editorContentHeight > composerCompactHeight && !isComposerExpanded {
+            // Hysteresis buffer (4pt) prevents oscillation when height
+            // hovers right at the compact threshold during typing.
+            if editorContentHeight > composerCompactHeight + 4 && !isComposerExpanded {
                 withAnimation(VAnimation.fast) { isComposerExpanded = true }
-            } else if editorContentHeight <= composerCompactHeight && isComposerExpanded {
+            } else if editorContentHeight < composerCompactHeight - 4 && isComposerExpanded {
                 withAnimation(VAnimation.fast) { isComposerExpanded = false }
             }
         }
@@ -709,10 +710,12 @@ private struct ComposerTextView: NSViewRepresentable {
             parent.onOverflowChange?(rawHeight > parent.maxHeight)
 
             if abs(lastReportedHeight - clampedHeight) > 0.5 {
-                // When content shrinks (e.g. deleting from 2 lines back to 1),
-                // reset the scroll position so text isn't clipped at the top.
-                if clampedHeight < lastReportedHeight {
-                    textView.scrollToBeginningOfDocument(nil)
+                // Only reset scroll when returning to true single-line height.
+                // Deferring to next runloop avoids fighting the current layout pass.
+                if clampedHeight < lastReportedHeight && clampedHeight <= parent.minHeight {
+                    DispatchQueue.main.async { [weak textView] in
+                        textView?.scrollToBeginningOfDocument(nil)
+                    }
                 }
                 lastReportedHeight = clampedHeight
                 parent.onHeightChange(clampedHeight)
@@ -882,8 +885,11 @@ private final class CenteringClipView: NSClipView {
             let insetHeight = textView.textContainerInset.height * 2
             let contentHeight = usedHeight + insetHeight
             let visibleHeight = proposedBounds.height
-            if contentHeight < visibleHeight {
-                rect.origin.y = (contentHeight - visibleHeight) / 2
+            // Only center when content is meaningfully shorter (4pt dead zone)
+            // to prevent jitter at the transition boundary. Round to avoid
+            // subpixel positioning that causes scrollbar flicker.
+            if contentHeight < visibleHeight - 4 {
+                rect.origin.y = round((contentHeight - visibleHeight) / 2)
             }
         }
         return rect
