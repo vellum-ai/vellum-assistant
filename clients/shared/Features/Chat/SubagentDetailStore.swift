@@ -61,11 +61,11 @@ public final class SubagentDetailStore: ObservableObject {
     public func handleEvent(subagentId: String, event: ServerMessage) {
         switch event {
         case .assistantTextDelta(let delta):
-            // Accumulate text into the last text event, or create a new one
+            // Accumulate text into the last event only if it's a text event
             if var events = eventsBySubagent[subagentId],
-               let lastIndex = events.lastIndex(where: { if case .text = $0.kind { return true }; return false }),
-               case .text = events[lastIndex].kind {
-                events[lastIndex].content += delta.text
+               let last = events.last,
+               case .text = last.kind {
+                events[events.count - 1].content += delta.text
                 eventsBySubagent[subagentId] = events
             } else {
                 let item = SubagentEventItem(timestamp: Date(), kind: .text, content: delta.text)

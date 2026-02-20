@@ -1186,10 +1186,11 @@ extension ChatViewModel {
             if let index = activeSubagents.firstIndex(where: { $0.id == msg.subagentId }) {
                 activeSubagents[index].status = SubagentStatus(wire: msg.status)
                 activeSubagents[index].error = msg.error
+                subagentDetailStore.recordStatusChanged(subagentId: msg.subagentId, usage: msg.usage)
             }
-            subagentDetailStore.recordStatusChanged(subagentId: msg.subagentId, usage: msg.usage)
 
         case .subagentEvent(let msg):
+            guard activeSubagents.contains(where: { $0.id == msg.subagentId }) else { break }
             subagentDetailStore.handleEvent(subagentId: msg.subagentId, event: msg.event)
 
         case .modelInfo(let msg):
