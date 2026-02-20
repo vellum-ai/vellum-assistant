@@ -1,6 +1,6 @@
 {
   "name": "vellum",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "type": "module",
   "bin": {
     "vellum": "./src/index.ts"
@@ -29,7 +29,7 @@
     "@qdrant/js-client-rest": "^1.16.2",
     "@sentry/node": "^10.38.0",
     "@vellumai/cli": "0.1.8",
-    "@vellumai/vellum-gateway": "0.1.9",
+    "@vellumai/vellum-gateway": "0.1.10",
     "agentmail": "^0.1.0",
     "archiver": "^7.0.1",
     "commander": "^13.1.0",
