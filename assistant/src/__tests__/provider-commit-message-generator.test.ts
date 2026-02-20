@@ -274,7 +274,21 @@ describe('ProviderCommitMessageGenerator', () => {
     expect(result.reason).toBe('invalid_output');
   });
 
-  // 12. Unknown provider without fast model default → uses provider's configured model
+  // 12. Keyless provider (Ollama) skips API key preflight
+  test('Ollama without API key → does not return missing_provider_api_key', async () => {
+    (currentConfig as Record<string, unknown>).provider = 'ollama';
+    currentConfig.apiKeys = {} as Record<string, string>;
+    const commitMsg = 'fix: local model commit';
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('llm');
+    expect(result.reason).not.toBe('missing_provider_api_key');
+  });
+
+  // 13. Unknown provider without fast model default → uses provider's configured model
   test('Unknown provider without fast model default → LLM call succeeds without model in config', async () => {
     (currentConfig as Record<string, unknown>).provider = 'exotic-provider';
     currentConfig.apiKeys = { 'exotic-provider': 'sk-exotic' } as Record<string, string>;
@@ -289,7 +303,7 @@ describe('ProviderCommitMessageGenerator', () => {
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
   });
 
-  // 13. Omits model from config when no fast model available
+  // 14. Omits model from config when no fast model available
   test('omits model from config when no fast model available', async () => {
     (currentConfig as Record<string, unknown>).provider = 'ollama';
     currentConfig.apiKeys = {} as Record<string, string>; // Ollama is keyless

@@ -161,6 +161,7 @@ export async function handleRideShotgunStart(
               }
             });
           } else if (msg.autoNavigate && targetDomain) {
+            const navDomain = msg.navigateDomain ?? targetDomain;
             const abortSignal = { aborted: false };
             const checkInterval = setInterval(() => {
               if (session.status !== 'active') {
@@ -168,7 +169,7 @@ export async function handleRideShotgunStart(
                 clearInterval(checkInterval);
               }
             }, 1000);
-            autoNavigate(targetDomain, abortSignal).then(visited => {
+            autoNavigate(navDomain, abortSignal).then(visited => {
               clearInterval(checkInterval);
               log.info({ watchId, visitedPages: visited.length }, 'Generic auto-navigation finished');
               if (session.status === 'active') {

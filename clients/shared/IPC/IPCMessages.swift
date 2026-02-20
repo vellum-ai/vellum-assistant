@@ -1619,6 +1619,24 @@ public struct SlackWebhookConfigResponseMessage: Decodable, Sendable {
     public let error: String?
 }
 
+public struct TwilioWebhookConfigRequestMessage: Encodable, Sendable {
+    public let type = "twilio_webhook_config"
+    public let action: String
+    public let webhookBaseUrl: String?
+
+    public init(action: String, webhookBaseUrl: String? = nil) {
+        self.action = action
+        self.webhookBaseUrl = webhookBaseUrl
+    }
+}
+
+public struct TwilioWebhookConfigResponseMessage: Decodable, Sendable {
+    public let type: String
+    public let webhookBaseUrl: String
+    public let success: Bool
+    public let error: String?
+}
+
 // MARK: - Model Config Messages
 
 /// Request the current model/provider configuration.
@@ -1858,6 +1876,7 @@ public enum ServerMessage: Decodable, Sendable {
     case signBundlePayload(SignBundlePayloadMessage)
     case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
+    case twilioWebhookConfigResponse(TwilioWebhookConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
     case twitterIntegrationConfigResponse(TwitterIntegrationConfigResponseMessage)
     case twitterAuthResult(TwitterAuthResultMessage)
@@ -2105,6 +2124,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "slack_webhook_config_response":
             let message = try SlackWebhookConfigResponseMessage(from: decoder)
             self = .slackWebhookConfigResponse(message)
+        case "twilio_webhook_config_response":
+            let message = try TwilioWebhookConfigResponseMessage(from: decoder)
+            self = .twilioWebhookConfigResponse(message)
         case "vercel_api_config_response":
             let message = try VercelApiConfigResponseMessage(from: decoder)
             self = .vercelApiConfigResponse(message)

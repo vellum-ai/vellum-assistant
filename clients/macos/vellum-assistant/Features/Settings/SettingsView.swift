@@ -11,6 +11,7 @@ public struct SettingsView: View {
     @State private var vercelKeyText = ""
     @State private var twitterClientId = ""
     @State private var twitterClientSecret = ""
+    @State private var twilioWebhookUrlText = ""
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
     @State private var showingPrivacy = false
@@ -323,6 +324,31 @@ public struct SettingsView: View {
                 }
             }
 
+            Section("Twilio") {
+                TextField("Base Webhook URL (e.g. https://abc123.ngrok-free.app)", text: $twilioWebhookUrlText)
+                    .textFieldStyle(.roundedBorder)
+
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.system(size: 12))
+                    Text("Setting a public base URL may expose this computer to the public internet. Use with caution.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("Twilio webhook paths (e.g. /webhooks/twilio/voice) are appended automatically.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack {
+                    Spacer()
+                    Button("Save") {
+                        store.saveTwilioWebhookBaseUrl(twilioWebhookUrlText)
+                    }
+                }
+            }
+
             Section("Computer Use") {
                 HStack {
                     Text("Max steps per session")
@@ -523,6 +549,8 @@ public struct SettingsView: View {
             store.refreshAPIKeyState()
             store.refreshVercelKeyState()
             store.refreshTwitterStatus()
+            store.refreshTwilioWebhookConfig()
+            twilioWebhookUrlText = store.twilioWebhookBaseUrl
             checkPermissions()
         }
         .onDisappear {

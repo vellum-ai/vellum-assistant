@@ -956,6 +956,15 @@ extension ChatViewModel {
                 if let status = msg.status, !status.isEmpty {
                     messages[msgIndex].toolCalls[tcIndex].buildingStatus = status
                 }
+                // When a claude_code tool completes, mark any remaining in-progress sub-steps
+                // as done. This handles timeouts, crashes, and lost tool_complete events.
+                let toolErrored = msg.isError ?? false
+                for stepIdx in messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.indices {
+                    if !messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIdx].isComplete {
+                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIdx].isComplete = true
+                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIdx].isError = toolErrored
+                    }
+                }
             }
             // Tool completed — agent is now processing the result. Show
             // thinking indicator until the next text delta or tool starts.

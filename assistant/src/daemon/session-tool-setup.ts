@@ -14,6 +14,9 @@ import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
 import { generateAllowlistOptions, generateScopeOptions, normalizeWebFetchUrl } from '../permissions/checker.js';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('session-tool-setup');
 import { getAllToolDefinitions } from '../tools/registry.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { coreAppProxyTools } from '../tools/apps/definitions.js';
@@ -248,10 +251,12 @@ export function createToolExecutor(
           req.principal,
         );
         if ((response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') && response.selectedPattern && response.selectedScope) {
+          log.info({ toolName: 'cc:' + req.toolName, pattern: response.selectedPattern, scope: response.selectedScope, highRisk: response.decision === 'always_allow_high_risk' }, 'Persisting always-allow trust rule');
           addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope, 'allow', 100,
             response.decision === 'always_allow_high_risk' ? { allowHighRisk: true } : undefined);
         }
         if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
+          log.info({ toolName: 'cc:' + req.toolName, pattern: response.selectedPattern, scope: response.selectedScope }, 'Persisting always-deny trust rule');
           addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope, 'deny');
         }
         return {
@@ -440,10 +445,12 @@ export function createProxyApprovalCallback(
 
     // Persist trust rule if the user chose "always allow" or "always deny"
     if ((response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') && response.selectedPattern && response.selectedScope) {
+      log.info({ toolName, pattern: response.selectedPattern, scope: response.selectedScope, highRisk: response.decision === 'always_allow_high_risk' }, 'Persisting always-allow trust rule (proxy)');
       addRule(toolName, response.selectedPattern, response.selectedScope, 'allow', 100,
         response.decision === 'always_allow_high_risk' ? { allowHighRisk: true } : undefined);
     }
     if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
+      log.info({ toolName, pattern: response.selectedPattern, scope: response.selectedScope }, 'Persisting always-deny trust rule (proxy)');
       addRule(toolName, response.selectedPattern, response.selectedScope, 'deny');
     }
 

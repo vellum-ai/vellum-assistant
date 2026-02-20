@@ -24,6 +24,7 @@ struct SettingsPanel: View {
     @State private var showingReminders = false
     @State private var twitterClientId: String = ""
     @State private var twitterClientSecret: String = ""
+    @State private var twilioWebhookUrlText: String = ""
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
     @State private var connectingIntegration: String?
     @State private var integrationError: (id: String, message: String)?
@@ -85,6 +86,8 @@ struct SettingsPanel: View {
         .onAppear {
             store.refreshAPIKeyState()
             store.refreshTwitterStatus()
+            store.refreshTwilioWebhookConfig()
+            twilioWebhookUrlText = store.twilioWebhookBaseUrl
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
         }
@@ -510,6 +513,50 @@ struct SettingsPanel: View {
 
             // TWITTER / X section
             twitterSection
+
+            // TWILIO WEBHOOK section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Twilio")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                HStack(spacing: VSpacing.xs) {
+                    Text("Base Webhook URL")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                TextField("https://abc123.ngrok-free.app", text: $twilioWebhookUrlText)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.md)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+
+                HStack(alignment: .top, spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 12))
+                    Text("Setting a public base URL may expose this computer to the public internet. Use with caution.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                Text("Twilio webhook paths (e.g. /webhooks/twilio/voice) are appended automatically.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+
+                VButton(label: "Save", style: .primary) {
+                    store.saveTwilioWebhookBaseUrl(twilioWebhookUrlText)
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
         }
     }
 

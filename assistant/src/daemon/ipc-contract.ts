@@ -212,6 +212,8 @@ export interface RideShotgunStart {
   intervalSeconds: number;
   mode?: 'observe' | 'learn';
   targetDomain?: string;
+  /** Domain to auto-navigate (may differ from targetDomain, e.g. open.spotify.com vs spotify.com). */
+  navigateDomain?: string;
   autoNavigate?: boolean;
 }
 
@@ -468,6 +470,12 @@ export interface SlackWebhookConfigRequest {
   type: 'slack_webhook_config';
   action: 'get' | 'set';
   webhookUrl?: string;
+}
+
+export interface TwilioWebhookConfigRequest {
+  type: 'twilio_webhook_config';
+  action: 'get' | 'set';
+  webhookBaseUrl?: string;
 }
 
 export interface VercelApiConfigRequest {
@@ -933,6 +941,7 @@ export type ClientMessage =
   | ShareAppCloudRequest
   | ShareToSlackRequest
   | SlackWebhookConfigRequest
+  | TwilioWebhookConfigRequest
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
   | TwitterAuthStartRequest
@@ -1681,6 +1690,13 @@ export interface SlackWebhookConfigResponse {
   error?: string;
 }
 
+export interface TwilioWebhookConfigResponse {
+  type: 'twilio_webhook_config_response';
+  webhookBaseUrl: string;
+  success: boolean;
+  error?: string;
+}
+
 export interface OpenUrl {
   type: 'open_url';
   url: string;
@@ -2164,6 +2180,7 @@ export type ServerMessage =
   | GalleryInstallResponse
   | ShareToSlackResponse
   | SlackWebhookConfigResponse
+  | TwilioWebhookConfigResponse
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse
   | TwitterAuthResult
