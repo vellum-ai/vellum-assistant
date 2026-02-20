@@ -262,6 +262,37 @@ export async function handleWorkItemRunTask(
     return;
   }
 
+  // Compute required tools using the same resolution logic as preflight:
+  // work-item snapshot first, then task template, then CANONICAL_TOOLS fallback.
+  let requiredTools: string[];
+  if (workItem.requiredTools !== null && workItem.requiredTools !== undefined) {
+    requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
+  } else {
+    requiredTools = task.requiredTools
+      ? sanitizeToolList(JSON.parse(task.requiredTools))
+      : Object.keys(CANONICAL_TOOLS);
+  }
+
+  // Permission checkpoint: if the task requires tools, verify all have been approved.
+  // Empty required tools means no approvals needed.
+  let approvedTools: string[] | undefined;
+  if (requiredTools.length > 0) {
+    approvedTools = workItem.approvedTools ? JSON.parse(workItem.approvedTools) : undefined;
+    const approvedSet = new Set<string>(approvedTools ?? []);
+    const missingApprovals = requiredTools.filter((t) => !approvedSet.has(t));
+    if (missingApprovals.length > 0) {
+      ctx.send(socket, {
+        type: 'work_item_run_task_response',
+        id: msg.id,
+        lastRunId: '',
+        success: false,
+        error: 'Required tool permissions have not been approved. Run preflight first.',
+        errorCode: 'permission_required',
+      });
+      return;
+    }
+  }
+
   // Set status to running
   updateWorkItem(msg.id, { status: 'running' });
 
@@ -277,8 +308,6 @@ export async function handleWorkItemRunTask(
   // the conversation that was actually inserted into the database.
   try {
     let session: Awaited<ReturnType<typeof ctx.getOrCreateSession>> | null = null;
-    // Pass pre-approved tools from the preflight flow if available
-    const approvedTools: string[] | undefined = workItem.approvedTools ? JSON.parse(workItem.approvedTools) : undefined;
     const result = await runTask(
       { taskId: workItem.taskId, workingDir: process.cwd(), approvedTools },
       async (conversationId, message, taskRunId) => {
