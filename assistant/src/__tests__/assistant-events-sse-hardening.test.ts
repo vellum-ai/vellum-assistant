@@ -2,8 +2,8 @@
  * Hardening tests for the SSE assistant-events endpoint (PR 7).
  *
  * Covers:
- *   - Hub subscriber cap (RangeError on overflow).
- *   - SSE route returns 503 when the hub is at capacity.
+ *   - Hub evicts oldest subscriber when cap is reached.
+ *   - SSE route closes evicted subscriber's stream.
  *   - Idle heartbeat comment emission.
  *   - Subscription cleanup on request abort.
  *   - Subscription cleanup on reader cancel.
@@ -64,23 +64,59 @@ function clearTables() {
   db.run('DELETE FROM conversations');
 }
 
-// ── Hub subscriber cap ────────────────────────────────────────────────────────
+// ── Hub subscriber cap — eviction ─────────────────────────────────────────────
 
 describe('AssistantEventHub — subscriber cap', () => {
-  test('subscribe throws RangeError when cap is reached', () => {
+  test('evicts oldest subscriber when cap is reached', () => {
     const hub = new AssistantEventHub({ maxSubscribers: 1 });
-    hub.subscribe({ assistantId: 'ast_1' }, () => {});
+    const evicted: string[] = [];
 
-    expect(() => hub.subscribe({ assistantId: 'ast_1' }, () => {})).toThrow(RangeError);
+    const sub1 = hub.subscribe({ assistantId: 'ast_1' }, () => {}, {
+      onEvict: () => evicted.push('sub1'),
+    });
+    expect(hub.subscriberCount()).toBe(1);
+    expect(sub1.active).toBe(true);
+
+    // Adding sub2 evicts sub1 to make room.
+    const sub2 = hub.subscribe({ assistantId: 'ast_1' }, () => {}, {
+      onEvict: () => evicted.push('sub2'),
+    });
+
+    expect(hub.subscriberCount()).toBe(1);
+    expect(sub1.active).toBe(false);
+    expect(sub2.active).toBe(true);
+    expect(evicted).toEqual(['sub1']);
+
+    sub2.dispose();
   });
 
-  test('error message includes the cap limit', () => {
+  test('evicts in FIFO order across multiple overflows', () => {
     const hub = new AssistantEventHub({ maxSubscribers: 2 });
-    hub.subscribe({ assistantId: 'ast_1' }, () => {});
-    hub.subscribe({ assistantId: 'ast_1' }, () => {});
+    const evicted: number[] = [];
 
-    expect(() => hub.subscribe({ assistantId: 'ast_1' }, () => {}))
-      .toThrow(/subscriber cap reached \(2\)/);
+    const sub1 = hub.subscribe({ assistantId: 'ast_1' }, () => {}, { onEvict: () => evicted.push(1) });
+    const sub2 = hub.subscribe({ assistantId: 'ast_1' }, () => {}, { onEvict: () => evicted.push(2) });
+
+    // 3rd subscriber evicts oldest (sub1)
+    const sub3 = hub.subscribe({ assistantId: 'ast_1' }, () => {}, { onEvict: () => evicted.push(3) });
+    expect(evicted).toEqual([1]);
+    expect(sub1.active).toBe(false);
+    expect(sub2.active).toBe(true);
+
+    // 4th subscriber evicts next oldest (sub2)
+    const sub4 = hub.subscribe({ assistantId: 'ast_1' }, () => {}, { onEvict: () => evicted.push(4) });
+    expect(evicted).toEqual([1, 2]);
+    expect(sub2.active).toBe(false);
+    expect(sub3.active).toBe(true);
+    expect(hub.subscriberCount()).toBe(2);
+
+    sub3.dispose();
+    sub4.dispose();
+  });
+
+  test('maxSubscribers: 0 throws RangeError (nothing to evict)', () => {
+    const hub = new AssistantEventHub({ maxSubscribers: 0 });
+    expect(() => hub.subscribe({ assistantId: 'ast_1' }, () => {})).toThrow(RangeError);
   });
 
   test('subscribe succeeds after disposal frees a slot', () => {
@@ -92,7 +128,7 @@ describe('AssistantEventHub — subscriber cap', () => {
     expect(() => hub.subscribe({ assistantId: 'ast_1' }, () => {})).not.toThrow();
   });
 
-  test('default hub has no cap', () => {
+  test('default hub accepts many subscribers without eviction', () => {
     const hub = new AssistantEventHub();
     const N = 50;
     const subs = Array.from({ length: N }, () =>
@@ -104,33 +140,47 @@ describe('AssistantEventHub — subscriber cap', () => {
   });
 });
 
-// ── SSE route — 503 on capacity overflow ──────────────────────────────────────
+// ── SSE route — eviction on capacity overflow ──────────────────────────────────
 
 describe('SSE route — capacity limit', () => {
   beforeEach(clearTables);
 
-  test('returns 503 when hub is at capacity', () => {
-    const hub = new AssistantEventHub({ maxSubscribers: 0 });
-    const req = new Request(
-      'http://localhost/v1/events?conversationKey=cap-full-test',
-      { signal: new AbortController().signal },
-    );
+  test('new connection evicts oldest and returns 200', async () => {
+    const hub = new AssistantEventHub({ maxSubscribers: 1 });
+    const opts = { hub, heartbeatIntervalMs: 60_000 };
 
-    const response = handleSubscribeAssistantEvents(req, new URL(req.url), { hub });
+    const ac1 = new AbortController();
+    const req1 = new Request('http://localhost/v1/events?conversationKey=evict-a', { signal: ac1.signal });
+    const res1 = handleSubscribeAssistantEvents(req1, new URL(req1.url), opts);
+    expect(res1.status).toBe(200);
+    expect(hub.subscriberCount()).toBe(1);
 
-    expect(response.status).toBe(503);
+    const reader1 = res1.body!.getReader();
+
+    // Second connection evicts first.
+    const ac2 = new AbortController();
+    const req2 = new Request('http://localhost/v1/events?conversationKey=evict-b', { signal: ac2.signal });
+    const res2 = handleSubscribeAssistantEvents(req2, new URL(req2.url), opts);
+    expect(res2.status).toBe(200);
+    expect(hub.subscriberCount()).toBe(1); // evicted 1, added 1
+
+    // First stream should be closed by onEvict.
+    const { done } = await reader1.read();
+    expect(done).toBe(true);
+
+    ac2.abort();
   });
 
-  test('503 body contains error message', async () => {
+  test('returns 503 only when maxSubscribers is 0', async () => {
     const hub = new AssistantEventHub({ maxSubscribers: 0 });
     const req = new Request(
-      'http://localhost/v1/events?conversationKey=cap-body-test',
+      'http://localhost/v1/events?conversationKey=cap-zero-test',
       { signal: new AbortController().signal },
     );
 
     const response = handleSubscribeAssistantEvents(req, new URL(req.url), { hub });
+    expect(response.status).toBe(503);
     const body = await response.json() as { error: string };
-
     expect(body.error).toMatch(/Too many concurrent connections/);
   });
 

@@ -41,26 +41,24 @@ export function handleSubscribeAssistantEvents(
   const hub = options?.hub ?? assistantEventHub;
   const heartbeatIntervalMs = options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
 
-  // ── Capacity pre-check ───────────────────────────────────────────────────
-  // Check hub capacity before calling getOrCreateConversation so that
-  // rejected connections (hub full) do not create persistent DB rows.
-  if (!hub.hasCapacity()) {
-    return Response.json({ error: 'Too many concurrent connections' }, { status: 503 });
-  }
-
   const mapping = getOrCreateConversation(conversationKey);
   const encoder = new TextEncoder();
 
   // ── Eager subscribe ──────────────────────────────────────────────────────
-  // Subscribe before creating the ReadableStream so that a hub capacity error
-  // produces a 503 rather than a mid-stream failure.  The callback references
-  // `controllerRef` (set synchronously in start()) via closure — this is safe
-  // because events are only published asynchronously after this call returns.
+  // Subscribe before creating the ReadableStream so the callback and onEvict
+  // closures are in place before events can arrive.  `controllerRef` is set
+  // synchronously inside ReadableStream's start(), so it is non-null by the
+  // time any event or eviction fires.
   // 'self' is the assistantId that RunOrchestrator assigns to all HTTP-run
   // events (see buildAssistantEvent('self', ...) in run-orchestrator.ts).
   let controllerRef: ReadableStreamDefaultController<Uint8Array> | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let sub!: AssistantEventSubscription;
+
+  function cleanup() {
+    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    try { controllerRef?.close(); } catch { /* already closed */ }
+  }
 
   try {
     sub = hub.subscribe(
@@ -73,15 +71,19 @@ export function handleSubscribeAssistantEvents(
           // is full and the client isn't draining it.
           if (controller.desiredSize !== null && controller.desiredSize <= 0) {
             sub.dispose();
-            if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
-            try { controller.close(); } catch { /* already closed */ }
+            cleanup();
             return;
           }
           controller.enqueue(encoder.encode(formatSseFrame(event)));
         } catch {
           sub.dispose();
-          if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+          cleanup();
         }
+      },
+      {
+        // Called by the hub when a newer connection evicts this one (capacity
+        // management: oldest subscriber out, newest in).
+        onEvict: cleanup,
       },
     );
   } catch (err) {
@@ -102,7 +104,7 @@ export function handleSubscribeAssistantEvents(
       // immediately — the abort event fires once and won't be re-dispatched.
       if (req.signal.aborted) {
         sub.dispose();
-        try { controller.close(); } catch { /* already closed */ }
+        cleanup();
         return;
       }
 
@@ -114,26 +116,24 @@ export function handleSubscribeAssistantEvents(
           // feeding heartbeats into a queue the client is not draining.
           if (controller.desiredSize !== null && controller.desiredSize <= 0) {
             sub.dispose();
-            if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
-            try { controller.close(); } catch { /* already closed */ }
+            cleanup();
             return;
           }
           controller.enqueue(encoder.encode(formatSseHeartbeat()));
         } catch {
           // Controller already closed (e.g. client disconnected).
-          if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+          cleanup();
         }
       }, heartbeatIntervalMs);
 
       req.signal.addEventListener('abort', () => {
         sub.dispose();
-        if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
-        try { controller.close(); } catch { /* already closed */ }
+        cleanup();
       }, { once: true });
     },
     cancel() {
       sub.dispose();
-      if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+      cleanup();
     },
   }, new CountQueuingStrategy({ highWaterMark: 16 }));
 
