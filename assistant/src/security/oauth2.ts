@@ -1,9 +1,9 @@
 /**
  * General-purpose OAuth2 Authorization Code flow with PKCE.
  *
- * Supports two callback transports:
- *   - loopback: spins up a local HTTP server on 127.0.0.1 (default when no public URL configured)
- *   - gateway:  uses the gateway's OAuth callback route + in-memory registry (when ingress.publicBaseUrl is set)
+ * Uses the gateway callback transport: OAuth callbacks route through the
+ * gateway's OAuth callback route + in-memory registry (requires
+ * ingress.publicBaseUrl to be configured).
  *
  * Moved from integrations/oauth2.ts. Types that were in integrations/types.ts
  * are now inlined here since the integration framework is removed.
@@ -139,122 +139,6 @@ async function exchangeCodeForTokens(
 }
 
 // ---------------------------------------------------------------------------
-// Transport auto-detection
-// ---------------------------------------------------------------------------
-
-/**
- * Determine which callback transport to use when not explicitly specified.
- * Uses gateway if a public base URL is configured (ingress.publicBaseUrl or
- * INGRESS_PUBLIC_BASE_URL), otherwise loopback.
- */
-function detectTransport(): 'loopback' | 'gateway' {
-  try {
-    const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
-    const { getPublicBaseUrl } = require('../inbound/public-ingress-urls.js') as typeof import('../inbound/public-ingress-urls.js');
-    const appConfig = loadConfig();
-    getPublicBaseUrl(appConfig); // throws if no public URL configured
-    return 'gateway';
-  } catch {
-    log.debug('No public base URL configured for transport auto-detection, defaulting to loopback');
-  }
-  return 'loopback';
-}
-
-// ---------------------------------------------------------------------------
-// Loopback transport
-// ---------------------------------------------------------------------------
-
-async function runLoopbackFlow(
-  config: OAuth2Config,
-  callbacks: OAuth2FlowCallbacks,
-  codeVerifier: string,
-  codeChallenge: string,
-  state: string,
-): Promise<OAuth2FlowResult> {
-  let resolveCode: (value: { code: string; returnedState: string }) => void;
-  let rejectCode: (reason: Error) => void;
-
-  const codePromise = new Promise<{ code: string; returnedState: string }>((resolve, reject) => {
-    resolveCode = resolve;
-    rejectCode = reject;
-  });
-
-  const FLOW_TIMEOUT_MS = 120_000;
-
-  const timeout = setTimeout(() => {
-    rejectCode(new Error('OAuth2 flow timed out waiting for user authorization'));
-  }, FLOW_TIMEOUT_MS);
-
-  const server = Bun.serve({
-    hostname: '127.0.0.1',
-    port: 0,
-    fetch(req) {
-      const url = new URL(req.url);
-      if (url.pathname !== '/callback') {
-        return new Response('Not found', { status: 404 });
-      }
-
-      const error = url.searchParams.get('error');
-      if (error) {
-        const desc = url.searchParams.get('error_description') ?? error;
-        rejectCode(new Error(`OAuth2 authorization denied: ${desc}`));
-        return new Response(
-          '<html><body><h2>Authorization denied</h2><p>You can close this tab.</p></body></html>',
-          { headers: { 'Content-Type': 'text/html' } },
-        );
-      }
-
-      const code = url.searchParams.get('code');
-      const returnedState = url.searchParams.get('state');
-      if (!code || !returnedState) {
-        rejectCode(new Error('OAuth2 callback missing code or state'));
-        return new Response('Missing code or state', { status: 400 });
-      }
-
-      if (returnedState !== state) {
-        rejectCode(new Error('OAuth2 state mismatch — possible CSRF attack'));
-        return new Response('State mismatch', { status: 400 });
-      }
-
-      resolveCode({ code, returnedState });
-      return new Response(
-        '<html><body><h2>Authorization successful!</h2><p>You can close this tab and return to Vellum.</p></body></html>',
-        { headers: { 'Content-Type': 'text/html' } },
-      );
-    },
-  });
-
-  const redirectUri = `http://127.0.0.1:${server.port}/callback`;
-
-  try {
-    const usePKCE = !config.clientSecret;
-    const authParams = new URLSearchParams({
-      ...config.extraParams,
-      client_id: config.clientId,
-      redirect_uri: redirectUri,
-      response_type: 'code',
-      scope: config.scopes.join(' '),
-      state,
-      ...(usePKCE ? { code_challenge: codeChallenge, code_challenge_method: 'S256' } : {}),
-    });
-
-    const authUrl = `${config.authUrl}?${authParams}`;
-    callbacks.openUrl(authUrl);
-
-    const { code, returnedState } = await codePromise;
-
-    if (returnedState !== state) {
-      throw new Error('OAuth2 state mismatch — possible CSRF attack');
-    }
-
-    return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
-  } finally {
-    clearTimeout(timeout);
-    server.stop(true);
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Gateway transport
 // ---------------------------------------------------------------------------
 
@@ -302,12 +186,9 @@ async function runGatewayFlow(
 /**
  * Run a full OAuth2 authorization code flow with PKCE support.
  *
- * Supports two callback transports:
- *   - loopback (default): local HTTP server on 127.0.0.1
- *   - gateway: callback via the gateway's OAuth route + in-memory registry
- *
- * Transport is auto-detected based on ingress.publicBaseUrl config unless
- * explicitly specified via options.callbackTransport.
+ * Uses the gateway callback transport, which routes OAuth callbacks through
+ * the gateway's OAuth route + in-memory registry. Requires a public ingress
+ * URL to be configured.
  */
 export async function startOAuth2Flow(
   config: OAuth2Config,
@@ -318,49 +199,26 @@ export async function startOAuth2Flow(
   const codeChallenge = generateCodeChallenge(codeVerifier);
   const state = generateState();
 
-  // In gateway_only mode, enforce gateway transport and require a public ingress URL
-  let ingressMode: string | undefined;
+  // Always enforce gateway transport and require a public ingress URL
+  let hasPublicUrl = false;
   try {
     const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
-    ingressMode = loadConfig().ingress.mode;
+    const { getPublicBaseUrl } = require('../inbound/public-ingress-urls.js') as typeof import('../inbound/public-ingress-urls.js');
+    getPublicBaseUrl(loadConfig());
+    hasPublicUrl = true;
   } catch {
-    // Fail closed: if config can't be loaded (e.g., malformed config.json), default to the
-    // most restrictive mode to prevent loopback fallback from creating a fail-open path.
-    log.warn('Failed to load config for OAuth ingress mode detection; defaulting to gateway_only (fail closed)');
-    ingressMode = 'gateway_only';
+    // No public URL configured
   }
 
-  if (ingressMode === 'gateway_only') {
-    // Verify a public ingress URL is configured; fail fast with actionable error if not
-    let hasPublicUrl = false;
-    try {
-      const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
-      const { getPublicBaseUrl } = require('../inbound/public-ingress-urls.js') as typeof import('../inbound/public-ingress-urls.js');
-      getPublicBaseUrl(loadConfig());
-      hasPublicUrl = true;
-    } catch {
-      // No public URL configured
-    }
-
-    if (!hasPublicUrl) {
-      throw new Error(
-        'OAuth requires a public ingress URL in gateway-only mode. Set ingress.publicBaseUrl or INGRESS_PUBLIC_BASE_URL so OAuth callbacks can route through the gateway.',
-      );
-    }
-
-    // In gateway_only mode, always use gateway transport — never fall back to loopback
-    log.debug({ transport: 'gateway' }, 'OAuth2 flow starting (gateway_only mode)');
-    return runGatewayFlow(config, callbacks, codeVerifier, codeChallenge, state);
+  if (!hasPublicUrl) {
+    throw new Error(
+      'OAuth requires a public ingress URL. Set ingress.publicBaseUrl or INGRESS_PUBLIC_BASE_URL so OAuth callbacks can route through the gateway.',
+    );
   }
 
-  const transport = options?.callbackTransport ?? detectTransport();
-  log.debug({ transport }, 'OAuth2 flow starting');
-
-  if (transport === 'gateway') {
-    return runGatewayFlow(config, callbacks, codeVerifier, codeChallenge, state);
-  }
-
-  return runLoopbackFlow(config, callbacks, codeVerifier, codeChallenge, state);
+  // Always use gateway transport — never fall back to loopback
+  log.debug({ transport: 'gateway' }, 'OAuth2 flow starting');
+  return runGatewayFlow(config, callbacks, codeVerifier, codeChallenge, state);
 }
 
 /**

@@ -20,20 +20,16 @@ export function getTwilioConfig(): TwilioConfig {
   const config = loadConfig();
   const webhookBaseUrl = getPublicBaseUrl(config);
 
-  // In gateway_only mode, ignore TWILIO_WSS_BASE_URL and always use the
-  // centralized relay URL derived from the public ingress base URL.
+  // Always use the centralized relay URL derived from the public ingress base URL.
+  // TWILIO_WSS_BASE_URL is ignored.
   let wssBaseUrl: string;
-  if (config.ingress.mode === 'gateway_only') {
-    if (process.env.TWILIO_WSS_BASE_URL) {
-      log.warn('TWILIO_WSS_BASE_URL env var is ignored in gateway-only mode. Relay URL is derived from ingress.publicBaseUrl.');
-    }
-    try {
-      wssBaseUrl = getTwilioRelayUrl(config);
-    } catch {
-      wssBaseUrl = '';
-    }
-  } else {
-    wssBaseUrl = process.env.TWILIO_WSS_BASE_URL || '';
+  if (process.env.TWILIO_WSS_BASE_URL) {
+    log.warn('TWILIO_WSS_BASE_URL env var is ignored. Relay URL is derived from ingress.publicBaseUrl.');
+  }
+  try {
+    wssBaseUrl = getTwilioRelayUrl(config);
+  } catch {
+    wssBaseUrl = '';
   }
 
   if (!accountSid || !authToken) {
