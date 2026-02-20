@@ -1160,7 +1160,7 @@ public final class ChatViewModel: ObservableObject {
     public func populateFromHistory(_ historyMessages: [HistoryResponseMessage.HistoryMessageItem]) {
         var chatMessages: [ChatMessage] = []
         var reconstructedSubagents: [SubagentInfo] = []
-        var lastAssistantMessageId: UUID?
+        var spawnParentMap: [String: UUID] = [:]  // subagentId → spawning assistant message UUID
         for item in historyMessages {
             let role: ChatRole = item.role == "assistant" ? .assistant : .user
             var toolCalls: [ToolCallData] = []
@@ -1265,9 +1265,17 @@ public final class ChatViewModel: ObservableObject {
                 log.info("Message contentOrder: \(item.contentOrder ?? []), surface refs: \(surfaceRefs.count), inlineSurfaces: \(chatMsg.inlineSurfaces.count)")
             }
 
-            // Track last assistant message ID for parenting reconstructed subagent chips
+            // Build a map of subagentId → spawning assistant message UUID
+            // by scanning tool call results for subagent_spawn.
             if role == .assistant {
-                lastAssistantMessageId = chatMsg.id
+                for tc in toolCalls where tc.toolName == "subagent_spawn" {
+                    if let result = tc.result,
+                       let data = result.data(using: .utf8),
+                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let spawnedId = json["subagentId"] as? String {
+                        spawnParentMap[spawnedId] = chatMsg.id
+                    }
+                }
             }
 
             // Reconstruct subagent chips from structured notification metadata
@@ -1276,7 +1284,7 @@ public final class ChatViewModel: ObservableObject {
                     id: notification.subagentId,
                     label: notification.label,
                     status: SubagentStatus(wire: notification.status),
-                    parentMessageId: lastAssistantMessageId
+                    parentMessageId: spawnParentMap[notification.subagentId]
                 )
                 info.error = notification.error
                 reconstructedSubagents.append(info)
