@@ -68,13 +68,9 @@ ngrok config check
 If not authenticated:
 
 1. Tell the user: "You need an ngrok account to create tunnels. If you don't have one, sign up at https://dashboard.ngrok.com/signup — it's free."
-2. Once they have an account, ask them to provide their auth token. Use `credential_store` with `action: "prompt"` to securely collect it:
-   - `action: "prompt"`
-   - `service: "ngrok"`
-   - `field: "authtoken"`
-   - `usage_description: "ngrok authentication token for creating public tunnels"`
+2. Once they have an account, ask them to paste their auth token directly in chat. They can find it at https://dashboard.ngrok.com/get-started/your-authtoken.
 
-3. Configure ngrok with the token:
+3. Once the user provides the token, configure ngrok with it immediately:
 ```bash
 ngrok config add-authtoken <token>
 ```
@@ -154,14 +150,14 @@ vellum config get ingress.publicBaseUrl
 Summarize the setup:
 
 - **Public URL:** `<the-url>` (this is your `ingress.publicBaseUrl`)
-- **Local gateway:** `http://127.0.0.1:7830`
+- **Local gateway:** `http://127.0.0.1:${GATEWAY_PORT:-7830}`
 - **ngrok dashboard:** http://127.0.0.1:4040
 
 Provide useful follow-up commands:
 
 - **Check tunnel status:** `curl -s http://127.0.0.1:4040/api/tunnels | python3 -c "import sys,json; [print(t['public_url']) for t in json.load(sys.stdin)['tunnels']]"`
 - **View ngrok logs:** `cat /tmp/ngrok.log`
-- **Restart tunnel:** `pkill -f ngrok; sleep 1; nohup ngrok http http://127.0.0.1:7830 --log=stdout > /tmp/ngrok.log 2>&1 &`
+- **Restart tunnel:** `pkill -f ngrok; sleep 1; nohup ngrok http http://127.0.0.1:${GATEWAY_PORT:-7830} --log=stdout > /tmp/ngrok.log 2>&1 &`
 - **Stop tunnel:** `pkill -f ngrok`
 - **Rotate URL:** Stop and restart ngrok (free tier assigns a new URL each time; update `ingress.publicBaseUrl` afterward)
 
@@ -179,7 +175,7 @@ Sign in to https://dashboard.ngrok.com, copy a fresh token from the "Your Authto
 The ngrok process may not be running. Check with `ps aux | grep ngrok`. If not running, start it per Step 4. If running but 4040 is unresponsive, check `/tmp/ngrok.log` for errors.
 
 ### Gateway not reachable on local target
-Ensure the Vellum gateway is running on `http://127.0.0.1:7830`. Check with `curl -s http://127.0.0.1:7830/health`. If not running, start the assistant daemon first.
+Ensure the Vellum gateway is running on `http://127.0.0.1:${GATEWAY_PORT:-7830}`. Check with `curl -s http://127.0.0.1:${GATEWAY_PORT:-7830}/health`. If not running, start the assistant daemon first.
 
 ### "Too many connections" or tunnel limit errors
 ngrok's free tier allows one tunnel at a time. Stop any other ngrok tunnels before starting a new one.
