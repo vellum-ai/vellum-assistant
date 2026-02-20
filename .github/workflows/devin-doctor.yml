@@ -235,10 +235,10 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           PR_AUTHORS: ${{ steps.pr.outputs.pr_authors }}
         run: |
-          gh issue create -R "$REPO" \
-            --title "[devin-doctor-lock] ${CTX_WORKFLOW_NAME} failure in progress" \
-            --body "Lock created for failing run: ${CTX_RUN_URL}
+          TITLE="[devin-doctor-lock] ${CTX_WORKFLOW_NAME} failure in progress"
+          BODY="Lock created for failing run: ${CTX_RUN_URL}
           Devin Session ID: \`${SESSION_ID}\`
           Devin Session URL: ${SESSION_URL}
           Original PR: #${PR_NUMBER}
           Reviewer(s): ${PR_AUTHORS}"
+          gh api "repos/${REPO}/issues" -f title="$TITLE" -f body="$BODY"

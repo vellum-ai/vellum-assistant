@@ -1,7 +1,7 @@
 ---
 name: "Document"
 description: "Document creation and editing for UI surfaces"
-metadata: {"vellum": {"emoji": "\u{1F4C4}"}}
+metadata: {"vellum": {"emoji": "📄"}}
 ---
 
 Create and edit long-form documents using the built-in rich text editor. Documents open in workspace mode with chat docked to the side.

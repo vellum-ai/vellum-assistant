@@ -43,6 +43,7 @@ public final class ChatViewModel: ObservableObject {
     @Published public var pendingSkillInvocation: SkillInvocationData?
     @Published public var isWatchSessionActive: Bool = false
     @Published public var activeSubagents: [SubagentInfo] = []
+    public let subagentDetailStore = SubagentDetailStore()
     /// Widget IDs dismissed by the user, persisted across view recreation.
     @Published public var dismissedDocumentSurfaceIds: Set<String> = []
 
@@ -132,6 +133,13 @@ public final class ChatViewModel: ObservableObject {
     /// Safety timer that force-resets the UI if the daemon never acknowledges
     /// a cancel request (e.g. a stuck tool blocks the generation_cancelled event).
     var cancelTimeoutTask: Task<Void, Never>?
+
+    /// Saved text from a queued message that should be auto-sent after cancellation completes.
+    var pendingSendDirectText: String?
+    /// Saved attachments from a queued message that should be auto-sent after cancellation completes.
+    var pendingSendDirectAttachments: [ChatAttachment]?
+    /// Saved skill invocation from a queued message for send-direct dispatch.
+    var pendingSendDirectSkillInvocation: SkillInvocationData?
 
     /// Timestamp of the most recent `toolUseStart` event received by this view model.
     /// Used by ThreadManager to route `confirmationRequest` messages to the correct
@@ -247,8 +255,9 @@ public final class ChatViewModel: ObservableObject {
         // When a message-less bootstrap is in flight (e.g. private thread
         // pre-allocation), adopt the user's message as the pending message
         // so it gets sent when session_info arrives instead of being dropped.
-        if isSending && sessionId == nil {
+        if (isSending || isBootstrapping) && sessionId == nil {
             if pendingUserMessage == nil {
+                isSending = true
                 let attachments = pendingAttachments
                 pendingAttachments = []
                 pendingUserMessage = text
@@ -338,10 +347,11 @@ public final class ChatViewModel: ObservableObject {
     }
 
     private func bootstrapSession(userMessage: String?, attachments: [IPCAttachment]?) {
-        isSending = true
-        // Only show thinking indicator when there's an actual user message
-        // to process; message-less session creates are silent.
+        // Only set sending/thinking indicators when there's an actual user
+        // message; message-less session creates (e.g. private thread
+        // pre-allocation) are silent and shouldn't affect UI state.
         if userMessage != nil {
+            isSending = true
             isThinking = true
         }
         pendingUserMessage = userMessage
@@ -470,7 +480,7 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func startMessageLoop() {
+    public func startMessageLoop() {
         messageLoopTask?.cancel()
         let messageStream = daemonClient.subscribe()
 
@@ -500,6 +510,9 @@ public final class ChatViewModel: ObservableObject {
                     self?.messages[index].isStreaming = false
                 }
                 self?.currentAssistantMessageId = nil
+                // If a send-direct was pending when the stream dropped,
+                // dispatch it now so the message isn't silently lost.
+                self?.dispatchPendingSendDirect()
             }
         }
     }
@@ -512,7 +525,7 @@ public final class ChatViewModel: ObservableObject {
     public func sendSilently(_ text: String) -> Bool {
         // Don't re-enter bootstrap if a session creation is already in progress —
         // that would overwrite pendingUserMessage and orphan the in-flight session.
-        if sessionId == nil && isSending {
+        if sessionId == nil && (isSending || isBootstrapping) {
             return false
         }
         if sessionId == nil {
@@ -528,7 +541,7 @@ public final class ChatViewModel: ObservableObject {
     /// (e.g. to store the thread in the database before the user types anything).
     /// No-op if a session already exists or a bootstrap is already in flight.
     public func createSessionIfNeeded(threadType: String? = nil) {
-        guard sessionId == nil, !isSending else { return }
+        guard sessionId == nil, !isBootstrapping else { return }
         if let threadType {
             self.threadType = threadType
         }
@@ -592,6 +605,7 @@ public final class ChatViewModel: ObservableObject {
             refinementStreamingText = nil
             isThinking = false
             isSending = false
+            dispatchPendingSendDirect()
             return
         }
 
@@ -633,6 +647,7 @@ public final class ChatViewModel: ObservableObject {
                     messages[i].status = .sent
                 }
             }
+            dispatchPendingSendDirect()
             return
         }
 
@@ -677,6 +692,7 @@ public final class ChatViewModel: ObservableObject {
                     messages[i].status = .sent
                 }
             }
+            dispatchPendingSendDirect()
             return
         }
 
@@ -733,6 +749,7 @@ public final class ChatViewModel: ObservableObject {
                     self.messages[i].status = .sent
                 }
             }
+            self.dispatchPendingSendDirect()
         }
     }
 
@@ -815,6 +832,55 @@ public final class ChatViewModel: ObservableObject {
         if pendingQueuedCount == 0 && !isThinking {
             isSending = false
         }
+    }
+
+    /// Skip the queue: stop the current generation and immediately send a specific queued message.
+    public func sendDirectQueuedMessage(messageId: UUID) {
+        guard let index = messages.firstIndex(where: { $0.id == messageId }),
+              case .queued = messages[index].status else { return }
+
+        // Save content before stop clears everything
+        let text = messages[index].text
+        let attachments = messages[index].attachments
+        let skillInvocation = messages[index].skillInvocation
+
+        // Remove this message from local state (it will be re-added by sendMessage)
+        messages.remove(at: index)
+
+        // If nothing is actively sending, stopGenerating() will no-op and no
+        // cancel-completion event will fire. Dispatch immediately instead.
+        guard isSending else {
+            inputText = text
+            pendingAttachments = attachments
+            pendingSkillInvocation = skillInvocation
+            sendMessage()
+            return
+        }
+
+        // Store for dispatch after cancellation completes.
+        // Must be set BEFORE stopGenerating() because synchronous cancel paths
+        // (bootstrap, disconnected, send-failure) dispatch immediately.
+        pendingSendDirectText = text
+        pendingSendDirectAttachments = attachments
+        pendingSendDirectSkillInvocation = skillInvocation
+
+        // Stop current generation — this clears all queued messages on the daemon
+        stopGenerating()
+    }
+
+    /// If a send-direct is pending, populate the composer and fire sendMessage.
+    /// Called from all cancel-completion paths (generationCancelled, timeout, disconnected, etc.).
+    func dispatchPendingSendDirect() {
+        guard let directText = pendingSendDirectText else { return }
+        let directAttachments = pendingSendDirectAttachments ?? []
+        let directSkillInvocation = pendingSendDirectSkillInvocation
+        pendingSendDirectText = nil
+        pendingSendDirectAttachments = nil
+        pendingSendDirectSkillInvocation = nil
+        inputText = directText
+        pendingAttachments = directAttachments
+        pendingSkillInvocation = directSkillInvocation
+        sendMessage()
     }
 
     /// Stop the active watch session and notify the macOS layer.
@@ -1009,6 +1075,38 @@ public final class ChatViewModel: ObservableObject {
         onInlineConfirmationResponse?(requestId, decision)
     }
 
+    /// Respond to a tool confirmation with "always_allow", sending the selected pattern and scope
+    /// so the backend atomically persists the trust rule alongside the confirmation response.
+    /// If the daemon is disconnected, shows an error without attempting a fallback (since
+    /// respondToConfirmation would also fail). On IPC send errors, attempts a one-time allow
+    /// fallback and only claims success if the fallback actually went through.
+    public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String) {
+        guard daemonClient.isConnected else {
+            log.warning("Cannot persist always-allow: daemon not connected")
+            errorText = "Cannot send confirmation — daemon is not connected."
+            return
+        }
+        do {
+            try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: "always_allow", selectedPattern: selectedPattern, selectedScope: selectedScope))
+        } catch {
+            log.warning("Always-allow IPC failed: \(error.localizedDescription)")
+            // Try one-time allow as fallback (daemon may still be connected)
+            respondToConfirmation(requestId: requestId, decision: "allow")
+            // respondToConfirmation sets errorText on failure; override with more context if it succeeded
+            if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }),
+               messages[index].confirmation?.state == .approved {
+                errorText = "Preference could not be saved. This action was allowed once."
+            }
+            return
+        }
+        // IPC send succeeded — update the message state
+        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+            messages[index].confirmation?.state = .approved
+        }
+        // Dismiss the corresponding floating panel / native notification if one exists
+        onInlineConfirmationResponse?(requestId, "allow")
+    }
+
     /// Update the inline confirmation message state without sending a response to the daemon.
     /// Used when the floating panel handles the response.
     public func updateConfirmationState(requestId: String, decision: String) {
@@ -1095,6 +1193,8 @@ public final class ChatViewModel: ObservableObject {
     /// history before the existing messages so the user sees full context.
     public func populateFromHistory(_ historyMessages: [HistoryResponseMessage.HistoryMessageItem]) {
         var chatMessages: [ChatMessage] = []
+        var reconstructedSubagents: [SubagentInfo] = []
+        var spawnParentMap: [String: UUID] = [:]  // subagentId → spawning assistant message UUID
         for item in historyMessages {
             let role: ChatRole = item.role == "assistant" ? .assistant : .user
             var toolCalls: [ToolCallData] = []
@@ -1199,7 +1299,38 @@ public final class ChatViewModel: ObservableObject {
                 log.info("Message contentOrder: \(item.contentOrder ?? []), surface refs: \(surfaceRefs.count), inlineSurfaces: \(chatMsg.inlineSurfaces.count)")
             }
 
+            // Build a map of subagentId → spawning assistant message UUID
+            // by scanning tool call results for subagent_spawn.
+            if role == .assistant {
+                for tc in toolCalls where tc.toolName == "subagent_spawn" {
+                    if let result = tc.result,
+                       let data = result.data(using: .utf8),
+                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let spawnedId = json["subagentId"] as? String {
+                        spawnParentMap[spawnedId] = chatMsg.id
+                    }
+                }
+            }
+
+            // Reconstruct subagent chips from structured notification metadata
+            if let notification = item.subagentNotification {
+                var info = SubagentInfo(
+                    id: notification.subagentId,
+                    label: notification.label,
+                    status: SubagentStatus(wire: notification.status),
+                    parentMessageId: spawnParentMap[notification.subagentId]
+                )
+                info.error = notification.error
+                reconstructedSubagents.append(info)
+                chatMsg.isSubagentNotification = true
+            }
+
             chatMessages.append(chatMsg)
+        }
+
+        // Merge reconstructed subagents into activeSubagents (avoid duplicates)
+        for info in reconstructedSubagents where !activeSubagents.contains(where: { $0.id == info.id }) {
+            activeSubagents.append(info)
         }
 
         // Tag assistant messages that follow "/model" or "/models" user messages

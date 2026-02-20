@@ -212,6 +212,9 @@ export interface RideShotgunStart {
   intervalSeconds: number;
   mode?: 'observe' | 'learn';
   targetDomain?: string;
+  /** Domain to auto-navigate (may differ from targetDomain, e.g. open.spotify.com vs spotify.com). */
+  navigateDomain?: string;
+  autoNavigate?: boolean;
 }
 
 export interface RideShotgunStop {
@@ -469,6 +472,12 @@ export interface SlackWebhookConfigRequest {
   webhookUrl?: string;
 }
 
+export interface TwilioWebhookConfigRequest {
+  type: 'twilio_webhook_config';
+  action: 'get' | 'set';
+  webhookBaseUrl?: string;
+}
+
 export interface VercelApiConfigRequest {
   type: 'vercel_api_config';
   action: 'get' | 'set' | 'delete';
@@ -479,6 +488,48 @@ export interface VercelApiConfigResponse {
   type: 'vercel_api_config_response';
   hasToken: boolean;
   success: boolean;
+  error?: string;
+}
+
+export interface TwitterIntegrationConfigRequest {
+  type: 'twitter_integration_config';
+  action: 'get' | 'set_mode' | 'set_local_client' | 'clear_local_client' | 'disconnect';
+  mode?: 'local_byo' | 'managed';
+  clientId?: string;
+  clientSecret?: string;
+}
+
+export interface TwitterIntegrationConfigResponse {
+  type: 'twitter_integration_config_response';
+  success: boolean;
+  mode?: 'local_byo' | 'managed';
+  managedAvailable: boolean;
+  localClientConfigured: boolean;
+  connected: boolean;
+  accountInfo?: string;
+  error?: string;
+}
+
+export interface TwitterAuthStartRequest {
+  type: 'twitter_auth_start';
+}
+
+export interface TwitterAuthStatusRequest {
+  type: 'twitter_auth_status';
+}
+
+export interface TwitterAuthResult {
+  type: 'twitter_auth_result';
+  success: boolean;
+  accountInfo?: string;
+  error?: string;
+}
+
+export interface TwitterAuthStatusResponse {
+  type: 'twitter_auth_status_response';
+  connected: boolean;
+  accountInfo?: string;
+  mode?: 'local_byo' | 'managed';
   error?: string;
 }
 
@@ -890,7 +941,11 @@ export type ClientMessage =
   | ShareAppCloudRequest
   | ShareToSlackRequest
   | SlackWebhookConfigRequest
+  | TwilioWebhookConfigRequest
   | VercelApiConfigRequest
+  | TwitterIntegrationConfigRequest
+  | TwitterAuthStartRequest
+  | TwitterAuthStatusRequest
   | SessionsClearRequest
   | GalleryListRequest
   | GalleryInstallRequest
@@ -995,6 +1050,12 @@ export interface ToolUseStart {
 export interface ToolOutputChunk {
   type: 'tool_output_chunk';
   chunk: string;
+  sessionId?: string;
+  subType?: 'tool_start' | 'tool_complete' | 'status';
+  subToolName?: string;
+  subToolInput?: string;
+  subToolIsError?: boolean;
+  subToolId?: string;
 }
 
 export interface ToolInputDelta {
@@ -1160,6 +1221,13 @@ export interface HistoryResponse {
     contentOrder?: string[];
     /** UI surfaces (widgets) embedded in the message. */
     surfaces?: HistoryResponseSurface[];
+    /** Present when this message is a subagent lifecycle notification (completed/failed/aborted). */
+    subagentNotification?: {
+      subagentId: string;
+      label: string;
+      status: 'completed' | 'failed' | 'aborted';
+      error?: string;
+    };
   }>;
 }
 
@@ -1622,6 +1690,13 @@ export interface SlackWebhookConfigResponse {
   error?: string;
 }
 
+export interface TwilioWebhookConfigResponse {
+  type: 'twilio_webhook_config_response';
+  webhookBaseUrl: string;
+  success: boolean;
+  error?: string;
+}
+
 export interface OpenUrl {
   type: 'open_url';
   url: string;
@@ -1649,6 +1724,12 @@ export interface WatcherNotification {
 
 export interface WatcherEscalation {
   type: 'watcher_escalation';
+  title: string;
+  body: string;
+}
+
+export interface AgentHeartbeatAlert {
+  type: 'agent_heartbeat_alert';
   title: string;
   body: string;
 }
@@ -2014,6 +2095,14 @@ export interface WorkItemStatusChanged {
   };
 }
 
+/** Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread. */
+export interface TaskRunThreadCreated {
+  type: 'task_run_thread_created';
+  conversationId: string;
+  workItemId: string;
+  title: string;
+}
+
 export type ServerMessage =
   | AuthResult
   | UserMessageEcho
@@ -2068,6 +2157,7 @@ export type ServerMessage =
   | ScheduleComplete
   | WatcherNotification
   | WatcherEscalation
+  | AgentHeartbeatAlert
   | WatchStarted
   | WatchCompleteRequest
   | TrustRulesListResponse
@@ -2090,7 +2180,11 @@ export type ServerMessage =
   | GalleryInstallResponse
   | ShareToSlackResponse
   | SlackWebhookConfigResponse
+  | TwilioWebhookConfigResponse
   | VercelApiConfigResponse
+  | TwitterIntegrationConfigResponse
+  | TwitterAuthResult
+  | TwitterAuthStatusResponse
   | OpenUrl
   | AppUpdatePreviewResponse
   | AppPreviewResponse
@@ -2120,6 +2214,7 @@ export type ServerMessage =
   | WorkItemApprovePermissionsResponse
   | WorkItemCancelResponse
   | WorkItemStatusChanged
+  | TaskRunThreadCreated
   | TasksChanged
   | OpenTasksWindow
   | SubagentSpawned
@@ -2162,7 +2257,6 @@ export interface SubagentStatusRequest {
   type: 'subagent_status';
   /** If omitted, returns all subagents for the session. */
   subagentId?: string;
-  sessionId: string;
 }
 
 export interface SubagentMessageRequest {

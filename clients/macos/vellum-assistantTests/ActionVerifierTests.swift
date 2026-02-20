@@ -82,6 +82,18 @@ final class ActionVerifierTests: XCTestCase {
                        "Clicks more than 5px apart should not be treated as a loop")
     }
 
+    func testLoopDetection_diagonalClicksBeyondRadius_allowed() {
+        // Clicks differ by 5px on each axis (~7.1px radial distance) — outside 5px radius
+        let click1 = AgentAction(type: .click, reasoning: "test", x: 100, y: 200)
+        let click2 = AgentAction(type: .click, reasoning: "test", x: 105, y: 205)
+        let click3 = AgentAction(type: .click, reasoning: "test", x: 100, y: 200)
+
+        XCTAssertEqual(isAllowed(verifier.verify(click1)), true)
+        XCTAssertEqual(isAllowed(verifier.verify(click2)), true)
+        XCTAssertEqual(isAllowed(verifier.verify(click3)), true,
+                       "Diagonal clicks ~7.1px apart should not match with radial distance check")
+    }
+
     func testLoopDetection_nearIdenticalAlternating_blocked() {
         // Alternating near-identical clicks on two targets
         let a1 = AgentAction(type: .click, reasoning: "test", x: 100, y: 200)

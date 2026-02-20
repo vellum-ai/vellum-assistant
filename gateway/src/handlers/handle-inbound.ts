@@ -22,6 +22,7 @@ export type TransportMetadataOverrides = {
 export type HandleInboundOptions = {
   attachmentIds?: string[];
   transportMetadata?: TransportMetadataOverrides;
+  replyCallbackUrl?: string;
 };
 
 function normalizeTransportHints(hints: string[] | undefined): string[] {
@@ -80,6 +81,7 @@ export async function handleInbound(
         ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
       },
       ...(options?.attachmentIds?.length ? { attachmentIds: options.attachmentIds } : {}),
+      ...(options?.replyCallbackUrl ? { replyCallbackUrl: options.replyCallbackUrl } : {}),
     });
 
     log.info(

@@ -28,6 +28,25 @@ const VALID_PROFILES: readonly WorkerProfile[] = ['general', 'researcher', 'code
 const MAX_CLAUDE_CODE_DEPTH = 1;
 const DEPTH_ENV_VAR = 'VELLUM_CLAUDE_CODE_DEPTH';
 
+function summarizeToolInput(toolName: string, input: Record<string, unknown>): string {
+  // Extract the most relevant field for each tool type
+  const name = toolName.toLowerCase();
+  if (name === 'bash') return String(input.command ?? '');
+  if (name === 'read' || name === 'file_read') return String(input.file_path ?? input.path ?? '');
+  if (name === 'edit' || name === 'file_edit') return String(input.file_path ?? input.path ?? '');
+  if (name === 'write' || name === 'file_write') return String(input.file_path ?? input.path ?? '');
+  if (name === 'glob') return String(input.pattern ?? '');
+  if (name === 'grep') return String(input.pattern ?? '');
+  if (name === 'websearch' || name === 'web_search') return String(input.query ?? '');
+  if (name === 'webfetch' || name === 'web_fetch') return String(input.url ?? '');
+  if (name === 'task') return String(input.description ?? '');
+  // Fallback: first string value
+  for (const val of Object.values(input)) {
+    if (typeof val === 'string' && val.length > 0 && val.length < 200) return val;
+  }
+  return '';
+}
+
 export const claudeCodeTool: Tool = {
   name: 'claude_code',
   description: 'Delegate a coding task to Claude Code, an AI-powered coding agent that can read, write, and edit files, run shell commands, and perform complex multi-step software engineering tasks autonomously.',
@@ -203,11 +222,20 @@ export const claudeCodeTool: Tool = {
       queryOptions.resume = resumeSessionId;
     }
 
+    // Declared outside try so the catch block can emit a final tool_complete on error.
+    let lastSubToolName: string | null = null;
+    let activeToolUseId: string | null = null;
+
     try {
       const conversation = query({ prompt, options: queryOptions });
       let resultText = '';
       let sessionId = '';
       let hasError = false;
+
+      // Track tool_use_id → {name, inputSummary} for enriching progress events.
+      const toolUseIdInfo = new Map<string, { name: string; inputSummary: string }>();
+      // Track tool_use_ids that we've already emitted tool_start for (to avoid duplicates).
+      const emittedToolUseIds = new Set<string>();
 
       for await (const message of conversation) {
         switch (message.type) {
@@ -225,12 +253,103 @@ export const claudeCodeTool: Tool = {
                   context.onOutput?.(block.text);
                   resultText += block.text;
                 }
+                if (block.type === 'tool_use') {
+                  // Capture info keyed by tool_use_id for enriching tool_progress events.
+                  const inputSummary = summarizeToolInput(block.name, block.input as Record<string, unknown>);
+                  toolUseIdInfo.set(block.id, { name: block.name, inputSummary });
+
+                  // Emit tool_start if we haven't already (tool_progress may have fired first).
+                  // NOTE: Do NOT emit tool_complete for the previous tool here. An assistant
+                  // message may contain multiple tool_use blocks (parallel tool use) and none
+                  // of them have executed yet at this point. Completions are handled by
+                  // tool_use_summary and tool_progress events.
+                  if (!emittedToolUseIds.has(block.id)) {
+                    context.onOutput?.(JSON.stringify({
+                      subType: 'tool_start',
+                      subToolName: block.name,
+                      subToolInput: inputSummary,
+                      subToolId: block.id,
+                    }));
+                    emittedToolUseIds.add(block.id);
+                    lastSubToolName = block.name;
+                    activeToolUseId = block.id;
+                  }
+                }
               }
             }
             sessionId = message.session_id;
             break;
           }
+          case 'tool_progress': {
+            // The SDK fires tool_progress periodically DURING tool execution.
+            // This is our primary signal for live sub-tool progress.
+            const toolUseId = message.tool_use_id;
+            const toolName = message.tool_name;
+            sessionId = message.session_id;
+
+            // Record tool name if we don't have it yet (tool_progress fires before assistant sometimes).
+            if (!toolUseIdInfo.has(toolUseId)) {
+              toolUseIdInfo.set(toolUseId, { name: toolName, inputSummary: '' });
+            }
+
+            if (!emittedToolUseIds.has(toolUseId)) {
+              // New tool — mark previous as complete and emit tool_start.
+              if (lastSubToolName && activeToolUseId !== toolUseId) {
+                context.onOutput?.(JSON.stringify({
+                  subType: 'tool_complete',
+                  subToolName: lastSubToolName,
+                  subToolId: activeToolUseId,
+                }));
+              }
+              const inputSummary = toolUseIdInfo.get(toolUseId)?.inputSummary ?? '';
+              context.onOutput?.(JSON.stringify({
+                subType: 'tool_start',
+                subToolName: toolName,
+                subToolInput: inputSummary,
+                subToolId: toolUseId,
+              }));
+              emittedToolUseIds.add(toolUseId);
+              lastSubToolName = toolName;
+            }
+            activeToolUseId = toolUseId;
+            break;
+          }
+          case 'tool_use_summary': {
+            // The SDK fires tool_use_summary after tool execution with a summary
+            // and the IDs of tools that were executed.
+            sessionId = message.session_id;
+            for (const completedId of message.preceding_tool_use_ids) {
+              const info = toolUseIdInfo.get(completedId);
+              const completedName: string | null = info?.name ?? lastSubToolName;
+              if (completedName && emittedToolUseIds.has(completedId)) {
+                context.onOutput?.(JSON.stringify({
+                  subType: 'tool_complete',
+                  subToolName: completedName,
+                  subToolId: completedId,
+                }));
+                if (lastSubToolName === completedName) {
+                  lastSubToolName = null;
+                }
+              }
+              // Prune completed entries to keep memory flat across long sessions.
+              toolUseIdInfo.delete(completedId);
+              emittedToolUseIds.delete(completedId);
+            }
+            activeToolUseId = null;
+            break;
+          }
           case 'result': {
+            // Mark the final sub-tool as complete (flag error if the session failed).
+            if (lastSubToolName) {
+              const isFailure = message.subtype !== 'success';
+              context.onOutput?.(JSON.stringify({
+                subType: 'tool_complete',
+                subToolName: lastSubToolName,
+                subToolId: activeToolUseId,
+                ...(isFailure && { subToolIsError: true }),
+              }));
+              lastSubToolName = null;
+            }
             sessionId = message.session_id;
             const resultMeta = {
               subtype: message.subtype,
@@ -281,6 +400,17 @@ export const claudeCodeTool: Tool = {
         isError: hasError,
       };
     } catch (err) {
+      // Mark the last sub-tool as failed so the UI shows an error icon.
+      if (lastSubToolName) {
+        context.onOutput?.(JSON.stringify({
+          subType: 'tool_complete',
+          subToolName: lastSubToolName,
+          subToolId: activeToolUseId,
+          subToolIsError: true,
+        }));
+        lastSubToolName = null;
+      }
+
       const errMessage = err instanceof Error ? err.message : String(err);
       const recentStderr = stderrLines.slice(-20);
       log.error({ err, stderrTail: recentStderr }, 'Claude Code execution failed');

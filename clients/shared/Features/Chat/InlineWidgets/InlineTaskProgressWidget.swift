@@ -154,6 +154,9 @@ public struct InlineTaskProgressWidget: View {
             ProgressView()
                 .controlSize(.small)
                 .tint(Amber._500)
+        case "waiting":
+            Image(systemName: "clock.fill")
+                .foregroundColor(Amber._500)
         case "failed":
             Image(systemName: "xmark.circle.fill")
                 .foregroundColor(Rose._500)
@@ -169,6 +172,8 @@ public struct InlineTaskProgressWidget: View {
             return ("Completed", "checkmark.circle.fill", Emerald._500)
         case "in_progress":
             return ("In Progress", "arrow.triangle.2.circlepath", Amber._500)
+        case "waiting":
+            return ("Waiting", "clock.fill", Amber._500)
         case "failed":
             return ("Failed", "xmark.circle.fill", Rose._500)
         default:

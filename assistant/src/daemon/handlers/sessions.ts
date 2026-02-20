@@ -31,7 +31,7 @@ import {
   mergeToolResults,
   pendingStandaloneSecrets,
   type HandlerContext,
-  type DispatchMap,
+  defineHandlers,
   type HistoryToolCall,
   type HistorySurface,
   type ParsedHistoryMessage,
@@ -274,14 +274,27 @@ export async function handleSessionSwitch(
     ctx.send(socket, { type: 'error', message: `Session ${msg.sessionId} not found` });
     return;
   }
+
+  // If the target session is headless-locked (actively executing a task run),
+  // skip rebinding the socket so tool confirmations stay suppressed.
+  const existingSession = ctx.sessions.get(msg.sessionId);
+  const isHeadlessLocked = existingSession && (existingSession as unknown as { headlessLock?: boolean }).headlessLock;
+
   ctx.socketToSession.set(socket, msg.sessionId);
-  const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
-  // Only wire the escalation handler if one isn't already set — handleTaskSubmit
-  // sets a handler with the client's actual screen dimensions, and overwriting it
-  // here would replace those dimensions with the daemon's defaults.
-  if (!session.hasEscalationHandler()) {
-    wireEscalationHandler(session, socket, ctx);
+
+  if (isHeadlessLocked) {
+    // Load the session without rebinding the client — the session stays headless
+    await ctx.getOrCreateSession(msg.sessionId, socket, false);
+  } else {
+    const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
+    // Only wire the escalation handler if one isn't already set — handleTaskSubmit
+    // sets a handler with the client's actual screen dimensions, and overwriting it
+    // here would replace those dimensions with the daemon's defaults.
+    if (!session.hasEscalationHandler()) {
+      wireEscalationHandler(session, socket, ctx);
+    }
   }
+
   ctx.send(socket, {
     type: 'session_info',
     sessionId: conversation.id,
@@ -338,7 +351,15 @@ export function handleHistoryRequest(
       contentOrder = text ? ['text:0'] : [];
       surfaces = [];
     }
-    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls, toolCallsBeforeText, textSegments, contentOrder, surfaces };
+    let subagentNotification: ParsedHistoryMessage['subagentNotification'];
+    if (m.metadata) {
+      try {
+        subagentNotification = (JSON.parse(m.metadata) as { subagentNotification?: ParsedHistoryMessage['subagentNotification'] }).subagentNotification;
+      } catch (err) {
+        log.debug({ err, messageId: m.id }, 'Failed to parse message metadata as JSON, ignoring');
+      }
+    }
+    return { id: m.id, role: m.role, text, timestamp: m.createdAt, toolCalls, toolCallsBeforeText, textSegments, contentOrder, surfaces, ...(subagentNotification ? { subagentNotification } : {}) };
   });
 
   // Merge tool_result data from user messages into the preceding assistant
@@ -388,6 +409,7 @@ export function handleHistoryRequest(
       ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
       ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
       ...(m.surfaces.length > 0 ? { surfaces: m.surfaces } : {}),
+      ...(m.subagentNotification ? { subagentNotification: m.subagentNotification } : {}),
     };
   });
   ctx.send(socket, { type: 'history_response', sessionId: msg.sessionId, messages: historyMessages });
@@ -499,7 +521,7 @@ export function handleDeleteQueuedMessage(
   }
 }
 
-export const sessionHandlers: Partial<DispatchMap> = {
+export const sessionHandlers = defineHandlers({
   user_message: handleUserMessage,
   confirmation_response: handleConfirmationResponse,
   secret_response: handleSecretResponse,
@@ -514,4 +536,4 @@ export const sessionHandlers: Partial<DispatchMap> = {
   regenerate: handleRegenerate,
   usage_request: handleUsageRequest,
   sandbox_set: handleSandboxSet,
-};
+});

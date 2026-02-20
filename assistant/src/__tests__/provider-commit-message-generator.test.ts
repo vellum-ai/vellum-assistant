@@ -1,0 +1,326 @@
+import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import type { CommitContext } from '../workspace/commit-message-provider.js';
+import type { Provider, ProviderResponse } from '../providers/types.js';
+import type { AssistantConfig } from '../config/types.js';
+import { DEFAULT_CONFIG } from '../config/defaults.js';
+
+// ---------------------------------------------------------------------------
+// Deep-clone a base config so each test can tweak fields independently
+// ---------------------------------------------------------------------------
+function cloneConfig(): AssistantConfig {
+  const cfg = structuredClone(DEFAULT_CONFIG);
+  cfg.provider = 'anthropic';
+  cfg.apiKeys = { anthropic: 'sk-test-key' } as Record<string, string>;
+  cfg.workspaceGit.commitMessageLLM = {
+    ...cfg.workspaceGit.commitMessageLLM,
+    enabled: true,
+    useConfiguredProvider: true,
+    providerFastModelOverrides: {},
+    timeoutMs: 5000,
+    maxTokens: 120,
+    temperature: 0.2,
+    maxFilesInPrompt: 30,
+    maxDiffBytes: 12000,
+    minRemainingTurnBudgetMs: 1000,
+    breaker: {
+      openAfterFailures: 3,
+      backoffBaseMs: 2000,
+      backoffMaxMs: 60000,
+    },
+  };
+  return cfg;
+}
+
+let currentConfig = cloneConfig();
+
+// ---------------------------------------------------------------------------
+// Mock: config/loader
+// ---------------------------------------------------------------------------
+mock.module('../config/loader.js', () => ({
+  getConfig: () => currentConfig,
+  loadConfig: () => currentConfig,
+  invalidateConfigCache: () => {},
+  saveConfig: () => {},
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+}));
+
+// ---------------------------------------------------------------------------
+// Mock: providers/registry
+// ---------------------------------------------------------------------------
+const mockSendMessage = mock<Provider['sendMessage']>();
+const mockProvider: Provider = {
+  name: 'mock-provider',
+  sendMessage: mockSendMessage,
+};
+let getProviderShouldThrow = false;
+
+mock.module('../providers/registry.js', () => ({
+  getProvider: (_name: string) => {
+    if (getProviderShouldThrow) {
+      throw new Error('Provider not initialized');
+    }
+    return mockProvider;
+  },
+  registerProvider: () => {},
+  listProviders: () => ['mock-provider'],
+  initializeProviders: () => {},
+}));
+
+// ---------------------------------------------------------------------------
+// Mock: logger (noop)
+// ---------------------------------------------------------------------------
+mock.module('../util/logger.js', () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
+}));
+
+// ---------------------------------------------------------------------------
+// Import the module under test AFTER mocks are set up
+// ---------------------------------------------------------------------------
+import {
+  _resetCommitMessageGenerator,
+  getCommitMessageGenerator,
+} from '../workspace/provider-commit-message-generator.js';
+
+// ---------------------------------------------------------------------------
+// Shared context
+// ---------------------------------------------------------------------------
+const baseContext: CommitContext = {
+  workspaceDir: '/tmp/test',
+  trigger: 'turn' as const,
+  sessionId: 'sess_test',
+  turnNumber: 1,
+  changedFiles: ['file.txt'],
+  timestampMs: Date.now(),
+};
+
+function makeSuccessResponse(text: string): ProviderResponse {
+  return {
+    content: [{ type: 'text', text }],
+    model: 'mock-model',
+    usage: { inputTokens: 10, outputTokens: 5 },
+    stopReason: 'end_turn',
+  };
+}
+
+describe('ProviderCommitMessageGenerator', () => {
+  beforeEach(() => {
+    _resetCommitMessageGenerator();
+    currentConfig = cloneConfig();
+    mockSendMessage.mockReset();
+    getProviderShouldThrow = false;
+  });
+
+  // 1. disabled
+  test('disabled → returns deterministic, reason "disabled"', async () => {
+    currentConfig.workspaceGit.commitMessageLLM.enabled = false;
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('deterministic');
+    expect(result.reason).toBe('disabled');
+  });
+
+  // 2. useConfiguredProvider false
+  test('useConfiguredProvider false → returns deterministic, reason "disabled"', async () => {
+    currentConfig.workspaceGit.commitMessageLLM.useConfiguredProvider = false;
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('deterministic');
+    expect(result.reason).toBe('disabled');
+  });
+
+  // 3. missing API key
+  test('missing API key → returns deterministic, reason "missing_provider_api_key"', async () => {
+    currentConfig.apiKeys = {} as Record<string, string>;
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('deterministic');
+    expect(result.reason).toBe('missing_provider_api_key');
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  // 4. breaker open
+  test('breaker open → returns deterministic, reason "breaker_open"', async () => {
+    // Force the breaker open by simulating enough failures
+    currentConfig.workspaceGit.commitMessageLLM.breaker.openAfterFailures = 1;
+    const gen = getCommitMessageGenerator();
+
+    // Trigger a failure to open the breaker — provider throws
+    mockSendMessage.mockRejectedValueOnce(new Error('provider error'));
+    await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+
+    // Now the breaker should be open
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('deterministic');
+    expect(result.reason).toBe('breaker_open');
+  });
+
+  // 5. insufficient budget
+  test('insufficient budget → returns deterministic, reason "insufficient_budget"', async () => {
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+      deadlineMs: Date.now() - 1000, // already expired
+    });
+    expect(result.source).toBe('deterministic');
+    expect(result.reason).toBe('insufficient_budget');
+  });
+
+  // 6. LLM success
+  test('LLM success → returns LLM message, source "llm", fast model passed', async () => {
+    const commitMsg = 'feat: add new feature';
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('llm');
+    expect(result.message).toBe(commitMsg);
+    expect(result.reason).toBeUndefined();
+
+    // Verify the fast model was passed in the config
+    const callArgs = mockSendMessage.mock.calls[0];
+    const options = callArgs[3] as { config: { model: string } };
+    expect(options.config.model).toBe('claude-haiku-4-5-20251001');
+  });
+
+  // 7. fast-model override
+  test('fast-model override → uses override instead of default', async () => {
+    currentConfig.workspaceGit.commitMessageLLM.providerFastModelOverrides = {
+      anthropic: 'claude-sonnet-4-20250514',
+    };
+    const commitMsg = 'fix: resolve issue';
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('llm');
+    expect(result.message).toBe(commitMsg);
+
+    const callArgs = mockSendMessage.mock.calls[0];
+    const options = callArgs[3] as { config: { model: string } };
+    expect(options.config.model).toBe('claude-sonnet-4-20250514');
+  });
+
+  // 8. LLM timeout
+  test('LLM timeout → returns deterministic, reason "timeout"', async () => {
+    // Set a very short timeout and make sendMessage take too long
+    currentConfig.workspaceGit.commitMessageLLM.timeoutMs = 1;
+    mockSendMessage.mockImplementationOnce(
+      (_msgs, _tools, _sys, options) => {
+        // Wait until the abort signal fires
+        return new Promise<ProviderResponse>((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            reject(new Error('aborted'));
+          });
+        });
+      },
+    );
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('deterministic');
+    expect(result.reason).toBe('timeout');
+  });
+
+  // 9. LLM provider error
+  test('LLM provider error → returns deterministic, reason "provider_error"', async () => {
+    mockSendMessage.mockRejectedValueOnce(new Error('API error'));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('deterministic');
+    expect(result.reason).toBe('provider_error');
+  });
+
+  // 10. LLM invalid output (empty string)
+  test('LLM invalid output (empty string) → returns deterministic, reason "invalid_output"', async () => {
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(''));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('deterministic');
+    expect(result.reason).toBe('invalid_output');
+  });
+
+  // 11. LLM output too long (subject > 72 chars)
+  test('LLM output too long (subject > 72 chars) → returns deterministic, reason "invalid_output"', async () => {
+    const longSubject = 'a'.repeat(73);
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(longSubject));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('deterministic');
+    expect(result.reason).toBe('invalid_output');
+  });
+
+  // 12. Keyless provider (Ollama) skips API key preflight
+  test('Ollama without API key → does not return missing_provider_api_key', async () => {
+    (currentConfig as Record<string, unknown>).provider = 'ollama';
+    currentConfig.apiKeys = {} as Record<string, string>;
+    const commitMsg = 'fix: local model commit';
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('llm');
+    expect(result.reason).not.toBe('missing_provider_api_key');
+  });
+
+  // 13. Unknown provider without fast model default → uses provider's configured model
+  test('Unknown provider without fast model default → LLM call succeeds without model in config', async () => {
+    (currentConfig as Record<string, unknown>).provider = 'exotic-provider';
+    currentConfig.apiKeys = { 'exotic-provider': 'sk-exotic' } as Record<string, string>;
+    const commitMsg = 'chore: update dependencies';
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('llm');
+    expect(result.message).toBe(commitMsg);
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  // 14. Omits model from config when no fast model available
+  test('omits model from config when no fast model available', async () => {
+    (currentConfig as Record<string, unknown>).provider = 'ollama';
+    currentConfig.apiKeys = {} as Record<string, string>; // Ollama is keyless
+    const commitMsg = 'fix: local model commit';
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('llm');
+    expect(result.message).toBe(commitMsg);
+
+    // Verify model is NOT set in the config
+    const callArgs = mockSendMessage.mock.calls[0];
+    const options = callArgs[3] as { config: Record<string, unknown> };
+    expect(options.config.model).toBeUndefined();
+    expect(options.config.max_tokens).toBe(120);
+    expect(options.config.temperature).toBe(0.2);
+  });
+});

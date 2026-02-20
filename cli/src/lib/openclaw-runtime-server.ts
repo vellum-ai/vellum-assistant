@@ -1,7 +1,7 @@
-// @ts-expect-error -- Bun embed: imports raw file content as a string, not supported by TypeScript
-import serverSource from "../adapters/openclaw-http-server.ts" with { type: "text" };
+import { join } from "path";
 
-export function buildOpenclawRuntimeServer(): string {
+export async function buildOpenclawRuntimeServer(): Promise<string> {
+  const serverSource = await Bun.file(join(import.meta.dir, "..", "adapters", "openclaw-http-server.ts")).text();
 
   return `
 cat > /opt/openclaw-runtime-server.ts << 'RUNTIME_SERVER_EOF'

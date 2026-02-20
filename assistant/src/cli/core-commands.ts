@@ -379,6 +379,7 @@ export function registerDoctorCommand(program: Command): void {
         gemini: 'GEMINI_API_KEY',
         ollama: 'OLLAMA_API_KEY',
         fireworks: 'FIREWORKS_API_KEY',
+        openrouter: 'OPENROUTER_API_KEY',
       };
       const configKey = (raw.apiKeys as Record<string, string> | undefined)?.[provider];
       const envVar = providerEnvVar[provider];
@@ -626,7 +627,7 @@ export function registerCompletionsCommand(program: Command): void {
         config: ['set', 'get', 'list', 'validate-allowlist'],
         keys: ['list', 'set', 'delete'],
         trust: ['list', 'remove', 'clear'],
-        memory: ['status', 'backfill', 'query', 'rebuild-index'],
+        memory: ['status', 'backfill', 'cleanup', 'query', 'rebuild-index'],
         hooks: ['list', 'enable', 'disable', 'install', 'remove'],
         contacts: ['list', 'get', 'merge'],
         autonomy: ['get', 'set'],

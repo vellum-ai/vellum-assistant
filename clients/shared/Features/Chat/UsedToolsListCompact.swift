@@ -6,25 +6,15 @@ public struct UsedToolsListCompact: View {
     let toolCalls: [ToolCallData]
     @State private var isExpanded = false
 
-    private var hasErrors: Bool { toolCalls.contains { $0.isError } }
-
     private var pillLabel: String {
         let count = toolCalls.count
         if count == 1 { return toolCalls[0].actionDescription }
-        if hasErrors {
-            let errCount = toolCalls.filter { $0.isError }.count
-            return errCount == count ? "All \(count) steps failed" : "\(errCount) of \(count) steps failed"
-        }
         return "Completed \(count) steps"
     }
 
-    private var pillIcon: String {
-        hasErrors ? "xmark.circle.fill" : "checkmark.circle.fill"
-    }
+    private var pillIcon: String { "checkmark.circle.fill" }
 
-    private var pillIconColor: Color {
-        hasErrors ? VColor.error : VColor.success
-    }
+    private var pillIconColor: Color { VColor.success }
 
     public init(toolCalls: [ToolCallData]) {
         self.toolCalls = toolCalls

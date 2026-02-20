@@ -1,19 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import type { CommitContext } from '../workspace/commit-message-provider.js';
-
-// ---------------------------------------------------------------------------
-// Guard against module mock leakage from earlier test files (e.g. session-queue).
-// Re-register the real workspace modules so our static imports bind to them.
-// The ?real query string forces Bun to bypass the mock cache.
-// ---------------------------------------------------------------------------
-// @ts-expect-error Bun mock bypass: ?real query string forces real module resolution
-mock.module('../workspace/git-service.js', async () => await import('../workspace/git-service.js?real'));
-// @ts-expect-error Bun mock bypass: ?real query string forces real module resolution
-mock.module('../workspace/commit-message-enrichment-service.js', async () => await import('../workspace/commit-message-enrichment-service.js?real'));
 
 import {
   CommitEnrichmentService,
@@ -57,6 +47,16 @@ describe('CommitEnrichmentService', () => {
     writeFileSync(join(testDir, `file-${Date.now()}.txt`), 'content');
     await gitService.commitChanges('test commit');
     return await gitService.getHeadHash();
+  }
+
+  async function waitForDrain(service: CommitEnrichmentService, timeoutMs = 5000): Promise<void> {
+    const started = Date.now();
+    while (service._getQueueSize() > 0 || service._getActiveWorkers() > 0) {
+      if (Date.now() - started > timeoutMs) {
+        throw new Error(`Timed out waiting for enrichment queue to drain after ${timeoutMs}ms`);
+      }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
   }
 
   test('enqueue and execute writes git note on success', async () => {
@@ -291,9 +291,7 @@ describe('CommitEnrichmentService', () => {
     });
 
     // Wait for queue to drain before shutdown (avoids discarding pending jobs)
-    while (service._getQueueSize() > 0 || service._getActiveWorkers() > 0) {
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
+    await waitForDrain(service, 5000);
     await service.shutdown();
 
     // Both notes should exist
@@ -329,9 +327,7 @@ describe('CommitEnrichmentService', () => {
     // Wait for all retries to complete (initial + 2 retries, with backoff)
     // Backoff: 1s after attempt 1, 2s after attempt 2 = ~3s total
     // But since the job itself is very fast to time out, total time is dominated by backoff
-    while (service._getActiveWorkers() > 0 || service._getQueueSize() > 0) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
+    await waitForDrain(service, 10000);
     await service.shutdown();
 
     // After 1 initial attempt + 2 retries (3 total), the job should be counted as failed
@@ -382,6 +378,140 @@ describe('CommitEnrichmentService', () => {
     expect(service._getSucceededCount()).toBe(1);
     // 2 overflow drops + 2 shutdown discards = 4 total
     expect(service._getDroppedCount()).toBe(4);
+  });
+
+  test('timed-out enrichment work is cancelled via AbortSignal', async () => {
+    // Track whether the slow enrichment work actually ran to completion
+    let enrichmentCompleted = false;
+    const commitHash = await createCommit();
+
+    const service = new CommitEnrichmentService({
+      maxQueueSize: 10,
+      maxConcurrency: 1,
+      jobTimeoutMs: 50, // Very short timeout
+      maxRetries: 0,
+    });
+
+    // Monkey-patch writeNote to simulate slow work that respects the abort signal.
+    // The real writeNote now passes the signal to execFileAsync which kills the
+    // child process on abort. This mock replicates that behavior by rejecting
+    // when the signal fires.
+    const originalWriteNote = gitService.writeNote.bind(gitService);
+    gitService.writeNote = async (_hash: string, _note: string, signal?: AbortSignal) => {
+      // Simulate slow work that is cancellable via AbortSignal
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          enrichmentCompleted = true;
+          resolve();
+        }, 2000);
+        signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(new Error('aborted'));
+        }, { once: true });
+      });
+    };
+
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash,
+      context: makeContext(),
+      gitService,
+    });
+
+    await waitForDrain(service, 5000);
+    await service.shutdown();
+
+    // Allow any zombie work to settle — if abort didn't work, the 2s timer
+    // would still be running and would set enrichmentCompleted=true. Wait
+    // longer than the 2000ms mock delay to reliably catch the regression.
+    await new Promise(resolve => setTimeout(resolve, 2500));
+
+    // The job should have timed out and been counted as failed
+    expect(service._getFailedCount()).toBe(1);
+    expect(service._getSucceededCount()).toBe(0);
+    // The slow enrichment work should NOT have completed since the signal was aborted
+    expect(enrichmentCompleted).toBe(false);
+
+    // Restore original
+    gitService.writeNote = originalWriteNote;
+  });
+
+  test('shutdown does not hang on timed-out jobs', async () => {
+    const commitHash = await createCommit();
+
+    const service = new CommitEnrichmentService({
+      maxQueueSize: 10,
+      maxConcurrency: 1,
+      jobTimeoutMs: 50, // Short timeout
+      maxRetries: 0,
+    });
+
+    // Make writeNote artificially slow so the job will always time out.
+    // The mock respects the abort signal so the subprocess is killed on timeout.
+    const originalWriteNote = gitService.writeNote.bind(gitService);
+    gitService.writeNote = async (_hash: string, _note: string, signal?: AbortSignal) => {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 5000);
+        signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(new Error('aborted'));
+        }, { once: true });
+      });
+    };
+
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash,
+      context: makeContext(),
+      gitService,
+    });
+
+    // Shutdown should complete promptly, not hang for 5s waiting on the slow writeNote
+    const shutdownStart = Date.now();
+    await service.shutdown();
+    const shutdownElapsed = Date.now() - shutdownStart;
+
+    // Shutdown should complete well under the 5s slow-work duration
+    expect(shutdownElapsed).toBeLessThan(3000);
+    expect(service._getFailedCount()).toBe(1);
+
+    gitService.writeNote = originalWriteNote;
+  }, 10000);
+
+  test('abort signal is triggered on non-timeout errors before retry', async () => {
+    const commitHash = await createCommit();
+
+    const service = new CommitEnrichmentService({
+      maxQueueSize: 10,
+      maxConcurrency: 1,
+      jobTimeoutMs: 5000,
+      maxRetries: 0,
+    });
+
+    // Make writeNote throw an error and observe whether the signal gets aborted
+    const originalWriteNote = gitService.writeNote.bind(gitService);
+    gitService.writeNote = async (_hash: string, _note: string) => {
+      // Set up a listener on the abort controller's signal to track abortion.
+      // We access the signal indirectly by throwing, which triggers the catch
+      // block in executeJob where controller.abort() is called.
+      throw new Error('Simulated writeNote failure');
+    };
+
+    service.enqueue({
+      workspaceDir: testDir,
+      commitHash,
+      context: makeContext(),
+      gitService,
+    });
+
+    await waitForDrain(service, 5000);
+    await service.shutdown();
+
+    // The job should have failed (no retries configured)
+    expect(service._getFailedCount()).toBe(1);
+    expect(service._getSucceededCount()).toBe(0);
+
+    gitService.writeNote = originalWriteNote;
   });
 
   test('enqueue is fire-and-forget and never throws even when called rapidly', async () => {

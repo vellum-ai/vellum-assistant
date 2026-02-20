@@ -3,6 +3,9 @@ import { getLogger } from "../../logger.js";
 
 const log = getLogger("twilio-relay-ws");
 
+// Cap buffered messages to prevent unbounded memory growth if upstream stalls
+const MAX_PENDING_MESSAGES = 100;
+
 /**
  * Create a WebSocket upgrade handler that proxies Twilio ConversationRelay
  * frames between Twilio and the runtime's /v1/calls/relay endpoint.
@@ -34,6 +37,7 @@ type RelaySocketData = {
   callSessionId: string;
   config: GatewayConfig;
   upstream?: WebSocket;
+  pendingMessages?: (string | ArrayBuffer | Uint8Array)[];
 };
 
 /**
@@ -43,6 +47,9 @@ export function getRelayWebsocketHandlers() {
   return {
     open(ws: import("bun").ServerWebSocket<RelaySocketData>) {
       const { callSessionId, config } = ws.data;
+
+      // Initialize message buffer for frames arriving before upstream connects
+      ws.data.pendingMessages = [];
 
       // Build upstream URL to runtime
       const runtimeBase = config.assistantRuntimeBaseUrl.replace(/^http/, 'ws');
@@ -55,6 +62,14 @@ export function getRelayWebsocketHandlers() {
 
       upstream.addEventListener("open", () => {
         log.info({ callSessionId }, "Upstream WS connected");
+        // Flush any buffered messages
+        const pending = ws.data.pendingMessages;
+        if (pending) {
+          for (const msg of pending) {
+            upstream.send(msg);
+          }
+          ws.data.pendingMessages = undefined;
+        }
       });
 
       upstream.addEventListener("message", (event) => {
@@ -79,13 +94,23 @@ export function getRelayWebsocketHandlers() {
       const upstream = ws.data.upstream;
       if (upstream && upstream.readyState === WebSocket.OPEN) {
         upstream.send(message);
+      } else if (ws.data.pendingMessages) {
+        // Buffer messages until upstream connects
+        if (ws.data.pendingMessages.length >= MAX_PENDING_MESSAGES) {
+          log.warn({ callSessionId: ws.data.callSessionId }, "Pending message buffer overflow — closing connection");
+          ws.close(1008, "Buffer overflow");
+          return;
+        }
+        ws.data.pendingMessages.push(message);
       }
     },
 
     close(ws: import("bun").ServerWebSocket<RelaySocketData>, code: number, reason: string) {
       const { callSessionId, upstream } = ws.data;
       log.info({ callSessionId, code, reason }, "Twilio WS closed");
-      if (upstream && upstream.readyState === WebSocket.OPEN) {
+      // Clear pending buffer so no messages are flushed after close
+      ws.data.pendingMessages = undefined;
+      if (upstream && (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING)) {
         upstream.close(code, reason);
       }
     },

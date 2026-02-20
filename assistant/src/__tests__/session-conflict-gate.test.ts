@@ -39,8 +39,18 @@ let resolverResult: {
 
 const persistedMessages: Array<{ id: string; role: string; content: string; createdAt: number }> = [];
 
+function makeMockLogger(): Record<string, unknown> {
+  const logger: Record<string, unknown> = {};
+  logger.child = () => logger;
+  logger.debug = () => {};
+  logger.info = () => {};
+  logger.warn = () => {};
+  logger.error = () => {};
+  return logger;
+}
+
 mock.module('../util/logger.js', () => ({
-  getLogger: () => new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+  getLogger: () => makeMockLogger(),
 }));
 
 mock.module('../util/platform.js', () => ({
@@ -305,7 +315,7 @@ describe('Session conflict soft gate', () => {
     await session.processMessage('Should I use React or Vue here?', [], (event) => events.push(event));
 
     expect(runCalls).toHaveLength(0);
-    expect(resolverCallCount).toBe(1);
+    expect(resolverCallCount).toBe(0);
     expect(markAskedCalls).toEqual(['conflict-relevant']);
     const clarificationEvent = events.find((event) => event.type === 'assistant_text_delta');
     expect(clarificationEvent).toBeDefined();
@@ -315,7 +325,7 @@ describe('Session conflict soft gate', () => {
     expect(events.some((event) => event.type === 'message_complete')).toBe(true);
   });
 
-  test('irrelevant unresolved conflict asks once and continues with normal answer flow', async () => {
+  test('irrelevant unresolved conflict does not inject side-question into normal answer flow', async () => {
     pendingConflicts = [{
       id: 'conflict-irrelevant',
       scopeId: 'default',
@@ -332,13 +342,6 @@ describe('Session conflict soft gate', () => {
       existingStatement: 'Use Postgres as the default database.',
       candidateStatement: 'Use MySQL as the default database.',
     }];
-    resolverResult = {
-      resolution: 'keep_existing',
-      strategy: 'heuristic',
-      resolvedStatement: null,
-      explanation: 'Resolved by accident.',
-    };
-
     const session = makeSession();
     await session.loadFromDb();
 
@@ -349,10 +352,10 @@ describe('Session conflict soft gate', () => {
     const injectedUser = runCalls[0][runCalls[0].length - 1];
     expect(injectedUser.role).toBe('user');
     const injectedText = extractText(injectedUser);
-    expect(injectedText).toContain('Memory clarification request');
-    expect(injectedText).toContain('Should I assume Postgres or MySQL?');
+    expect(injectedText).not.toContain('Memory clarification request');
+    expect(injectedText).not.toContain('Should I assume Postgres or MySQL?');
     expect(resolverCallCount).toBe(0);
-    expect(markAskedCalls).toEqual(['conflict-irrelevant']);
+    expect(markAskedCalls).toEqual([]);
     expect(events.some((event) => event.type === 'message_complete')).toBe(true);
   });
 
@@ -379,7 +382,7 @@ describe('Session conflict soft gate', () => {
 
     // First turn asks the clarification and records it as asked.
     await session.processMessage('Should I assume Postgres or MySQL?', [], () => {});
-    expect(resolverCallCount).toBe(1);
+    expect(resolverCallCount).toBe(0);
     expect(markAskedCalls).toEqual(['conflict-followup']);
 
     resolverResult = {
@@ -392,7 +395,7 @@ describe('Session conflict soft gate', () => {
     // Follow-up reply does not overlap statement tokens but should still resolve.
     await session.processMessage('Keep the new one.', [], () => {});
 
-    expect(resolverCallCount).toBe(2);
+    expect(resolverCallCount).toBe(1);
     expect(markAskedCalls).toEqual(['conflict-followup']);
     expect(runCalls).toHaveLength(1);
   });
@@ -420,7 +423,7 @@ describe('Session conflict soft gate', () => {
 
     // First turn asks the clarification.
     await session.processMessage('Should I assume Postgres or MySQL?', [], () => {});
-    expect(resolverCallCount).toBe(1);
+    expect(resolverCallCount).toBe(0);
     expect(markAskedCalls).toEqual(['conflict-concise']);
 
     resolverResult = {
@@ -433,7 +436,7 @@ describe('Session conflict soft gate', () => {
     // Short directional reply with no action verb should still resolve.
     await session.processMessage('both', [], () => {});
 
-    expect(resolverCallCount).toBe(2);
+    expect(resolverCallCount).toBe(1);
     expect(runCalls).toHaveLength(1);
   });
 
@@ -460,7 +463,7 @@ describe('Session conflict soft gate', () => {
 
     // First turn: relevant question triggers clarification ask.
     await session.processMessage('Should I assume Postgres or MySQL?', [], () => {});
-    expect(resolverCallCount).toBe(1);
+    expect(resolverCallCount).toBe(0);
     expect(markAskedCalls).toEqual(['conflict-unrelated']);
 
     // Second turn: unrelated question containing the cue word "new" should NOT
@@ -473,8 +476,8 @@ describe('Session conflict soft gate', () => {
     };
     await session.processMessage("What's new in Bun?", [], () => {});
 
-    // The resolver should NOT have been called again for this unrelated question.
-    expect(resolverCallCount).toBe(1);
+    // The resolver should NOT have been called for this unrelated question.
+    expect(resolverCallCount).toBe(0);
     // Normal agent loop should still run.
     expect(runCalls).toHaveLength(1);
   });
@@ -502,7 +505,7 @@ describe('Session conflict soft gate', () => {
 
     // First turn: triggers clarification ask.
     await session.processMessage('Should I assume Postgres or MySQL?', [], () => {});
-    expect(resolverCallCount).toBe(1);
+    expect(resolverCallCount).toBe(0);
     expect(markAskedCalls).toEqual(['conflict-unrelated-no-qmark']);
 
     resolverResult = {
@@ -516,11 +519,11 @@ describe('Session conflict soft gate', () => {
     // Should NOT resolve the conflict.
     await session.processMessage('I started a new project today', [], () => {});
 
-    expect(resolverCallCount).toBe(1);
+    expect(resolverCallCount).toBe(0);
     expect(runCalls).toHaveLength(1);
   });
 
-  test('cooldown prevents repeated asks on subsequent turns', async () => {
+  test('irrelevant conflicts remain silent across subsequent turns', async () => {
     pendingConflicts = [{
       id: 'conflict-cooldown',
       scopeId: 'default',
@@ -547,9 +550,9 @@ describe('Session conflict soft gate', () => {
     expect(runCalls).toHaveLength(2);
     const firstUserText = extractText(runCalls[0][runCalls[0].length - 1]);
     const secondUserText = extractText(runCalls[1][runCalls[1].length - 1]);
-    expect(firstUserText).toContain('Memory clarification request');
+    expect(firstUserText).not.toContain('Memory clarification request');
     expect(secondUserText).not.toContain('Memory clarification request');
-    expect(markAskedCalls).toEqual(['conflict-cooldown']);
+    expect(markAskedCalls).toEqual([]);
   });
 
   test('passes session scopeId through to conflict store queries', async () => {

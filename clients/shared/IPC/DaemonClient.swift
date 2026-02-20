@@ -230,8 +230,20 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `slack_webhook_config_response` message.
     public var onSlackWebhookConfigResponse: ((SlackWebhookConfigResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `twilio_webhook_config_response` message.
+    public var onTwilioWebhookConfigResponse: ((TwilioWebhookConfigResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `vercel_api_config_response` message.
     public var onVercelApiConfigResponse: ((VercelApiConfigResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `twitter_integration_config_response` message.
+    public var onTwitterIntegrationConfigResponse: ((TwitterIntegrationConfigResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `twitter_auth_result` message.
+    public var onTwitterAuthResult: ((TwitterAuthResultMessage) -> Void)?
+
+    /// Called when the daemon sends a `twitter_auth_status_response` message.
+    public var onTwitterAuthStatusResponse: ((TwitterAuthStatusResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `model_info` message.
     public var onModelInfo: ((ModelInfoMessage) -> Void)?
@@ -301,6 +313,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
+
+    /// Called when a task run creates a conversation so the client can show it as a visible chat thread.
+    public var onTaskRunThreadCreated: ((IPCTaskRunThreadCreated) -> Void)?
 
     /// Called when the daemon wants us to open/focus the tasks window.
     public var onOpenTasksWindow: (() -> Void)?
@@ -671,11 +686,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Cancel a running work item.
     public func sendWorkItemCancel(id: String) throws {
         try send(IPCWorkItemCancelRequest(type: "work_item_cancel", id: id))
-    }
-
-    /// Request the rendered template content for a work item.
-    public func sendWorkItemRender(id: String) throws {
-        try send(IPCWorkItemRenderRequest(type: "work_item_render", id: id))
     }
 
     // MARK: - Subagent Management

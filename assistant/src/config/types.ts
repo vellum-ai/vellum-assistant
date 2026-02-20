@@ -27,6 +27,7 @@ export type {
   SkillEntryConfig,
   SkillsLoadConfig,
   SkillsInstallConfig,
+  AgentHeartbeatConfig,
   SwarmConfig,
   SkillsConfig,
   WorkspaceGitConfig,

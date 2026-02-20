@@ -168,15 +168,16 @@ struct TaskPermissionPreflightView: View {
                 Button {
                     onApprove(Array(approvedTools))
                 } label: {
-                    Text(approvedTools.isEmpty ? "Run Without Permissions" : "Approve & Run")
+                    Text("Approve & Run")
                         .font(VFont.bodyMedium)
                         .foregroundColor(.white)
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.sm)
-                        .background(approvedTools.isEmpty ? VColor.warning : VColor.accent)
+                        .background(approvedTools.isEmpty ? VColor.accent.opacity(0.4) : VColor.accent)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 }
                 .buttonStyle(.plain)
+                .disabled(approvedTools.isEmpty)
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.md)

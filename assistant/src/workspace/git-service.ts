@@ -136,6 +136,8 @@ export class WorkspaceGitService {
   private initPromise: Promise<void> | null = null;
   private consecutiveFailures = 0;
   private nextAllowedAttemptMs = 0;
+  private initConsecutiveFailures = 0;
+  private initNextAllowedAttemptMs = 0;
 
   constructor(workspaceDir: string) {
     this.workspaceDir = workspaceDir;
@@ -179,6 +181,42 @@ export class WorkspaceGitService {
   }
 
   /**
+   * Check if the init circuit breaker is open (too many recent init failures).
+   * When open, init attempts are skipped until the backoff window expires.
+   */
+  private isInitBreakerOpen(): boolean {
+    if (this.initConsecutiveFailures < 2) return false;
+    return Date.now() < this.initNextAllowedAttemptMs;
+  }
+
+  private recordInitSuccess(): void {
+    if (this.initConsecutiveFailures > 0) {
+      log.info(
+        { workspaceDir: this.workspaceDir, previousFailures: this.initConsecutiveFailures },
+        'Init circuit breaker closed: initialization succeeded after failures',
+      );
+    }
+    this.initConsecutiveFailures = 0;
+    this.initNextAllowedAttemptMs = 0;
+  }
+
+  private recordInitFailure(): void {
+    const config = getConfig();
+    const failureBackoffBaseMs = config.workspaceGit?.failureBackoffBaseMs ?? 2000;
+    const failureBackoffMaxMs = config.workspaceGit?.failureBackoffMaxMs ?? 60000;
+    this.initConsecutiveFailures++;
+    const delay = Math.min(
+      failureBackoffBaseMs * Math.pow(2, this.initConsecutiveFailures - 1),
+      failureBackoffMaxMs,
+    );
+    this.initNextAllowedAttemptMs = Date.now() + delay;
+    log.warn(
+      { workspaceDir: this.workspaceDir, consecutiveFailures: this.initConsecutiveFailures, backoffMs: delay },
+      'Init circuit breaker opened: initialization failed, backing off',
+    );
+  }
+
+  /**
    * Ensure the git repository is initialized.
    * Idempotent: safe to call multiple times.
    *
@@ -200,6 +238,14 @@ export class WorkspaceGitService {
     // If initialization is in progress, wait for it
     if (this.initPromise) {
       return this.initPromise;
+    }
+
+    // Circuit breaker: skip if multiple recent init attempts have been failing.
+    // Checked AFTER initPromise so callers waiting on in-progress init aren't
+    // blocked, and only activates after 2+ consecutive failures so that a
+    // single transient failure allows immediate retry.
+    if (this.isInitBreakerOpen()) {
+      throw new Error('Init circuit breaker open: backing off after repeated failures');
     }
 
     // Start initialization
@@ -294,6 +340,7 @@ export class WorkspaceGitService {
             await this.ensureCommitIdentityLocked();
             await this.ensureOnMainLocked();
             this.initialized = true;
+            this.recordInitSuccess();
             return;
           }
         }
@@ -328,12 +375,14 @@ export class WorkspaceGitService {
       await this.execGit(['commit', '-m', message, '--allow-empty']);
 
       this.initialized = true;
+      this.recordInitSuccess();
     });
 
     // If initialization fails, clear the cached promise so subsequent
     // calls can retry instead of permanently returning the rejected promise.
     this.initPromise.catch(() => {
       this.initPromise = null;
+      this.recordInitFailure();
     });
 
     return this.initPromise;
@@ -546,11 +595,30 @@ export class WorkspaceGitService {
   private ensureGitignoreRulesLocked(): void {
     const gitignorePath = join(this.workspaceDir, '.gitignore');
     if (existsSync(gitignorePath)) {
-      const content = readFileSync(gitignorePath, 'utf-8');
+      let content = readFileSync(gitignorePath, 'utf-8');
+
+      // Migrate legacy broad ignore rule to selective data subdirectory rules.
+      // This keeps user-tracked files under data/ visible to git.
+      const lines = content.split('\n');
+      const hadLegacyDataRule = lines.some(line => line.trim() === 'data/');
+      if (hadLegacyDataRule) {
+        content = lines
+          .filter(line => line.trim() !== 'data/')
+          .join('\n');
+        if (!content.endsWith('\n')) {
+          content += '\n';
+        }
+      }
 
       const missingRules = WORKSPACE_GITIGNORE_RULES.filter(rule => !content.includes(rule));
-      if (missingRules.length > 0) {
-        const updated = content + '\n# Vellum runtime state (auto-added)\n' + missingRules.join('\n') + '\n';
+      if (hadLegacyDataRule || missingRules.length > 0) {
+        let updated = content;
+        if (missingRules.length > 0) {
+          if (!updated.endsWith('\n')) {
+            updated += '\n';
+          }
+          updated += '# Vellum runtime state (auto-added)\n' + missingRules.join('\n') + '\n';
+        }
         writeFileSync(gitignorePath, updated, 'utf-8');
       }
     } else {
@@ -629,7 +697,7 @@ export class WorkspaceGitService {
    * intentionally short for interactive workspace operations — background
    * enrichment jobs use their own dedicated timeout.
    */
-  private async execGit(args: string[]): Promise<{ stdout: string; stderr: string }> {
+  private async execGit(args: string[], options?: { signal?: AbortSignal }): Promise<{ stdout: string; stderr: string }> {
     const config = getConfig();
     const timeoutMs = config.workspaceGit?.interactiveGitTimeoutMs ?? 10_000;
     try {
@@ -638,6 +706,7 @@ export class WorkspaceGitService {
         encoding: 'utf-8',
         timeout: timeoutMs,
         env: cleanGitEnv(this.workspaceDir),
+        signal: options?.signal,
       });
       return { stdout, stderr };
     } catch (err) {
@@ -676,8 +745,8 @@ export class WorkspaceGitService {
    * Write a git note to a specific commit.
    * Uses the 'vellum' notes ref to avoid conflicts with default notes.
    */
-  async writeNote(commitHash: string, noteContent: string): Promise<void> {
-    await this.execGit(['notes', '--ref=vellum', 'add', '-f', '-m', noteContent, commitHash]);
+  async writeNote(commitHash: string, noteContent: string, signal?: AbortSignal): Promise<void> {
+    await this.execGit(['notes', '--ref=vellum', 'add', '-f', '-m', noteContent, commitHash], { signal });
   }
 
   /**
@@ -753,4 +822,19 @@ export function _resetBreaker(service: WorkspaceGitService): void {
  */
 export function _getConsecutiveFailures(service: WorkspaceGitService): number {
   return (service as unknown as { consecutiveFailures: number }).consecutiveFailures;
+}
+
+/**
+ * @internal Test-only: reset init circuit breaker state for a service instance
+ */
+export function _resetInitBreaker(service: WorkspaceGitService): void {
+  (service as unknown as { initConsecutiveFailures: number }).initConsecutiveFailures = 0;
+  (service as unknown as { initNextAllowedAttemptMs: number }).initNextAllowedAttemptMs = 0;
+}
+
+/**
+ * @internal Test-only: get init consecutive failure count
+ */
+export function _getInitConsecutiveFailures(service: WorkspaceGitService): number {
+  return (service as unknown as { initConsecutiveFailures: number }).initConsecutiveFailures;
 }

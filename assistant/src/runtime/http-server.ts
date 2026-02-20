@@ -11,6 +11,8 @@ import { timingSafeEqual } from 'node:crypto';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
+import { loadConfig } from '../config/loader.js';
+import { getWebhookBaseUrl } from '../calls/twilio-webhook-urls.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 
 // Route handlers — grouped by domain
@@ -38,6 +40,10 @@ import {
   handleReplayDeadLetters,
 } from './routes/channel-routes.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
+import * as conversationStore from '../memory/conversation-store.js';
+import * as attachmentsStore from '../memory/attachments-store.js';
+import { renderHistoryContent } from '../daemon/handlers.js';
+import { deliverChannelReply } from './gateway-client.js';
 import {
   handleServePage,
   handleShareApp,
@@ -56,7 +62,6 @@ import {
   handleVoiceWebhook,
   handleStatusCallback,
   handleConnectAction,
-  handleCallAnswer,
 } from '../calls/twilio-routes.js';
 import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
@@ -179,10 +184,15 @@ async function validateTwilioWebhook(
   // Behind proxies/gateways, req.url is the local server URL (e.g.
   // http://127.0.0.1:7821/...) which differs from the public URL Twilio
   // used to compute the HMAC-SHA1 signature.
-  const publicBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL;
+  let publicBaseUrl: string | undefined;
+  try {
+    publicBaseUrl = getWebhookBaseUrl(loadConfig());
+  } catch {
+    // No webhook base URL configured — fall back to using req.url as-is
+  }
   const parsedUrl = new URL(req.url);
   const publicUrl = publicBaseUrl
-    ? publicBaseUrl.replace(/\/$/, '') + parsedUrl.pathname + parsedUrl.search
+    ? publicBaseUrl + parsedUrl.pathname + parsedUrl.search
     : req.url;
 
   const isValid = TwilioConversationRelayProvider.verifyWebhookSignature(
@@ -370,17 +380,6 @@ export class RuntimeHttpServer {
       const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
       if (!token || !this.verifyToken(token)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-    }
-
-    // ── Call answer endpoint — behind auth gate ──────────────────────
-    const callAnswerMatch = path.match(/^\/v1\/calls\/([^/]+)\/answer$/);
-    if (callAnswerMatch && req.method === 'POST') {
-      try {
-        return await handleCallAnswer(req, callAnswerMatch[1]);
-      } catch (err) {
-        log.error({ err, callSessionId: callAnswerMatch[1] }, 'Runtime HTTP handler error answering call');
-        return Response.json({ error: 'Internal server error' }, { status: 500 });
       }
     }
 
@@ -707,9 +706,54 @@ export class RuntimeHttpServer {
         channelDeliveryStore.linkMessage(event.id, userMessageId);
         channelDeliveryStore.markProcessed(event.id);
         log.info({ eventId: event.id }, 'Successfully replayed failed channel event');
+
+        const replyCallbackUrl = typeof payload.replyCallbackUrl === 'string'
+          ? payload.replyCallbackUrl
+          : undefined;
+        if (replyCallbackUrl) {
+          const externalChatId = typeof payload.externalChatId === 'string'
+            ? payload.externalChatId
+            : undefined;
+          if (externalChatId) {
+            await this.deliverReplyViaCallback(event.conversationId, externalChatId, replyCallbackUrl);
+          }
+        }
       } catch (err) {
         log.error({ err, eventId: event.id }, 'Retry failed for channel event');
         channelDeliveryStore.recordProcessingFailure(event.id, err);
+      }
+    }
+  }
+
+  private async deliverReplyViaCallback(
+    conversationId: string,
+    externalChatId: string,
+    callbackUrl: string,
+  ): Promise<void> {
+    const msgs = conversationStore.getMessages(conversationId);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'assistant') {
+        let parsed: unknown;
+        try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
+        const rendered = renderHistoryContent(parsed);
+
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id);
+        const replyAttachments = linked.map((a) => ({
+          id: a.id,
+          filename: a.originalFilename,
+          mimeType: a.mimeType,
+          sizeBytes: a.sizeBytes,
+          kind: a.kind,
+        }));
+
+        if (rendered.text || replyAttachments.length > 0) {
+          await deliverChannelReply(callbackUrl, {
+            chatId: externalChatId,
+            text: rendered.text || undefined,
+            attachments: replyAttachments.length > 0 ? replyAttachments : undefined,
+          });
+        }
+        break;
       }
     }
   }

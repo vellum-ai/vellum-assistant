@@ -4,18 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import type { CommitMessageProvider, CommitContext, CommitMessageResult } from '../workspace/commit-message-provider.js';
-
-// ---------------------------------------------------------------------------
-// Guard against module mock leakage from earlier test files (e.g. session-queue).
-// Re-register the real workspace modules so our static imports bind to them.
-// The ?real query string forces Bun to bypass the mock cache.
-// ---------------------------------------------------------------------------
-// @ts-expect-error Bun mock bypass: ?real query string forces real module resolution
-mock.module('../workspace/git-service.js', async () => await import('../workspace/git-service.js?real'));
-// @ts-expect-error Bun mock bypass: ?real query string forces real module resolution
-mock.module('../workspace/turn-commit.js', async () => await import('../workspace/turn-commit.js?real'));
-// @ts-expect-error Bun mock bypass: ?real query string forces real module resolution
-mock.module('../workspace/commit-message-enrichment-service.js', async () => await import('../workspace/commit-message-enrichment-service.js?real'));
+import type { GenerateCommitMessageResult } from '../workspace/provider-commit-message-generator.js';
 
 import { commitTurnChanges } from '../workspace/turn-commit.js';
 import { WorkspaceGitService, _resetGitServiceRegistry } from '../workspace/git-service.js';
@@ -293,5 +282,273 @@ describe('commitTurnChanges', () => {
     expect(fullMessage).toContain('Minimal custom message');
     expect(fullMessage).toContain('enriched: false');
     expect(fullMessage).toContain('source: "unit-test"');
+  });
+});
+
+describe('LLM commit message integration', () => {
+  let testDir: string;
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `vellum-llm-commit-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(testDir, { recursive: true });
+    _resetGitServiceRegistry();
+  });
+
+  afterEach(async () => {
+    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    _resetEnrichmentService();
+    mock.restore();
+    if (existsSync(testDir)) {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  afterAll(async () => {
+    try { await getEnrichmentService().shutdown(); } catch { /* ignore */ }
+    _resetEnrichmentService();
+  });
+
+  test('success path uses LLM output as commit message', async () => {
+    const llmResult: GenerateCommitMessageResult = {
+      message: 'feat: add user authentication module',
+      source: 'llm',
+    };
+
+    mock.module('../workspace/provider-commit-message-generator.js', () => ({
+      getCommitMessageGenerator: () => ({
+        generateCommitMessage: async () => llmResult,
+      }),
+    }));
+
+    // Re-import to pick up the mock
+    const { commitTurnChanges: commit } = await import('../workspace/turn-commit.js');
+
+    const service = new WorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    writeFileSync(join(testDir, 'auth.ts'), 'export class Auth {}');
+
+    await commit(testDir, 'sess_llm_success', 1);
+
+    const fullMessage = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      cwd: testDir,
+      encoding: 'utf-8',
+    });
+
+    expect(fullMessage).toContain('feat: add user authentication module');
+  });
+
+  test('uninitialized provider returns deterministic without attempting LLM', async () => {
+    const deterministicResult: GenerateCommitMessageResult = {
+      message: 'Turn: missing-key.txt',
+      source: 'deterministic',
+      reason: 'provider_not_initialized',
+    };
+
+    mock.module('../workspace/provider-commit-message-generator.js', () => ({
+      getCommitMessageGenerator: () => ({
+        generateCommitMessage: async () => deterministicResult,
+      }),
+    }));
+
+    const { commitTurnChanges: commit } = await import('../workspace/turn-commit.js');
+
+    const service = new WorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    writeFileSync(join(testDir, 'missing-key.txt'), 'content');
+
+    await commit(testDir, 'sess_no_key', 1);
+
+    const fullMessage = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      cwd: testDir,
+      encoding: 'utf-8',
+    });
+
+    // Deterministic message is used — no LLM message in output
+    expect(fullMessage).toContain('Turn:');
+    expect(fullMessage).not.toContain('feat:');
+  });
+
+  test('provider error falls back to deterministic without propagating', async () => {
+    mock.module('../workspace/provider-commit-message-generator.js', () => ({
+      getCommitMessageGenerator: () => ({
+        generateCommitMessage: async () => {
+          throw new Error('Provider connection refused');
+        },
+      }),
+    }));
+
+    const { commitTurnChanges: commit } = await import('../workspace/turn-commit.js');
+
+    const service = new WorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    writeFileSync(join(testDir, 'error-test.txt'), 'content');
+
+    // Should NOT throw — errors are caught internally
+    await commit(testDir, 'sess_error', 1);
+
+    const fullMessage = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      cwd: testDir,
+      encoding: 'utf-8',
+    });
+
+    // Deterministic message is used as fallback
+    expect(fullMessage).toContain('Turn:');
+  });
+
+  test('timeout returns deterministic fallback', async () => {
+    const timeoutResult: GenerateCommitMessageResult = {
+      message: 'Turn: timeout-test.txt',
+      source: 'deterministic',
+      reason: 'timeout',
+    };
+
+    mock.module('../workspace/provider-commit-message-generator.js', () => ({
+      getCommitMessageGenerator: () => ({
+        generateCommitMessage: async () => timeoutResult,
+      }),
+    }));
+
+    const { commitTurnChanges: commit } = await import('../workspace/turn-commit.js');
+
+    const service = new WorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    writeFileSync(join(testDir, 'timeout-test.txt'), 'content');
+
+    await commit(testDir, 'sess_timeout', 1);
+
+    const fullMessage = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      cwd: testDir,
+      encoding: 'utf-8',
+    });
+
+    expect(fullMessage).toContain('Turn:');
+  });
+
+  test('invalid output returns deterministic fallback', async () => {
+    const invalidResult: GenerateCommitMessageResult = {
+      message: 'Turn: invalid-test.txt',
+      source: 'deterministic',
+      reason: 'invalid_output',
+    };
+
+    mock.module('../workspace/provider-commit-message-generator.js', () => ({
+      getCommitMessageGenerator: () => ({
+        generateCommitMessage: async () => invalidResult,
+      }),
+    }));
+
+    const { commitTurnChanges: commit } = await import('../workspace/turn-commit.js');
+
+    const service = new WorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    writeFileSync(join(testDir, 'invalid-test.txt'), 'content');
+
+    await commit(testDir, 'sess_invalid', 1);
+
+    const fullMessage = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      cwd: testDir,
+      encoding: 'utf-8',
+    });
+
+    expect(fullMessage).toContain('Turn:');
+  });
+
+  test('breaker open skips LLM and uses deterministic', async () => {
+    const breakerResult: GenerateCommitMessageResult = {
+      message: 'Turn: breaker-test.txt',
+      source: 'deterministic',
+      reason: 'breaker_open',
+    };
+
+    mock.module('../workspace/provider-commit-message-generator.js', () => ({
+      getCommitMessageGenerator: () => ({
+        generateCommitMessage: async () => breakerResult,
+      }),
+    }));
+
+    const { commitTurnChanges: commit } = await import('../workspace/turn-commit.js');
+
+    const service = new WorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    writeFileSync(join(testDir, 'breaker-test.txt'), 'content');
+
+    await commit(testDir, 'sess_breaker', 1);
+
+    const fullMessage = execFileSync('git', ['log', '-1', '--pretty=%B'], {
+      cwd: testDir,
+      encoding: 'utf-8',
+    });
+
+    expect(fullMessage).toContain('Turn:');
+  });
+
+  test('changed files from preStatus are passed to generator', async () => {
+    let capturedContext: { changedFiles: string[] } | undefined;
+    let capturedOptions: { changedFiles: string[] } | undefined;
+
+    const llmResult: GenerateCommitMessageResult = {
+      message: 'feat: captured context test',
+      source: 'llm',
+    };
+
+    mock.module('../workspace/provider-commit-message-generator.js', () => ({
+      getCommitMessageGenerator: () => ({
+        generateCommitMessage: async (ctx: { changedFiles: string[] }, opts: { changedFiles: string[] }) => {
+          capturedContext = ctx;
+          capturedOptions = opts;
+          return llmResult;
+        },
+      }),
+    }));
+
+    const { commitTurnChanges: commit } = await import('../workspace/turn-commit.js');
+
+    const service = new WorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    writeFileSync(join(testDir, 'alpha.ts'), 'export const a = 1;');
+    writeFileSync(join(testDir, 'beta.ts'), 'export const b = 2;');
+
+    await commit(testDir, 'sess_files', 1);
+
+    // The generator should have received the actual file list, not empty arrays
+    expect(capturedContext).toBeDefined();
+    expect(capturedContext!.changedFiles.length).toBeGreaterThan(0);
+    expect(capturedContext!.changedFiles).toContain('alpha.ts');
+    expect(capturedContext!.changedFiles).toContain('beta.ts');
+
+    expect(capturedOptions).toBeDefined();
+    expect(capturedOptions!.changedFiles.length).toBeGreaterThan(0);
+    expect(capturedOptions!.changedFiles).toContain('alpha.ts');
+    expect(capturedOptions!.changedFiles).toContain('beta.ts');
+  });
+
+  test('clean workspace skips LLM generator call', async () => {
+    let generatorCalled = false;
+
+    mock.module('../workspace/provider-commit-message-generator.js', () => ({
+      getCommitMessageGenerator: () => ({
+        generateCommitMessage: async () => {
+          generatorCalled = true;
+          return { message: 'should not be called', source: 'llm' as const };
+        },
+      }),
+    }));
+
+    const { commitTurnChanges: commit } = await import('../workspace/turn-commit.js');
+
+    const service = new WorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    // No file changes — workspace is clean
+    await commit(testDir, 'sess_clean', 1);
+
+    expect(generatorCalled).toBe(false);
   });
 });

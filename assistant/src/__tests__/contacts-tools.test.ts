@@ -30,7 +30,7 @@ mock.module('../config/loader.js', () => ({
 }));
 
 import type { Database } from 'bun:sqlite';
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import type { ToolContext } from '../tools/types.js';
 import { executeContactUpsert } from '../tools/contacts/contact-upsert.js';
 import { executeContactSearch } from '../tools/contacts/contact-search.js';
@@ -39,6 +39,7 @@ import { executeContactMerge } from '../tools/contacts/contact-merge.js';
 initializeDb();
 
 afterAll(() => {
+  resetDb();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
 

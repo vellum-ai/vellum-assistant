@@ -338,7 +338,7 @@ async function pollAwsInstance(
     const output = await awsSshExec(ip, keyPath, remoteCmd);
     const sepIdx = output.indexOf("===HATCH_SEP===");
     if (sepIdx === -1) {
-      return { lastLine: output.trim() || null, done: false, failed: false };
+      return { lastLine: output.trim() || null, done: false, failed: false, errorContent: "" };
     }
     const errIdx = output.indexOf("===HATCH_ERR===");
     const lastLine = output.substring(0, sepIdx).trim() || null;
@@ -348,9 +348,9 @@ async function pollAwsInstance(
       errIdx === -1 ? "" : output.substring(errIdx + "===HATCH_ERR===".length).trim();
     const done = lastLine !== null && status !== "running" && status !== "pending";
     const failed = errorContent.length > 0 || status === "error";
-    return { lastLine, done, failed };
+    return { lastLine, done, failed, errorContent };
   } catch {
-    return { lastLine: null, done: false, failed: false };
+    return { lastLine: null, done: false, failed: false, errorContent: "" };
   }
 }
 
@@ -420,7 +420,13 @@ export async function hatchAws(
     console.log("\u{1F50D} Finding latest Debian AMI...");
     const amiId = await getLatestDebianAmi(region);
 
-    const startupScript = buildStartupScript(species, bearerToken, sshUser, anthropicApiKey);
+    const startupScript = await buildStartupScript(
+      species,
+      bearerToken,
+      sshUser,
+      anthropicApiKey,
+      instanceName,
+    );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
 
@@ -488,15 +494,20 @@ export async function hatchAws(
 
       if (externalIp) {
         const ip = externalIp;
-        const success = await watchHatching(
+        const result = await watchHatching(
           () => pollAwsInstance(ip, keyPath),
           instanceName,
           startTime,
           species,
         );
 
-        if (!success) {
+        if (!result.success) {
           console.log("");
+          if (result.errorContent) {
+            console.log("📋 Startup error:");
+            console.log(`   ${result.errorContent}`);
+            console.log("");
+          }
           process.exit(1);
         }
       } else {

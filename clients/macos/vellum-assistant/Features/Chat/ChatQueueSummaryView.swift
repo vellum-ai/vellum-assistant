@@ -9,6 +9,7 @@ import VellumAssistantShared
 struct ChatQueueSummaryView: View {
     let queuedMessages: [ChatMessage]
     var onDeleteQueuedMessage: ((UUID) -> Void)?
+    var onSendDirectQueuedMessage: ((UUID) -> Void)?
     @Binding var isExpanded: Bool
 
     var body: some View {
@@ -57,6 +58,17 @@ struct ChatQueueSummaryView: View {
                                         .lineLimit(1)
                                 }
                                 Spacer()
+                                if let onSendDirect = onSendDirectQueuedMessage {
+                                    Button {
+                                        onSendDirect(message.id)
+                                    } label: {
+                                        Image(systemName: "arrow.up.circle.fill")
+                                            .font(.system(size: 13))
+                                            .foregroundColor(VColor.textMuted)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Send this message now")
+                                }
                                 if let onDelete = onDeleteQueuedMessage {
                                     Button {
                                         onDelete(message.id)

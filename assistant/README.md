@@ -104,7 +104,7 @@ assistant/
 │   ├── home-base/            # Home Base app-link bootstrap
 │   ├── hooks/                # Git-style lifecycle hooks
 │   ├── media/                # Media processing and attachments
-│   ├── schedule/             # Reminders and scheduling
+│   ├── schedule/             # Reminders and recurrence scheduling (cron + RRULE)
 │   ├── tasks/                # Task management
 │   ├── workspace/            # Workspace file operations
 │   ├── events/               # Domain event bus
@@ -122,7 +122,9 @@ assistant/
 
 ## Database
 
-SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments (with FTS5), memory items, entities, and reminders.
+SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments (with FTS5), memory items, entities, reminders, and recurrence schedules (cron + RRULE).
+
+> **Compatibility note:** The recurrence schedule system supports both cron expressions and iCalendar RRULE syntax. The legacy field names `cron_expression` and `cronExpression` remain supported in API inputs. New code should use the `expression` field with an explicit `syntax` discriminator. See [`ARCHITECTURE.md`](../ARCHITECTURE.md) for details.
 
 Run migrations:
 
@@ -144,6 +146,17 @@ docker run --rm -p 3001:3001 \
 ```
 
 The image runs as non-root user `assistant` (uid 1001) and exposes port `3001`.
+
+## Troubleshooting
+
+### Invalid RRULE set expressions
+
+If `schedule_create` rejects an RRULE expression, check the following:
+
+- **Missing DTSTART** — Every RRULE expression must include a `DTSTART` line (e.g., `DTSTART:20250101T090000Z`).
+- **No inclusion rule** — At least one `RRULE:` or `RDATE` line is required. An expression with only `EXDATE` or `EXRULE` lines and no inclusion has no occurrences to schedule.
+- **Unsupported lines** — Only `DTSTART`, `RRULE:`, `RDATE`, `EXDATE`, and `EXRULE` prefixes are recognized. Any other line (e.g., `VTIMEZONE`, `VEVENT`) will be rejected.
+- **Newline encoding** — When passing multi-line RRULE expressions through JSON, use literal `\n` between lines. The engine normalizes escaped newlines automatically.
 
 ## Development
 

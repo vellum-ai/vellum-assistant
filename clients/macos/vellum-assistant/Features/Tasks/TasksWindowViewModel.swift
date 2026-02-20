@@ -50,8 +50,14 @@ class TasksWindowViewModel: ObservableObject {
     /// normal latency while still recovering from connection drops quickly.
     private static let runTimeoutSeconds: UInt64 = 10
 
-    init(daemonClient: DaemonClient) {
+    /// Called when the user taps "Open in Chat" — creates the thread in
+    /// the main window and brings it forward. Parameters: conversationId,
+    /// workItemId, title.
+    private let onOpenInChat: ((String, String, String) -> Void)?
+
+    init(daemonClient: DaemonClient, onOpenInChat: ((String, String, String) -> Void)? = nil) {
         self.daemonClient = daemonClient
+        self.onOpenInChat = onOpenInChat
         setupCallbacks()
         fetchItems()
     }
@@ -104,7 +110,15 @@ class TasksWindowViewModel: ObservableObject {
             self.cancelRunTimeout(id: response.id)
             if !response.success {
                 self.logger.error("onWorkItemRunTaskResponse: run failed for id=\(response.id, privacy: .public) errorCode=\(response.errorCode ?? "none", privacy: .public) error=\(response.error ?? "none", privacy: .public)")
-                self.errorMessage = response.error ?? "Failed to run task"
+                // When required tools changed after initial approval, the daemon
+                // returns permission_required — reopen the preflight dialog so the
+                // user can approve the updated set.
+                if response.errorCode == "permission_required",
+                   let item = self.items.first(where: { $0.id == response.id }) {
+                    self.initiateRun(item: item)
+                } else {
+                    self.errorMessage = response.error ?? "Failed to run task"
+                }
                 self.fetchItems()
             }
         }
@@ -358,6 +372,25 @@ class TasksWindowViewModel: ObservableObject {
     /// Dismisses the output detail sheet.
     func dismissOutput() {
         selectedOutputItem = nil
+    }
+
+    /// Whether the currently loaded output has a conversation that can be
+    /// opened in chat.
+    var canOpenInChat: Bool {
+        guard onOpenInChat != nil else { return false }
+        if case .loaded(let output) = outputState {
+            return output.conversationId != nil
+        }
+        return false
+    }
+
+    /// Opens the current task output's conversation in the main chat window.
+    func openInChat() {
+        guard let item = selectedOutputItem,
+              case .loaded(let output) = outputState,
+              let conversationId = output.conversationId else { return }
+        onOpenInChat?(conversationId, item.id, item.title)
+        dismissOutput()
     }
 
     func updatePriority(id: String, tier: Double) {

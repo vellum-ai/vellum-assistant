@@ -145,6 +145,27 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         log.info("Created private thread \(thread.id)")
     }
 
+    /// Create a visible thread bound to an existing task run conversation.
+    /// Called when the daemon broadcasts `task_run_thread_created` so the user
+    /// can see task execution messages streaming in real-time.
+    func createTaskRunThread(conversationId: String, workItemId: String, title: String) {
+        // Avoid creating a duplicate thread if one already exists for this conversation
+        if threads.contains(where: { $0.sessionId == conversationId }) {
+            return
+        }
+
+        let thread = ThreadModel(title: title, sessionId: conversationId)
+        let viewModel = makeViewModel()
+        viewModel.sessionId = conversationId
+        // Start the message loop so the view model receives streamed messages
+        viewModel.startMessageLoop()
+
+        threads.insert(thread, at: 0)
+        chatViewModels[thread.id] = viewModel
+
+        log.info("Created task run thread \(thread.id) for conversation \(conversationId) (work item \(workItemId))")
+    }
+
     func closeThread(id: UUID) {
         // No-op if only 1 thread remains
         guard threads.count > 1 else { return }

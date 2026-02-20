@@ -339,9 +339,23 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'slack_webhook_config',
     action: 'get',
   },
+  twilio_webhook_config: {
+    type: 'twilio_webhook_config',
+    action: 'get',
+  },
   vercel_api_config: {
     type: 'vercel_api_config',
     action: 'get',
+  },
+  twitter_integration_config: {
+    type: 'twitter_integration_config',
+    action: 'get',
+  },
+  twitter_auth_start: {
+    type: 'twitter_auth_start',
+  },
+  twitter_auth_status: {
+    type: 'twitter_auth_status',
   },
   link_open_request: {
     type: 'link_open_request',
@@ -481,7 +495,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   subagent_status: {
     type: 'subagent_status',
     subagentId: 'sub-001',
-    sessionId: 'sess-001',
   },
   subagent_message: {
     type: 'subagent_message',
@@ -1116,10 +1129,34 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     webhookUrl: 'https://hooks.slack.com/services/T00/B00/xxx',
     success: true,
   },
+  twilio_webhook_config_response: {
+    type: 'twilio_webhook_config_response',
+    webhookBaseUrl: 'https://example.com/twilio',
+    success: true,
+  },
   vercel_api_config_response: {
     type: 'vercel_api_config_response',
     hasToken: true,
     success: true,
+  },
+  twitter_integration_config_response: {
+    type: 'twitter_integration_config_response',
+    success: true,
+    mode: 'local_byo',
+    managedAvailable: false,
+    localClientConfigured: true,
+    connected: false,
+  },
+  twitter_auth_result: {
+    type: 'twitter_auth_result',
+    success: true,
+    accountInfo: '@vellum_test',
+  },
+  twitter_auth_status_response: {
+    type: 'twitter_auth_status_response',
+    connected: true,
+    accountInfo: '@vellum_test',
+    mode: 'local_byo',
   },
   open_url: {
     type: 'open_url',

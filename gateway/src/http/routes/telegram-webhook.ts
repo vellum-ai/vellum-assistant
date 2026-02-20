@@ -1,18 +1,16 @@
 import type { GatewayConfig } from "../../config.js";
 import { DedupCache } from "../../dedup-cache.js";
-import { handleInbound, type InboundResult } from "../../handlers/handle-inbound.js";
+import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
 import { AttachmentValidationError, resetConversation, uploadAttachment } from "../../runtime/client.js";
 import { downloadTelegramFile } from "../../telegram/download.js";
 import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
-import { sendTelegramReply, sendTypingIndicator } from "../../telegram/send.js";
+import { sendTelegramReply } from "../../telegram/send.js";
 import { verifyWebhookSecret } from "../../telegram/verify.js";
 
 const log = getLogger("telegram-webhook");
 
-const MAX_TYPING_DURATION_MS = 60_000;
-const MAX_TYPING_FAILURES = 3;
 export const TELEGRAM_CHANNEL_TRANSPORT_HINTS = [
   "chat-first-medium",
   "channel-safe-onboarding",
@@ -28,16 +26,7 @@ export function buildTelegramTransportMetadata(): { hints: string[]; uxBrief: st
   };
 }
 
-export type OnReply = (
-  chatId: string,
-  result: InboundResult,
-  assistantId: string,
-) => Promise<void>;
-
-export function createTelegramWebhookHandler(
-  config: GatewayConfig,
-  onReply?: OnReply,
-) {
+export function createTelegramWebhookHandler(config: GatewayConfig) {
   const dedupCache = new DedupCache();
 
   return async (req: Request): Promise<Response> => {
@@ -140,10 +129,9 @@ export function createTelegramWebhookHandler(
       return respond({ ok: true });
     }
 
-    // Edits don't produce a new reply, so skip typing indicator and attachments
     const isEdit = !!normalized.message.isEdit;
 
-    // Check routing early so we can gate attachments and typing indicator
+    // Check routing early so we can gate attachments
     const chatId = normalized.message.externalChatId;
     const routing = resolveAssistant(
       config,
@@ -210,61 +198,24 @@ export function createTelegramWebhookHandler(
       }
     }
 
-    // Start typing indicator only for routable chats with new messages.
-    // A safety timeout ensures the interval is cleared even if handleInbound hangs.
-    // Cancel early if the Telegram API fails repeatedly (MAX_TYPING_FAILURES consecutive).
-    let typingInterval: ReturnType<typeof setInterval> | undefined;
-    let typingTimeout: ReturnType<typeof setTimeout> | undefined;
-    const clearTyping = () => {
-      clearInterval(typingInterval);
-      clearTimeout(typingTimeout);
-    };
-    if (routable && !isEdit) {
-      let consecutiveFailures = 0;
-      // Fire-and-forget: don't track the initial call's result to avoid
-      // race conditions with the interval's consecutiveFailures counter.
-      sendTypingIndicator(config, chatId);
-      typingInterval = setInterval(async () => {
-        const ok = await sendTypingIndicator(config, chatId);
-        if (ok) {
-          consecutiveFailures = 0;
-        } else {
-          consecutiveFailures++;
-          if (consecutiveFailures >= MAX_TYPING_FAILURES) {
-            log.warn({ chatId, consecutiveFailures }, "Typing indicator cancelled after repeated failures");
-            clearTyping();
-          }
-        }
-      }, 5000);
-      typingTimeout = setTimeout(clearTyping, MAX_TYPING_DURATION_MS);
-    }
-
-    // Process inbound and only acknowledge after successful delivery
-    let result: InboundResult;
+    // Forward message to the runtime. The runtime processes the message
+    // in its own loop and delivers the reply to Telegram asynchronously.
     try {
-      result = await handleInbound(config, normalized, {
+      const result = await handleInbound(config, normalized, {
         attachmentIds,
         transportMetadata: buildTelegramTransportMetadata(),
+        replyCallbackUrl: `http://127.0.0.1:${config.port}/deliver/telegram`,
       });
+
+      if (!result.forwarded && !result.rejected) {
+        log.error({ updateId: payload.update_id }, "Failed to forward inbound event");
+        if (updateId !== undefined) dedupCache.unreserve(updateId);
+        return Response.json({ error: "Internal error" }, { status: 500 });
+      }
     } catch (err) {
       log.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
       if (updateId !== undefined) dedupCache.unreserve(updateId);
       return Response.json({ error: "Internal error" }, { status: 500 });
-    } finally {
-      clearTyping();
-    }
-
-    if (!result.forwarded && !result.rejected) {
-      log.error({ updateId: payload.update_id }, "Failed to forward inbound event");
-      if (updateId !== undefined) dedupCache.unreserve(updateId);
-      return Response.json({ error: "Internal error" }, { status: 500 });
-    }
-
-    // Fire reply asynchronously so webhook ack is not blocked by outbound send
-    if (onReply && !isRejection(routing) && !result.rejected && result.runtimeResponse?.assistantMessage) {
-      onReply(normalized.message.externalChatId, result, routing.assistantId).catch((err) => {
-        log.error({ err, updateId: payload.update_id }, "Failed to send reply");
-      });
     }
 
     return respond({ ok: true });

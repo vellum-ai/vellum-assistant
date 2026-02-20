@@ -121,6 +121,8 @@ export class Session {
   /** @internal */ currentRequestId?: string;
   /** @internal */ conflictGate = new ConflictGate();
   /** @internal */ hasNoClient = false;
+  /** @internal */ headlessLock = false;
+  /** @internal */ taskRunId?: string;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
@@ -242,6 +244,9 @@ export class Session {
 
   markStale(): void {
     this.stale = true;
+    // Invalidate the cached skill catalog so the next projection picks up
+    // filesystem changes (e.g. a skill created during this run).
+    this.skillProjectionCache.catalog = undefined;
   }
 
   isStale(): boolean {
@@ -269,8 +274,9 @@ export class Session {
     requestId: string,
     activeSurfaceId?: string,
     currentPage?: string,
+    metadata?: Record<string, unknown>,
   ): { queued: boolean; rejected?: boolean; requestId: string } {
-    return enqueueMessageImpl(this, content, attachments, onEvent, requestId, activeSurfaceId, currentPage);
+    return enqueueMessageImpl(this, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, metadata);
   }
 
   getQueueDepth(): number {
@@ -318,8 +324,9 @@ export class Session {
     content: string,
     attachments: UserMessageAttachment[],
     requestId?: string,
+    metadata?: Record<string, unknown>,
   ): string {
-    return persistUserMessageImpl(this, content, attachments, requestId);
+    return persistUserMessageImpl(this, content, attachments, requestId, metadata);
   }
 
   // ── Agent Loop ───────────────────────────────────────────────────

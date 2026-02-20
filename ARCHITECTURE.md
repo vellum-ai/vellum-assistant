@@ -113,6 +113,8 @@ graph TB
             DB_CHAN["channel_inbound_events"]
             DB_KEYS["conversation_keys"]
             DB_REMINDERS["reminders"]
+            DB_SCHED_JOBS["cron_jobs (recurrence schedules)"]
+            DB_SCHED_RUNS["cron_runs (schedule execution history)"]
             DB_HOME["home_base_app_links"]
             DB_TASKS["tasks"]
             DB_TASK_RUNS["task_runs"]
@@ -473,6 +475,8 @@ graph LR
         JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill,<br/>conflict resolution, cleanup<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
         REM["reminders<br/>───────────────<br/>One-time scheduled reminders<br/>label, message, fireAt<br/>mode: notify | execute<br/>status: pending → fired | cancelled"]
+        SCHED_JOBS["cron_jobs (recurrence schedules)<br/>───────────────<br/>Recurring schedule definitions<br/>cron_expression: cron or RRULE string<br/>schedule_syntax: 'cron' | 'rrule'<br/>timezone, message, next_run_at<br/>enabled, retry_count<br/>Legacy alias: scheduleJobs"]
+        SCHED_RUNS["cron_runs (schedule runs)<br/>───────────────<br/>Execution history per schedule<br/>job_id (FK → cron_jobs)<br/>status: ok | error<br/>duration_ms, output, error<br/>Legacy alias: scheduleRuns"]
         TASKS["tasks<br/>───────────────<br/>Reusable prompt templates<br/>title, Handlebars template<br/>inputSchema, contextFlags<br/>requiredTools, status"]
         TASK_RUNS["task_runs<br/>───────────────<br/>Execution history per task<br/>taskId (FK → tasks)<br/>conversationId, status<br/>startedAt, finishedAt, error"]
         WORK_ITEMS["work_items<br/>───────────────<br/>Task Queue entries<br/>taskId (FK → tasks)<br/>title, notes, status<br/>priority_tier (0-3), sort_index<br/>last_run_id, last_run_status<br/>source_type, source_id"]
@@ -1013,9 +1017,48 @@ The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **la
 |------|------|
 | `assistant/src/workspace/top-level-scanner.ts` | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap |
 | `assistant/src/workspace/top-level-renderer.ts` | Renders `TopLevelSnapshot` to `<workspace_top_level>` XML block |
-| `assistant/src/daemon/session-runtime-assembly.ts` | Runtime injections and strip helpers (`<workspace_top_level>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
+| `assistant/src/daemon/session-runtime-assembly.ts` | Runtime injections and strip helpers (`<workspace_top_level>`, `<temporal_context>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
 | `assistant/src/onboarding/onboarding-orchestrator.ts` | Builds assistant-owned onboarding runtime guidance from channel playbook + transport metadata |
-| `assistant/src/daemon/session.ts` | Cache state, dirty marking, runtime injection wiring |
+| `assistant/src/daemon/session-agent-loop.ts` | Agent loop orchestration, runtime injection wiring, strip chain |
+
+---
+
+## Temporal Context Injection — Date Grounding
+
+The session injects a `<temporal_context>` block into every user message at runtime, giving the model awareness of the current date, timezone, upcoming weekend/work week windows, and a 14-day horizon of labelled future dates. This enables reliable reasoning about future dates (e.g. "plan a trip for next weekend") without persisting volatile temporal data in conversation history.
+
+### Per-turn flow
+
+```mermaid
+graph TB
+    subgraph "Per-Turn Flow"
+        BUILD["buildTemporalContext(timeZone)<br/>→ compact XML block"]
+        INJECT["applyRuntimeInjections<br/>prepend temporal block<br/>to user message"]
+        AGENT["AgentLoop.run(runMessages)"]
+        STRIP["stripTemporalContext<br/>remove block from persisted history"]
+    end
+
+    BUILD --> INJECT
+    INJECT --> AGENT
+    AGENT --> STRIP
+```
+
+### Key design decisions
+
+- **Fresh each turn**: `buildTemporalContext()` is called at the start of every agent loop invocation, ensuring the model always sees the current date even in long-running conversations.
+- **Timezone-aware**: Uses `Intl.DateTimeFormat` APIs for DST-safe date arithmetic. The host timezone (`Intl.DateTimeFormat().resolvedOptions().timeZone`) is used by default.
+- **Bounded output**: Hard-capped at 1500 characters and 14 horizon entries to prevent prompt bloat.
+- **Runtime-only**: The injected `<temporal_context>` block is stripped from `this.messages` after the agent loop completes via `stripTemporalContext`. It never persists in conversation history.
+- **Specific strip prefix**: The strip function matches the exact injected prefix (`<temporal_context>\nToday:`) to avoid accidentally removing user-authored text that starts with `<temporal_context>`.
+- **Retry paths**: Temporal context is included in all three `applyRuntimeInjections` call sites (main path, compact retry, media-trim retry).
+
+### Key files
+
+| File | Role |
+|------|------|
+| `assistant/src/daemon/date-context.ts` | `buildTemporalContext()` — generates the `<temporal_context>` XML block |
+| `assistant/src/daemon/session-runtime-assembly.ts` | `injectTemporalContext()` / `stripTemporalContext()` helpers |
+| `assistant/src/daemon/session-agent-loop.ts` | Wiring: computes temporal context, passes to `applyRuntimeInjections`, strips after run |
 
 ---
 
@@ -1066,7 +1109,7 @@ graph TB
 
 1. **Lazy initialization**: The git repository is created on first use, not at workspace creation. When `ensureInitialized()` is called, it checks for a `.git` directory. If absent, it runs `git init`, creates a `.gitignore` (excluding `data/`, `logs/`, `*.log`, `*.sock`, `*.pid`, `session-token`, `http-token`), sets the git identity to "Vellum Assistant", and creates an initial baseline commit capturing any pre-existing files. The baseline commit is intentional — it makes `git log`, `git diff`, and `git revert` work cleanly from the start. Both new and existing workspaces get the same treatment. For existing repos (e.g. created by older versions or external tools), `.gitignore` rules and git identity are set idempotently on each init, ensuring proper configuration regardless of how the repo was originally created.
 
-2. **Turn-boundary commits**: After each conversation turn (user message + assistant response cycle), `session.ts` commits workspace changes via `commitTurnChanges(workspaceDir, sessionId, turnNumber)`. The commit runs in the `finally` block of `runAgentLoop`, guarded by a `turnStarted` flag that is set once the agent loop begins executing. This guarantees a commit attempt even when post-processing (e.g. `resolveAssistantAttachments`) throws, or when the user cancels mid-turn. The commit is raced against a configurable timeout (`workspaceGit.turnCommitMaxWaitMs`, default 4s) via `Promise.race`. If the commit exceeds the timeout, the turn proceeds immediately while the commit continues in the background. The background commit is awaited during queue drain (`drainQueue`) to prevent cross-turn file attribution. Each commit attempt is logged with a `reason` field (`turn_complete`, `post_processing_error`, or `cancelled_turn`) for observability.
+2. **Turn-boundary commits**: After each conversation turn (user message + assistant response cycle), `session.ts` commits workspace changes via `commitTurnChanges(workspaceDir, sessionId, turnNumber)`. The commit runs in the `finally` block of `runAgentLoop`, guarded by a `turnStarted` flag that is set once the agent loop begins executing. This guarantees a commit attempt even when post-processing (e.g. `resolveAssistantAttachments`) throws, or when the user cancels mid-turn. The commit is raced against a configurable timeout (`workspaceGit.turnCommitMaxWaitMs`, default 4s) via `Promise.race`. If the commit exceeds the timeout, the turn proceeds immediately while the commit continues in the background. Note: the background commit is NOT awaited before the next turn starts, so brief cross-turn file attribution windows are possible but accepted as a tradeoff for responsiveness. Commit outcomes are logged with structured fields (`sessionId`, `turnNumber`, `filesChanged`, `durationMs`) for observability.
 
 3. **Heartbeat safety net**: A `HeartbeatService` runs on a 5-minute interval, checking all tracked workspaces for uncommitted changes. It auto-commits when changes exceed either an age threshold (5 minutes since first detected) or a file count threshold (20+ files). This catches changes from long-running bash scripts, background processes, or crashed sessions that miss turn-boundary commits.
 
@@ -1082,12 +1125,32 @@ graph TB
 
 9. **Non-blocking enrichment queue**: After each successful commit, a `CommitEnrichmentService` runs async enrichment fire-and-forget. The queue has configurable max size (default 50), concurrency (default 1), per-job timeout (default 30s), and retry count (default 2 with exponential backoff). On queue overflow, the oldest job is dropped with a warning log. On graceful shutdown, in-flight jobs drain while pending jobs are discarded. Currently writes placeholder JSON metadata to git notes (`refs/notes/vellum`) as a scaffold for future LLM enrichment.
 
+10. **Provider-aware commit message generation (optional)**: When `workspaceGit.commitMessageLLM.enabled` is `true`, turn-boundary commits attempt to generate a descriptive commit message using the configured LLM provider before falling back to deterministic messages. The feature ships disabled by default and is designed to never degrade turn completion guarantees.
+
+    **Commit message LLM fallback chain**: The generator runs a sequence of pre-flight checks before calling the LLM. Each check that fails produces a machine-readable `llmFallbackReason` in the structured log output and immediately returns a deterministic message. The checks, in order:
+
+    1. `disabled` — `commitMessageLLM.enabled` is `false` or `useConfiguredProvider` is `false`
+    2. `missing_provider_api_key` — the configured provider's API key is not set in `config.apiKeys` (skipped for keyless providers like Ollama that run without an API key)
+    3. `provider_not_initialized` — the configured provider is not registered/bootstrapped (e.g., `getProvider()` throws)
+    4. `breaker_open` — the generator's internal circuit breaker is open after consecutive LLM failures (exponential backoff)
+    5. `insufficient_budget` — the remaining turn budget (`deadlineMs - Date.now()`) is below `minRemainingTurnBudgetMs`
+    6. `timeout` — the LLM call exceeded `timeoutMs` (AbortController fires)
+    7. `provider_error` — the provider threw an exception during the LLM call
+    8. `invalid_output` — the LLM returned empty text, the literal string "FALLBACK", total output > 500 chars, or subject line > 72 chars
+
+    **Fast model resolution**: The LLM call uses a small/fast model to minimize latency and cost. The model is resolved as follows:
+    - If `commitMessageLLM.providerFastModelOverrides[provider]` is set, that model is used.
+    - Otherwise, a built-in default is used: `anthropic` -> `claude-haiku-4-5-20251001`, `openai` -> `gpt-4o-mini`, `gemini` -> `gemini-2.0-flash`.
+    - If the configured provider has no override and no built-in default (e.g., `ollama`, `fireworks`, `openrouter`), the `model` field is omitted from the sendMessage config and the provider uses its own configured model.
+
+    **Pre-mutex LLM attempt**: The LLM generation runs BEFORE entering `commitIfDirty()` (outside the git mutex). Changed files are captured from a read-only `getStatus()` call (the "pre-status") outside the mutex. This avoids holding the mutex during network calls. The `commitIfDirty` callback uses its own mutex-protected status for the actual commit, so the file list used for commit and for the LLM prompt may differ slightly if files change between the two status calls — this is accepted as a tradeoff for not blocking concurrent git operations on LLM latency.
+
 ### Design decisions
 
 - **Commit at turn boundaries, not per-tool-call**: A single commit per turn captures all file mutations from that turn atomically. This avoids noisy per-file commits and keeps the history meaningful.
 - **Lazy init with baseline commit**: The repo is created on first use, not at daemon startup. Existing workspaces get their files captured in an "Initial commit: migrated existing workspace" on first use, rather than requiring an explicit migration step. The baseline commit ensures `git log`, `git diff`, and `git revert` work cleanly from the start.
 - **Mutex serialization**: All git operations go through a per-workspace `Mutex` to prevent concurrent `git add`/`git commit` from corrupting the index. The mutex uses a FIFO wait queue.
-- **Finally-block commit guarantee in session.ts**: Turn commits run in the `finally` block of `runAgentLoop`, ensuring they execute even when post-processing throws or the user cancels. The `turnStarted` flag prevents commits for turns that were blocked before the agent loop started. All errors are caught and logged as warnings. The commit is raced against a timeout (`turnCommitMaxWaitMs`, default 4s); if it exceeds the timeout the turn proceeds and the commit continues in the background, but it is awaited during `drainQueue` to prevent cross-turn file attribution.
+- **Finally-block commit guarantee in session-agent-loop.ts**: Turn commits run in the `finally` block of `runAgentLoop`, ensuring they execute even when post-processing throws or the user cancels. The `turnStarted` flag prevents commits for turns that were blocked before the agent loop started. All errors are caught and logged as warnings. The commit is raced against a timeout (`turnCommitMaxWaitMs`, default 4s); if it exceeds the timeout the turn proceeds and the commit continues in the background without synchronization. Brief cross-turn file attribution is accepted as a tradeoff for keeping the conversation loop responsive.
 - **Branch enforcement at init time**: `ensureOnMainLocked()` is called during initialization to ensure the workspace is on the `main` branch. If the workspace is on the wrong branch or in a detached HEAD state, it auto-corrects to `main` with a warning log. Per-commit enforcement is unnecessary since nothing in the codebase switches branches.
 - **We intentionally don't provide custom history APIs** -- assistants should use git commands naturally via Bash (e.g. `git log`, `git diff`, `git show`). The workspace git repo is a standard git repository that any tool can interact with.
 
@@ -1099,8 +1162,9 @@ graph TB
 | `assistant/src/workspace/commit-message-provider.ts` | `CommitMessageProvider` interface, `DefaultCommitMessageProvider`, `CommitContext`/`CommitMessageResult` types |
 | `assistant/src/workspace/commit-message-enrichment-service.ts` | `CommitEnrichmentService`: bounded async queue, fire-and-forget enrichment, git notes output |
 | `assistant/src/workspace/turn-commit.ts` | `commitTurnChanges()`: turn-boundary commit with structured metadata + enrichment enqueue |
+| `assistant/src/workspace/provider-commit-message-generator.ts` | `ProviderCommitMessageGenerator`: LLM-based commit message generation with circuit breaker and deterministic fallback |
 | `assistant/src/workspace/heartbeat-service.ts` | `HeartbeatService`: periodic safety-net auto-commits, shutdown commits, enrichment enqueue |
-| `assistant/src/daemon/session.ts` | Integration: `await commitTurnChanges(...)` at turn boundary with timeout protection |
+| `assistant/src/daemon/session-agent-loop.ts` | Integration: turn-boundary commit with `raceWithTimeout` protection in `runAgentLoop` finally block |
 | `assistant/src/daemon/lifecycle.ts` | Integration: `HeartbeatService` start/stop and shutdown commit |
 | `assistant/src/config/schema.ts` | `WorkspaceGitConfigSchema`: timeout, backoff, and enrichment queue configuration |
 
@@ -2245,13 +2309,14 @@ graph LR
 
 ---
 
-## Integrations — OAuth2 + Unified Messaging
+## Integrations — OAuth2 + Unified Messaging + Twitter
 
 The integration framework lets Vellum connect to third-party services via OAuth2. The architecture follows these principles:
 
 - **Secrets never reach the LLM** — OAuth tokens are stored in the credential vault and accessed exclusively through the `TokenManager`, which provides tokens to tool executors via `withValidToken()`. The LLM never sees raw tokens.
-- **PKCE or client_secret flows** — Desktop apps use PKCE by default (S256). Providers that require a client secret (e.g. Slack) pass it during the OAuth2 flow and store it in credential metadata for autonomous refresh.
+- **PKCE or client_secret flows** — Desktop apps use PKCE by default (S256). Providers that require a client secret (e.g. Slack) pass it during the OAuth2 flow and store it in credential metadata for autonomous refresh. Twitter uses PKCE with an optional client secret in `local_byo` mode.
 - **Unified messaging layer** — All messaging platforms implement the `MessagingProvider` interface. Generic tools delegate to the provider, so adding a new platform is just implementing one adapter + an OAuth setup skill.
+- **Standalone integrations** — Not all integrations fit the messaging model. Twitter has its own OAuth2 flow and IPC handlers (`twitter_auth_start`, `twitter_auth_status`) separate from the unified messaging layer.
 - **Provider registry** — Messaging providers register at daemon startup. The registry tracks which providers have stored credentials, enabling auto-selection when only one is connected.
 
 ### Unified Messaging Architecture
@@ -2375,6 +2440,87 @@ sequenceDiagram
     end
 ```
 
+### Twitter Integration Architecture
+
+Twitter uses a standalone OAuth2 flow separate from the unified messaging layer. It supports two posting mechanisms: an OAuth2 PKCE flow for API-based access, and a browser-session (CDP) approach for posting via Chrome.
+
+#### Twitter OAuth2 Flow
+
+```mermaid
+sequenceDiagram
+    participant UI as Settings UI (Swift)
+    participant IPC as IPC Socket
+    participant Handler as twitter-auth handler
+    participant OAuth as OAuth2 PKCE Flow
+    participant Browser as System Browser
+    participant Twitter as Twitter OAuth Server
+    participant Vault as Credential Vault
+    participant API as X API (v2)
+
+    Note over UI,API: Connection Flow (local_byo mode)
+    UI->>IPC: twitter_auth_start
+    IPC->>Handler: dispatch
+    Handler->>Handler: load config (twitterIntegrationMode)
+    Handler->>Vault: getSecureKey (oauth_client_id)
+    Handler->>OAuth: startOAuth2Flow(config)
+    OAuth->>OAuth: generate code_verifier + code_challenge (S256)
+    OAuth->>OAuth: start Bun.serve on random port
+    OAuth->>IPC: open_url (twitter.com/i/oauth2/authorize)
+    IPC->>Browser: open URL
+    Browser->>Twitter: user authorizes
+    Twitter->>OAuth: callback with auth code
+    OAuth->>Twitter: exchange code + code_verifier at api.x.com/2/oauth2/token
+    Twitter-->>OAuth: access + refresh tokens
+    OAuth-->>Handler: tokens + grantedScopes
+    Handler->>API: GET /2/users/me (verify identity)
+    API-->>Handler: username
+    Handler->>Vault: setSecureKey (access + refresh tokens)
+    Handler->>Vault: upsertCredentialMetadata
+    Handler->>IPC: twitter_auth_result {success, accountInfo: "@username"}
+    IPC->>UI: show connected state
+```
+
+#### Twitter OAuth2 Specifics
+
+| Aspect | Detail |
+|--------|--------|
+| Auth URL | `https://twitter.com/i/oauth2/authorize` |
+| Token URL | `https://api.x.com/2/oauth2/token` |
+| Flow | PKCE (S256), optional client secret |
+| Requested scopes | `tweet.read`, `users.read`, `offline.access` |
+| Identity verification | `GET https://api.x.com/2/users/me` with Bearer token, before persisting tokens |
+| Integration mode | `local_byo` — user provides their own Twitter app Client ID |
+| IPC messages | `twitter_auth_start`, `twitter_auth_status` / `twitter_auth_result`, `twitter_auth_status_response` |
+
+#### Twitter Credential Metadata Structure
+
+When the OAuth2 flow completes, the handler stores credential metadata at `integration:twitter` / `access_token`:
+
+```
+{
+  accountInfo: "@username",
+  allowedTools: ["twitter_post"],
+  allowedDomains: [],
+  oauth2TokenUrl: "https://api.x.com/2/oauth2/token",
+  oauth2ClientId: "<user's client ID>",
+  oauth2ClientSecret: "<optional>",
+  grantedScopes: ["tweet.read", "users.read", "offline.access"],
+  expiresAt: <epoch ms>
+}
+```
+
+#### Twitter CDP Posting Path
+
+The `vellum x post` CLI command uses an alternative mechanism that does not require OAuth2 credentials. It connects to Chrome via CDP (`localhost:9222`), finds an authenticated x.com tab, and executes a `CreateTweet` GraphQL mutation through the browser's session cookies. Session management is handled by Ride Shotgun recordings (`vellum x refresh`).
+
+#### Available Twitter Tools
+
+| Tool | Mechanism | Description |
+|------|-----------|-------------|
+| `twitter_post` | OAuth2 or CDP | Post a tweet. Available via the `X` bundled skill (`vellum x post`). |
+
+Note: The `tweet.read` and `users.read` OAuth2 scopes are used for identity verification during the auth flow, but read functionality is not exposed as a tool.
+
 ### Key Design Decisions
 
 | Decision | Rationale |
@@ -2382,10 +2528,12 @@ sequenceDiagram
 | PKCE by default, optional client_secret | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh |
 | `127.0.0.1` not `localhost` | Google OAuth requires IP literal for loopback redirect URIs |
 | Unified `MessagingProvider` interface | All platforms implement the same contract; generic tools work immediately for new providers |
+| Twitter outside unified messaging | Twitter is a broadcast platform (post-only), not a conversation platform — it doesn't fit the `MessagingProvider` contract |
 | Provider auto-selection | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX |
 | Token expiry in credential metadata | Reuses existing `CredentialMetadata` store; `expiresAt` field enables proactive refresh with 5min buffer |
 | Confidence scores on medium-risk tools | LLM self-reports confidence (0-1); enables future trust calibration without blocking execution |
 | Platform-specific extension tools | Operations unique to one platform (e.g. Gmail labels, Slack reactions) are separate tools, not forced into the generic interface |
+| Twitter identity verification before token storage | OAuth2 tokens are only persisted after a successful `GET /2/users/me` call, preventing storage of invalid or mismatched credentials |
 
 ### Source Files
 
@@ -2404,6 +2552,11 @@ sequenceDiagram
 | `assistant/src/config/bundled-skills/messaging/` | Unified messaging skill (SKILL.md, TOOLS.json, tools/) |
 | `assistant/src/watcher/providers/slack.ts` | Slack watcher for DMs, mentions, thread replies |
 | `assistant/src/watcher/providers/gmail.ts` | Gmail watcher using History API |
+| `assistant/src/daemon/handlers/twitter-auth.ts` | Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`) |
+| `assistant/src/twitter/client.ts` | Twitter CDP client: GraphQL mutations via Chrome DevTools Protocol |
+| `assistant/src/twitter/session.ts` | Twitter browser session persistence (cookie import/export) |
+| `assistant/src/cli/twitter.ts` | `vellum x` CLI command group (post, refresh, status, login, logout) |
+| `assistant/src/config/bundled-skills/twitter/SKILL.md` | X (Twitter) bundled skill instructions |
 
 ---
 
@@ -2920,6 +3073,47 @@ Media embed preferences live in the workspace config file (`~/.vellum/workspace/
 
 ---
 
+## Recurrence Schedules — Cron and RRULE Dual-Syntax Engine
+
+The scheduler supports two recurrence syntaxes for recurring tasks:
+
+- **Cron** — Standard 5-field cron expressions (e.g., `0 9 * * 1-5` for weekday mornings). Evaluated via the `croner` library.
+- **RRULE** — iCalendar recurrence rules (RFC 5545). RRULE sets (multiple `RRULE` lines, `RDATE`/`EXDATE` exclusions) are parsed via `rrulestr` with `forceset: true`.
+
+### Supported RRULE Lines
+
+| Line | Purpose | Example |
+|------|---------|---------|
+| `DTSTART` | Start date/time anchor (required) | `DTSTART:20250101T090000Z` |
+| `RRULE:` | Recurrence rule (one or more; multiple lines form a union) | `RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR` |
+| `RDATE` | Add one-off dates not covered by the RRULE pattern | `RDATE:20250704T090000Z` |
+| `EXDATE` | Exclude specific dates from the recurrence set | `EXDATE:20251225T090000Z` |
+| `EXRULE` | Exclude an entire series defined by a recurrence pattern | `EXRULE:FREQ=YEARLY;BYMONTH=12;BYMONTHDAY=25` |
+
+Bounded recurrence is supported via `COUNT` (e.g., `RRULE:FREQ=DAILY;COUNT=30`) and `UNTIL` (e.g., `RRULE:FREQ=WEEKLY;UNTIL=20250331T235959Z`) parameters on `RRULE` lines.
+
+**Exclusion precedence:** EXDATE and EXRULE exclusions always take precedence over RRULE and RDATE inclusions. A date that matches both an inclusion and an exclusion is excluded.
+
+### Syntax Detection
+
+The `detectScheduleSyntax()` function auto-detects which syntax an expression uses by checking for RRULE markers (`RRULE:`, `DTSTART`, `FREQ=`). When creating or updating a schedule, the caller can explicitly specify `syntax: 'cron' | 'rrule'`, or the system infers it from the expression string via `resolveScheduleSpec()`.
+
+### Legacy Compatibility
+
+The database column is named `cron_expression` and the Drizzle table is `cronJobs` for migration compatibility. Code aliases `scheduleJobs` and `scheduleRuns` are preferred in new code. The legacy field names `cron_expression` and `cronExpression` remain supported in API inputs during the transition period. Both `expression` (new) and `cronExpression` (legacy) are accepted when creating or updating schedules.
+
+### Key Source Files
+
+| File | Responsibility |
+|------|---------------|
+| `assistant/src/schedule/recurrence-types.ts` | `ScheduleSyntax` type, `detectScheduleSyntax()`, `resolveScheduleSpec()` |
+| `assistant/src/schedule/recurrence-engine.ts` | Validation (`isValidScheduleExpression`), next-run computation, RRULE set detection |
+| `assistant/src/schedule/schedule-store.ts` | CRUD operations, claim-based polling, legacy `cronExpression` field support |
+| `assistant/src/schedule/scheduler.ts` | 15-second tick loop, fires due schedules and reminders |
+| `assistant/src/memory/schema.ts` | `cronJobs` / `scheduleJobs` table, `scheduleSyntax` column |
+
+---
+
 ## Watcher System — Event-Driven Polling
 
 Watchers poll external APIs on an interval, detect new events via watermark-based change tracking, and process them through a background LLM session.
@@ -2928,7 +3122,7 @@ Watchers poll external APIs on an interval, detect new events via watermark-base
 graph TD
     subgraph "Scheduler (15s tick)"
         TICK["runScheduleOnce()"]
-        CRON["Cron Jobs"]
+        CRON["Recurrence Schedules<br/>(cron + RRULE)"]
         REMIND["Reminders"]
         WATCH["runWatchersOnce()"]
     end
@@ -3333,6 +3527,10 @@ In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice w
 
 Signature validation is **fail-closed**: if the Twilio auth token is not configured, all webhook requests are rejected with `403`. Missing or invalid `X-Twilio-Signature` headers are also rejected with `403`. Payload size is capped by `maxWebhookPayloadBytes` (checked via both `Content-Length` header and actual body size).
 
+**Webhook base URL resolution:** The base URL used when constructing Twilio webhook URLs (passed to the Twilio REST API during call initiation) is read from `calls.webhookBaseUrl` in workspace config. If not set, the system falls back to the `TWILIO_WEBHOOK_BASE_URL` environment variable (deprecated — see below). Setting the base URL via workspace config (or the Settings UI) is the recommended approach. Twilio-specific paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, etc.) are appended automatically.
+
+> **Deprecation:** The `TWILIO_WEBHOOK_BASE_URL` environment variable is deprecated. Use `calls.webhookBaseUrl` in workspace config instead. The env var will continue to work as a fallback during the compatibility window, but a deprecation warning is logged when it is used.
+
 ### Runtime HTTP Endpoints
 
 | Method | Path | Description |
@@ -3384,6 +3582,7 @@ Call behavior is controlled via the `calls` config block in the assistant config
 |-------|------|---------|-------------|
 | `calls.enabled` | boolean | `true` | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors. |
 | `calls.provider` | enum | `'twilio'` | Voice provider to use (currently only Twilio is supported). |
+| `calls.webhookBaseUrl` | string | `""` | Base URL for Twilio webhooks (e.g., `https://abc123.ngrok-free.app`). Twilio-specific paths like `/webhooks/twilio/voice` and `/webhooks/twilio/status` are appended automatically. Falls back to `TWILIO_WEBHOOK_BASE_URL` env var if not set (deprecated). |
 | `calls.maxDurationSeconds` | int | `3600` | Maximum allowed duration per call. |
 | `calls.userConsultTimeoutSeconds` | int | `120` | How long to wait for a user answer before timing out a pending question. |
 | `calls.disclosure.enabled` | boolean | `true` | Whether the AI should disclose it is an AI at the start of the call. |
@@ -3419,6 +3618,7 @@ Call behavior is controlled via the `calls` config block in the assistant config
 | IPC blob payloads | `~/.vellum/workspace/data/ipc-blobs/` | Binary files (UUID names) | File I/O (atomic write) | Ephemeral; consumed on hydration, stale sweep every 5min |
 | Tasks & task runs | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent |
 | Work items (Task Queue) | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; archived items retained |
+| Recurrence schedules & runs | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; supports cron and RRULE syntax |
 | Watchers & events | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, cascade on watcher delete |
 | Proxy CA cert + key | `{dataDir}/proxy-ca/` | PEM files (ca.pem, ca-key.pem) | openssl CLI | Permanent (10-year validity) |
 | Proxy leaf certs | `{dataDir}/proxy-ca/issued/` | PEM files per hostname | openssl CLI, cached | 1-year validity, re-issued on CA change |

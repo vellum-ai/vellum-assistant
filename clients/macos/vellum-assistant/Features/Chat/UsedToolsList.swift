@@ -10,25 +10,15 @@ struct UsedToolsList: View {
 
     @State private var isHovered = false
 
-    private var hasErrors: Bool { toolCalls.contains { $0.isError } }
-
     private var pillLabel: String {
         let count = toolCalls.count
         if count == 1 { return toolCalls[0].actionDescription }
-        if hasErrors {
-            let errCount = toolCalls.filter { $0.isError }.count
-            return errCount == count ? "All \(count) steps failed" : "\(errCount) of \(count) steps failed"
-        }
         return "Completed \(count) steps"
     }
 
-    private var pillIcon: String {
-        hasErrors ? "xmark.circle.fill" : "checkmark.circle.fill"
-    }
+    private var pillIcon: String { "checkmark.circle.fill" }
 
-    private var pillIconColor: Color {
-        hasErrors ? VColor.error : VColor.success
-    }
+    private var pillIconColor: Color { VColor.success }
 
     var body: some View {
         Button {
@@ -97,7 +87,8 @@ private struct UsedToolsRow: View {
     private var hasDetails: Bool {
         !toolCall.inputFull.isEmpty ||
         (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true)) ||
-        toolCall.cachedImage != nil
+        toolCall.cachedImage != nil ||
+        !toolCall.claudeCodeSteps.isEmpty
     }
 
     var body: some View {
@@ -176,6 +167,22 @@ private struct UsedToolsRow: View {
                         }
                     }
                     .padding(.horizontal, VSpacing.md)
+
+                    // Claude Code sub-steps (if any)
+                    if !toolCall.claudeCodeSteps.isEmpty {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Sub-steps")
+                                .font(VFont.small)
+                                .foregroundColor(VColor.textMuted)
+                                .textCase(.uppercase)
+
+                            ClaudeCodeProgressView(
+                                steps: toolCall.claudeCodeSteps,
+                                isRunning: false
+                            )
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                    }
 
                     // Screenshot — use CGImage + displayScale for pixel-perfect Retina rendering
                     if let img = toolCall.cachedImage,

@@ -23,7 +23,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import {
   createConversation,
   getConversation,
@@ -46,6 +46,7 @@ import {
 initializeDb();
 
 afterAll(() => {
+  resetDb();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
 

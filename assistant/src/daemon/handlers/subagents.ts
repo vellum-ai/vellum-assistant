@@ -4,9 +4,9 @@
 
 import * as net from 'node:net';
 import type { SubagentAbortRequest, SubagentStatusRequest, SubagentMessageRequest } from '../ipc-protocol.js';
-import type { HandlerContext, DispatchMap } from './shared.js';
+import type { HandlerContext } from './shared.js';
 import { getSubagentManager } from '../../subagent/index.js';
-import { log } from './shared.js';
+import { log, defineHandlers } from './shared.js';
 
 export function handleSubagentAbort(
   msg: SubagentAbortRequest,
@@ -66,8 +66,7 @@ export function handleSubagentStatus(
   }
 
   // Return all subagents for the caller's session.
-  const sessionId = callerSessionId;
-  const children = manager.getChildrenOf(sessionId);
+  const children = manager.getChildrenOf(callerSessionId);
   for (const child of children) {
     ctx.send(socket, {
       type: 'subagent_status_changed',
@@ -121,8 +120,8 @@ export function handleSubagentMessage(
   }
 }
 
-export const subagentHandlers: Partial<DispatchMap> = {
+export const subagentHandlers = defineHandlers({
   subagent_abort: handleSubagentAbort,
   subagent_status: handleSubagentStatus,
   subagent_message: handleSubagentMessage,
-};
+});

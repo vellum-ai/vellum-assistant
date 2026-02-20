@@ -24,10 +24,7 @@ const { createTelegramWebhookHandler } = await import(
 
 const config = loadConfig();
 
-const handleTelegramWebhook = createTelegramWebhookHandler(
-  config,
-  async () => {},
-);
+const handleTelegramWebhook = createTelegramWebhookHandler(config);
 
 let draining = false;
 

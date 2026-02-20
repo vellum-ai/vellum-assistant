@@ -19,7 +19,7 @@ import type {
   SkillsSearchRequest,
   SkillsInspectRequest,
 } from '../ipc-protocol.js';
-import { log, CONFIG_RELOAD_DEBOUNCE_MS, ensureSkillEntry, type HandlerContext, type DispatchMap } from './shared.js';
+import { log, CONFIG_RELOAD_DEBOUNCE_MS, ensureSkillEntry, defineHandlers, type HandlerContext } from './shared.js';
 
 export function handleSkillsList(socket: net.Socket, ctx: HandlerContext): void {
   const config = getConfig();
@@ -486,7 +486,7 @@ export async function handleSkillDetail(
   }
 }
 
-export const skillHandlers: Partial<DispatchMap> = {
+export const skillHandlers = defineHandlers({
   skills_list: (_msg, socket, ctx) => handleSkillsList(socket, ctx),
   skill_detail: handleSkillDetail,
   skills_enable: handleSkillsEnable,
@@ -498,4 +498,4 @@ export const skillHandlers: Partial<DispatchMap> = {
   skills_check_updates: handleSkillsCheckUpdates,
   skills_search: handleSkillsSearch,
   skills_inspect: handleSkillsInspect,
-};
+});

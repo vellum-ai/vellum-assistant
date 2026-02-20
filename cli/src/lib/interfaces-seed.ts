@@ -1,7 +1,7 @@
-// @ts-expect-error -- Bun embed: imports raw file content as a string, not supported by TypeScript
-import constantsSource from "./constants.ts" with { type: "text" };
-// @ts-expect-error -- Bun embed: imports raw file content as a string, not supported by TypeScript
-import defaultMainScreenSource from "../components/DefaultMainScreen.tsx" with { type: "text" };
+import { join } from "path";
+
+const constantsSource = await Bun.file(join(import.meta.dir, "constants.ts")).text();
+const defaultMainScreenSource = await Bun.file(join(import.meta.dir, "..", "components", "DefaultMainScreen.tsx")).text();
 
 function inlineLocalImports(source: string): string {
   return source

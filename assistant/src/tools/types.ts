@@ -93,6 +93,8 @@ export interface ToolContext {
   workingDir: string;
   sessionId: string;
   conversationId: string;
+  /** When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules. */
+  taskRunId?: string;
   /** Per-message request ID for log correlation across session/connection boundaries. */
   requestId?: string;
   /** Optional callback for streaming incremental output to the client. */

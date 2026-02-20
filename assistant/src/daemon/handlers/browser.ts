@@ -1,7 +1,7 @@
 import { browserManager } from '../../tools/browser/browser-manager.js';
-import { log, type DispatchMap } from './shared.js';
+import { log, defineHandlers } from './shared.js';
 
-export const browserHandlers: Partial<DispatchMap> = {
+export const browserHandlers = defineHandlers({
   browser_cdp_response: (msg) => {
     browserManager.resolveCDPResponse(msg.sessionId, msg.success, msg.declined);
   },
@@ -51,4 +51,4 @@ export const browserHandlers: Partial<DispatchMap> = {
       enabled: msg.enabled,
     });
   },
-};
+});

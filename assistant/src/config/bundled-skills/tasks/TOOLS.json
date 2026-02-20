@@ -120,6 +120,10 @@
             "type": "string",
             "description": "Title for the work item. When provided WITHOUT task_id or task_name, creates an ad-hoc work item directly (a lightweight task template is auto-created behind the scenes). When provided WITH task_id or task_name, overrides the task definition title."
           },
+          "execution_prompt": {
+            "type": "string",
+            "description": "The full instruction to execute when this task runs. If omitted, the title is used as the execution prompt. Use this to preserve detailed instructions (e.g. full file paths, specific parameters) that would be lost in a short display title."
+          },
           "notes": {
             "type": "string",
             "description": "Notes to attach to the work item."
@@ -136,6 +140,11 @@
             "type": "string",
             "enum": ["create_duplicate", "reuse_existing", "update_existing"],
             "description": "What to do if an active work item with the same title already exists. Defaults to \"reuse_existing\"."
+          },
+          "required_tools": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Tools the task will need at execution time. Always specify this — think about what tools are needed to accomplish the task (e.g. [\"host_bash\"] for shell commands, [\"host_file_read\", \"host_file_write\"] for file operations, [\"web_search\"] for web lookups). The user must approve these before the task runs. Pass [] if no tools are needed."
           }
         }
       },

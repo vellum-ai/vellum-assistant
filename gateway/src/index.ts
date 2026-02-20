@@ -1,5 +1,7 @@
 import { loadConfig } from "./config.js";
+import { CredentialWatcher } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
+import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
@@ -8,7 +10,6 @@ import { createTwilioRelayWebsocketHandler, getRelayWebsocketHandlers } from "./
 import { getLogger, initLogger } from "./logger.js";
 import { buildSchema } from "./schema.js";
 import { callTelegramApi } from "./telegram/api.js";
-import { sendTelegramAttachments, sendTelegramReply } from "./telegram/send.js";
 
 const log = getLogger("main");
 
@@ -20,38 +21,11 @@ function main() {
 
   log.info("Starting Vellum Gateway...");
 
-  const telegramConfigured = !!(config.telegramBotToken && config.telegramWebhookSecret);
+  const handleTelegramWebhook = createTelegramWebhookHandler(config);
+  const handleTelegramDeliver = createTelegramDeliverHandler(config);
 
-  const handleTelegramWebhook = telegramConfigured
-    ? createTelegramWebhookHandler(
-        config,
-        async (chatId, result, assistantId) => {
-          const msg = result.runtimeResponse?.assistantMessage;
-          const content = msg?.content;
-          const attachments = msg?.attachments ?? [];
-
-          if (!content && attachments.length === 0) {
-            return;
-          }
-
-          try {
-            if (content) {
-              await sendTelegramReply(config, chatId, content);
-            }
-          } catch (err) {
-            log.error({ err, chatId }, "Failed to send Telegram reply");
-          }
-
-          if (attachments.length > 0) {
-            try {
-              await sendTelegramAttachments(config, chatId, assistantId, attachments);
-            } catch (err) {
-              log.error({ err, chatId }, "Failed to send Telegram attachments");
-            }
-          }
-        },
-      )
-    : null;
+  const isTelegramConfigured = () =>
+    !!(config.telegramBotToken && config.telegramWebhookSecret);
 
   const handleTwilioVoiceWebhook = createTwilioVoiceWebhookHandler(config);
   const handleTwilioStatusWebhook = createTwilioStatusWebhookHandler(config);
@@ -84,13 +58,23 @@ function main() {
       }
 
       if (url.pathname === "/webhooks/telegram") {
-        if (!handleTelegramWebhook) {
+        if (!isTelegramConfigured()) {
           return Response.json(
             { error: "Telegram integration not configured" },
             { status: 503 },
           );
         }
         return handleTelegramWebhook(req);
+      }
+
+      if (url.pathname === "/deliver/telegram") {
+        if (!isTelegramConfigured()) {
+          return Response.json(
+            { error: "Telegram integration not configured" },
+            { status: 503 },
+          );
+        }
+        return handleTelegramDeliver(req);
       }
 
       if (
@@ -114,7 +98,7 @@ function main() {
         return handleTwilioConnectActionWebhook(req);
       }
 
-      if (url.pathname === "/webhooks/twilio/relay") {
+      if (url.pathname === "/webhooks/twilio/relay" || url.pathname === "/v1/calls/relay") {
         const upgradeResult = handleTwilioRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         // If upgrade was handled, Bun doesn't need a response
@@ -131,7 +115,7 @@ function main() {
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
 
-  if (telegramConfigured) {
+  function registerTelegramCommands(): void {
     callTelegramApi(config, "setMyCommands", {
       commands: [{ command: "new", description: "Start a new conversation" }],
     }).catch((err) => {
@@ -139,11 +123,33 @@ function main() {
     });
   }
 
+  if (isTelegramConfigured()) {
+    registerTelegramCommands();
+  }
+
+  const credentialWatcher = new CredentialWatcher((credentials) => {
+    if (credentials) {
+      config.telegramBotToken = credentials.botToken;
+      config.telegramWebhookSecret = credentials.webhookSecret;
+      log.info("Telegram credentials loaded from credential vault");
+      registerTelegramCommands();
+    } else {
+      config.telegramBotToken = undefined;
+      config.telegramWebhookSecret = undefined;
+      log.info("Telegram credentials cleared");
+    }
+  });
+
+  if (!isTelegramConfigured()) {
+    credentialWatcher.start();
+  }
+
   const drainMs = config.shutdownDrainMs;
 
   process.on("SIGTERM", () => {
     log.info("SIGTERM received, starting graceful shutdown");
     draining = true;
+    credentialWatcher.stop();
     setTimeout(() => {
       log.info("Drain window elapsed, stopping server");
       server.stop(true);

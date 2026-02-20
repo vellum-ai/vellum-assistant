@@ -45,6 +45,8 @@ await import('../web-search.js');
 
 describe('web_search tool', () => {
   let originalFetch: typeof globalThis.fetch;
+  let savedBraveKey: string | undefined;
+  let savedPerplexityKey: string | undefined;
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
@@ -53,10 +55,22 @@ describe('web_search tool', () => {
     mockPerplexityConfigKey = undefined;
     mockBraveSecureKey = undefined;
     mockPerplexitySecureKey = undefined;
+
+    // Isolate from host env so getApiKey() doesn't short-circuit on real keys
+    savedBraveKey = process.env.BRAVE_API_KEY;
+    savedPerplexityKey = process.env.PERPLEXITY_API_KEY;
+    delete process.env.BRAVE_API_KEY;
+    delete process.env.PERPLEXITY_API_KEY;
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+
+    if (savedBraveKey !== undefined) process.env.BRAVE_API_KEY = savedBraveKey;
+    else delete process.env.BRAVE_API_KEY;
+
+    if (savedPerplexityKey !== undefined) process.env.PERPLEXITY_API_KEY = savedPerplexityKey;
+    else delete process.env.PERPLEXITY_API_KEY;
   });
 
   function execute(input: Record<string, unknown>) {

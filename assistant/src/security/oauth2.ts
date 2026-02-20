@@ -6,6 +6,9 @@
  */
 
 import { randomBytes, createHash } from 'node:crypto';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('oauth2');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -170,8 +173,19 @@ export async function startOAuth2Flow(
     });
 
     if (!tokenResp.ok) {
-      const body = await tokenResp.text().catch(() => '');
-      throw new Error(`OAuth2 token exchange failed (${tokenResp.status}): ${body}`);
+      const rawBody = await tokenResp.text().catch(() => '');
+      let safeDetail: Record<string, unknown> = {};
+      let errorCode = '';
+      try {
+        const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+        if (parsed.error) { safeDetail.error = String(parsed.error); errorCode = String(parsed.error); }
+        if (parsed.error_description) safeDetail.error_description = String(parsed.error_description);
+      } catch {
+        safeDetail.error = '[non-JSON response]';
+      }
+      log.error({ status: tokenResp.status, ...safeDetail }, 'OAuth2 token exchange failed');
+      const detail = errorCode ? `HTTP ${tokenResp.status}: ${errorCode}` : `HTTP ${tokenResp.status}`;
+      throw new Error(`OAuth2 token exchange failed (${detail})`);
     }
 
     const tokenData = await tokenResp.json() as Record<string, unknown>;
@@ -225,8 +239,19 @@ export async function refreshOAuth2Token(
   });
 
   if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    throw new Error(`OAuth2 token refresh failed (${resp.status}): ${body}`);
+    const rawBody = await resp.text().catch(() => '');
+    let safeDetail: Record<string, unknown> = {};
+    let errorCode = '';
+    try {
+      const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+      if (parsed.error) { safeDetail.error = String(parsed.error); errorCode = String(parsed.error); }
+      if (parsed.error_description) safeDetail.error_description = String(parsed.error_description);
+    } catch {
+      safeDetail.error = '[non-JSON response]';
+    }
+    log.error({ status: resp.status, ...safeDetail }, 'OAuth2 token refresh failed');
+    const detail = errorCode ? `HTTP ${resp.status}: ${errorCode}` : `HTTP ${resp.status}`;
+    throw new Error(`OAuth2 token refresh failed (${detail})`);
   }
 
   const data = await resp.json() as Record<string, unknown>;

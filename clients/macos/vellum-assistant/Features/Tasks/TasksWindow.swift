@@ -8,6 +8,9 @@ import SwiftUI
 final class TasksWindow {
     private var window: NSWindow?
     private let daemonClient: DaemonClient
+    /// Called when the user taps "Open in Chat" — creates the thread and
+    /// brings the main window forward.
+    var onOpenInChat: ((String, String, String) -> Void)?
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -23,7 +26,7 @@ final class TasksWindow {
         }
 
         let hostingController = NSHostingController(
-            rootView: TasksWindowView(daemonClient: daemonClient)
+            rootView: TasksWindowView(daemonClient: daemonClient, onOpenInChat: onOpenInChat)
         )
 
         let window = NSWindow(

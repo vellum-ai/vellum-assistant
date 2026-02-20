@@ -4,6 +4,7 @@ import { OpenAIProvider } from "./openai/client.js";
 import { GeminiProvider } from "./gemini/client.js";
 import { OllamaProvider } from "./ollama/client.js";
 import { FireworksProvider } from "./fireworks/client.js";
+import { OpenRouterProvider } from "./openrouter/client.js";
 import { RetryProvider } from "./retry.js";
 import { FailoverProvider } from "./failover.js";
 import { wrapWithLogfire } from "../logfire.js";
@@ -15,6 +16,7 @@ const DEFAULT_MODELS: Record<string, string> = {
   gemini: 'gemini-3-flash',
   ollama: 'llama3.2',
   fireworks: 'accounts/fireworks/models/kimi-k2p5',
+  openrouter: 'x-ai/grok-4',
 };
 
 const providers = new Map<string, Provider>();
@@ -133,6 +135,12 @@ export function initializeProviders(config: ProvidersConfig): void {
     const model = resolveModel(config, 'fireworks');
     registerProvider('fireworks', new RetryProvider(
       wrapWithLogfire(new FireworksProvider(config.apiKeys.fireworks, model, { streamTimeoutMs })),
+    ));
+  }
+  if (config.apiKeys.openrouter) {
+    const model = resolveModel(config, 'openrouter');
+    registerProvider('openrouter', new RetryProvider(
+      wrapWithLogfire(new OpenRouterProvider(config.apiKeys.openrouter, model, { streamTimeoutMs })),
     ));
   }
 }

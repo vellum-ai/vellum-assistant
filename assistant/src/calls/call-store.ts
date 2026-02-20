@@ -263,6 +263,9 @@ export function expirePendingQuestions(callSessionId: string): void {
 
 // ── Callback Idempotency ─────────────────────────────────────────────
 
+/** Claims older than this are considered orphaned (crashed mid-processing) and can be reclaimed. */
+const CLAIM_EXPIRY_MS = 60_000; // 60 seconds
+
 /**
  * Build a dedupe key for a Twilio status callback.
  * Combines CallSid + CallStatus + Timestamp (or SequenceNumber if present)
@@ -337,28 +340,77 @@ export function tryRecordProcessedCallback(
 }
 
 /**
- * Atomically claim a callback for processing. Returns true if this caller
- * won the claim (INSERT succeeded). Returns false if another caller already
+ * Atomically claim a callback for processing. Returns a unique claim ID
+ * (string) if this caller won the claim, or null if another caller already
  * claimed it (dedupe_key conflict).
  *
- * If processing fails, call `releaseCallbackClaim(dedupeKey)` to allow retries.
+ * Expired orphaned claims (older than CLAIM_EXPIRY_MS) are automatically
+ * cleared before attempting the insert, so crashes mid-processing don't
+ * permanently block retries.
+ *
+ * If processing fails, call `releaseCallbackClaim(dedupeKey, claimId)` to allow retries.
+ * On success, call `finalizeCallbackClaim(dedupeKey, claimId)` to make the claim permanent.
+ *
+ * The returned claim ID acts as an ownership token: release and finalize
+ * operations require it so that handler A cannot accidentally release or
+ * finalize a claim that was reclaimed by handler B after expiry.
  */
-export function claimCallback(dedupeKey: string, callSessionId: string): boolean {
+export function claimCallback(dedupeKey: string, callSessionId: string): string | null {
   const db = getDb();
   const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+
+  // Clear any expired orphaned claims so they can be reprocessed
   raw.query(
-    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
-  ).run(uuid(), dedupeKey, callSessionId, Date.now());
+    `DELETE FROM processed_callbacks WHERE dedupe_key = ? AND created_at < ?`,
+  ).run(dedupeKey, Date.now() - CLAIM_EXPIRY_MS);
+
+  const claimId = uuid();
+  raw.query(
+    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, claim_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+  ).run(uuid(), dedupeKey, callSessionId, claimId, Date.now());
   const changes = raw.query('SELECT changes() as c').get() as { c: number };
-  return changes.c > 0;
+  return changes.c > 0 ? claimId : null;
 }
 
 /**
  * Release a callback claim so that retries can reprocess it.
  * Called when processing fails after a successful claim.
+ *
+ * Only deletes the row if both dedupe_key AND claim_id match, preventing
+ * handler A from releasing a claim that was reclaimed by handler B.
  */
-export function releaseCallbackClaim(dedupeKey: string): void {
+export function releaseCallbackClaim(dedupeKey: string, claimId: string): void {
   const db = getDb();
   const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-  raw.query(`DELETE FROM processed_callbacks WHERE dedupe_key = ?`).run(dedupeKey);
+  raw.query(`DELETE FROM processed_callbacks WHERE dedupe_key = ? AND claim_id = ?`).run(dedupeKey, claimId);
+}
+
+/**
+ * Finalize a callback claim after successful processing.
+ * Sets the created_at to a far-future value so the claim never expires,
+ * distinguishing it from in-flight claims that may need to be reclaimed.
+ *
+ * Only updates the row if both dedupe_key AND claim_id match, preventing
+ * handler A from finalizing a claim that was reclaimed by handler B.
+ *
+ * Returns true if the claim was successfully finalized, or false if 0 rows
+ * were updated — meaning the claim was reclaimed by another handler after
+ * expiry. Callers should treat a false return as a lost-claim signal: the
+ * business writes already happened but the dedupe row belongs to someone
+ * else, so duplicate processing may occur on later retries.
+ */
+export function finalizeCallbackClaim(dedupeKey: string, claimId: string): boolean {
+  const db = getDb();
+  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+  // Set created_at far in the future so expiry check never matches
+  const NEVER_EXPIRE = Date.now() + 100 * 365 * 24 * 60 * 60 * 1000; // ~100 years
+  raw.query(
+    `UPDATE processed_callbacks SET created_at = ? WHERE dedupe_key = ? AND claim_id = ?`,
+  ).run(NEVER_EXPIRE, dedupeKey, claimId);
+  const changes = raw.query('SELECT changes() as c').get() as { c: number };
+  if (changes.c === 0) {
+    log.warn({ dedupeKey, claimId }, 'finalizeCallbackClaim: claim was lost — another handler reclaimed this key after expiry');
+    return false;
+  }
+  return true;
 }

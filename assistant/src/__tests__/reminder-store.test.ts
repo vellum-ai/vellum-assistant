@@ -1,6 +1,5 @@
-import { describe, test, expect, beforeEach } from 'bun:test';
-import { initializeDb } from '../memory/db.js';
-import { getDb } from '../memory/db.js';
+import { afterAll, describe, test, expect, beforeEach } from 'bun:test';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { reminders } from '../memory/schema.js';
 import {
   insertReminder,
@@ -18,6 +17,10 @@ initializeDb();
 function clearReminders() {
   getDb().delete(reminders).run();
 }
+
+afterAll(() => {
+  resetDb();
+});
 
 describe('reminder-store', () => {
   beforeEach(() => {

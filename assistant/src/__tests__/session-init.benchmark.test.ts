@@ -4,20 +4,32 @@
  * Measures latency of key session startup components and end-to-end
  * session creation timing (request to first-tool-ready state).
  *
- * Component targets:
+ * Uses multi-sample median timing with warm-up runs to reduce sensitivity
+ * to host load and machine class. Thresholds are intentionally loose
+ * guardrails for catching regressions, not precise performance targets.
+ *
+ * Component targets (median of 5 runs):
  * - initializeTools: < 100ms
  * - buildSystemPrompt: < 50ms
  * - getAllToolDefinitions: < 10ms
  *
- * End-to-end targets:
+ * End-to-end targets (median of 3 runs):
  * - Session creation (no preactivated skills): < 200ms
  * - Session creation (3 preactivated skills): < 300ms
- * - Event listener registration: < 10ms
+ * - Session constructor (sync, no loadFromDb): < 10ms
  */
 import { afterAll, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+/** Return the median of a sorted-ascending array of numbers. */
+function median(sorted: number[]): number {
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
 
 const testDir = mkdtempSync(join(tmpdir(), 'session-init-bench-'));
 
@@ -31,6 +43,34 @@ mkdirSync(join(testDir, 'hooks'), { recursive: true });
 writeFileSync(join(testDir, 'IDENTITY.md'), '# Test Identity\nYou are a test assistant.');
 writeFileSync(join(testDir, 'SOUL.md'), '# Test Soul\nBe helpful.');
 writeFileSync(join(testDir, 'USER.md'), '# Test User\nName: Benchmark Runner');
+
+// Create real skill directories so projectSkillTools can load them from the catalog
+const testSkillIds = ['bench-skill-a', 'bench-skill-b', 'bench-skill-c'];
+for (const skillId of testSkillIds) {
+  const skillDir = join(testDir, 'skills', skillId);
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, 'SKILL.md'), [
+    '---',
+    `name: ${skillId}`,
+    `description: Benchmark test skill ${skillId}`,
+    '---',
+    `# ${skillId}`,
+    'A test skill for benchmarking.',
+  ].join('\n'));
+  writeFileSync(join(skillDir, 'TOOLS.json'), JSON.stringify({
+    version: 1,
+    tools: [{
+      name: `${skillId}_tool`,
+      description: `Tool for ${skillId}`,
+      category: 'benchmark',
+      risk: 'low',
+      input_schema: { type: 'object', properties: {} },
+      executor: 'run.sh',
+      execution_target: 'host',
+    }],
+  }));
+  writeFileSync(join(skillDir, 'run.sh'), '#!/bin/sh\necho ok');
+}
 
 mock.module('../util/platform.js', () => ({
   getDataDir: () => testDir,
@@ -206,6 +246,9 @@ const { initializeTools, getAllToolDefinitions, __resetRegistryForTesting } = aw
 );
 const { buildSystemPrompt } = await import('../config/system-prompt.js');
 const { Session } = await import('../daemon/session.js');
+const { projectSkillTools, resetSkillToolProjection } = await import(
+  '../daemon/session-skill-tools.js'
+);
 import type { Provider } from '../providers/types.js';
 
 afterAll(() => {
@@ -218,36 +261,58 @@ afterAll(() => {
 });
 
 describe('Session initialization benchmark', () => {
-  test('initializeTools completes under 100ms', async () => {
+  test('initializeTools completes under 100ms (median of 5)', async () => {
+    // Warm-up run to eliminate JIT / lazy-load overhead
     __resetRegistryForTesting();
-
-    const start = performance.now();
-    await initializeTools();
-    const elapsed = performance.now() - start;
-
-    expect(elapsed).toBeLessThan(100);
-  });
-
-  test('getAllToolDefinitions retrieves definitions under 10ms', async () => {
-    // Ensure tools are initialized first
     await initializeTools();
 
-    const start = performance.now();
-    const definitions = getAllToolDefinitions();
-    const elapsed = performance.now() - start;
+    const timings: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      __resetRegistryForTesting();
+      const start = performance.now();
+      await initializeTools();
+      timings.push(performance.now() - start);
+    }
 
-    expect(definitions.length).toBeGreaterThan(0);
-    expect(elapsed).toBeLessThan(10);
+    timings.sort((a, b) => a - b);
+    expect(median(timings)).toBeLessThan(100);
   });
 
-  test('buildSystemPrompt assembles prompt under 50ms', () => {
-    const start = performance.now();
-    const prompt = buildSystemPrompt();
-    const elapsed = performance.now() - start;
+  test('getAllToolDefinitions retrieves definitions under 10ms (median of 5)', async () => {
+    await initializeTools();
 
-    expect(prompt.length).toBeGreaterThan(0);
-    expect(prompt).toContain('Test Identity');
-    expect(elapsed).toBeLessThan(50);
+    // Warm-up
+    getAllToolDefinitions();
+
+    const timings: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const start = performance.now();
+      const definitions = getAllToolDefinitions();
+      timings.push(performance.now() - start);
+      if (i === 0) expect(definitions.length).toBeGreaterThan(0);
+    }
+
+    timings.sort((a, b) => a - b);
+    expect(median(timings)).toBeLessThan(10);
+  });
+
+  test('buildSystemPrompt assembles prompt under 50ms (median of 5)', () => {
+    // Warm-up
+    buildSystemPrompt();
+
+    const timings: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const start = performance.now();
+      const prompt = buildSystemPrompt();
+      timings.push(performance.now() - start);
+      if (i === 0) {
+        expect(prompt.length).toBeGreaterThan(0);
+        expect(prompt).toContain('Test Identity');
+      }
+    }
+
+    timings.sort((a, b) => a - b);
+    expect(median(timings)).toBeLessThan(50);
   });
 
   test('repeated buildSystemPrompt calls are consistently fast (10 iterations)', () => {
@@ -280,7 +345,10 @@ describe('Session initialization benchmark', () => {
 describe('End-to-end session creation benchmark', () => {
   // Uses the real Session constructor + loadFromDb() path, which wires up
   // the tool executor, event bus, agent loop, context window manager, and
-  // notifiers — exactly what the daemon does.
+  // notifiers. Note: the daemon's getOrCreateSession() adds provider
+  // construction, rate limiting, concurrency guards, and evictor management
+  // on top — those are lightweight config-driven operations not benchmarked
+  // here.
 
   const mockProvider: Provider = {
     name: 'mock',
@@ -294,86 +362,101 @@ describe('End-to-end session creation benchmark', () => {
   };
   const noop = () => {};
 
-  test('session creation without preactivated skills completes under 200ms', async () => {
+  test('session creation without preactivated skills completes under 200ms (median of 3)', async () => {
     __resetRegistryForTesting();
     await initializeTools();
     const systemPrompt = buildSystemPrompt();
 
-    const start = performance.now();
+    // Warm-up run
+    const warmup = new Session('bench-warmup-0', mockProvider, systemPrompt, 64000, noop, testDir);
+    await warmup.loadFromDb();
+    warmup.dispose();
 
-    const session = new Session(
-      'bench-no-skills',
-      mockProvider,
-      systemPrompt,
-      64000,
-      noop,
-      testDir,
-    );
-    await session.loadFromDb();
+    const timings: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const id = `bench-no-skills-${i}`;
+      const start = performance.now();
+      const session = new Session(id, mockProvider, systemPrompt, 64000, noop, testDir);
+      await session.loadFromDb();
+      timings.push(performance.now() - start);
 
-    const elapsed = performance.now() - start;
+      if (i === 0) {
+        expect(session.conversationId).toBe(id);
+        expect(session.getMessages()).toHaveLength(0);
+      }
+      session.dispose();
+    }
 
-    expect(session.conversationId).toBe('bench-no-skills');
-    expect(session.getMessages()).toHaveLength(0);
-
-    expect(elapsed).toBeLessThan(200);
-
-    session.dispose();
+    timings.sort((a, b) => a - b);
+    expect(median(timings)).toBeLessThan(200);
   });
 
-  test('session creation with 3 preactivated skills completes under 300ms', async () => {
+  test('session creation with 3 preactivated skills completes under 300ms (median of 3)', async () => {
     __resetRegistryForTesting();
     await initializeTools();
     const systemPrompt = buildSystemPrompt();
 
-    const start = performance.now();
+    // Warm-up run — includes skill projection so manifest loading is JIT'd
+    const warmup = new Session('bench-warmup-s', mockProvider, systemPrompt, 64000, noop, testDir);
+    warmup.preactivatedSkillIds = testSkillIds;
+    await warmup.loadFromDb();
+    projectSkillTools([], {
+      preactivatedSkillIds: warmup.preactivatedSkillIds,
+      previouslyActiveSkillIds: warmup.skillProjectionState,
+      cache: warmup.skillProjectionCache,
+    });
+    resetSkillToolProjection(warmup.skillProjectionState);
+    warmup.dispose();
 
-    const session = new Session(
-      'bench-with-skills',
-      mockProvider,
-      systemPrompt,
-      64000,
-      noop,
-      testDir,
-    );
-    // Simulate preactivated skills the same way the daemon does
-    session.preactivatedSkillIds = ['skill-a', 'skill-b', 'skill-c'];
-    await session.loadFromDb();
+    const timings: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const id = `bench-with-skills-${i}`;
+      const start = performance.now();
+      const session = new Session(id, mockProvider, systemPrompt, 64000, noop, testDir);
+      session.preactivatedSkillIds = testSkillIds;
+      await session.loadFromDb();
+      // Skill projection runs at agent turn time, not during loadFromDb.
+      // Include it here to measure the full first-tool-ready path.
+      const projection = projectSkillTools([], {
+        preactivatedSkillIds: session.preactivatedSkillIds,
+        previouslyActiveSkillIds: session.skillProjectionState,
+        cache: session.skillProjectionCache,
+      });
+      timings.push(performance.now() - start);
 
-    const elapsed = performance.now() - start;
+      if (i === 0) {
+        expect(session.conversationId).toBe(id);
+        expect(session.getMessages()).toHaveLength(0);
+        expect(projection.toolDefinitions.length).toBe(testSkillIds.length);
+      }
+      resetSkillToolProjection(session.skillProjectionState);
+      session.dispose();
+    }
 
-    expect(session.conversationId).toBe('bench-with-skills');
-    expect(session.getMessages()).toHaveLength(0);
-
-    expect(elapsed).toBeLessThan(300);
-
-    session.dispose();
+    timings.sort((a, b) => a - b);
+    expect(median(timings)).toBeLessThan(300);
   });
 
-  test('event listener registration is included in constructor and completes under 10ms', () => {
-    // The Session constructor registers all event listeners internally.
-    // Verify the event bus has listeners after construction.
+  test('Session constructor (sync, no loadFromDb) completes under 10ms (median of 5)', () => {
     const systemPrompt = buildSystemPrompt();
 
-    const start = performance.now();
+    // Warm-up
+    const warmup = new Session('bench-events-w', mockProvider, systemPrompt, 64000, noop, testDir);
+    warmup.dispose();
 
-    const session = new Session(
-      'bench-events',
-      mockProvider,
-      systemPrompt,
-      64000,
-      noop,
-      testDir,
-    );
+    const timings: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const start = performance.now();
+      const session = new Session(`bench-events-${i}`, mockProvider, systemPrompt, 64000, noop, testDir);
+      timings.push(performance.now() - start);
 
-    const elapsed = performance.now() - start;
+      if (i === 0) {
+        expect(session.eventBus.listenerCount()).toBeGreaterThan(0);
+      }
+      session.dispose();
+    }
 
-    // The constructor wires up metrics, notification, trace, profiling,
-    // audit, and domain-event listeners — verify at least some exist
-    expect(session.eventBus.listenerCount()).toBeGreaterThan(0);
-
-    expect(elapsed).toBeLessThan(10);
-
-    session.dispose();
+    timings.sort((a, b) => a - b);
+    expect(median(timings)).toBeLessThan(10);
   });
 });

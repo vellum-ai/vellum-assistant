@@ -70,7 +70,7 @@ export function upsertContact(params: {
   responseExpectation?: string | null;
   preferredTone?: string | null;
   channels?: Array<{ type: string; address: string; isPrimary?: boolean }>;
-}): ContactWithChannels {
+}): ContactWithChannels & { created: boolean } {
   const db = getDb();
   const now = Date.now();
 
@@ -96,7 +96,7 @@ export function upsertContact(params: {
         syncChannels(contactId, params.channels, now);
       }
 
-      return getContact(contactId)!;
+      return { ...getContact(contactId)!, created: false };
     }
   }
 
@@ -124,7 +124,7 @@ export function upsertContact(params: {
           .run();
 
         syncChannels(contactId, params.channels, now);
-        return getContact(contactId)!;
+        return { ...getContact(contactId)!, created: false };
       }
     }
   }
@@ -148,7 +148,7 @@ export function upsertContact(params: {
     syncChannels(contactId, params.channels, now);
   }
 
-  return getContact(contactId)!;
+  return { ...getContact(contactId)!, created: true };
 }
 
 /**

@@ -16,9 +16,9 @@ import {
   buildCallbackDedupeKey,
   claimCallback,
   releaseCallbackClaim,
+  finalizeCallbackClaim,
 } from './call-store.js';
 import type { CallStatus } from './types.js';
-import { answerCall } from './call-domain.js';
 import { logDeadLetterEvent } from './call-recovery.js';
 import { isTerminalState } from './call-state-machine.js';
 import { getTwilioConfig } from './twilio-config.js';
@@ -36,12 +36,12 @@ function escapeXml(str: string): string {
     .replace(/'/g, '&apos;');
 }
 
-function generateTwiML(callSessionId: string, wssBaseUrl: string, welcomeGreeting: string): string {
+function generateTwiML(callSessionId: string, relayUrl: string, welcomeGreeting: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
     <ConversationRelay
-      url="${escapeXml(wssBaseUrl)}/v1/calls/relay?callSessionId=${escapeXml(callSessionId)}"
+      url="${escapeXml(relayUrl)}?callSessionId=${escapeXml(callSessionId)}"
       welcomeGreeting="${escapeXml(welcomeGreeting)}"
       voice="Google.en-US-Journey-O"
       language="en-US"
@@ -52,6 +52,19 @@ function generateTwiML(callSessionId: string, wssBaseUrl: string, welcomeGreetin
     />
   </Connect>
 </Response>`;
+}
+
+/**
+ * Resolve the WebSocket relay URL from Twilio config.
+ *
+ * Treats wssBaseUrl as present only when it is non-empty after trimming.
+ * Falls back to webhookBaseUrl, normalizing the scheme from http(s) to ws(s)
+ * and stripping any trailing slash.
+ */
+export function resolveRelayUrl(wssBaseUrl: string, webhookBaseUrl: string): string {
+  const base = wssBaseUrl.trim() || webhookBaseUrl;
+  const normalized = base.replace(/\/$/, '').replace(/^http(s?)/, 'ws$1');
+  return `${normalized}/v1/calls/relay`;
 }
 
 /**
@@ -113,10 +126,10 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   }
 
   const config = getTwilioConfig();
-  const wssBaseUrl = config.wssBaseUrl || config.webhookBaseUrl.replace(/^http/, 'ws');
+  const relayUrl = resolveRelayUrl(config.wssBaseUrl, config.webhookBaseUrl);
   const welcomeGreeting = process.env.CALL_WELCOME_GREETING ?? 'Hello, how can I help you today?';
 
-  const twiml = generateTwiML(callSessionId, wssBaseUrl, welcomeGreeting);
+  const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting);
 
   log.info({ callSessionId }, 'Returning ConversationRelay TwiML');
 
@@ -161,7 +174,8 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
   const sequenceNumber = formBody.get('SequenceNumber');
   const dedupeKey = buildCallbackDedupeKey(callSid, callStatus, timestamp, sequenceNumber);
 
-  if (!claimCallback(dedupeKey, session.id)) {
+  const claimId = claimCallback(dedupeKey, session.id);
+  if (!claimId) {
     log.info({ callSid, callStatus, dedupeKey }, 'Duplicate status callback — skipping');
     return new Response(null, { status: 200 });
   }
@@ -197,9 +211,22 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
     if (isTerminal) {
       expirePendingQuestions(session.id);
     }
+
+    // Mark the claim as permanently processed so it never expires.
+    // If finalization returns false, another handler reclaimed this key
+    // after our claim expired — our business writes already landed but
+    // the dedupe row now belongs to the other handler, risking duplicate
+    // processing on later retries.
+    const finalized = finalizeCallbackClaim(dedupeKey, claimId);
+    if (!finalized) {
+      log.warn(
+        { dedupeKey, claimId, callSid, callStatus },
+        'Lost claim during finalization — business writes committed but dedupe ownership was taken by another handler',
+      );
+    }
   } catch (err) {
     // Release claim so Twilio retries can reprocess
-    releaseCallbackClaim(dedupeKey);
+    releaseCallbackClaim(dedupeKey, claimId);
     throw err;
   }
 
@@ -221,22 +248,3 @@ export async function handleConnectAction(_req: Request): Promise<Response> {
   );
 }
 
-/**
- * Answer a pending question for an active call.
- * POST /v1/calls/:callSessionId/answer
- * Body: { answer: string }
- */
-export async function handleCallAnswer(req: Request, callSessionId: string): Promise<Response> {
-  const body = await req.json() as { answer?: string };
-
-  const result = await answerCall({
-    callSessionId,
-    answer: body.answer ?? '',
-  });
-
-  if (!result.ok) {
-    return Response.json({ error: result.error }, { status: result.status ?? 500 });
-  }
-
-  return Response.json({ ok: true, questionId: result.questionId });
-}

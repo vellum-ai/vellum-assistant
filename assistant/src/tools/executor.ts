@@ -17,6 +17,7 @@ import { getConfig } from '../config/loader.js';
 import { scanText, redactSecrets } from '../security/secret-scanner.js';
 import { redactSensitiveFields } from '../security/redaction.js';
 import { getHookManager } from '../hooks/manager.js';
+import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
 
 const log = getLogger('tool-executor');
 
@@ -72,6 +73,34 @@ export class ToolExecutor {
       return { content: msg, isError: true };
     }
 
+    // Belt-and-suspenders guard for task runs: only preflight-approved tools
+    // may execute. This catches cases where ephemeral rules might not cover
+    // a tool, ensuring unapproved calls fail deterministically instead of
+    // falling through to the interactive prompter.
+    if (context.taskRunId) {
+      const taskRules = getTaskRunRules(context.taskRunId);
+      const approvedToolNames = new Set(taskRules.map((r) => r.tool));
+      if (approvedToolNames.size > 0 && !approvedToolNames.has(name)) {
+        const msg = `Tool '${name}' was not approved in the task's preflight. Add it to required tools and re-approve.`;
+        const durationMs = Date.now() - startTime;
+        emitLifecycleEvent(context, {
+          type: 'permission_denied',
+          toolName: name,
+          executionTarget,
+          input,
+          workingDir: context.workingDir,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          requestId: context.requestId,
+          riskLevel,
+          decision: 'deny',
+          reason: msg,
+          durationMs,
+        });
+        return { content: msg, isError: true };
+      }
+    }
+
     const tool = getTool(name);
     if (!tool) {
       const available = getAllTools().filter((t) => t.executionMode !== 'proxy' || context.proxyToolResolver).map((t) => t.name).sort().join(', ');
@@ -102,8 +131,9 @@ export class ToolExecutor {
       riskLevel = risk;
 
       // Build principal context from tool metadata so policy rules can
-      // distinguish skill-provided tools from core built-ins.
-      const policyContext = buildPolicyContext(tool);
+      // distinguish skill-provided tools from core built-ins. Also includes
+      // ephemeral rules when executing within a task run.
+      const policyContext = buildPolicyContext(tool, context);
       const result = await check(name, input, context.workingDir, policyContext);
 
       // Private threads force prompting for side-effect tools even when a
@@ -139,6 +169,32 @@ export class ToolExecutor {
       }
 
       if (result.decision === 'prompt') {
+        // Non-interactive sessions have no client to respond to prompts —
+        // deny immediately instead of blocking for the full permission timeout.
+        if (context.isInteractive === false) {
+          decision = 'denied';
+          const durationMs = Date.now() - startTime;
+          log.info({ toolName: name, riskLevel }, 'Auto-denying prompt for non-interactive session');
+          emitLifecycleEvent(context, {
+            type: 'permission_denied',
+            toolName: name,
+            executionTarget,
+            input,
+            workingDir: context.workingDir,
+            sessionId: context.sessionId,
+            conversationId: context.conversationId,
+            requestId: context.requestId,
+            riskLevel,
+            decision: 'deny',
+            reason: 'Non-interactive session: no client to approve prompt',
+            durationMs,
+          });
+          return {
+            content: `Permission denied: tool "${name}" requires user approval but no interactive client is connected. The tool was not executed. To allow this tool in non-interactive sessions, add a trust rule via permission settings.`,
+            isError: true,
+          };
+        }
+
         // Need user approval
         const allowlistOptions = generateAllowlistOptions(name, input);
         const scopeOptions = generateScopeOptions(context.workingDir, name);
@@ -468,6 +524,39 @@ export class ToolExecutor {
           } else if (sdConfig.action === 'prompt') {
             // Ask the user whether to allow tool output containing secrets
             const types = [...new Set(allMatches.map((m) => m.type))].join(', ');
+
+            // Non-interactive sessions: auto-block secret output instead of waiting for prompt
+            if (context.isInteractive === false) {
+              const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). No interactive client available to approve.`;
+              const durationMs = Date.now() - startTime;
+              log.info({ toolName: name }, 'Auto-blocking secret output for non-interactive session');
+              emitLifecycleEvent(context, {
+                type: 'permission_denied',
+                toolName: name,
+                executionTarget,
+                input,
+                workingDir: context.workingDir,
+                sessionId: context.sessionId,
+                conversationId: context.conversationId,
+                requestId: context.requestId,
+                riskLevel: RiskLevel.High,
+                decision: 'deny',
+                reason: 'Non-interactive session: auto-blocked secret output',
+                durationMs,
+              });
+
+              void getHookManager().trigger('post-tool-execute', {
+                toolName: name,
+                input: sanitizeToolInput(name, input),
+                riskLevel,
+                isError: true,
+                durationMs,
+                sessionId: context.sessionId,
+              });
+
+              return { content: blockedContent, isError: true };
+            }
+
             const promptInput = {
               _secretDetection: true,
               summary: `Tool output contains ${allMatches.length} potential secret(s): ${types}`,
@@ -716,11 +805,16 @@ async function executeWithTimeout(
 }
 
 /**
- * Build a PolicyContext from tool metadata. Skill-origin tools carry a
- * principal identifying the owning skill; core tools yield an undefined
- * context so the checker applies default (user) policy.
+ * Build a PolicyContext from tool metadata and execution context. Skill-origin
+ * tools carry a principal identifying the owning skill. When executing within
+ * a task run, ephemeral permission rules are included so pre-approved tools
+ * are auto-allowed without prompting.
  */
-function buildPolicyContext(tool: Tool): PolicyContext | undefined {
+function buildPolicyContext(tool: Tool, context?: ToolContext): PolicyContext | undefined {
+  const ephemeralRules = context?.taskRunId
+    ? getTaskRunRules(context.taskRunId)
+    : undefined;
+
   if (tool.origin === 'skill') {
     return {
       principal: {
@@ -729,8 +823,22 @@ function buildPolicyContext(tool: Tool): PolicyContext | undefined {
         version: tool.ownerSkillVersionHash,
       },
       executionTarget: tool.executionTarget,
+      ephemeralRules: ephemeralRules?.length ? ephemeralRules : undefined,
     };
   }
+
+  // For non-skill tools in a task run, create a context with task principal
+  // and ephemeral rules so pre-approved tools are honored.
+  if (context?.taskRunId && ephemeralRules?.length) {
+    return {
+      principal: {
+        kind: 'task',
+        id: context.taskRunId,
+      },
+      ephemeralRules,
+    };
+  }
+
   return undefined;
 }
 

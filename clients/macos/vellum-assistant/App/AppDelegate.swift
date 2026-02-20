@@ -317,16 +317,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func performRetire() {
         let cliLauncher = CLILauncher()
-        let lockfilePath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum.lock.json").path
+        let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
-        var assistantName: String?
-        if let data = FileManager.default.contents(atPath: lockfilePath),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let assistants = json["assistants"] as? [[String: Any]],
-           let first = assistants.first,
-           let name = first["assistantId"] as? String {
-            assistantName = name
+        if assistantName == nil {
+            log.error("No stored connected assistant ID found — skipping retire")
         }
 
         Task {
@@ -471,6 +465,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         daemonClient.onOpenTasksWindow = { [weak self] in
             self?.showTasksWindow()
         }
+
+        // Task run threads are no longer created automatically. Users can
+        // opt in via the "Open in Chat" button in the task output view.
 
         // Handle escalation: text_qa -> computer_use via computer_use_request_control
         daemonClient.onTaskRouted = { [weak self] routed in
@@ -1140,7 +1137,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showTasksWindow() {
         NSApp.setActivationPolicy(.regular)
         if tasksWindow == nil {
-            tasksWindow = TasksWindow(daemonClient: daemonClient)
+            let window = TasksWindow(daemonClient: daemonClient)
+            window.onOpenInChat = { [weak self] conversationId, workItemId, title in
+                guard let self else { return }
+                self.mainWindow?.threadManager.createTaskRunThread(
+                    conversationId: conversationId,
+                    workItemId: workItemId,
+                    title: title
+                )
+                if let thread = self.mainWindow?.threadManager.threads.first(where: { $0.sessionId == conversationId }) {
+                    self.mainWindow?.threadManager.activeThreadId = thread.id
+                }
+                self.showMainWindow()
+            }
+            tasksWindow = window
         }
         tasksWindow?.show()
     }

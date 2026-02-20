@@ -35,7 +35,7 @@ mock.module('./indexer.js', () => ({
 }));
 
 import type { Database } from 'bun:sqlite';
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { renderTemplate } from '../tasks/task-runner.js';
 import { compileTaskFromConversation, saveCompiledTask } from '../tasks/task-compiler.js';
 import { getTask } from '../tasks/task-store.js';
@@ -43,6 +43,7 @@ import { getTask } from '../tasks/task-store.js';
 initializeDb();
 
 afterAll(() => {
+  resetDb();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
 

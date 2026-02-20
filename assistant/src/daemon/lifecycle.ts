@@ -44,6 +44,7 @@ import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
 import { HeartbeatService } from '../workspace/heartbeat-service.js';
+import { AgentHeartbeatService } from '../agent-heartbeat/agent-heartbeat-service.js';
 import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
 import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
@@ -257,7 +258,6 @@ function loadDotEnv(): void {
 
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
-  console.log('[daemon] Starting up...');
   loadDotEnv();
   initSentry();
   await initLogfire();
@@ -336,11 +336,9 @@ export async function runDaemon(): Promise<void> {
     log.warn({ err }, 'Qdrant failed to start — memory features will be unavailable');
   }
 
-  console.log('[daemon] Starting DaemonServer (IPC socket)...');
   log.info('Daemon startup: starting DaemonServer (IPC socket)');
   const server = new DaemonServer();
   await server.start();
-  console.log('[daemon] DaemonServer started');
   log.info('Daemon startup: DaemonServer started, starting memory worker');
   const memoryWorker = startMemoryJobsWorker();
   // Initialize watcher engine and register providers
@@ -429,7 +427,6 @@ export async function runDaemon(): Promise<void> {
   }
 
   writePid(process.pid);
-  console.log(`[daemon] Ready (pid=${process.pid})`);
   log.info({ pid: process.pid }, 'Daemon started');
 
   const hookManager = getHookManager();
@@ -459,6 +456,14 @@ export async function runDaemon(): Promise<void> {
   const heartbeat = new HeartbeatService();
   heartbeat.start();
 
+  // Start model-driven heartbeat service (opt-in via config).
+  const agentHeartbeat = new AgentHeartbeatService({
+    processMessage: (conversationId, content) =>
+      server.processMessage(conversationId, content),
+    alerter: (alert) => server.broadcast(alert),
+  });
+  agentHeartbeat.start();
+
   // Graceful shutdown
   let shuttingDown = false;
   const shutdown = async () => {
@@ -479,6 +484,7 @@ export async function runDaemon(): Promise<void> {
     forceTimer.unref();
 
     await heartbeat.stop();
+    await agentHeartbeat.stop();
 
     try {
       await hookManager.trigger('daemon-stop', { pid: process.pid });

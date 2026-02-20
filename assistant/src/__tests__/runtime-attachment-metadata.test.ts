@@ -34,7 +34,7 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 import {
@@ -46,6 +46,7 @@ import { RuntimeHttpServer } from '../runtime/http-server.js';
 initializeDb();
 
 afterAll(() => {
+  resetDb();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
 

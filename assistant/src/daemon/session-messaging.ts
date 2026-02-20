@@ -37,12 +37,13 @@ export function enqueueMessage(
   requestId: string,
   activeSurfaceId?: string,
   currentPage?: string,
+  metadata?: Record<string, unknown>,
 ): { queued: boolean; rejected?: boolean; requestId: string } {
   if (!ctx.processing) {
     return { queued: false, requestId };
   }
 
-  const pushed = ctx.queue.push({ content, attachments, requestId, onEvent, activeSurfaceId, currentPage });
+  const pushed = ctx.queue.push({ content, attachments, requestId, onEvent, activeSurfaceId, currentPage, metadata });
   if (!pushed) {
     return { queued: false, rejected: true, requestId };
   }
@@ -56,6 +57,7 @@ export function persistUserMessage(
   content: string,
   attachments: UserMessageAttachment[],
   requestId?: string,
+  metadata?: Record<string, unknown>,
 ): string {
   if (ctx.processing) {
     throw new Error('Session is already processing a message');
@@ -84,6 +86,7 @@ export function persistUserMessage(
       ctx.conversationId,
       'user',
       JSON.stringify(userMessage.content),
+      metadata,
     );
 
     if (!persistedUserMessage.id) {

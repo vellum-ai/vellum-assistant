@@ -92,6 +92,7 @@ struct SurfaceContainerView: View {
                     },
                     onCancel: {
                         viewModel.onAction("cancel", ["files": [Any]()])
+                        viewModel.onDismiss()
                     }
                 )
             case .table, .browserView, .documentPreview:

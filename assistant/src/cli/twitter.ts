@@ -14,6 +14,17 @@ import {
 } from '../twitter/session.js';
 import {
   postTweet,
+  getUserByScreenName,
+  getUserTweets,
+  getTweetDetail,
+  searchTweets,
+  getBookmarks,
+  getHomeTimeline,
+  getNotifications,
+  getLikes,
+  getFollowers,
+  getFollowing,
+  getUserMedia,
   SessionExpiredError,
 } from '../twitter/client.js';
 import { getSocketPath, readSessionToken } from '../util/platform.js';
@@ -76,9 +87,10 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
 
 export function registerTwitterCommand(program: Command): void {
   const tw = program
-    .command('twitter')
+    .command('x')
+    .alias('twitter')
     .description(
-      'Post tweets and manage Twitter sessions. Requires a session imported from a Ride Shotgun recording.',
+      'Post on X and manage sessions. Requires a session imported from a Ride Shotgun recording.',
     )
     .option('--json', 'Machine-readable JSON output');
 
@@ -130,6 +142,10 @@ export function registerTwitterCommand(program: Command): void {
         const result = await startLearnSession(duration);
         if (result.recordingPath) {
           const session = importFromRecording(result.recordingPath);
+
+          // Hide Chrome after capturing session
+          try { await minimizeChromeWindow(); } catch { /* best-effort */ }
+
           output(
             {
               ok: true,
@@ -194,13 +210,183 @@ export function registerTwitterCommand(program: Command): void {
         };
       });
     });
+
+  // =========================================================================
+  // reply — reply to a tweet
+  // =========================================================================
+  tw.command('reply')
+    .description('Reply to a tweet')
+    .argument('<tweetUrl>', 'Tweet URL or tweet ID')
+    .argument('<text>', 'Reply text')
+    .action(async (tweetUrl: string, text: string, _opts: unknown, cmd: Command) => {
+      await run(cmd, async () => {
+        // Extract tweet ID: either a bare numeric ID or the last numeric segment of a URL
+        const idMatch = tweetUrl.match(/(\d+)\s*$/);
+        if (!idMatch) {
+          throw new Error(`Could not extract tweet ID from: ${tweetUrl}`);
+        }
+        const inReplyToTweetId = idMatch[1];
+        const result = await postTweet(text, { inReplyToTweetId });
+        return {
+          tweetId: result.tweetId,
+          text: result.text,
+          url: result.url,
+          inReplyToTweetId,
+        };
+      });
+    });
+  // =========================================================================
+  // timeline — fetch a user's recent tweets
+  // =========================================================================
+  tw.command('timeline')
+    .description("Fetch a user's recent tweets")
+    .argument('<screenName>', 'Twitter screen name (without @)')
+    .option('--count <n>', 'Number of tweets to fetch', '20')
+    .action(async (screenName: string, opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const user = await getUserByScreenName(screenName.replace(/^@/, ''));
+        const tweets = await getUserTweets(user.userId, parseInt(opts.count, 10));
+        return { user, tweets };
+      });
+    });
+
+  // =========================================================================
+  // tweet — fetch a single tweet and its replies
+  // =========================================================================
+  tw.command('tweet')
+    .description('Fetch a tweet and its reply thread')
+    .argument('<tweetIdOrUrl>', 'Tweet ID or URL')
+    .action(async (tweetIdOrUrl: string, _opts: unknown, cmd: Command) => {
+      await run(cmd, async () => {
+        const idMatch = tweetIdOrUrl.match(/(\d+)\s*$/);
+        if (!idMatch) throw new Error(`Could not extract tweet ID from: ${tweetIdOrUrl}`);
+        const tweets = await getTweetDetail(idMatch[1]);
+        return { tweets };
+      });
+    });
+
+  // =========================================================================
+  // search — search tweets
+  // =========================================================================
+  tw.command('search')
+    .description('Search tweets')
+    .argument('<query>', 'Search query')
+    .option('--product <type>', 'Top, Latest, People, or Media', 'Top')
+    .action(async (query: string, opts: { product: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const tweets = await searchTweets(
+          query,
+          opts.product as 'Top' | 'Latest' | 'People' | 'Media',
+        );
+        return { query, tweets };
+      });
+    });
+
+  // =========================================================================
+  // bookmarks — fetch bookmarks
+  // =========================================================================
+  tw.command('bookmarks')
+    .description('Fetch your bookmarks')
+    .option('--count <n>', 'Number of bookmarks', '20')
+    .action(async (opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const tweets = await getBookmarks(parseInt(opts.count, 10));
+        return { tweets };
+      });
+    });
+
+  // =========================================================================
+  // home — fetch home timeline
+  // =========================================================================
+  tw.command('home')
+    .description('Fetch your home timeline')
+    .option('--count <n>', 'Number of tweets', '20')
+    .action(async (opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const tweets = await getHomeTimeline(parseInt(opts.count, 10));
+        return { tweets };
+      });
+    });
+
+  // =========================================================================
+  // notifications — fetch notifications
+  // =========================================================================
+  tw.command('notifications')
+    .description('Fetch your notifications')
+    .option('--count <n>', 'Number of notifications', '20')
+    .action(async (opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const notifications = await getNotifications(parseInt(opts.count, 10));
+        return { notifications };
+      });
+    });
+
+  // =========================================================================
+  // likes — fetch a user's liked tweets
+  // =========================================================================
+  tw.command('likes')
+    .description("Fetch a user's liked tweets")
+    .argument('<screenName>', 'Twitter screen name (without @)')
+    .option('--count <n>', 'Number of likes', '20')
+    .action(async (screenName: string, opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const user = await getUserByScreenName(screenName.replace(/^@/, ''));
+        const tweets = await getLikes(user.userId, parseInt(opts.count, 10));
+        return { user, tweets };
+      });
+    });
+
+  // =========================================================================
+  // followers — fetch a user's followers
+  // =========================================================================
+  tw.command('followers')
+    .description("Fetch a user's followers")
+    .argument('<screenName>', 'Twitter screen name (without @)')
+    .action(async (screenName: string, _opts: unknown, cmd: Command) => {
+      await run(cmd, async () => {
+        const cleanName = screenName.replace(/^@/, '');
+        const user = await getUserByScreenName(cleanName);
+        const followers = await getFollowers(user.userId, cleanName);
+        return { user, followers };
+      });
+    });
+
+  // =========================================================================
+  // following — fetch who a user follows
+  // =========================================================================
+  tw.command('following')
+    .description("Fetch who a user follows")
+    .argument('<screenName>', 'Twitter screen name (without @)')
+    .option('--count <n>', 'Number of following', '20')
+    .action(async (screenName: string, opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const user = await getUserByScreenName(screenName.replace(/^@/, ''));
+        const following = await getFollowing(user.userId, parseInt(opts.count, 10));
+        return { user, following };
+      });
+    });
+
+  // =========================================================================
+  // media — fetch a user's media tweets
+  // =========================================================================
+  tw.command('media')
+    .description("Fetch a user's media tweets")
+    .argument('<screenName>', 'Twitter screen name (without @)')
+    .option('--count <n>', 'Number of media tweets', '20')
+    .action(async (screenName: string, opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const user = await getUserByScreenName(screenName.replace(/^@/, ''));
+        const tweets = await getUserMedia(user.userId, parseInt(opts.count, 10));
+        return { user, tweets };
+      });
+    });
 }
 
 // ---------------------------------------------------------------------------
 // Chrome CDP restart helper
 // ---------------------------------------------------------------------------
 
-import { execSync, spawn as spawnChild } from 'node:child_process';
+import { spawn as spawnChild } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join as pathJoin } from 'node:path';
 
@@ -220,42 +406,69 @@ async function isCdpReady(): Promise<boolean> {
 }
 
 async function ensureChromeWithCDP(): Promise<void> {
+  // Already running with CDP?
   if (await isCdpReady()) return;
 
-  try {
-    execSync('osascript -e \'tell application "Google Chrome" to quit\'', {
-      timeout: 5000,
-      stdio: 'ignore',
-    });
-  } catch {
-    // Chrome might not be running
-  }
-
-  for (let i = 0; i < 30; i++) {
-    try {
-      execSync('pgrep -x "Google Chrome"', { stdio: 'ignore' });
-      await new Promise(r => setTimeout(r, 200));
-    } catch {
-      break;
-    }
-  }
-
+  // Launch a separate Chrome instance with CDP flags alongside any existing Chrome.
+  // Using a dedicated --user-data-dir allows coexistence without killing the user's browser.
   const chromeApp =
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   spawnChild(chromeApp, [
     `--remote-debugging-port=9222`,
     `--force-renderer-accessibility`,
     `--user-data-dir=${CHROME_DATA_DIR}`,
+    'https://x.com/login',
   ], {
     detached: true,
     stdio: 'ignore',
   }).unref();
 
+  // Wait for CDP to be ready
   for (let i = 0; i < 30; i++) {
     await new Promise(r => setTimeout(r, 500));
     if (await isCdpReady()) return;
   }
   throw new Error('Chrome started but CDP endpoint not responding after 15s');
+}
+
+async function minimizeChromeWindow(): Promise<void> {
+  const res = await fetch(`${CDP_BASE}/json/list`);
+  const targets = (await res.json()) as Array<{ type: string; webSocketDebuggerUrl: string }>;
+  const pageTarget = targets.find(t => t.type === 'page');
+  if (!pageTarget) return;
+
+  const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      ws.close();
+      reject(new Error('CDP minimize timed out'));
+    }, 5000);
+
+    ws.addEventListener('open', () => {
+      ws.send(JSON.stringify({ id: 1, method: 'Browser.getWindowForTarget' }));
+    });
+
+    ws.addEventListener('message', (event) => {
+      const msg = JSON.parse(String(event.data)) as { id: number; result?: { windowId: number } };
+      if (msg.id === 1 && msg.result) {
+        ws.send(JSON.stringify({
+          id: 2,
+          method: 'Browser.setWindowBounds',
+          params: { windowId: msg.result.windowId, bounds: { windowState: 'minimized' } },
+        }));
+      } else if (msg.id === 2) {
+        clearTimeout(timeout);
+        ws.close();
+        resolve();
+      }
+    });
+
+    ws.addEventListener('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -267,8 +480,22 @@ interface LearnResult {
   recordingPath?: string;
 }
 
+async function navigateToX(): Promise<void> {
+  try {
+    const res = await fetch(`${CDP_BASE}/json/list`);
+    if (!res.ok) return;
+    const targets = (await res.json()) as Array<{ id: string; type: string; url: string }>;
+    const tab = targets.find(t => t.type === 'page');
+    if (!tab) return;
+    await fetch(`${CDP_BASE}/json/navigate?url=${encodeURIComponent('https://x.com/login')}&id=${tab.id}`, { method: 'PUT' });
+  } catch {
+    // best-effort
+  }
+}
+
 async function startLearnSession(durationSeconds: number): Promise<LearnResult> {
   await ensureChromeWithCDP();
+  await navigateToX();
 
   return new Promise((resolve, reject) => {
     const socketPath = getSocketPath();

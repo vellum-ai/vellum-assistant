@@ -537,6 +537,25 @@ exports[`IPC message snapshots ClientMessage types vercel_api_config serializes 
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types twitter_integration_config serializes to expected JSON 1`] = `
+{
+  "action": "get",
+  "type": "twitter_integration_config",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types twitter_auth_start serializes to expected JSON 1`] = `
+{
+  "type": "twitter_auth_start",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types twitter_auth_status serializes to expected JSON 1`] = `
+{
+  "type": "twitter_auth_status",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types link_open_request serializes to expected JSON 1`] = `
 {
   "type": "link_open_request",
@@ -730,13 +749,6 @@ exports[`IPC message snapshots ClientMessage types work_item_cancel serializes t
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types work_item_render serializes to expected JSON 1`] = `
-{
-  "id": "wi-001",
-  "type": "work_item_render",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types document_save serializes to expected JSON 1`] = `
 {
   "content": "# Hello",
@@ -771,7 +783,6 @@ exports[`IPC message snapshots ClientMessage types subagent_abort serializes to 
 
 exports[`IPC message snapshots ClientMessage types subagent_status serializes to expected JSON 1`] = `
 {
-  "sessionId": "sess-001",
   "subagentId": "sub-001",
   "type": "subagent_status",
 }
@@ -1767,6 +1778,34 @@ exports[`IPC message snapshots ServerMessage types vercel_api_config_response se
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types twitter_integration_config_response serializes to expected JSON 1`] = `
+{
+  "connected": false,
+  "localClientConfigured": true,
+  "managedAvailable": false,
+  "mode": "local_byo",
+  "success": true,
+  "type": "twitter_integration_config_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types twitter_auth_result serializes to expected JSON 1`] = `
+{
+  "accountInfo": "@vellum_test",
+  "success": true,
+  "type": "twitter_auth_result",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types twitter_auth_status_response serializes to expected JSON 1`] = `
+{
+  "accountInfo": "@vellum_test",
+  "connected": true,
+  "mode": "local_byo",
+  "type": "twitter_auth_status_response",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types open_url serializes to expected JSON 1`] = `
 {
   "title": "Example",
@@ -2105,16 +2144,6 @@ exports[`IPC message snapshots ServerMessage types work_item_cancel_response ser
   "id": "wi-001",
   "success": true,
   "type": "work_item_cancel_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types work_item_render_response serializes to expected JSON 1`] = `
-{
-  "content": "# Rendered Work Item",
-  "id": "wi-001",
-  "success": true,
-  "title": "Process report",
-  "type": "work_item_render_response",
 }
 `;
 
