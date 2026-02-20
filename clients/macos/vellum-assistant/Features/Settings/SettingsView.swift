@@ -11,7 +11,7 @@ public struct SettingsView: View {
     @State private var vercelKeyText = ""
     @State private var twitterClientId = ""
     @State private var twitterClientSecret = ""
-    @State private var twilioWebhookUrlText = ""
+    @State private var ingressUrlText = ""
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
     @State private var showingPrivacy = false
@@ -324,8 +324,8 @@ public struct SettingsView: View {
                 }
             }
 
-            Section("Twilio") {
-                TextField("Base Webhook URL (e.g. https://abc123.ngrok-free.app)", text: $twilioWebhookUrlText)
+            Section("Public Ingress") {
+                TextField("Public Ingress URL (e.g. https://abc123.ngrok-free.app)", text: $ingressUrlText)
                     .textFieldStyle(.roundedBorder)
 
                 HStack(alignment: .top, spacing: 6) {
@@ -337,16 +337,45 @@ public struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text("Twilio webhook paths (e.g. /webhooks/twilio/voice) are appended automatically.")
+                Text("Webhook paths (e.g. /webhooks/twilio/voice) are appended automatically.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 HStack {
                     Spacer()
                     Button("Save") {
-                        store.saveTwilioWebhookBaseUrl(twilioWebhookUrlText)
+                        store.saveIngressPublicBaseUrl(ingressUrlText)
                     }
                 }
+
+                Divider()
+
+                HStack {
+                    Text("Local Gateway Target")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+
+                HStack(spacing: 6) {
+                    Text("http://127.0.0.1:7830")
+                        .font(.body.monospaced())
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString("http://127.0.0.1:7830", forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Copy gateway address")
+                }
+
+                Text("Point your tunnel service at this local address.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Computer Use") {
@@ -549,7 +578,7 @@ public struct SettingsView: View {
             store.refreshAPIKeyState()
             store.refreshVercelKeyState()
             store.refreshTwitterStatus()
-            store.refreshTwilioWebhookConfig()
+            store.refreshIngressConfig()
             checkPermissions()
         }
         .onDisappear {
@@ -560,8 +589,8 @@ public struct SettingsView: View {
         .onReceive(permissionTimer) { _ in
             checkPermissions()
         }
-        .onChange(of: store.twilioWebhookBaseUrl) { _, newValue in
-            twilioWebhookUrlText = newValue
+        .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
+            ingressUrlText = newValue
         }
         .sheet(isPresented: $showingSkills, onDismiss: {
             skillsViewModel = nil
