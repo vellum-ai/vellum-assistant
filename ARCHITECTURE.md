@@ -3509,6 +3509,10 @@ In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice w
 
 Signature validation is **fail-closed**: if the Twilio auth token is not configured, all webhook requests are rejected with `403`. Missing or invalid `X-Twilio-Signature` headers are also rejected with `403`. Payload size is capped by `maxWebhookPayloadBytes` (checked via both `Content-Length` header and actual body size).
 
+**Webhook base URL resolution:** The base URL used when constructing Twilio webhook URLs (passed to the Twilio REST API during call initiation) is read from `calls.webhookBaseUrl` in workspace config. If not set, the system falls back to the `TWILIO_WEBHOOK_BASE_URL` environment variable (deprecated — see below). Setting the base URL via workspace config (or the Settings UI) is the recommended approach. Twilio-specific paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, etc.) are appended automatically.
+
+> **Deprecation:** The `TWILIO_WEBHOOK_BASE_URL` environment variable is deprecated. Use `calls.webhookBaseUrl` in workspace config instead. The env var will continue to work as a fallback during the compatibility window, but a deprecation warning is logged when it is used.
+
 ### Runtime HTTP Endpoints
 
 | Method | Path | Description |
@@ -3560,6 +3564,7 @@ Call behavior is controlled via the `calls` config block in the assistant config
 |-------|------|---------|-------------|
 | `calls.enabled` | boolean | `true` | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors. |
 | `calls.provider` | enum | `'twilio'` | Voice provider to use (currently only Twilio is supported). |
+| `calls.webhookBaseUrl` | string | `""` | Base URL for Twilio webhooks (e.g., `https://abc123.ngrok-free.app`). Twilio-specific paths like `/webhooks/twilio/voice` and `/webhooks/twilio/status` are appended automatically. Falls back to `TWILIO_WEBHOOK_BASE_URL` env var if not set (deprecated). |
 | `calls.maxDurationSeconds` | int | `3600` | Maximum allowed duration per call. |
 | `calls.userConsultTimeoutSeconds` | int | `120` | How long to wait for a user answer before timing out a pending question. |
 | `calls.disclosure.enabled` | boolean | `true` | Whether the AI should disclose it is an AI at the start of the call. |
