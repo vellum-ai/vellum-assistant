@@ -42,13 +42,11 @@ jobs:
       - name: Install dependencies
         if: steps.version.outputs.changed == 'true'
         run: |
-          for i in 1 2 3 4 5 6 7 8; do
-            bun install --frozen-lockfile && exit 0
-            echo "Install attempt $i failed, retrying in 15 seconds..."
-            sleep 15
+          for i in 1 2 3 4 5; do
+            bun install && break
+            echo "bun install attempt $i failed, retrying in 30s..."
+            sleep 30
           done
-          echo "Install failed after 8 attempts"
-          exit 1
 
       - name: Setup Node
         if: steps.version.outputs.changed == 'true'

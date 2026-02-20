@@ -1,5 +1,17 @@
 import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { listWorkItems, type WorkItemStatus } from '../../work-items/work-item-store.js';
+import { listWorkItems, type WorkItem, type WorkItemStatus } from '../../work-items/work-item-store.js';
+
+const PRIORITY_LABELS: Record<number, string> = { 0: 'High', 1: 'Medium', 2: 'Low' };
+
+function formatTaskList(items: WorkItem[]): string {
+  const lines: string[] = [];
+  for (const item of items) {
+    const priority = PRIORITY_LABELS[item.priorityTier] ?? 'Medium';
+    const status = item.status.replace(/_/g, ' ');
+    lines.push(`- [${priority}] ${item.title} (${status})`);
+  }
+  return lines.join('\n');
+}
 
 export async function executeTaskListShow(
   input: Record<string, unknown>,
@@ -33,7 +45,9 @@ export async function executeTaskListShow(
       ? `${count} ${Array.isArray(statusFilter) ? 'matching' : statusFilter} item${count === 1 ? '' : 's'}`
       : `${count} item${count === 1 ? '' : 's'}`;
 
-    return { content: `Opened Tasks window (${label}).`, isError: false };
+    const taskList = formatTaskList(items);
+
+    return { content: `Opened Tasks window (${label}).\n\nCurrent tasks:\n${taskList}`, isError: false };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error: ${msg}`, isError: true };

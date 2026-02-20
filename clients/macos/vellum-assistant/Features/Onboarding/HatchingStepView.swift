@@ -288,8 +288,23 @@ struct HatchingStepView: View {
                         let dateB = (b["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
                         return dateA > dateB
                     }
-                    if let assistantId = sorted.first?["assistantId"] as? String {
+                    if let latest = sorted.first,
+                       let assistantId = latest["assistantId"] as? String {
                         UserDefaults.standard.set(assistantId, forKey: "connectedAssistantId")
+
+                        var homeConfig: [String: Any] = [:]
+                        if let cloud = latest["cloud"] as? String { homeConfig["cloud"] = cloud }
+                        if let runtimeUrl = latest["runtimeUrl"] as? String { homeConfig["runtimeUrl"] = runtimeUrl }
+                        if let project = latest["project"] as? String { homeConfig["project"] = project }
+                        if let region = latest["region"] as? String { homeConfig["region"] = region }
+                        if let zone = latest["zone"] as? String { homeConfig["zone"] = zone }
+                        if let instanceId = latest["instanceId"] as? String { homeConfig["instanceId"] = instanceId }
+
+                        let existing = WorkspaceConfigIO.read()
+                        var assistantConfig = existing["assistant"] as? [String: Any] ?? [:]
+                        assistantConfig["id"] = assistantId
+                        assistantConfig["home"] = homeConfig
+                        try? WorkspaceConfigIO.merge(["assistant": assistantConfig])
                     }
                 }
 

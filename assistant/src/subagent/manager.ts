@@ -57,6 +57,7 @@ export interface SubagentNotificationInfo {
   label: string;
   status: 'completed' | 'failed' | 'aborted';
   error?: string;
+  conversationId?: string;
 }
 
 export type ParentNotifyCallback = (
@@ -299,7 +300,7 @@ export class SubagentManager {
             managed.state.config.parentSessionId,
             message,
             managed.parentSendToClient,
-            { subagentId, label, status: 'aborted' },
+            { subagentId, label, status: 'aborted', conversationId: managed.state.conversationId },
           );
         } catch (err) {
           log.error({ subagentId, err }, 'Failed to notify parent about abort');
@@ -497,6 +498,7 @@ export class SubagentManager {
       subagentId: config.id,
       label: config.label,
       status: outcome,
+      conversationId: managed.state.conversationId,
       ...(outcome === 'failed' ? { error: managed.state.error ?? 'Unknown error' } : {}),
     };
 

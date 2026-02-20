@@ -1075,6 +1075,38 @@ public final class ChatViewModel: ObservableObject {
         onInlineConfirmationResponse?(requestId, decision)
     }
 
+    /// Respond to a tool confirmation with "always_allow", sending the selected pattern and scope
+    /// so the backend atomically persists the trust rule alongside the confirmation response.
+    /// If the daemon is disconnected, shows an error without attempting a fallback (since
+    /// respondToConfirmation would also fail). On IPC send errors, attempts a one-time allow
+    /// fallback and only claims success if the fallback actually went through.
+    public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String, decision: String = "always_allow") {
+        guard daemonClient.isConnected else {
+            log.warning("Cannot persist always-allow: daemon not connected")
+            errorText = "Cannot send confirmation — daemon is not connected."
+            return
+        }
+        do {
+            try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope))
+        } catch {
+            log.warning("Always-allow IPC failed: \(error.localizedDescription)")
+            // Try one-time allow as fallback (daemon may still be connected)
+            respondToConfirmation(requestId: requestId, decision: "allow")
+            // respondToConfirmation sets errorText on failure; override with more context if it succeeded
+            if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }),
+               messages[index].confirmation?.state == .approved {
+                errorText = "Preference could not be saved. This action was allowed once."
+            }
+            return
+        }
+        // IPC send succeeded — update the message state
+        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+            messages[index].confirmation?.state = .approved
+        }
+        // Dismiss the corresponding floating panel / native notification if one exists
+        onInlineConfirmationResponse?(requestId, "allow")
+    }
+
     /// Update the inline confirmation message state without sending a response to the daemon.
     /// Used when the floating panel handles the response.
     public func updateConfirmationState(requestId: String, decision: String) {
@@ -1291,6 +1323,41 @@ public final class ChatViewModel: ObservableObject {
                 info.error = notification.error
                 reconstructedSubagents.append(info)
                 chatMsg.isSubagentNotification = true
+
+                // Populate detail store from embedded data so the side panel works after reload
+                if let objective = notification.objective {
+                    subagentDetailStore.recordSpawned(subagentId: notification.subagentId, objective: objective)
+                }
+                if let events = notification.events {
+                    for event in events {
+                        switch event.type {
+                        case "text":
+                            subagentDetailStore.handleEvent(
+                                subagentId: notification.subagentId,
+                                event: .assistantTextDelta(IPCAssistantTextDelta(type: "assistant_text_delta", text: event.content, sessionId: nil))
+                            )
+                        case "tool_use":
+                            let input: [String: AnyCodable]
+                            if let data = event.content.data(using: .utf8),
+                               let parsed = try? JSONDecoder().decode([String: AnyCodable].self, from: data) {
+                                input = parsed
+                            } else {
+                                input = [:]
+                            }
+                            subagentDetailStore.handleEvent(
+                                subagentId: notification.subagentId,
+                                event: .toolUseStart(IPCToolUseStart(type: "tool_use_start", toolName: event.toolName ?? "unknown", input: input, sessionId: nil))
+                            )
+                        case "tool_result":
+                            subagentDetailStore.handleEvent(
+                                subagentId: notification.subagentId,
+                                event: .toolResult(IPCToolResult(type: "tool_result", toolName: event.toolName ?? "unknown", result: event.content, isError: event.isError, diff: nil, status: nil, sessionId: nil, imageData: nil))
+                            )
+                        default:
+                            break
+                        }
+                    }
+                }
             }
 
             chatMessages.append(chatMsg)

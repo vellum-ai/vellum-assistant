@@ -212,6 +212,8 @@ export interface RideShotgunStart {
   intervalSeconds: number;
   mode?: 'observe' | 'learn';
   targetDomain?: string;
+  /** Domain to auto-navigate (may differ from targetDomain, e.g. open.spotify.com vs spotify.com). */
+  navigateDomain?: string;
   autoNavigate?: boolean;
 }
 
@@ -468,6 +470,18 @@ export interface SlackWebhookConfigRequest {
   type: 'slack_webhook_config';
   action: 'get' | 'set';
   webhookUrl?: string;
+}
+
+export interface TwilioWebhookConfigRequest {
+  type: 'twilio_webhook_config';
+  action: 'get' | 'set';
+  webhookBaseUrl?: string;
+}
+
+export interface IngressConfigRequest {
+  type: 'ingress_config';
+  action: 'get' | 'set';
+  publicBaseUrl?: string;
 }
 
 export interface VercelApiConfigRequest {
@@ -933,6 +947,8 @@ export type ClientMessage =
   | ShareAppCloudRequest
   | ShareToSlackRequest
   | SlackWebhookConfigRequest
+  | TwilioWebhookConfigRequest
+  | IngressConfigRequest
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
   | TwitterAuthStartRequest
@@ -1041,6 +1057,12 @@ export interface ToolUseStart {
 export interface ToolOutputChunk {
   type: 'tool_output_chunk';
   chunk: string;
+  sessionId?: string;
+  subType?: 'tool_start' | 'tool_complete' | 'status';
+  subToolName?: string;
+  subToolInput?: string;
+  subToolIsError?: boolean;
+  subToolId?: string;
 }
 
 export interface ToolInputDelta {
@@ -1212,6 +1234,16 @@ export interface HistoryResponse {
       label: string;
       status: 'completed' | 'failed' | 'aborted';
       error?: string;
+      conversationId?: string;
+      /** Subagent objective text, populated from DB on history load. */
+      objective?: string;
+      /** Subagent events (text, tool_use, tool_result), populated from DB on history load. */
+      events?: Array<{
+        type: string;
+        content: string;
+        toolName?: string;
+        isError?: boolean;
+      }>;
     };
   }>;
 }
@@ -1675,6 +1707,20 @@ export interface SlackWebhookConfigResponse {
   error?: string;
 }
 
+export interface TwilioWebhookConfigResponse {
+  type: 'twilio_webhook_config_response';
+  webhookBaseUrl: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface IngressConfigResponse {
+  type: 'ingress_config_response';
+  publicBaseUrl: string;
+  success: boolean;
+  error?: string;
+}
+
 export interface OpenUrl {
   type: 'open_url';
   url: string;
@@ -1993,7 +2039,7 @@ export interface WorkItemDeleteResponse {
   success: boolean;
 }
 
-export type WorkItemRunTaskErrorCode = 'not_found' | 'already_running' | 'invalid_status' | 'no_task';
+export type WorkItemRunTaskErrorCode = 'not_found' | 'already_running' | 'invalid_status' | 'no_task' | 'permission_required';
 
 export interface WorkItemRunTaskResponse {
   type: 'work_item_run_task_response';
@@ -2158,6 +2204,8 @@ export type ServerMessage =
   | GalleryInstallResponse
   | ShareToSlackResponse
   | SlackWebhookConfigResponse
+  | TwilioWebhookConfigResponse
+  | IngressConfigResponse
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse
   | TwitterAuthResult

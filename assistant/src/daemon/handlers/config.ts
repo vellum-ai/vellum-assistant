@@ -19,6 +19,8 @@ import type {
   ReminderCancel,
   ShareToSlackRequest,
   SlackWebhookConfigRequest,
+  TwilioWebhookConfigRequest,
+  IngressConfigRequest,
   VercelApiConfigRequest,
   TwitterIntegrationConfigRequest,
 } from '../ipc-protocol.js';
@@ -88,11 +90,12 @@ export function handleModelSet(
     // Suppress the file watcher callback — handleModelSet already does
     // the full reload sequence; a redundant watcher-triggered reload
     // would incorrectly evict sessions created after this method returns.
+    const wasSuppressed = ctx.suppressConfigReload;
     ctx.setSuppressConfigReload(true);
     try {
       saveRawConfig(raw);
     } catch (err) {
-      ctx.setSuppressConfigReload(false);
+      ctx.setSuppressConfigReload(wasSuppressed);
       throw err;
     }
     const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
@@ -137,11 +140,12 @@ export function handleImageGenModelSet(
     const raw = loadRawConfig();
     raw.imageGenModel = msg.model;
 
+    const wasSuppressed = ctx.suppressConfigReload;
     ctx.setSuppressConfigReload(true);
     try {
       saveRawConfig(raw);
     } catch (err) {
-      ctx.setSuppressConfigReload(false);
+      ctx.setSuppressConfigReload(wasSuppressed);
       throw err;
     }
     const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
@@ -164,9 +168,9 @@ export function handleAddTrustRule(
 ): void {
   try {
     addRule(msg.toolName, msg.pattern, msg.scope, msg.decision);
-    log.info({ tool: msg.toolName, pattern: msg.pattern, scope: msg.scope, decision: msg.decision }, 'Trust rule added via client');
+    log.info({ toolName: msg.toolName, pattern: msg.pattern, scope: msg.scope, decision: msg.decision }, 'Trust rule added via client');
   } catch (err) {
-    log.error({ err }, 'Failed to add trust rule');
+    log.error({ err, toolName: msg.toolName, pattern: msg.pattern, scope: msg.scope }, 'Failed to add trust rule via client');
   }
 }
 
@@ -396,6 +400,88 @@ export function handleSlackWebhookConfig(
   }
 }
 
+export function handleTwilioWebhookConfig(
+  msg: TwilioWebhookConfigRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    if (msg.action === 'get') {
+      const raw = loadRawConfig();
+      const webhookBaseUrl = (raw?.calls as Record<string, unknown>)?.webhookBaseUrl as string ?? '';
+      ctx.send(socket, { type: 'twilio_webhook_config_response', webhookBaseUrl, success: true });
+    } else if (msg.action === 'set') {
+      const value = (msg.webhookBaseUrl ?? '').trim().replace(/\/+$/, '');
+      const raw = loadRawConfig();
+      const calls = (raw?.calls ?? {}) as Record<string, unknown>;
+      calls.webhookBaseUrl = value || undefined;
+      const wasSuppressed = ctx.suppressConfigReload;
+      ctx.setSuppressConfigReload(true);
+      try {
+        saveRawConfig({ ...raw, calls });
+      } catch (err) {
+        ctx.setSuppressConfigReload(wasSuppressed);
+        throw err;
+      }
+      const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
+      if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
+      const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
+      ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+      ctx.send(socket, { type: 'twilio_webhook_config_response', webhookBaseUrl: value, success: true });
+    } else {
+      ctx.send(socket, { type: 'twilio_webhook_config_response', webhookBaseUrl: '', success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    ctx.send(socket, { type: 'twilio_webhook_config_response', webhookBaseUrl: '', success: false, error: message });
+  }
+}
+
+export function handleIngressConfig(
+  msg: IngressConfigRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    if (msg.action === 'get') {
+      const raw = loadRawConfig();
+      const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+      const publicBaseUrl = (ingress.publicBaseUrl as string) ?? '';
+      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl, success: true });
+    } else if (msg.action === 'set') {
+      const value = (msg.publicBaseUrl ?? '').trim().replace(/\/+$/, '');
+      const raw = loadRawConfig();
+
+      // Update ingress.publicBaseUrl
+      const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+      ingress.publicBaseUrl = value || undefined;
+
+      // Also update calls.webhookBaseUrl for backward compat
+      const calls = (raw?.calls ?? {}) as Record<string, unknown>;
+      calls.webhookBaseUrl = value || undefined;
+
+      const wasSuppressed = ctx.suppressConfigReload;
+      ctx.setSuppressConfigReload(true);
+      try {
+        saveRawConfig({ ...raw, ingress, calls });
+      } catch (err) {
+        ctx.setSuppressConfigReload(wasSuppressed);
+        throw err;
+      }
+      const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
+      if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
+      const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
+      ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: value, success: true });
+    } else {
+      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', success: false, error: message });
+  }
+}
+
 export function handleVercelApiConfig(
   msg: VercelApiConfigRequest,
   socket: net.Socket,
@@ -503,6 +589,7 @@ export function handleTwitterIntegrationConfig(
         });
         return;
       }
+      const previousClientId = getSecureKey('credential:integration:twitter:oauth_client_id');
       const storedId = setSecureKey('credential:integration:twitter:oauth_client_id', msg.clientId);
       if (!storedId) {
         ctx.send(socket, {
@@ -518,8 +605,12 @@ export function handleTwitterIntegrationConfig(
       if (msg.clientSecret) {
         const storedSecret = setSecureKey('credential:integration:twitter:oauth_client_secret', msg.clientSecret);
         if (!storedSecret) {
-          // Roll back the already-persisted client ID to avoid inconsistent OAuth state
-          deleteSecureKey('credential:integration:twitter:oauth_client_id');
+          // Roll back the client ID to its previous value to avoid inconsistent OAuth state
+          if (previousClientId) {
+            setSecureKey('credential:integration:twitter:oauth_client_id', previousClientId);
+          } else {
+            deleteSecureKey('credential:integration:twitter:oauth_client_id');
+          }
           ctx.send(socket, {
             type: 'twitter_integration_config_response',
             success: false,
@@ -616,6 +707,8 @@ export const configHandlers = defineHandlers({
   reminder_cancel: handleReminderCancel,
   share_to_slack: handleShareToSlack,
   slack_webhook_config: handleSlackWebhookConfig,
+  twilio_webhook_config: handleTwilioWebhookConfig,
+  ingress_config: handleIngressConfig,
   vercel_api_config: handleVercelApiConfig,
   twitter_integration_config: handleTwitterIntegrationConfig,
   env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),

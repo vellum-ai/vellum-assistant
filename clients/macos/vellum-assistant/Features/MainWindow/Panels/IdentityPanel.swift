@@ -9,6 +9,7 @@ struct IdentityPanel: View {
 
     @State private var identity: IdentityInfo?
     @State private var metadata: AssistantMetadata?
+    @State private var lockfileAssistant: LockfileAssistant?
     @State private var workspaceFiles: [WorkspaceFileNode] = []
     @State private var skills: [SkillInfo] = []
     @State private var viewingFilePath: String?
@@ -97,6 +98,7 @@ struct IdentityPanel: View {
         .onAppear {
             identity = IdentityInfo.load()
             metadata = AssistantMetadata.load()
+            lockfileAssistant = LockfileAssistant.loadLatest()
             workspaceFiles = WorkspaceFileNode.scan()
             fetchSkills()
         }
@@ -128,6 +130,10 @@ struct IdentityPanel: View {
     @ViewBuilder
     private func idCardSection(identity: IdentityInfo) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
+            if let assistantId = lockfileAssistant?.assistantId {
+                idRow(label: "Assistant ID", value: assistantId, mono: true)
+            }
+
             idRow(label: "Agent ID", value: identity.agentID, mono: true)
             idRow(label: "Given name", value: identity.name)
 
@@ -147,9 +153,8 @@ struct IdentityPanel: View {
 
             idRow(label: "Origin system", value: metadata?.originSystem ?? "local")
 
-            if let home = identity.home {
-                homeRow(home: home)
-            }
+            let home = lockfileAssistant?.home ?? identity.home ?? .local(workspacePath: NSHomeDirectory() + "/.vellum/workspace")
+            homeRow(home: home)
         }
     }
 

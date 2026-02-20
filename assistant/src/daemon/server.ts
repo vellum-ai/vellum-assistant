@@ -39,6 +39,7 @@ import { getSubagentManager } from '../subagent/index.js';
 import { tryHandlePendingCallAnswer } from '../calls/call-bridge.js';
 import { resolveSlash } from './session-slash.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
+import { registerDaemonCallbacks } from '../work-items/work-item-runner.js';
 
 const log = getLogger('server');
 
@@ -183,6 +184,12 @@ export class DaemonServer {
     }
 
     this.evictor.start();
+
+    // Register daemon callbacks so tools can trigger work item execution
+    registerDaemonCallbacks({
+      getOrCreateSession: (conversationId) => this.getOrCreateSession(conversationId),
+      broadcast: (msg) => this.broadcast(msg),
+    });
 
     ensureBlobDir();
     this.blobSweepTimer = setInterval(() => {

@@ -75,6 +75,14 @@ public final class SettingsStore: ObservableObject {
     @Published var twitterAuthInProgress: Bool = false
     @Published var twitterAuthError: String?
 
+    // MARK: - Ingress Config State
+
+    @Published var ingressPublicBaseUrl: String = ""
+
+    // MARK: - Twilio Webhook State (legacy)
+
+    @Published var twilioWebhookBaseUrl: String = ""
+
     // MARK: - Trust Rules Coordination
 
     /// Whether any settings surface currently has a trust rules sheet open.
@@ -175,6 +183,22 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
+        // Wire up ingress config IPC response
+        daemonClient?.onIngressConfigResponse = { [weak self] response in
+            guard let self else { return }
+            if response.success {
+                self.ingressPublicBaseUrl = response.publicBaseUrl
+            }
+        }
+
+        // Wire up Twilio webhook config IPC response (legacy)
+        daemonClient?.onTwilioWebhookConfigResponse = { [weak self] response in
+            guard let self else { return }
+            if response.success {
+                self.twilioWebhookBaseUrl = response.webhookBaseUrl
+            }
+        }
+
         // Wire up Twitter auth result IPC response
         daemonClient?.onTwitterAuthResult = { [weak self] response in
             guard let self else { return }
@@ -197,6 +221,12 @@ public final class SettingsStore: ObservableObject {
 
         // Refresh Twitter integration status on init
         refreshTwitterStatus()
+
+        // Refresh ingress config on init
+        refreshIngressConfig()
+
+        // Refresh Twilio webhook config on init (legacy)
+        refreshTwilioWebhookConfig()
     }
 
     // MARK: - API Key Actions
@@ -351,6 +381,34 @@ public final class SettingsStore: ObservableObject {
     func disconnectTwitter() {
         twitterAuthInProgress = false
         try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "disconnect"))
+    }
+
+    // MARK: - Ingress Config Actions
+
+    func refreshIngressConfig() {
+        try? daemonClient?.send(IngressConfigRequestMessage(action: "get"))
+    }
+
+    func saveIngressPublicBaseUrl(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Don't update local state optimistically — wait for the daemon's
+        // success response (handled by onIngressConfigResponse) so the UI
+        // reverts automatically if the save fails.
+        try? daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed))
+    }
+
+    // MARK: - Twilio Webhook Actions (legacy)
+
+    func refreshTwilioWebhookConfig() {
+        try? daemonClient?.send(TwilioWebhookConfigRequestMessage(action: "get"))
+    }
+
+    func saveTwilioWebhookBaseUrl(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Don't update local state optimistically — wait for the daemon's
+        // success response (handled by onTwilioWebhookConfigResponse) so the
+        // UI reverts automatically if the save fails.
+        try? daemonClient?.send(TwilioWebhookConfigRequestMessage(action: "set", webhookBaseUrl: trimmed))
     }
 
     // MARK: - Model Actions

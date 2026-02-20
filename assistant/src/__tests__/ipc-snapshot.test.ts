@@ -339,6 +339,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'slack_webhook_config',
     action: 'get',
   },
+  twilio_webhook_config: {
+    type: 'twilio_webhook_config',
+    action: 'get',
+  },
   vercel_api_config: {
     type: 'vercel_api_config',
     action: 'get',
@@ -888,6 +892,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     title: 'Urgent email from Alice',
     body: 'Meeting rescheduled to 3pm today.',
   },
+  agent_heartbeat_alert: {
+    type: 'agent_heartbeat_alert',
+    title: 'Agent heartbeat stalled',
+    body: 'No activity detected in the last 60 minutes.',
+  },
   watch_started: {
     type: 'watch_started',
     sessionId: 'sess-001',
@@ -1123,6 +1132,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   slack_webhook_config_response: {
     type: 'slack_webhook_config_response',
     webhookUrl: 'https://hooks.slack.com/services/T00/B00/xxx',
+    success: true,
+  },
+  twilio_webhook_config_response: {
+    type: 'twilio_webhook_config_response',
+    webhookBaseUrl: 'https://example.com/twilio',
     success: true,
   },
   vercel_api_config_response: {
@@ -1399,6 +1413,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   open_tasks_window: {
     type: 'open_tasks_window',
   },
+  task_run_thread_created: {
+    type: 'task_run_thread_created',
+    conversationId: 'conv-task-run-001',
+    workItemId: 'wi-001',
+    title: 'Process report',
+  },
   subagent_spawned: {
     type: 'subagent_spawned',
     subagentId: 'sub-001',
@@ -1419,6 +1439,17 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       text: 'Searching for docs...',
       sessionId: 'sub-sess-001',
     },
+  },
+  agent_heartbeat_alert: {
+    type: 'agent_heartbeat_alert',
+    title: 'Agent unresponsive',
+    body: 'The agent has not responded for 5 minutes.',
+  },
+  task_run_thread_created: {
+    type: 'task_run_thread_created',
+    conversationId: 'conv-task-001',
+    workItemId: 'work-item-001',
+    title: 'Task run thread',
   },
 };
 

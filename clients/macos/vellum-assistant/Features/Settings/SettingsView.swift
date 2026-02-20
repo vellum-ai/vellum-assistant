@@ -11,6 +11,8 @@ public struct SettingsView: View {
     @State private var vercelKeyText = ""
     @State private var twitterClientId = ""
     @State private var twitterClientSecret = ""
+    @State private var ingressUrlText = ""
+    @FocusState private var isIngressUrlFocused: Bool
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
     @State private var showingPrivacy = false
@@ -323,6 +325,61 @@ public struct SettingsView: View {
                 }
             }
 
+            Section("Public Ingress") {
+                TextField("Public Ingress URL (e.g. https://abc123.ngrok-free.app)", text: $ingressUrlText)
+                    .focused($isIngressUrlFocused)
+                    .textFieldStyle(.roundedBorder)
+
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.system(size: 12))
+                    Text("Setting a public base URL may expose this computer to the public internet. Use with caution.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("Webhook paths (e.g. /webhooks/twilio/voice) are appended automatically.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack {
+                    Spacer()
+                    Button("Save") {
+                        store.saveIngressPublicBaseUrl(ingressUrlText)
+                    }
+                }
+
+                Divider()
+
+                HStack {
+                    Text("Local Gateway Target")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+
+                HStack(spacing: 6) {
+                    Text("http://127.0.0.1:7830")
+                        .font(.body.monospaced())
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString("http://127.0.0.1:7830", forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Copy gateway address")
+                }
+
+                Text("Point your tunnel service at this local address.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Computer Use") {
                 HStack {
                     Text("Max steps per session")
@@ -523,6 +580,8 @@ public struct SettingsView: View {
             store.refreshAPIKeyState()
             store.refreshVercelKeyState()
             store.refreshTwitterStatus()
+            store.refreshIngressConfig()
+            ingressUrlText = store.ingressPublicBaseUrl
             checkPermissions()
         }
         .onDisappear {
@@ -532,6 +591,13 @@ public struct SettingsView: View {
         }
         .onReceive(permissionTimer) { _ in
             checkPermissions()
+        }
+        .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
+            // Only sync from store when the field is not focused, so
+            // background IPC responses don't overwrite in-progress edits.
+            if !isIngressUrlFocused {
+                ingressUrlText = newValue
+            }
         }
         .sheet(isPresented: $showingSkills, onDismiss: {
             skillsViewModel = nil

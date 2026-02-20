@@ -147,7 +147,7 @@ graph TB
 
         subgraph "Integrations"
             INT_REGISTRY["IntegrationRegistry<br/>in-memory definitions"]
-            INT_OAUTH["OAuth2 PKCE Flow<br/>Bun.serve loopback"]
+            INT_OAUTH["OAuth2 PKCE Flow<br/>gateway callback transport"]
             INT_TOKEN["TokenManager<br/>auto-refresh + retry"]
             GMAIL_CLIENT["GmailClient<br/>REST API wrapper"]
             GMAIL_TOOLS["Gmail Tools<br/>(bundled skill: gmail)"]
@@ -1125,7 +1125,27 @@ graph TB
 
 9. **Non-blocking enrichment queue**: After each successful commit, a `CommitEnrichmentService` runs async enrichment fire-and-forget. The queue has configurable max size (default 50), concurrency (default 1), per-job timeout (default 30s), and retry count (default 2 with exponential backoff). On queue overflow, the oldest job is dropped with a warning log. On graceful shutdown, in-flight jobs drain while pending jobs are discarded. Currently writes placeholder JSON metadata to git notes (`refs/notes/vellum`) as a scaffold for future LLM enrichment.
 
-10. **Provider-aware commit message generation (optional)**: When `workspaceGit.commitMessageLLM.enabled` is `true`, turn-boundary commits attempt to generate a descriptive commit message using the configured LLM provider before falling back to deterministic messages. The LLM call runs BEFORE entering the `commitIfDirty` mutex to ensure it never holds the git lock during a network call. Pre-flight checks gate the attempt: the configured provider must have an API key, the generator's circuit breaker must be closed, and sufficient turn budget must remain (`minRemainingTurnBudgetMs`). On any failure — timeout, provider error, invalid output, or missing credentials — the deterministic message is used immediately with a structured `llmFallbackReason` log field. The feature ships disabled by default and is designed to never degrade turn completion guarantees.
+10. **Provider-aware commit message generation (optional)**: When `workspaceGit.commitMessageLLM.enabled` is `true`, turn-boundary commits attempt to generate a descriptive commit message using the configured LLM provider before falling back to deterministic messages. The feature ships disabled by default and is designed to never degrade turn completion guarantees.
+
+    **Commit message LLM fallback chain**: The generator runs a sequence of pre-flight checks before calling the LLM. Each check that fails produces a machine-readable `llmFallbackReason` in the structured log output and immediately returns a deterministic message. The checks, in order:
+
+    1. `disabled` — `commitMessageLLM.enabled` is `false` or `useConfiguredProvider` is `false`
+    2. `missing_provider_api_key` — the configured provider's API key is not set in `config.apiKeys` (skipped for keyless providers like Ollama that run without an API key)
+    3. `breaker_open` — the generator's internal circuit breaker is open after consecutive LLM failures (exponential backoff)
+    4. `insufficient_budget` — the remaining turn budget (`deadlineMs - Date.now()`) is below `minRemainingTurnBudgetMs`
+    5. `missing_fast_model` — no fast model could be resolved for the configured provider (see below); the provider is **not** called
+    6. `provider_not_initialized` — the configured provider is not registered/bootstrapped (e.g., `getProvider()` throws)
+    7. `timeout` — the LLM call exceeded `timeoutMs` (AbortController fires)
+    8. `provider_error` — the provider threw an exception during the LLM call
+    9. `invalid_output` — the LLM returned empty text, the literal string "FALLBACK", or total output > 500 chars
+    - **Subject line capping**: If the LLM subject line exceeds 72 chars it is deterministically truncated to 72 chars. This is NOT treated as a failure (no breaker penalty, no deterministic fallback).
+
+    **Fast model resolution**: The LLM call uses a small/fast model to minimize latency and cost. The model is resolved **before** any provider call as a pre-flight check:
+    - If `commitMessageLLM.providerFastModelOverrides[provider]` is set, that model is used.
+    - Otherwise, a built-in default is used: `anthropic` -> `claude-haiku-4-5-20251001`, `openai` -> `gpt-4o-mini`, `gemini` -> `gemini-2.0-flash`.
+    - If the configured provider has no override and no built-in default (e.g., `ollama`, `fireworks`, `openrouter`), the generator returns a deterministic fallback with reason `missing_fast_model` and the provider is never called. To enable LLM commit messages for such providers, set `providerFastModelOverrides[provider]` to the desired model.
+
+    **Pre-mutex LLM attempt**: The LLM generation runs BEFORE entering `commitIfDirty()` (outside the git mutex). Changed files are captured from a read-only `getStatus()` call (the "pre-status") outside the mutex. This avoids holding the mutex during network calls. The `commitIfDirty` callback uses its own mutex-protected status for the actual commit, so the file list used for commit and for the LLM prompt may differ slightly if files change between the two status calls — this is accepted as a tradeoff for not blocking concurrent git operations on LLM latency.
 
 ### Design decisions
 
@@ -2481,7 +2501,7 @@ When the OAuth2 flow completes, the handler stores credential metadata at `integ
 ```
 {
   accountInfo: "@username",
-  allowedTools: ["twitter_post", "twitter_read"],
+  allowedTools: ["twitter_post"],
   allowedDomains: [],
   oauth2TokenUrl: "https://api.x.com/2/oauth2/token",
   oauth2ClientId: "<user's client ID>",
@@ -2501,14 +2521,14 @@ The `vellum x post` CLI command uses an alternative mechanism that does not requ
 |------|-----------|-------------|
 | `twitter_post` | OAuth2 or CDP | Post a tweet. Available via the `X` bundled skill (`vellum x post`). |
 
-Note: `twitter_read` is listed in `allowedTools` metadata but has no tool implementation. The `tweet.read` and `users.read` OAuth2 scopes are used for identity verification during the auth flow.
+Note: The `tweet.read` and `users.read` OAuth2 scopes are used for identity verification during the auth flow, but read functionality is not exposed as a tool.
 
 ### Key Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
 | PKCE by default, optional client_secret | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh |
-| `127.0.0.1` not `localhost` | Google OAuth requires IP literal for loopback redirect URIs |
+| Gateway callback transport | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments. |
 | Unified `MessagingProvider` interface | All platforms implement the same contract; generic tools work immediately for new providers |
 | Twitter outside unified messaging | Twitter is a broadcast platform (post-only), not a conversation platform — it doesn't fit the `MessagingProvider` contract |
 | Provider auto-selection | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX |
@@ -3343,6 +3363,58 @@ The avatar evolves during onboarding based on conversation and identity choices.
 
 **Persistence:** Evolution state in UserDefaults, resolved appearance in LOOKS.md
 
+## Ingress Boundary Architecture — Gateway-Only Public Ingress
+
+All public-facing HTTP callbacks (Twilio webhooks, OAuth authorization callbacks, Telegram webhooks) terminate at the gateway, which validates and forwards them to the assistant runtime. The runtime HTTP server is not directly exposed to the internet.
+
+```
+Internet
+  |
+  +-- Twilio ----------> Gateway POST /webhooks/twilio/*    --> Runtime /v1/calls/*
+  +-- OAuth Provider ---> Gateway GET  /webhooks/oauth/callback --> Runtime /v1/oauth/callback
+  +-- Telegram --------> Gateway POST /webhooks/telegram    --> Runtime /v1/assistants/:id/channels/inbound
+  |
+  +-- Tunnel (ngrok, Cloudflare, etc.)
+       |
+       v
+     Gateway (http://127.0.0.1:7830)
+```
+
+### Configuration
+
+The public URL where the gateway is reachable is configured via:
+
+| Source | Priority | Description |
+|--------|----------|-------------|
+| `ingress.publicBaseUrl` (workspace config) | 1 (preferred) | Set via Settings UI > Public Ingress, or directly in workspace `config.json` |
+| `INGRESS_PUBLIC_BASE_URL` (env var) | 1 | Environment variable equivalent of `ingress.publicBaseUrl` |
+| `calls.webhookBaseUrl` (workspace config) | 2 (deprecated) | Legacy Twilio-specific setting, still honored as fallback |
+| `TWILIO_WEBHOOK_BASE_URL` (env var) | 3 (deprecated) | Legacy env var, still honored as fallback |
+
+### Tunnel-Agnostic Setup
+
+To expose the gateway for external callbacks during local development:
+
+1. **Start your tunnel** service (ngrok, Cloudflare Tunnel, or any similar tool), pointing it at the local gateway: `http://127.0.0.1:7830`
+2. **Set the public URL** provided by the tunnel as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section) or as the `INGRESS_PUBLIC_BASE_URL` environment variable
+
+The assistant runtime reads this URL via the centralized `public-ingress-urls.ts` module and uses it to construct all webhook and callback URLs automatically (Twilio voice/status/relay webhooks, OAuth redirect URIs, etc.).
+
+### URL Builders
+
+All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-urls.ts`:
+
+| Function | URL Pattern |
+|----------|-------------|
+| `getPublicBaseUrl()` | Resolves the base URL via the fallback chain above |
+| `getTwilioVoiceWebhookUrl()` | `${base}/webhooks/twilio/voice?callSessionId=...` |
+| `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status` |
+| `getTwilioConnectActionUrl()` | `${base}/webhooks/twilio/connect-action` |
+| `getTwilioRelayUrl()` | `ws(s)://.../webhooks/twilio/relay` |
+| `getOAuthCallbackUrl()` | `${base}/webhooks/oauth/callback` |
+
+---
+
 ## Outgoing AI Phone Calls — Twilio ConversationRelay
 
 The Calls subsystem enables the assistant to place outgoing phone calls on behalf of the user via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak with the callee in real time, and can pause to consult the user (in the chat UI) when it encounters questions it cannot answer on its own.
@@ -3509,6 +3581,16 @@ In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice w
 
 Signature validation is **fail-closed**: if the Twilio auth token is not configured, all webhook requests are rejected with `403`. Missing or invalid `X-Twilio-Signature` headers are also rejected with `403`. Payload size is capped by `maxWebhookPayloadBytes` (checked via both `Content-Length` header and actual body size).
 
+**Webhook base URL resolution:** The base URL used when constructing all public ingress URLs (Twilio webhooks, OAuth callbacks, etc.) is resolved via a three-level fallback chain managed by `public-ingress-urls.ts`:
+
+1. `ingress.publicBaseUrl` in workspace config (preferred)
+2. `calls.webhookBaseUrl` in workspace config (backward compat, deprecated)
+3. `TWILIO_WEBHOOK_BASE_URL` environment variable (legacy, deprecated)
+
+Setting `ingress.publicBaseUrl` via the Settings UI (Public Ingress section) or the `INGRESS_PUBLIC_BASE_URL` environment variable is the recommended approach. All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/oauth/callback`, etc.) are appended automatically.
+
+> **Deprecation:** Both `calls.webhookBaseUrl` and the `TWILIO_WEBHOOK_BASE_URL` environment variable are deprecated in favor of `ingress.publicBaseUrl` / `INGRESS_PUBLIC_BASE_URL`. They continue to work as fallbacks during the compatibility window, but deprecation warnings are logged when they are used.
+
 ### Runtime HTTP Endpoints
 
 | Method | Path | Description |
@@ -3560,6 +3642,7 @@ Call behavior is controlled via the `calls` config block in the assistant config
 |-------|------|---------|-------------|
 | `calls.enabled` | boolean | `true` | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors. |
 | `calls.provider` | enum | `'twilio'` | Voice provider to use (currently only Twilio is supported). |
+| `calls.webhookBaseUrl` | string | `""` | **Deprecated** — use `ingress.publicBaseUrl` instead. Legacy base URL for Twilio webhooks. Falls back to `TWILIO_WEBHOOK_BASE_URL` env var if not set (also deprecated). See `ingress.publicBaseUrl` for the preferred configuration. |
 | `calls.maxDurationSeconds` | int | `3600` | Maximum allowed duration per call. |
 | `calls.userConsultTimeoutSeconds` | int | `120` | How long to wait for a user answer before timing out a pending question. |
 | `calls.disclosure.enabled` | boolean | `true` | Whether the AI should disclose it is an AI at the start of the call. |

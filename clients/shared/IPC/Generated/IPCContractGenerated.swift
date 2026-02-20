@@ -718,6 +718,18 @@ public struct IPCHistoryResponseMessageSubagentNotification: Codable, Sendable {
     public let label: String
     public let status: String
     public let error: String?
+    public let conversationId: String?
+    /// Subagent objective text, populated from DB on history load.
+    public let objective: String?
+    /// Subagent events (text, tool_use, tool_result), populated from DB on history load.
+    public let events: [SubagentHistoryEvent]?
+
+    public struct SubagentHistoryEvent: Codable, Sendable {
+        public let type: String
+        public let content: String
+        public let toolName: String?
+        public let isError: Bool?
+    }
 }
 
 public struct IPCHistoryResponseSurface: Codable, Sendable {
@@ -779,6 +791,19 @@ public struct IPCHomeBaseGetResponseHomeBasePreviewMetric: Codable, Sendable {
 public struct IPCImageGenModelSetRequest: Codable, Sendable {
     public let type: String
     public let model: String
+}
+
+public struct IPCIngressConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let publicBaseUrl: String?
+}
+
+public struct IPCIngressConfigResponse: Codable, Sendable {
+    public let type: String
+    public let publicBaseUrl: String
+    public let success: Bool
+    public let error: String?
 }
 
 public struct IPCIntegrationConnectRequest: Codable, Sendable {
@@ -1078,6 +1103,8 @@ public struct IPCRideShotgunStart: Codable, Sendable {
     public let intervalSeconds: Double
     public let mode: String?
     public let targetDomain: String?
+    /// Domain to auto-navigate (may differ from targetDomain, e.g. open.spotify.com vs spotify.com).
+    public let navigateDomain: String?
     public let autoNavigate: Bool?
 }
 
@@ -1598,6 +1625,12 @@ public struct IPCToolInputDelta: Codable, Sendable {
 public struct IPCToolOutputChunk: Codable, Sendable {
     public let type: String
     public let chunk: String
+    public let sessionId: String?
+    public let subType: String?
+    public let subToolName: String?
+    public let subToolInput: String?
+    public let subToolIsError: Bool?
+    public let subToolId: String?
 }
 
 public struct IPCToolResult: Codable, Sendable {
@@ -1643,6 +1676,19 @@ public struct IPCTrustRulesListResponseRule: Codable, Sendable {
     public let decision: String
     public let priority: Int
     public let createdAt: Int
+}
+
+public struct IPCTwilioWebhookConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let webhookBaseUrl: String?
+}
+
+public struct IPCTwilioWebhookConfigResponse: Codable, Sendable {
+    public let type: String
+    public let webhookBaseUrl: String
+    public let success: Bool
+    public let error: String?
 }
 
 public struct IPCTwitterAuthResult: Codable, Sendable {

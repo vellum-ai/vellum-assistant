@@ -9,6 +9,7 @@ const VALID_SANDBOX_BACKENDS = ['native', 'docker'] as const;
 const VALID_DOCKER_NETWORKS = ['none', 'bridge'] as const;
 const VALID_PERMISSIONS_MODES = ['legacy', 'strict'] as const;
 const VALID_CALL_PROVIDERS = ['twilio'] as const;
+const VALID_INGRESS_MODES = ['gateway_only', 'compat'] as const;
 
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
@@ -780,8 +781,19 @@ export const WorkspaceGitConfigSchema = z.object({
         .int().positive().default(2000),
       backoffMaxMs: z.number({ error: 'workspaceGit.commitMessageLLM.breaker.backoffMaxMs must be a number' })
         .int().positive().default(60000),
-    }).default({}),
-  }).default({}),
+    }).default({ openAfterFailures: 3, backoffBaseMs: 2000, backoffMaxMs: 60000 }),
+  }).default({
+    enabled: false,
+    useConfiguredProvider: true,
+    providerFastModelOverrides: {},
+    timeoutMs: 600,
+    maxTokens: 120,
+    temperature: 0.2,
+    maxFilesInPrompt: 30,
+    maxDiffBytes: 12000,
+    minRemainingTurnBudgetMs: 1000,
+    breaker: { openAfterFailures: 3, backoffBaseMs: 2000, backoffMaxMs: 60000 },
+  }),
 });
 
 export const AgentHeartbeatConfigSchema = z.object({
@@ -883,6 +895,9 @@ export const CallsConfigSchema = z.object({
       error: `calls.provider must be one of: ${VALID_CALL_PROVIDERS.join(', ')}`,
     })
     .default('twilio'),
+  webhookBaseUrl: z
+    .string({ error: 'calls.webhookBaseUrl must be a string' })
+    .default(''),
   maxDurationSeconds: z
     .number({ error: 'calls.maxDurationSeconds must be a number' })
     .int('calls.maxDurationSeconds must be an integer')
@@ -909,6 +924,17 @@ export const SkillsConfigSchema = z.object({
   load: SkillsLoadConfigSchema.default({ extraDirs: [], watch: true, watchDebounceMs: 250 }),
   install: SkillsInstallConfigSchema.default({ nodeManager: 'npm' }),
   allowBundled: z.array(z.string()).nullable().default(null),
+});
+
+export const IngressConfigSchema = z.object({
+  publicBaseUrl: z
+    .string({ error: 'ingress.publicBaseUrl must be a string' })
+    .default(''),
+  mode: z
+    .enum(VALID_INGRESS_MODES, {
+      error: `ingress.mode must be one of: ${VALID_INGRESS_MODES.join(', ')}`,
+    })
+    .default('compat'),
 });
 
 export const AssistantConfigSchema = z.object({
@@ -1149,6 +1175,7 @@ export const AssistantConfigSchema = z.object({
   calls: CallsConfigSchema.default({
     enabled: true,
     provider: 'twilio',
+    webhookBaseUrl: '',
     maxDurationSeconds: 3600,
     userConsultTimeoutSeconds: 120,
     disclosure: {
@@ -1158,6 +1185,10 @@ export const AssistantConfigSchema = z.object({
     safety: {
       denyCategories: [],
     },
+  }),
+  ingress: IngressConfigSchema.default({
+    publicBaseUrl: '',
+    mode: 'compat',
   }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
@@ -1219,3 +1250,4 @@ export type WorkspaceGitConfig = z.infer<typeof WorkspaceGitConfigSchema>;
 export type CallsConfig = z.infer<typeof CallsConfigSchema>;
 export type CallsDisclosureConfig = z.infer<typeof CallsDisclosureConfigSchema>;
 export type CallsSafetyConfig = z.infer<typeof CallsSafetyConfigSchema>;
+export type IngressConfig = z.infer<typeof IngressConfigSchema>;

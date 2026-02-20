@@ -22,6 +22,8 @@ import type { CallStatus } from './types.js';
 import { logDeadLetterEvent } from './call-recovery.js';
 import { isTerminalState } from './call-state-machine.js';
 import { getTwilioConfig } from './twilio-config.js';
+import { loadConfig } from '../config/loader.js';
+import { getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
 
 const log = getLogger('twilio-routes');
 
@@ -125,8 +127,14 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     log.info({ callSessionId, callSid }, 'Stored CallSid from voice webhook');
   }
 
-  const config = getTwilioConfig();
-  const relayUrl = resolveRelayUrl(config.wssBaseUrl, config.webhookBaseUrl);
+  const twilioConfig = getTwilioConfig();
+  let relayUrl: string;
+  try {
+    relayUrl = getTwilioRelayUrl(loadConfig());
+  } catch {
+    // Fallback to legacy resolution when ingress is not configured
+    relayUrl = resolveRelayUrl(twilioConfig.wssBaseUrl, twilioConfig.webhookBaseUrl);
+  }
   const welcomeGreeting = process.env.CALL_WELCOME_GREETING ?? 'Hello, how can I help you today?';
 
   const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting);

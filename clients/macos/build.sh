@@ -141,7 +141,6 @@ BIN_PATH=$(swift build $SWIFT_FLAGS --show-bin-path)
 # Then build (or use cached if nothing changed)
 swift build $SWIFT_FLAGS
 
-
 EXECUTABLE="$BIN_PATH/$APP_NAME"
 
 if [ ! -f "$EXECUTABLE" ]; then
@@ -247,6 +246,7 @@ if [ "$NEEDS_REBUILD" = true ]; then
     else
         echo "No CLI binary at $CLI_BIN — skipping (dev mode)"
     fi
+
 else
     echo "Binaries unchanged, skipping binary repackaging"
 fi

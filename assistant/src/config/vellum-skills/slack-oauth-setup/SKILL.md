@@ -85,14 +85,16 @@ Tell the user: "Permissions configured! Now let's set up the redirect URL and ge
 
 Navigate to the "OAuth & Permissions" page if not already there.
 
+The redirect URL must point to the gateway's OAuth callback endpoint. Determine the URL by reading the `ingress.publicBaseUrl` value from the assistant's workspace config (Settings > Public Ingress) or the `INGRESS_PUBLIC_BASE_URL` environment variable. The callback path is `/webhooks/oauth/callback`.
+
 In the "Redirect URLs" section:
 1. Click "Add New Redirect URL"
-2. Enter `http://127.0.0.1:0/callback` — Vellum will use a random port on localhost
+2. Enter `${ingress.publicBaseUrl}/webhooks/oauth/callback` (e.g. `https://abc123.ngrok-free.app/webhooks/oauth/callback`)
 3. Click "Add" then "Save URLs"
 
 Take a `browser_snapshot` to confirm.
 
-Tell the user: "Redirect URL configured."
+Tell the user: "Redirect URL configured. Make sure your tunnel is running and `ingress.publicBaseUrl` is set in Settings so the callback can reach the gateway."
 
 ## Step 5: Extract Client ID and Client Secret
 

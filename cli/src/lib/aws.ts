@@ -420,7 +420,14 @@ export async function hatchAws(
     console.log("\u{1F50D} Finding latest Debian AMI...");
     const amiId = await getLatestDebianAmi(region);
 
-    const startupScript = await buildStartupScript(species, bearerToken, sshUser, anthropicApiKey);
+    const startupScript = await buildStartupScript(
+      species,
+      bearerToken,
+      sshUser,
+      anthropicApiKey,
+      instanceName,
+      "aws",
+    );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
 

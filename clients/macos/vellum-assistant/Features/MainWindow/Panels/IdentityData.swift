@@ -201,6 +201,88 @@ struct AssistantMetadata {
     }
 }
 
+// MARK: - Lockfile Assistant (parsed from ~/.vellum.lock.json)
+
+struct LockfileAssistant {
+    let assistantId: String
+    let runtimeUrl: String?
+    let cloud: String
+    let project: String?
+    let region: String?
+    let zone: String?
+    let instanceId: String?
+    let hatchedAt: String?
+
+    var home: AssistantHome {
+        switch cloud.lowercased() {
+        case "gcp":
+            return .gcp(
+                project: project ?? "",
+                zone: zone ?? "",
+                instance: instanceId ?? ""
+            )
+        case "aws":
+            return .aws(
+                project: project ?? "",
+                region: region ?? "",
+                instance: instanceId ?? ""
+            )
+        case "custom":
+            if let runtimeUrl,
+               let url = URL(string: runtimeUrl),
+               let host = url.host {
+                let port = url.port.map(String.init) ?? ""
+                return .custom(ip: host, port: port)
+            }
+            return .custom(ip: "", port: "")
+        default:
+            return .local(workspacePath: NSHomeDirectory() + "/.vellum/workspace")
+        }
+    }
+
+    static func loadLatest() -> LockfileAssistant? {
+        let home = NSHomeDirectory()
+        let candidatePaths = [
+            home + "/.vellum.lock.json",
+            home + "/.vellum.lockfile.json",
+        ]
+
+        for lockfilePath in candidatePaths {
+            guard let data = FileManager.default.contents(atPath: lockfilePath),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let assistants = json["assistants"] as? [[String: Any]] else {
+                continue
+            }
+
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let sorted = assistants.sorted { a, b in
+                let dateA = (a["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
+                let dateB = (b["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
+                return dateA > dateB
+            }
+
+            guard let latest = sorted.first,
+                  let assistantId = latest["assistantId"] as? String else {
+                continue
+            }
+
+            return LockfileAssistant(
+                assistantId: assistantId,
+                runtimeUrl: latest["runtimeUrl"] as? String,
+                cloud: latest["cloud"] as? String ?? "local",
+                project: latest["project"] as? String,
+                region: latest["region"] as? String,
+                zone: latest["zone"] as? String,
+                instanceId: latest["instanceId"] as? String,
+                hatchedAt: latest["hatchedAt"] as? String
+            )
+        }
+
+        return nil
+    }
+}
+
 // MARK: - Workspace File Node (checks file existence)
 
 struct WorkspaceFileNode: Identifiable {

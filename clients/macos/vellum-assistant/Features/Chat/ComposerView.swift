@@ -113,6 +113,7 @@ struct ComposerView: View {
                     composerTextField
                         .frame(height: clampedComposerHeight)
                         .frame(maxHeight: isComposerExpanded ? clampedComposerHeight : .infinity, alignment: .center)
+                        .clipped()
                     if !isComposerExpanded {
                         composerActionButtons
                             .frame(maxHeight: .infinity, alignment: .center)
@@ -130,8 +131,8 @@ struct ComposerView: View {
                     .padding(.top, VSpacing.xs)
                 }
             }
-            .padding(.top, isComposerExpanded ? VSpacing.md : VSpacing.xs)
-            .padding(.bottom, isComposerExpanded ? VSpacing.sm : VSpacing.xs)
+            .padding(.top, isComposerExpanded ? VSpacing.md : VSpacing.sm)
+            .padding(.bottom, isComposerExpanded ? VSpacing.sm : VSpacing.sm)
             .padding(.leading, VSpacing.lg)
             .padding(.trailing, VSpacing.lg)
             .background(
@@ -569,6 +570,10 @@ private struct ComposerTextView: NSViewRepresentable {
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
+        // Ensure text content is clipped to the scroll view frame so it
+        // never renders outside the composer box.
+        scrollView.wantsLayer = true
+        scrollView.layer?.masksToBounds = true
 
         // Use a centering clip view so text + cursor are vertically centered together
         let clipView = CenteringClipView()
@@ -876,8 +881,9 @@ private final class CenteringClipView: NSClipView {
             // centering accounts for the top/bottom padding the text view adds.
             let insetHeight = textView.textContainerInset.height * 2
             let contentHeight = usedHeight + insetHeight
-            if contentHeight < bounds.height {
-                rect.origin.y = (contentHeight - bounds.height) / 2
+            let visibleHeight = proposedBounds.height
+            if contentHeight < visibleHeight {
+                rect.origin.y = (contentHeight - visibleHeight) / 2
             }
         }
         return rect

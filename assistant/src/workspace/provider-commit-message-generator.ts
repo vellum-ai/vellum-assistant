@@ -9,9 +9,11 @@ const log = getLogger('commit-message-llm');
 export type CommitMessageSource = 'llm' | 'deterministic';
 export type LLMFallbackReason =
   | 'disabled'
-  | 'provider_not_initialized'
+  | 'missing_provider_api_key'
   | 'breaker_open'
   | 'insufficient_budget'
+  | 'missing_fast_model'
+  | 'provider_not_initialized'
   | 'timeout'
   | 'provider_error'
   | 'invalid_output';
@@ -35,6 +37,15 @@ Rules:
 - Only mention files and changes actually provided
 - Total output must be under 300 characters
 - If you cannot determine a meaningful message, respond with exactly: FALLBACK`;
+
+const PROVIDER_DEFAULT_FAST_MODELS: Record<string, string> = {
+  anthropic: 'claude-haiku-4-5-20251001',
+  openai: 'gpt-4o-mini',
+  gemini: 'gemini-2.0-flash',
+};
+
+// Providers that can be initialized without an API key (e.g., Ollama runs locally)
+const KEYLESS_PROVIDERS = new Set(['ollama']);
 
 const deterministicProvider = new DefaultCommitMessageProvider();
 
@@ -93,14 +104,31 @@ export class ProviderCommitMessageGenerator {
     const config = getConfig();
     const llmConfig = config.workspaceGit.commitMessageLLM;
 
+    // ── Fallback check order (canonical) ──────────────────────────────
+    // 1. disabled
+    // 2. missing_provider_api_key  (except keyless providers like ollama)
+    // 3. breaker_open
+    // 4. insufficient_budget
+    // 5. missing_fast_model
+    // 6. provider_not_initialized
+    // 7. call provider → timeout / provider_error / invalid_output
+    // ──────────────────────────────────────────────────────────────────
+
     // Step 1: Feature gate
     if (!llmConfig.enabled) {
       return buildDeterministicResult(context, 'disabled');
     }
-
-    // Step 2: Provider gate
     if (!llmConfig.useConfiguredProvider) {
       return buildDeterministicResult(context, 'disabled');
+    }
+
+    // Step 2: API key preflight (skip for providers that run without a key)
+    if (!KEYLESS_PROVIDERS.has(config.provider)) {
+      const providerApiKey = config.apiKeys[config.provider];
+      if (!providerApiKey || providerApiKey === '') {
+        log.debug('Provider API key missing; falling back to deterministic');
+        return buildDeterministicResult(context, 'missing_provider_api_key');
+      }
     }
 
     // Step 3: Circuit breaker
@@ -124,7 +152,19 @@ export class ProviderCommitMessageGenerator {
       }
     }
 
-    // Step 5: Call the provider
+    // Step 5: Fast model preflight — resolve before any provider call
+    const fastModel = llmConfig.providerFastModelOverrides[config.provider]
+      ?? PROVIDER_DEFAULT_FAST_MODELS[config.provider];
+
+    if (!fastModel) {
+      log.debug(
+        { provider: config.provider },
+        'No fast model resolvable for provider; falling back to deterministic',
+      );
+      return buildDeterministicResult(context, 'missing_fast_model');
+    }
+
+    // Step 6 + 7: Call the provider
     try {
       const { getProvider } = await import('../providers/registry.js');
 
@@ -172,7 +212,11 @@ export class ProviderCommitMessageGenerator {
           SYSTEM_PROMPT,
           {
             signal: ac.signal,
-            config: { max_tokens: llmConfig.maxTokens, temperature: llmConfig.temperature },
+            config: {
+              model: fastModel,
+              max_tokens: llmConfig.maxTokens,
+              temperature: llmConfig.temperature,
+            },
           },
         );
       } catch (err: unknown) {
@@ -203,21 +247,20 @@ export class ProviderCommitMessageGenerator {
         return buildDeterministicResult(context, 'invalid_output');
       }
 
-      // Validate single-line subject: first line must be <= 72 chars
-      const firstLine = text.split('\n')[0];
-      if (firstLine.length > 72) {
+      // Cap subject line to 72 chars deterministically (no fallback, no breaker failure)
+      const lines = text.split('\n');
+      if (lines[0].length > 72) {
         log.debug(
-          { subjectLength: firstLine.length },
-          'LLM subject line too long; falling back to deterministic',
+          { originalLength: lines[0].length },
+          'Capping LLM subject line to 72 chars',
         );
-        this.recordFailure();
-        return buildDeterministicResult(context, 'invalid_output');
+        lines[0] = lines[0].slice(0, 72);
       }
+      const finalMessage = lines.join('\n');
 
       this.recordSuccess();
-      return { message: text, source: 'llm' };
+      return { message: finalMessage, source: 'llm' };
     } catch (err: unknown) {
-      // Step 6: Any error -> deterministic fallback
       log.warn(
         { err: err instanceof Error ? err.message : String(err) },
         'Commit message LLM provider error; falling back to deterministic',

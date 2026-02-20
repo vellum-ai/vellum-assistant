@@ -24,6 +24,10 @@ struct SettingsPanel: View {
     @State private var showingReminders = false
     @State private var twitterClientId: String = ""
     @State private var twitterClientSecret: String = ""
+    @State private var ingressUrlText: String = ""
+    @FocusState private var isIngressUrlFocused: Bool
+    @State private var gatewayReachable: Bool? = nil
+    @State private var checkingGateway: Bool = false
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
     @State private var connectingIntegration: String?
     @State private var integrationError: (id: String, message: String)?
@@ -85,6 +89,8 @@ struct SettingsPanel: View {
         .onAppear {
             store.refreshAPIKeyState()
             store.refreshTwitterStatus()
+            store.refreshIngressConfig()
+            ingressUrlText = store.ingressPublicBaseUrl
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
         }
@@ -95,6 +101,13 @@ struct SettingsPanel: View {
             if let monitor = mouseDownMonitor {
                 NSEvent.removeMonitor(monitor)
                 mouseDownMonitor = nil
+            }
+        }
+        .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
+            // Only sync from store when the field is not focused, so
+            // background IPC responses don't overwrite in-progress edits.
+            if !isIngressUrlFocused {
+                ingressUrlText = newValue
             }
         }
         .onChange(of: showModelDropdown) { _, isOpen in
@@ -510,6 +523,118 @@ struct SettingsPanel: View {
 
             // TWITTER / X section
             twitterSection
+
+            // PUBLIC INGRESS section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Public Ingress")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                // Public Ingress URL field
+                HStack(spacing: VSpacing.xs) {
+                    Text("Public Ingress URL")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                TextField("https://abc123.ngrok-free.app", text: $ingressUrlText)
+                    .focused($isIngressUrlFocused)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.md)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+
+                HStack(alignment: .top, spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 12))
+                    Text("Setting a public base URL may expose this computer to the public internet. Use with caution.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                Text("Webhook paths (e.g. /webhooks/twilio/voice) are appended automatically.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+
+                VButton(label: "Save", style: .primary) {
+                    store.saveIngressPublicBaseUrl(ingressUrlText)
+                }
+
+                Divider()
+                    .background(VColor.surfaceBorder)
+
+                // Local Gateway Target (read-only)
+                HStack(spacing: VSpacing.xs) {
+                    Text("Local Gateway Target")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                HStack(spacing: VSpacing.sm) {
+                    Text("http://127.0.0.1:7830")
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+                        .textSelection(.enabled)
+                        .padding(VSpacing.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(VColor.surface.opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+                        )
+
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString("http://127.0.0.1:7830", forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(VColor.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy gateway address")
+
+                    // Check Gateway button
+                    Button {
+                        checkGatewayHealth()
+                    } label: {
+                        if checkingGateway {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 28, height: 28)
+                        } else if let reachable = gatewayReachable {
+                            Image(systemName: reachable ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundColor(reachable ? VColor.success : VColor.error)
+                                .frame(width: 28, height: 28)
+                        } else {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(VColor.textSecondary)
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Check gateway health")
+                }
+
+                Text("Point your tunnel service at this local address.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
         }
     }
 
@@ -914,6 +1039,36 @@ struct SettingsPanel: View {
 
         // Close the settings panel so the user sees the chat
         onClose()
+    }
+
+    // MARK: - Gateway Health Check
+
+    private func checkGatewayHealth() {
+        gatewayReachable = nil
+        checkingGateway = true
+
+        Task {
+            defer { checkingGateway = false }
+
+            guard let url = URL(string: "http://127.0.0.1:7830/healthz") else {
+                gatewayReachable = false
+                return
+            }
+
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 3
+
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                if let httpResponse = response as? HTTPURLResponse {
+                    gatewayReachable = (200..<300).contains(httpResponse.statusCode)
+                } else {
+                    gatewayReachable = false
+                }
+            } catch {
+                gatewayReachable = false
+            }
+        }
     }
 
     // MARK: - Permission Row
