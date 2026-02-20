@@ -31,22 +31,14 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('getPublicBaseUrl', () => {
-  let savedTwilioEnv: string | undefined;
   let savedIngressEnv: string | undefined;
 
   beforeEach(() => {
-    savedTwilioEnv = process.env.TWILIO_WEBHOOK_BASE_URL;
     savedIngressEnv = process.env.INGRESS_PUBLIC_BASE_URL;
-    delete process.env.TWILIO_WEBHOOK_BASE_URL;
     delete process.env.INGRESS_PUBLIC_BASE_URL;
   });
 
   afterEach(() => {
-    if (savedTwilioEnv !== undefined) {
-      process.env.TWILIO_WEBHOOK_BASE_URL = savedTwilioEnv;
-    } else {
-      delete process.env.TWILIO_WEBHOOK_BASE_URL;
-    }
     if (savedIngressEnv !== undefined) {
       process.env.INGRESS_PUBLIC_BASE_URL = savedIngressEnv;
     } else {
@@ -54,70 +46,30 @@ describe('getPublicBaseUrl', () => {
     }
   });
 
-  test('prefers ingress.publicBaseUrl when set', () => {
+  test('returns ingress.publicBaseUrl when set', () => {
     const result = getPublicBaseUrl({
       ingress: { publicBaseUrl: 'https://ingress.example.com/' },
-      calls: { webhookBaseUrl: 'https://calls.example.com' },
     });
     expect(result).toBe('https://ingress.example.com');
   });
 
-  test('falls back to calls.webhookBaseUrl when ingress.publicBaseUrl is empty', () => {
-    const result = getPublicBaseUrl({
-      ingress: { publicBaseUrl: '' },
-      calls: { webhookBaseUrl: 'https://calls.example.com/' },
-    });
-    expect(result).toBe('https://calls.example.com');
-  });
-
-  test('falls back to calls.webhookBaseUrl when ingress is undefined', () => {
-    const result = getPublicBaseUrl({
-      calls: { webhookBaseUrl: 'https://calls.example.com' },
-    });
-    expect(result).toBe('https://calls.example.com');
-  });
-
-  test('falls back to INGRESS_PUBLIC_BASE_URL env var when both config fields are empty', () => {
+  test('falls back to INGRESS_PUBLIC_BASE_URL env var when ingress.publicBaseUrl is empty', () => {
     process.env.INGRESS_PUBLIC_BASE_URL = 'https://ingress-env.example.com/';
     const result = getPublicBaseUrl({
       ingress: { publicBaseUrl: '' },
-      calls: { webhookBaseUrl: '' },
     });
     expect(result).toBe('https://ingress-env.example.com');
   });
 
-  test('falls back to INGRESS_PUBLIC_BASE_URL env var when config fields are undefined', () => {
+  test('falls back to INGRESS_PUBLIC_BASE_URL env var when config is empty', () => {
     process.env.INGRESS_PUBLIC_BASE_URL = 'https://ingress-env.example.com';
     const result = getPublicBaseUrl({});
     expect(result).toBe('https://ingress-env.example.com');
-  });
-
-  test('prefers INGRESS_PUBLIC_BASE_URL over TWILIO_WEBHOOK_BASE_URL', () => {
-    process.env.INGRESS_PUBLIC_BASE_URL = 'https://ingress-env.example.com';
-    process.env.TWILIO_WEBHOOK_BASE_URL = 'https://twilio-env.example.com';
-    const result = getPublicBaseUrl({});
-    expect(result).toBe('https://ingress-env.example.com');
-  });
-
-  test('falls back to TWILIO_WEBHOOK_BASE_URL env var when both config fields and INGRESS_PUBLIC_BASE_URL are empty', () => {
-    process.env.TWILIO_WEBHOOK_BASE_URL = 'https://env.example.com/';
-    const result = getPublicBaseUrl({
-      ingress: { publicBaseUrl: '' },
-      calls: { webhookBaseUrl: '' },
-    });
-    expect(result).toBe('https://env.example.com');
-  });
-
-  test('falls back to TWILIO_WEBHOOK_BASE_URL env var when config fields are undefined', () => {
-    process.env.TWILIO_WEBHOOK_BASE_URL = 'https://env.example.com';
-    const result = getPublicBaseUrl({});
-    expect(result).toBe('https://env.example.com');
   });
 
   test('throws when no source provides a value', () => {
     expect(() => getPublicBaseUrl({
       ingress: { publicBaseUrl: '' },
-      calls: { webhookBaseUrl: '' },
     })).toThrow(/No public base URL configured/);
   });
 
@@ -139,12 +91,12 @@ describe('getPublicBaseUrl', () => {
     expect(result).toBe('https://example.com');
   });
 
-  test('skips whitespace-only ingress.publicBaseUrl and falls through', () => {
+  test('skips whitespace-only ingress.publicBaseUrl and falls through to env', () => {
+    process.env.INGRESS_PUBLIC_BASE_URL = 'https://ingress-env.example.com';
     const result = getPublicBaseUrl({
       ingress: { publicBaseUrl: '   ' },
-      calls: { webhookBaseUrl: 'https://calls.example.com' },
     });
-    expect(result).toBe('https://calls.example.com');
+    expect(result).toBe('https://ingress-env.example.com');
   });
 
   test('normalizes trailing slashes from INGRESS_PUBLIC_BASE_URL', () => {

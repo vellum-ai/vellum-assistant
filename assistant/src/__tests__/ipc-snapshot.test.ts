@@ -339,10 +339,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'slack_webhook_config',
     action: 'get',
   },
-  twilio_webhook_config: {
-    type: 'twilio_webhook_config',
-    action: 'get',
-  },
   ingress_config: {
     type: 'ingress_config',
     action: 'get',
@@ -1136,11 +1132,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   slack_webhook_config_response: {
     type: 'slack_webhook_config_response',
     webhookUrl: 'https://hooks.slack.com/services/T00/B00/xxx',
-    success: true,
-  },
-  twilio_webhook_config_response: {
-    type: 'twilio_webhook_config_response',
-    webhookBaseUrl: 'https://example.com/twilio',
     success: true,
   },
   ingress_config_response: {
