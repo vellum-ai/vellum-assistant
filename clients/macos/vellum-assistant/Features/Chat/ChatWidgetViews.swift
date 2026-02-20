@@ -108,6 +108,51 @@ struct RunningIndicator: View {
     }
 }
 
+struct TypingBubbleIndicator: View {
+    @State private var isGlowing = false
+    @State private var appearance = AvatarAppearanceManager.shared
+
+    var body: some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            Image(nsImage: appearance.chatAvatarImage)
+                .interpolation(.none)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 28, height: 28)
+                .clipShape(Circle())
+                .padding(.top, 2)
+
+            Text("...")
+                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                .foregroundColor(VColor.textPrimary.opacity(isGlowing ? 1.0 : 0.75))
+                .shadow(
+                    color: VColor.accent.opacity(isGlowing ? 0.5 : 0.15),
+                    radius: isGlowing ? 9 : 3
+                )
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(VColor.surface)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .strokeBorder(VColor.surfaceBorder.opacity(0.85), lineWidth: 0.5)
+                }
+                .frame(maxWidth: 520, alignment: .leading)
+
+            Spacer(minLength: 0)
+        }
+        .onAppear {
+            withAnimation(
+                .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
+            ) {
+                isGlowing = true
+            }
+        }
+    }
+}
+
 struct CodePreviewView: View {
     let code: String
 

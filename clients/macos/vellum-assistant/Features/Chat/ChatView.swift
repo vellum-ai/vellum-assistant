@@ -486,15 +486,8 @@ struct ChatView: View {
                         && !(lastVisible?.isStreaming == true)
                         && !hasPendingConfirmation
                         && !hasActiveToolCall
-                    let isWakeUpTurn = !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
                     if shouldShowTypingIndicator {
-                        RunningIndicator(
-                            label: isWakeUpTurn ? "Waking up..." : "Typing",
-                            showIcon: false,
-                            progressiveLabels: isWakeUpTurn ? [] : ["Typing", "Still working", "Almost ready"],
-                            labelInterval: 8
-                        )
-                        .frame(maxWidth: 520, alignment: .leading)
+                        TypingBubbleIndicator()
                         .id("typing-indicator")
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
