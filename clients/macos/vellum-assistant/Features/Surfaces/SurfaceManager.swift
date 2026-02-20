@@ -192,7 +192,10 @@ final class SurfaceManager: ObservableObject {
 
         let view = SurfaceContainerView(viewModel: viewModel)
 
-        let hostingController = NSHostingController(rootView: view)
+        let isDP = if case .dynamicPage = surface.data { true } else { false }
+        let hostingController = isDP
+            ? NSHostingController(rootView: AnyView(view))
+            : NSHostingController(rootView: AnyView(view.ignoresSafeArea(.all, edges: .top)))
 
         let surfacePanelWidth: CGFloat
         let surfacePanelHeight: CGFloat
@@ -215,7 +218,7 @@ final class SurfaceManager: ObservableObject {
             contentRect: NSRect(x: 0, y: 0, width: surfacePanelWidth, height: surfacePanelHeight),
             styleMask: isDynamicPage
                 ? [.titled, .closable, .miniaturizable, .resizable]
-                : [.titled, .nonactivatingPanel, .utilityWindow, .hudWindow, .resizable],
+                : [.titled, .fullSizeContentView, .nonactivatingPanel, .utilityWindow, .hudWindow, .resizable],
             backing: .buffered,
             defer: false
         )
