@@ -72,10 +72,14 @@ export async function commitTurnChanges(
     if (!provider) {
       // Guard: skip pre-check if deadline already elapsed to avoid unnecessary mutex contention
       let preClean = false;
+      let candidateChangedFiles: string[] = [];
       if (!deadlineMs || Date.now() < deadlineMs) {
         try {
           const preStatus = await gitService.getStatus();
           preClean = preStatus.clean;
+          if (!preClean) {
+            candidateChangedFiles = [...new Set([...preStatus.staged, ...preStatus.modified, ...preStatus.untracked])];
+          }
         } catch {
           // If we can't determine status, assume dirty so we don't skip the commit
         }
@@ -90,10 +94,10 @@ export async function commitTurnChanges(
               trigger: 'turn',
               sessionId,
               turnNumber,
-              changedFiles: [], // File list unavailable outside the git mutex; generator handles empty arrays
+              changedFiles: candidateChangedFiles,
               timestampMs: Date.now(),
             },
-            { deadlineMs, changedFiles: [] },
+            { deadlineMs, changedFiles: candidateChangedFiles },
           );
           commitMessageSource = result.source;
           llmFallbackReason = result.reason;
