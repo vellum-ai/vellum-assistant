@@ -238,6 +238,7 @@ final class ChatViewModelIOSTests: XCTestCase {
     // MARK: - Generation Cancelled
 
     func testGenerationCancelledClearsLoadingState() {
+        viewModel.sessionId = "sess-cancel"
         viewModel.isSending = true
         viewModel.isThinking = true
 

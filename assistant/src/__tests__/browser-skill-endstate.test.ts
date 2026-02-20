@@ -13,6 +13,7 @@ import {
   getAllToolDefinitions,
   __resetRegistryForTesting,
 } from '../tools/registry.js';
+import { getDefaultRuleTemplates } from '../permissions/defaults.js';
 import { projectSkillTools, resetSkillToolProjection } from '../daemon/session-skill-tools.js';
 import {
   BROWSER_TOOL_NAMES,
@@ -116,18 +117,17 @@ describe('browser skill migration end-state', () => {
   });
 
   test('all browser tools have default allow rules', async () => {
-    const path = await import('node:path');
-    const fs = await import('node:fs');
-    const defaultsPath = path.resolve(import.meta.dirname, '../permissions/defaults.ts');
-    const defaultsSrc = fs.readFileSync(defaultsPath, 'utf-8');
+    const defaults = getDefaultRuleTemplates();
     for (const tool of BROWSER_TOOLS) {
-      expect(defaultsSrc).toContain(`id: 'default:allow-${tool}-global'`);
+      const rule = defaults.find((r) => r.id === `default:allow-${tool}-global`);
+      expect(rule).toBeDefined();
+      expect(rule?.decision).toBe('allow');
       // browser_navigate uses standalone "**" globstar because navigate
       // candidates contain URLs with "/" (e.g. "browser_navigate:https://example.com/path").
       const expectedPattern = tool === 'browser_navigate'
-        ? "pattern: '**'"
-        : `pattern: '${tool}:*'`;
-      expect(defaultsSrc).toContain(expectedPattern);
+        ? '**'
+        : `${tool}:*`;
+      expect(rule?.pattern).toBe(expectedPattern);
     }
   });
 

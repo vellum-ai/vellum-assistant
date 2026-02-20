@@ -1,4 +1,12 @@
 import { afterAll, describe, test, expect, beforeEach } from 'bun:test';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Isolate this file's DB from other test files running in parallel.
+const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'reminder-store-test-')));
+process.env.BASE_DATA_DIR = testDir;
+
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { reminders } from '../memory/schema.js';
 import {
@@ -20,6 +28,7 @@ function clearReminders() {
 
 afterAll(() => {
   resetDb();
+  rmSync(testDir, { recursive: true, force: true });
 });
 
 describe('reminder-store', () => {
