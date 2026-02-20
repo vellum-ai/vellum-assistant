@@ -478,7 +478,7 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    private func startMessageLoop() {
+    public func startMessageLoop() {
         messageLoopTask?.cancel()
         let messageStream = daemonClient.subscribe()
 

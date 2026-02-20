@@ -2066,6 +2066,14 @@ export interface WorkItemStatusChanged {
   };
 }
 
+/** Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread. */
+export interface TaskRunThreadCreated {
+  type: 'task_run_thread_created';
+  conversationId: string;
+  workItemId: string;
+  title: string;
+}
+
 export type ServerMessage =
   | AuthResult
   | UserMessageEcho
@@ -2175,6 +2183,7 @@ export type ServerMessage =
   | WorkItemApprovePermissionsResponse
   | WorkItemCancelResponse
   | WorkItemStatusChanged
+  | TaskRunThreadCreated
   | TasksChanged
   | OpenTasksWindow
   | SubagentSpawned
