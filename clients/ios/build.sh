@@ -128,6 +128,7 @@ xcodebuild archive \
     -destination 'generic/platform=iOS' \
     -archivePath "$ARCHIVE_PATH" \
     -configuration Release \
+    -allowProvisioningUpdates \
     DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
     CODE_SIGN_STYLE=Automatic \
     MARKETING_VERSION="$DISPLAY_VERSION" \
