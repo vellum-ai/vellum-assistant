@@ -1078,6 +1078,7 @@ public struct IPCRideShotgunStart: Codable, Sendable {
     public let intervalSeconds: Double
     public let mode: String?
     public let targetDomain: String?
+    public let autoNavigate: Bool?
 }
 
 public struct IPCRideShotgunStop: Codable, Sendable {
