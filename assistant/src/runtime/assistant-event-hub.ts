@@ -42,17 +42,31 @@ interface SubscriberEntry {
  * events that match their `assistantId` (and optionally `sessionId`).
  *
  * The hub is intentionally simple: synchronous fanout, no buffering, no
- * backpressure. Slow-consumer protection is added in PR 7.
+ * backpressure. Slow-consumer protection lives in the SSE route (PR 7).
  */
 export class AssistantEventHub {
   private readonly subscribers = new Set<SubscriberEntry>();
+  private readonly maxSubscribers: number;
+
+  constructor(options?: { maxSubscribers?: number }) {
+    this.maxSubscribers = options?.maxSubscribers ?? Infinity;
+  }
 
   /**
    * Register a subscriber that will be called for each matching event.
    *
+   * Throws a `RangeError` when the subscriber cap (`maxSubscribers`) has
+   * been reached. Callers should handle this and surface an appropriate
+   * error to the client (e.g., HTTP 503).
+   *
    * @returns A subscription handle. Call `dispose()` to unsubscribe.
    */
   subscribe(filter: AssistantEventFilter, callback: AssistantEventCallback): AssistantEventSubscription {
+    if (this.subscribers.size >= this.maxSubscribers) {
+      throw new RangeError(
+        `AssistantEventHub: subscriber cap reached (${this.maxSubscribers})`,
+      );
+    }
     const entry: SubscriberEntry = { filter, callback, active: true };
     this.subscribers.add(entry);
 
