@@ -31,18 +31,26 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('getPublicBaseUrl', () => {
-  let savedEnv: string | undefined;
+  let savedTwilioEnv: string | undefined;
+  let savedIngressEnv: string | undefined;
 
   beforeEach(() => {
-    savedEnv = process.env.TWILIO_WEBHOOK_BASE_URL;
+    savedTwilioEnv = process.env.TWILIO_WEBHOOK_BASE_URL;
+    savedIngressEnv = process.env.INGRESS_PUBLIC_BASE_URL;
     delete process.env.TWILIO_WEBHOOK_BASE_URL;
+    delete process.env.INGRESS_PUBLIC_BASE_URL;
   });
 
   afterEach(() => {
-    if (savedEnv !== undefined) {
-      process.env.TWILIO_WEBHOOK_BASE_URL = savedEnv;
+    if (savedTwilioEnv !== undefined) {
+      process.env.TWILIO_WEBHOOK_BASE_URL = savedTwilioEnv;
     } else {
       delete process.env.TWILIO_WEBHOOK_BASE_URL;
+    }
+    if (savedIngressEnv !== undefined) {
+      process.env.INGRESS_PUBLIC_BASE_URL = savedIngressEnv;
+    } else {
+      delete process.env.INGRESS_PUBLIC_BASE_URL;
     }
   });
 
@@ -69,7 +77,29 @@ describe('getPublicBaseUrl', () => {
     expect(result).toBe('https://calls.example.com');
   });
 
-  test('falls back to TWILIO_WEBHOOK_BASE_URL env var when both config fields are empty', () => {
+  test('falls back to INGRESS_PUBLIC_BASE_URL env var when both config fields are empty', () => {
+    process.env.INGRESS_PUBLIC_BASE_URL = 'https://ingress-env.example.com/';
+    const result = getPublicBaseUrl({
+      ingress: { publicBaseUrl: '' },
+      calls: { webhookBaseUrl: '' },
+    });
+    expect(result).toBe('https://ingress-env.example.com');
+  });
+
+  test('falls back to INGRESS_PUBLIC_BASE_URL env var when config fields are undefined', () => {
+    process.env.INGRESS_PUBLIC_BASE_URL = 'https://ingress-env.example.com';
+    const result = getPublicBaseUrl({});
+    expect(result).toBe('https://ingress-env.example.com');
+  });
+
+  test('prefers INGRESS_PUBLIC_BASE_URL over TWILIO_WEBHOOK_BASE_URL', () => {
+    process.env.INGRESS_PUBLIC_BASE_URL = 'https://ingress-env.example.com';
+    process.env.TWILIO_WEBHOOK_BASE_URL = 'https://twilio-env.example.com';
+    const result = getPublicBaseUrl({});
+    expect(result).toBe('https://ingress-env.example.com');
+  });
+
+  test('falls back to TWILIO_WEBHOOK_BASE_URL env var when both config fields and INGRESS_PUBLIC_BASE_URL are empty', () => {
     process.env.TWILIO_WEBHOOK_BASE_URL = 'https://env.example.com/';
     const result = getPublicBaseUrl({
       ingress: { publicBaseUrl: '' },
@@ -78,7 +108,7 @@ describe('getPublicBaseUrl', () => {
     expect(result).toBe('https://env.example.com');
   });
 
-  test('falls back to env var when config fields are undefined', () => {
+  test('falls back to TWILIO_WEBHOOK_BASE_URL env var when config fields are undefined', () => {
     process.env.TWILIO_WEBHOOK_BASE_URL = 'https://env.example.com';
     const result = getPublicBaseUrl({});
     expect(result).toBe('https://env.example.com');
@@ -115,6 +145,18 @@ describe('getPublicBaseUrl', () => {
       calls: { webhookBaseUrl: 'https://calls.example.com' },
     });
     expect(result).toBe('https://calls.example.com');
+  });
+
+  test('normalizes trailing slashes from INGRESS_PUBLIC_BASE_URL', () => {
+    process.env.INGRESS_PUBLIC_BASE_URL = 'https://ingress-env.example.com///';
+    const result = getPublicBaseUrl({});
+    expect(result).toBe('https://ingress-env.example.com');
+  });
+
+  test('trims whitespace from INGRESS_PUBLIC_BASE_URL', () => {
+    process.env.INGRESS_PUBLIC_BASE_URL = '  https://ingress-env.example.com  ';
+    const result = getPublicBaseUrl({});
+    expect(result).toBe('https://ingress-env.example.com');
   });
 });
 
