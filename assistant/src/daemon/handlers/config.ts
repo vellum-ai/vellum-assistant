@@ -26,6 +26,10 @@ import type {
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
 
+// Snapshot the env-provided value at module load time so we can restore it
+// when the user clears a Settings-set override.
+const ORIGINAL_INGRESS_ENV = process.env.INGRESS_PUBLIC_BASE_URL;
+
 export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
   const config = getConfig();
   const configured = Object.keys(config.apiKeys).filter((k) => !!config.apiKeys[k]);
@@ -450,9 +454,11 @@ export function handleIngressConfig(
       // `pkill -f gateway`).
       if (value) {
         process.env.INGRESS_PUBLIC_BASE_URL = value;
+      } else if (ORIGINAL_INGRESS_ENV !== undefined) {
+        process.env.INGRESS_PUBLIC_BASE_URL = ORIGINAL_INGRESS_ENV;
+      } else {
+        delete process.env.INGRESS_PUBLIC_BASE_URL;
       }
-      // When cleared, do NOT delete the env var — the original env-provided
-      // value (if any) serves as a fallback per the documented precedence model.
 
       ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: value, localGatewayTarget, success: true });
     } else {
