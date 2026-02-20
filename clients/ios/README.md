@@ -1,6 +1,6 @@
 # iOS App — vellum-assistant-ios
 
-The iOS target (`vellum-assistant-ios`) is part of the multi-platform Swift Package at `clients/Package.swift`.
+The iOS app is built via a native Xcode project (`vellum-assistant-ios.xcodeproj`) generated from `project.yml` using XcodeGen. It depends on `VellumAssistantShared` from the local SPM package at `clients/Package.swift`.
 
 ## Features
 
@@ -25,7 +25,7 @@ The iOS target (`vellum-assistant-ios`) is part of the multi-platform Swift Pack
 
 ## Build & Test
 
-Single build script: `./build.sh` wraps `xcodebuild` with the correct build settings for SPM executable targets.
+Single build script: `./build.sh` wraps `xcodebuild` using the native `.xcodeproj`.
 
 ```bash
 # Build debug (simulator)
@@ -52,8 +52,8 @@ Environment variables for CI:
 
 ### Building with Xcode (development)
 
-1. Open `clients/Package.swift` in Xcode
-2. Select the `vellum-assistant-ios` scheme
+1. Open `clients/ios/vellum-assistant-ios.xcodeproj` in Xcode
+2. Select the `VellumAssistantIOS` scheme
 3. Choose an iOS Simulator as destination (e.g. iPhone 16 Pro)
 4. Build and Run (Cmd+R)
 
@@ -119,10 +119,6 @@ The `vellum-assistant-iosTests` target contains 70 iOS-specific integration test
 ```bash
 cd clients/ios
 ./build.sh test
-
-# Or directly via SPM:
-cd clients
-swift test --filter vellum_assistant_iosTests
 ```
 
 Test files in `clients/ios/Tests/`:

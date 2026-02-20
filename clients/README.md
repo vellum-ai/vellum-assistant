@@ -89,21 +89,17 @@ The build script:
 
 **Option A: Xcode** (recommended)
 ```bash
-cd clients
-open Package.swift
-# Xcode: Select vellum-assistant-ios scheme
-# Choose iOS Simulator (e.g., iPhone 17 Pro Max)
+cd clients/ios
+open vellum-assistant-ios.xcodeproj
+# Xcode: Select VellumAssistantIOS scheme
+# Choose iOS Simulator (e.g., iPhone 16 Pro)
 # Run (⌘R)
 ```
 
 **Option B: command line**
 ```bash
-cd clients
-xcodebuild build \
-  -scheme vellum-assistant-ios \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
-  CODE_SIGNING_ALLOWED=NO \
-  -derivedDataPath /tmp/vellum-ios-build
+cd clients/ios
+./build.sh
 ```
 
 See [clients/ios/README.md](ios/README.md) for full build, packaging, and configuration instructions.
@@ -189,8 +185,8 @@ cd clients/macos
 ### iOS Integration Tests
 
 ```bash
-cd clients
-swift test --filter vellum_assistant_iosTests    # 70 iOS-specific tests
+cd clients/ios
+./build.sh test    # 70 iOS-specific tests (via xcodebuild)
 ```
 
 Test files in `clients/ios/Tests/`:
