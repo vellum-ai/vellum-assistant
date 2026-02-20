@@ -163,6 +163,43 @@ export function loadConfig(): AssistantConfig {
       }
     }
 
+    // Auto-migrate legacy calls.webhookBaseUrl → ingress.publicBaseUrl
+    // so existing installs that only have the old key don't lose their
+    // public base URL after the canonical ingress cleanup (#5955).
+    const legacyCalls = fileConfig.calls as Record<string, unknown> | undefined;
+    const legacyWebhookBaseUrl = typeof legacyCalls?.webhookBaseUrl === 'string'
+      ? (legacyCalls.webhookBaseUrl as string).trim()
+      : '';
+    if (legacyWebhookBaseUrl) {
+      const ingressObj = (fileConfig.ingress ?? {}) as Record<string, unknown>;
+      const currentPublicBaseUrl = typeof ingressObj.publicBaseUrl === 'string'
+        ? (ingressObj.publicBaseUrl as string).trim()
+        : '';
+      if (!currentPublicBaseUrl) {
+        // Populate ingress.publicBaseUrl from the legacy key
+        if (!fileConfig.ingress) fileConfig.ingress = {};
+        (fileConfig.ingress as Record<string, unknown>).publicBaseUrl = legacyWebhookBaseUrl;
+
+        // Persist the migration to disk so it only happens once
+        try {
+          const rawJson = JSON.parse(readFileSync(configPath, 'utf-8'));
+          if (!rawJson.ingress) rawJson.ingress = {};
+          rawJson.ingress.publicBaseUrl = legacyWebhookBaseUrl;
+          delete rawJson.calls?.webhookBaseUrl;
+          if (rawJson.calls && Object.keys(rawJson.calls).length === 0) {
+            delete rawJson.calls;
+          }
+          writeFileSync(configPath, JSON.stringify(rawJson, null, 2) + '\n');
+        } catch (err) {
+          log.warn({ err }, 'Failed to persist webhookBaseUrl migration to config file');
+        }
+
+        log.warn(
+          'Migrated calls.webhookBaseUrl → ingress.publicBaseUrl. Please update your config to use ingress.publicBaseUrl directly.',
+        );
+      }
+    }
+
     // Validate and apply defaults via Zod schema
     const config = validateWithSchema(fileConfig);
 
