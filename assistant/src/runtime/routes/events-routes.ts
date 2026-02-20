@@ -122,6 +122,7 @@ export function handleSubscribeAssistantEvents(
           controller.enqueue(encoder.encode(formatSseHeartbeat()));
         } catch {
           // Controller already closed (e.g. client disconnected).
+          sub.dispose();
           cleanup();
         }
       }, heartbeatIntervalMs);
