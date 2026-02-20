@@ -40,8 +40,11 @@ Rules:
 const PROVIDER_DEFAULT_FAST_MODELS: Record<string, string> = {
   anthropic: 'claude-haiku-4-5-20251001',
   openai: 'gpt-4o-mini',
-  google: 'gemini-2.0-flash',
+  gemini: 'gemini-2.0-flash',
 };
+
+// Providers that can be initialized without an API key (e.g., Ollama runs locally)
+const KEYLESS_PROVIDERS = new Set(['ollama']);
 
 const deterministicProvider = new DefaultCommitMessageProvider();
 
@@ -110,11 +113,13 @@ export class ProviderCommitMessageGenerator {
       return buildDeterministicResult(context, 'disabled');
     }
 
-    // Step 2.5: API key preflight
-    const providerApiKey = config.apiKeys[config.provider];
-    if (!providerApiKey || providerApiKey === '') {
-      log.debug('Provider API key missing; falling back to deterministic');
-      return buildDeterministicResult(context, 'missing_provider_api_key');
+    // Step 2.5: API key preflight (skip for providers that run without a key)
+    if (!KEYLESS_PROVIDERS.has(config.provider)) {
+      const providerApiKey = config.apiKeys[config.provider];
+      if (!providerApiKey || providerApiKey === '') {
+        log.debug('Provider API key missing; falling back to deterministic');
+        return buildDeterministicResult(context, 'missing_provider_api_key');
+      }
     }
 
     // Step 3: Circuit breaker
