@@ -163,12 +163,28 @@ export const claudeCodeTool: Tool = {
       const entry = getCCCommand(workingDir, command);
       if (!entry) {
         const registry = discoverCCCommands(workingDir);
-        const available = Array.from(registry.entries.values()).map(e => e.name).sort();
-        const availableList = available.length > 0
-          ? `\nAvailable commands: ${available.join(', ')}`
-          : '\nNo commands found in .claude/commands/';
+        const commands = Array.from(registry.entries.values())
+          .filter(e => e.artifactType === 'command')
+          .map(e => e.name)
+          .sort();
+        const skills = Array.from(registry.entries.values())
+          .filter(e => e.artifactType === 'skill')
+          .map(e => e.name)
+          .sort();
+
+        const parts: string[] = [];
+        if (commands.length > 0) {
+          parts.push(`Available commands: ${commands.join(', ')}`);
+        }
+        if (skills.length > 0) {
+          parts.push(`Available skills: ${skills.join(', ')}`);
+        }
+        const availableList = parts.length > 0
+          ? '\n' + parts.join('\n')
+          : '\nNo commands or skills found in .claude/';
+
         return {
-          content: `Error: Command "${command}" not found in .claude/commands/.${availableList}`,
+          content: `Error: "${command}" not found in .claude/commands/ or .claude/skills/.${availableList}`,
           isError: true,
         };
       }
