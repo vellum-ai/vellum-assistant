@@ -249,11 +249,7 @@ private struct WorkspaceFileSheet: View {
 
             // Content
             ScrollView {
-                Text(fileContent)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.textSecondary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                MarkdownRenderer(text: fileContent)
                     .padding(VSpacing.xl)
             }
         }
