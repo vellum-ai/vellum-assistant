@@ -580,6 +580,8 @@ struct MainWindowView: View {
             if case .panel(.identity) = windowState.selection {
                 windowState.selection = nil
             }
+            // Clear subagent detail panel on thread switch
+            windowState.selectedSubagentId = nil
             // Clear stale activeSurfaceId on the old thread and sync the new one
             if let oldId {
                 threadManager.clearActiveSurface(threadId: oldId)

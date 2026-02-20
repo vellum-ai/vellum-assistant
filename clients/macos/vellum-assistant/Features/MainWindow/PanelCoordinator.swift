@@ -260,13 +260,24 @@ extension MainWindowView {
     var defaultChatLayout: some View {
         let config = windowState.layoutConfig
         let showConfigPanel = config.right.visible && config.right.content != .empty
+        let showSubagentPanel = windowState.selectedSubagentId != nil && threadManager.activeViewModel != nil
 
         VSplitView(
             panelWidth: $sidePanelWidth,
-            showPanel: showConfigPanel,
+            showPanel: showConfigPanel || showSubagentPanel,
             main: { slotView(for: config.center.content) },
             panel: {
-                slotView(for: config.right.content)
+                if let subagentId = windowState.selectedSubagentId,
+                   let viewModel = threadManager.activeViewModel {
+                    SubagentDetailPanel(
+                        subagentId: subagentId,
+                        detailStore: viewModel.subagentDetailStore,
+                        subagentInfo: viewModel.activeSubagents.first(where: { $0.id == subagentId }),
+                        onClose: { windowState.selectedSubagentId = nil }
+                    )
+                } else {
+                    slotView(for: config.right.content)
+                }
             }
         )
     }
@@ -530,6 +541,9 @@ struct ActiveChatViewWrapper: View {
             activeSubagents: viewModel.activeSubagents,
             onAbortSubagent: { subagentId in
                 try? daemonClient.sendSubagentAbort(subagentId: subagentId)
+            },
+            onSubagentTap: { subagentId in
+                windowState.selectedSubagentId = subagentId
             },
             daemonHttpPort: daemonClient.httpPort,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,

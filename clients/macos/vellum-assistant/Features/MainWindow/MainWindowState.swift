@@ -31,6 +31,7 @@ final class MainWindowState: ObservableObject {
     /// Tracks the "background" thread that persists even when viewing an app or panel overlay.
     @Published var persistentThreadId: UUID?
 
+    @Published var selectedSubagentId: String?
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
     @Published var activeDynamicParsedSurface: Surface?
     @Published var hasAPIKey: Bool

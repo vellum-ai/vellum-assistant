@@ -49,6 +49,7 @@ struct ChatView: View {
     var isTemporaryChat: Bool = false
     var activeSubagents: [SubagentInfo] = []
     var onAbortSubagent: ((String) -> Void)?
+    var onSubagentTap: ((String) -> Void)?
     var daemonHttpPort: Int?
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
@@ -471,9 +472,11 @@ struct ChatView: View {
                         // Subagent chips anchored to the message that spawned them
                         // Indent to align with message text (past the 28pt avatar + 8pt spacing)
                         ForEach(activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
-                            SubagentStatusChip(subagent: subagent) {
-                                onAbortSubagent?(subagent.id)
-                            }
+                            SubagentStatusChip(
+                                subagent: subagent,
+                                onAbort: { onAbortSubagent?(subagent.id) },
+                                onTap: { onSubagentTap?(subagent.id) }
+                            )
                                 .frame(maxWidth: 520, alignment: .leading)
                                 .padding(.leading, 36)
                                 .id("subagent-\(subagent.id)")
@@ -483,9 +486,11 @@ struct ChatView: View {
 
                     // Subagents with no parent message (e.g. from history load)
                     ForEach(activeSubagents.filter { $0.parentMessageId == nil }) { subagent in
-                        SubagentStatusChip(subagent: subagent) {
-                            onAbortSubagent?(subagent.id)
-                        }
+                        SubagentStatusChip(
+                            subagent: subagent,
+                            onAbort: { onAbortSubagent?(subagent.id) },
+                            onTap: { onSubagentTap?(subagent.id) }
+                        )
                             .frame(maxWidth: 520, alignment: .leading)
                             .padding(.leading, 36)
                             .id("subagent-\(subagent.id)")
