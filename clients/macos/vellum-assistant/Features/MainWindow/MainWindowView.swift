@@ -406,7 +406,7 @@ struct MainWindowView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("Copy thread")
-                                .vTooltip(showCopyThreadConfirmation ? "Copied!" : "Copy thread")
+                                .help(showCopyThreadConfirmation ? "Copied!" : "Copy thread")
                             }
 
                             TemporaryChatToggle(
@@ -419,7 +419,6 @@ struct MainWindowView: View {
                     .padding(.leading, trafficLightPadding)
                     .padding(.trailing, VSpacing.lg)
                     .frame(height: 36)
-                    .zIndex(1)
 
                     Divider().background(VColor.surfaceBorder)
 

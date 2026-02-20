@@ -51,7 +51,7 @@ public struct VIconButton: View {
         .onHover { isHovered = $0 }
         #endif
         .accessibilityLabel(label)
-        .vTooltip(tooltip ?? "")
+        .help(tooltip ?? "")
     }
 }
 
