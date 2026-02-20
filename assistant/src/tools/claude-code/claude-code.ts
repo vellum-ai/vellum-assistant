@@ -207,6 +207,17 @@ export const claudeCodeTool: Tool = {
       resolvedPrompt = prompt!;
     }
 
+    // If the project has .claude/commands/, hint the subprocess so it can discover them
+    try {
+      const { discoverCCCommands } = await import('../../commands/cc-command-registry.js');
+      const registry = discoverCCCommands(workingDir);
+      if (registry.entries.size > 0) {
+        resolvedPrompt += '\n\nNote: Custom project commands are available in .claude/commands/. Use Glob to list them and Read to view their instructions.';
+      }
+    } catch {
+      // Non-fatal — skip hint if discovery fails
+    }
+
     // Validate API key
     const config = getConfig();
     const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
