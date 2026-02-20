@@ -805,6 +805,16 @@ export const AgentHeartbeatConfigSchema = z.object({
     .min(0, 'agentHeartbeat.activeHoursEnd must be >= 0')
     .max(23, 'agentHeartbeat.activeHoursEnd must be <= 23')
     .optional(),
+}).superRefine((config, ctx) => {
+  const hasStart = config.activeHoursStart != null;
+  const hasEnd = config.activeHoursEnd != null;
+  if (hasStart !== hasEnd) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [hasStart ? 'activeHoursEnd' : 'activeHoursStart'],
+      message: 'agentHeartbeat.activeHoursStart and agentHeartbeat.activeHoursEnd must both be set or both be omitted',
+    });
+  }
 });
 
 export const SwarmConfigSchema = z.object({

@@ -58,7 +58,8 @@ export class AgentHeartbeatService {
     const config = getConfig().agentHeartbeat;
     if (!config.enabled) return;
 
-    // Active hours guard
+    // Active hours guard — only applied when both bounds are set.
+    // The schema rejects configs where only one bound is provided.
     if (config.activeHoursStart != null && config.activeHoursEnd != null) {
       const hour = this.deps.getCurrentHour?.() ?? new Date().getHours();
       if (!isWithinActiveHours(hour, config.activeHoursStart, config.activeHoursEnd)) {
@@ -85,19 +86,19 @@ export class AgentHeartbeatService {
   private async executeRun(): Promise<void> {
     log.info('Running agent heartbeat');
 
-    const checklist = this.readChecklist();
-    const prompt = this.buildPrompt(checklist);
-
-    const conversation = createConversation({
-      title: 'Agent Heartbeat',
-      threadType: 'background',
-    });
-
     try {
+      const checklist = this.readChecklist();
+      const prompt = this.buildPrompt(checklist);
+
+      const conversation = createConversation({
+        title: 'Agent Heartbeat',
+        threadType: 'background',
+      });
+
       await this.deps.processMessage(conversation.id, prompt);
       log.info({ conversationId: conversation.id }, 'Agent heartbeat completed');
     } catch (err) {
-      log.error({ err, conversationId: conversation.id }, 'Agent heartbeat failed');
+      log.error({ err }, 'Agent heartbeat failed');
       try {
         this.deps.alerter({
           type: 'agent_heartbeat_alert',
