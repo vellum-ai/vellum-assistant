@@ -422,8 +422,9 @@ describe('CommitEnrichmentService', () => {
     await service.shutdown();
 
     // Allow any zombie work to settle — if abort didn't work, the 2s timer
-    // would still be running and would set enrichmentCompleted=true.
-    await new Promise(resolve => setTimeout(resolve, 200));
+    // would still be running and would set enrichmentCompleted=true. Wait
+    // longer than the 2000ms mock delay to reliably catch the regression.
+    await new Promise(resolve => setTimeout(resolve, 2500));
 
     // The job should have timed out and been counted as failed
     expect(service._getFailedCount()).toBe(1);

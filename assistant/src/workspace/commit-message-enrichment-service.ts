@@ -177,9 +177,14 @@ export class CommitEnrichmentService {
     const controller = new AbortController();
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
-      // Race the enrichment work against a timeout
+      // Race the enrichment work against a timeout.
+      // When the timeout wins, controller.abort() kills in-progress work,
+      // causing doEnrichment to reject with an AbortError. Since Promise.race
+      // has already settled with the timeout error, that rejection is orphaned.
+      // The .catch() swallows it to prevent an unhandled promise rejection.
+      const enrichmentPromise = this.doEnrichment(job, controller.signal);
       await Promise.race([
-        this.doEnrichment(job, controller.signal),
+        enrichmentPromise,
         new Promise<never>((_, reject) => {
           timeoutHandle = setTimeout(() => {
             controller.abort();
@@ -187,6 +192,9 @@ export class CommitEnrichmentService {
           }, this.jobTimeoutMs);
         }),
       ]);
+      enrichmentPromise.catch(() => {
+        // Intentionally swallowed — the timeout branch already handled the error
+      });
       this.succeededCount++;
       log.debug(
         { commitHash: job.commitHash, attempts: job.attempts },
