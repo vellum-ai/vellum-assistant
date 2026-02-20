@@ -585,6 +585,13 @@ private struct ConstellationPill: View {
             }
             #endif
         }
+        #if os(macOS)
+        .onDisappear {
+            if isHovered && isTappable {
+                NSCursor.pop()
+            }
+        }
+        #endif
         .onTapGesture {
             onTap?()
         }
