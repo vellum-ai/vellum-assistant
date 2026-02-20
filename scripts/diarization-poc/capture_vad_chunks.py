@@ -17,8 +17,44 @@ import sys
 import time
 import wave
 
+import numpy as np
 import sounddevice as sd
-import webrtcvad
+
+try:
+    import webrtcvad  # type: ignore
+    HAVE_WEBRTCVAD = True
+except Exception:
+    webrtcvad = None
+    HAVE_WEBRTCVAD = False
+
+
+class EnergyVad:
+    """
+    Minimal fallback VAD when webrtcvad is unavailable.
+
+    Uses frame RMS against a calibrated noise floor and a mode-dependent
+    multiplier so existing --vad-mode still affects aggressiveness.
+    """
+
+    def __init__(self, mode: int) -> None:
+        self.mode = mode
+        self.noise_floor = 200.0
+        self.frames_seen = 0
+        self.mode_multipliers = {0: 1.2, 1: 1.6, 2: 2.0, 3: 2.5}
+
+    def is_speech(self, frame: bytes, _sample_rate: int) -> bool:
+        samples = np.frombuffer(frame, dtype=np.int16).astype(np.float32)
+        if samples.size == 0:
+            return False
+        rms = float(np.sqrt(np.mean(samples * samples)))
+        if self.frames_seen < 80:
+            self.noise_floor = 0.95 * self.noise_floor + 0.05 * rms
+        else:
+            if rms < self.noise_floor * 1.5:
+                self.noise_floor = 0.995 * self.noise_floor + 0.005 * rms
+        self.frames_seen += 1
+        threshold = max(300.0, self.noise_floor * self.mode_multipliers.get(self.mode, 2.0))
+        return rms >= threshold
 
 
 def save_wav(path: pathlib.Path, pcm_bytes: bytes, sample_rate: int) -> None:
@@ -53,7 +89,7 @@ def main() -> int:
     min_chunk_frames = max(1, int(args.min_chunk_ms / args.frame_ms))
     max_chunk_frames = max(1, int(args.max_chunk_ms / args.frame_ms))
 
-    vad = webrtcvad.Vad(args.vad_mode)
+    vad = webrtcvad.Vad(args.vad_mode) if HAVE_WEBRTCVAD else EnergyVad(args.vad_mode)
     q: queue.Queue[bytes] = queue.Queue()
     stop = False
 
@@ -71,9 +107,10 @@ def main() -> int:
             return
         q.put(bytes(indata))
 
+    backend = "webrtcvad" if HAVE_WEBRTCVAD else "energy-vad-fallback"
     print(
         f"[capture] listening device={args.device!r} sample_rate={args.sample_rate} frame_ms={args.frame_ms} "
-        f"silence_ms={args.silence_ms} out={out_dir}"
+        f"silence_ms={args.silence_ms} vad={backend} out={out_dir}"
     )
 
     pre_roll: collections.deque[bytes] = collections.deque(maxlen=pre_roll_frames)
