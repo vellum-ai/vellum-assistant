@@ -28,7 +28,7 @@
     "@huggingface/transformers": "^3.8.1",
     "@qdrant/js-client-rest": "^1.16.2",
     "@sentry/node": "^10.38.0",
-    "@vellumai/cli": "0.1.6",
+    "@vellumai/cli": "0.1.7",
     "@vellumai/vellum-gateway": "^0.1.7",
     "agentmail": "^0.1.0",
     "archiver": "^7.0.1",
