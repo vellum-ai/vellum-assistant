@@ -1625,15 +1625,18 @@ public struct IngressConfigRequestMessage: Encodable, Sendable {
     public let type = "ingress_config"
     public let action: String
     public let publicBaseUrl: String?
+    public let enabled: Bool?
 
-    public init(action: String, publicBaseUrl: String? = nil) {
+    public init(action: String, publicBaseUrl: String? = nil, enabled: Bool? = nil) {
         self.action = action
         self.publicBaseUrl = publicBaseUrl
+        self.enabled = enabled
     }
 }
 
 public struct IngressConfigResponseMessage: Sendable {
     public let type: String
+    public let enabled: Bool
     public let publicBaseUrl: String
     public let localGatewayTarget: String
     public let success: Bool
@@ -1644,6 +1647,7 @@ extension IngressConfigResponseMessage: Decodable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         type = try container.decode(String.self, forKey: .type)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
         publicBaseUrl = try container.decode(String.self, forKey: .publicBaseUrl)
         localGatewayTarget = try container.decodeIfPresent(String.self, forKey: .localGatewayTarget) ?? "http://127.0.0.1:7830"
         success = try container.decode(Bool.self, forKey: .success)
@@ -1651,7 +1655,7 @@ extension IngressConfigResponseMessage: Decodable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, publicBaseUrl, localGatewayTarget, success, error
+        case type, enabled, publicBaseUrl, localGatewayTarget, success, error
     }
 }
 

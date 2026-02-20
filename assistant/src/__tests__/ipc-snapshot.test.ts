@@ -1136,6 +1136,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   ingress_config_response: {
     type: 'ingress_config_response',
+    enabled: true,
     publicBaseUrl: 'https://example.com',
     localGatewayTarget: 'http://127.0.0.1:7830',
     success: true,

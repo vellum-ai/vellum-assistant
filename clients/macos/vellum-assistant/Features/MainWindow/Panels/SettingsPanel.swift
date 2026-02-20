@@ -533,9 +533,19 @@ struct SettingsPanel: View {
 
             // PUBLIC INGRESS section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Public Ingress")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+                HStack {
+                    Text("Public Ingress")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { store.ingressEnabled },
+                        set: { store.setIngressEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .disabled(store.ingressPublicBaseUrl.isEmpty && !store.ingressEnabled)
+                }
 
                 // Public Ingress URL field
                 HStack(spacing: VSpacing.xs) {
