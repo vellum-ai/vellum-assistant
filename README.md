@@ -199,6 +199,28 @@ If a proxied command receives a 401 or 403 despite having the correct credential
 4. **Check the header template**: Ensure the credential has an `injectionTemplate` with `injectionType: "header"` and the correct `headerName` (e.g., `Authorization`) and `valuePrefix` (e.g., `Bearer `).
 5. **Enable debug logging**: Set `LOG_LEVEL=debug` to see decision traces from the policy engine and rewrite callback, including which patterns matched and which credential was selected.
 
+## Integrations
+
+Vellum integrates with third-party services via OAuth2. Each integration is exposed as a bundled skill with its own set of tools.
+
+### Messaging (Gmail, Slack)
+
+The unified messaging layer provides platform-agnostic tools (`messaging_send`, `messaging_read`, `messaging_search`, etc.) that delegate to provider adapters. Gmail and Slack each implement the `MessagingProvider` interface. Platform-specific tools (e.g. `gmail_archive`, `slack_add_reaction`) extend beyond the generic interface where needed.
+
+Connect via the Settings UI or `integration_connect` IPC message. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens.
+
+### Twitter (X)
+
+Twitter integration supports posting to X via two mechanisms:
+
+1. **OAuth2 PKCE flow** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The daemon runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. Tokens are stored in the credential vault with `allowedTools: ["twitter_post", "twitter_read"]`. Connect via the Settings UI or `twitter_auth_start` IPC message.
+
+2. **Browser session** (CDP): The `vellum x post` CLI command posts via Chrome DevTools Protocol, executing GraphQL mutations through an authenticated x.com browser tab. Session cookies are captured via Ride Shotgun (`vellum x refresh`).
+
+**Available tool**: `twitter_post` — posts a tweet. There is no `twitter_read` tool implementation; the OAuth2 scopes include `tweet.read` and `users.read` for identity verification, but read functionality is not currently exposed as a tool.
+
+**Setup (OAuth2 mode)**: Store your Twitter app's Client ID via the credential vault (`credential:integration:twitter:oauth_client_id`). Optionally store a Client Secret. Then initiate the OAuth2 flow from the Settings UI.
+
 ## Dynamic Skill Authoring
 
 The assistant can create, test, and persist new skills at runtime. This is useful when no existing tool or skill covers a user's need.
