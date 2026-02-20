@@ -98,8 +98,4 @@ Summarize what was done:
 - Bot commands registered: /new
 - Credentials stored securely in the vault
 
-Remind the user that the gateway needs these environment variables set to match:
-- `TELEGRAM_BOT_TOKEN` — the bot token
-- `TELEGRAM_WEBHOOK_SECRET` — the generated secret
-
-The values are stored in the credential vault and can be retrieved for gateway configuration.
+The gateway automatically detects credentials from the vault and will begin accepting Telegram webhooks shortly. No manual environment variable configuration is needed.

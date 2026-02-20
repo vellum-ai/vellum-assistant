@@ -1,4 +1,5 @@
 import { loadConfig } from "./config.js";
+import { CredentialWatcher } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
@@ -20,38 +21,37 @@ function main() {
 
   log.info("Starting Vellum Gateway...");
 
-  const telegramConfigured = !!(config.telegramBotToken && config.telegramWebhookSecret);
+  const handleTelegramWebhook = createTelegramWebhookHandler(
+    config,
+    async (chatId, result, assistantId) => {
+      const msg = result.runtimeResponse?.assistantMessage;
+      const content = msg?.content;
+      const attachments = msg?.attachments ?? [];
 
-  const handleTelegramWebhook = telegramConfigured
-    ? createTelegramWebhookHandler(
-        config,
-        async (chatId, result, assistantId) => {
-          const msg = result.runtimeResponse?.assistantMessage;
-          const content = msg?.content;
-          const attachments = msg?.attachments ?? [];
+      if (!content && attachments.length === 0) {
+        return;
+      }
 
-          if (!content && attachments.length === 0) {
-            return;
-          }
+      try {
+        if (content) {
+          await sendTelegramReply(config, chatId, content);
+        }
+      } catch (err) {
+        log.error({ err, chatId }, "Failed to send Telegram reply");
+      }
 
-          try {
-            if (content) {
-              await sendTelegramReply(config, chatId, content);
-            }
-          } catch (err) {
-            log.error({ err, chatId }, "Failed to send Telegram reply");
-          }
+      if (attachments.length > 0) {
+        try {
+          await sendTelegramAttachments(config, chatId, assistantId, attachments);
+        } catch (err) {
+          log.error({ err, chatId }, "Failed to send Telegram attachments");
+        }
+      }
+    },
+  );
 
-          if (attachments.length > 0) {
-            try {
-              await sendTelegramAttachments(config, chatId, assistantId, attachments);
-            } catch (err) {
-              log.error({ err, chatId }, "Failed to send Telegram attachments");
-            }
-          }
-        },
-      )
-    : null;
+  const isTelegramConfigured = () =>
+    !!(config.telegramBotToken && config.telegramWebhookSecret);
 
   const handleTwilioVoiceWebhook = createTwilioVoiceWebhookHandler(config);
   const handleTwilioStatusWebhook = createTwilioStatusWebhookHandler(config);
@@ -84,7 +84,7 @@ function main() {
       }
 
       if (url.pathname === "/webhooks/telegram") {
-        if (!handleTelegramWebhook) {
+        if (!isTelegramConfigured()) {
           return Response.json(
             { error: "Telegram integration not configured" },
             { status: 503 },
@@ -131,7 +131,7 @@ function main() {
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
 
-  if (telegramConfigured) {
+  function registerTelegramCommands(): void {
     callTelegramApi(config, "setMyCommands", {
       commands: [{ command: "new", description: "Start a new conversation" }],
     }).catch((err) => {
@@ -139,11 +139,33 @@ function main() {
     });
   }
 
+  if (isTelegramConfigured()) {
+    registerTelegramCommands();
+  }
+
+  const credentialWatcher = new CredentialWatcher((credentials) => {
+    if (credentials) {
+      config.telegramBotToken = credentials.botToken;
+      config.telegramWebhookSecret = credentials.webhookSecret;
+      log.info("Telegram credentials loaded from credential vault");
+      registerTelegramCommands();
+    } else {
+      config.telegramBotToken = undefined;
+      config.telegramWebhookSecret = undefined;
+      log.info("Telegram credentials cleared");
+    }
+  });
+
+  if (!isTelegramConfigured()) {
+    credentialWatcher.start();
+  }
+
   const drainMs = config.shutdownDrainMs;
 
   process.on("SIGTERM", () => {
     log.info("SIGTERM received, starting graceful shutdown");
     draining = true;
+    credentialWatcher.stop();
     setTimeout(() => {
       log.info("Drain window elapsed, stopping server");
       server.stop(true);
