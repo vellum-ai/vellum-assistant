@@ -73,6 +73,7 @@ public struct SubagentStatusChip: View {
                     .padding(VSpacing.xs)
                     .contentShape(Rectangle())
                     .highPriorityGesture(TapGesture().onEnded { onAbort() })
+                    .accessibilityAddTraits(.isButton)
                     .accessibilityLabel("Abort subagent")
             }
         }
