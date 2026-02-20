@@ -42,11 +42,12 @@ jobs:
       - name: Install dependencies
         if: steps.version.outputs.changed == 'true'
         run: |
-          for i in 1 2 3 4 5; do
-            bun install && break
-            echo "bun install attempt $i failed, retrying in 30s..."
-            sleep 30
-          done
+          if ! bun install; then
+            echo "bun install failed (likely stale lockfile integrity hash), retrying without lockfile..."
+            rm -f bun.lock
+            rm -rf node_modules
+            bun install
+          fi
 
       - name: Setup Node
         if: steps.version.outputs.changed == 'true'
