@@ -1559,6 +1559,14 @@ public struct IPCTaskRouted: Codable, Sendable {
     public let escalatedFrom: String?
 }
 
+/// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread.
+public struct IPCTaskRunThreadCreated: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let workItemId: String
+    public let title: String
+}
+
 /// Server push — lightweight invalidation signal: the task queue has been mutated, refetch your list.
 public struct IPCTasksChanged: Codable, Sendable {
     public let type: String

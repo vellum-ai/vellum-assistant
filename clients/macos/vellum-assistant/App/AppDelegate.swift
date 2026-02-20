@@ -466,6 +466,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showTasksWindow()
         }
 
+        daemonClient.onTaskRunThreadCreated = { [weak self] msg in
+            self?.mainWindow?.threadManager.createTaskRunThread(
+                conversationId: msg.conversationId,
+                workItemId: msg.workItemId,
+                title: msg.title
+            )
+        }
+
         // Handle escalation: text_qa -> computer_use via computer_use_request_control
         daemonClient.onTaskRouted = { [weak self] routed in
             guard let self else { return }

@@ -287,6 +287,14 @@ export async function handleWorkItemRunTask(
           // handler can locate the session while the task is still running.
           updateWorkItem(msg.id, { lastRunConversationId: conversationId });
           session = await ctx.getOrCreateSession(conversationId);
+
+          // Notify clients so they can create a visible chat thread for this task run
+          ctx.broadcast({
+            type: 'task_run_thread_created',
+            conversationId,
+            workItemId: msg.id,
+            title: workItem.title,
+          });
           // Wire the taskRunId so the executor can retrieve ephemeral permission rules
           (session as unknown as { taskRunId?: string }).taskRunId = taskRunId;
         }
