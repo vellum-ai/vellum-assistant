@@ -133,7 +133,7 @@ struct ComposerView: View {
             .padding(.top, isComposerExpanded ? VSpacing.md : VSpacing.xs)
             .padding(.bottom, isComposerExpanded ? VSpacing.sm : VSpacing.xs)
             .padding(.leading, VSpacing.lg)
-            .padding(.trailing, VSpacing.lg)
+            .padding(.trailing, 2)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(VColor.surface)
@@ -256,7 +256,7 @@ struct ComposerView: View {
 
     @ViewBuilder
     private var composerActionButtons: some View {
-        HStack(spacing: VSpacing.inline) {
+        HStack(spacing: 2) {
             if isSending {
                 Button(action: onStop) {
                     ZStack {
@@ -283,13 +283,35 @@ struct ComposerView: View {
                 }
                 .accessibilityLabel("Stop generation")
             } else {
+                Button(action: onAttach) {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: composerActionIconSize, weight: .regular))
+                        .foregroundColor(VColor.textSecondary.opacity(0.82))
+                }
+                .buttonStyle(ComposerActionButtonStyle(
+                    isHovered: isAttachmentHovered,
+                    isFocused: focusedComposerAction == .attachment,
+                    size: composerActionButtonSize
+                ))
+                .focused($focusedComposerAction, equals: .attachment)
+                .focusable(true)
+                .onHover { hovering in
+                    handleComposerButtonHover(
+                        hovering,
+                        state: $isAttachmentHovered,
+                        isEnabled: hasAPIKey
+                    )
+                }
+                .accessibilityLabel("Attach file")
+                .disabled(!hasAPIKey)
+
                 if canSend {
                     Button {
                         composerFocusRequestID += 1
                         onSend()
                     } label: {
                         ZStack {
-                            Circle()
+                            RoundedRectangle(cornerRadius: 10)
                                 .fill(VColor.sendButton)
                                 .frame(width: 30, height: 30)
                             Image(systemName: "arrow.up")
@@ -335,28 +357,6 @@ struct ComposerView: View {
                         .disabled(!hasAPIKey)
                         .transition(.scale.combined(with: .opacity))
                 }
-
-                Button(action: onAttach) {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: composerActionIconSize, weight: .regular))
-                        .foregroundColor(VColor.textSecondary.opacity(0.82))
-                }
-                .buttonStyle(ComposerActionButtonStyle(
-                    isHovered: isAttachmentHovered,
-                    isFocused: focusedComposerAction == .attachment,
-                    size: composerActionButtonSize
-                ))
-                .focused($focusedComposerAction, equals: .attachment)
-                .focusable(true)
-                .onHover { hovering in
-                    handleComposerButtonHover(
-                        hovering,
-                        state: $isAttachmentHovered,
-                        isEnabled: hasAPIKey
-                    )
-                }
-                .accessibilityLabel("Attach file")
-                .disabled(!hasAPIKey)
             }
         }
         .padding(.trailing, VSpacing.xs)
