@@ -62,32 +62,40 @@ export async function commitTurnChanges(
 
     // Attempt LLM message generation BEFORE entering commitIfDirty so
     // the LLM call never runs while holding the git mutex.
+    // Only attempt LLM when:
+    //   1. No custom provider was injected (respect caller contract)
+    //   2. The workspace actually has pending changes (avoid wasting budget)
     let llmMessage: string | undefined;
     let commitMessageSource: CommitMessageSource = 'deterministic';
     let llmFallbackReason: LLMFallbackReason | undefined;
 
-    try {
-      const generator = getCommitMessageGenerator();
-      const result = await generator.generateCommitMessage(
-        {
-          workspaceDir,
-          trigger: 'turn',
-          sessionId,
-          turnNumber,
-          changedFiles: [], // File list unavailable outside the git mutex; generator handles empty arrays
-          timestampMs: Date.now(),
-        },
-        { deadlineMs, changedFiles: [] },
-      );
-      commitMessageSource = result.source;
-      llmFallbackReason = result.reason;
-      if (result.source === 'llm') {
-        llmMessage = result.message;
+    if (!provider) {
+      const preStatus = await gitService.getStatus();
+      if (!preStatus.clean) {
+        try {
+          const generator = getCommitMessageGenerator();
+          const result = await generator.generateCommitMessage(
+            {
+              workspaceDir,
+              trigger: 'turn',
+              sessionId,
+              turnNumber,
+              changedFiles: [], // File list unavailable outside the git mutex; generator handles empty arrays
+              timestampMs: Date.now(),
+            },
+            { deadlineMs, changedFiles: [] },
+          );
+          commitMessageSource = result.source;
+          llmFallbackReason = result.reason;
+          if (result.source === 'llm') {
+            llmMessage = result.message;
+          }
+        } catch (llmErr) {
+          // Never let LLM errors affect the commit path
+          log.debug({ err: llmErr }, 'LLM commit message generation failed (non-fatal)');
+          llmFallbackReason = 'provider_error';
+        }
       }
-    } catch (llmErr) {
-      // Never let LLM errors affect the commit path
-      log.debug({ err: llmErr }, 'LLM commit message generation failed (non-fatal)');
-      llmFallbackReason = 'provider_error';
     }
 
     const { committed, status } = await gitService.commitIfDirty((st) => {
