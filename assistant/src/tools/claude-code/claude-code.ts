@@ -12,7 +12,7 @@ const log = getLogger('claude-code-tool');
 // Tools that CC can use without user approval
 const AUTO_APPROVE_TOOLS = new Set([
   'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch',
-  'LS', 'Bash(grep *)', 'Bash(rg *)', 'Bash(find *)',
+  'LS', 'Task', 'Bash(grep *)', 'Bash(rg *)', 'Bash(find *)',
 ]);
 
 // Tools that always require user approval via confirmation IPC
