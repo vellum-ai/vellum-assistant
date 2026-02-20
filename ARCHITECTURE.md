@@ -1125,7 +1125,24 @@ graph TB
 
 9. **Non-blocking enrichment queue**: After each successful commit, a `CommitEnrichmentService` runs async enrichment fire-and-forget. The queue has configurable max size (default 50), concurrency (default 1), per-job timeout (default 30s), and retry count (default 2 with exponential backoff). On queue overflow, the oldest job is dropped with a warning log. On graceful shutdown, in-flight jobs drain while pending jobs are discarded. Currently writes placeholder JSON metadata to git notes (`refs/notes/vellum`) as a scaffold for future LLM enrichment.
 
-10. **Provider-aware commit message generation (optional)**: When `workspaceGit.commitMessageLLM.enabled` is `true`, turn-boundary commits attempt to generate a descriptive commit message using the configured LLM provider before falling back to deterministic messages. The LLM call runs BEFORE entering the `commitIfDirty` mutex to ensure it never holds the git lock during a network call. Pre-flight checks gate the attempt: the configured provider must have an API key, the generator's circuit breaker must be closed, and sufficient turn budget must remain (`minRemainingTurnBudgetMs`). On any failure — timeout, provider error, invalid output, or missing credentials — the deterministic message is used immediately with a structured `llmFallbackReason` log field. The feature ships disabled by default and is designed to never degrade turn completion guarantees.
+10. **Provider-aware commit message generation (optional)**: When `workspaceGit.commitMessageLLM.enabled` is `true`, turn-boundary commits attempt to generate a descriptive commit message using the configured LLM provider before falling back to deterministic messages. The feature ships disabled by default and is designed to never degrade turn completion guarantees.
+
+    **Commit message LLM fallback chain**: The generator runs a sequence of pre-flight checks before calling the LLM. Each check that fails produces a machine-readable `llmFallbackReason` in the structured log output and immediately returns a deterministic message. The checks, in order:
+
+    1. `disabled` — `commitMessageLLM.enabled` is `false` or `useConfiguredProvider` is `false`
+    2. `missing_provider_api_key` — the configured provider's API key is not set in `config.apiKeys` (sendMessage is never called)
+    3. `breaker_open` — the generator's internal circuit breaker is open after consecutive LLM failures (exponential backoff)
+    4. `insufficient_budget` — the remaining turn budget (`deadlineMs - Date.now()`) is below `minRemainingTurnBudgetMs`
+    5. `timeout` — the LLM call exceeded `timeoutMs` (AbortController fires)
+    6. `provider_error` — the provider threw an exception, is not initialized, or no fast model is available for the provider
+    7. `invalid_output` — the LLM returned empty text, the literal string "FALLBACK", total output > 500 chars, or subject line > 72 chars
+
+    **Fast model resolution**: The LLM call uses a small/fast model to minimize latency and cost. The model is resolved as follows:
+    - If `commitMessageLLM.providerFastModelOverrides[provider]` is set, that model is used.
+    - Otherwise, a built-in default is used: `anthropic` -> `claude-haiku-4-5-20251001`, `openai` -> `gpt-4o-mini`, `google` -> `gemini-2.0-flash`.
+    - If the configured provider has no override and no built-in default, the generator returns deterministic with reason `provider_error` without calling sendMessage.
+
+    **Pre-mutex LLM attempt**: The LLM generation runs BEFORE entering `commitIfDirty()` (outside the git mutex). Changed files are captured from a read-only `getStatus()` call (the "pre-status") outside the mutex. This avoids holding the mutex during network calls. The `commitIfDirty` callback uses its own mutex-protected status for the actual commit, so the file list used for commit and for the LLM prompt may differ slightly if files change between the two status calls — this is accepted as a tradeoff for not blocking concurrent git operations on LLM latency.
 
 ### Design decisions
 
