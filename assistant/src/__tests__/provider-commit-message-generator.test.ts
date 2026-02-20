@@ -274,16 +274,39 @@ describe('ProviderCommitMessageGenerator', () => {
     expect(result.reason).toBe('invalid_output');
   });
 
-  // 12. No default fast model for unknown provider
-  test('No default fast model for unknown provider → returns deterministic fallback', async () => {
+  // 12. Unknown provider without fast model default → uses provider's configured model
+  test('Unknown provider without fast model default → LLM call succeeds without model in config', async () => {
     (currentConfig as Record<string, unknown>).provider = 'exotic-provider';
     currentConfig.apiKeys = { 'exotic-provider': 'sk-exotic' } as Record<string, string>;
+    const commitMsg = 'chore: update dependencies';
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('provider_error');
-    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(result.source).toBe('llm');
+    expect(result.message).toBe(commitMsg);
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  // 13. Omits model from config when no fast model available
+  test('omits model from config when no fast model available', async () => {
+    (currentConfig as Record<string, unknown>).provider = 'ollama';
+    currentConfig.apiKeys = {} as Record<string, string>; // Ollama is keyless
+    const commitMsg = 'fix: local model commit';
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('llm');
+    expect(result.message).toBe(commitMsg);
+
+    // Verify model is NOT set in the config
+    const callArgs = mockSendMessage.mock.calls[0];
+    const options = callArgs[3] as { config: Record<string, unknown> };
+    expect(options.config.model).toBeUndefined();
+    expect(options.config.max_tokens).toBe(120);
+    expect(options.config.temperature).toBe(0.2);
   });
 });
