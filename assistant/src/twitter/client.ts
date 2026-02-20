@@ -544,7 +544,6 @@ export async function getTweetDetail(tweetId: string): Promise<TweetEntry[]> {
 
 export async function searchTweets(
   query: string,
-  count = 20,
   product: 'Top' | 'Latest' | 'People' | 'Media' = 'Top',
 ): Promise<TweetEntry[]> {
   requireSession();
@@ -635,10 +634,9 @@ export async function getLikes(userId: string, count = 20): Promise<TweetEntry[]
 
 // ─── Followers ───────────────────────────────────────────────────────────────
 
-export async function getFollowers(userId: string, count = 20, screenName?: string): Promise<UserInfo[]> {
+export async function getFollowers(userId: string, screenName?: string): Promise<UserInfo[]> {
   // Followers requires X's client-generated transaction ID.
-  // If we have a screenName, navigate to the followers page and capture.
-  // Otherwise fall back to graphqlGet (may 404 on some sessions).
+  // Navigate to the followers page and capture via CDP.
   if (screenName) {
     requireSession();
     const wsUrl = await findTwitterTab();
@@ -649,7 +647,7 @@ export async function getFollowers(userId: string, count = 20, screenName?: stri
 
   const json = await graphqlGet(QUERY_IDS.Followers, 'Followers', {
     userId,
-    count,
+    count: 20,
     includePromotedContent: false,
     withGrokTranslatedBio: false,
   }) as AnyJson;

@@ -271,13 +271,11 @@ export function registerTwitterCommand(program: Command): void {
   tw.command('search')
     .description('Search tweets')
     .argument('<query>', 'Search query')
-    .option('--count <n>', 'Number of results', '20')
     .option('--product <type>', 'Top, Latest, People, or Media', 'Top')
-    .action(async (query: string, opts: { count: string; product: string }, cmd: Command) => {
+    .action(async (query: string, opts: { product: string }, cmd: Command) => {
       await run(cmd, async () => {
         const tweets = await searchTweets(
           query,
-          parseInt(opts.count, 10),
           opts.product as 'Top' | 'Latest' | 'People' | 'Media',
         );
         return { query, tweets };
@@ -344,12 +342,11 @@ export function registerTwitterCommand(program: Command): void {
   tw.command('followers')
     .description("Fetch a user's followers")
     .argument('<screenName>', 'Twitter screen name (without @)')
-    .option('--count <n>', 'Number of followers', '20')
-    .action(async (screenName: string, opts: { count: string }, cmd: Command) => {
+    .action(async (screenName: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const cleanName = screenName.replace(/^@/, '');
         const user = await getUserByScreenName(cleanName);
-        const followers = await getFollowers(user.userId, parseInt(opts.count, 10), cleanName);
+        const followers = await getFollowers(user.userId, cleanName);
         return { user, followers };
       });
     });

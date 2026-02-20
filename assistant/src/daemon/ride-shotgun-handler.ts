@@ -155,6 +155,9 @@ export async function handleRideShotgunStart(
             }).catch(err => {
               clearInterval(checkInterval);
               log.warn({ err, watchId }, 'X auto-navigation failed');
+              if (session.status === 'active') {
+                completeSession(session);
+              }
             });
           } else {
             // Non-X domains: use login detection as before
