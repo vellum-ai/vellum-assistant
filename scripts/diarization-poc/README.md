@@ -13,9 +13,7 @@ Standalone scripts for speech chunking, provider diarization, and persistent spe
 
 ```bash
 cd scripts/diarization-poc
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync
 ```
 
 Set key:
@@ -29,7 +27,7 @@ export OPENAI_API_KEY=...
 Terminal 1: capture local mic into VAD chunks
 
 ```bash
-python capture_vad_chunks.py \
+uv run python capture_vad_chunks.py \
   --out-dir out/chunks \
   --silence-ms 2500 \
   --vad-mode 2
@@ -38,7 +36,7 @@ python capture_vad_chunks.py \
 Terminal 2: continuous transcription + learning
 
 ```bash
-python run_pipeline.py \
+uv run python run_pipeline.py \
   --chunks-dir out/chunks \
   --transcripts-dir out/transcripts \
   --labeled-dir out/labeled \
