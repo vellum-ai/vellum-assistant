@@ -580,7 +580,7 @@ export function handleTwitterIntegrationConfig(
             type: 'twitter_integration_config_response',
             success: false,
             managedAvailable: false,
-            localClientConfigured: false,
+            localClientConfigured: !!previousClientId,
             connected: false,
             error: 'Failed to store client secret in secure storage',
           });
