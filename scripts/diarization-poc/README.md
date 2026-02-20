@@ -51,6 +51,7 @@ Notes:
 - `run_pipeline.py` starts local capture by default.
 - If `resemblyzer` fails to import (common on some Python 3.13 envs), the pipeline automatically uses a built-in spectral embedding fallback.
 - Capture also falls back to energy-based VAD when `webrtcvad` is unavailable.
+- Live transcript lines are printed for all diarized segments; short segments may be shown as `Speaker A/B/...` until enough audio accumulates for stable voice matching.
 
 Optional replay mode (no live mic capture):
 
@@ -89,5 +90,5 @@ uv run python run_pipeline.py --no-capture --chunks-dir out/chunks
 - Reduce false splits:
   - lower VAD aggressiveness (`--vad-mode 1`)
 - Improve cross-chunk matching:
-  - raise `--min-segment-s` to `1.2-1.5`
+  - default is `--min-segment-s 0.6`; raise to `1.0-1.5` for stricter identity quality
   - tune `--similarity-threshold` around `0.70-0.78`

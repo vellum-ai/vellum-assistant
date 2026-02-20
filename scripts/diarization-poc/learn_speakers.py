@@ -377,36 +377,37 @@ def process_pair(
     audio = read_wav_mono_16k(wav_path)
     obj = json.loads(transcript_path.read_text(encoding="utf-8"))
     segments = parse_segments(obj)
-    labeled_segments: list[dict[str, Any]] = []
     local_speaker_state: dict[str, dict[str, Any]] = {}
 
+    # Build/update voice identity from aggregated per-speaker audio in this chunk.
+    # Provider diarization can split one utterance into very short sub-segments,
+    # so we concatenate local-speaker clips before embedding.
+    clips_by_speaker: dict[str, list[np.ndarray]] = {}
+    samples_by_speaker: dict[str, int] = {}
     for seg in segments:
         duration = seg.end - seg.start
-        if duration < min_segment_s:
+        if duration <= 0:
             continue
         clip = slice_audio(audio, seg.start, seg.end)
-        if clip.size < int(min_segment_s * 16000):
+        if clip.size == 0:
+            continue
+        local_id = seg.speaker or "unknown"
+        clips_by_speaker.setdefault(local_id, []).append(clip.astype(np.float32))
+        samples_by_speaker[local_id] = samples_by_speaker.get(local_id, 0) + int(clip.size)
+
+    min_samples = int(min_segment_s * 16000)
+    for local_id, clips in clips_by_speaker.items():
+        if samples_by_speaker.get(local_id, 0) < min_samples:
+            continue
+        merged_clip = np.concatenate(clips)
+        if merged_clip.size < min_samples:
             continue
 
-        embedding = encoder.embed_utterance(clip.astype(np.float32))
+        embedding = encoder.embed_utterance(merged_clip)
         profile, similarity = match_profile(registry, embedding, similarity_threshold)
         normalize_profile_shape(profile)
         update_centroid(profile, embedding)
-        local_speaker_state[seg.speaker] = {"profile": profile, "similarity": float(similarity)}
-
-        labeled_segments.append(
-            {
-                "speaker_local": seg.speaker,
-                "speaker_global_id": profile["id"],
-                "speaker_display_name": profile["display_name"],
-                "speaker_status": profile["identity_state"],
-                "speaker_name_confidence": round(float(profile.get("current_name_confidence", 0.0)), 4),
-                "match_similarity": round(similarity, 4),
-                "start": seg.start,
-                "end": seg.end,
-                "text": seg.text,
-            }
-        )
+        local_speaker_state[local_id] = {"profile": profile, "similarity": float(similarity)}
 
     if identity_evidence:
         local_speakers = set(local_speaker_state.keys())
@@ -449,7 +450,50 @@ def process_pair(
                 rationale=rationale,
             )
 
-    touched_ids = {row["speaker_global_id"] for row in labeled_segments}
+    labeled_segments: list[dict[str, Any]] = []
+    for seg in segments:
+        duration = seg.end - seg.start
+        if duration <= 0:
+            continue
+        state = local_speaker_state.get(seg.speaker)
+        if state:
+            profile = state["profile"]
+            labeled_segments.append(
+                {
+                    "speaker_local": seg.speaker,
+                    "speaker_global_id": profile["id"],
+                    "speaker_display_name": profile["display_name"],
+                    "speaker_status": profile["identity_state"],
+                    "speaker_name_confidence": round(float(profile.get("current_name_confidence", 0.0)), 4),
+                    "match_similarity": round(float(state["similarity"]), 4),
+                    "start": seg.start,
+                    "end": seg.end,
+                    "text": seg.text,
+                }
+            )
+            continue
+
+        # Keep transcript visible even when segment is too short for robust voice matching.
+        local_id = seg.speaker or "unknown"
+        labeled_segments.append(
+            {
+                "speaker_local": local_id,
+                "speaker_global_id": f"local-{local_id}",
+                "speaker_display_name": f"Speaker {local_id}",
+                "speaker_status": "anonymous",
+                "speaker_name_confidence": 0.0,
+                "match_similarity": -1.0,
+                "start": seg.start,
+                "end": seg.end,
+                "text": seg.text,
+            }
+        )
+
+    touched_ids = {
+        row["speaker_global_id"]
+        for row in labeled_segments
+        if isinstance(row.get("speaker_global_id"), str) and str(row["speaker_global_id"]).startswith("anon-")
+    }
     for profile in registry["profiles"]:
         normalize_profile_shape(profile)
         if profile["id"] in touched_ids:
@@ -479,7 +523,7 @@ def main() -> int:
     parser.add_argument("--out-dir", default="out/labeled")
     parser.add_argument("--registry", default="out/speaker_registry.json")
     parser.add_argument("--similarity-threshold", type=float, default=0.72)
-    parser.add_argument("--min-segment-s", type=float, default=1.0)
+    parser.add_argument("--min-segment-s", type=float, default=0.6)
     parser.add_argument("--identity-evidence-dir", default="out/transcripts/identity-evidence")
     parser.add_argument("--min-name-score", type=float, default=2.2)
     parser.add_argument("--min-name-margin", type=float, default=0.8)

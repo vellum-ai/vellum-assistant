@@ -40,13 +40,19 @@ def fmt_time(seconds: float) -> str:
 def print_live_segments(rows: list[dict[str, Any]], min_conf: float) -> None:
     for row in rows:
         start = float(row.get("start") or 0.0)
+        text = str(row.get("text") or "").strip()
+        if not text:
+            continue
         status = str(row.get("speaker_status") or "anonymous")
         base_label = str(row.get("speaker_display_name") or "Unknown")
         conf = float(row.get("speaker_name_confidence") or 0.0)
         if status != "named" or conf < min_conf:
-            gid = str(row.get("speaker_global_id") or "anon")
-            base_label = f"Person {gid.replace('anon-', '')}"
-        text = str(row.get("text") or "").strip()
+            gid = str(row.get("speaker_global_id") or "").strip()
+            if gid.startswith("anon-"):
+                base_label = f"Person {gid.replace('anon-', '')}"
+            else:
+                local = str(row.get("speaker_local") or "").strip()
+                base_label = f"Speaker {local}" if local else "Speaker"
         print(f"[{fmt_time(start)}] {base_label} ({status}, conf={conf:.2f}): {text}")
 
 
@@ -101,7 +107,7 @@ def main() -> int:
     parser.add_argument("--identity-model", default="gpt-4o-mini")
     parser.add_argument("--poll-interval-s", type=float, default=2.0)
     parser.add_argument("--similarity-threshold", type=float, default=0.72)
-    parser.add_argument("--min-segment-s", type=float, default=1.0)
+    parser.add_argument("--min-segment-s", type=float, default=0.6)
     parser.add_argument("--min-name-score", type=float, default=2.2)
     parser.add_argument("--min-name-margin", type=float, default=0.8)
     parser.add_argument("--min-name-confidence", type=float, default=0.72)
