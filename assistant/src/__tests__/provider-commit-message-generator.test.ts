@@ -278,26 +278,49 @@ describe('ProviderCommitMessageGenerator', () => {
   test('Ollama without API key → does not return missing_provider_api_key', async () => {
     (currentConfig as Record<string, unknown>).provider = 'ollama';
     currentConfig.apiKeys = {} as Record<string, string>;
-    // Ollama has no default fast model, so it will fall through to provider_error,
-    // but crucially it should NOT be blocked by missing_provider_api_key
+    const commitMsg = 'fix: local model commit';
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
+    expect(result.source).toBe('llm');
     expect(result.reason).not.toBe('missing_provider_api_key');
   });
 
-  // 13. No default fast model for unknown provider
-  test('No default fast model for unknown provider → returns deterministic fallback', async () => {
+  // 13. Unknown provider without fast model default → uses provider's configured model
+  test('Unknown provider without fast model default → LLM call succeeds without model in config', async () => {
     (currentConfig as Record<string, unknown>).provider = 'exotic-provider';
     currentConfig.apiKeys = { 'exotic-provider': 'sk-exotic' } as Record<string, string>;
+    const commitMsg = 'chore: update dependencies';
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('provider_error');
-    expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(result.source).toBe('llm');
+    expect(result.message).toBe(commitMsg);
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  // 14. Omits model from config when no fast model available
+  test('omits model from config when no fast model available', async () => {
+    (currentConfig as Record<string, unknown>).provider = 'ollama';
+    currentConfig.apiKeys = {} as Record<string, string>; // Ollama is keyless
+    const commitMsg = 'fix: local model commit';
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('llm');
+    expect(result.message).toBe(commitMsg);
+
+    // Verify model is NOT set in the config
+    const callArgs = mockSendMessage.mock.calls[0];
+    const options = callArgs[3] as { config: Record<string, unknown> };
+    expect(options.config.model).toBeUndefined();
+    expect(options.config.max_tokens).toBe(120);
+    expect(options.config.temperature).toBe(0.2);
   });
 });
