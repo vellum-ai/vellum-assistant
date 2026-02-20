@@ -573,7 +573,7 @@ class CredentialStoreTool implements Tool {
             return { content: 'Error: failed to store access token in secure storage', isError: true };
           }
 
-          const expiresAt = tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined;
+          const expiresAt = tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : null;
 
           let accountInfo: string | undefined;
           if (userinfoUrl && grantedScopes.some((s) => s.includes('userinfo'))) {
