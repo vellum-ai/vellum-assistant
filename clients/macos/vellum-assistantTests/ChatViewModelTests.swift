@@ -2107,7 +2107,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testCreateSessionIfNeededWithoutThreadType() {
         viewModel.createSessionIfNeeded()
-        XCTAssertTrue(viewModel.isSending)
+        XCTAssertFalse(viewModel.isSending, "Message-less session creates should not set isSending")
         XCTAssertNil(viewModel.threadType, "threadType should remain nil when not specified")
     }
 
