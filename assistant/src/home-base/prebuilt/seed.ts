@@ -1,11 +1,10 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { createApp, listApps, type AppDefinition } from '../../memory/app-store.js';
 import { getLogger } from '../../util/logger.js';
 import {
   HOME_BASE_PREBUILT_DESCRIPTION_PREFIX,
   isPrebuiltHomeBaseApp,
 } from '../prebuilt-home-base-updater.js';
+import { PREBUILT_HOME_BASE_HTML } from './prebuilt-html.js';
 
 const log = getLogger('home-base-seed');
 
@@ -21,17 +20,30 @@ export interface PrebuiltHomeBaseTaskPayload {
   onboardingTasks: string[];
 }
 
-function getPrebuiltDir(): string {
-  return import.meta.dirname ?? __dirname;
-}
+// Inline the seed metadata so it's embedded in the compiled binary.
+// readFileSync does NOT work in bun build --compile for sibling files.
+const SEED_METADATA: SeedMetadata = {
+  version: 'v1',
+  appName: 'Home Base',
+  starterTasks: [
+    'Change the look and feel',
+    'Research something for me about X',
+    'Turn it into a webpage or interactive UI',
+  ],
+  onboardingTasks: [
+    'Make it mine',
+    'Enable voice mode',
+    'Enable computer control',
+    'Try ambient mode',
+  ],
+};
 
 function loadSeedMetadata(): SeedMetadata {
-  const raw = readFileSync(join(getPrebuiltDir(), 'seed-metadata.json'), 'utf-8');
-  return JSON.parse(raw) as SeedMetadata;
+  return SEED_METADATA;
 }
 
 function loadPrebuiltHtml(): string {
-  return readFileSync(join(getPrebuiltDir(), 'index.html'), 'utf-8');
+  return PREBUILT_HOME_BASE_HTML;
 }
 
 function buildDescription(metadata: SeedMetadata): string {

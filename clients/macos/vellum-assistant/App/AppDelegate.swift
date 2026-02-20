@@ -85,7 +85,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     var thinkingWindow: ThinkingIndicatorWindow?
     public let services = AppServices()
-    private let daemonLauncher = DaemonLauncher()
+    private let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
 
     // Forwarding accessors — ownership lives in `services`, these keep
@@ -202,10 +202,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func ensureDaemonConnected() {
-        guard !daemonClient.isConnected else { return }
+        // Skip if already connected or if a connection attempt is in progress
+        // (setupDaemonClient already started connecting — don't interfere).
+        guard !daemonClient.isConnected, !daemonClient.isConnecting else { return }
         Task {
-            try? await daemonLauncher.launchIfNeeded()
-            daemonLauncher.startMonitoring()
+            try? await assistantCli.hatch()
+            assistantCli.startMonitoring()
+            // Only connect if setupDaemonClient's connect hasn't already started
+            guard !daemonClient.isConnected, !daemonClient.isConnecting else { return }
             try? await daemonClient.connect()
             if daemonClient.isConnected {
                 setupAmbientAgent()
@@ -308,7 +312,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
-            daemonLauncher.stopMonitoring()
+            assistantCli.stopMonitoring()
             hasSetupApp = false
             hasSetupDaemon = false
             showAuthWindow()
@@ -316,7 +320,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func performRetire() {
-        let cliLauncher = CLILauncher()
         let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
         if assistantName == nil {
@@ -324,10 +327,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Task {
-            daemonLauncher.stop()
-
             if let name = assistantName {
-                try? await cliLauncher.runRetire(name: name)
+                try? await assistantCli.retire(name: name)
+            } else {
+                assistantCli.stop()
             }
 
             UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
@@ -518,9 +521,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Restart DaemonClient connection when the health monitor relaunches
         // the daemon process so we don't wait for the backoff timer to expire.
-        daemonLauncher.onDaemonRestarted = { [weak self] in
+        assistantCli.onDaemonRestarted = { [weak self] in
             guard let self else { return }
             Task {
+                // Don't reset an in-progress connection attempt
+                guard !self.daemonClient.isConnected, !self.daemonClient.isConnecting else { return }
                 try? await self.daemonClient.connect()
                 if self.daemonClient.isConnected {
                     self.setupAmbientAgent()
@@ -531,9 +536,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Task {
-            // Launch the bundled daemon if present (release builds)
-            try? await daemonLauncher.launchIfNeeded()
-            daemonLauncher.startMonitoring()
+            // Hatch the assistant via CLI (spawns daemon in release builds)
+            try? await assistantCli.hatch()
+            assistantCli.startMonitoring()
             try? await daemonClient.connect()
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {
@@ -546,7 +551,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupAutoUpdate() {
         updateManager.onWillInstallUpdate = { [weak self] in
-            self?.daemonLauncher.stop()
+            self?.assistantCli.stop()
         }
         updateManager.startAutomaticChecks()
     }
@@ -1176,7 +1181,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         surfaceManager.dismissAll()
         toolConfirmationNotificationService.dismissAll()
         secretPromptManager.dismissAll()
-        daemonLauncher.stop()
+        assistantCli.stop()
     }
 
     // MARK: - Browser CDP Request Handling

@@ -6,7 +6,7 @@ import SwiftUI
 struct HatchingStepView: View {
     @Bindable var state: OnboardingState
 
-    @State private var cliLauncher = CLILauncher()
+    @State private var assistantCli = AssistantCli()
     @State private var showContent = false
     @State private var eggWobble = false
     @State private var eggCracked = false
@@ -251,7 +251,7 @@ struct HatchingStepView: View {
         let apiKey = APIKeyManager.getKey() ?? ""
         let selectedModel = state.selectedModel
 
-        let config = CLILauncher.RemoteHatchConfig(
+        let config = AssistantCli.RemoteHatchConfig(
             remote: state.cloudProvider,
             gcpProjectId: state.gcpProjectId,
             gcpZone: state.gcpZone,
@@ -265,7 +265,7 @@ struct HatchingStepView: View {
 
         Task.detached { [config, selectedModel] in
             do {
-                try await cliLauncher.runRemoteHatch(config: config) { line in
+                try await assistantCli.runRemoteHatch(config: config) { line in
                     Task { @MainActor in
                         state.hatchLogLines.append(line)
                         if !eggCracked && state.hatchLogLines.count > 3 {

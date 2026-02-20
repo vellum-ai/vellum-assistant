@@ -1,8 +1,8 @@
 import { spawn } from "child_process";
 import { randomBytes } from "crypto";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { createRequire } from "module";
-import { tmpdir, userInfo } from "os";
+import { tmpdir, userInfo, homedir } from "os";
 import { dirname, join } from "path";
 
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
@@ -763,10 +763,106 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
   console.log("");
 
   if (process.env.VELLUM_DESKTOP_APP) {
-    // When running inside the desktop app, the macOS DaemonLauncher manages
-    // the daemon lifecycle directly. The CLI only needs to register the
-    // assistant entry — no daemon spawn needed here.
-    console.log("   Daemon managed by desktop app\n");
+    // When running inside the desktop app, the CLI owns the daemon lifecycle.
+    // Find the vellum-daemon binary adjacent to the CLI binary.
+    const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
+    if (!existsSync(daemonBinary)) {
+      throw new Error(
+        `vellum-daemon binary not found at ${daemonBinary}.\n` +
+          "  Ensure the daemon binary is bundled alongside the CLI in the app bundle.",
+      );
+    }
+
+    const vellumDir = join(homedir(), ".vellum");
+    const pidFile = join(vellumDir, "vellum.pid");
+    const socketFile = join(vellumDir, "vellum.sock");
+
+    // If a daemon is already running, skip spawning a new one.
+    // This prevents cascading kill→restart cycles when multiple callers
+    // invoke hatch() concurrently (setupDaemonClient + ensureDaemonConnected).
+    let daemonAlive = false;
+    if (existsSync(pidFile)) {
+      try {
+        const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+        if (!isNaN(pid)) {
+          try {
+            process.kill(pid, 0); // Check if alive
+            daemonAlive = true;
+            console.log(`   Daemon already running (pid ${pid})\n`);
+          } catch {
+            // Process doesn't exist, clean up stale PID file
+            try { unlinkSync(pidFile); } catch {}
+          }
+        }
+      } catch {}
+    }
+
+    if (!daemonAlive) {
+      // Remove stale socket so we can detect the fresh one
+      try { unlinkSync(socketFile); } catch {}
+
+      console.log("🔨 Starting daemon...");
+
+      // Ensure ~/.vellum/ exists for PID/socket files
+      mkdirSync(vellumDir, { recursive: true });
+
+      // Build a minimal environment for the daemon. When launched from the
+      // macOS app the CLI inherits a huge environment (XPC_SERVICE_NAME,
+      // __CFBundleIdentifier, CLAUDE_CODE_ENTRYPOINT, etc.) that can cause
+      // the daemon to take 50+ seconds to start instead of ~1s.
+      const daemonEnv: Record<string, string> = {
+        HOME: process.env.HOME || homedir(),
+        PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        VELLUM_DAEMON_TCP_ENABLED: "1",
+      };
+      // Forward optional config env vars the daemon may need
+      for (const key of [
+        "ANTHROPIC_API_KEY",
+        "BASE_DATA_DIR",
+        "VELLUM_DAEMON_TCP_PORT",
+        "VELLUM_DAEMON_TCP_HOST",
+        "VELLUM_DAEMON_SOCKET",
+        "VELLUM_DEBUG",
+        "SENTRY_DSN",
+        "TMPDIR",
+        "USER",
+        "LANG",
+      ]) {
+        if (process.env[key]) {
+          daemonEnv[key] = process.env[key]!;
+        }
+      }
+
+      const child = spawn(daemonBinary, [], {
+        detached: true,
+        stdio: "ignore",
+        env: daemonEnv,
+      });
+      child.unref();
+
+      // Write PID file immediately so the health monitor can find the process
+      // and concurrent hatch() calls see it as alive.
+      if (child.pid) {
+        writeFileSync(pidFile, String(child.pid), "utf-8");
+      }
+    }
+
+    // Wait for socket at ~/.vellum/vellum.sock (up to 15s)
+    if (!existsSync(socketFile)) {
+      const maxWait = 15000;
+      const start = Date.now();
+      while (Date.now() - start < maxWait) {
+        if (existsSync(socketFile)) {
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+    if (existsSync(socketFile)) {
+      console.log("   Daemon socket ready\n");
+    } else {
+      console.log("   ⚠️  Daemon socket did not appear within 15s — continuing anyway\n");
+    }
   } else {
     console.log("🔨 Starting local daemon...");
 

@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 struct CloudCredentialsStepView: View {
     @Bindable var state: OnboardingState
 
-    @State private var cliLauncher = CLILauncher()
+    @State private var assistantCli = AssistantCli()
     @State private var showTitle = false
     @State private var showContent = false
 

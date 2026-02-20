@@ -89,7 +89,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Published State
 
     @Published public var isConnected: Bool = false
-    var isConnecting: Bool = false
+    public var isConnecting: Bool = false
 
     /// Whether blob transport has been verified for this connection.
     /// Resets to `false` on disconnect/reconnect. Only set to `true` after
