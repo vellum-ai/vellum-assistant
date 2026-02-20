@@ -247,19 +247,19 @@ export class ProviderCommitMessageGenerator {
         return buildDeterministicResult(context, 'invalid_output');
       }
 
-      // Validate single-line subject: first line must be <= 72 chars
-      const firstLine = text.split('\n')[0];
-      if (firstLine.length > 72) {
+      // Cap subject line to 72 chars deterministically (no fallback, no breaker failure)
+      const lines = text.split('\n');
+      if (lines[0].length > 72) {
         log.debug(
-          { subjectLength: firstLine.length },
-          'LLM subject line too long; falling back to deterministic',
+          { originalLength: lines[0].length },
+          'Capping LLM subject line to 72 chars',
         );
-        this.recordFailure();
-        return buildDeterministicResult(context, 'invalid_output');
+        lines[0] = lines[0].slice(0, 72);
       }
+      const finalMessage = lines.join('\n');
 
       this.recordSuccess();
-      return { message: text, source: 'llm' };
+      return { message: finalMessage, source: 'llm' };
     } catch (err: unknown) {
       log.warn(
         { err: err instanceof Error ? err.message : String(err) },

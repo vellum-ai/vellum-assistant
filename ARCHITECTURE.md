@@ -1137,7 +1137,8 @@ graph TB
     6. `provider_not_initialized` — the configured provider is not registered/bootstrapped (e.g., `getProvider()` throws)
     7. `timeout` — the LLM call exceeded `timeoutMs` (AbortController fires)
     8. `provider_error` — the provider threw an exception during the LLM call
-    9. `invalid_output` — the LLM returned empty text, the literal string "FALLBACK", total output > 500 chars, or subject line > 72 chars
+    9. `invalid_output` — the LLM returned empty text, the literal string "FALLBACK", or total output > 500 chars
+    - **Subject line capping**: If the LLM subject line exceeds 72 chars it is deterministically truncated to 72 chars. This is NOT treated as a failure (no breaker penalty, no deterministic fallback).
 
     **Fast model resolution**: The LLM call uses a small/fast model to minimize latency and cost. The model is resolved **before** any provider call as a pre-flight check:
     - If `commitMessageLLM.providerFastModelOverrides[provider]` is set, that model is used.

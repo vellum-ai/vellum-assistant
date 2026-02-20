@@ -262,16 +262,33 @@ describe('ProviderCommitMessageGenerator', () => {
     expect(result.reason).toBe('invalid_output');
   });
 
-  // 11. LLM output too long (subject > 72 chars)
-  test('LLM output too long (subject > 72 chars) → returns deterministic, reason "invalid_output"', async () => {
-    const longSubject = 'a'.repeat(73);
+  // 11. LLM subject > 72 chars → truncated to 72, still source "llm"
+  test('LLM subject > 72 chars → truncated to 72, source "llm"', async () => {
+    const longSubject = 'a'.repeat(100);
     mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(longSubject));
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('invalid_output');
+    expect(result.source).toBe('llm');
+    expect(result.reason).toBeUndefined();
+    expect(result.message.split('\n')[0].length).toBeLessThanOrEqual(72);
+    expect(result.message).toBe('a'.repeat(72));
+  });
+
+  // 11b. LLM subject > 72 chars with body → subject truncated, body preserved
+  test('LLM subject > 72 chars with body → subject truncated, body preserved', async () => {
+    const longSubject = 'b'.repeat(80);
+    const body = '\n\n- bullet one\n- bullet two';
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(longSubject + body));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('llm');
+    expect(result.reason).toBeUndefined();
+    expect(result.message.split('\n')[0].length).toBeLessThanOrEqual(72);
+    expect(result.message).toBe('b'.repeat(72) + body);
   });
 
   // 12. Keyless provider (Ollama) without fast model → missing_fast_model (skips API key check)
