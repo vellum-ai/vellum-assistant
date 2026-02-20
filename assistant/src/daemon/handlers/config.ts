@@ -450,9 +450,9 @@ export function handleIngressConfig(
       // `pkill -f gateway`).
       if (value) {
         process.env.INGRESS_PUBLIC_BASE_URL = value;
-      } else {
-        delete process.env.INGRESS_PUBLIC_BASE_URL;
       }
+      // When cleared, do NOT delete the env var — the original env-provided
+      // value (if any) serves as a fallback per the documented precedence model.
 
       ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: value, localGatewayTarget, success: true });
     } else {
