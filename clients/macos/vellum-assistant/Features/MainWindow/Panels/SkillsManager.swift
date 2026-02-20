@@ -139,6 +139,7 @@ final class SkillsManager: ObservableObject {
                    response.operation == "install" {
                     if response.success {
                         installResult = InstallResult(slug: slug, success: true, error: nil)
+                        inspectCache.removeValue(forKey: slug)
                         fetchSkills(force: true)
                     } else {
                         installResult = InstallResult(slug: slug, success: false, error: response.error)
@@ -225,6 +226,7 @@ final class SkillsManager: ObservableObject {
                    response.operation == "uninstall" {
                     if response.success {
                         uninstallResult = UninstallResult(id: id, success: true, error: nil)
+                        inspectCache.removeValue(forKey: id)
                         fetchSkills(force: true)
                     } else {
                         uninstallResult = UninstallResult(id: id, success: false, error: response.error)
