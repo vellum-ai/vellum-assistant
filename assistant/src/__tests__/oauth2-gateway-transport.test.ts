@@ -51,7 +51,13 @@ let mockOAuthCallbackUrl = '';
 
 mock.module('../inbound/public-ingress-urls.js', () => ({
   getOAuthCallbackUrl: () => mockOAuthCallbackUrl,
-  getPublicBaseUrl: () => 'https://gw.example.com',
+  getPublicBaseUrl: (config?: { ingress?: { publicBaseUrl?: string } }) => {
+    const url = config?.ingress?.publicBaseUrl ?? mockPublicBaseUrl;
+    if (!url) {
+      throw new Error('No public base URL configured.');
+    }
+    return url;
+  },
 }));
 
 // Mock fetch for token exchange

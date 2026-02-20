@@ -144,19 +144,18 @@ async function exchangeCodeForTokens(
 
 /**
  * Determine which callback transport to use when not explicitly specified.
- * Uses gateway if ingress.publicBaseUrl is configured, otherwise loopback.
+ * Uses gateway if any public base URL source is configured (ingress.publicBaseUrl,
+ * calls.webhookBaseUrl, or TWILIO_WEBHOOK_BASE_URL), otherwise loopback.
  */
 function detectTransport(): 'loopback' | 'gateway' {
   try {
-    // Dynamic import avoided — loadConfig is synchronous and already used elsewhere.
     const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
+    const { getPublicBaseUrl } = require('../inbound/public-ingress-urls.js') as typeof import('../inbound/public-ingress-urls.js');
     const appConfig = loadConfig();
-    if (appConfig.ingress?.publicBaseUrl) {
-      return 'gateway';
-    }
+    getPublicBaseUrl(appConfig); // throws if no public URL configured
+    return 'gateway';
   } catch {
-    // Config loading failed — fall back to loopback
-    log.debug('Config not available for transport auto-detection, defaulting to loopback');
+    log.debug('No public base URL configured for transport auto-detection, defaulting to loopback');
   }
   return 'loopback';
 }
