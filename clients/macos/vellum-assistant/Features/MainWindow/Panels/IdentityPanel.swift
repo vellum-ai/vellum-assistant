@@ -252,7 +252,7 @@ private struct WorkspaceFileSheet: View {
             }
         }
         .background(VColor.backgroundSubtle)
-        .task {
+        .task(id: filePath) {
             fileContent = (try? String(contentsOfFile: filePath, encoding: .utf8)) ?? "Unable to read file."
         }
     }
