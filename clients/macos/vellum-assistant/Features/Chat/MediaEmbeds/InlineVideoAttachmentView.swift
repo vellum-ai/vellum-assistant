@@ -291,6 +291,7 @@ struct InlineVideoAttachmentView: View {
         isSaving = true
         if let sourceURL = cachedFileURL {
             Task.detached {
+                try? FileManager.default.removeItem(at: destURL)
                 try? FileManager.default.copyItem(at: sourceURL, to: destURL)
                 await MainActor.run { isSaving = false }
             }

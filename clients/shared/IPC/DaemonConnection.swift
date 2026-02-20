@@ -25,7 +25,7 @@ extension DaemonClient {
         shouldReconnect = true
 
         #if os(macOS)
-        log.info("Connecting to daemon socket at \(self.config.socketPath)")
+        log.info("Connecting to daemon socket at \(self.config.socketPath, privacy: .public)")
         let endpoint = NWEndpoint.unix(path: self.config.socketPath)
         let parameters = NWParameters()
         parameters.defaultProtocolStack.transportProtocol = NWProtocolTCP.Options()
@@ -159,7 +159,7 @@ extension DaemonClient {
                         }
 
                     case .waiting(let error):
-                        log.warning("Connection waiting: \(error.localizedDescription)")
+                        log.warning("Connection waiting: \(String(describing: error), privacy: .public)")
                         // Don't resume the continuation yet; NWConnection may still transition to .ready.
                         // The timeout task will handle the case where it never does.
 

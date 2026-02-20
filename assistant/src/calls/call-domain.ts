@@ -6,7 +6,7 @@
  */
 
 import { getLogger } from '../util/logger.js';
-import { DENIED_NUMBERS } from './call-constants.js';
+import { isDeniedNumber } from './call-constants.js';
 import {
   createCallSession,
   getCallSession,
@@ -20,6 +20,7 @@ import { getCallOrchestrator, unregisterCallOrchestrator } from './call-state.js
 import { activeRelayConnections } from './relay-server.js';
 import { TwilioConversationRelayProvider } from './twilio-provider.js';
 import { getTwilioConfig } from './twilio-config.js';
+import { buildTwilioVoiceWebhookUrl, buildTwilioStatusCallbackUrl } from './twilio-webhook-urls.js';
 import type { CallSession } from './types.js';
 
 const log = getLogger('call-domain');
@@ -81,7 +82,7 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
     return { ok: false, error: 'task is required and must be a non-empty string', status: 400 };
   }
 
-  if (DENIED_NUMBERS.has(phoneNumber)) {
+  if (isDeniedNumber(phoneNumber)) {
     return { ok: false, error: 'This phone number is not allowed to be called', status: 403 };
   }
 
@@ -102,12 +103,11 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
 
     log.info({ callSessionId: session.id, to: phoneNumber, task }, 'Initiating outbound call');
 
-    const baseUrl = config.webhookBaseUrl.replace(/\/$/, '');
     const { callSid } = await provider.initiateCall({
       from: config.phoneNumber,
       to: phoneNumber,
-      webhookUrl: `${baseUrl}/webhooks/twilio/voice?callSessionId=${session.id}`,
-      statusCallbackUrl: `${baseUrl}/webhooks/twilio/status`,
+      webhookUrl: buildTwilioVoiceWebhookUrl(config.webhookBaseUrl, session.id),
+      statusCallbackUrl: buildTwilioStatusCallbackUrl(config.webhookBaseUrl),
     });
 
     updateCallSession(session.id, { providerCallSid: callSid });

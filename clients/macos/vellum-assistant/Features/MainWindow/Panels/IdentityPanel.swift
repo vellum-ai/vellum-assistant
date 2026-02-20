@@ -9,8 +9,10 @@ struct IdentityPanel: View {
 
     @State private var identity: IdentityInfo?
     @State private var metadata: AssistantMetadata?
+    @State private var lockfileAssistant: LockfileAssistant?
     @State private var workspaceFiles: [WorkspaceFileNode] = []
     @State private var skills: [SkillInfo] = []
+    @State private var viewingFilePath: String?
 
     private let maxContentWidth: CGFloat = 1100
 
@@ -69,15 +71,34 @@ struct IdentityPanel: View {
             ConstellationView(
                 identity: identity,
                 skills: skills,
-                workspaceFiles: workspaceFiles
+                workspaceFiles: workspaceFiles,
+                onFileSelected: { path in
+                    viewingFilePath = path
+                }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(VColor.background)
         }
         .background(VColor.backgroundSubtle)
+        .overlay {
+            if let path = viewingFilePath {
+                // Dismiss backdrop
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .onTapGesture { viewingFilePath = nil }
+
+                WorkspaceFileSheet(filePath: path, onClose: { viewingFilePath = nil })
+                    .frame(width: 600, height: 500)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                    .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
+        }
+        .animation(VAnimation.standard, value: viewingFilePath != nil)
         .onAppear {
             identity = IdentityInfo.load()
             metadata = AssistantMetadata.load()
+            lockfileAssistant = LockfileAssistant.loadLatest()
             workspaceFiles = WorkspaceFileNode.scan()
             fetchSkills()
         }
@@ -109,6 +130,10 @@ struct IdentityPanel: View {
     @ViewBuilder
     private func idCardSection(identity: IdentityInfo) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
+            if let assistantId = lockfileAssistant?.assistantId {
+                idRow(label: "Assistant ID", value: assistantId, mono: true)
+            }
+
             idRow(label: "Agent ID", value: identity.agentID, mono: true)
             idRow(label: "Given name", value: identity.name)
 
@@ -128,9 +153,8 @@ struct IdentityPanel: View {
 
             idRow(label: "Origin system", value: metadata?.originSystem ?? "local")
 
-            if let home = identity.home {
-                homeRow(home: home)
-            }
+            let home = lockfileAssistant?.home ?? identity.home ?? .local(workspacePath: NSHomeDirectory() + "/.vellum/workspace")
+            homeRow(home: home)
         }
     }
 
@@ -185,5 +209,56 @@ struct IdentityPanel: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+}
+
+// MARK: - Workspace File Sheet
+
+private struct WorkspaceFileSheet: View {
+    let filePath: String
+    let onClose: () -> Void
+
+    @State private var fileContent: String = ""
+
+    private var fileName: String {
+        (filePath as NSString).lastPathComponent
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack {
+                Image(systemName: "doc.text.fill")
+                    .font(.system(size: 13))
+                    .foregroundColor(Amber._400)
+                Text(fileName)
+                    .font(VFont.cardTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+            }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.vertical, VSpacing.lg)
+
+            Divider().background(VColor.surfaceBorder)
+
+            // Content
+            ScrollView {
+                MarkdownRenderer(text: fileContent)
+                    .padding(VSpacing.xl)
+            }
+        }
+        .background(VColor.backgroundSubtle)
+        .task(id: filePath) {
+            fileContent = (try? String(contentsOfFile: filePath, encoding: .utf8)) ?? "Unable to read file."
+        }
     }
 }

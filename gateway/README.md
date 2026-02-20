@@ -1,6 +1,6 @@
 # Vellum Gateway
 
-Standalone service that owns Telegram integration end-to-end and optionally acts as an authenticated reverse proxy for the assistant runtime.
+Standalone service that serves as the public ingress boundary for all external webhooks and callbacks. It owns Telegram integration end-to-end, routes Twilio voice webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime.
 
 ## Architecture
 
@@ -34,6 +34,7 @@ bun run dev
 | `GATEWAY_DEFAULT_ASSISTANT_ID` | No | — | Default assistant ID for unmapped users |
 | `GATEWAY_UNMAPPED_POLICY` | No | `reject` | Policy for unmapped users: `reject` or `default` |
 | `GATEWAY_PORT` | No | `7830` | Port for the gateway HTTP server |
+| `INGRESS_PUBLIC_BASE_URL` | No | — | Public URL where the gateway is reachable (e.g. `https://abc123.ngrok-free.app`). Used by the assistant runtime to construct webhook and OAuth callback URLs. Set this to your tunnel's public URL. |
 | `GATEWAY_RUNTIME_PROXY_ENABLED` | No | `false` | Enable runtime proxy for non-Telegram requests |
 | `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH` | No | `true` | Require bearer auth for proxied requests |
 | `RUNTIME_PROXY_BEARER_TOKEN` | Conditional | — | Bearer token for proxy auth (required when proxy + auth enabled) |
@@ -71,6 +72,31 @@ After deploying the gateway, register the webhook with Telegram using the `setWe
 - `allowed_updates` — `["message", "edited_message"]`
 
 See the [Telegram Bot API docs](https://core.telegram.org/bots/api#setwebhook) for the full API reference.
+
+## Public Ingress Routes
+
+The gateway serves as the single public ingress point for all external callbacks. The following routes are handled directly by the gateway before any proxy forwarding:
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/webhooks/telegram` | POST | Telegram bot webhook (validated via `TELEGRAM_WEBHOOK_SECRET`) |
+| `/webhooks/twilio/voice` | POST | Twilio voice webhook (validated via HMAC-SHA1 signature) |
+| `/webhooks/twilio/status` | POST | Twilio status callback (validated via HMAC-SHA1 signature) |
+| `/webhooks/twilio/connect-action` | POST | Twilio connect-action callback (validated via HMAC-SHA1 signature) |
+| `/webhooks/twilio/relay` | WS | Twilio ConversationRelay WebSocket (bidirectional proxy) |
+| `/webhooks/oauth/callback` | GET | OAuth2 callback endpoint — receives authorization codes from OAuth providers (Google, Slack, etc.) and forwards them to the assistant runtime |
+| `/healthz` | GET | Liveness probe |
+| `/readyz` | GET | Readiness probe |
+
+### Tunnel Setup
+
+To receive external callbacks during local development, point a tunnel service at the local gateway (default `http://127.0.0.1:7830`) and configure the resulting public URL:
+
+1. Start your tunnel (e.g. ngrok, Cloudflare Tunnel, or similar) targeting `http://127.0.0.1:7830`
+2. Copy the public URL provided by the tunnel service (e.g. `https://abc123.ngrok-free.app`)
+3. Set the URL as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section) **or** as the `INGRESS_PUBLIC_BASE_URL` environment variable
+
+The assistant runtime uses this URL to construct all webhook and OAuth callback URLs automatically.
 
 ## Default Mode: Telegram-Only
 

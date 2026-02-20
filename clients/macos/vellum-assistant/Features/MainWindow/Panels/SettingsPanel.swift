@@ -22,6 +22,12 @@ struct SettingsPanel: View {
     @State private var imageGenKeyText: String = ""
     @State private var showingTrustRules = false
     @State private var showingReminders = false
+    @State private var twitterClientId: String = ""
+    @State private var twitterClientSecret: String = ""
+    @State private var ingressUrlText: String = ""
+    @FocusState private var isIngressUrlFocused: Bool
+    @State private var gatewayReachable: Bool? = nil
+    @State private var checkingGateway: Bool = false
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
     @State private var connectingIntegration: String?
     @State private var integrationError: (id: String, message: String)?
@@ -82,6 +88,9 @@ struct SettingsPanel: View {
         }
         .onAppear {
             store.refreshAPIKeyState()
+            store.refreshTwitterStatus()
+            store.refreshIngressConfig()
+            ingressUrlText = store.ingressPublicBaseUrl
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
         }
@@ -92,6 +101,13 @@ struct SettingsPanel: View {
             if let monitor = mouseDownMonitor {
                 NSEvent.removeMonitor(monitor)
                 mouseDownMonitor = nil
+            }
+        }
+        .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
+            // Only sync from store when the field is not focused, so
+            // background IPC responses don't overwrite in-progress edits.
+            if !isIngressUrlFocused {
+                ingressUrlText = newValue
             }
         }
         .onChange(of: showModelDropdown) { _, isOpen in
@@ -504,7 +520,273 @@ struct SettingsPanel: View {
                 .padding(VSpacing.lg)
                 .vCard(background: VColor.surfaceSubtle)
             }
+
+            // TWITTER / X section
+            twitterSection
+
+            // PUBLIC INGRESS section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Public Ingress")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                // Public Ingress URL field
+                HStack(spacing: VSpacing.xs) {
+                    Text("Public Ingress URL")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                TextField("https://abc123.ngrok-free.app", text: $ingressUrlText)
+                    .focused($isIngressUrlFocused)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.md)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+
+                HStack(alignment: .top, spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 12))
+                    Text("Setting a public base URL may expose this computer to the public internet. Use with caution.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                Text("Webhook paths (e.g. /webhooks/twilio/voice) are appended automatically.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+
+                VButton(label: "Save", style: .primary) {
+                    store.saveIngressPublicBaseUrl(ingressUrlText)
+                }
+
+                Divider()
+                    .background(VColor.surfaceBorder)
+
+                // Local Gateway Target (read-only)
+                HStack(spacing: VSpacing.xs) {
+                    Text("Local Gateway Target")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                HStack(spacing: VSpacing.sm) {
+                    Text(store.localGatewayTarget)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+                        .textSelection(.enabled)
+                        .padding(VSpacing.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(VColor.surface.opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+                        )
+
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(VColor.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy gateway address")
+
+                    // Check Gateway button
+                    Button {
+                        checkGatewayHealth()
+                    } label: {
+                        if checkingGateway {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 28, height: 28)
+                        } else if let reachable = gatewayReachable {
+                            Image(systemName: reachable ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundColor(reachable ? VColor.success : VColor.error)
+                                .frame(width: 28, height: 28)
+                        } else {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(VColor.textSecondary)
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Check gateway health")
+                }
+
+                Text("Point your tunnel service at this local address.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
         }
+    }
+
+    // MARK: - Twitter Section
+
+    private var twitterSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Twitter / X")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            // Mode Picker
+            HStack {
+                Text("Integration mode")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                Spacer()
+                Picker("", selection: $store.twitterMode) {
+                    Text("Local (BYO App)").tag("local_byo")
+                    Text("Managed").tag("managed")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .onChange(of: store.twitterMode) { _, newValue in
+                    store.setTwitterMode(newValue)
+                }
+            }
+
+            // Managed mode "coming soon" card
+            if store.twitterMode == "managed" {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(VColor.textSecondary)
+                    Text("Managed mode is coming soon. Switch to Local (BYO App) to connect now.")
+                        .font(VFont.caption)
+                        .foregroundStyle(VColor.textSecondary)
+                }
+            }
+
+            // Local BYO mode content
+            if store.twitterMode == "local_byo" {
+                if !store.twitterLocalClientConfigured {
+                    // Client credentials entry (when not yet configured)
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        TextField("OAuth Client ID", text: $twitterClientId)
+                            .textFieldStyle(.plain)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .padding(VSpacing.md)
+                            .background(VColor.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                            )
+
+                        SecureField("OAuth Client Secret (optional)", text: $twitterClientSecret)
+                            .textFieldStyle(.plain)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .padding(VSpacing.md)
+                            .background(VColor.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                            )
+
+                        HStack {
+                            Text("Create an app at developer.x.com")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Spacer()
+                            VButton(label: "Save", style: .primary) {
+                                store.saveTwitterLocalClient(
+                                    clientId: twitterClientId,
+                                    clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret
+                                )
+                                twitterClientId = ""
+                                twitterClientSecret = ""
+                            }
+                            .disabled(twitterClientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                } else {
+                    // Client configured — show connect or connected state
+                    if store.twitterConnected {
+                        // Connected state
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(VColor.success)
+                                .font(.system(size: 14))
+                            Text("Connected")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            if let account = store.twitterAccountInfo {
+                                Text(account)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            Spacer()
+                            VButton(label: "Disconnect", style: .danger) {
+                                store.disconnectTwitter()
+                            }
+                        }
+                    } else {
+                        // Client configured but not connected
+                        HStack(spacing: VSpacing.sm) {
+                            Image(systemName: "circle")
+                                .foregroundColor(VColor.textMuted)
+                                .font(.system(size: 14))
+                            Text("App configured")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Spacer()
+                            if store.twitterAuthInProgress {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Connecting...")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textSecondary)
+                            } else {
+                                VButton(label: "Connect", style: .primary) {
+                                    store.connectTwitter()
+                                }
+                            }
+                        }
+                    }
+
+                    if let error = store.twitterAuthError {
+                        Text(error)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.error)
+                    }
+
+                    // Clear/reconfigure button
+                    HStack {
+                        Spacer()
+                        Button("Clear App Config") {
+                            store.clearTwitterLocalClient()
+                            twitterClientId = ""
+                            twitterClientSecret = ""
+                        }
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    }
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Trust Tab
@@ -757,6 +1039,36 @@ struct SettingsPanel: View {
 
         // Close the settings panel so the user sees the chat
         onClose()
+    }
+
+    // MARK: - Gateway Health Check
+
+    private func checkGatewayHealth() {
+        gatewayReachable = nil
+        checkingGateway = true
+
+        Task {
+            defer { checkingGateway = false }
+
+            guard let url = URL(string: "\(store.localGatewayTarget)/healthz") else {
+                gatewayReachable = false
+                return
+            }
+
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 3
+
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                if let httpResponse = response as? HTTPURLResponse {
+                    gatewayReachable = (200..<300).contains(httpResponse.statusCode)
+                } else {
+                    gatewayReachable = false
+                }
+            } catch {
+                gatewayReachable = false
+            }
+        }
     }
 
     // MARK: - Permission Row

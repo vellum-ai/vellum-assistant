@@ -124,7 +124,12 @@ final class AvatarAppearanceManager {
 
         let path = looksPath
         let fd = open(path, O_EVTONLY)
-        guard fd >= 0 else { return }
+
+        if fd < 0 {
+            // File doesn't exist yet — watch the parent directory for creation
+            watchDirectory()
+            return
+        }
 
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
@@ -133,12 +138,42 @@ final class AvatarAppearanceManager {
         )
 
         source.setEventHandler { [weak self] in
+            let flags = source.data
             Task { @MainActor [weak self] in
                 self?.reload()
                 // Re-watch in case of delete+recreate
-                let flags = source.data
                 if flags.contains(.delete) || flags.contains(.rename) {
                     self?.watchFile()
+                }
+            }
+        }
+
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        fileMonitor = source
+        source.resume()
+    }
+
+    /// Watches the workspace directory for LOOKS.md creation, then switches to file-level watching.
+    private func watchDirectory() {
+        let dirPath = (looksPath as NSString).deletingLastPathComponent
+        let fd = open(dirPath, O_EVTONLY)
+        guard fd >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: .write,
+            queue: .global(qos: .utility)
+        )
+
+        source.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if FileManager.default.fileExists(atPath: self.looksPath) {
+                    self.reload()
+                    self.watchFile()
                 }
             }
         }

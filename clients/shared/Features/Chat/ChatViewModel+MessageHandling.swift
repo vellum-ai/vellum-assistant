@@ -450,8 +450,22 @@ extension ChatViewModel {
             cancelTimeoutTask = nil
             isCancelling = false
             isThinking = false
-            // Only clear isSending if no messages are still queued
-            if pendingQueuedCount == 0 {
+            // When a send-direct is pending, this messageComplete is the
+            // cancel acknowledgment. Reset all queue state so the follow-up
+            // sendMessage() starts a fresh send instead of re-queuing.
+            if pendingSendDirectText != nil {
+                isSending = false
+                pendingQueuedCount = 0
+                pendingMessageIds = []
+                requestIdToMessageId = [:]
+                pendingLocalDeletions.removeAll()
+                for i in messages.indices {
+                    if case .queued = messages[i].status, messages[i].role == .user {
+                        messages[i].status = .sent
+                    }
+                }
+            } else if pendingQueuedCount == 0 {
+                // Only clear isSending if no messages are still queued
                 isSending = false
                 #if os(iOS)
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -532,6 +546,7 @@ extension ChatViewModel {
                     messages[i].status = .sent
                 }
             }
+            dispatchPendingSendDirect()
             // Skip follow-up suggestions for workspace refinements
             if !isSending && !wasRefinement {
                 fetchSuggestion()
@@ -556,6 +571,15 @@ extension ChatViewModel {
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
+            let wasCancelling = isCancelling
+            isCancelling = false
+            // Stale cancel event from a previous cancel cycle — the daemon
+            // emits generation_cancelled for each queued entry during abort,
+            // but the first event already reset state and dispatched any
+            // pending send-direct. Ignore to avoid clobbering the new send.
+            if !wasCancelling && isSending {
+                return
+            }
             pendingVoiceMessage = false
             isWorkspaceRefinementInFlight = false
             refinementMessagePreview = nil
@@ -563,8 +587,6 @@ extension ChatViewModel {
             cancelledDuringRefinement = false
             cancelTimeoutTask?.cancel()
             cancelTimeoutTask = nil
-            let wasCancelling = isCancelling
-            isCancelling = false
             isThinking = false
             if wasCancelling {
                 isSending = false
@@ -596,6 +618,7 @@ extension ChatViewModel {
                     messages[i].status = .sent
                 }
             }
+            dispatchPendingSendDirect()
 
         case .messageQueued(let queued):
             guard belongsToSession(queued.sessionId) else { return }
@@ -760,6 +783,7 @@ extension ChatViewModel {
                         messages[i].status = .sent
                     }
                 }
+                dispatchPendingSendDirect()
             } else if pendingQueuedCount == 0 {
                 // The daemon drains queued work after a non-cancellation
                 // error, so preserve queue bookkeeping when messages are
@@ -875,9 +899,44 @@ extension ChatViewModel {
                 messages.append(newMsg)
             }
 
-        case .toolOutputChunk:
-            // Streaming output — ignore for now, we show the final result
-            break
+        case .toolOutputChunk(let msg):
+            guard !isCancelling else { return }
+            guard belongsToSession(msg.sessionId) else { return }
+            // Handle structured progress events from claude_code sub-tools
+            if let subType = msg.subType, !subType.isEmpty,
+               let existingId = currentAssistantMessageId,
+               let msgIndex = messages.firstIndex(where: { $0.id == existingId }),
+               let tcIndex = messages[msgIndex].toolCalls.lastIndex(where: { !$0.isComplete && $0.toolName == "claude_code" }) {
+                switch subType {
+                case "tool_start":
+                    if let toolName = msg.subToolName {
+                        let step = ClaudeCodeSubStep(
+                            toolName: toolName,
+                            inputSummary: msg.subToolInput ?? "",
+                            subToolId: msg.subToolId
+                        )
+                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.append(step)
+                    }
+                case "tool_complete":
+                    // Prefer matching by subToolId (stable SDK identifier) over tool name.
+                    let stepIndex: Int?
+                    if let subToolId = msg.subToolId {
+                        stepIndex = messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.firstIndex(where: { $0.subToolId == subToolId && !$0.isComplete })
+                    } else if let toolName = msg.subToolName {
+                        stepIndex = messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.firstIndex(where: { $0.toolName == toolName && !$0.isComplete })
+                    } else {
+                        stepIndex = nil
+                    }
+                    if let stepIndex {
+                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIndex].isComplete = true
+                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIndex].isError = msg.subToolIsError ?? false
+                    }
+                case "status":
+                    messages[msgIndex].toolCalls[tcIndex].buildingStatus = msg.subToolInput ?? ""
+                default:
+                    break
+                }
+            }
 
         case .toolResult(let msg):
             guard belongsToSession(msg.sessionId) else { return }
@@ -896,6 +955,15 @@ extension ChatViewModel {
                 messages[msgIndex].toolCalls[tcIndex].cachedImage = ToolCallData.decodeImage(from: msg.imageData)
                 if let status = msg.status, !status.isEmpty {
                     messages[msgIndex].toolCalls[tcIndex].buildingStatus = status
+                }
+                // When a claude_code tool completes, mark any remaining in-progress sub-steps
+                // as done. This handles timeouts, crashes, and lost tool_complete events.
+                let toolErrored = msg.isError ?? false
+                for stepIdx in messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.indices {
+                    if !messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIdx].isComplete {
+                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIdx].isComplete = true
+                        messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIdx].isError = toolErrored
+                    }
                 }
             }
             // Tool completed — agent is now processing the result. Show
@@ -919,6 +987,16 @@ extension ChatViewModel {
                 log.info("Skipping surface - failed to create Surface from message")
                 break
             }
+
+            // Show floating overlay for task_progress cards (macOS only)
+            #if os(macOS)
+            if case .card(let cardData) = surface.data,
+               cardData.template == "task_progress",
+               let templateData = cardData.templateData,
+               let progressData = TaskProgressData.parse(from: templateData, fallbackTitle: cardData.title) {
+                TaskProgressOverlayManager.shared.show(data: progressData, surfaceId: msg.surfaceId)
+            }
+            #endif
 
             // On macOS, dynamic pages with no explicit display mode (or "panel")
             // are routed to the workspace by SurfaceManager. If the dynamic page
@@ -1004,6 +1082,15 @@ extension ChatViewModel {
                             actions: updated.actions,
                             surfaceMessage: existing.surfaceMessage
                         )
+                        // Update floating overlay for task_progress cards (macOS only)
+                        #if os(macOS)
+                        if case .card(let cardData) = updated.data,
+                           cardData.template == "task_progress",
+                           let templateData = cardData.templateData,
+                           let progressData = TaskProgressData.parse(from: templateData, fallbackTitle: cardData.title) {
+                            TaskProgressOverlayManager.shared.update(data: progressData, surfaceId: msg.surfaceId)
+                        }
+                        #endif
                     }
                     return
                 }
@@ -1021,6 +1108,10 @@ extension ChatViewModel {
 
         case .uiSurfaceComplete(let msg):
             guard belongsToSession(msg.sessionId) else { return }
+            // Dismiss floating overlay for task_progress cards (macOS only)
+            #if os(macOS)
+            TaskProgressOverlayManager.shared.dismiss(surfaceId: msg.surfaceId)
+            #endif
             // Find the inline surface across all messages and set its completionState
             for msgIndex in messages.indices {
                 if let surfaceIndex = messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == msg.surfaceId }) {
@@ -1133,19 +1224,18 @@ extension ChatViewModel {
             guard belongsToSession(msg.parentSessionId) else { return }
             let info = SubagentInfo(id: msg.subagentId, label: msg.label, status: .running, parentMessageId: currentAssistantMessageId)
             activeSubagents.append(info)
+            subagentDetailStore.recordSpawned(subagentId: msg.subagentId, objective: msg.objective)
 
         case .subagentStatusChanged(let msg):
             if let index = activeSubagents.firstIndex(where: { $0.id == msg.subagentId }) {
                 activeSubagents[index].status = SubagentStatus(wire: msg.status)
                 activeSubagents[index].error = msg.error
+                subagentDetailStore.recordStatusChanged(subagentId: msg.subagentId, usage: msg.usage)
             }
 
-        case .subagentEvent:
-            // Subagent internal events (assistant_message, tool_use, etc.) carry the
-            // subagent's session ID, not the parent's, so they cannot be routed through
-            // the normal belongsToSession-guarded handlers. These will be displayed in
-            // the dedicated subagents panel once it's built.
-            break
+        case .subagentEvent(let msg):
+            guard activeSubagents.contains(where: { $0.id == msg.subagentId }) else { break }
+            subagentDetailStore.handleEvent(subagentId: msg.subagentId, event: msg.event)
 
         case .modelInfo(let msg):
             selectedModel = msg.model

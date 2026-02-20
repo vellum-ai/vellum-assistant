@@ -51,6 +51,9 @@ const PROVIDER_MODEL_SHORTCUTS: Record<string, { provider: string; model: string
 
   // Fireworks
   'fireworks': { provider: 'fireworks', model: 'accounts/fireworks/models/kimi-k2p5', displayName: 'Kimi K2.5' },
+
+  // OpenRouter
+  'openrouter': { provider: 'openrouter', model: 'x-ai/grok-4', displayName: 'Grok 4 (OpenRouter)' },
 };
 
 /** Reverse lookup: model ID → provider, derived from PROVIDER_MODEL_SHORTCUTS. */

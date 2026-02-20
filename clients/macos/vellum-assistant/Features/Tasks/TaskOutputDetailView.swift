@@ -16,6 +16,9 @@ struct TaskOutputDetailView: View {
     let itemTitle: String
     let state: TaskOutputState
     let onDismiss: () -> Void
+    /// When non-nil, shows an "Open in Chat" button that creates a thread
+    /// for this task's conversation in the main window.
+    var onOpenInChat: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -37,6 +40,23 @@ struct TaskOutputDetailView: View {
                 .foregroundColor(VColor.textPrimary)
                 .lineLimit(2)
             Spacer()
+            if let onOpenInChat {
+                Button(action: onOpenInChat) {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "bubble.left.and.text.bubble.right")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("Open in Chat")
+                            .font(VFont.caption)
+                    }
+                    .foregroundColor(VColor.accent)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
+                    .background(VColor.accent.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open in Chat")
+            }
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))

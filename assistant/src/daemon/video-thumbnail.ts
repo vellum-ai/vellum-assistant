@@ -7,7 +7,7 @@
 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { writeFileSync, readFileSync, unlinkSync } from 'node:fs';
+import { writeFile, readFile, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { getLogger } from '../util/logger.js';
 
@@ -24,29 +24,37 @@ export async function generateVideoThumbnail(dataBase64: string): Promise<string
 
   try {
     const videoBuffer = Buffer.from(dataBase64, 'base64');
-    writeFileSync(inputPath, videoBuffer);
+    await writeFile(inputPath, videoBuffer);
 
-    const proc = Bun.spawnSync([
+    const proc = Bun.spawn([
       'ffmpeg', '-y',
       '-i', inputPath,
       '-vframes', '1',
       '-vf', 'scale=720:-2',
       '-q:v', '5',
       outputPath,
-    ], { timeout: 10_000, stderr: 'pipe' });
+    ], { stderr: 'pipe' });
 
-    if (proc.exitCode !== 0) {
-      log.warn({ exitCode: proc.exitCode }, 'ffmpeg thumbnail extraction failed');
+    // Race against a 10s timeout to avoid hanging on slow/stuck ffmpeg
+    const exitCode = await Promise.race([
+      proc.exited,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => { proc.kill(); reject(new Error('ffmpeg timed out')); }, 10_000)
+      ),
+    ]);
+
+    if (exitCode !== 0) {
+      log.warn({ exitCode }, 'ffmpeg thumbnail extraction failed');
       return null;
     }
 
-    const jpegData = readFileSync(outputPath);
+    const jpegData = await readFile(outputPath);
     return jpegData.toString('base64');
   } catch (err) {
     log.warn({ error: (err as Error).message }, 'Video thumbnail generation failed');
     return null;
   } finally {
-    try { unlinkSync(inputPath); } catch { /* ignore */ }
-    try { unlinkSync(outputPath); } catch { /* ignore */ }
+    try { await unlink(inputPath); } catch { /* ignore */ }
+    try { await unlink(outputPath); } catch { /* ignore */ }
   }
 }

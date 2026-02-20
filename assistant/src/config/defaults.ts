@@ -169,6 +169,10 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     retentionDays: 30,
   },
   pricingOverrides: [],
+  agentHeartbeat: {
+    enabled: false,
+    intervalMs: 3_600_000,
+  },
   swarm: {
     enabled: true,
     maxWorkers: 3,
@@ -193,6 +197,22 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     enrichmentConcurrency: 1,
     enrichmentJobTimeoutMs: 30000,
     enrichmentMaxRetries: 2,
+    commitMessageLLM: {
+      enabled: false,
+      useConfiguredProvider: true,
+      providerFastModelOverrides: {},
+      timeoutMs: 600,
+      maxTokens: 120,
+      temperature: 0.2,
+      maxFilesInPrompt: 30,
+      maxDiffBytes: 12000,
+      minRemainingTurnBudgetMs: 1000,
+      breaker: {
+        openAfterFailures: 3,
+        backoffBaseMs: 2000,
+        backoffMaxMs: 60000,
+      },
+    },
   },
   calls: {
     enabled: true,
@@ -206,5 +226,9 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     safety: {
       denyCategories: [],
     },
+  },
+  ingress: {
+    publicBaseUrl: '',
+    mode: 'gateway_only' as const,
   },
 };

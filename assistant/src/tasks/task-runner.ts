@@ -2,6 +2,7 @@ import { getLogger } from '../util/logger.js';
 import { createConversation } from '../memory/conversation-store.js';
 import { getTask, createTaskRun, updateTaskRun } from './task-store.js';
 import { buildTaskRules, setTaskRunRules, clearTaskRunRules } from './ephemeral-permissions.js';
+import { sanitizeToolList } from './tool-sanitizer.js';
 
 const log = getLogger('task-runner');
 
@@ -34,7 +35,7 @@ export function renderTemplate(template: string, inputs: Record<string, string>)
  */
 export async function runTask(
   opts: TaskRunOptions,
-  processMessage: (conversationId: string, message: string) => Promise<void>,
+  processMessage: (conversationId: string, message: string, taskRunId: string) => Promise<void>,
 ): Promise<TaskRunResult> {
   const task = getTask(opts.taskId);
   if (!task) {
@@ -51,8 +52,8 @@ export async function runTask(
 
   // Build and register ephemeral permission rules. If the user pre-approved
   // specific tools via the preflight flow, use those instead of all requiredTools.
-  const requiredTools: string[] = task.requiredTools ? JSON.parse(task.requiredTools) : [];
-  const toolsForRules = opts.approvedTools ?? requiredTools;
+  const requiredTools = sanitizeToolList(task.requiredTools ? JSON.parse(task.requiredTools) : []);
+  const toolsForRules = opts.approvedTools ? sanitizeToolList(opts.approvedTools) : requiredTools;
   const rules = buildTaskRules(run.id, toolsForRules, opts.workingDir);
   setTaskRunRules(run.id, rules);
 
@@ -62,7 +63,7 @@ export async function runTask(
     updateTaskRun(run.id, { status: 'running', startedAt: Date.now() });
 
     log.info({ taskId: task.id, taskRunId: run.id, conversationId: conversation.id }, 'Executing task');
-    await processMessage(conversation.id, renderedTemplate);
+    await processMessage(conversation.id, renderedTemplate, run.id);
 
     updateTaskRun(run.id, { status: 'completed', finishedAt: Date.now() });
 

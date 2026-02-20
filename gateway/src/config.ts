@@ -37,9 +37,11 @@ export type GatewayConfig = {
   telegramWebhookSecret: string | undefined;
   /** Twilio auth token for validating webhook signatures at the gateway boundary. */
   twilioAuthToken: string | undefined;
-  /** Public base URL that Twilio uses when computing webhook signatures. */
-  twilioWebhookBaseUrl: string | undefined;
+  /** Canonical public ingress base URL, used for webhook signature reconstruction. */
+  ingressPublicBaseUrl: string | undefined;
   unmappedPolicy: "reject" | "default";
+  /** The gateway's own public-facing URL (e.g. http://<external-ip>:7830). */
+  publicUrl?: string;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -205,7 +207,8 @@ export function loadConfig(): GatewayConfig {
   }
 
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN || undefined;
-  const twilioWebhookBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL || undefined;
+  const publicUrl = process.env.GATEWAY_PUBLIC_URL || undefined;
+  const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
 
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
 
@@ -230,6 +233,7 @@ export function loadConfig(): GatewayConfig {
       runtimeProxyEnabled,
       runtimeProxyRequireAuth,
       hasTwilioAuthToken: !!twilioAuthToken,
+      publicUrl,
     },
     "Configuration loaded",
   );
@@ -257,8 +261,9 @@ export function loadConfig(): GatewayConfig {
     telegramMaxRetries,
     telegramTimeoutMs,
     telegramWebhookSecret,
+    publicUrl,
     twilioAuthToken,
-    twilioWebhookBaseUrl,
+    ingressPublicBaseUrl,
     unmappedPolicy,
   };
 }

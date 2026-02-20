@@ -35,6 +35,9 @@ export async function executeScheduleCreate(
     return { content: `Error: Invalid cron expression: "${resolved.expression}"`, isError: true };
   }
   if (resolved.syntax === 'rrule') {
+    if (typeof resolved.expression !== 'string') {
+      return { content: 'Error: expression must be a string', isError: true };
+    }
     const setError = validateRruleSetLines(resolved.expression);
     if (setError) {
       return {

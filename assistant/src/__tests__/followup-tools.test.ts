@@ -30,7 +30,7 @@ mock.module('../config/loader.js', () => ({
 }));
 
 import type { Database } from 'bun:sqlite';
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import type { ToolContext } from '../tools/types.js';
 import { executeFollowupCreate } from '../tools/followups/followup_create.js';
 import { executeFollowupList } from '../tools/followups/followup_list.js';
@@ -39,6 +39,7 @@ import { executeFollowupResolve } from '../tools/followups/followup_resolve.js';
 initializeDb();
 
 afterAll(() => {
+  resetDb();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
 
@@ -91,15 +92,39 @@ describe('followup_create tool', () => {
     expect(result.content).toContain('Expected response by');
   });
 
-  test('creates a follow-up with reminder cron ID', async () => {
+  test('creates a follow-up with reminder_schedule_id (canonical)', async () => {
     const result = await executeFollowupCreate({
       channel: 'email',
       thread_id: 'thread-456',
+      reminder_schedule_id: 'sched-abc',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Reminder schedule: sched-abc');
+  });
+
+  test('creates a follow-up with deprecated reminder_cron_id alias', async () => {
+    const result = await executeFollowupCreate({
+      channel: 'email',
+      thread_id: 'thread-789',
       reminder_cron_id: 'cron-abc',
     }, ctx);
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('Reminder cron: cron-abc');
+    expect(result.content).toContain('Reminder schedule: cron-abc');
+  });
+
+  test('reminder_schedule_id takes precedence over reminder_cron_id', async () => {
+    const result = await executeFollowupCreate({
+      channel: 'email',
+      thread_id: 'thread-prio',
+      reminder_schedule_id: 'sched-wins',
+      reminder_cron_id: 'cron-loses',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Reminder schedule: sched-wins');
+    expect(result.content).not.toContain('cron-loses');
   });
 
   test('rejects missing channel', async () => {

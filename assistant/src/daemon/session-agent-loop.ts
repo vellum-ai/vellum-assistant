@@ -63,6 +63,10 @@ import type { SkillProjectionCache } from './session-skill-tools.js';
 
 const log = getLogger('session-agent-loop');
 
+type GitServiceInitializer = {
+  ensureInitialized(): Promise<void>;
+};
+
 // ── Context Interface ────────────────────────────────────────────────
 
 export interface AgentLoopSessionContext {
@@ -112,6 +116,9 @@ export interface AgentLoopSessionContext {
   readonly prompter: PermissionPrompter;
   readonly queue: MessageQueue;
 
+  getWorkspaceGitService?: (workspaceDir: string) => GitServiceInitializer;
+  commitTurnChanges?: typeof commitTurnChanges;
+
   refreshWorkspaceTopLevelContextIfNeeded(): void;
   markWorkspaceTopLevelDirty(): void;
   getQueueDepth(): number;
@@ -142,7 +149,8 @@ export async function runAgentLoopImpl(
 
   // Ensure workspace git repo is initialized before any tools run.
   try {
-    const gitService = getWorkspaceGitService(ctx.workingDir);
+    const getWorkspaceGitServiceFn = ctx.getWorkspaceGitService ?? getWorkspaceGitService;
+    const gitService = getWorkspaceGitServiceFn(ctx.workingDir);
     await gitService.ensureInitialized();
   } catch (err) {
     rlog.warn({ err }, 'Failed to initialize workspace git repo (non-fatal)');
@@ -342,9 +350,44 @@ export async function runAgentLoopImpl(
           currentTurnToolNames.push(event.name);
           onEvent({ type: 'tool_use_start', toolName: event.name, input: event.input, sessionId: ctx.conversationId });
           break;
-        case 'tool_output_chunk':
-          onEvent({ type: 'tool_output_chunk', chunk: event.chunk });
+        case 'tool_output_chunk': {
+          // Try to parse structured progress fields from the chunk.
+          // Cheap pre-check: only attempt JSON.parse when the chunk looks like an object.
+          let structured: { subType?: 'tool_start' | 'tool_complete' | 'status'; subToolName?: string; subToolInput?: string; subToolIsError?: boolean; subToolId?: string } | undefined;
+          const trimmed = event.chunk.trimStart();
+          if (trimmed.length > 0 && trimmed.length < 4096 && trimmed[0] === '{') {
+            try {
+              const parsed = JSON.parse(event.chunk);
+              const VALID_SUB_TYPES = new Set(['tool_start', 'tool_complete', 'status']);
+              if (parsed && typeof parsed === 'object' && typeof parsed.subType === 'string' && VALID_SUB_TYPES.has(parsed.subType)) {
+                structured = {
+                  subType: parsed.subType as 'tool_start' | 'tool_complete' | 'status',
+                  subToolName: typeof parsed.subToolName === 'string' ? parsed.subToolName : undefined,
+                  subToolInput: typeof parsed.subToolInput === 'string' ? parsed.subToolInput : undefined,
+                  subToolIsError: typeof parsed.subToolIsError === 'boolean' ? parsed.subToolIsError : undefined,
+                  subToolId: typeof parsed.subToolId === 'string' ? parsed.subToolId : undefined,
+                };
+              }
+            } catch {
+              // Not valid JSON — pass through as plain chunk
+            }
+          }
+          if (structured) {
+            onEvent({
+              type: 'tool_output_chunk',
+              chunk: event.chunk,
+              sessionId: ctx.conversationId,
+              subType: structured.subType,
+              subToolName: structured.subToolName,
+              subToolInput: structured.subToolInput,
+              subToolIsError: structured.subToolIsError,
+              subToolId: structured.subToolId,
+            });
+          } else {
+            onEvent({ type: 'tool_output_chunk', chunk: event.chunk, sessionId: ctx.conversationId });
+          }
           break;
+        }
         case 'input_json_delta':
           onEvent({ type: 'tool_input_delta', toolName: event.toolName, content: event.accumulatedJson, sessionId: ctx.conversationId });
           break;
@@ -803,7 +846,8 @@ export async function runAgentLoopImpl(
       const config = getConfig();
       const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
       const deadlineMs = Date.now() + maxWait;
-      const commitPromise = commitTurnChanges(
+      const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
+      const commitPromise = commitTurnChangesFn(
         ctx.workingDir, ctx.conversationId, ctx.turnCount,
         undefined,
         deadlineMs,

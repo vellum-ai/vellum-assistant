@@ -39,6 +39,7 @@ import { getSubagentManager } from '../subagent/index.js';
 import { tryHandlePendingCallAnswer } from '../calls/call-bridge.js';
 import { resolveSlash } from './session-slash.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
+import { registerDaemonCallbacks } from '../work-items/work-item-runner.js';
 
 const log = getLogger('server');
 
@@ -140,21 +141,23 @@ export class DaemonServer {
     };
     // When a subagent finishes, inject the result into the parent session
     // so the LLM automatically informs the user.
-    getSubagentManager().onSubagentFinished = (parentSessionId, message, sendToClient) => {
+    getSubagentManager().onSubagentFinished = (parentSessionId, message, sendToClient, notification) => {
       const parentSession = this.sessions.get(parentSessionId);
       if (!parentSession) {
         log.warn({ parentSessionId }, 'Subagent finished but parent session not found');
         return;
       }
       const requestId = `subagent-notify-${Date.now()}`;
-      const enqueueResult = parentSession.enqueueMessage(message, [], sendToClient, requestId);
+      // Store structured notification data in the DB for history reconstruction
+      const metadata = { subagentNotification: notification };
+      const enqueueResult = parentSession.enqueueMessage(message, [], sendToClient, requestId, undefined, undefined, metadata);
       if (enqueueResult.rejected) {
         log.warn({ parentSessionId }, 'Parent session queue full, dropping subagent notification');
         return;
       }
       if (!enqueueResult.queued) {
         // Parent is idle — send directly.
-        const messageId = parentSession.persistUserMessage(message, []);
+        const messageId = parentSession.persistUserMessage(message, [], undefined, metadata);
         parentSession.runAgentLoop(message, messageId, sendToClient).catch((err) => {
           log.error({ parentSessionId, err }, 'Failed to process subagent notification in parent');
         });
@@ -181,6 +184,12 @@ export class DaemonServer {
     }
 
     this.evictor.start();
+
+    // Register daemon callbacks so tools can trigger work item execution
+    registerDaemonCallbacks({
+      getOrCreateSession: (conversationId) => this.getOrCreateSession(conversationId),
+      broadcast: (msg) => this.broadcast(msg),
+    });
 
     ensureBlobDir();
     this.blobSweepTimer = setInterval(() => {

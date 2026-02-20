@@ -212,6 +212,9 @@ export interface RideShotgunStart {
   intervalSeconds: number;
   mode?: 'observe' | 'learn';
   targetDomain?: string;
+  /** Domain to auto-navigate (may differ from targetDomain, e.g. open.spotify.com vs spotify.com). */
+  navigateDomain?: string;
+  autoNavigate?: boolean;
 }
 
 export interface RideShotgunStop {
@@ -469,6 +472,12 @@ export interface SlackWebhookConfigRequest {
   webhookUrl?: string;
 }
 
+export interface IngressConfigRequest {
+  type: 'ingress_config';
+  action: 'get' | 'set';
+  publicBaseUrl?: string;
+}
+
 export interface VercelApiConfigRequest {
   type: 'vercel_api_config';
   action: 'get' | 'set' | 'delete';
@@ -479,6 +488,48 @@ export interface VercelApiConfigResponse {
   type: 'vercel_api_config_response';
   hasToken: boolean;
   success: boolean;
+  error?: string;
+}
+
+export interface TwitterIntegrationConfigRequest {
+  type: 'twitter_integration_config';
+  action: 'get' | 'set_mode' | 'set_local_client' | 'clear_local_client' | 'disconnect';
+  mode?: 'local_byo' | 'managed';
+  clientId?: string;
+  clientSecret?: string;
+}
+
+export interface TwitterIntegrationConfigResponse {
+  type: 'twitter_integration_config_response';
+  success: boolean;
+  mode?: 'local_byo' | 'managed';
+  managedAvailable: boolean;
+  localClientConfigured: boolean;
+  connected: boolean;
+  accountInfo?: string;
+  error?: string;
+}
+
+export interface TwitterAuthStartRequest {
+  type: 'twitter_auth_start';
+}
+
+export interface TwitterAuthStatusRequest {
+  type: 'twitter_auth_status';
+}
+
+export interface TwitterAuthResult {
+  type: 'twitter_auth_result';
+  success: boolean;
+  accountInfo?: string;
+  error?: string;
+}
+
+export interface TwitterAuthStatusResponse {
+  type: 'twitter_auth_status_response';
+  connected: boolean;
+  accountInfo?: string;
+  mode?: 'local_byo' | 'managed';
   error?: string;
 }
 
@@ -778,15 +829,6 @@ export interface WorkItemGetRequest {
   id: string;
 }
 
-export interface WorkItemCreateRequest {
-  type: 'work_item_create';
-  taskId: string;
-  title?: string;   // defaults to task title
-  notes?: string;
-  priorityTier?: number;
-  sortIndex?: number;
-}
-
 export interface WorkItemUpdateRequest {
   type: 'work_item_update';
   id: string;
@@ -810,8 +852,6 @@ export interface WorkItemDeleteRequest {
 export interface WorkItemRunTaskRequest {
   type: 'work_item_run_task';
   id: string;
-  /** When true, the daemon sets status to "running" but skips execution — the client routes task content through the active chat session instead. */
-  chatRouted?: boolean;
 }
 
 export interface WorkItemOutputRequest {
@@ -832,11 +872,6 @@ export interface WorkItemApprovePermissionsRequest {
 
 export interface WorkItemCancelRequest {
   type: 'work_item_cancel';
-  id: string;
-}
-
-export interface WorkItemRenderRequest {
-  type: 'work_item_render';
   id: string;
 }
 
@@ -906,7 +941,11 @@ export type ClientMessage =
   | ShareAppCloudRequest
   | ShareToSlackRequest
   | SlackWebhookConfigRequest
+  | IngressConfigRequest
   | VercelApiConfigRequest
+  | TwitterIntegrationConfigRequest
+  | TwitterAuthStartRequest
+  | TwitterAuthStatusRequest
   | SessionsClearRequest
   | GalleryListRequest
   | GalleryInstallRequest
@@ -929,7 +968,6 @@ export type ClientMessage =
   | BrowserInteractiveMode
   | WorkItemsListRequest
   | WorkItemGetRequest
-  | WorkItemCreateRequest
   | WorkItemUpdateRequest
   | WorkItemCompleteRequest
   | WorkItemDeleteRequest
@@ -938,7 +976,6 @@ export type ClientMessage =
   | WorkItemPreflightRequest
   | WorkItemApprovePermissionsRequest
   | WorkItemCancelRequest
-  | WorkItemRenderRequest
   | SubagentAbortRequest
   | SubagentStatusRequest
   | SubagentMessageRequest;
@@ -1013,6 +1050,12 @@ export interface ToolUseStart {
 export interface ToolOutputChunk {
   type: 'tool_output_chunk';
   chunk: string;
+  sessionId?: string;
+  subType?: 'tool_start' | 'tool_complete' | 'status';
+  subToolName?: string;
+  subToolInput?: string;
+  subToolIsError?: boolean;
+  subToolId?: string;
 }
 
 export interface ToolInputDelta {
@@ -1178,6 +1221,23 @@ export interface HistoryResponse {
     contentOrder?: string[];
     /** UI surfaces (widgets) embedded in the message. */
     surfaces?: HistoryResponseSurface[];
+    /** Present when this message is a subagent lifecycle notification (completed/failed/aborted). */
+    subagentNotification?: {
+      subagentId: string;
+      label: string;
+      status: 'completed' | 'failed' | 'aborted';
+      error?: string;
+      conversationId?: string;
+      /** Subagent objective text, populated from DB on history load. */
+      objective?: string;
+      /** Subagent events (text, tool_use, tool_result), populated from DB on history load. */
+      events?: Array<{
+        type: string;
+        content: string;
+        toolName?: string;
+        isError?: boolean;
+      }>;
+    };
   }>;
 }
 
@@ -1640,6 +1700,15 @@ export interface SlackWebhookConfigResponse {
   error?: string;
 }
 
+export interface IngressConfigResponse {
+  type: 'ingress_config_response';
+  publicBaseUrl: string;
+  /** Read-only gateway target computed from GATEWAY_PORT env var (default 7830) + loopback host. */
+  localGatewayTarget: string;
+  success: boolean;
+  error?: string;
+}
+
 export interface OpenUrl {
   type: 'open_url';
   url: string;
@@ -1667,6 +1736,12 @@ export interface WatcherNotification {
 
 export interface WatcherEscalation {
   type: 'watcher_escalation';
+  title: string;
+  body: string;
+}
+
+export interface AgentHeartbeatAlert {
+  type: 'agent_heartbeat_alert';
   title: string;
   body: string;
 }
@@ -1926,26 +2001,6 @@ export interface WorkItemGetResponse {
   } | null;
 }
 
-export interface WorkItemCreateResponse {
-  type: 'work_item_create_response';
-  item: {
-    id: string;
-    taskId: string;
-    title: string;
-    notes: string | null;
-    status: string;
-    priorityTier: number;
-    sortIndex: number | null;
-    lastRunId: string | null;
-    lastRunConversationId: string | null;
-    lastRunStatus: string | null;
-    sourceType: string | null;
-    sourceId: string | null;
-    createdAt: number;
-    updatedAt: number;
-  };
-}
-
 export interface WorkItemUpdateResponse {
   type: 'work_item_update_response';
   item: {
@@ -1972,7 +2027,7 @@ export interface WorkItemDeleteResponse {
   success: boolean;
 }
 
-export type WorkItemRunTaskErrorCode = 'not_found' | 'already_running' | 'invalid_status' | 'no_task';
+export type WorkItemRunTaskErrorCode = 'not_found' | 'already_running' | 'invalid_status' | 'no_task' | 'permission_required';
 
 export interface WorkItemRunTaskResponse {
   type: 'work_item_run_task_response';
@@ -2027,15 +2082,6 @@ export interface WorkItemCancelResponse {
   error?: string;
 }
 
-export interface WorkItemRenderResponse {
-  type: 'work_item_render_response';
-  id: string;
-  success: boolean;
-  content?: string;
-  title?: string;
-  error?: string;
-}
-
 /** Server push — tells the client to open/focus the tasks window. */
 export interface OpenTasksWindow {
   type: 'open_tasks_window';
@@ -2059,6 +2105,14 @@ export interface WorkItemStatusChanged {
     lastRunStatus: string | null;
     updatedAt: number;
   };
+}
+
+/** Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread. */
+export interface TaskRunThreadCreated {
+  type: 'task_run_thread_created';
+  conversationId: string;
+  workItemId: string;
+  title: string;
 }
 
 export type ServerMessage =
@@ -2115,6 +2169,7 @@ export type ServerMessage =
   | ScheduleComplete
   | WatcherNotification
   | WatcherEscalation
+  | AgentHeartbeatAlert
   | WatchStarted
   | WatchCompleteRequest
   | TrustRulesListResponse
@@ -2137,7 +2192,11 @@ export type ServerMessage =
   | GalleryInstallResponse
   | ShareToSlackResponse
   | SlackWebhookConfigResponse
+  | IngressConfigResponse
   | VercelApiConfigResponse
+  | TwitterIntegrationConfigResponse
+  | TwitterAuthResult
+  | TwitterAuthStatusResponse
   | OpenUrl
   | AppUpdatePreviewResponse
   | AppPreviewResponse
@@ -2159,7 +2218,6 @@ export type ServerMessage =
   | BrowserHandoffRequest
   | WorkItemsListResponse
   | WorkItemGetResponse
-  | WorkItemCreateResponse
   | WorkItemUpdateResponse
   | WorkItemDeleteResponse
   | WorkItemRunTaskResponse
@@ -2167,8 +2225,8 @@ export type ServerMessage =
   | WorkItemPreflightResponse
   | WorkItemApprovePermissionsResponse
   | WorkItemCancelResponse
-  | WorkItemRenderResponse
   | WorkItemStatusChanged
+  | TaskRunThreadCreated
   | TasksChanged
   | OpenTasksWindow
   | SubagentSpawned
@@ -2211,7 +2269,6 @@ export interface SubagentStatusRequest {
   type: 'subagent_status';
   /** If omitted, returns all subagents for the session. */
   subagentId?: string;
-  sessionId: string;
 }
 
 export interface SubagentMessageRequest {

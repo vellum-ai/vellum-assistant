@@ -9,6 +9,8 @@ import {
   _resetGitServiceRegistry,
   _resetBreaker,
   _getConsecutiveFailures,
+  _resetInitBreaker,
+  _getInitConsecutiveFailures,
   isDeadlineExpired,
 } from '../workspace/git-service.js';
 
@@ -981,6 +983,151 @@ describe('WorkspaceGitService', () => {
         // Restore the original method
         proto.execGit = originalExecGit;
       }
+    });
+  });
+
+  describe('init circuit breaker', () => {
+    test('init breaker opens after consecutive failures', async () => {
+      // Use a directory that doesn't exist so init fails
+      const badDir = '/nonexistent/path/that/does/not/exist';
+      const service = new WorkspaceGitService(badDir);
+
+      // First failure — breaker does NOT open (requires 2+ failures)
+      await expect(service.ensureInitialized()).rejects.toThrow();
+      expect(_getInitConsecutiveFailures(service)).toBe(1);
+
+      // Second failure — expire the backoff window from the first failure
+      // so the attempt actually runs (not blocked by breaker).
+      const internal = service as unknown as {
+        initNextAllowedAttemptMs: number;
+      };
+      internal.initNextAllowedAttemptMs = Date.now() - 1;
+
+      await expect(service.ensureInitialized()).rejects.toThrow();
+      expect(_getInitConsecutiveFailures(service)).toBe(2);
+
+      // Third attempt within the backoff window — breaker is now open
+      // (2+ consecutive failures) so the attempt is skipped.
+      await expect(service.ensureInitialized()).rejects.toThrow(
+        'Init circuit breaker open: backing off after repeated failures',
+      );
+      // Failure count should NOT increase (the breaker prevented the attempt)
+      expect(_getInitConsecutiveFailures(service)).toBe(2);
+    });
+
+    test('init breaker skips init attempts during backoff window', async () => {
+      const service = new WorkspaceGitService(testDir);
+
+      // Force the init breaker open
+      const internal = service as unknown as {
+        initConsecutiveFailures: number;
+        initNextAllowedAttemptMs: number;
+      };
+      internal.initConsecutiveFailures = 3;
+      internal.initNextAllowedAttemptMs = Date.now() + 60_000; // far in the future
+
+      // ensureInitialized should throw with circuit breaker message
+      await expect(service.ensureInitialized()).rejects.toThrow(
+        'Init circuit breaker open: backing off after repeated failures',
+      );
+
+      // Failure count should NOT increase (the breaker prevented the attempt)
+      expect(_getInitConsecutiveFailures(service)).toBe(3);
+    });
+
+    test('init breaker resets on success', async () => {
+      const service = new WorkspaceGitService(testDir);
+
+      // Simulate prior init failures
+      const internal = service as unknown as {
+        initConsecutiveFailures: number;
+        initNextAllowedAttemptMs: number;
+      };
+      internal.initConsecutiveFailures = 3;
+      // Set backoff in the past so the breaker is closed and allows retry
+      internal.initNextAllowedAttemptMs = Date.now() - 1;
+
+      // This should succeed and reset the init breaker
+      await service.ensureInitialized();
+
+      expect(_getInitConsecutiveFailures(service)).toBe(0);
+      expect(service.isInitialized()).toBe(true);
+    });
+
+    test('init breaker allows retry after backoff window expires', async () => {
+      const service = new WorkspaceGitService(testDir);
+
+      // Simulate prior init failures with expired backoff
+      const internal = service as unknown as {
+        initConsecutiveFailures: number;
+        initNextAllowedAttemptMs: number;
+      };
+      internal.initConsecutiveFailures = 5;
+      internal.initNextAllowedAttemptMs = Date.now() - 1; // expired
+
+      // Breaker should be closed (backoff expired), allowing init to proceed
+      await service.ensureInitialized();
+
+      expect(_getInitConsecutiveFailures(service)).toBe(0);
+      expect(service.isInitialized()).toBe(true);
+    });
+
+    test('init breaker is independent from commit breaker', async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Force commit breaker open
+      const internal = service as unknown as {
+        consecutiveFailures: number;
+        nextAllowedAttemptMs: number;
+      };
+      internal.consecutiveFailures = 5;
+      internal.nextAllowedAttemptMs = Date.now() + 60_000;
+
+      // Init breaker should still be clean
+      expect(_getInitConsecutiveFailures(service)).toBe(0);
+
+      // Commit breaker should be open
+      expect(_getConsecutiveFailures(service)).toBe(5);
+
+      // Reset commit breaker
+      _resetBreaker(service);
+
+      // Force init breaker open
+      const internal2 = service as unknown as {
+        initConsecutiveFailures: number;
+        initNextAllowedAttemptMs: number;
+      };
+      internal2.initConsecutiveFailures = 3;
+      internal2.initNextAllowedAttemptMs = Date.now() + 60_000;
+
+      // Commit breaker should be clean
+      expect(_getConsecutiveFailures(service)).toBe(0);
+
+      // Init breaker should be open
+      expect(_getInitConsecutiveFailures(service)).toBe(3);
+
+      // Reset init breaker
+      _resetInitBreaker(service);
+      expect(_getInitConsecutiveFailures(service)).toBe(0);
+    });
+
+    test('already initialized service bypasses init breaker check', async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+      expect(service.isInitialized()).toBe(true);
+
+      // Force init breaker open
+      const internal = service as unknown as {
+        initConsecutiveFailures: number;
+        initNextAllowedAttemptMs: number;
+      };
+      internal.initConsecutiveFailures = 5;
+      internal.initNextAllowedAttemptMs = Date.now() + 60_000;
+
+      // ensureInitialized should succeed via the fast path (already initialized)
+      // without hitting the breaker
+      await service.ensureInitialized();
     });
   });
 

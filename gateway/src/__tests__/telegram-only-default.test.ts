@@ -40,10 +40,7 @@ const { createRuntimeProxyHandler } = await import(
 
 const config = loadConfig();
 
-const handleTelegramWebhook = createTelegramWebhookHandler(
-  config,
-  async () => {},
-);
+const handleTelegramWebhook = createTelegramWebhookHandler(config);
 
 // Mirror production routing from src/index.ts: only create proxy when enabled
 const handleRuntimeProxy = config.runtimeProxyEnabled

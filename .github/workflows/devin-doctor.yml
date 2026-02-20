@@ -53,7 +53,18 @@ jobs:
         github.event.workflow_run.run_attempt == 1
       )
     steps:
+      - name: Check for Devin API key
+        id: key_check
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+        run: |
+          if [ -z "$DEVIN_API_KEY" ]; then
+            echo "DEVIN_API_KEY secret is not set. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set context
+        if: steps.key_check.outputs.skip != 'true'
         id: ctx
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -83,6 +94,7 @@ jobs:
           fi
 
       - name: Check for active lock
+        if: steps.key_check.outputs.skip != 'true'
         id: lock
         env:
           GH_TOKEN: ${{ github.token }}
@@ -93,7 +105,7 @@ jobs:
           echo "lock_issue=$LOCK_ISSUE" >> "$GITHUB_OUTPUT"
 
       - name: Skip because lock is active
-        if: steps.lock.outputs.lock_issue != ''
+        if: steps.key_check.outputs.skip != 'true' && steps.lock.outputs.lock_issue != ''
         env:
           LOCK_ISSUE: ${{ steps.lock.outputs.lock_issue }}
         run: |
@@ -103,7 +115,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Resolve original failing PR and author
-        if: steps.lock.outputs.lock_issue == ''
+        if: steps.key_check.outputs.skip != 'true' && steps.lock.outputs.lock_issue == ''
         id: pr
         env:
           GH_TOKEN: ${{ github.token }}
@@ -132,7 +144,7 @@ jobs:
           echo "pr_authors=$PR_AUTHORS" >> "$GITHUB_OUTPUT"
 
       - name: Build prompt
-        if: steps.lock.outputs.lock_issue == ''
+        if: steps.key_check.outputs.skip != 'true' && steps.lock.outputs.lock_issue == ''
         id: prompt
         env:
           REPO: ${{ github.repository }}
@@ -165,36 +177,68 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Dry-run summary
-        if: steps.lock.outputs.lock_issue == ''
+      - name: Start Devin session
+        if: steps.key_check.outputs.skip != 'true' && steps.lock.outputs.lock_issue == ''
+        id: session
         env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          PROMPT: ${{ steps.prompt.outputs.prompt }}
           CTX_WORKFLOW_NAME: ${{ steps.ctx.outputs.workflow_name }}
           CTX_RUN_URL: ${{ steps.ctx.outputs.run_url }}
           CTX_HEAD_SHA: ${{ steps.ctx.outputs.head_sha }}
-          CTX_HEAD_BRANCH: ${{ steps.ctx.outputs.head_branch }}
-          CTX_EVENT_NAME: ${{ steps.ctx.outputs.event_name }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           PR_AUTHORS: ${{ steps.pr.outputs.pr_authors }}
-          PROMPT: ${{ steps.prompt.outputs.prompt }}
         run: |
+          payload="$(jq -n --arg prompt "$PROMPT" '{prompt: $prompt, idempotent: true}')"
+          response="$(curl --silent --show-error --fail-with-body \
+            --request POST \
+            --url https://api.devin.ai/v1/sessions \
+            --header "Authorization: Bearer ${DEVIN_API_KEY}" \
+            --header "Content-Type: application/json" \
+            --data "$payload")"
+
+          session_id="$(echo "$response" | jq -r '.session_id // .id // empty')"
+          if [ -z "$session_id" ]; then
+            echo "Could not parse session id from Devin response"
+            echo "$response"
+            exit 1
+          fi
+
+          session_url="$(echo "$response" | jq -r '.url // .session_url // empty')"
+          echo "session_id=$session_id" >> "$GITHUB_OUTPUT"
+          echo "session_url=$session_url" >> "$GITHUB_OUTPUT"
+
           {
-            echo "## Devin Doctor (Dry Run)"
-            echo ""
-            echo "### Context"
+            echo "## Devin Doctor"
             echo "- **Workflow**: ${CTX_WORKFLOW_NAME}"
             echo "- **Run URL**: ${CTX_RUN_URL}"
             echo "- **SHA**: \`${CTX_HEAD_SHA}\`"
-            echo "- **Branch**: ${CTX_HEAD_BRANCH}"
-            echo "- **Event**: ${CTX_EVENT_NAME}"
-            echo ""
-            echo "### Original PR"
-            echo "- **PR**: #${PR_NUMBER}"
-            echo "- **Author(s)**: ${PR_AUTHORS}"
-            echo ""
-            echo "### Prompt (would be sent to Devin)"
-            echo "\`\`\`"
-            echo "$PROMPT"
-            echo "\`\`\`"
-            echo ""
-            echo "> **Dry-run mode**: No Devin session was created. No lock issue was opened."
+            echo "- **Original PR**: #${PR_NUMBER}"
+            echo "- **Reviewer(s)**: ${PR_AUTHORS}"
+            echo "- **Session ID**: \`$session_id\`"
+            echo "- **Session URL**: $session_url"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create lock issue
+        if: >
+          success() &&
+          steps.key_check.outputs.skip != 'true' &&
+          steps.lock.outputs.lock_issue == '' &&
+          github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CTX_WORKFLOW_NAME: ${{ steps.ctx.outputs.workflow_name }}
+          CTX_RUN_URL: ${{ steps.ctx.outputs.run_url }}
+          SESSION_ID: ${{ steps.session.outputs.session_id }}
+          SESSION_URL: ${{ steps.session.outputs.session_url }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          PR_AUTHORS: ${{ steps.pr.outputs.pr_authors }}
+        run: |
+          TITLE="[devin-doctor-lock] ${CTX_WORKFLOW_NAME} failure in progress"
+          BODY="Lock created for failing run: ${CTX_RUN_URL}
+          Devin Session ID: \`${SESSION_ID}\`
+          Devin Session URL: ${SESSION_URL}
+          Original PR: #${PR_NUMBER}
+          Reviewer(s): ${PR_AUTHORS}"
+          gh api "repos/${REPO}/issues" -f title="$TITLE" -f body="$BODY"

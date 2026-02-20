@@ -260,13 +260,25 @@ extension MainWindowView {
     var defaultChatLayout: some View {
         let config = windowState.layoutConfig
         let showConfigPanel = config.right.visible && config.right.content != .empty
+        let showSubagentPanel = windowState.selectedSubagentId != nil && threadManager.activeViewModel != nil
 
         VSplitView(
             panelWidth: $sidePanelWidth,
-            showPanel: showConfigPanel,
+            showPanel: showConfigPanel || showSubagentPanel,
             main: { slotView(for: config.center.content) },
             panel: {
-                slotView(for: config.right.content)
+                if let subagentId = windowState.selectedSubagentId,
+                   let viewModel = threadManager.activeViewModel {
+                    SubagentDetailPanel(
+                        subagentId: subagentId,
+                        viewModel: viewModel,
+                        detailStore: viewModel.subagentDetailStore,
+                        onAbort: { try? daemonClient.sendSubagentAbort(subagentId: subagentId) },
+                        onClose: { windowState.selectedSubagentId = nil }
+                    )
+                } else {
+                    slotView(for: config.right.content)
+                }
             }
         )
     }
@@ -329,7 +341,6 @@ extension MainWindowView {
                 .overlay(alignment: .topTrailing) { panelDismissButton }
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(.identity) })
-                .overlay(alignment: .topTrailing) { panelDismissButton }
         case .generated:
             // Generated panel is handled inline in chatContentView when expanded;
             // if we reach here, isDynamicExpanded is false — clear selection so
@@ -422,6 +433,8 @@ func openFilePicker(viewModel: ChatViewModel) {
     panel.allowedContentTypes = [
         .png, .jpeg, .gif, .webP, .pdf, .plainText, .commaSeparatedText,
         UTType("net.daringfireball.markdown") ?? .plainText,
+        .movie, .mpeg4Movie, .quickTimeMovie, .avi,
+        .mp3, .wav, .aiff, .audio,
     ]
     guard panel.runModal() == .OK else { return }
     for url in panel.urls {
@@ -496,7 +509,7 @@ struct ActiveChatViewWrapper: View {
             configuredProviders: settingsStore.configuredProviders,
             onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
             onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
-            onAddTrustRule: { toolName, pattern, scope, decision in return viewModel.addTrustRule(toolName: toolName, pattern: pattern, scope: scope, decision: decision) },
+            onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision) },
             onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
             onRegenerate: { viewModel.regenerateLastMessage() },
             sessionError: viewModel.sessionError,
@@ -520,6 +533,7 @@ struct ActiveChatViewWrapper: View {
                 }
             },
             onDeleteQueuedMessage: { messageId in viewModel.deleteQueuedMessage(messageId: messageId) },
+            onSendDirectQueuedMessage: { messageId in viewModel.sendDirectQueuedMessage(messageId: messageId) },
             mediaEmbedSettings: MediaEmbedResolverSettings(
                 enabled: settingsStore.mediaEmbedsEnabled,
                 enabledSince: settingsStore.mediaEmbedsEnabledSince,
@@ -527,6 +541,12 @@ struct ActiveChatViewWrapper: View {
             ),
             isTemporaryChat: isTemporaryChat,
             activeSubagents: viewModel.activeSubagents,
+            onAbortSubagent: { subagentId in
+                try? daemonClient.sendSubagentAbort(subagentId: subagentId)
+            },
+            onSubagentTap: { subagentId in
+                windowState.selectedSubagentId = subagentId
+            },
             daemonHttpPort: daemonClient.httpPort,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
             onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) }

@@ -2,15 +2,15 @@ Run `/check-reviews` to triage pending PR reviews, then immediately `/swarm` to 
 
 Arguments (optional): $ARGUMENTS
 
-Parse positional arguments and flags (these are passed through to `/swarm`):
+Parse positional arguments and flags (these are passed through to both `/check-reviews` and `/swarm`):
 
 - **First argument** (optional): number of parallel workers (default: 12).
 - **Second argument** (optional): maximum number of tasks to complete before shutting down.
-- **`--namespace NAME`** (optional): namespace for swarm branch naming (passed through to `/swarm`).
+- **`--namespace NAME`** (optional): namespace for scoping the sweep. Passed as `--namespace` to both `/check-reviews` (to filter PRs and prefix TODO items) and `/swarm` (to filter TODO items and namespace branches).
 
 ## Phase 1: Check reviews
 
-Run the `/check-reviews` skill. Wait for it to complete and note how many "Address the feedback" items and "Fix CI failures" items were added to `.private/TODO.md`.
+Run the `/check-reviews` skill, passing `--namespace` if one was provided. Wait for it to complete and note how many "Address the feedback" items and "Fix CI failures" items were added to `.private/TODO.md`.
 
 If no items were added (all PRs were approved or still pending, and no CI failures on main), report the results and stop — there's nothing to swarm on.
 

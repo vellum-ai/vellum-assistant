@@ -47,10 +47,11 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   // Watcher messages — not yet consumed by the macOS client
   'watcher_escalation',
   'watcher_notification',
+  // Agent heartbeat alerts — not yet consumed by the macOS client
+  'agent_heartbeat_alert',
   // Browser handoff — not yet consumed by the macOS client
   'browser_handoff_request',
   // Work item messages — not yet consumed by the macOS client
-  'work_item_create_response',
   'work_item_get_response',
   'work_item_run_task_response',
   'work_item_status_changed',

@@ -29,6 +29,12 @@ public struct IPCAddTrustRule: Codable, Sendable {
     public let decision: String
 }
 
+public struct IPCAgentHeartbeatAlert: Codable, Sendable {
+    public let type: String
+    public let title: String
+    public let body: String
+}
+
 public struct IPCAppDataRequest: Codable, Sendable {
     public let type: String
     public let surfaceId: String
@@ -703,6 +709,27 @@ public struct IPCHistoryResponseMessage: Codable, Sendable {
     public let contentOrder: [String]?
     /// UI surfaces (widgets) embedded in the message.
     public let surfaces: [IPCHistoryResponseSurface]?
+    /// Present when this message is a subagent lifecycle notification (completed/failed/aborted).
+    public let subagentNotification: IPCHistoryResponseMessageSubagentNotification?
+}
+
+public struct IPCHistoryResponseMessageSubagentNotification: Codable, Sendable {
+    public let subagentId: String
+    public let label: String
+    public let status: String
+    public let error: String?
+    public let conversationId: String?
+    /// Subagent objective text, populated from DB on history load.
+    public let objective: String?
+    /// Subagent events (text, tool_use, tool_result), populated from DB on history load.
+    public let events: [IPCHistoryResponseMessageSubagentNotificationEvent]?
+}
+
+public struct IPCHistoryResponseMessageSubagentNotificationEvent: Codable, Sendable {
+    public let type: String
+    public let content: String
+    public let toolName: String?
+    public let isError: Bool?
 }
 
 public struct IPCHistoryResponseSurface: Codable, Sendable {
@@ -764,6 +791,21 @@ public struct IPCHomeBaseGetResponseHomeBasePreviewMetric: Codable, Sendable {
 public struct IPCImageGenModelSetRequest: Codable, Sendable {
     public let type: String
     public let model: String
+}
+
+public struct IPCIngressConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let publicBaseUrl: String?
+}
+
+public struct IPCIngressConfigResponse: Codable, Sendable {
+    public let type: String
+    public let publicBaseUrl: String
+    /// Read-only gateway target computed from GATEWAY_PORT env var (default 7830) + loopback host.
+    public let localGatewayTarget: String
+    public let success: Bool
+    public let error: String?
 }
 
 public struct IPCIntegrationConnectRequest: Codable, Sendable {
@@ -1063,6 +1105,9 @@ public struct IPCRideShotgunStart: Codable, Sendable {
     public let intervalSeconds: Double
     public let mode: String?
     public let targetDomain: String?
+    /// Domain to auto-navigate (may differ from targetDomain, e.g. open.spotify.com vs spotify.com).
+    public let navigateDomain: String?
+    public let autoNavigate: Bool?
 }
 
 public struct IPCRideShotgunStop: Codable, Sendable {
@@ -1499,7 +1544,6 @@ public struct IPCSubagentStatusRequest: Codable, Sendable {
     public let type: String
     /// If omitted, returns all subagents for the session.
     public let subagentId: String?
-    public let sessionId: String
 }
 
 public struct IPCSuggestionRequest: Codable, Sendable {
@@ -1551,6 +1595,14 @@ public struct IPCTaskRouted: Codable, Sendable {
     public let escalatedFrom: String?
 }
 
+/// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread.
+public struct IPCTaskRunThreadCreated: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let workItemId: String
+    public let title: String
+}
+
 /// Server push — lightweight invalidation signal: the task queue has been mutated, refetch your list.
 public struct IPCTasksChanged: Codable, Sendable {
     public let type: String
@@ -1575,6 +1627,12 @@ public struct IPCToolInputDelta: Codable, Sendable {
 public struct IPCToolOutputChunk: Codable, Sendable {
     public let type: String
     public let chunk: String
+    public let sessionId: String?
+    public let subType: String?
+    public let subToolName: String?
+    public let subToolInput: String?
+    public let subToolIsError: Bool?
+    public let subToolId: String?
 }
 
 public struct IPCToolResult: Codable, Sendable {
@@ -1620,6 +1678,48 @@ public struct IPCTrustRulesListResponseRule: Codable, Sendable {
     public let decision: String
     public let priority: Int
     public let createdAt: Int
+}
+
+public struct IPCTwitterAuthResult: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let accountInfo: String?
+    public let error: String?
+}
+
+public struct IPCTwitterAuthStartRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCTwitterAuthStatusRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCTwitterAuthStatusResponse: Codable, Sendable {
+    public let type: String
+    public let connected: Bool
+    public let accountInfo: String?
+    public let mode: String?
+    public let error: String?
+}
+
+public struct IPCTwitterIntegrationConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let mode: String?
+    public let clientId: String?
+    public let clientSecret: String?
+}
+
+public struct IPCTwitterIntegrationConfigResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let mode: String?
+    public let managedAvailable: Bool
+    public let localClientConfigured: Bool
+    public let connected: Bool
+    public let accountInfo: String?
+    public let error: String?
 }
 
 public struct IPCUiSurfaceAction: Codable, Sendable {
@@ -1956,37 +2056,6 @@ public struct IPCWorkItemCompleteRequest: Codable, Sendable {
     public let id: String
 }
 
-public struct IPCWorkItemCreateRequest: Codable, Sendable {
-    public let type: String
-    public let taskId: String
-    public let title: String?
-    public let notes: String?
-    public let priorityTier: Double?
-    public let sortIndex: Int?
-}
-
-public struct IPCWorkItemCreateResponse: Codable, Sendable {
-    public let type: String
-    public let item: IPCWorkItemCreateResponseItem
-}
-
-public struct IPCWorkItemCreateResponseItem: Codable, Sendable {
-    public let id: String
-    public let taskId: String
-    public let title: String
-    public let notes: String?
-    public let status: String
-    public let priorityTier: Double
-    public let sortIndex: Int?
-    public let lastRunId: String?
-    public let lastRunConversationId: String?
-    public let lastRunStatus: String?
-    public let sourceType: String?
-    public let sourceId: String?
-    public let createdAt: Int
-    public let updatedAt: Int
-}
-
 public struct IPCWorkItemDeleteRequest: Codable, Sendable {
     public let type: String
     public let id: String
@@ -2068,25 +2137,9 @@ public struct IPCWorkItemPreflightResponsePermission: Codable, Sendable {
     public let currentDecision: String
 }
 
-public struct IPCWorkItemRenderRequest: Codable, Sendable {
-    public let type: String
-    public let id: String
-}
-
-public struct IPCWorkItemRenderResponse: Codable, Sendable {
-    public let type: String
-    public let id: String
-    public let success: Bool
-    public let content: String?
-    public let title: String?
-    public let error: String?
-}
-
 public struct IPCWorkItemRunTaskRequest: Codable, Sendable {
     public let type: String
     public let id: String
-    /// When true, the daemon sets status to "running" but skips execution — the client routes task content through the active chat session instead.
-    public let chatRouted: Bool?
 }
 
 public struct IPCWorkItemRunTaskResponse: Codable, Sendable {

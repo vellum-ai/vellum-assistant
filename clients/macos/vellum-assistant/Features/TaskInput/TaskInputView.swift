@@ -172,7 +172,9 @@ struct TaskInputView: View {
             .pdf,
             .plainText,
             .utf8PlainText,
-            .json
+            .json,
+            .movie, .mpeg4Movie, .quickTimeMovie, .avi,
+            .mp3, .wav, .aiff, .audio,
         ]
         if let webp = UTType(filenameExtension: "webp") { types.append(webp) }
         if let markdown = UTType(filenameExtension: "md") { types.append(markdown) }

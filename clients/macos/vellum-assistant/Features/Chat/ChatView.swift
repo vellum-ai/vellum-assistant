@@ -33,7 +33,7 @@ struct ChatView: View {
     var configuredProviders: Set<String> = []
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
-    let onAddTrustRule: (String, String, String, String) -> Bool
+    let onAlwaysAllow: (String, String, String, String) -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onRegenerate: () -> Void
     let sessionError: SessionError?
@@ -44,9 +44,12 @@ struct ChatView: View {
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
     var onDeleteQueuedMessage: ((UUID) -> Void)?
+    var onSendDirectQueuedMessage: ((UUID) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
     var activeSubagents: [SubagentInfo] = []
+    var onAbortSubagent: ((String) -> Void)?
+    var onSubagentTap: ((String) -> Void)?
     var daemonHttpPort: Int?
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
@@ -64,6 +67,7 @@ struct ChatView: View {
         return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
     }
 
+    @State private var isNearBottom = true
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
     @State private var isComposerExpanded = false
@@ -73,7 +77,7 @@ struct ChatView: View {
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
     private var isEmptyState: Bool {
-        messages.isEmpty && !isSending
+        messages.isEmpty
     }
 
     private let composerMinHeight: CGFloat = 34
@@ -176,8 +180,8 @@ struct ChatView: View {
         let editorClamped = min(max(editorContentHeight, 34), 200)
         let contentHeight = max(editorClamped, 34)
         let expanded = isComposerExpanded
-        let topPad: CGFloat = expanded ? VSpacing.md : VSpacing.xs
-        let bottomPad: CGFloat = expanded ? VSpacing.sm : VSpacing.xs
+        let topPad: CGFloat = expanded ? VSpacing.md : VSpacing.sm
+        let bottomPad: CGFloat = expanded ? VSpacing.sm : VSpacing.sm
         let buttonRow: CGFloat = expanded ? 34 + VSpacing.xs : 0
         let base: CGFloat = VSpacing.sm + VSpacing.md + topPad + bottomPad + contentHeight + buttonRow
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
@@ -225,6 +229,7 @@ struct ChatView: View {
             ChatQueueSummaryView(
                 queuedMessages: queuedMessages,
                 onDeleteQueuedMessage: onDeleteQueuedMessage,
+                onSendDirectQueuedMessage: onSendDirectQueuedMessage,
                 isExpanded: $isQueueExpanded
             )
             ComposerView(
@@ -368,6 +373,7 @@ struct ChatView: View {
                     // Filter out queued messages — they're shown above the composer instead
                     let displayMessages = messages.filter { msg in
                         if case .queued = msg.status { return false }
+                        if msg.isSubagentNotification { return false }
                         return true
                     }
                     ForEach(Array(displayMessages.enumerated()), id: \.element.id) { index, message in
@@ -382,7 +388,7 @@ struct ChatView: View {
                                     confirmation: confirmation,
                                     onAllow: { onConfirmationAllow(confirmation.requestId) },
                                     onDeny: { onConfirmationDeny(confirmation.requestId) },
-                                    onAddTrustRule: onAddTrustRule
+                                    onAlwaysAllow: onAlwaysAllow
                                 )
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -402,7 +408,7 @@ struct ChatView: View {
                                         confirmation: confirmation,
                                         onAllow: { onConfirmationAllow(confirmation.requestId) },
                                         onDeny: { onConfirmationDeny(confirmation.requestId) },
-                                        onAddTrustRule: onAddTrustRule
+                                        onAlwaysAllow: onAlwaysAllow
                                     )
                                     .id(message.id)
                                     .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -465,9 +471,15 @@ struct ChatView: View {
                         }
 
                         // Subagent chips anchored to the message that spawned them
+                        // Indent to align with message text (past the 28pt avatar + 8pt spacing)
                         ForEach(activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
-                            SubagentStatusChip(subagent: subagent)
+                            SubagentStatusChip(
+                                subagent: subagent,
+                                onAbort: { onAbortSubagent?(subagent.id) },
+                                onTap: { onSubagentTap?(subagent.id) }
+                            )
                                 .frame(maxWidth: 520, alignment: .leading)
+                                .padding(.leading, 36)
                                 .id("subagent-\(subagent.id)")
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
@@ -475,8 +487,13 @@ struct ChatView: View {
 
                     // Subagents with no parent message (e.g. from history load)
                     ForEach(activeSubagents.filter { $0.parentMessageId == nil }) { subagent in
-                        SubagentStatusChip(subagent: subagent)
+                        SubagentStatusChip(
+                            subagent: subagent,
+                            onAbort: { onAbortSubagent?(subagent.id) },
+                            onTap: { onSubagentTap?(subagent.id) }
+                        )
                             .frame(maxWidth: 520, alignment: .leading)
+                            .padding(.leading, 36)
                             .id("subagent-\(subagent.id)")
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
@@ -484,7 +501,8 @@ struct ChatView: View {
                     let lastVisible = displayMessages.last
                     let hasPendingConfirmation = lastVisible?.confirmation?.state == .pending
                     let hasActiveToolCall = lastVisible?.toolCalls.contains(where: { !$0.isComplete }) == true
-                    if isSending && !(lastVisible?.isStreaming == true) && !hasPendingConfirmation && !hasActiveToolCall {
+                    let hasAnyToolCalls = lastVisible?.toolCalls.isEmpty == false
+                    if isSending && !(lastVisible?.isStreaming == true) && !hasPendingConfirmation && !hasActiveToolCall && !hasAnyToolCalls {
                         RunningIndicator(
                             label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
                             showIcon: false
@@ -497,6 +515,9 @@ struct ChatView: View {
                     // Invisible anchor at the very bottom of all content
                     Color.clear.frame(height: 1)
                         .id("scroll-bottom-anchor")
+                        .onAppear {
+                            isNearBottom = true
+                        }
                 }
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
@@ -506,12 +527,44 @@ struct ChatView: View {
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
+            .background {
+                ScrollWheelDetector(
+                    onScrollUp: { isNearBottom = false },
+                    onScrollToBottom: { isNearBottom = true }
+                )
+            }
+            .overlay(alignment: .bottom) {
+                if !isNearBottom {
+                    Button(action: {
+                        isNearBottom = true
+                        withAnimation(VAnimation.fast) {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
+                    }) {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "arrow.down")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text("Scroll to latest")
+                                .font(VFont.monoSmall)
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, VSpacing.lg)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
             .onAppear {
                 // Scroll to bottom on initial load
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
             .onChange(of: isSending) {
                 if isSending {
+                    isNearBottom = true
                     withAnimation(VAnimation.standard) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
@@ -526,13 +579,17 @@ struct ChatView: View {
                 }
             }
             .onChange(of: streamingScrollTrigger) {
-                withAnimation(VAnimation.fast) {
-                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                if isNearBottom {
+                    withAnimation(VAnimation.fast) {
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
                 }
             }
             .onChange(of: messages.count) {
-                withAnimation(VAnimation.fast) {
-                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                if isNearBottom {
+                    withAnimation(VAnimation.fast) {
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
                 }
             }
         }
@@ -566,6 +623,81 @@ struct ChatView: View {
             .padding(.vertical, VSpacing.sm)
             .foregroundColor(.white)
             .background(VColor.warning)
+        }
+    }
+}
+
+// MARK: - Scroll Wheel Detection
+
+/// Detects user-initiated scroll events scoped to the chat scroll view.
+/// Fires `onScrollUp` when the user scrolls toward older content (untethers auto-scroll),
+/// and `onScrollToBottom` when the user manually scrolls back to the bottom (re-tethers).
+private struct ScrollWheelDetector: NSViewRepresentable {
+    let onScrollUp: () -> Void
+    let onScrollToBottom: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        let coordinator = context.coordinator
+        coordinator.view = view
+        coordinator.onScrollUp = onScrollUp
+        coordinator.onScrollToBottom = onScrollToBottom
+        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            // Only process events within this view's bounds (scoped to the chat scroll area)
+            guard let view = coordinator.view,
+                  let window = view.window,
+                  event.window == window else { return event }
+            let locationInView = view.convert(event.locationInWindow, from: nil)
+            guard view.bounds.width > 0, view.bounds.contains(locationInView) else { return event }
+
+            if event.scrollingDeltaY > 3 && event.momentumPhase.isEmpty {
+                // Direct user scroll up (toward older content) — untether.
+                // Momentum events are excluded so a flick doesn't accidentally untether.
+                coordinator.onScrollUp?()
+            } else if event.scrollingDeltaY < -1 {
+                // Scrolling down (direct or momentum) — re-tether if at bottom.
+                // Scrolling down — check if the underlying NSScrollView is at the bottom
+                if let scrollView = coordinator.findEnclosingScrollView() {
+                    let clipBounds = scrollView.contentView.bounds
+                    let docHeight = scrollView.documentView?.frame.height ?? 0
+                    if docHeight - clipBounds.maxY < 50 {
+                        coordinator.onScrollToBottom?()
+                    }
+                }
+            }
+            return event
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onScrollUp = onScrollUp
+        context.coordinator.onScrollToBottom = onScrollToBottom
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        if let monitor = coordinator.monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+
+    class Coordinator {
+        weak var view: NSView?
+        var onScrollUp: (() -> Void)?
+        var onScrollToBottom: (() -> Void)?
+        var monitor: Any?
+
+        func findEnclosingScrollView() -> NSScrollView? {
+            var current = view?.superview
+            while let v = current {
+                if let sv = v as? NSScrollView { return sv }
+                current = v.superview
+            }
+            return nil
         }
     }
 }
@@ -625,7 +757,7 @@ private struct ChatViewPreviewWrapper: View {
                 onMicrophoneToggle: {},
                 onConfirmationAllow: { _ in },
                 onConfirmationDeny: { _ in },
-                onAddTrustRule: { _, _, _, _ in true },
+                onAlwaysAllow: { _, _, _, _ in },
                 onSurfaceAction: { _, _, _ in },
                 onRegenerate: {},
                 sessionError: nil,

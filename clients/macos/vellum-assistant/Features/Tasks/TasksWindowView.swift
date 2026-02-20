@@ -5,38 +5,15 @@ import VellumAssistantShared
 struct TasksWindowView: View {
     @StateObject private var viewModel: TasksWindowViewModel
 
-    init(daemonClient: DaemonClient, onRunTaskInChat: ((String, String, String) -> Bool)? = nil) {
-        let vm = TasksWindowViewModel(daemonClient: daemonClient)
-        vm.onRunTaskInChat = onRunTaskInChat
-        _viewModel = StateObject(wrappedValue: vm)
+    init(daemonClient: DaemonClient, onOpenInChat: ((String, String, String) -> Void)? = nil) {
+        _viewModel = StateObject(wrappedValue: TasksWindowViewModel(daemonClient: daemonClient, onOpenInChat: onOpenInChat))
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("Tasks")
-                    .font(VFont.display)
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-                Text("\(viewModel.items.count)")
-                    .font(VFont.monoSmall)
-                    .foregroundColor(VColor.textMuted)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xs)
-                    .background(VColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.top, VSpacing.lg)
-            .padding(.bottom, VSpacing.sm)
-
-            Divider()
-                .background(VColor.surfaceBorder)
-
             // Column headers — fixed above the scrollable list
             HStack(alignment: .center, spacing: 0) {
-                Text("Task")
+                Text("Task Description")
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Text("Priority")
@@ -50,7 +27,8 @@ struct TasksWindowView: View {
             }
             .font(VFont.captionMedium)
             .foregroundColor(VColor.textMuted)
-            .padding(.vertical, VSpacing.sm)
+            .padding(.top, VSpacing.lg)
+            .padding(.bottom, VSpacing.sm)
             .padding(.horizontal, VSpacing.lg)
             // Inner horizontal padding matches row padding so labels sit
             // directly above their respective columns.
@@ -128,7 +106,10 @@ struct TasksWindowView: View {
                 TaskOutputDetailView(
                     itemTitle: item.title,
                     state: viewModel.outputState,
-                    onDismiss: { viewModel.dismissOutput() }
+                    onDismiss: { viewModel.dismissOutput() },
+                    onOpenInChat: viewModel.canOpenInChat ? {
+                        viewModel.openInChat()
+                    } : nil
                 )
             }
         }
@@ -256,35 +237,36 @@ private struct TasksWindowRow: View {
     private var statusColumn: some View {
         let status = WorkItemStatus(rawStatus: item.status)
         let style = TasksTableContract.statusStyle(for: status)
-        // When the status has output to show, use accent color persistently
-        // (not just on hover) so the badge looks clearly clickable.
-        let textColor = hasOutput ? VColor.accent : style.color
-        let bgColor = hasOutput
-            ? VColor.accent.opacity(isStatusHovered ? 0.24 : 0.14)
-            : style.color.opacity(0.12)
-        return HStack(spacing: VSpacing.xs) {
-            if status == .running {
-                ProgressView()
-                    .controlSize(.mini)
+        return VStack(spacing: VSpacing.xs) {
+            HStack(spacing: VSpacing.xs) {
+                if status == .running {
+                    ProgressView()
+                        .controlSize(.mini)
+                }
+                Circle()
+                    .fill(style.color)
+                    .frame(width: 6, height: 6)
+                Text(style.label)
+                    .font(VFont.caption)
+                    .foregroundColor(style.color)
             }
-            Text(style.label)
-                .font(VFont.caption)
-                .foregroundColor(textColor)
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, 2)
+            .background(style.color.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+
             if hasOutput {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundColor(textColor.opacity(0.6))
+                Text("See result")
+                    .font(VFont.small)
+                    .foregroundColor(VColor.accent)
+                    .underline()
+                    .onHover { hovering in isStatusHovered = hovering }
+                    .opacity(isStatusHovered ? 0.7 : 1.0)
+                    .onTapGesture { onTap() }
+                    .accessibilityLabel("View task output")
+                    .accessibilityAddTraits(.isButton)
             }
         }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, 2)
-        .background(bgColor)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-        .contentShape(Rectangle())
-        .onHover { hovering in isStatusHovered = hovering }
-        .onTapGesture { if hasOutput { onTap() } }
-        .accessibilityLabel(hasOutput ? "View output — \(style.label)" : "Status \(style.label)")
-        .accessibilityAddTraits(hasOutput ? .isButton : [])
     }
 
     // MARK: - Actions Column

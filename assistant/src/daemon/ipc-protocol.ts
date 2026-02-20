@@ -47,7 +47,9 @@ export function createMessageParser(options?: { maxLineSize?: number }) {
           }
           results.push(entry);
         } catch (err) {
-          log.warn({ lineLength: trimmed.length, err }, 'Skipping malformed IPC message');
+          // Log only the error name, not the message — JSON.parse errors embed
+          // fragments of the input which could contain sensitive data.
+          log.warn({ lineLength: trimmed.length, errorType: err instanceof Error ? err.name : 'unknown' }, 'Skipping malformed IPC message');
         }
       }
     }

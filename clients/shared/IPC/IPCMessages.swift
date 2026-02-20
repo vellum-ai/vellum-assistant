@@ -201,8 +201,8 @@ extension IPCCuObservation {
 public typealias RideShotgunStartMessage = IPCRideShotgunStart
 
 extension IPCRideShotgunStart {
-    public init(durationSeconds: Double, intervalSeconds: Double, mode: String? = nil, targetDomain: String? = nil) {
-        self.init(type: "ride_shotgun_start", durationSeconds: durationSeconds, intervalSeconds: intervalSeconds, mode: mode, targetDomain: targetDomain)
+    public init(durationSeconds: Double, intervalSeconds: Double, mode: String? = nil, targetDomain: String? = nil, navigateDomain: String? = nil, autoNavigate: Bool? = nil) {
+        self.init(type: "ride_shotgun_start", durationSeconds: durationSeconds, intervalSeconds: intervalSeconds, mode: mode, targetDomain: targetDomain, navigateDomain: navigateDomain, autoNavigate: autoNavigate)
     }
 }
 
@@ -1103,9 +1103,9 @@ extension IPCHistoryResponse {
 }
 
 extension IPCHistoryResponseMessage {
-    /// Backward-compatible init without textSegments/contentOrder/surfaces (added in later IPC versions).
+    /// Backward-compatible init without textSegments/contentOrder/surfaces/subagentNotification (added in later IPC versions).
     public init(role: String, text: String, timestamp: Double, toolCalls: [IPCHistoryResponseToolCall]?, toolCallsBeforeText: Bool?, attachments: [IPCUserMessageAttachment]?) {
-        self.init(id: nil, role: role, text: text, timestamp: timestamp, toolCalls: toolCalls, toolCallsBeforeText: toolCallsBeforeText, attachments: attachments, textSegments: nil, contentOrder: nil, surfaces: nil)
+        self.init(id: nil, role: role, text: text, timestamp: timestamp, toolCalls: toolCalls, toolCallsBeforeText: toolCallsBeforeText, attachments: attachments, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil)
     }
 }
 
@@ -1619,6 +1619,27 @@ public struct SlackWebhookConfigResponseMessage: Decodable, Sendable {
     public let error: String?
 }
 
+// MARK: - Ingress Config Messages
+
+public struct IngressConfigRequestMessage: Encodable, Sendable {
+    public let type = "ingress_config"
+    public let action: String
+    public let publicBaseUrl: String?
+
+    public init(action: String, publicBaseUrl: String? = nil) {
+        self.action = action
+        self.publicBaseUrl = publicBaseUrl
+    }
+}
+
+public struct IngressConfigResponseMessage: Decodable, Sendable {
+    public let type: String
+    public let publicBaseUrl: String
+    public let localGatewayTarget: String
+    public let success: Bool
+    public let error: String?
+}
+
 // MARK: - Model Config Messages
 
 /// Request the current model/provider configuration.
@@ -1670,6 +1691,52 @@ extension IPCVercelApiConfigRequest {
 /// Response from Vercel API config operations.
 /// Backed by generated `IPCVercelApiConfigResponse`.
 public typealias VercelApiConfigResponseMessage = IPCVercelApiConfigResponse
+
+// MARK: - Twitter Integration Config Messages
+
+/// Sent to get/set Twitter integration config.
+/// Backed by generated `IPCTwitterIntegrationConfigRequest`.
+public typealias TwitterIntegrationConfigRequestMessage = IPCTwitterIntegrationConfigRequest
+
+extension IPCTwitterIntegrationConfigRequest {
+    public init(action: String, mode: String? = nil, clientId: String? = nil, clientSecret: String? = nil) {
+        self.init(type: "twitter_integration_config", action: action, mode: mode, clientId: clientId, clientSecret: clientSecret)
+    }
+}
+
+/// Response from Twitter integration config operations.
+/// Backed by generated `IPCTwitterIntegrationConfigResponse`.
+public typealias TwitterIntegrationConfigResponseMessage = IPCTwitterIntegrationConfigResponse
+
+// MARK: - Twitter Auth Messages
+
+/// Sent to start the Twitter OAuth connect flow.
+/// Backed by generated `IPCTwitterAuthStartRequest`.
+public typealias TwitterAuthStartMessage = IPCTwitterAuthStartRequest
+
+extension IPCTwitterAuthStartRequest {
+    public init() {
+        self.init(type: "twitter_auth_start")
+    }
+}
+
+/// Sent to query Twitter auth status.
+/// Backed by generated `IPCTwitterAuthStatusRequest`.
+public typealias TwitterAuthStatusRequestMessage = IPCTwitterAuthStatusRequest
+
+extension IPCTwitterAuthStatusRequest {
+    public init() {
+        self.init(type: "twitter_auth_status")
+    }
+}
+
+/// Result of a Twitter OAuth connect attempt.
+/// Backed by generated `IPCTwitterAuthResult`.
+public typealias TwitterAuthResultMessage = IPCTwitterAuthResult
+
+/// Response to a Twitter auth status query.
+/// Backed by generated `IPCTwitterAuthStatusResponse`.
+public typealias TwitterAuthStatusResponseMessage = IPCTwitterAuthStatusResponse
 
 /// Authentication result from the daemon after the client sends an `auth` message.
 /// Backed by generated `IPCAuthResult`.
@@ -1727,6 +1794,16 @@ public typealias EnvVarsResponseMessage = IPCEnvVarsResponse
 extension IPCSessionSwitchRequest {
     public init(sessionId: String) {
         self.init(type: "session_switch", sessionId: sessionId)
+    }
+}
+
+/// Sent by the client to abort a running subagent.
+public struct SubagentAbortMessage: Encodable, Sendable {
+    public let type: String = "subagent_abort"
+    public let subagentId: String
+
+    public init(subagentId: String) {
+        self.subagentId = subagentId
     }
 }
 
@@ -1802,7 +1879,11 @@ public enum ServerMessage: Decodable, Sendable {
     case signBundlePayload(SignBundlePayloadMessage)
     case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
+    case ingressConfigResponse(IngressConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
+    case twitterIntegrationConfigResponse(TwitterIntegrationConfigResponseMessage)
+    case twitterAuthResult(TwitterAuthResultMessage)
+    case twitterAuthStatusResponse(TwitterAuthStatusResponseMessage)
     case modelInfo(ModelInfoMessage)
     case publishPageResponse(PublishPageResponseMessage)
     case unpublishPageResponse(UnpublishPageResponseMessage)
@@ -1834,7 +1915,7 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemPreflightResponse(IPCWorkItemPreflightResponse)
     case workItemApprovePermissionsResponse(IPCWorkItemApprovePermissionsResponse)
     case workItemCancelResponse(IPCWorkItemCancelResponse)
-    case workItemRenderResponse(IPCWorkItemRenderResponse)
+    case taskRunThreadCreated(IPCTaskRunThreadCreated)
     case openTasksWindow(OpenTasksWindowMessage)
     case subagentSpawned(IPCSubagentSpawned)
     case subagentStatusChanged(IPCSubagentStatusChanged)
@@ -2046,9 +2127,21 @@ public enum ServerMessage: Decodable, Sendable {
         case "slack_webhook_config_response":
             let message = try SlackWebhookConfigResponseMessage(from: decoder)
             self = .slackWebhookConfigResponse(message)
+        case "ingress_config_response":
+            let message = try IngressConfigResponseMessage(from: decoder)
+            self = .ingressConfigResponse(message)
         case "vercel_api_config_response":
             let message = try VercelApiConfigResponseMessage(from: decoder)
             self = .vercelApiConfigResponse(message)
+        case "twitter_integration_config_response":
+            let message = try TwitterIntegrationConfigResponseMessage(from: decoder)
+            self = .twitterIntegrationConfigResponse(message)
+        case "twitter_auth_result":
+            let message = try TwitterAuthResultMessage(from: decoder)
+            self = .twitterAuthResult(message)
+        case "twitter_auth_status_response":
+            let message = try TwitterAuthStatusResponseMessage(from: decoder)
+            self = .twitterAuthStatusResponse(message)
         case "model_info":
             let message = try ModelInfoMessage(from: decoder)
             self = .modelInfo(message)
@@ -2130,9 +2223,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "work_item_cancel_response":
             let message = try IPCWorkItemCancelResponse(from: decoder)
             self = .workItemCancelResponse(message)
-        case "work_item_render_response":
-            let message = try IPCWorkItemRenderResponse(from: decoder)
-            self = .workItemRenderResponse(message)
+        case "task_run_thread_created":
+            let message = try IPCTaskRunThreadCreated(from: decoder)
+            self = .taskRunThreadCreated(message)
         case "open_tasks_window":
             let message = try OpenTasksWindowMessage(from: decoder)
             self = .openTasksWindow(message)

@@ -211,8 +211,10 @@ describe('Skill projection benchmark', () => {
     // Warm the cache
     const warmResult = projectSkillTools(history, { cache, previouslyActiveSkillIds: prevActive });
 
-    // Snapshot cache state after warm-up
-    const entriesCountAfterWarm = cache.derived!.entries.length;
+    // Snapshot cache object references after warm-up
+    const derivedAfterWarm = cache.derived!;
+    const entriesAfterWarm = cache.derived!.entries;
+    const seenIdsAfterWarm = cache.derived!.seenIds;
 
     // Second call with identical history — should hit cache fast path
     let cachedResult: ReturnType<typeof projectSkillTools> | undefined;
@@ -227,8 +229,10 @@ describe('Skill projection benchmark', () => {
     expect(cache.derived).toBeDefined();
     expect(cache.derived!.messageCount).toBe(history.length);
 
-    // Assert entries array length unchanged (no spurious re-derivation)
-    expect(cache.derived!.entries.length).toBe(entriesCountAfterWarm);
+    // Assert the cache object is reused (same reference, not rebuilt)
+    expect(cache.derived).toBe(derivedAfterWarm);
+    expect(cache.derived!.entries).toBe(entriesAfterWarm);
+    expect(cache.derived!.seenIds).toBe(seenIdsAfterWarm);
 
     // Assert tool definitions are identical between warm and cached calls
     expect(cachedResult!.toolDefinitions.length).toBe(warmResult.toolDefinitions.length);
@@ -250,18 +254,18 @@ describe('Skill projection benchmark', () => {
     // First call populates the cache
     const firstResult = projectSkillTools(history, { cache, previouslyActiveSkillIds: prevActive });
     expect(cache.derived).toBeDefined();
-    const snapshotMessageCount = cache.derived!.messageCount;
-    const snapshotEntries = [...cache.derived!.entries];
-    const snapshotSeenIds = new Set(cache.derived!.seenIds);
+    const snapshotDerived = cache.derived!;
+    const snapshotEntries = cache.derived!.entries;
+    const snapshotSeenIds = cache.derived!.seenIds;
 
     // Run multiple subsequent calls with unchanged history
     for (let i = 0; i < 5; i++) {
       const result = projectSkillTools(history, { cache, previouslyActiveSkillIds: prevActive });
 
-      // Cache state must be identical after every call
-      expect(cache.derived!.messageCount).toBe(snapshotMessageCount);
-      expect(cache.derived!.entries.length).toBe(snapshotEntries.length);
-      expect(cache.derived!.seenIds.size).toBe(snapshotSeenIds.size);
+      // Cache objects must be the same references (reused, not rebuilt)
+      expect(cache.derived).toBe(snapshotDerived);
+      expect(cache.derived!.entries).toBe(snapshotEntries);
+      expect(cache.derived!.seenIds).toBe(snapshotSeenIds);
 
       // Tool definitions must match the first call exactly
       expect(result.toolDefinitions.length).toBe(firstResult.toolDefinitions.length);

@@ -1965,3 +1965,91 @@ describe('buildSanitizedEnv — baseline: credential exclusion', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Persistent-allow lifecycle: roundtrip and auto-allow on subsequent invocation
+// ---------------------------------------------------------------------------
+
+describe('ToolExecutor persistent-allow lifecycle', () => {
+  beforeEach(() => {
+    fakeToolResult = { content: 'ok', isError: false };
+    lastCheckArgs = undefined;
+    getToolOverride = undefined;
+    checkResultOverride = undefined;
+    checkFnOverride = undefined;
+    if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
+  });
+
+  function setupAddRuleSpy() {
+    addRuleSpy = spyOn(trustStore, 'addRule').mockImplementation(
+      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: any) => {
+        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as any;
+      },
+    );
+    return addRuleSpy;
+  }
+
+  test('persistent-allow roundtrip: always_allow saves rule and allows tool', async () => {
+    // Simulate check() returning 'prompt' so the executor asks the user
+    checkResultOverride = { decision: 'prompt', reason: 'Medium risk: requires approval' };
+    const spy = setupAddRuleSpy();
+
+    // User responds with always_allow, selecting a pattern and scope
+    const prompter = makePrompterWithDecision('always_allow', 'git *', '/tmp/project');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('bash', { command: 'git status' }, makeContext());
+
+    // The tool should have been allowed to proceed
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe('ok');
+
+    // addRule should have been called with the correct arguments
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [tool, pattern, scope, decision] = spy.mock.calls[0];
+    expect(tool).toBe('bash');
+    expect(pattern).toBe('git *');
+    expect(scope).toBe('/tmp/project');
+    expect(decision).toBe('allow');
+  });
+
+  test('auto-allow on subsequent invocation: matching rule skips prompt', async () => {
+    // Simulate a previously saved rule by making check() return 'allow'
+    // with a matched rule (as findHighestPriorityRule would).
+    checkResultOverride = { decision: 'allow', reason: 'Matched trust rule: git *' };
+
+    let promptCalled = false;
+    const trackingPrompter = {
+      prompt: async () => { promptCalled = true; return { decision: 'allow' as const }; },
+      resolveConfirmation: () => {},
+      updateSender: () => {},
+      dispose: () => {},
+    } as unknown as PermissionPrompter;
+
+    const executor = new ToolExecutor(trackingPrompter);
+    const result = await executor.execute('bash', { command: 'git status' }, makeContext());
+
+    // The tool should be auto-allowed
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe('ok');
+
+    // The prompter should NOT have been called — the rule auto-allowed
+    expect(promptCalled).toBe(false);
+  });
+
+  test('always_allow with everywhere scope saves rule and allows tool', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'Medium risk: requires approval' };
+    const spy = setupAddRuleSpy();
+
+    const prompter = makePrompterWithDecision('always_allow', 'file_write:*', 'everywhere');
+    const executor = new ToolExecutor(prompter);
+    const result = await executor.execute('file_write', { path: '/tmp/test.txt', content: 'hello' }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [tool, pattern, scope, decision] = spy.mock.calls[0];
+    expect(tool).toBe('file_write');
+    expect(pattern).toBe('file_write:*');
+    expect(scope).toBe('everywhere');
+    expect(decision).toBe('allow');
+  });
+});

@@ -5,7 +5,7 @@ import { addRule, removeRule, updateRule, getAllRules, acceptStarterBundle } fro
 import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression } from '../../schedule/schedule-store.js';
 import { listReminders, cancelReminder } from '../../tools/reminder/reminder-store.js';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
-import { upsertCredentialMetadata, deleteCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { postToSlackWebhook } from '../../slack/slack-webhook.js';
 import { getApp } from '../../memory/app-store.js';
 import type {
@@ -19,9 +19,11 @@ import type {
   ReminderCancel,
   ShareToSlackRequest,
   SlackWebhookConfigRequest,
+  IngressConfigRequest,
   VercelApiConfigRequest,
+  TwitterIntegrationConfigRequest,
 } from '../ipc-protocol.js';
-import { log, CONFIG_RELOAD_DEBOUNCE_MS, type HandlerContext, type DispatchMap } from './shared.js';
+import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
 
 export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
@@ -87,11 +89,12 @@ export function handleModelSet(
     // Suppress the file watcher callback — handleModelSet already does
     // the full reload sequence; a redundant watcher-triggered reload
     // would incorrectly evict sessions created after this method returns.
+    const wasSuppressed = ctx.suppressConfigReload;
     ctx.setSuppressConfigReload(true);
     try {
       saveRawConfig(raw);
     } catch (err) {
-      ctx.setSuppressConfigReload(false);
+      ctx.setSuppressConfigReload(wasSuppressed);
       throw err;
     }
     const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
@@ -136,11 +139,12 @@ export function handleImageGenModelSet(
     const raw = loadRawConfig();
     raw.imageGenModel = msg.model;
 
+    const wasSuppressed = ctx.suppressConfigReload;
     ctx.setSuppressConfigReload(true);
     try {
       saveRawConfig(raw);
     } catch (err) {
-      ctx.setSuppressConfigReload(false);
+      ctx.setSuppressConfigReload(wasSuppressed);
       throw err;
     }
     const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
@@ -163,9 +167,9 @@ export function handleAddTrustRule(
 ): void {
   try {
     addRule(msg.toolName, msg.pattern, msg.scope, msg.decision);
-    log.info({ tool: msg.toolName, pattern: msg.pattern, scope: msg.scope, decision: msg.decision }, 'Trust rule added via client');
+    log.info({ toolName: msg.toolName, pattern: msg.pattern, scope: msg.scope, decision: msg.decision }, 'Trust rule added via client');
   } catch (err) {
-    log.error({ err }, 'Failed to add trust rule');
+    log.error({ err, toolName: msg.toolName, pattern: msg.pattern, scope: msg.scope }, 'Failed to add trust rule via client');
   }
 }
 
@@ -395,6 +399,53 @@ export function handleSlackWebhookConfig(
   }
 }
 
+function computeLocalGatewayTarget(): string {
+  const port = process.env.GATEWAY_PORT || '7830';
+  return `http://127.0.0.1:${port}`;
+}
+
+export function handleIngressConfig(
+  msg: IngressConfigRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const localGatewayTarget = computeLocalGatewayTarget();
+  try {
+    if (msg.action === 'get') {
+      const raw = loadRawConfig();
+      const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+      const publicBaseUrl = (ingress.publicBaseUrl as string) ?? '';
+      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl, localGatewayTarget, success: true });
+    } else if (msg.action === 'set') {
+      const value = (msg.publicBaseUrl ?? '').trim().replace(/\/+$/, '');
+      const raw = loadRawConfig();
+
+      // Update ingress.publicBaseUrl
+      const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+      ingress.publicBaseUrl = value || undefined;
+
+      const wasSuppressed = ctx.suppressConfigReload;
+      ctx.setSuppressConfigReload(true);
+      try {
+        saveRawConfig({ ...raw, ingress });
+      } catch (err) {
+        ctx.setSuppressConfigReload(wasSuppressed);
+        throw err;
+      }
+      const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
+      if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
+      const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
+      ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: value, localGatewayTarget, success: true });
+    } else {
+      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', localGatewayTarget, success: false, error: message });
+  }
+}
+
 export function handleVercelApiConfig(
   msg: VercelApiConfigRequest,
   socket: net.Socket,
@@ -457,6 +508,145 @@ export function handleVercelApiConfig(
   }
 }
 
+export function handleTwitterIntegrationConfig(
+  msg: TwitterIntegrationConfigRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    if (msg.action === 'get') {
+      const raw = loadRawConfig();
+      const mode = (raw.twitterIntegrationMode as 'local_byo' | 'managed' | undefined) ?? 'local_byo';
+      const localClientConfigured = !!getSecureKey('credential:integration:twitter:oauth_client_id');
+      const connected = !!getSecureKey('credential:integration:twitter:access_token');
+      const meta = getCredentialMetadata('integration:twitter', 'access_token');
+      ctx.send(socket, {
+        type: 'twitter_integration_config_response',
+        success: true,
+        mode,
+        managedAvailable: false,
+        localClientConfigured,
+        connected,
+        accountInfo: meta?.accountInfo ?? undefined,
+      });
+    } else if (msg.action === 'set_mode') {
+      const raw = loadRawConfig();
+      raw.twitterIntegrationMode = msg.mode ?? 'local_byo';
+      saveRawConfig(raw);
+      ctx.send(socket, {
+        type: 'twitter_integration_config_response',
+        success: true,
+        mode: msg.mode ?? 'local_byo',
+        managedAvailable: false,
+        localClientConfigured: !!getSecureKey('credential:integration:twitter:oauth_client_id'),
+        connected: !!getSecureKey('credential:integration:twitter:access_token'),
+      });
+    } else if (msg.action === 'set_local_client') {
+      if (!msg.clientId) {
+        ctx.send(socket, {
+          type: 'twitter_integration_config_response',
+          success: false,
+          managedAvailable: false,
+          localClientConfigured: false,
+          connected: false,
+          error: 'clientId is required for set_local_client action',
+        });
+        return;
+      }
+      const previousClientId = getSecureKey('credential:integration:twitter:oauth_client_id');
+      const storedId = setSecureKey('credential:integration:twitter:oauth_client_id', msg.clientId);
+      if (!storedId) {
+        ctx.send(socket, {
+          type: 'twitter_integration_config_response',
+          success: false,
+          managedAvailable: false,
+          localClientConfigured: false,
+          connected: false,
+          error: 'Failed to store client ID in secure storage',
+        });
+        return;
+      }
+      if (msg.clientSecret) {
+        const storedSecret = setSecureKey('credential:integration:twitter:oauth_client_secret', msg.clientSecret);
+        if (!storedSecret) {
+          // Roll back the client ID to its previous value to avoid inconsistent OAuth state
+          if (previousClientId) {
+            setSecureKey('credential:integration:twitter:oauth_client_id', previousClientId);
+          } else {
+            deleteSecureKey('credential:integration:twitter:oauth_client_id');
+          }
+          ctx.send(socket, {
+            type: 'twitter_integration_config_response',
+            success: false,
+            managedAvailable: false,
+            localClientConfigured: false,
+            connected: false,
+            error: 'Failed to store client secret in secure storage',
+          });
+          return;
+        }
+      } else {
+        // Clear any stale secret when updating client without a secret (e.g. switching to PKCE)
+        deleteSecureKey('credential:integration:twitter:oauth_client_secret');
+      }
+      ctx.send(socket, {
+        type: 'twitter_integration_config_response',
+        success: true,
+        managedAvailable: false,
+        localClientConfigured: true,
+        connected: !!getSecureKey('credential:integration:twitter:access_token'),
+      });
+    } else if (msg.action === 'clear_local_client') {
+      // If connected, disconnect first
+      if (getSecureKey('credential:integration:twitter:access_token')) {
+        deleteSecureKey('credential:integration:twitter:access_token');
+        deleteSecureKey('credential:integration:twitter:refresh_token');
+        deleteCredentialMetadata('integration:twitter', 'access_token');
+      }
+      deleteSecureKey('credential:integration:twitter:oauth_client_id');
+      deleteSecureKey('credential:integration:twitter:oauth_client_secret');
+      ctx.send(socket, {
+        type: 'twitter_integration_config_response',
+        success: true,
+        managedAvailable: false,
+        localClientConfigured: false,
+        connected: false,
+      });
+    } else if (msg.action === 'disconnect') {
+      deleteSecureKey('credential:integration:twitter:access_token');
+      deleteSecureKey('credential:integration:twitter:refresh_token');
+      deleteCredentialMetadata('integration:twitter', 'access_token');
+      ctx.send(socket, {
+        type: 'twitter_integration_config_response',
+        success: true,
+        managedAvailable: false,
+        localClientConfigured: !!getSecureKey('credential:integration:twitter:oauth_client_id'),
+        connected: false,
+      });
+    } else {
+      ctx.send(socket, {
+        type: 'twitter_integration_config_response',
+        success: false,
+        managedAvailable: false,
+        localClientConfigured: false,
+        connected: false,
+        error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}`,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to handle Twitter integration config');
+    ctx.send(socket, {
+      type: 'twitter_integration_config_response',
+      success: false,
+      managedAvailable: false,
+      localClientConfigured: false,
+      connected: false,
+      error: message,
+    });
+  }
+}
+
 export function handleEnvVarsRequest(socket: net.Socket, ctx: HandlerContext): void {
   const vars: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -465,7 +655,7 @@ export function handleEnvVarsRequest(socket: net.Socket, ctx: HandlerContext): v
   ctx.send(socket, { type: 'env_vars_response', vars });
 }
 
-export const configHandlers: Partial<DispatchMap> = {
+export const configHandlers = defineHandlers({
   model_get: (_msg, socket, ctx) => handleModelGet(socket, ctx),
   model_set: handleModelSet,
   image_gen_model_set: handleImageGenModelSet,
@@ -481,6 +671,8 @@ export const configHandlers: Partial<DispatchMap> = {
   reminder_cancel: handleReminderCancel,
   share_to_slack: handleShareToSlack,
   slack_webhook_config: handleSlackWebhookConfig,
+  ingress_config: handleIngressConfig,
   vercel_api_config: handleVercelApiConfig,
+  twitter_integration_config: handleTwitterIntegrationConfig,
   env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
-};
+});

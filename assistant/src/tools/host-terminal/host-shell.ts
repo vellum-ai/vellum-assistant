@@ -40,6 +40,16 @@ function buildSanitizedEnv(): Record<string, string> {
       env[key] = process.env[key]!;
     }
   }
+  // Ensure ~/.local/bin and ~/.bun/bin are in PATH so `vellum` and `bun` are
+  // always reachable, even when the daemon is launched from a macOS app
+  // bundle that inherits a minimal PATH.
+  const home = homedir();
+  const extraDirs = [`${home}/.local/bin`, `${home}/.bun/bin`];
+  const currentPath = env.PATH ?? '';
+  const missing = extraDirs.filter(d => !currentPath.split(':').includes(d));
+  if (missing.length > 0) {
+    env.PATH = [...missing, currentPath].filter(Boolean).join(':');
+  }
   return env;
 }
 

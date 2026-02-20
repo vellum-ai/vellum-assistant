@@ -1,7 +1,7 @@
 ---
 name: "Watcher"
 description: "Polling watcher system for monitoring external sources"
-metadata: {"vellum": {"emoji": "\u{1F440}"}}
+metadata: {"vellum": {"emoji": "👀"}}
 ---
 
 Create and manage watchers that poll external services for events and process them with an action prompt.

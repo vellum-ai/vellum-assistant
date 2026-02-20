@@ -15,7 +15,7 @@
  *   - assistant_text_delta + message_complete (onEvent path) → hub emits in order
  *   - sessionId falls back to conversationId when the message lacks it
  */
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { afterAll, describe, test, expect, beforeEach, mock } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -44,12 +44,16 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { createConversation } from '../memory/conversation-store.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
 
 initializeDb();
+
+afterAll(() => {
+  resetDb();
+});
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

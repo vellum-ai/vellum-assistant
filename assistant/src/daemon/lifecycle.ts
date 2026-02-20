@@ -44,6 +44,7 @@ import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
 import { HeartbeatService } from '../workspace/heartbeat-service.js';
+import { AgentHeartbeatService } from '../agent-heartbeat/agent-heartbeat-service.js';
 import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
 import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
@@ -315,6 +316,14 @@ export async function runDaemon(): Promise<void> {
   await initializeTools();
   log.info('Daemon startup: providers and tools initialized');
 
+  // Start the IPC socket BEFORE Qdrant so that clients can connect
+  // immediately. Qdrant startup can take 30+ seconds (binary download,
+  // /readyz polling) which previously blocked the socket from appearing.
+  log.info('Daemon startup: starting DaemonServer (IPC socket)');
+  const server = new DaemonServer();
+  await server.start();
+  log.info('Daemon startup: DaemonServer started');
+
   // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
   const qdrantUrl = process.env.QDRANT_URL?.trim() || config.memory.qdrant.url;
   log.info({ qdrantUrl }, 'Daemon startup: initializing Qdrant');
@@ -335,10 +344,7 @@ export async function runDaemon(): Promise<void> {
     log.warn({ err }, 'Qdrant failed to start — memory features will be unavailable');
   }
 
-  log.info('Daemon startup: starting DaemonServer (IPC socket)');
-  const server = new DaemonServer();
-  await server.start();
-  log.info('Daemon startup: DaemonServer started, starting memory worker');
+  log.info('Daemon startup: starting memory worker');
   const memoryWorker = startMemoryJobsWorker();
   // Initialize watcher engine and register providers
   registerWatcherProvider(gmailProvider);
@@ -455,6 +461,14 @@ export async function runDaemon(): Promise<void> {
   const heartbeat = new HeartbeatService();
   heartbeat.start();
 
+  // Start model-driven heartbeat service (opt-in via config).
+  const agentHeartbeat = new AgentHeartbeatService({
+    processMessage: (conversationId, content) =>
+      server.processMessage(conversationId, content),
+    alerter: (alert) => server.broadcast(alert),
+  });
+  agentHeartbeat.start();
+
   // Graceful shutdown
   let shuttingDown = false;
   const shutdown = async () => {
@@ -475,6 +489,7 @@ export async function runDaemon(): Promise<void> {
     forceTimer.unref();
 
     await heartbeat.stop();
+    await agentHeartbeat.stop();
 
     try {
       await hookManager.trigger('daemon-stop', { pid: process.pid });

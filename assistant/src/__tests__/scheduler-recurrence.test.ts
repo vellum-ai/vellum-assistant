@@ -25,7 +25,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { createTask } from '../tasks/task-store.js';
 import {
   createSchedule,
@@ -47,6 +47,7 @@ function forceScheduleDue(scheduleId: string): void {
 }
 
 afterAll(() => {
+  resetDb();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
 
@@ -308,19 +309,21 @@ describe('scheduler RRULE execution', () => {
       expression: rruleExpr,
     });
 
-    const beforeNextRunAt = getSchedule(schedule.id)!.nextRunAt;
+    const originalNextRunAt = getSchedule(schedule.id)!.nextRunAt;
     forceScheduleDue(schedule.id);
+    const forcedDueAt = getSchedule(schedule.id)!.nextRunAt;
 
     const processMessage = async () => {};
     const scheduler = startScheduler(processMessage, () => {}, () => {});
     await new Promise(resolve => setTimeout(resolve, 500));
     scheduler.stop();
 
-    // nextRunAt should have advanced to a future time
     const after = getSchedule(schedule.id);
     expect(after).not.toBeNull();
-    expect(after!.nextRunAt).toBeGreaterThan(Date.now() - 5000);
-    // It should differ from the forced-due value
+    // nextRunAt must have moved forward from the forced-due value
+    expect(after!.nextRunAt).toBeGreaterThan(forcedDueAt);
+    // It should be at or near the original computed value (within a few seconds tolerance)
+    expect(Math.abs(after!.nextRunAt - originalNextRunAt)).toBeLessThan(5000);
     expect(after!.lastRunAt).not.toBeNull();
   });
 });

@@ -7,7 +7,7 @@ import {
 } from '../../home-base/prebuilt/seed.js';
 import { getHomeBaseAppLink } from '../../home-base/app-link-store.js';
 import { getApp } from '../../memory/app-store.js';
-import { log, type HandlerContext, type DispatchMap } from './shared.js';
+import { log, defineHandlers, type HandlerContext } from './shared.js';
 
 export function handleHomeBaseGet(
   msg: HomeBaseGetRequest,
@@ -72,6 +72,6 @@ export function handleHomeBaseGet(
   }
 }
 
-export const homeBaseHandlers: Partial<DispatchMap> = {
+export const homeBaseHandlers = defineHandlers({
   home_base_get: handleHomeBaseGet,
-};
+});

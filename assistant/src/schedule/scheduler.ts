@@ -74,7 +74,7 @@ async function runScheduleOnce(
   const now = Date.now();
   let processed = 0;
 
-  // ── Cron jobs ───────────────────────────────────────────────────────
+  // ── Recurrence schedules (cron + RRULE) ─────────────────────────────
   const jobs = claimDueSchedules(now);
   for (const job of jobs) {
     // Check if message is a task invocation (run_task:<task_id>)
@@ -87,7 +87,7 @@ async function runScheduleOnce(
         const { runTask } = await import('../tasks/task-runner.js');
         const result = await runTask(
           { taskId, workingDir: process.cwd() },
-          processMessage as (conversationId: string, message: string) => Promise<void>,
+          processMessage as (conversationId: string, message: string, taskRunId: string) => Promise<void>,
         );
 
         // Track the schedule run using the task's conversation

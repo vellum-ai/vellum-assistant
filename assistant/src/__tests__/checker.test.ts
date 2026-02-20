@@ -3854,3 +3854,107 @@ describe('computer-use tool permission defaults', () => {
     expect(risk).toBe(RiskLevel.Low);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Scope-matching behavior: project-scoped vs everywhere rules
+// ---------------------------------------------------------------------------
+
+describe('scope matching behavior', () => {
+  beforeEach(() => {
+    clearCache();
+    testConfig.permissions = { mode: 'legacy' };
+    try { rmSync(join(checkerTestDir, 'protected', 'trust.json')); } catch { /* may not exist */ }
+  });
+
+  test('project-scoped rule matches tool invocations from within that directory', async () => {
+    const projectDir = '/home/user/my-project';
+    // Use the pattern format that file tools produce: "toolName:path/**"
+    addRule('file_write', 'file_write:/home/user/my-project/**', projectDir);
+
+    // Invocation from within the project directory should match
+    const result = await check('file_write', { path: '/home/user/my-project/src/index.ts' }, projectDir);
+    expect(result.decision).toBe('allow');
+    expect(result.matchedRule).toBeDefined();
+    expect(result.matchedRule!.scope).toBe(projectDir);
+  });
+
+  test('project-scoped rule matches tool invocations from subdirectory of project', async () => {
+    const projectDir = '/home/user/my-project';
+    addRule('file_write', 'file_write:/home/user/my-project/**', projectDir);
+
+    // Invocation from a subdirectory should also match (scope is a prefix match)
+    const result = await check('file_write', { path: '/home/user/my-project/src/index.ts' }, '/home/user/my-project/src');
+    expect(result.decision).toBe('allow');
+    expect(result.matchedRule).toBeDefined();
+    expect(result.matchedRule!.scope).toBe(projectDir);
+  });
+
+  test('project-scoped rule does NOT match invocations from sibling directory', async () => {
+    const projectDir = '/home/user/my-project';
+    // Use a broad pattern that matches any file, scoped to the project
+    addRule('file_write', 'file_write:*', projectDir);
+
+    // Invocation from a sibling directory should NOT match the project-scoped rule
+    const result = await check('file_write', { path: '/home/user/other-project/file.ts' }, '/home/user/other-project');
+    expect(result.decision).toBe('prompt');
+  });
+
+  test('project-scoped rule does NOT match invocations from parent directory', async () => {
+    const projectDir = '/home/user/my-project';
+    addRule('file_write', 'file_write:*', projectDir);
+
+    // Invocation from a parent directory should NOT match
+    const result = await check('file_write', { path: '/home/user/file.txt' }, '/home/user');
+    expect(result.decision).toBe('prompt');
+  });
+
+  test('project-scoped rule does NOT match directory with shared prefix', async () => {
+    // A rule for /home/user/project should NOT match /home/user/project-evil
+    // (directory-boundary enforcement in matchesScope)
+    const projectDir = '/home/user/project';
+    addRule('file_write', 'file_write:*', projectDir);
+
+    const result = await check('file_write', { path: '/home/user/project-evil/malicious.ts' }, '/home/user/project-evil');
+    expect(result.decision).toBe('prompt');
+  });
+
+  test('everywhere-scoped rule matches invocations from any directory', async () => {
+    addRule('file_write', 'file_write:*', 'everywhere');
+
+    // Should match from various directories
+    const r1 = await check('file_write', { path: 'file.ts' }, '/home/user/project-a');
+    expect(r1.decision).toBe('allow');
+    expect(r1.matchedRule).toBeDefined();
+    expect(r1.matchedRule!.scope).toBe('everywhere');
+
+    const r2 = await check('file_write', { path: 'output.txt' }, '/var/tmp');
+    expect(r2.decision).toBe('allow');
+    expect(r2.matchedRule!.scope).toBe('everywhere');
+
+    const r3 = await check('file_write', { path: 'file.json' }, '/opt/data');
+    expect(r3.decision).toBe('allow');
+    expect(r3.matchedRule!.scope).toBe('everywhere');
+  });
+
+  test('bash rule scoped to project matches commands within that project', async () => {
+    const projectDir = '/home/user/my-project';
+    addRule('bash', 'npm *', projectDir);
+
+    const result = await check('bash', { command: 'npm install' }, projectDir);
+    expect(result.decision).toBe('allow');
+    expect(result.matchedRule).toBeDefined();
+  });
+
+  test('bash rule scoped to project does NOT match commands from different project', async () => {
+    const projectDir = '/home/user/my-project';
+    addRule('bash', 'npm *', projectDir);
+
+    const result = await check('bash', { command: 'npm install' }, '/home/user/other-project');
+    // npm install is Low risk, so it falls through to auto-allow via the
+    // default sandbox bash rule, not via the project-scoped rule.
+    // The key assertion is that the project-scoped rule is NOT the matched rule.
+    if (result.matchedRule) {
+      expect(result.matchedRule.scope).not.toBe(projectDir);
+    }
+  });
+});

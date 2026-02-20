@@ -17,6 +17,8 @@ import {
   type CommitMessageProvider,
 } from './commit-message-provider.js';
 import { getEnrichmentService } from './commit-message-enrichment-service.js';
+import { getCommitMessageGenerator } from './provider-commit-message-generator.js';
+import type { CommitMessageSource, LLMFallbackReason } from './provider-commit-message-generator.js';
 
 const log = getLogger('turn-commit');
 
@@ -58,8 +60,58 @@ export async function commitTurnChanges(
     const gitService = getWorkspaceGitService(workspaceDir);
     const commitStartMs = Date.now();
 
-    // Atomic status check + commit within a single mutex lock to prevent
-    // TOCTOU races with heartbeat commits.
+    // Attempt LLM message generation BEFORE entering commitIfDirty so
+    // the LLM call never runs while holding the git mutex.
+    // Only attempt LLM when:
+    //   1. No custom provider was injected (respect caller contract)
+    //   2. The workspace actually has pending changes (avoid wasting budget)
+    let llmMessage: string | undefined;
+    let commitMessageSource: CommitMessageSource = 'deterministic';
+    let llmFallbackReason: LLMFallbackReason | undefined;
+
+    if (!provider) {
+      // Guard: skip pre-check if deadline already elapsed to avoid unnecessary mutex contention
+      let preClean = false;
+      let candidateChangedFiles: string[] = [];
+      if (!deadlineMs || Date.now() < deadlineMs) {
+        try {
+          const preStatus = await gitService.getStatus();
+          preClean = preStatus.clean;
+          if (!preClean) {
+            candidateChangedFiles = [...new Set([...preStatus.staged, ...preStatus.modified, ...preStatus.untracked])];
+          }
+        } catch {
+          // If we can't determine status, assume dirty so we don't skip the commit
+        }
+      }
+
+      if (!preClean) {
+        try {
+          const generator = getCommitMessageGenerator();
+          const result = await generator.generateCommitMessage(
+            {
+              workspaceDir,
+              trigger: 'turn',
+              sessionId,
+              turnNumber,
+              changedFiles: candidateChangedFiles,
+              timestampMs: Date.now(),
+            },
+            { deadlineMs, changedFiles: candidateChangedFiles },
+          );
+          commitMessageSource = result.source;
+          llmFallbackReason = result.reason;
+          if (result.source === 'llm') {
+            llmMessage = result.message;
+          }
+        } catch (llmErr) {
+          // Never let LLM errors affect the commit path
+          log.debug({ err: llmErr }, 'LLM commit message generation failed (non-fatal)');
+          llmFallbackReason = 'provider_error';
+        }
+      }
+    }
+
     const { committed, status } = await gitService.commitIfDirty((st) => {
       const uniqueFiles = [...new Set([...st.staged, ...st.modified, ...st.untracked])];
 
@@ -72,6 +124,10 @@ export async function commitTurnChanges(
         timestampMs: Date.now(),
       };
 
+      // Use LLM message if available, otherwise deterministic
+      if (llmMessage) {
+        return { message: llmMessage };
+      }
       return messageProvider.buildImmediateMessage(ctx);
     }, deadlineMs !== undefined ? { deadlineMs } : undefined);
 
@@ -80,7 +136,14 @@ export async function commitTurnChanges(
     if (committed) {
       const uniqueFiles = [...new Set([...status.staged, ...status.modified, ...status.untracked])];
       log.info(
-        { sessionId, turnNumber, filesChanged: uniqueFiles.length, durationMs: commitDurationMs },
+        {
+          sessionId,
+          turnNumber,
+          filesChanged: uniqueFiles.length,
+          durationMs: commitDurationMs,
+          commitMessageSource,
+          ...(llmFallbackReason ? { llmFallbackReason } : {}),
+        },
         'Turn-boundary commit created',
       );
 

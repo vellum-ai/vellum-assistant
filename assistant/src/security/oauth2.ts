@@ -1,11 +1,18 @@
 /**
  * General-purpose OAuth2 Authorization Code flow with PKCE.
  *
+ * Supports two callback transports:
+ *   - loopback: spins up a local HTTP server on 127.0.0.1 (default when no public URL configured)
+ *   - gateway:  uses the gateway's OAuth callback route + in-memory registry (when ingress.publicBaseUrl is set)
+ *
  * Moved from integrations/oauth2.ts. Types that were in integrations/types.ts
  * are now inlined here since the integration framework is removed.
  */
 
 import { randomBytes, createHash } from 'node:crypto';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('oauth2');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,6 +43,11 @@ export interface OAuth2FlowCallbacks {
   openUrl: (url: string) => void;
 }
 
+export interface OAuth2FlowOptions {
+  /** Which callback transport to use. When omitted, auto-detected from config. */
+  callbackTransport?: 'loopback' | 'gateway';
+}
+
 export interface OAuth2FlowResult {
   tokens: OAuth2TokenResult;
   grantedScopes: string[];
@@ -59,20 +71,106 @@ function generateState(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// Token exchange (shared between transports)
+// ---------------------------------------------------------------------------
+
+async function exchangeCodeForTokens(
+  config: OAuth2Config,
+  code: string,
+  redirectUri: string,
+  codeVerifier: string,
+): Promise<OAuth2FlowResult> {
+  const usePKCE = !config.clientSecret;
+
+  const tokenBody: Record<string, string> = {
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+    client_id: config.clientId,
+  };
+  if (usePKCE) {
+    tokenBody.code_verifier = codeVerifier;
+  }
+  if (config.clientSecret) {
+    tokenBody.client_secret = config.clientSecret;
+  }
+
+  const tokenResp = await fetch(config.tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(tokenBody),
+  });
+
+  if (!tokenResp.ok) {
+    const rawBody = await tokenResp.text().catch(() => '');
+    let safeDetail: Record<string, unknown> = {};
+    let errorCode = '';
+    try {
+      const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+      if (parsed.error) { safeDetail.error = String(parsed.error); errorCode = String(parsed.error); }
+      if (parsed.error_description) safeDetail.error_description = String(parsed.error_description);
+    } catch {
+      safeDetail.error = '[non-JSON response]';
+    }
+    log.error({ status: tokenResp.status, ...safeDetail }, 'OAuth2 token exchange failed');
+    const detail = errorCode ? `HTTP ${tokenResp.status}: ${errorCode}` : `HTTP ${tokenResp.status}`;
+    throw new Error(`OAuth2 token exchange failed (${detail})`);
+  }
+
+  const tokenData = await tokenResp.json() as Record<string, unknown>;
+
+  // Slack V2 OAuth returns user tokens nested under `authed_user`
+  const authedUser = tokenData.authed_user as Record<string, unknown> | undefined;
+  const tokenSource = authedUser?.access_token ? authedUser : tokenData;
+
+  const tokens: OAuth2TokenResult = {
+    accessToken: (tokenSource.access_token as string) ?? (tokenData.access_token as string),
+    refreshToken: (tokenSource.refresh_token as string | undefined) ?? (tokenData.refresh_token as string | undefined),
+    expiresIn: (tokenSource.expires_in as number | undefined) ?? (tokenData.expires_in as number | undefined),
+    scope: (tokenSource.scope as string | undefined) ?? (tokenData.scope as string | undefined),
+    tokenType: (tokenSource.token_type as string | undefined) ?? (tokenData.token_type as string | undefined),
+  };
+
+  const grantedScopes = typeof tokens.scope === 'string'
+    ? tokens.scope.split(/[ ,]/).filter(Boolean)
+    : [...config.scopes];
+
+  return { tokens, grantedScopes, rawTokenResponse: tokenData };
+}
+
+// ---------------------------------------------------------------------------
+// Transport auto-detection
 // ---------------------------------------------------------------------------
 
 /**
- * Run a full OAuth2 PKCE authorization code flow using a loopback redirect.
+ * Determine which callback transport to use when not explicitly specified.
+ * Uses gateway if a public base URL is configured (ingress.publicBaseUrl or
+ * INGRESS_PUBLIC_BASE_URL), otherwise loopback.
  */
-export async function startOAuth2Flow(
+function detectTransport(): 'loopback' | 'gateway' {
+  try {
+    const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
+    const { getPublicBaseUrl } = require('../inbound/public-ingress-urls.js') as typeof import('../inbound/public-ingress-urls.js');
+    const appConfig = loadConfig();
+    getPublicBaseUrl(appConfig); // throws if no public URL configured
+    return 'gateway';
+  } catch {
+    log.debug('No public base URL configured for transport auto-detection, defaulting to loopback');
+  }
+  return 'loopback';
+}
+
+// ---------------------------------------------------------------------------
+// Loopback transport
+// ---------------------------------------------------------------------------
+
+async function runLoopbackFlow(
   config: OAuth2Config,
   callbacks: OAuth2FlowCallbacks,
+  codeVerifier: string,
+  codeChallenge: string,
+  state: string,
 ): Promise<OAuth2FlowResult> {
-  const codeVerifier = generateCodeVerifier();
-  const codeChallenge = generateCodeChallenge(codeVerifier);
-  const state = generateState();
-
   let resolveCode: (value: { code: string; returnedState: string }) => void;
   let rejectCode: (reason: Error) => void;
 
@@ -81,7 +179,6 @@ export async function startOAuth2Flow(
     rejectCode = reject;
   });
 
-  /** How long to wait for the user to complete the OAuth consent flow. */
   const FLOW_TIMEOUT_MS = 120_000;
 
   const timeout = setTimeout(() => {
@@ -150,53 +247,117 @@ export async function startOAuth2Flow(
       throw new Error('OAuth2 state mismatch — possible CSRF attack');
     }
 
-    const tokenBody: Record<string, string> = {
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: redirectUri,
-      client_id: config.clientId,
-    };
-    if (usePKCE) {
-      tokenBody.code_verifier = codeVerifier;
-    }
-    if (config.clientSecret) {
-      tokenBody.client_secret = config.clientSecret;
-    }
-
-    const tokenResp = await fetch(config.tokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams(tokenBody),
-    });
-
-    if (!tokenResp.ok) {
-      const body = await tokenResp.text().catch(() => '');
-      throw new Error(`OAuth2 token exchange failed (${tokenResp.status}): ${body}`);
-    }
-
-    const tokenData = await tokenResp.json() as Record<string, unknown>;
-
-    // Slack V2 OAuth returns user tokens nested under `authed_user`
-    const authedUser = tokenData.authed_user as Record<string, unknown> | undefined;
-    const tokenSource = authedUser?.access_token ? authedUser : tokenData;
-
-    const tokens: OAuth2TokenResult = {
-      accessToken: (tokenSource.access_token as string) ?? (tokenData.access_token as string),
-      refreshToken: (tokenSource.refresh_token as string | undefined) ?? (tokenData.refresh_token as string | undefined),
-      expiresIn: (tokenSource.expires_in as number | undefined) ?? (tokenData.expires_in as number | undefined),
-      scope: (tokenSource.scope as string | undefined) ?? (tokenData.scope as string | undefined),
-      tokenType: (tokenSource.token_type as string | undefined) ?? (tokenData.token_type as string | undefined),
-    };
-
-    const grantedScopes = typeof tokens.scope === 'string'
-      ? tokens.scope.split(/[ ,]/).filter(Boolean)
-      : [...config.scopes];
-
-    return { tokens, grantedScopes, rawTokenResponse: tokenData };
+    return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
   } finally {
     clearTimeout(timeout);
     server.stop(true);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Gateway transport
+// ---------------------------------------------------------------------------
+
+async function runGatewayFlow(
+  config: OAuth2Config,
+  callbacks: OAuth2FlowCallbacks,
+  codeVerifier: string,
+  codeChallenge: string,
+  state: string,
+): Promise<OAuth2FlowResult> {
+  const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
+  const { getOAuthCallbackUrl } = require('../inbound/public-ingress-urls.js') as typeof import('../inbound/public-ingress-urls.js');
+  const { registerPendingCallback } = require('./oauth-callback-registry.js') as typeof import('./oauth-callback-registry.js');
+
+  const appConfig = loadConfig();
+  const redirectUri = getOAuthCallbackUrl(appConfig);
+
+  const codePromise = new Promise<string>((resolve, reject) => {
+    registerPendingCallback(state, resolve, reject);
+  });
+
+  const usePKCE = !config.clientSecret;
+  const authParams = new URLSearchParams({
+    ...config.extraParams,
+    client_id: config.clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: config.scopes.join(' '),
+    state,
+    ...(usePKCE ? { code_challenge: codeChallenge, code_challenge_method: 'S256' } : {}),
+  });
+
+  const authUrl = `${config.authUrl}?${authParams}`;
+  callbacks.openUrl(authUrl);
+
+  const code = await codePromise;
+
+  return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Run a full OAuth2 authorization code flow with PKCE support.
+ *
+ * Supports two callback transports:
+ *   - loopback (default): local HTTP server on 127.0.0.1
+ *   - gateway: callback via the gateway's OAuth route + in-memory registry
+ *
+ * Transport is auto-detected based on ingress.publicBaseUrl config unless
+ * explicitly specified via options.callbackTransport.
+ */
+export async function startOAuth2Flow(
+  config: OAuth2Config,
+  callbacks: OAuth2FlowCallbacks,
+  options?: OAuth2FlowOptions,
+): Promise<OAuth2FlowResult> {
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = generateCodeChallenge(codeVerifier);
+  const state = generateState();
+
+  // In gateway_only mode, enforce gateway transport and require a public ingress URL
+  let ingressMode: string | undefined;
+  try {
+    const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
+    ingressMode = loadConfig().ingress.mode;
+  } catch {
+    // Config unavailable — proceed with default transport detection
+  }
+
+  if (ingressMode === 'gateway_only') {
+    // Verify a public ingress URL is configured; fail fast with actionable error if not
+    let hasPublicUrl = false;
+    try {
+      const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
+      const { getPublicBaseUrl } = require('../inbound/public-ingress-urls.js') as typeof import('../inbound/public-ingress-urls.js');
+      getPublicBaseUrl(loadConfig());
+      hasPublicUrl = true;
+    } catch {
+      // No public URL configured
+    }
+
+    if (!hasPublicUrl) {
+      throw new Error(
+        'OAuth requires a public ingress URL in gateway-only mode. Set ingress.publicBaseUrl or INGRESS_PUBLIC_BASE_URL so OAuth callbacks can route through the gateway.',
+      );
+    }
+
+    // In gateway_only mode, always use gateway transport — never fall back to loopback
+    log.debug({ transport: 'gateway' }, 'OAuth2 flow starting (gateway_only mode)');
+    return runGatewayFlow(config, callbacks, codeVerifier, codeChallenge, state);
+  }
+
+  const transport = options?.callbackTransport ?? detectTransport();
+  log.debug({ transport }, 'OAuth2 flow starting');
+
+  if (transport === 'gateway') {
+    return runGatewayFlow(config, callbacks, codeVerifier, codeChallenge, state);
+  }
+
+  return runLoopbackFlow(config, callbacks, codeVerifier, codeChallenge, state);
 }
 
 /**
@@ -225,8 +386,19 @@ export async function refreshOAuth2Token(
   });
 
   if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    throw new Error(`OAuth2 token refresh failed (${resp.status}): ${body}`);
+    const rawBody = await resp.text().catch(() => '');
+    let safeDetail: Record<string, unknown> = {};
+    let errorCode = '';
+    try {
+      const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+      if (parsed.error) { safeDetail.error = String(parsed.error); errorCode = String(parsed.error); }
+      if (parsed.error_description) safeDetail.error_description = String(parsed.error_description);
+    } catch {
+      safeDetail.error = '[non-JSON response]';
+    }
+    log.error({ status: resp.status, ...safeDetail }, 'OAuth2 token refresh failed');
+    const detail = errorCode ? `HTTP ${resp.status}: ${errorCode}` : `HTTP ${resp.status}`;
+    throw new Error(`OAuth2 token refresh failed (${detail})`);
   }
 
   const data = await resp.json() as Record<string, unknown>;

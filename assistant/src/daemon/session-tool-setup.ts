@@ -14,6 +14,9 @@ import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
 import { generateAllowlistOptions, generateScopeOptions, normalizeWebFetchUrl } from '../permissions/checker.js';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('session-tool-setup');
 import { getAllToolDefinitions } from '../tools/registry.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { coreAppProxyTools } from '../tools/apps/definitions.js';
@@ -47,6 +50,10 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   memoryPolicy: { scopeId: string; strictSideEffects: boolean };
   /** True when the session has no connected IPC client (HTTP-only path). */
   hasNoClient?: boolean;
+  /** When true, the session is executing a task run and must not become interactive. */
+  headlessLock?: boolean;
+  /** When set, this session is executing a task run. Used to retrieve ephemeral permission rules. */
+  taskRunId?: string;
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -64,6 +71,59 @@ export function buildToolDefinitions(): ToolDefinition[] {
     // Escalation tool: allows text_qa sessions to hand off to computer use
     requestComputerControlTool.getDefinition(),
   ];
+}
+
+// ── DoorDash task_progress auto-update ────────────────────────────────
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+interface DoordashStep { label: string; status: string; detail?: string }
+
+/**
+ * Map a `vellum doordash <subcommand>` to the step label it corresponds to.
+ */
+function doordashCommandToStep(cmd: string): string | null {
+  if (/vellum doordash status\b/.test(cmd) || /vellum doordash refresh\b/.test(cmd) || /vellum doordash login\b/.test(cmd)) return 'Check session';
+  if (/vellum doordash search\b/.test(cmd) || /vellum doordash search-items\b/.test(cmd)) return 'Search restaurants';
+  if (/vellum doordash menu\b/.test(cmd) || /vellum doordash item\b/.test(cmd) || /vellum doordash store-search\b/.test(cmd)) return 'Browse menu';
+  if (/vellum doordash cart\b/.test(cmd)) return 'Add to cart';
+  if (/vellum doordash checkout\b/.test(cmd) || /vellum doordash payment-methods\b/.test(cmd)) return 'Add to cart';
+  if (/vellum doordash order\b/.test(cmd)) return 'Place order';
+  return null;
+}
+
+/**
+ * Given a completed DoorDash CLI command, return updated steps array or null if no change.
+ */
+function updateDoordashSteps(cmd: string, steps: DoordashStep[], isError: boolean): DoordashStep[] | null {
+  const stepLabel = doordashCommandToStep(cmd);
+  if (!stepLabel) return null;
+
+  const stepIndex = steps.findIndex(s => s.label === stepLabel);
+  if (stepIndex < 0) return null;
+
+  const updated = steps.map((s, i) => {
+    if (i < stepIndex) {
+      // Steps before current should be completed
+      return s.status === 'completed' ? s : { ...s, status: 'completed' };
+    }
+    if (i === stepIndex) {
+      if (isError) {
+        // If the command failed, mark as in_progress still (will retry)
+        return { ...s, status: 'in_progress' };
+      }
+      return { ...s, status: 'completed' };
+    }
+    if (i === stepIndex + 1 && !isError) {
+      // Next step becomes waiting (user may need to respond before it starts)
+      return { ...s, status: 'waiting' };
+    }
+    return s;
+  });
+
+  return updated;
 }
 
 // ── createToolExecutor ───────────────────────────────────────────────
@@ -86,11 +146,47 @@ export function createToolExecutor(
   registerSessionSender(ctx.conversationId, (msg) => ctx.sendToClient(msg));
 
   return async (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => {
+    // Pre-execution: mark the current DoorDash step as in_progress when command starts
+    if (name === 'bash' || name === 'host_bash') {
+      const preCmd = input.command as string | undefined;
+      if (preCmd?.includes('vellum doordash')) {
+        const surfaceId = 'doordash-progress';
+        const stored = ctx.surfaceState.get(surfaceId);
+        if (stored && stored.surfaceType === 'card') {
+          const card = stored.data as import('./ipc-contract.js').CardSurfaceData;
+          if (card.template === 'task_progress' && isPlainObject(card.templateData)) {
+            const steps = (card.templateData as Record<string, unknown>).steps;
+            if (Array.isArray(steps)) {
+              const stepLabel = doordashCommandToStep(preCmd);
+              if (stepLabel) {
+                const stepIndex = (steps as DoordashStep[]).findIndex(s => s.label === stepLabel);
+                if (stepIndex >= 0 && (steps as DoordashStep[])[stepIndex].status !== 'in_progress') {
+                  const updatedSteps = (steps as DoordashStep[]).map((s, i) =>
+                    i === stepIndex ? { ...s, status: 'in_progress' } : s
+                  );
+                  const updatedTemplateData = { ...card.templateData as Record<string, unknown>, steps: updatedSteps };
+                  const updatedData = { ...card, templateData: updatedTemplateData };
+                  stored.data = updatedData as import('./ipc-contract.js').CardSurfaceData;
+                  ctx.sendToClient({
+                    type: 'ui_surface_update',
+                    sessionId: ctx.conversationId,
+                    surfaceId,
+                    data: updatedData,
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     const result = await executor.execute(name, input, {
       workingDir: ctx.workingDir,
       sessionId: ctx.conversationId,
       conversationId: ctx.conversationId,
       requestId: ctx.currentRequestId,
+      taskRunId: ctx.taskRunId,
       onOutput,
       signal: ctx.abortController?.signal,
       sandboxOverride: ctx.sandboxOverride,
@@ -115,7 +211,7 @@ export function createToolExecutor(
           });
         }
       },
-      isInteractive: !ctx.hasNoClient,
+      isInteractive: !ctx.hasNoClient && !ctx.headlessLock,
       proxyToolResolver: (toolName: string, proxyInput: Record<string, unknown>) => surfaceProxyResolver(ctx, toolName, proxyInput),
       proxyApprovalCallback: createProxyApprovalCallback(prompter, ctx),
       requestSecret: async (params) => {
@@ -155,10 +251,12 @@ export function createToolExecutor(
           req.principal,
         );
         if ((response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') && response.selectedPattern && response.selectedScope) {
+          log.info({ toolName: 'cc:' + req.toolName, pattern: response.selectedPattern, scope: response.selectedScope, highRisk: response.decision === 'always_allow_high_risk' }, 'Persisting always-allow trust rule');
           addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope, 'allow', 100,
             response.decision === 'always_allow_high_risk' ? { allowHighRisk: true } : undefined);
         }
         if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
+          log.info({ toolName: 'cc:' + req.toolName, pattern: response.selectedPattern, scope: response.selectedScope }, 'Persisting always-deny trust rule');
           addRule('cc:' + req.toolName, response.selectedPattern, response.selectedScope, 'deny');
         }
         return {
@@ -184,7 +282,7 @@ export function createToolExecutor(
 
     // Broadcast tasks_changed so connected clients (e.g. macOS Tasks window)
     // auto-refresh when the LLM mutates the task queue via tools
-    if ((name === 'task_list_add' || name === 'task_list_update' || name === 'task_list_remove') && !result.isError) {
+    if ((name === 'task_list_add' || name === 'task_list_update' || name === 'task_list_remove' || name === 'task_queue_run') && !result.isError) {
       broadcastToAllClients?.({ type: 'tasks_changed' });
     }
 
@@ -200,43 +298,70 @@ export function createToolExecutor(
     }
 
     // Auto-emit task_progress card on first DoorDash CLI command
-    if ((name === 'bash' || name === 'host_bash') && !result.isError) {
+    if (name === 'bash' || name === 'host_bash') {
       const cmd = input.command as string | undefined;
-      if (cmd && /(?:^|[;&|]\s*)vellum doordash\b/.test(cmd) && !ctx.surfaceState.has('doordash-progress')) {
+      if (cmd?.includes('vellum doordash')) {
         const surfaceId = 'doordash-progress';
-        const data = {
-          title: 'Ordering from DoorDash',
-          body: '',
-          template: 'task_progress' as const,
-          templateData: {
+
+        if (!ctx.surfaceState.has(surfaceId)) {
+          // First DoorDash command — auto-emit the task_progress card
+          const data = {
             title: 'Ordering from DoorDash',
-            status: 'in_progress',
-            steps: [
-              { label: 'Check session', status: 'in_progress' },
-              { label: 'Search restaurants', status: 'pending' },
-              { label: 'Browse menu', status: 'pending' },
-              { label: 'Add to cart', status: 'pending' },
-              { label: 'Place order', status: 'pending' },
-            ],
-          },
-        } satisfies import('./ipc-contract.js').CardSurfaceData;
-        ctx.surfaceState.set(surfaceId, { surfaceType: 'card', data });
-        ctx.sendToClient({
-          type: 'ui_surface_show',
-          sessionId: ctx.conversationId,
-          surfaceId,
-          surfaceType: 'card',
-          title: 'Ordering from DoorDash',
-          data,
-          display: 'inline',
-        });
-        ctx.currentTurnSurfaces.push({
-          surfaceId,
-          surfaceType: 'card',
-          title: 'Ordering from DoorDash',
-          data,
-          display: 'inline',
-        });
+            body: '',
+            template: 'task_progress' as const,
+            templateData: {
+              title: 'Ordering from DoorDash',
+              status: 'in_progress',
+              steps: [
+                { label: 'Check session', status: 'in_progress' },
+                { label: 'Search restaurants', status: 'pending' },
+                { label: 'Browse menu', status: 'pending' },
+                { label: 'Add to cart', status: 'pending' },
+                { label: 'Place order', status: 'pending' },
+              ],
+            },
+          } satisfies import('./ipc-contract.js').CardSurfaceData;
+          ctx.surfaceState.set(surfaceId, { surfaceType: 'card', data });
+          ctx.sendToClient({
+            type: 'ui_surface_show',
+            sessionId: ctx.conversationId,
+            surfaceId,
+            surfaceType: 'card',
+            title: 'Ordering from DoorDash',
+            data,
+            display: 'inline',
+          });
+          ctx.currentTurnSurfaces.push({
+            surfaceId,
+            surfaceType: 'card',
+            title: 'Ordering from DoorDash',
+            data,
+            display: 'inline',
+          });
+        }
+
+        // Auto-update step statuses based on the command that just ran
+        const stored = ctx.surfaceState.get(surfaceId);
+        if (stored && stored.surfaceType === 'card') {
+          const card = stored.data as import('./ipc-contract.js').CardSurfaceData;
+          if (card.template === 'task_progress' && isPlainObject(card.templateData)) {
+            const steps = (card.templateData as Record<string, unknown>).steps;
+            if (Array.isArray(steps)) {
+              const updatedSteps = updateDoordashSteps(cmd, steps as Array<{ label: string; status: string; detail?: string }>, result.isError);
+              if (updatedSteps) {
+                const updatedTemplateData = { ...card.templateData as Record<string, unknown>, steps: updatedSteps };
+                const updatedData = { ...card, templateData: updatedTemplateData };
+                stored.data = updatedData as import('./ipc-contract.js').CardSurfaceData;
+                ctx.sendToClient({
+                  type: 'ui_surface_update',
+                  sessionId: ctx.conversationId,
+                  surfaceId,
+                  data: updatedData,
+                });
+              }
+            }
+          }
+        }
       }
     }
 
@@ -320,10 +445,12 @@ export function createProxyApprovalCallback(
 
     // Persist trust rule if the user chose "always allow" or "always deny"
     if ((response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') && response.selectedPattern && response.selectedScope) {
+      log.info({ toolName, pattern: response.selectedPattern, scope: response.selectedScope, highRisk: response.decision === 'always_allow_high_risk' }, 'Persisting always-allow trust rule (proxy)');
       addRule(toolName, response.selectedPattern, response.selectedScope, 'allow', 100,
         response.decision === 'always_allow_high_risk' ? { allowHighRisk: true } : undefined);
     }
     if (response.decision === 'always_deny' && response.selectedPattern && response.selectedScope) {
+      log.info({ toolName, pattern: response.selectedPattern, scope: response.selectedScope }, 'Persisting always-deny trust rule (proxy)');
       addRule(toolName, response.selectedPattern, response.selectedScope, 'deny');
     }
 
@@ -334,6 +461,13 @@ export function createProxyApprovalCallback(
 }
 
 // ── createResolveToolsCallback ───────────────────────────────────────
+
+/**
+ * Bundled skills that must always be active regardless of conversation
+ * history or explicit preactivation. Without this, their tools are
+ * unavailable in fresh sessions until `skill_load` is called.
+ */
+const DEFAULT_PREACTIVATED_SKILL_IDS = ['tasks'];
 
 /**
  * Subset of Session state that the resolveTools callback reads at each
@@ -360,8 +494,12 @@ export function createResolveToolsCallback(
   if (toolDefs.length === 0) return undefined;
 
   return (history: Message[]) => {
+    const effectivePreactivated = [
+      ...DEFAULT_PREACTIVATED_SKILL_IDS,
+      ...(ctx.preactivatedSkillIds ?? []),
+    ];
     const projection = projectSkillTools(history, {
-      preactivatedSkillIds: ctx.preactivatedSkillIds,
+      preactivatedSkillIds: effectivePreactivated,
       previouslyActiveSkillIds: ctx.skillProjectionState,
       cache: ctx.skillProjectionCache,
     });

@@ -395,7 +395,7 @@ export async function clawhubInspect(slug: string): Promise<{ data?: ClawhubInsp
           size: (f.size as number) ?? 0,
           contentType: (f.contentType as string) ?? undefined,
         })) : null,
-        skillMdContent: parsed.skillMdContent ?? parsed.fileContents?.['SKILL.md'] ?? null,
+        skillMdContent: parsed.skillMdContent ?? parsed.fileContents?.['SKILL.md'] ?? parsed.file?.content ?? null,
       };
       return { data };
     } catch {

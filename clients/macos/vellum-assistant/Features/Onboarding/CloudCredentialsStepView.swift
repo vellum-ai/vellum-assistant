@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 struct CloudCredentialsStepView: View {
     @Bindable var state: OnboardingState
 
-    @State private var cliLauncher = CLILauncher()
+    @State private var assistantCli = AssistantCli()
     @State private var showTitle = false
     @State private var showContent = false
 
@@ -90,6 +90,8 @@ struct CloudCredentialsStepView: View {
 
     private var awsFields: some View {
         VStack(spacing: VSpacing.sm) {
+            awsSetupBlurb
+
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("IAM Role ARN")
                     .font(.system(size: 13, weight: .medium))
@@ -109,11 +111,6 @@ struct CloudCredentialsStepView: View {
                         saveAndContinue()
                     }
             }
-
-            Text("Create an IAM role that grants Vellum permission to provision and manage EC2 instances in your account.")
-                .font(.system(size: 12))
-                .foregroundColor(VColor.textMuted)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -121,6 +118,8 @@ struct CloudCredentialsStepView: View {
 
     private var customHardwareFields: some View {
         VStack(spacing: VSpacing.sm) {
+            customHardwareSetupBlurb
+
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Host")
                     .font(.system(size: 13, weight: .medium))
@@ -169,10 +168,6 @@ struct CloudCredentialsStepView: View {
                 )
             }
 
-            Text("Provide SSH credentials so we can connect to your machine and run the assistant remotely.")
-                .font(.system(size: 12))
-                .foregroundColor(VColor.textMuted)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -246,15 +241,61 @@ struct CloudCredentialsStepView: View {
         }
     }
 
+    private var awsSetupBlurb: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Before continuing, set up the following in the AWS Console:")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(VColor.textSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                setupStep("1. Create an IAM role with EC2 full access permissions (e.g., AmazonEC2FullAccess).")
+                setupStep("2. Configure the role's trust policy to allow Vellum to assume it.")
+                setupStep("3. Ensure your account has a default VPC in the target region.")
+            }
+            Link(destination: URL(string: "https://console.aws.amazon.com/iam/home#/roles")!) {
+                Text("Open AWS IAM Console")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(adaptiveColor(light: VColor.accent, dark: Sage._400))
+            }
+            .onHover { hovering in
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(adaptiveColor(light: Color(nsColor: NSColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)), dark: VColor.surface.opacity(0.5)))
+        )
+    }
+
+    private var customHardwareSetupBlurb: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Before continuing, ensure the following on your remote machine:")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(VColor.textSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                setupStep("1. SSH server is installed and running (e.g., OpenSSH).")
+                setupStep("2. An SSH key pair is generated and the public key is authorized on the machine.")
+                setupStep("3. The machine has at least 4 CPU cores and 16 GB of RAM.")
+            }
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(adaptiveColor(light: Color(nsColor: NSColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)), dark: VColor.surface.opacity(0.5)))
+        )
+    }
+
     private var gcpSetupBlurb: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Before continuing, set up the following in the Google Cloud Console:")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(VColor.textSecondary)
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                gcpSetupStep("1. Create or select a GCP project with the Compute Engine API enabled.")
-                gcpSetupStep("2. Create a Service Account with the Compute Admin role.")
-                gcpSetupStep("3. Generate a JSON key for the service account and download it.")
+                setupStep("1. Create or select a GCP project with the Compute Engine API enabled.")
+                setupStep("2. Create a Service Account with the Compute Admin role.")
+                setupStep("3. Generate a JSON key for the service account and download it.")
             }
             Link(destination: URL(string: "https://console.cloud.google.com/iam-admin/serviceaccounts")!) {
                 Text("Open Google Cloud Console")
@@ -273,7 +314,7 @@ struct CloudCredentialsStepView: View {
         )
     }
 
-    private func gcpSetupStep(_ text: String) -> some View {
+    private func setupStep(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 12))
             .foregroundColor(VColor.textMuted)

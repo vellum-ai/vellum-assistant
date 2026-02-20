@@ -52,10 +52,19 @@ interface ManagedSubagent {
   parentSendToClient: (msg: ServerMessage) => void;
 }
 
+export interface SubagentNotificationInfo {
+  subagentId: string;
+  label: string;
+  status: 'completed' | 'failed' | 'aborted';
+  error?: string;
+  conversationId?: string;
+}
+
 export type ParentNotifyCallback = (
   parentSessionId: string,
   message: string,
   sendToClient: (msg: ServerMessage) => void,
+  notification: SubagentNotificationInfo,
 ) => void;
 
 export class SubagentManager {
@@ -221,6 +230,8 @@ export class SubagentManager {
       await managed.session.runAgentLoop(objective, messageId, onEvent);
 
       // Agent loop completed successfully.
+      // Copy usage stats from the session before sending status (which includes usage).
+      managed.state.usage = { ...managed.session.usageStats };
       // Only update state + notify if still non-terminal (guards against abort race).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
         managed.state.completedAt = Date.now();
@@ -235,6 +246,7 @@ export class SubagentManager {
       const errorMsg = err instanceof Error ? err.message : String(err);
       managed.state.error = errorMsg;
       managed.state.completedAt = Date.now();
+      managed.state.usage = { ...managed.session.usageStats };
 
       // Only update status if not already terminal (e.g. aborted).
       if (!TERMINAL_STATUSES.has(managed.state.status)) {
@@ -267,16 +279,28 @@ export class SubagentManager {
     managed.session.abort();
     managed.state.completedAt = Date.now();
     if (parentSendToClient) {
-      this.setStatus(subagentId, 'aborted', parentSendToClient);
-      // Notify parent about the abort — skip when the parent already has the
-      // tool result (e.g. subagent_abort tool) to avoid duplicate turns.
+      // Route the status update through the stored parent sender so the
+      // owning session's UI chip updates, even when the abort comes from a
+      // different socket (e.g. after thread switching). Fall back to the
+      // caller-provided sender if no stored sender exists.
+      const statusSender = managed.parentSendToClient ?? parentSendToClient;
+      this.setStatus(subagentId, 'aborted', statusSender);
+      // Notify parent that the subagent was explicitly aborted — tell it NOT to re-spawn.
+      // Skip when the parent LLM itself called subagent_abort (it already has the tool result).
       if (this.onSubagentFinished && !options?.suppressNotification) {
         const label = managed.state.config.label;
+        const message =
+          `[Subagent "${label}" was explicitly aborted]\n\n` +
+          `This subagent was cancelled on purpose. Do NOT re-spawn or retry it.`;
         try {
+          // Use the managed subagent's stored parentSendToClient so the
+          // notification routes to the parent session's socket, not the
+          // aborting socket (which may be a different thread after switching).
           this.onSubagentFinished(
             managed.state.config.parentSessionId,
-            `[Subagent "${label}" was aborted]`,
-            parentSendToClient,
+            message,
+            managed.parentSendToClient,
+            { subagentId, label, status: 'aborted', conversationId: managed.state.conversationId },
           );
         } catch (err) {
           log.error({ subagentId, err }, 'Failed to notify parent about abort');
@@ -460,16 +484,26 @@ export class SubagentManager {
     if (outcome === 'completed') {
       message =
         `[Subagent "${config.label}" completed]\n\n` +
-        `Use subagent_read with subagent_id "${config.id}" to retrieve the full output.`;
+        `Use subagent_read with subagent_id "${config.id}" to retrieve the full output.\n` +
+        `Do NOT re-spawn this subagent — just read and share the results.`;
     } else {
       const error = managed.state.error ?? 'Unknown error';
       message =
         `[Subagent "${config.label}" failed]\n\n` +
-        `Error: ${error}`;
+        `Error: ${error}\n` +
+        `Do NOT re-spawn or retry this subagent unless the user explicitly asks.`;
     }
 
+    const notification: SubagentNotificationInfo = {
+      subagentId: config.id,
+      label: config.label,
+      status: outcome,
+      conversationId: managed.state.conversationId,
+      ...(outcome === 'failed' ? { error: managed.state.error ?? 'Unknown error' } : {}),
+    };
+
     try {
-      this.onSubagentFinished(config.parentSessionId, message, parentSendToClient);
+      this.onSubagentFinished(config.parentSessionId, message, parentSendToClient, notification);
     } catch (err) {
       log.error({ subagentId: config.id, err }, 'Failed to notify parent session');
     }

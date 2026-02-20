@@ -191,6 +191,7 @@ struct ChatTemporaryChatEmptyStateView: View {
                 endRadius: 350
             )
             .offset(y: -40)
+            .allowsHitTesting(false)
         )
     }
 }

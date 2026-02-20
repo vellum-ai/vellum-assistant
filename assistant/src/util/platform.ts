@@ -124,7 +124,7 @@ export function getTCPPort(): number {
  *
  * The flag-file check makes it easy to enable TCP in dev without restarting
  * the shell: `touch ~/.vellum/tcp-enabled && kill -USR1 <daemon-pid>`.
- * The macOS DaemonLauncher also sets the env var for bundled-binary deployments.
+ * The macOS CLI (AssistantCli) also sets the env var for bundled-binary deployments.
  */
 export function isTCPEnabled(): boolean {
   const override = process.env.VELLUM_DAEMON_TCP_ENABLED?.trim();

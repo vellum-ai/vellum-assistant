@@ -28,5 +28,5 @@ Follow-ups can be resolved in two ways:
 ## Tips
 
 - Use `followup_list` with `overdue_only: true` to find conversations that need attention.
-- Attach a `reminder_cron_id` to link a recurring reminder schedule to a follow-up.
+- Attach a `reminder_schedule_id` to link a recurring reminder schedule to a follow-up.
 - Filter by channel, status, or contact to narrow results.

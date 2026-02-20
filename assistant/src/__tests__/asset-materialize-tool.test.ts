@@ -36,7 +36,7 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { uploadAttachment, linkAttachmentToMessage } from '../memory/attachments-store.js';
 import { createConversation, addMessage } from '../memory/conversation-store.js';
 import { assetMaterializeTool } from '../tools/assets/materialize.js';
@@ -49,6 +49,7 @@ import { mkdirSync } from 'node:fs';
 mkdirSync(sandboxDir, { recursive: true });
 
 afterAll(() => {
+  resetDb();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
 
@@ -248,8 +249,8 @@ describe('AssetMaterializeTool size limit', () => {
     const db = getDb();
     const fakeId = 'oversized-attachment';
     db.run(
-      `INSERT INTO attachments (id, assistant_id, original_filename, mime_type, size_bytes, kind, data_base64, created_at)
-       VALUES ('${fakeId}', 'ast-1', 'huge.bin', 'application/octet-stream', ${51 * 1024 * 1024}, 'document', 'AAAA', ${Date.now()})`,
+      `INSERT INTO attachments (id, original_filename, mime_type, size_bytes, kind, data_base64, created_at)
+       VALUES ('${fakeId}', 'huge.bin', 'application/octet-stream', ${51 * 1024 * 1024}, 'document', 'AAAA', ${Date.now()})`,
     );
 
     const result = await assetMaterializeTool.execute(

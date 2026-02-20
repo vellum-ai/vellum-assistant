@@ -1,7 +1,8 @@
 import { spawn } from "child_process";
 import { randomBytes } from "crypto";
-import { existsSync, unlinkSync, writeFileSync } from "fs";
-import { tmpdir, userInfo } from "os";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { createRequire } from "module";
+import { tmpdir, userInfo, homedir } from "os";
 import { dirname, join } from "path";
 
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
@@ -17,10 +18,12 @@ import {
 } from "../lib/constants";
 import type { RemoteHost, Species } from "../lib/constants";
 import type { FirewallRuleSpec } from "../lib/gcp";
-import { getActiveProject, instanceExists, syncFirewallRules } from "../lib/gcp";
+import { fetchAndDisplayStartupLogs, getActiveProject, instanceExists, syncFirewallRules } from "../lib/gcp";
 import { buildInterfacesSeed } from "../lib/interfaces-seed";
 import { generateRandomSuffix } from "../lib/random-name";
 import { exec, execOutput } from "../lib/step-runner";
+
+const _require = createRequire(import.meta.url);
 
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
 const INSTALL_SCRIPT_PATH = join(import.meta.dir, "..", "adapters", "install.sh");
@@ -76,19 +79,21 @@ chown -R "$SSH_USER:$SSH_USER" "$SSH_USER_HOME" 2>/dev/null || true
 `;
 }
 
-export function buildStartupScript(
+export async function buildStartupScript(
   species: Species,
   bearerToken: string,
   sshUser: string,
   anthropicApiKey: string,
-): string {
+  instanceName: string,
+  cloud: RemoteHost,
+): Promise<string> {
   const platformUrl = process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai";
   const timestampRedirect = buildTimestampRedirect();
   const userSetup = buildUserSetup(sshUser);
   const ownershipFixup = buildOwnershipFixup();
 
   if (species === "openclaw") {
-    return buildOpenclawStartupScript(
+    return await buildOpenclawStartupScript(
       bearerToken,
       sshUser,
       anthropicApiKey,
@@ -105,11 +110,13 @@ set -e
 
 ${timestampRedirect}
 
-trap 'EXIT_CODE=\$?; if [ \$EXIT_CODE -ne 0 ]; then echo "Startup script failed with exit code \$EXIT_CODE" > /var/log/startup-error; fi' EXIT
+trap 'EXIT_CODE=\$?; if [ \$EXIT_CODE -ne 0 ]; then echo "Startup script failed with exit code \$EXIT_CODE at line \$LINENO" > /var/log/startup-error; echo "Last 20 log lines:" >> /var/log/startup-error; tail -20 /var/log/startup-script.log >> /var/log/startup-error 2>/dev/null || true; fi' EXIT
 ${userSetup}
 ANTHROPIC_API_KEY=${anthropicApiKey}
 GATEWAY_RUNTIME_PROXY_ENABLED=true
 RUNTIME_PROXY_BEARER_TOKEN=${bearerToken}
+VELLUM_ASSISTANT_NAME=${instanceName}
+VELLUM_CLOUD=${cloud}
 ${interfacesSeed}
 mkdir -p "\$HOME/.vellum"
 cat > "\$HOME/.vellum/.env" << DOTENV_EOF
@@ -117,6 +124,8 @@ ANTHROPIC_API_KEY=\$ANTHROPIC_API_KEY
 GATEWAY_RUNTIME_PROXY_ENABLED=\$GATEWAY_RUNTIME_PROXY_ENABLED
 RUNTIME_PROXY_BEARER_TOKEN=\$RUNTIME_PROXY_BEARER_TOKEN
 INTERFACES_SEED_DIR=\$INTERFACES_SEED_DIR
+RUNTIME_HTTP_PORT=7821
+VELLUM_CLOUD=\$VELLUM_CLOUD
 DOTENV_EOF
 
 mkdir -p "\$HOME/.vellum/workspace"
@@ -131,8 +140,12 @@ CONFIG_EOF
 ${ownershipFixup}
 
 export VELLUM_SSH_USER="\$SSH_USER"
+export VELLUM_ASSISTANT_NAME="\$VELLUM_ASSISTANT_NAME"
+echo "Downloading install script from ${platformUrl}/install.sh..."
 curl -fsSL ${platformUrl}/install.sh -o ${INSTALL_SCRIPT_REMOTE_PATH}
+echo "Install script downloaded (\$(wc -c < ${INSTALL_SCRIPT_REMOTE_PATH}) bytes)"
 chmod +x ${INSTALL_SCRIPT_REMOTE_PATH}
+echo "Running install script..."
 source ${INSTALL_SCRIPT_REMOTE_PATH}
 `;
 }
@@ -192,6 +205,7 @@ export interface PollResult {
   lastLine: string | null;
   done: boolean;
   failed: boolean;
+  errorContent: string;
 }
 
 async function pollInstance(
@@ -223,7 +237,7 @@ async function pollInstance(
     const output = await execOutput("gcloud", args);
     const sepIdx = output.indexOf("===HATCH_SEP===");
     if (sepIdx === -1) {
-      return { lastLine: output.trim() || null, done: false, failed: false };
+      return { lastLine: output.trim() || null, done: false, failed: false, errorContent: "" };
     }
     const errIdx = output.indexOf("===HATCH_ERR===");
     const lastLine = output.substring(0, sepIdx).trim() || null;
@@ -233,9 +247,9 @@ async function pollInstance(
       errIdx === -1 ? "" : output.substring(errIdx + "===HATCH_ERR===".length).trim();
     const done = lastLine !== null && status !== "active" && status !== "activating";
     const failed = errorContent.length > 0 || status === "failed";
-    return { lastLine, done, failed };
+    return { lastLine, done, failed, errorContent };
   } catch {
-    return { lastLine: null, done: false, failed: false };
+    return { lastLine: null, done: false, failed: false, errorContent: "" };
   }
 }
 
@@ -322,17 +336,23 @@ async function recoverFromCurlFailure(
   await exec("gcloud", sshArgs);
 }
 
+export interface WatchHatchingResult {
+  success: boolean;
+  errorContent: string;
+}
+
 export async function watchHatching(
   pollFn: () => Promise<PollResult>,
   instanceName: string,
   startTime: number,
   species: Species,
-): Promise<boolean> {
+): Promise<WatchHatchingResult> {
   let spinnerIdx = 0;
   let lastLogLine: string | null = null;
   let linesDrawn = 0;
   let finished = false;
   let failed = false;
+  let lastErrorContent = "";
   let pollInFlight = false;
   let nextPollAt = Date.now() + 15000;
 
@@ -382,6 +402,9 @@ export async function watchHatching(
       if (result.lastLine) {
         lastLogLine = result.lastLine;
       }
+      if (result.errorContent) {
+        lastErrorContent = result.errorContent;
+      }
       if (result.done) {
         finished = true;
         failed = result.failed;
@@ -392,12 +415,12 @@ export async function watchHatching(
     }
   }
 
-  return new Promise<boolean>((resolve) => {
+  return new Promise<WatchHatchingResult>((resolve) => {
     const interval = setInterval(() => {
       if (finished) {
         draw();
         clearInterval(interval);
-        resolve(!failed);
+        resolve({ success: !failed, errorContent: lastErrorContent });
         return;
       }
 
@@ -408,7 +431,7 @@ export async function watchHatching(
         console.log(`   ⏰ Timed out after ${formatElapsed(elapsed)}. Instance is still running.`);
         console.log(`   Monitor with: vel logs ${instanceName}`);
         console.log("");
-        resolve(true);
+        resolve({ success: true, errorContent: lastErrorContent });
         return;
       }
 
@@ -485,7 +508,14 @@ async function hatchGcp(
       console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
       process.exit(1);
     }
-    const startupScript = buildStartupScript(species, bearerToken, sshUser, anthropicApiKey);
+    const startupScript = await buildStartupScript(
+      species,
+      bearerToken,
+      sshUser,
+      anthropicApiKey,
+      instanceName,
+      "gcp",
+    );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
 
@@ -570,25 +600,32 @@ async function hatchGcp(
       console.log("   Press Ctrl+C to detach (instance will keep running)");
       console.log("");
 
-      const success = await watchHatching(
+      const result = await watchHatching(
         () => pollInstance(instanceName, project, zone, account),
         instanceName,
         startTime,
         species,
       );
 
-      if (!success) {
+      if (!result.success) {
+        console.log("");
+        if (result.errorContent) {
+          console.log("📋 Startup error:");
+          console.log(`   ${result.errorContent}`);
+          console.log("");
+        }
+
+        await fetchAndDisplayStartupLogs(instanceName, project, zone, account);
+
         if (
           species === "vellum" &&
           (await checkCurlFailure(instanceName, project, zone, account))
         ) {
-          console.log("");
           const installScriptUrl = `${process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai"}/install.sh`;
           console.log(`🔄 Detected install script curl failure for ${installScriptUrl}, attempting recovery...`);
           await recoverFromCurlFailure(instanceName, project, zone, sshUser, account);
           console.log("✅ Recovery successful!");
         } else {
-          console.log("");
           process.exit(1);
         }
       }
@@ -650,7 +687,14 @@ async function hatchCustom(
       process.exit(1);
     }
 
-    const startupScript = buildStartupScript(species, bearerToken, sshUser, anthropicApiKey);
+    const startupScript = await buildStartupScript(
+      species,
+      bearerToken,
+      sshUser,
+      anthropicApiKey,
+      instanceName,
+      "custom",
+    );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
 
@@ -715,42 +759,192 @@ async function hatchCustom(
   }
 }
 
+function resolveGatewayDir(): string {
+  const sourceDir = join(import.meta.dir, "..", "..", "..", "gateway");
+  if (existsSync(sourceDir)) {
+    return sourceDir;
+  }
+
+  try {
+    const pkgPath = _require.resolve("@vellumai/vellum-gateway/package.json");
+    return dirname(pkgPath);
+  } catch {
+    throw new Error(
+      "Gateway not found. Ensure @vellumai/vellum-gateway is installed or run from the source tree.",
+    );
+  }
+}
+
+async function discoverPublicUrl(): Promise<string | undefined> {
+  const cloud = process.env.VELLUM_CLOUD;
+  if (!cloud || cloud === "local") {
+    return `http://localhost:${GATEWAY_PORT}`;
+  }
+
+  let externalIp: string | undefined;
+  try {
+    if (cloud === "gcp") {
+      const resp = await fetch(
+        "http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip",
+        { headers: { "Metadata-Flavor": "Google" } },
+      );
+      if (resp.ok) externalIp = (await resp.text()).trim();
+    } else if (cloud === "aws") {
+      // Use IMDSv2 (token-based) for compatibility with HttpTokens=required
+      const tokenResp = await fetch(
+        "http://169.254.169.254/latest/api/token",
+        { method: "PUT", headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" } },
+      );
+      if (tokenResp.ok) {
+        const token = await tokenResp.text();
+        const ipResp = await fetch(
+          "http://169.254.169.254/latest/meta-data/public-ipv4",
+          { headers: { "X-aws-ec2-metadata-token": token } },
+        );
+        if (ipResp.ok) externalIp = (await ipResp.text()).trim();
+      }
+    }
+  } catch {
+    // metadata service not reachable
+  }
+
+  if (externalIp) {
+    console.log(`   Discovered external IP: ${externalIp}`);
+    return `http://${externalIp}:${GATEWAY_PORT}`;
+  }
+  return undefined;
+}
+
 async function hatchLocal(species: Species, name: string | null): Promise<void> {
-  const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
+  const instanceName =
+    name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
 
   console.log(`🥚 Hatching local assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
   console.log("");
 
-  console.log("🔨 Starting local daemon...");
-
   if (process.env.VELLUM_DESKTOP_APP) {
+    // When running inside the desktop app, the CLI owns the daemon lifecycle.
+    // Find the vellum-daemon binary adjacent to the CLI binary.
     const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
-    const child = spawn(daemonBinary, [], {
-      detached: true,
-      stdio: "ignore",
-      env: { ...process.env },
-    });
-    child.unref();
-
-    const homeDir = process.env.HOME ?? userInfo().homedir;
-    const socketPath = join(homeDir, ".vellum", "vellum.sock");
-    const maxWait = 10000;
-    const pollInterval = 100;
-    let waited = 0;
-    while (waited < maxWait) {
-      if (existsSync(socketPath)) {
-        break;
-      }
-      await new Promise((r) => setTimeout(r, pollInterval));
-      waited += pollInterval;
+    if (!existsSync(daemonBinary)) {
+      throw new Error(
+        `vellum-daemon binary not found at ${daemonBinary}.\n` +
+          "  Ensure the daemon binary is bundled alongside the CLI in the app bundle.",
+      );
     }
-    if (!existsSync(socketPath)) {
-      console.warn("⚠️  Daemon socket did not appear within 10s — continuing anyway");
+
+    const vellumDir = join(homedir(), ".vellum");
+    const pidFile = join(vellumDir, "vellum.pid");
+    const socketFile = join(vellumDir, "vellum.sock");
+
+    // If a daemon is already running, skip spawning a new one.
+    // This prevents cascading kill→restart cycles when multiple callers
+    // invoke hatch() concurrently (setupDaemonClient + ensureDaemonConnected).
+    let daemonAlive = false;
+    if (existsSync(pidFile)) {
+      try {
+        const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+        if (!isNaN(pid)) {
+          try {
+            process.kill(pid, 0); // Check if alive
+            daemonAlive = true;
+            console.log(`   Daemon already running (pid ${pid})\n`);
+          } catch {
+            // Process doesn't exist, clean up stale PID file
+            try { unlinkSync(pidFile); } catch {}
+          }
+        }
+      } catch {}
+    }
+
+    if (!daemonAlive) {
+      // Remove stale socket so we can detect the fresh one
+      try { unlinkSync(socketFile); } catch {}
+
+      console.log("🔨 Starting daemon...");
+
+      // Ensure ~/.vellum/ exists for PID/socket files
+      mkdirSync(vellumDir, { recursive: true });
+
+      // Build a minimal environment for the daemon. When launched from the
+      // macOS app the CLI inherits a huge environment (XPC_SERVICE_NAME,
+      // __CFBundleIdentifier, CLAUDE_CODE_ENTRYPOINT, etc.) that can cause
+      // the daemon to take 50+ seconds to start instead of ~1s.
+      const daemonEnv: Record<string, string> = {
+        HOME: process.env.HOME || homedir(),
+        PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        VELLUM_DAEMON_TCP_ENABLED: "1",
+      };
+      // Forward optional config env vars the daemon may need
+      for (const key of [
+        "ANTHROPIC_API_KEY",
+        "BASE_DATA_DIR",
+        "VELLUM_DAEMON_TCP_PORT",
+        "VELLUM_DAEMON_TCP_HOST",
+        "VELLUM_DAEMON_SOCKET",
+        "VELLUM_DEBUG",
+        "SENTRY_DSN",
+        "TMPDIR",
+        "USER",
+        "LANG",
+      ]) {
+        if (process.env[key]) {
+          daemonEnv[key] = process.env[key]!;
+        }
+      }
+
+      const child = spawn(daemonBinary, [], {
+        detached: true,
+        stdio: "ignore",
+        env: daemonEnv,
+      });
+      child.unref();
+
+      // Write PID file immediately so the health monitor can find the process
+      // and concurrent hatch() calls see it as alive.
+      if (child.pid) {
+        writeFileSync(pidFile, String(child.pid), "utf-8");
+      }
+    }
+
+    // Wait for socket at ~/.vellum/vellum.sock (up to 15s)
+    if (!existsSync(socketFile)) {
+      const maxWait = 15000;
+      const start = Date.now();
+      while (Date.now() - start < maxWait) {
+        if (existsSync(socketFile)) {
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+    if (existsSync(socketFile)) {
+      console.log("   Daemon socket ready\n");
+    } else {
+      console.log("   ⚠️  Daemon socket did not appear within 15s — continuing anyway\n");
     }
   } else {
-    const assistantDir = join(import.meta.dir, "..", "..", "..", "assistant");
-    const assistantIndex = join(assistantDir, "src", "index.ts");
+    console.log("🔨 Starting local daemon...");
+
+    // Source tree layout: cli/src/commands/ -> ../../.. -> repo root -> assistant/src/index.ts
+    const sourceTreeIndex = join(import.meta.dir, "..", "..", "..", "assistant", "src", "index.ts");
+    // bunx layout: @vellumai/cli/src/commands/ -> ../../../.. -> node_modules/ -> vellum/src/index.ts
+    const bunxIndex = join(import.meta.dir, "..", "..", "..", "..", "vellum", "src", "index.ts");
+    let assistantIndex = sourceTreeIndex;
+
+    if (!existsSync(assistantIndex)) {
+      assistantIndex = bunxIndex;
+    }
+
+    if (!existsSync(assistantIndex)) {
+      try {
+        const vellumPkgPath = _require.resolve("vellum/package.json");
+        assistantIndex = join(dirname(vellumPkgPath), "src", "index.ts");
+      } catch {
+        // resolve failed, will fall through to existsSync check below
+      }
+    }
 
     if (!existsSync(assistantIndex)) {
       throw new Error(
@@ -776,30 +970,43 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
     });
   }
 
-  console.log("🌐 Starting gateway...");
-  const gatewayDir = join(import.meta.dir, "..", "..", "..", "gateway");
-  if (!existsSync(gatewayDir)) {
-    console.warn("⚠️  Gateway directory not found at", gatewayDir);
-    console.warn('   Gateway will not be started\n');
+  // The desktop app communicates with the daemon directly via Unix socket,
+  // so the HTTP gateway is only needed for non-desktop (CLI) usage.
+  let runtimeUrl: string;
+
+  if (process.env.VELLUM_DESKTOP_APP) {
+    // No gateway needed — the macOS app uses DaemonClient over the Unix socket.
+    runtimeUrl = "local";
   } else {
+    const publicUrl = await discoverPublicUrl();
+    if (publicUrl) {
+      console.log(`   Public URL: ${publicUrl}`);
+    }
+
+    console.log("🌐 Starting gateway...");
+    const gatewayDir = resolveGatewayDir();
+    const gatewayEnv: Record<string, string> = {
+      ...process.env as Record<string, string>,
+      GATEWAY_RUNTIME_PROXY_ENABLED: "true",
+      GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
+    };
+    if (publicUrl) gatewayEnv.GATEWAY_PUBLIC_URL = publicUrl;
     const gateway = spawn("bun", ["run", "src/index.ts"], {
       cwd: gatewayDir,
       detached: true,
       stdio: "ignore",
-      env: {
-        ...process.env,
-        GATEWAY_RUNTIME_PROXY_ENABLED: "true",
-        GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
-      },
+      env: gatewayEnv,
     });
     gateway.unref();
     console.log("✅ Gateway started\n");
+    runtimeUrl = publicUrl || `http://localhost:${GATEWAY_PORT}`;
   }
 
-  const runtimeUrl = `http://localhost:${GATEWAY_PORT}`;
+  const baseDataDir = join(process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? userInfo().homedir), ".vellum");
   const localEntry: AssistantEntry = {
     assistantId: instanceName,
     runtimeUrl,
+    baseDataDir,
     cloud: "local",
     species,
     hatchedAt: new Date().toISOString(),
@@ -815,7 +1022,20 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
   console.log("");
 }
 
+function getCliVersion(): string {
+  try {
+    const pkgPath = join(import.meta.dir, "..", "..", "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 export async function hatch(): Promise<void> {
+  const cliVersion = getCliVersion();
+  console.log(`@vellumai/cli v${cliVersion}`);
+
   const { species, detached, name, remote } = parseArgs();
 
   if (remote === "local") {

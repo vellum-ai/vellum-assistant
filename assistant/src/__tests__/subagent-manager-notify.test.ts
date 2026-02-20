@@ -9,13 +9,14 @@ interface FakeManagedSubagent {
     abort: () => void;
     dispose: () => void;
     messages: Array<{ role: string; content: Array<{ type: string; text: string }> }>;
-    sendToClient: () => void;
+    sendToClient: (msg: ServerMessage) => void;
     loadFromDb?: () => Promise<void>;
     persistUserMessage?: (msg: string) => string;
     runAgentLoop?: () => Promise<void>;
+    usageStats: { inputTokens: number; outputTokens: number; estimatedCost: number };
   };
   state: SubagentState;
-  parentSendToClient: () => void;
+  parentSendToClient: (msg: ServerMessage) => void;
 }
 
 /** Type-safe accessor for SubagentManager's private internals via bracket notation. */
@@ -37,19 +38,21 @@ function injectFakeSubagent(
   manager: SubagentManager,
   subagentId: string,
   state: SubagentState,
+  parentSendToClient?: (msg: ServerMessage) => void,
 ): void {
   const fakeSession: FakeManagedSubagent['session'] = {
     abort: () => {},
     dispose: () => {},
     messages: [],
     sendToClient: () => {},
+    usageStats: { inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 },
   };
 
   const internals = asInternals(manager);
   const subagents = internals.subagents;
   const parentToChildren = internals.parentToChildren;
 
-  subagents.set(subagentId, { session: fakeSession, state, parentSendToClient: () => {} });
+  subagents.set(subagentId, { session: fakeSession, state, parentSendToClient: parentSendToClient ?? (() => {}) });
 
   const parentId = state.config.parentSessionId;
   if (!parentToChildren.has(parentId)) {
@@ -78,7 +81,7 @@ function makeState(
 }
 
 describe('SubagentManager abort notification', () => {
-  test('abort notifies parent with abort message', () => {
+  test('abort notifies parent with do-not-respawn message', () => {
     const manager = new SubagentManager();
     const subagentId = 'sub-1';
     const state = makeState(subagentId);
@@ -97,17 +100,44 @@ describe('SubagentManager abort notification', () => {
     expect(result).toBe(true);
     expect(state.status).toBe('aborted');
     expect(notifications).toHaveLength(1);
-    expect(notifications[0].parentSessionId).toBe('parent-sess-1');
-    expect(notifications[0].message).toContain('[Subagent "Test subagent" was aborted]');
+    expect(notifications[0].message).toContain('explicitly aborted');
+    expect(notifications[0].message).toContain('Do NOT re-spawn');
+  });
+
+  test('abort notification routes to parent sender, not aborting sender', () => {
+    const manager = new SubagentManager();
+    const subagentId = 'sub-1';
+    const state = makeState(subagentId);
+
+    // Track which sender onSubagentFinished receives.
+    let notificationSender: unknown = null;
+    manager.onSubagentFinished = (_pid, _message, sender) => {
+      notificationSender = sender;
+    };
+
+    // The parent's stored sender (set at spawn time).
+    const parentSender = () => {};
+    injectFakeSubagent(manager, subagentId, state, parentSender);
+
+    // A different sender (simulating abort from a different thread's socket).
+    const abortingSender = ((_msg: ServerMessage) => {}) as (msg: ServerMessage) => void;
+
+    manager.abort(subagentId, abortingSender);
+
+    // onSubagentFinished should receive the parent's sender, not the aborting one.
+    expect(notificationSender).toBe(parentSender);
+    expect(notificationSender).not.toBe(abortingSender);
   });
 
   test('abort sends subagent_status_changed to client', () => {
     const manager = new SubagentManager();
     const subagentId = 'sub-1';
-    injectFakeSubagent(manager, subagentId, makeState(subagentId));
 
     const clientMessages: ServerMessage[] = [];
     const sendToClient = (msg: ServerMessage) => clientMessages.push(msg);
+
+    // Pass the sender as parentSendToClient so the stored sender receives the status update.
+    injectFakeSubagent(manager, subagentId, makeState(subagentId), sendToClient);
 
     manager.abort(subagentId, sendToClient);
 
@@ -222,13 +252,14 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
     await asInternals(manager).runSubagent(subagentId, 'Do something');
 
     expect(state.status).toBe('completed');
+    expect(state.usage).toEqual({ inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 });
     expect(notifications).toHaveLength(1);
     expect(notifications[0].parentSessionId).toBe('parent-sess-1');
     expect(notifications[0].message).toContain('[Subagent "Test subagent" completed]');
     expect(notifications[0].message).toContain('subagent_read');
   });
 
-  test('failed subagent notifies parent with error', async () => {
+  test('failed subagent notifies parent with error and asks user before retry', async () => {
     const manager = new SubagentManager();
     const subagentId = 'sub-1';
     const state = makeState(subagentId);
@@ -251,10 +282,11 @@ describe('SubagentManager notifyParent (via runSubagent)', () => {
 
     expect(state.status).toBe('failed');
     expect(state.error).toBe('API rate limit exceeded');
+    expect(state.usage).toEqual({ inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 });
     expect(notifications).toHaveLength(1);
-    expect(notifications[0].parentSessionId).toBe('parent-sess-1');
-    expect(notifications[0].message).toContain('[Subagent "Test subagent" failed]');
+    expect(notifications[0].message).toContain('failed');
     expect(notifications[0].message).toContain('API rate limit exceeded');
+    expect(notifications[0].message).toContain('Do NOT re-spawn');
   });
 
   test('failed subagent does not notify if already aborted', async () => {

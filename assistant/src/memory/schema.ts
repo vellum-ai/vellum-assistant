@@ -23,6 +23,7 @@ export const messages = sqliteTable('messages', {
   role: text('role').notNull(),
   content: text('content').notNull(),
   createdAt: integer('created_at').notNull(),
+  metadata: text('metadata'),
 });
 
 export const toolInvocations = sqliteTable('tool_invocations', {
@@ -147,7 +148,6 @@ export const memoryJobs = sqliteTable('memory_jobs', {
 
 export const conversationKeys = sqliteTable('conversation_keys', {
   id: text('id').primaryKey(),
-  assistantId: text('assistant_id').notNull(),
   conversationKey: text('conversation_key').notNull(),
   conversationId: text('conversation_id')
     .notNull()
@@ -157,7 +157,6 @@ export const conversationKeys = sqliteTable('conversation_keys', {
 
 export const attachments = sqliteTable('attachments', {
   id: text('id').primaryKey(),
-  assistantId: text('assistant_id').notNull(),
   originalFilename: text('original_filename').notNull(),
   mimeType: text('mime_type').notNull(),
   sizeBytes: integer('size_bytes').notNull(),
@@ -182,7 +181,6 @@ export const messageAttachments = sqliteTable('message_attachments', {
 
 export const channelInboundEvents = sqliteTable('channel_inbound_events', {
   id: text('id').primaryKey(),
-  assistantId: text('assistant_id').notNull(),
   sourceChannel: text('source_channel').notNull(),
   externalChatId: text('external_chat_id').notNull(),
   externalMessageId: text('external_message_id').notNull(),
@@ -206,7 +204,6 @@ export const channelInboundEvents = sqliteTable('channel_inbound_events', {
 
 export const messageRuns = sqliteTable('message_runs', {
   id: text('id').primaryKey(),
-  assistantId: text('assistant_id').notNull(),
   conversationId: text('conversation_id')
     .notNull()
     .references(() => conversations.id, { onDelete: 'cascade' }),
@@ -243,7 +240,7 @@ export const reminders = sqliteTable('reminders', {
   updatedAt: integer('updated_at').notNull(),
 });
 
-// ── Cron / Deferred Tasks ────────────────────────────────────────────
+// ── Recurrence Schedules ─────────────────────────────────────────────
 
 export const cronJobs = sqliteTable('cron_jobs', {
   id: text('id').primaryKey(),
@@ -289,6 +286,11 @@ export const cronRuns = sqliteTable('cron_runs', {
   conversationId: text('conversation_id'),
   createdAt: integer('created_at').notNull(),
 });
+
+// Recurrence-centric aliases — prefer these in new code.
+// Physical table names remain `cron_jobs` / `cron_runs` for migration compatibility.
+export const scheduleJobs = cronJobs;
+export const scheduleRuns = cronRuns;
 
 // ── LLM Usage Events (cost tracking ledger) ─────────────────────────
 
@@ -442,6 +444,7 @@ export const workItems = sqliteTable('work_items', {
   lastRunStatus: text('last_run_status'),  // 'completed' | 'failed' | null
   sourceType: text('source_type'),  // reserved for future bridge (e.g. 'followup', 'triage')
   sourceId: text('source_id'),      // reserved for future bridge
+  requiredTools: text('required_tools'),  // JSON array snapshot of tools needed for this run (null=unknown, []=none, ["bash",...]=specific)
   approvedTools: text('approved_tools'),  // JSON array of pre-approved tool names
   approvalStatus: text('approval_status').default('none'),  // 'none' | 'approved' | 'denied'
   createdAt: integer('created_at').notNull(),
@@ -516,7 +519,6 @@ export const llmRequestLogs = sqliteTable('llm_request_logs', {
 export const llmUsageEvents = sqliteTable('llm_usage_events', {
   id: text('id').primaryKey(),
   createdAt: integer('created_at').notNull(),
-  assistantId: text('assistant_id'),
   conversationId: text('conversation_id'),
   runId: text('run_id'),
   requestId: text('request_id'),
@@ -580,5 +582,6 @@ export const processedCallbacks = sqliteTable('processed_callbacks', {
   callSessionId: text('call_session_id')
     .notNull()
     .references(() => callSessions.id, { onDelete: 'cascade' }),
+  claimId: text('claim_id'),
   createdAt: integer('created_at').notNull(),
 });

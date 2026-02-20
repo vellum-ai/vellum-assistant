@@ -355,13 +355,6 @@ struct AgentPanelContent: View {
                             .lineLimit(2)
                     }
                 }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation(VAnimation.standard) {
-                        selectedSkillSlug = skill.slug
-                        skillsManager.inspectSkill(slug: skill.slug)
-                    }
-                }
 
                 Spacer()
 
@@ -420,6 +413,13 @@ struct AgentPanelContent: View {
             .padding(.leading, 24 + VSpacing.md)
         }
         .padding(VSpacing.lg)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(VAnimation.standard) {
+                selectedSkillSlug = skill.slug
+                skillsManager.inspectSkill(slug: skill.slug)
+            }
+        }
         .vCard(background: VColor.surfaceSubtle)
     }
 
