@@ -8,6 +8,8 @@
     <string>com.vellum.vellum-assistant-ios</string>
     <key>CFBundleExecutable</key>
     <string>vellum-assistant-ios</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>CFBundleShortVersionString</key>
