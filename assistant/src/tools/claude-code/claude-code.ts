@@ -346,6 +346,7 @@ export const claudeCodeTool: Tool = {
               context.onOutput?.(JSON.stringify({
                 subType: 'tool_complete',
                 subToolName: lastSubToolName,
+                subToolId: activeToolUseId,
                 ...(isFailure && { subToolIsError: true }),
               }));
               lastSubToolName = null;
