@@ -11,6 +11,8 @@ import { timingSafeEqual } from 'node:crypto';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
+import { loadConfig } from '../config/loader.js';
+import { getPublicBaseUrl } from '../inbound/public-ingress-urls.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 
 // Route handlers — grouped by domain
@@ -28,6 +30,7 @@ import {
   handleCreateRun,
   handleGetRun,
   handleRunDecision,
+  handleRunSecret,
   handleAddTrustRule,
 } from './routes/run-routes.js';
 import {
@@ -38,6 +41,10 @@ import {
   handleReplayDeadLetters,
 } from './routes/channel-routes.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
+import * as conversationStore from '../memory/conversation-store.js';
+import * as attachmentsStore from '../memory/attachments-store.js';
+import { renderHistoryContent } from '../daemon/handlers.js';
+import { deliverChannelReply } from './gateway-client.js';
 import {
   handleServePage,
   handleShareApp,
@@ -56,10 +63,11 @@ import {
   handleVoiceWebhook,
   handleStatusCallback,
   handleConnectAction,
-  handleCallAnswer,
 } from '../calls/twilio-routes.js';
 import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
+import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
+import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
 
 // Re-export shared types so existing consumers don't need to update imports
 export type {
@@ -133,6 +141,103 @@ const GATEWAY_SUBPATH_MAP: Record<string, string> = {
 };
 
 /**
+ * Direct Twilio webhook subpaths that are blocked in gateway_only mode.
+ * Internal forwarding endpoints (gateway→runtime) are unaffected.
+ */
+const GATEWAY_ONLY_BLOCKED_SUBPATHS = new Set(['voice-webhook', 'status', 'connect-action']);
+
+/**
+ * Check if a request origin is from a private/internal network address.
+ * Extracts the hostname from the Origin header and validates it against
+ * isPrivateAddress(), consistent with the isPrivateNetworkPeer check.
+ */
+function isPrivateNetworkOrigin(req: Request): boolean {
+  const origin = req.headers.get('origin');
+  // No origin header (e.g., server-initiated or same-origin) — allow
+  if (!origin) return true;
+  try {
+    const url = new URL(origin);
+    const host = url.hostname;
+    if (host === 'localhost') return true;
+    // URL.hostname wraps IPv6 addresses in brackets (e.g. "[::1]") — strip them
+    const rawHost = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+    return isPrivateAddress(rawHost);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if a hostname is a loopback address.
+ */
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === '127.0.0.1' || hostname === '::1' || hostname === 'localhost';
+}
+
+/**
+ * Check if the actual peer/remote address of a connection is from a
+ * private/internal network. Uses Bun's server.requestIP() to get the
+ * real peer address, which cannot be spoofed unlike the Origin header.
+ *
+ * Accepts loopback, RFC 1918 private IPv4, link-local, and RFC 4193
+ * unique-local IPv6 — including their IPv4-mapped IPv6 forms. This
+ * supports container/pod deployments (e.g. Kubernetes sidecars) where
+ * gateway and runtime communicate over pod-internal private IPs.
+ */
+function isPrivateNetworkPeer(server: { requestIP(req: Request): { address: string; family: string; port: number } | null }, req: Request): boolean {
+  const ip = server.requestIP(req);
+  if (!ip) return false;
+  return isPrivateAddress(ip.address);
+}
+
+/**
+ * @internal Exported for testing.
+ *
+ * Determine whether an IP address string belongs to a private/internal
+ * network range:
+ *   - Loopback: 127.0.0.0/8, ::1
+ *   - RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+ *   - Link-local: 169.254.0.0/16
+ *   - IPv6 unique local: fc00::/7 (fc00::–fdff::)
+ *   - IPv4-mapped IPv6 variants of all of the above (::ffff:x.x.x.x)
+ */
+export function isPrivateAddress(addr: string): boolean {
+  // Handle IPv4-mapped IPv6 (e.g. ::ffff:10.0.0.1) — extract the IPv4 part
+  const v4Mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  const normalized = v4Mapped ? v4Mapped[1] : addr;
+
+  // IPv4 checks
+  if (normalized.includes('.')) {
+    const parts = normalized.split('.').map(Number);
+    if (parts.length !== 4 || parts.some(p => isNaN(p) || p < 0 || p > 255)) return false;
+
+    // Loopback: 127.0.0.0/8
+    if (parts[0] === 127) return true;
+    // 10.0.0.0/8
+    if (parts[0] === 10) return true;
+    // 172.16.0.0/12 (172.16.x.x – 172.31.x.x)
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    // 192.168.0.0/16
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    // Link-local: 169.254.0.0/16
+    if (parts[0] === 169 && parts[1] === 254) return true;
+
+    return false;
+  }
+
+  // IPv6 checks
+  const lower = normalized.toLowerCase();
+  // Loopback
+  if (lower === '::1') return true;
+  // Unique local: fc00::/7 (fc00:: through fdff::)
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;
+  // Link-local: fe80::/10
+  if (lower.startsWith('fe80')) return true;
+
+  return false;
+}
+
+/**
  * Validate a Twilio webhook request's X-Twilio-Signature header.
  *
  * Returns the raw body text on success so callers can reconstruct the Request
@@ -179,10 +284,15 @@ async function validateTwilioWebhook(
   // Behind proxies/gateways, req.url is the local server URL (e.g.
   // http://127.0.0.1:7821/...) which differs from the public URL Twilio
   // used to compute the HMAC-SHA1 signature.
-  const publicBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL;
+  let publicBaseUrl: string | undefined;
+  try {
+    publicBaseUrl = getPublicBaseUrl(loadConfig());
+  } catch {
+    // No webhook base URL configured — fall back to using req.url as-is
+  }
   const parsedUrl = new URL(req.url);
   const publicUrl = publicBaseUrl
-    ? publicBaseUrl.replace(/\/$/, '') + parsedUrl.pathname + parsedUrl.search
+    ? publicBaseUrl + parsedUrl.pathname + parsedUrl.search
     : req.url;
 
   const isValid = TwilioConversationRelayProvider.verifyWebhookSignature(
@@ -236,6 +346,11 @@ export class RuntimeHttpServer {
     this.interfacesDir = options.interfacesDir ?? null;
   }
 
+  /** The port the server is actually listening on (resolved after start). */
+  get actualPort(): number {
+    return this.server?.port ?? this.port;
+  }
+
   async start(): Promise<void> {
     this.server = Bun.serve<RelayWebSocketData>({
       port: this.port,
@@ -279,7 +394,20 @@ export class RuntimeHttpServer {
       }, 30_000);
     }
 
-    log.info({ port: this.port, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
+    // Startup guard: log gateway-only mode warnings
+    try {
+      const config = loadConfig();
+      if (config.ingress.mode === 'gateway_only') {
+        log.info('Running in gateway-only ingress mode. Direct webhook routes disabled.');
+        if (!isLoopbackHost(this.hostname)) {
+          log.warn('gateway-only mode is enabled but RUNTIME_HTTP_HOST is not bound to loopback. This may expose the runtime to direct public access.');
+        }
+      }
+    } catch {
+      // Config loading may fail during startup — don't block server start
+    }
+
+    log.info({ port: this.actualPort, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
   }
 
   async stop(): Promise<void> {
@@ -317,6 +445,18 @@ export class RuntimeHttpServer {
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.
     if (path.startsWith('/v1/calls/relay') && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      // In gateway_only mode, only allow relay connections from private network peers.
+      // Primary check: actual peer address (cannot be spoofed) — accepts loopback
+      // and RFC 1918/4193 private addresses to support container deployments.
+      // Secondary check: Origin header (defense in depth).
+      const config = loadConfig();
+      if (config.ingress.mode === 'gateway_only' && (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req))) {
+        return Response.json(
+          { error: 'Direct relay access disabled in gateway-only mode', code: 'GATEWAY_ONLY' },
+          { status: 403 },
+        );
+      }
+
       const wsUrl = new URL(req.url);
       const callSessionId = wsUrl.searchParams.get('callSessionId');
       if (!callSessionId) {
@@ -346,6 +486,15 @@ export class RuntimeHttpServer {
     if (resolvedTwilioSubpath && req.method === 'POST') {
       const twilioSubpath = resolvedTwilioSubpath;
 
+      // In gateway_only mode, block direct Twilio webhook routes
+      const ingressConfig = loadConfig();
+      if (ingressConfig.ingress.mode === 'gateway_only' && GATEWAY_ONLY_BLOCKED_SUBPATHS.has(twilioSubpath)) {
+        return Response.json(
+          { error: 'Direct webhook access disabled in gateway-only mode. Use the gateway.', code: 'GATEWAY_ONLY' },
+          { status: 410 },
+        );
+      }
+
       // Validate Twilio request signature before dispatching
       const validation = await validateTwilioWebhook(req);
       if (validation instanceof Response) return validation;
@@ -370,17 +519,6 @@ export class RuntimeHttpServer {
       const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
       if (!token || !this.verifyToken(token)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-    }
-
-    // ── Call answer endpoint — behind auth gate ──────────────────────
-    const callAnswerMatch = path.match(/^\/v1\/calls\/([^/]+)\/answer$/);
-    if (callAnswerMatch && req.method === 'POST') {
-      try {
-        return await handleCallAnswer(req, callAnswerMatch[1]);
-      } catch (err) {
-        log.error({ err, callSessionId: callAnswerMatch[1] }, 'Runtime HTTP handler error answering call');
-        return Response.json({ error: 'Internal server error' }, { status: 500 });
       }
     }
 
@@ -520,8 +658,8 @@ export class RuntimeHttpServer {
         return await handleCreateRun(req, this.runOrchestrator);
       }
 
-      // Match runs/:runId, runs/:runId/decision, runs/:runId/trust-rule
-      const runsMatch = endpoint.match(/^runs\/([^/]+)(\/decision|\/trust-rule)?$/);
+      // Match runs/:runId, runs/:runId/decision, runs/:runId/trust-rule, runs/:runId/secret
+      const runsMatch = endpoint.match(/^runs\/([^/]+)(\/decision|\/trust-rule|\/secret)?$/);
       if (runsMatch) {
         if (!this.runOrchestrator) {
           return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
@@ -529,6 +667,9 @@ export class RuntimeHttpServer {
         const runId = runsMatch[1];
         if (runsMatch[2] === '/decision' && req.method === 'POST') {
           return await handleRunDecision(runId, req, this.runOrchestrator);
+        }
+        if (runsMatch[2] === '/secret' && req.method === 'POST') {
+          return await handleRunSecret(runId, req, this.runOrchestrator);
         }
         if (runsMatch[2] === '/trust-rule' && req.method === 'POST') {
           const run = this.runOrchestrator.getRun(runId);
@@ -552,7 +693,7 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
-        return await handleChannelInbound(req, this.processMessage);
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {
@@ -627,6 +768,31 @@ export class RuntimeHttpServer {
           body: formBody,
         });
         return await handleConnectAction(fakeReq);
+      }
+
+      if (endpoint === 'events' && req.method === 'GET') {
+        return handleSubscribeAssistantEvents(req, url);
+      }
+
+      // ── Internal OAuth callback endpoint (gateway → runtime) ──
+      if (endpoint === 'internal/oauth/callback' && req.method === 'POST') {
+        const json = await req.json() as { state: string; code?: string; error?: string };
+        if (!json.state) {
+          return Response.json({ error: 'Missing state parameter' }, { status: 400 });
+        }
+        if (json.error) {
+          const consumed = consumeCallbackError(json.state, json.error);
+          return consumed
+            ? Response.json({ ok: true })
+            : Response.json({ error: 'Unknown state' }, { status: 404 });
+        }
+        if (json.code) {
+          const consumed = consumeCallback(json.state, json.code);
+          return consumed
+            ? Response.json({ ok: true })
+            : Response.json({ error: 'Unknown state' }, { status: 404 });
+        }
+        return Response.json({ error: 'Missing code or error parameter' }, { status: 400 });
       }
 
       return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });
@@ -707,9 +873,54 @@ export class RuntimeHttpServer {
         channelDeliveryStore.linkMessage(event.id, userMessageId);
         channelDeliveryStore.markProcessed(event.id);
         log.info({ eventId: event.id }, 'Successfully replayed failed channel event');
+
+        const replyCallbackUrl = typeof payload.replyCallbackUrl === 'string'
+          ? payload.replyCallbackUrl
+          : undefined;
+        if (replyCallbackUrl) {
+          const externalChatId = typeof payload.externalChatId === 'string'
+            ? payload.externalChatId
+            : undefined;
+          if (externalChatId) {
+            await this.deliverReplyViaCallback(event.conversationId, externalChatId, replyCallbackUrl);
+          }
+        }
       } catch (err) {
         log.error({ err, eventId: event.id }, 'Retry failed for channel event');
         channelDeliveryStore.recordProcessingFailure(event.id, err);
+      }
+    }
+  }
+
+  private async deliverReplyViaCallback(
+    conversationId: string,
+    externalChatId: string,
+    callbackUrl: string,
+  ): Promise<void> {
+    const msgs = conversationStore.getMessages(conversationId);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'assistant') {
+        let parsed: unknown;
+        try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
+        const rendered = renderHistoryContent(parsed);
+
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id);
+        const replyAttachments = linked.map((a) => ({
+          id: a.id,
+          filename: a.originalFilename,
+          mimeType: a.mimeType,
+          sizeBytes: a.sizeBytes,
+          kind: a.kind,
+        }));
+
+        if (rendered.text || replyAttachments.length > 0) {
+          await deliverChannelReply(callbackUrl, {
+            chatId: externalChatId,
+            text: rendered.text || undefined,
+            attachments: replyAttachments.length > 0 ? replyAttachments : undefined,
+          }, this.bearerToken);
+        }
+        break;
       }
     }
   }

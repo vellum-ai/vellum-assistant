@@ -1,4 +1,4 @@
-import { describe, expect, mock, test, beforeEach } from 'bun:test';
+import { describe, expect, mock, test, beforeEach, afterAll } from 'bun:test';
 import { rmSync, writeFileSync } from 'node:fs';
 import type { Message, ProviderResponse } from '../providers/types.js';
 import type { AgentEvent, CheckpointInfo, CheckpointDecision } from '../agent/loop.js';
@@ -147,27 +147,11 @@ mock.module('../context/window-manager.js', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Workspace/git + attachment mocks.
+// Workspace/git turn-commit test hooks.
 // ---------------------------------------------------------------------------
 
 const turnCommitCalls: Array<{ workspaceDir: string; sessionId: string; turnNumber: number }> = [];
 let turnCommitHangForever = false;
-
-mock.module('../workspace/git-service.js', () => ({
-  getWorkspaceGitService: () => ({
-    ensureInitialized: async () => {},
-  }),
-}));
-
-mock.module('../workspace/turn-commit.js', () => ({
-  commitTurnChanges: async (workspaceDir: string, sessionId: string, turnNumber: number) => {
-    turnCommitCalls.push({ workspaceDir, sessionId, turnNumber });
-    if (turnCommitHangForever) {
-      // Simulate a commit that never resolves within the timeout budget
-      await new Promise<void>(() => {});
-    }
-  },
-}));
 
 // ---------------------------------------------------------------------------
 // Usage event capture for request-ID correlation tests.
@@ -231,6 +215,17 @@ mock.module('../agent/loop.js', () => ({
 import { Session, MAX_QUEUE_DEPTH } from '../daemon/session.js';
 import type { QueueDrainReason, QueuePolicy } from '../daemon/session.js';
 
+type SessionWithWorkspaceDeps = Session & {
+  getWorkspaceGitService?: (_workspaceDir: string) => { ensureInitialized: () => Promise<void> };
+  commitTurnChanges?: (
+    workspaceDir: string,
+    sessionId: string,
+    turnNumber: number,
+    provider?: unknown,
+    deadlineMs?: number,
+  ) => Promise<void>;
+};
+
 function makeSession(sendToClient?: (msg: ServerMessage) => void): Session {
   const provider = {
     name: 'mock',
@@ -243,7 +238,19 @@ function makeSession(sendToClient?: (msg: ServerMessage) => void): Session {
       };
     },
   };
-  return new Session('conv-1', provider, 'system prompt', 4096, sendToClient ?? (() => {}), '/tmp');
+  const session = new Session('conv-1', provider, 'system prompt', 4096, sendToClient ?? (() => {}), '/tmp');
+  const sessionWithWorkspaceDeps = session as SessionWithWorkspaceDeps;
+  sessionWithWorkspaceDeps.getWorkspaceGitService = () => ({
+    ensureInitialized: async () => {},
+  });
+  sessionWithWorkspaceDeps.commitTurnChanges = async (workspaceDir: string, sessionId: string, turnNumber: number) => {
+    turnCommitCalls.push({ workspaceDir, sessionId, turnNumber });
+    if (turnCommitHangForever) {
+      // Simulate a commit that never resolves within the timeout budget
+      await new Promise<void>(() => {});
+    }
+  };
+  return session;
 }
 
 /**
@@ -295,6 +302,10 @@ beforeEach(() => {
   turnCommitCalls.length = 0;
   turnCommitHangForever = false;
   linkAttachmentShouldThrow = false;
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 // ---------------------------------------------------------------------------

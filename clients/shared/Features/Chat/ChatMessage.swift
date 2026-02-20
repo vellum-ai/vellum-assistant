@@ -310,6 +310,67 @@ public struct ToolConfirmationData: Equatable {
     }
 }
 
+/// A single sub-tool invocation within a claude_code tool call.
+public struct ClaudeCodeSubStep: Identifiable, Equatable {
+    public let id: UUID
+    public let toolName: String
+    public let inputSummary: String
+    public var isComplete: Bool
+    public var isError: Bool
+    public let startedAt: Date
+    /// Stable identifier from the Claude Code SDK (tool_use_id), used for precise matching on tool_complete events.
+    public let subToolId: String?
+
+    public init(id: UUID = UUID(), toolName: String, inputSummary: String, isComplete: Bool = false, isError: Bool = false, startedAt: Date = Date(), subToolId: String? = nil) {
+        self.id = id
+        self.toolName = toolName
+        self.inputSummary = inputSummary
+        self.isComplete = isComplete
+        self.isError = isError
+        self.startedAt = startedAt
+        self.subToolId = subToolId
+    }
+
+    /// Human-readable label for the sub-tool.
+    public var friendlyName: String {
+        switch toolName.lowercased() {
+        case "read", "file_read":       return "Read File"
+        case "edit", "file_edit":       return "Edit File"
+        case "write", "file_write":     return "Write File"
+        case "bash":                    return "Run Command"
+        case "glob":                    return "Find Files"
+        case "grep":                    return "Search Files"
+        case "websearch", "web_search": return "Web Search"
+        case "webfetch", "web_fetch":   return "Fetch URL"
+        case "task":                    return "Run Agent"
+        case "notebookedit":            return "Edit Notebook"
+        case "notebookread":            return "Read Notebook"
+        default:
+            return toolName
+                .replacingOccurrences(of: "_", with: " ")
+                .split(separator: " ")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                .joined(separator: " ")
+        }
+    }
+
+    /// SF Symbol name for the sub-tool type.
+    public var toolIcon: String {
+        switch toolName.lowercased() {
+        case "read", "file_read":       return "doc.text"
+        case "edit", "file_edit":       return "pencil.line"
+        case "write", "file_write":     return "doc.badge.plus"
+        case "bash":                    return "terminal"
+        case "glob":                    return "folder.badge.magnifyingglass"
+        case "grep":                    return "magnifyingglass"
+        case "websearch", "web_search": return "magnifyingglass"
+        case "webfetch", "web_fetch":   return "arrow.down.circle"
+        case "task":                    return "person.2"
+        default:                        return "puzzlepiece.extension"
+        }
+    }
+}
+
 /// Data for a tool call displayed inline in an assistant message.
 public struct ToolCallData: Identifiable, Equatable {
     public let id: UUID
@@ -329,6 +390,8 @@ public struct ToolCallData: Identifiable, Equatable {
     public var imageData: String?
     /// Human-readable building status from app tool input (e.g. "Adding dark mode styles").
     public var buildingStatus: String?
+    /// Sub-tool steps for claude_code tool calls (live progress tracking).
+    public var claudeCodeSteps: [ClaudeCodeSubStep] = []
     /// Pre-decoded NSImage cached to avoid repeated base64 decoding in SwiftUI body.
     #if os(macOS)
     public var cachedImage: NSImage?
@@ -349,6 +412,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.inputFull == rhs.inputFull
             && lhs.imageData == rhs.imageData
             && lhs.buildingStatus == rhs.buildingStatus
+            && lhs.claudeCodeSteps == rhs.claudeCodeSteps
     }
 
     public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
@@ -803,12 +867,15 @@ public struct SubagentInfo: Equatable, Identifiable {
     /// The chat message ID that was active when this subagent was spawned.
     /// Used to render the subagent chip inline after the spawning message.
     public var parentMessageId: UUID?
+    /// The subagent's own conversation ID, used for lazy-loading detail events.
+    public var conversationId: String?
 
-    public init(id: String, label: String, status: SubagentStatus = .pending, parentMessageId: UUID? = nil) {
+    public init(id: String, label: String, status: SubagentStatus = .pending, parentMessageId: UUID? = nil, conversationId: String? = nil) {
         self.id = id
         self.label = label
         self.status = status
         self.parentMessageId = parentMessageId
+        self.conversationId = conversationId
     }
 
     public var isTerminal: Bool { status.isTerminal }
@@ -861,6 +928,10 @@ public struct ChatMessage: Identifiable {
     /// Nil for freshly streamed messages that haven't been loaded from history.
     /// Used for anchoring diagnostics exports so the daemon can locate the message.
     public var daemonMessageId: String?
+    /// When true, this message is a subagent notification (e.g. completed/failed/aborted)
+    /// reconstructed from history. It should be hidden from the chat UI since the
+    /// corresponding subagent chip conveys the same information.
+    public var isSubagentNotification: Bool = false
 
     /// Concatenated text from all segments. Backward-compatible computed property.
     public var text: String {

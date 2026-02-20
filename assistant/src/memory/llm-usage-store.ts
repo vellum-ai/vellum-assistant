@@ -16,7 +16,6 @@ export function recordUsageEvent(input: UsageEventInput, pricing: PricingResult)
   db.insert(llmUsageEvents).values({
     id: event.id,
     createdAt: event.createdAt,
-    assistantId: 'self',
     conversationId: event.conversationId,
     runId: event.runId,
     requestId: event.requestId,

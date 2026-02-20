@@ -46,14 +46,23 @@ struct SchedulesSection: View {
     private func scheduleRow(_ schedule: ScheduleItem) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(schedule.name)
-                    .font(.body)
+                HStack(spacing: 6) {
+                    Text(schedule.name)
+                        .font(.body)
+                    Text(schedule.syntax == "rrule" ? "rrule" : "cron")
+                        .font(.caption2)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background((schedule.syntax == "rrule" ? Color.purple : Color.blue).opacity(0.12))
+                        .foregroundStyle(schedule.syntax == "rrule" ? .purple : .blue)
+                        .clipShape(Capsule())
+                }
                 Text(schedule.description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                 HStack(spacing: 4) {
-                    Text(schedule.cronExpression)
+                    Text(schedule.expression)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                     if schedule.enabled, schedule.nextRunAt > 0, let nextRun = formatTimestamp(schedule.nextRunAt) {

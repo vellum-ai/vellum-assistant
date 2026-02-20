@@ -1,6 +1,5 @@
-import { describe, test, expect, beforeEach } from 'bun:test';
-import { initializeDb } from '../memory/db.js';
-import { getDb } from '../memory/db.js';
+import { afterAll, describe, test, expect, beforeEach } from 'bun:test';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { reminders } from '../memory/schema.js';
 import { executeReminderCreate, executeReminderList, executeReminderCancel } from '../tools/reminder/reminder.js';
 import { claimDueReminders } from '../tools/reminder/reminder-store.js';
@@ -10,6 +9,10 @@ initializeDb();
 function clearReminders() {
   getDb().delete(reminders).run();
 }
+
+afterAll(() => {
+  resetDb();
+});
 
 describe('reminder tool', () => {
   beforeEach(() => {

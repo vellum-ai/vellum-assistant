@@ -90,6 +90,9 @@ class IOSThreadStore: ObservableObject {
         daemon.onHistoryResponse = { [weak self] response in
             self?.handleHistoryResponse(response)
         }
+        daemon.onSubagentDetailResponse = { [weak self] response in
+            self?.handleSubagentDetailResponse(response)
+        }
 
         // Fetch session list once connected
         daemon.$isConnected
@@ -156,6 +159,15 @@ class IOSThreadStore: ObservableObject {
         guard let threadId = pendingHistoryBySessionId.removeValue(forKey: response.sessionId) else { return }
         guard let vm = viewModels[threadId] else { return }
         vm.populateFromHistory(response.messages)
+    }
+
+    private func handleSubagentDetailResponse(_ response: IPCSubagentDetailResponse) {
+        for (_, vm) in viewModels {
+            if vm.activeSubagents.contains(where: { $0.id == response.subagentId }) {
+                vm.subagentDetailStore.populateFromDetailResponse(response)
+                return
+            }
+        }
     }
 
     /// Load history for a daemon-backed thread when first selected.

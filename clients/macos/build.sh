@@ -141,7 +141,6 @@ BIN_PATH=$(swift build $SWIFT_FLAGS --show-bin-path)
 # Then build (or use cached if nothing changed)
 swift build $SWIFT_FLAGS
 
-
 EXECUTABLE="$BIN_PATH/$APP_NAME"
 
 if [ ! -f "$EXECUTABLE" ]; then
@@ -163,6 +162,27 @@ if [ ! -f "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" ] || [ "$EXECUTABLE" -nt "$MACOS_DIR
     NEEDS_REBUILD=true
 fi
 
+# Auto-build daemon binary if missing or stale (source changed) and bun is available
+ASSISTANT_SRC_DIR="$SCRIPT_DIR/../../assistant"
+DAEMON_BIN_NEEDS_BUILD=false
+if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+    if [ ! -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
+        DAEMON_BIN_NEEDS_BUILD=true
+    elif [ -n "$(find "$ASSISTANT_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/daemon-bin/vellum-daemon" -print -quit 2>/dev/null)" ]; then
+        DAEMON_BIN_NEEDS_BUILD=true
+    fi
+fi
+if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
+    echo "Building daemon binary from source..."
+    mkdir -p "$SCRIPT_DIR/daemon-bin"
+    (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    bun build --compile "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
+      --external electron --external "chromium-bidi/*" \
+      --outfile "$SCRIPT_DIR/daemon-bin/vellum-daemon"
+    chmod +x "$SCRIPT_DIR/daemon-bin/vellum-daemon"
+    echo "Daemon binary built: $SCRIPT_DIR/daemon-bin/vellum-daemon"
+fi
+
 # Also rebuild if daemon binary changed or newly added
 if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
     if [ ! -f "$MACOS_DIR/vellum-daemon" ] || [ "$SCRIPT_DIR/daemon-bin/vellum-daemon" -nt "$MACOS_DIR/vellum-daemon" ]; then
@@ -170,9 +190,17 @@ if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
     fi
 fi
 
-# Auto-build CLI binary for local dev if missing and bun is available
+# Auto-build CLI binary if missing or stale (source changed) and bun is available
 CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
-if [ ! -f "$SCRIPT_DIR/cli-bin/vellum-cli" ] && [ -d "$CLI_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+CLI_BIN_NEEDS_BUILD=false
+if [ -d "$CLI_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+    if [ ! -f "$SCRIPT_DIR/cli-bin/vellum-cli" ]; then
+        CLI_BIN_NEEDS_BUILD=true
+    elif [ -n "$(find "$CLI_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/cli-bin/vellum-cli" -print -quit 2>/dev/null)" ]; then
+        CLI_BIN_NEEDS_BUILD=true
+    fi
+fi
+if [ "$CLI_BIN_NEEDS_BUILD" = true ]; then
     echo "Building CLI binary from source..."
     mkdir -p "$SCRIPT_DIR/cli-bin"
     (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
@@ -218,6 +246,7 @@ if [ "$NEEDS_REBUILD" = true ]; then
     else
         echo "No CLI binary at $CLI_BIN — skipping (dev mode)"
     fi
+
 else
     echo "Binaries unchanged, skipping binary repackaging"
 fi

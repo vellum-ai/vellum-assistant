@@ -32,7 +32,8 @@ const makeConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
   maxAttachmentBytes: 20971520,
   maxAttachmentConcurrency: 3,
   twilioAuthToken: AUTH_TOKEN,
-  twilioWebhookBaseUrl: undefined,
+  ingressPublicBaseUrl: undefined,
+  publicUrl: undefined,
   ...overrides,
 });
 
@@ -312,14 +313,14 @@ describe("Twilio connect-action webhook", () => {
   });
 });
 
-describe("Twilio webhook signature with public base URL", () => {
+describe("Twilio webhook signature with canonical ingress base URL", () => {
   const originalFetch = globalThis.fetch;
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
   });
 
-  test("validates signature against twilioWebhookBaseUrl when configured", async () => {
+  test("validates signature against ingressPublicBaseUrl when configured", async () => {
     const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
     mockFetch(() =>
       Promise.resolve(
@@ -331,7 +332,7 @@ describe("Twilio webhook signature with public base URL", () => {
     );
 
     const publicBaseUrl = "https://public.example.com";
-    const config = makeConfig({ twilioWebhookBaseUrl: publicBaseUrl });
+    const config = makeConfig({ ingressPublicBaseUrl: publicBaseUrl });
     const handler = createTwilioVoiceWebhookHandler(config);
 
     // The local URL is different from the public URL
@@ -357,7 +358,7 @@ describe("Twilio webhook signature with public base URL", () => {
 
   test("rejects when signature matches local URL but not public URL", async () => {
     const publicBaseUrl = "https://public.example.com";
-    const config = makeConfig({ twilioWebhookBaseUrl: publicBaseUrl });
+    const config = makeConfig({ ingressPublicBaseUrl: publicBaseUrl });
     const handler = createTwilioVoiceWebhookHandler(config);
 
     const localUrl = "http://localhost:7830/webhooks/twilio/voice";

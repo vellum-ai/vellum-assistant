@@ -2,6 +2,8 @@ import SwiftUI
 
 public struct SubagentStatusChip: View {
     let subagent: SubagentInfo
+    var onAbort: (() -> Void)?
+    var onTap: (() -> Void)?
 
     @State private var phase: Int = 0
     @State private var timer: Timer?
@@ -23,8 +25,10 @@ public struct SubagentStatusChip: View {
         }
     }
 
-    public init(subagent: SubagentInfo) {
+    public init(subagent: SubagentInfo, onAbort: (() -> Void)? = nil, onTap: (() -> Void)? = nil) {
         self.subagent = subagent
+        self.onAbort = onAbort
+        self.onTap = onTap
     }
 
     public var body: some View {
@@ -61,6 +65,17 @@ public struct SubagentStatusChip: View {
             }
 
             Spacer()
+
+            if !subagent.isTerminal, let onAbort {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(VColor.textMuted)
+                    .padding(VSpacing.xs)
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(TapGesture().onEnded { onAbort() })
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("Abort subagent")
+            }
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
@@ -68,6 +83,8 @@ public struct SubagentStatusChip: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(VColor.backgroundSubtle.opacity(0.3))
         )
+        .contentShape(Rectangle())
+        .onTapGesture { onTap?() }
         .onAppear { startDotAnimation() }
         .onDisappear { timer?.invalidate() }
         .onChange(of: subagent.status) {

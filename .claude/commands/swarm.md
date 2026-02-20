@@ -21,7 +21,8 @@ If no arguments are provided, default to 12 workers with no task limit (run unti
 
 1. Read .private/TODO.md. Keep an internal list of which items are currently in-flight.
 2. Parse the arguments: note the worker count (default: 12), max-tasks limit (if provided), and namespace (or generate a random 4-char hex default). Track a **completed count** starting at 0.
-3. Create a team with `TeamCreate` (team name: `swarm`).
+3. **Namespace filtering**: When a `--namespace` is provided (not auto-generated), only consider TODO items that are prefixed with `[<namespace>]` (e.g., `- [ws-daemon-ipc] M1: ...`). Ignore all other items — leave them in TODO.md for other runs. When namespace is auto-generated (no `--namespace` flag was passed), process all items as before.
+4. Create a team with `TeamCreate` (team name: `swarm`).
 
 ## Phase 2: Pick the next task
 

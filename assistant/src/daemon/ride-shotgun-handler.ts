@@ -15,11 +15,29 @@ import { getLogger } from '../util/logger.js';
 import { NetworkRecorder } from '../tools/browser/network-recorder.js';
 import { saveRecording } from '../tools/browser/recording-store.js';
 import type { SessionRecording } from '../tools/browser/network-recording-types.js';
+import { navigateXPages } from '../tools/browser/x-auto-navigate.js';
+import { autoNavigate } from '../tools/browser/auto-navigate.js';
 
 const log = getLogger('ride-shotgun-handler');
 
 /** Active network recorders keyed by watchId. */
 const activeRecorders = new Map<string, NetworkRecorder>();
+
+/** Return domain-specific URL patterns that indicate a successful login. */
+function getLoginSignals(targetDomain?: string): string[] {
+  if (targetDomain === 'x.com' || targetDomain === 'twitter.com') {
+    return [
+      '/i/api/graphql/',       // any authenticated GraphQL call
+      '/1.1/account/settings', // legacy API session check
+    ];
+  }
+  // DoorDash and general fallback
+  return [
+    '/graphql/postLoginQuery',
+    '/graphql/homePageFacetFeed',
+    '/graphql/getConsumerOrdersWithDetails',
+  ];
+}
 
 /**
  * Complete a session — finalize recording (if learn mode), generate summary, fire notifier.
@@ -106,11 +124,7 @@ export async function handleRideShotgunStart(
         }
         try {
           const recorder = new NetworkRecorder(targetDomain);
-          recorder.loginSignals = [
-            '/graphql/postLoginQuery',
-            '/graphql/homePageFacetFeed',
-            '/graphql/getConsumerOrdersWithDetails',
-          ];
+          recorder.loginSignals = getLoginSignals(targetDomain);
           await recorder.startDirect();
           // If session completed while we were connecting, stop immediately to avoid leak
           if (session.status !== 'active') {
@@ -118,13 +132,64 @@ export async function handleRideShotgunStart(
             await recorder.stop();
             return;
           }
-          // Auto-stop when login is detected
-          recorder.onLoginDetected = () => {
-            log.info({ watchId }, 'Login detected — auto-stopping learn session');
-            completeSession(session);
-          };
           activeRecorders.set(watchId, recorder);
           log.info({ watchId, targetDomain, attempt }, 'Network recording started for learn session');
+
+          // For x.com, auto-navigate Chrome through key pages to capture the full API surface.
+          // Skip login detection — auto-navigation will complete the session when done.
+          if (targetDomain === 'x.com' || targetDomain === 'twitter.com') {
+            // Don't set onLoginDetected — it would kill the session after the first
+            // GraphQL call (5s grace), before auto-navigation finishes.
+            const abortSignal = { aborted: false };
+            const checkInterval = setInterval(() => {
+              if (session.status !== 'active') {
+                abortSignal.aborted = true;
+                clearInterval(checkInterval);
+              }
+            }, 1000);
+            navigateXPages(abortSignal).then(completed => {
+              clearInterval(checkInterval);
+              log.info({ watchId, completedSteps: completed.length }, 'X auto-navigation finished');
+              if (session.status === 'active') {
+                completeSession(session);
+              }
+            }).catch(err => {
+              clearInterval(checkInterval);
+              log.warn({ err, watchId }, 'X auto-navigation failed');
+              if (session.status === 'active') {
+                completeSession(session);
+              }
+            });
+          } else if (msg.autoNavigate && targetDomain) {
+            const navDomain = msg.navigateDomain ?? targetDomain;
+            const abortSignal = { aborted: false };
+            const checkInterval = setInterval(() => {
+              if (session.status !== 'active') {
+                abortSignal.aborted = true;
+                clearInterval(checkInterval);
+              }
+            }, 1000);
+            autoNavigate(navDomain, abortSignal).then(visited => {
+              clearInterval(checkInterval);
+              log.info({ watchId, visitedPages: visited.length }, 'Generic auto-navigation finished');
+              if (session.status === 'active') {
+                completeSession(session);
+              }
+            }).catch(err => {
+              clearInterval(checkInterval);
+              log.warn({ err, watchId }, 'Generic auto-navigation failed');
+              if (session.status === 'active') {
+                completeSession(session);
+              }
+            });
+          } else {
+            // No targetDomain: use login detection as before
+            recorder.onLoginDetected = () => {
+              log.info({ watchId }, 'Login detected — auto-stopping learn session');
+              completeSession(session);
+            };
+          }
+
           return;
         } catch (err) {
           if (attempt < 9) {

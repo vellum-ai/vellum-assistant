@@ -28,6 +28,7 @@ struct ChatBubble: View {
     @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
     @State private var stepsExpanded = false
+    @ObservedObject private var taskProgressOverlay = TaskProgressOverlayManager.shared
 
     private var isUser: Bool { message.role == .user }
     private var canReportMessage: Bool {
@@ -83,9 +84,11 @@ struct ChatBubble: View {
     /// that should not appear above the rendered dynamic UI surface.
     private var shouldShowBubble: Bool {
         if isUser { return true }
-        if !message.inlineSurfaces.isEmpty {
-            // Show bubble text when all surfaces are completed (collapsed to chips)
-            let allCompleted = message.inlineSurfaces.allSatisfy { $0.completionState != nil }
+        // Filter out the surface shown in the floating overlay
+        let visibleSurfaces = message.inlineSurfaces.filter { $0.id != taskProgressOverlay.activeSurfaceId }
+        if !visibleSurfaces.isEmpty {
+            // Show bubble text when all visible surfaces are completed (collapsed to chips)
+            let allCompleted = visibleSurfaces.allSatisfy { $0.completionState != nil }
             if !allCompleted { return false }
         }
         return hasText || !message.attachments.isEmpty
@@ -114,8 +117,9 @@ struct ChatBubble: View {
                     }
 
                     // Inline surfaces render below the bubble as full-width cards
+                    // Skip surfaces that are currently shown in the floating overlay
                     if !message.inlineSurfaces.isEmpty {
-                        ForEach(message.inlineSurfaces) { surface in
+                        ForEach(message.inlineSurfaces.filter { $0.id != taskProgressOverlay.activeSurfaceId }) { surface in
                             InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
                         }
                     }
@@ -332,16 +336,21 @@ struct ChatBubble: View {
             }
             .frame(maxWidth: 520, alignment: .leading)
         } else if hasActuallyRunningTool && !permissionWasDenied {
-            // In progress — show single running indicator for the active tool
+            // In progress — show running indicator or claude_code progress view
             let current = message.toolCalls.first(where: { !$0.isComplete })!
-            let progressive = current.buildingStatus != nil ? [] : Self.progressiveLabels(for: current.toolName)
-            RunningIndicator(
-                label: Self.friendlyRunningLabel(current.toolName, inputSummary: current.inputSummary, buildingStatus: current.buildingStatus),
-                progressiveLabels: progressive,
-                labelInterval: progressive.isEmpty ? 6 : 15,
-                onTap: nil
-            )
-                .frame(maxWidth: 520, alignment: .leading)
+            if current.toolName == "claude_code" && !current.claudeCodeSteps.isEmpty {
+                ClaudeCodeProgressView(steps: current.claudeCodeSteps, isRunning: true)
+                    .frame(maxWidth: 520, alignment: .leading)
+            } else {
+                let progressive = current.buildingStatus != nil ? [] : Self.progressiveLabels(for: current.toolName)
+                RunningIndicator(
+                    label: Self.friendlyRunningLabel(current.toolName, inputSummary: current.inputSummary, buildingStatus: current.buildingStatus),
+                    progressiveLabels: progressive,
+                    labelInterval: progressive.isEmpty ? 6 : 15,
+                    onTap: nil
+                )
+                    .frame(maxWidth: 520, alignment: .leading)
+            }
         } else if toolsCompleteButStillStreaming && !permissionWasDenied {
             // All tools done but model is still working (generating next tool call)
             RunningIndicator(
@@ -670,7 +679,8 @@ struct ChatBubble: View {
                 // Tool calls are rendered by trailingStatus below the message
                 EmptyView()
             case .surface(let i):
-                if i < message.inlineSurfaces.count {
+                if i < message.inlineSurfaces.count,
+                   message.inlineSurfaces[i].id != taskProgressOverlay.activeSurfaceId {
                     InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction)
                 }
             }
@@ -709,101 +719,7 @@ struct ChatBubble: View {
         })
 
         if hasRichContent {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                    switch segment {
-                    case .text(let text):
-                        let options = AttributedString.MarkdownParsingOptions(
-                            interpretedSyntax: .inlineOnlyPreservingWhitespace
-                        )
-                        let attributed = (try? AttributedString(markdown: text, options: options))
-                            ?? AttributedString(text)
-                        Text(attributed)
-                            .font(.system(size: 13))
-                            .foregroundColor(VColor.textPrimary)
-                            .tint(VColor.accent)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: 520, alignment: .leading)
-                    case .table(let headers, let rows):
-                        MarkdownTableView(headers: headers, rows: rows)
-                    case .image(let alt, let url):
-                        AnimatedImageView(urlString: url)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .accessibilityLabel(alt.isEmpty ? "Image" : alt)
-
-                    case .heading(let level, let headingText):
-                        let font: Font = switch level {
-                        case 1: .system(size: 20, weight: .bold)
-                        case 2: .system(size: 17, weight: .semibold)
-                        case 3: .system(size: 14, weight: .semibold)
-                        default: .system(size: 13, weight: .semibold)
-                        }
-                        Text(headingText)
-                            .font(font)
-                            .foregroundColor(VColor.textPrimary)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: 520, alignment: .leading)
-                            .padding(.top, level == 1 ? VSpacing.xs : 0)
-
-                    case .codeBlock(let language, let code):
-                        VStack(alignment: .leading, spacing: 0) {
-                            if let language, !language.isEmpty {
-                                Text(language)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(VColor.textMuted)
-                                    .padding(.horizontal, VSpacing.sm)
-                                    .padding(.top, VSpacing.xs)
-                            }
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                Text(code)
-                                    .font(VFont.mono)
-                                    .foregroundColor(VColor.textPrimary)
-                                    .textSelection(.enabled)
-                                    .fixedSize(horizontal: true, vertical: true)
-                                    .padding(VSpacing.sm)
-                            }
-                        }
-                        .frame(maxWidth: 520, alignment: .leading)
-                        .background(VColor.backgroundSubtle)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-
-                    case .horizontalRule:
-                        Rectangle()
-                            .fill(VColor.surfaceBorder)
-                            .frame(height: 1)
-                            .frame(maxWidth: 520)
-                            .padding(.vertical, VSpacing.xs)
-
-                    case .list(let items):
-                        VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                                let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
-                                let indentLevel = item.indent / 2
-                                HStack(alignment: .top, spacing: 0) {
-                                    Text(prefix)
-                                        .font(.system(size: 13))
-                                        .foregroundColor(VColor.textSecondary)
-                                    let options = AttributedString.MarkdownParsingOptions(
-                                        interpretedSyntax: .inlineOnlyPreservingWhitespace
-                                    )
-                                    let attributed = (try? AttributedString(markdown: item.text, options: options))
-                                        ?? AttributedString(item.text)
-                                    Text(attributed)
-                                        .font(.system(size: 13))
-                                        .foregroundColor(VColor.textPrimary)
-                                        .tint(VColor.accent)
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                .padding(.leading, CGFloat(indentLevel) * 16)
-                            }
-                        }
-                        .frame(maxWidth: 520, alignment: .leading)
-                    }
-                }
-            }
+            MarkdownSegmentView(segments: segments)
         } else {
             let options = AttributedString.MarkdownParsingOptions(
                 interpretedSyntax: .inlineOnlyPreservingWhitespace

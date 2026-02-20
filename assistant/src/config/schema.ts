@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { getDataDir } from '../util/platform.js';
 
-const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks'] as const;
+const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'openrouter'] as const;
 const VALID_WEB_SEARCH_PROVIDERS = ['perplexity', 'brave', 'anthropic-native'] as const;
 const VALID_SECRET_ACTIONS = ['redact', 'warn', 'block', 'prompt'] as const;
 const VALID_MEMORY_EMBEDDING_PROVIDERS = ['auto', 'local', 'openai', 'gemini', 'ollama'] as const;
@@ -9,6 +9,7 @@ const VALID_SANDBOX_BACKENDS = ['native', 'docker'] as const;
 const VALID_DOCKER_NETWORKS = ['none', 'bridge'] as const;
 const VALID_PERMISSIONS_MODES = ['legacy', 'strict'] as const;
 const VALID_CALL_PROVIDERS = ['twilio'] as const;
+const VALID_INGRESS_MODES = ['gateway_only', 'compat'] as const;
 
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
@@ -745,6 +746,94 @@ export const WorkspaceGitConfigSchema = z.object({
     .int('workspaceGit.enrichmentMaxRetries must be an integer')
     .nonnegative('workspaceGit.enrichmentMaxRetries must be non-negative')
     .default(2),
+  commitMessageLLM: z.object({
+    enabled: z.boolean({ error: 'workspaceGit.commitMessageLLM.enabled must be a boolean' }).default(false),
+    useConfiguredProvider: z.boolean({ error: 'workspaceGit.commitMessageLLM.useConfiguredProvider must be a boolean' }).default(true),
+    providerFastModelOverrides: z.record(z.string(), z.string()).default({}),
+    timeoutMs: z.number({ error: 'workspaceGit.commitMessageLLM.timeoutMs must be a number' })
+      .int('workspaceGit.commitMessageLLM.timeoutMs must be an integer')
+      .positive('workspaceGit.commitMessageLLM.timeoutMs must be a positive integer')
+      .default(600),
+    maxTokens: z.number({ error: 'workspaceGit.commitMessageLLM.maxTokens must be a number' })
+      .int('workspaceGit.commitMessageLLM.maxTokens must be an integer')
+      .positive('workspaceGit.commitMessageLLM.maxTokens must be a positive integer')
+      .default(120),
+    temperature: z.number({ error: 'workspaceGit.commitMessageLLM.temperature must be a number' })
+      .min(0, 'workspaceGit.commitMessageLLM.temperature must be >= 0')
+      .max(2, 'workspaceGit.commitMessageLLM.temperature must be <= 2')
+      .default(0.2),
+    maxFilesInPrompt: z.number({ error: 'workspaceGit.commitMessageLLM.maxFilesInPrompt must be a number' })
+      .int('workspaceGit.commitMessageLLM.maxFilesInPrompt must be an integer')
+      .positive('workspaceGit.commitMessageLLM.maxFilesInPrompt must be a positive integer')
+      .default(30),
+    maxDiffBytes: z.number({ error: 'workspaceGit.commitMessageLLM.maxDiffBytes must be a number' })
+      .int('workspaceGit.commitMessageLLM.maxDiffBytes must be an integer')
+      .positive('workspaceGit.commitMessageLLM.maxDiffBytes must be a positive integer')
+      .default(12000),
+    minRemainingTurnBudgetMs: z.number({ error: 'workspaceGit.commitMessageLLM.minRemainingTurnBudgetMs must be a number' })
+      .int('workspaceGit.commitMessageLLM.minRemainingTurnBudgetMs must be an integer')
+      .nonnegative('workspaceGit.commitMessageLLM.minRemainingTurnBudgetMs must be non-negative')
+      .default(1000),
+    breaker: z.object({
+      openAfterFailures: z.number({ error: 'workspaceGit.commitMessageLLM.breaker.openAfterFailures must be a number' })
+        .int().positive().default(3),
+      backoffBaseMs: z.number({ error: 'workspaceGit.commitMessageLLM.breaker.backoffBaseMs must be a number' })
+        .int().positive().default(2000),
+      backoffMaxMs: z.number({ error: 'workspaceGit.commitMessageLLM.breaker.backoffMaxMs must be a number' })
+        .int().positive().default(60000),
+    }).default({ openAfterFailures: 3, backoffBaseMs: 2000, backoffMaxMs: 60000 }),
+  }).default({
+    enabled: false,
+    useConfiguredProvider: true,
+    providerFastModelOverrides: {},
+    timeoutMs: 600,
+    maxTokens: 120,
+    temperature: 0.2,
+    maxFilesInPrompt: 30,
+    maxDiffBytes: 12000,
+    minRemainingTurnBudgetMs: 1000,
+    breaker: { openAfterFailures: 3, backoffBaseMs: 2000, backoffMaxMs: 60000 },
+  }),
+});
+
+export const AgentHeartbeatConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'agentHeartbeat.enabled must be a boolean' })
+    .default(false),
+  intervalMs: z
+    .number({ error: 'agentHeartbeat.intervalMs must be a number' })
+    .int('agentHeartbeat.intervalMs must be an integer')
+    .positive('agentHeartbeat.intervalMs must be a positive integer')
+    .default(3_600_000),
+  activeHoursStart: z
+    .number({ error: 'agentHeartbeat.activeHoursStart must be a number' })
+    .int('agentHeartbeat.activeHoursStart must be an integer')
+    .min(0, 'agentHeartbeat.activeHoursStart must be >= 0')
+    .max(23, 'agentHeartbeat.activeHoursStart must be <= 23')
+    .optional(),
+  activeHoursEnd: z
+    .number({ error: 'agentHeartbeat.activeHoursEnd must be a number' })
+    .int('agentHeartbeat.activeHoursEnd must be an integer')
+    .min(0, 'agentHeartbeat.activeHoursEnd must be >= 0')
+    .max(23, 'agentHeartbeat.activeHoursEnd must be <= 23')
+    .optional(),
+}).superRefine((config, ctx) => {
+  const hasStart = config.activeHoursStart != null;
+  const hasEnd = config.activeHoursEnd != null;
+  if (hasStart !== hasEnd) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [hasStart ? 'activeHoursEnd' : 'activeHoursStart'],
+      message: 'agentHeartbeat.activeHoursStart and agentHeartbeat.activeHoursEnd must both be set or both be omitted',
+    });
+  }
+  if (hasStart && hasEnd && config.activeHoursStart === config.activeHoursEnd) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['activeHoursEnd'],
+      message: 'agentHeartbeat.activeHoursStart and agentHeartbeat.activeHoursEnd must not be equal (would create an empty window)',
+    });
+  }
 });
 
 export const SwarmConfigSchema = z.object({
@@ -832,6 +921,17 @@ export const SkillsConfigSchema = z.object({
   load: SkillsLoadConfigSchema.default({ extraDirs: [], watch: true, watchDebounceMs: 250 }),
   install: SkillsInstallConfigSchema.default({ nodeManager: 'npm' }),
   allowBundled: z.array(z.string()).nullable().default(null),
+});
+
+export const IngressConfigSchema = z.object({
+  publicBaseUrl: z
+    .string({ error: 'ingress.publicBaseUrl must be a string' })
+    .default(''),
+  mode: z
+    .enum(VALID_INGRESS_MODES, {
+      error: `ingress.mode must be one of: ${VALID_INGRESS_MODES.join(', ')}`,
+    })
+    .default('gateway_only'),
 });
 
 export const AssistantConfigSchema = z.object({
@@ -1024,6 +1124,10 @@ export const AssistantConfigSchema = z.object({
   pricingOverrides: z
     .array(ModelPricingOverrideSchema)
     .default([]),
+  agentHeartbeat: AgentHeartbeatConfigSchema.default({
+    enabled: false,
+    intervalMs: 3_600_000,
+  }),
   swarm: SwarmConfigSchema.default({
     enabled: true,
     maxWorkers: 3,
@@ -1048,6 +1152,22 @@ export const AssistantConfigSchema = z.object({
     enrichmentConcurrency: 1,
     enrichmentJobTimeoutMs: 30000,
     enrichmentMaxRetries: 2,
+    commitMessageLLM: {
+      enabled: false,
+      useConfiguredProvider: true,
+      providerFastModelOverrides: {},
+      timeoutMs: 600,
+      maxTokens: 120,
+      temperature: 0.2,
+      maxFilesInPrompt: 30,
+      maxDiffBytes: 12000,
+      minRemainingTurnBudgetMs: 1000,
+      breaker: {
+        openAfterFailures: 3,
+        backoffBaseMs: 2000,
+        backoffMaxMs: 60000,
+      },
+    },
   }),
   calls: CallsConfigSchema.default({
     enabled: true,
@@ -1061,6 +1181,10 @@ export const AssistantConfigSchema = z.object({
     safety: {
       denyCategories: [],
     },
+  }),
+  ingress: IngressConfigSchema.default({
+    publicBaseUrl: '',
+    mode: 'gateway_only',
   }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
@@ -1115,9 +1239,11 @@ export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
 export type SkillEntryConfig = z.infer<typeof SkillEntryConfigSchema>;
 export type SkillsLoadConfig = z.infer<typeof SkillsLoadConfigSchema>;
 export type SkillsInstallConfig = z.infer<typeof SkillsInstallConfigSchema>;
+export type AgentHeartbeatConfig = z.infer<typeof AgentHeartbeatConfigSchema>;
 export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
 export type SkillsConfig = z.infer<typeof SkillsConfigSchema>;
 export type WorkspaceGitConfig = z.infer<typeof WorkspaceGitConfigSchema>;
 export type CallsConfig = z.infer<typeof CallsConfigSchema>;
 export type CallsDisclosureConfig = z.infer<typeof CallsDisclosureConfigSchema>;
 export type CallsSafetyConfig = z.infer<typeof CallsSafetyConfigSchema>;
+export type IngressConfig = z.infer<typeof IngressConfigSchema>;

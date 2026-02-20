@@ -186,7 +186,11 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.isSending = true
         viewModel.isThinking = true
 
+        // Assistant starts streaming before user cancels
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
+
+        // User initiates cancel, then server acknowledges
+        viewModel.isCancelling = true
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
 
         XCTAssertFalse(viewModel.isSending)
@@ -197,6 +201,7 @@ final class ChatViewModelTests: XCTestCase {
     func testGenerationCancelledWithoutStreamingMessage() {
         viewModel.isSending = true
         viewModel.isThinking = true
+        viewModel.isCancelling = true
 
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
 
@@ -753,7 +758,8 @@ final class ChatViewModelTests: XCTestCase {
         let messageBAfterDequeue = viewModel.messages.first(where: { $0.text == "Message B" })!
         XCTAssertEqual(messageBAfterDequeue.status, .processing)
 
-        // Generation is cancelled
+        // User initiates cancel, then server acknowledges
+        viewModel.isCancelling = true
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
 
         let messageBAfterCancel = viewModel.messages.first(where: { $0.text == "Message B" })!
@@ -1517,6 +1523,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.sessionId = "sess-1"
         viewModel.isThinking = true
         viewModel.isSending = true
+        viewModel.isCancelling = true
 
         viewModel.handleServerMessage(.generationCancelled(
             GenerationCancelledMessage(sessionId: "sess-1")
@@ -1543,7 +1550,7 @@ final class ChatViewModelTests: XCTestCase {
         // Complete with attachments
         let attachment = IPCUserMessageAttachment(
             id: "att-1", filename: "photo.png", mimeType: "image/png",
-            data: "iVBORw0KGgo=", extractedText: nil, sizeBytes: nil
+            data: "iVBORw0KGgo=", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
         viewModel.handleServerMessage(.messageComplete(
             MessageCompleteMessage(sessionId: nil, attachments: [attachment])
@@ -1563,7 +1570,7 @@ final class ChatViewModelTests: XCTestCase {
         // Complete with attachments but no prior text deltas (attachment-only turn)
         let attachment = IPCUserMessageAttachment(
             id: "att-1", filename: "report.pdf", mimeType: "application/pdf",
-            data: "JVBER", extractedText: nil, sizeBytes: nil
+            data: "JVBER", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
         viewModel.handleServerMessage(.messageComplete(
             MessageCompleteMessage(sessionId: nil, attachments: [attachment])
@@ -1586,7 +1593,7 @@ final class ChatViewModelTests: XCTestCase {
         // Handoff with attachments
         let attachment = IPCUserMessageAttachment(
             id: "att-2", filename: "output.csv", mimeType: "text/csv",
-            data: "Y29sQQ==", extractedText: nil, sizeBytes: nil
+            data: "Y29sQQ==", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
         viewModel.handleServerMessage(.generationHandoff(
             GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1, attachments: [attachment])
@@ -1626,11 +1633,11 @@ final class ChatViewModelTests: XCTestCase {
     func testPopulateFromHistoryHydratesAssistantAttachments() {
         let attachment = IPCUserMessageAttachment(
             id: "hist-att-1", filename: "chart.png", mimeType: "image/png",
-            data: "iVBORw0KGgo=", extractedText: nil, sizeBytes: nil
+            data: "iVBORw0KGgo=", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
         let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
-            IPCHistoryResponseMessage(id: nil, role: "user", text: "Show me a chart", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil),
-            IPCHistoryResponseMessage(id: nil, role: "assistant", text: "Here is your chart", timestamp: 2000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil),
+            IPCHistoryResponseMessage(id: nil, role: "user", text: "Show me a chart", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
+            IPCHistoryResponseMessage(id: nil, role: "assistant", text: "Here is your chart", timestamp: 2000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
 
         viewModel.populateFromHistory(historyItems)
@@ -1645,10 +1652,10 @@ final class ChatViewModelTests: XCTestCase {
     func testPopulateFromHistoryIncludesAttachmentOnlyMessages() {
         let attachment = IPCUserMessageAttachment(
             id: "hist-att-2", filename: "report.pdf", mimeType: "application/pdf",
-            data: "JVBER", extractedText: nil, sizeBytes: nil
+            data: "JVBER", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
         let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
-            IPCHistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil),
+            IPCHistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
 
         viewModel.populateFromHistory(historyItems)
@@ -1662,7 +1669,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testPopulateFromHistorySkipsEmptyMessagesWithNoAttachments() {
         let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
-            IPCHistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil),
+            IPCHistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
 
         viewModel.populateFromHistory(historyItems)
@@ -1733,7 +1740,8 @@ final class ChatViewModelTests: XCTestCase {
                 attachments: nil,
                 textSegments: ["What are you working on?", "Saved that to memory."],
                 contentOrder: ["text:0", "tool:0", "text:1"],
-                surfaces: nil
+                surfaces: nil,
+                subagentNotification: nil
             ),
         ]
 
@@ -1758,7 +1766,8 @@ final class ChatViewModelTests: XCTestCase {
                 attachments: nil,
                 textSegments: nil,
                 contentOrder: nil,
-                surfaces: nil
+                surfaces: nil,
+                subagentNotification: nil
             ),
         ]
 
@@ -2029,7 +2038,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testCreateSessionIfNeededSetsBootstrapping() {
         viewModel.createSessionIfNeeded(threadType: "private")
-        XCTAssertTrue(viewModel.isSending, "Should enter sending state during bootstrap")
+        XCTAssertFalse(viewModel.isSending, "Message-less session creates should not set isSending")
         XCTAssertFalse(viewModel.isThinking, "Should not show thinking for message-less session create")
         XCTAssertNotNil(viewModel.bootstrapCorrelationId, "Should set correlation ID")
         XCTAssertEqual(viewModel.threadType, "private")
@@ -2107,7 +2116,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testCreateSessionIfNeededWithoutThreadType() {
         viewModel.createSessionIfNeeded()
-        XCTAssertTrue(viewModel.isSending)
+        XCTAssertFalse(viewModel.isSending, "Message-less session creates should not set isSending")
         XCTAssertNil(viewModel.threadType, "threadType should remain nil when not specified")
     }
 
@@ -2151,5 +2160,97 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 1)
         XCTAssertEqual(viewModel.messages[0].role, .user)
         XCTAssertEqual(viewModel.messages[0].text, "Hello")
+    }
+
+    // MARK: - Send Direct Queued Message
+
+    func testSendDirectQueuedMessageSavesContentAndStops() {
+        // Set up a session with a sending state and a queued message
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Add an assistant message (current generation)
+        viewModel.messages.append(ChatMessage(role: .assistant, text: "Working...", isStreaming: true))
+
+        // Add a queued user message
+        let queuedId = UUID()
+        viewModel.messages.append(ChatMessage(id: queuedId, role: .user, text: "Jump ahead", status: .queued(position: 1)))
+
+        viewModel.sendDirectQueuedMessage(messageId: queuedId)
+
+        // The queued message should be removed from the messages array
+        XCTAssertFalse(viewModel.messages.contains(where: { $0.id == queuedId }))
+
+        // Pending send-direct state should be stored
+        XCTAssertEqual(viewModel.pendingSendDirectText, "Jump ahead")
+
+        // isCancelling should be set (daemon cancel sent)
+        XCTAssertTrue(viewModel.isCancelling)
+    }
+
+    func testSendDirectDispatcheAfterGenerationCancelled() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isCancelling = true
+
+        // Simulate pending send-direct
+        viewModel.pendingSendDirectText = "Jump ahead"
+        viewModel.pendingSendDirectAttachments = nil
+
+        // Simulate generationCancelled arriving
+        let cancelled = GenerationCancelledMessage(sessionId: "sess-1")
+        viewModel.handleServerMessage(.generationCancelled(cancelled))
+
+        // After cancellation, the pending text should have been dispatched
+        XCTAssertNil(viewModel.pendingSendDirectText)
+        // isSending should be true again (sendMessage was called)
+        XCTAssertTrue(viewModel.isSending)
+        // The dispatched message should appear in messages
+        XCTAssertTrue(viewModel.messages.contains(where: { $0.role == .user && $0.text == "Jump ahead" }))
+    }
+
+    func testSendDirectDispatchesAfterDisconnectedCancel() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+
+        // Add a queued message
+        let queuedId = UUID()
+        viewModel.messages.append(ChatMessage(id: queuedId, role: .user, text: "Urgent", status: .queued(position: 1)))
+
+        // Disconnect daemon
+        daemonClient.isConnected = false
+
+        viewModel.sendDirectQueuedMessage(messageId: queuedId)
+
+        // Disconnected path resets immediately and dispatches
+        XCTAssertNil(viewModel.pendingSendDirectText)
+        // The dispatched message should be in messages
+        XCTAssertTrue(viewModel.messages.contains(where: { $0.role == .user && $0.text == "Urgent" }))
+    }
+
+    func testSendDirectIgnoresNonQueuedMessage() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+
+        // Add a sent (non-queued) user message
+        let sentId = UUID()
+        viewModel.messages.append(ChatMessage(id: sentId, role: .user, text: "Already sent", status: .sent))
+
+        viewModel.sendDirectQueuedMessage(messageId: sentId)
+
+        // Should be a no-op — pendingSendDirectText stays nil
+        XCTAssertNil(viewModel.pendingSendDirectText)
+        // Message should still be there (not removed)
+        XCTAssertTrue(viewModel.messages.contains(where: { $0.id == sentId }))
+    }
+
+    func testSendDirectIgnoresUnknownMessageId() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+
+        viewModel.sendDirectQueuedMessage(messageId: UUID())
+
+        XCTAssertNil(viewModel.pendingSendDirectText)
     }
 }

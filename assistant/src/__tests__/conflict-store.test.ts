@@ -24,7 +24,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { memoryItems } from '../memory/schema.js';
 import {
   applyConflictResolution,
@@ -40,6 +40,7 @@ import {
 initializeDb();
 
 afterAll(() => {
+  resetDb();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
 

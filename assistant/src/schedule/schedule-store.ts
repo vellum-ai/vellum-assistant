@@ -2,7 +2,7 @@ import { and, asc, desc, eq, lte } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { Cron } from 'croner';
 import { getDb } from '../memory/db.js';
-import { cronJobs, cronRuns } from '../memory/schema.js';
+import { scheduleJobs, scheduleRuns } from '../memory/schema.js';
 import { computeNextRunAt as computeNextRunAtEngine, isValidScheduleExpression } from './recurrence-engine.js';
 import type { ScheduleSyntax } from './recurrence-types.js';
 
@@ -52,7 +52,7 @@ export function computeNextRunAt(cronExpression: string, timezone?: string | nul
   });
   const next = cron.nextRun();
   if (!next) {
-    throw new Error(`Cron expression "${cronExpression}" has no upcoming runs`);
+    throw new Error(`Schedule expression "${cronExpression}" has no upcoming runs`);
   }
   return next.getTime();
 }
@@ -67,7 +67,7 @@ export function createSchedule(params: {
   syntax?: ScheduleSyntax;
   expression?: string;
 }): ScheduleJob {
-  // Resolve syntax and expression: prefer explicit syntax/expression, fall back to cron
+  // Resolve syntax and expression: prefer explicit values, fall back to cron default
   const syntax: ScheduleSyntax = params.syntax ?? 'cron';
   const expression = params.expression ?? params.cronExpression;
 
@@ -100,7 +100,7 @@ export function createSchedule(params: {
     updatedAt: now,
   };
 
-  db.insert(cronJobs).values(row).run();
+  db.insert(scheduleJobs).values(row).run();
   return parseJobRow(row);
 }
 
@@ -108,8 +108,8 @@ export function getSchedule(id: string): ScheduleJob | null {
   const db = getDb();
   const row = db
     .select()
-    .from(cronJobs)
-    .where(eq(cronJobs.id, id))
+    .from(scheduleJobs)
+    .where(eq(scheduleJobs.id, id))
     .get();
   if (!row) return null;
   return parseJobRow(row);
@@ -117,12 +117,12 @@ export function getSchedule(id: string): ScheduleJob | null {
 
 export function listSchedules(options?: { enabledOnly?: boolean }): ScheduleJob[] {
   const db = getDb();
-  const conditions = options?.enabledOnly ? eq(cronJobs.enabled, true) : undefined;
+  const conditions = options?.enabledOnly ? eq(scheduleJobs.enabled, true) : undefined;
   const rows = db
     .select()
-    .from(cronJobs)
+    .from(scheduleJobs)
     .where(conditions)
-    .orderBy(asc(cronJobs.nextRunAt))
+    .orderBy(asc(scheduleJobs.nextRunAt))
     .all();
   return rows.map(parseJobRow);
 }
@@ -140,7 +140,7 @@ export function updateSchedule(
   },
 ): ScheduleJob | null {
   const db = getDb();
-  const existing = db.select().from(cronJobs).where(eq(cronJobs.id, id)).get();
+  const existing = db.select().from(scheduleJobs).where(eq(scheduleJobs.id, id)).get();
   if (!existing) return null;
 
   // Resolve the effective syntax and expression after this update
@@ -179,34 +179,36 @@ export function updateSchedule(
     set.nextRunAt = newEnabled ? computeNextRunAtEngine(spec) : 0;
   }
 
-  db.update(cronJobs).set(set).where(eq(cronJobs.id, id)).run();
+  db.update(scheduleJobs).set(set).where(eq(scheduleJobs.id, id)).run();
 
   return getSchedule(id);
 }
 
 export function deleteSchedule(id: string): boolean {
   const db = getDb();
-  const result = db.delete(cronJobs).where(eq(cronJobs.id, id)).run() as unknown as { changes?: number };
+  const result = db.delete(scheduleJobs).where(eq(scheduleJobs.id, id)).run() as unknown as { changes?: number };
   return (result.changes ?? 0) > 0;
 }
 
 /**
- * Claim due schedules atomically. For each candidate where enabled=true and
- * next_run_at <= now, we advance next_run_at using optimistic locking on the
- * old value to prevent double-claiming by concurrent ticks.
+ * Claim due recurrence schedules atomically. For each candidate where
+ * enabled=true and next_run_at <= now, we advance next_run_at using
+ * optimistic locking on the old value to prevent double-claiming by
+ * concurrent ticks. Works for both cron and RRULE syntax.
  */
 export function claimDueSchedules(now: number): ScheduleJob[] {
   const db = getDb();
   const candidates = db
     .select()
-    .from(cronJobs)
-    .where(and(eq(cronJobs.enabled, true), lte(cronJobs.nextRunAt, now)))
-    .orderBy(asc(cronJobs.nextRunAt))
+    .from(scheduleJobs)
+    .where(and(eq(scheduleJobs.enabled, true), lte(scheduleJobs.nextRunAt, now)))
+    .orderBy(asc(scheduleJobs.nextRunAt))
     .all();
 
   const claimed: ScheduleJob[] = [];
   for (const row of candidates) {
-    let newNextRunAt: number;
+    let newNextRunAt: number | null;
+    let exhausted = false;
     try {
       const syntax = (row.scheduleSyntax as ScheduleSyntax) ?? 'cron';
       newNextRunAt = computeNextRunAtEngine({
@@ -215,28 +217,38 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
         timezone: row.timezone,
       });
     } catch {
-      // Expression has no future runs — skip
-      continue;
+      // Finite schedule with no future runs — still claim the current due
+      // run but disable the schedule so it doesn't fire again.
+      newNextRunAt = null;
+      exhausted = true;
     }
 
     // Optimistic lock: only update if nextRunAt hasn't changed
+    const updates: Record<string, unknown> = {
+      lastRunAt: now,
+      updatedAt: now,
+    };
+    if (exhausted) {
+      updates.nextRunAt = 0;
+      updates.enabled = false;
+    } else {
+      updates.nextRunAt = newNextRunAt!;
+    }
+
     const result = db
-      .update(cronJobs)
-      .set({
-        nextRunAt: newNextRunAt,
-        lastRunAt: now,
-        updatedAt: now,
-      })
-      .where(and(eq(cronJobs.id, row.id), eq(cronJobs.nextRunAt, row.nextRunAt)))
+      .update(scheduleJobs)
+      .set(updates)
+      .where(and(eq(scheduleJobs.id, row.id), eq(scheduleJobs.nextRunAt, row.nextRunAt)))
       .run() as unknown as { changes?: number };
 
     if ((result.changes ?? 0) === 0) continue;
 
     claimed.push(parseJobRow({
       ...row,
-      nextRunAt: newNextRunAt,
+      nextRunAt: exhausted ? 0 : newNextRunAt!,
       lastRunAt: now,
       updatedAt: now,
+      enabled: exhausted ? false : row.enabled,
     }));
   }
   return claimed;
@@ -246,7 +258,7 @@ export function createScheduleRun(jobId: string, conversationId: string): string
   const db = getDb();
   const id = uuid();
   const now = Date.now();
-  db.insert(cronRuns).values({
+  db.insert(scheduleRuns).values({
     id,
     jobId,
     status: 'running',
@@ -268,12 +280,12 @@ export function completeScheduleRun(
   const db = getDb();
   const now = Date.now();
 
-  const run = db.select().from(cronRuns).where(eq(cronRuns.id, runId)).get();
+  const run = db.select().from(scheduleRuns).where(eq(scheduleRuns.id, runId)).get();
   if (!run) return;
 
   const durationMs = now - run.startedAt;
 
-  db.update(cronRuns)
+  db.update(scheduleRuns)
     .set({
       status: result.status,
       finishedAt: now,
@@ -281,23 +293,23 @@ export function completeScheduleRun(
       output: result.output?.slice(0, 10_000) ?? null,
       error: result.error?.slice(0, 2000) ?? null,
     })
-    .where(eq(cronRuns.id, runId))
+    .where(eq(scheduleRuns.id, runId))
     .run();
 
   // Update the parent job's lastStatus and retryCount
   if (result.status === 'error') {
     // Increment retry count
-    const job = db.select().from(cronJobs).where(eq(cronJobs.id, run.jobId)).get();
+    const job = db.select().from(scheduleJobs).where(eq(scheduleJobs.id, run.jobId)).get();
     if (job) {
-      db.update(cronJobs)
+      db.update(scheduleJobs)
         .set({ lastStatus: 'error', retryCount: job.retryCount + 1, updatedAt: now })
-        .where(eq(cronJobs.id, run.jobId))
+        .where(eq(scheduleJobs.id, run.jobId))
         .run();
     }
   } else {
-    db.update(cronJobs)
+    db.update(scheduleJobs)
       .set({ lastStatus: 'ok', retryCount: 0, updatedAt: now })
-      .where(eq(cronJobs.id, run.jobId))
+      .where(eq(scheduleJobs.id, run.jobId))
       .run();
   }
 }
@@ -306,9 +318,9 @@ export function getScheduleRuns(jobId: string, limit?: number): ScheduleRun[] {
   const db = getDb();
   const rows = db
     .select()
-    .from(cronRuns)
-    .where(eq(cronRuns.jobId, jobId))
-    .orderBy(desc(cronRuns.createdAt))
+    .from(scheduleRuns)
+    .where(eq(scheduleRuns.jobId, jobId))
+    .orderBy(desc(scheduleRuns.createdAt))
     .limit(limit ?? 10)
     .all();
   return rows.map(parseRunRow);
@@ -326,7 +338,8 @@ export function formatLocalDate(timestamp: number): string {
 }
 
 // Convert a cron expression to a human-readable description.
-// Uses the croner library to parse the expression and inspect its pattern fields.
+// Only applicable to cron syntax; RRULE schedules should display the
+// raw expression text instead.
 //
 // Examples:
 //   "* * * * *"     -> "Every minute"
@@ -448,7 +461,7 @@ export function describeCronExpression(expr: string): string {
   }
 }
 
-function parseJobRow(row: typeof cronJobs.$inferSelect): ScheduleJob {
+function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
   return {
     id: row.id,
     name: row.name,
@@ -468,7 +481,7 @@ function parseJobRow(row: typeof cronJobs.$inferSelect): ScheduleJob {
   };
 }
 
-function parseRunRow(row: typeof cronRuns.$inferSelect): ScheduleRun {
+function parseRunRow(row: typeof scheduleRuns.$inferSelect): ScheduleRun {
   return {
     id: row.id,
     jobId: row.jobId,

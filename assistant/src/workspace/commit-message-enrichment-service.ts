@@ -174,13 +174,25 @@ export class CommitEnrichmentService {
   private async executeJob(job: InternalJob): Promise<void> {
     job.attempts++;
 
+    const controller = new AbortController();
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
-      // Race the enrichment work against a timeout
+      // Race the enrichment work against a timeout.
+      // When the timeout wins, controller.abort() kills in-progress work,
+      // causing doEnrichment to reject with an AbortError. Since Promise.race
+      // has already settled with the timeout error, that rejection is orphaned.
+      // The .catch() swallows it to prevent an unhandled promise rejection.
+      const enrichmentPromise = this.doEnrichment(job, controller.signal);
+      enrichmentPromise.catch(() => {
+        // Intentionally swallowed — the timeout branch already handled the error
+      });
       await Promise.race([
-        this.doEnrichment(job),
+        enrichmentPromise,
         new Promise<never>((_, reject) => {
-          timeoutHandle = setTimeout(() => reject(new Error('Enrichment job timed out')), this.jobTimeoutMs);
+          timeoutHandle = setTimeout(() => {
+            controller.abort();
+            reject(new Error('Enrichment job timed out'));
+          }, this.jobTimeoutMs);
         }),
       ]);
       this.succeededCount++;
@@ -189,6 +201,7 @@ export class CommitEnrichmentService {
         'Enrichment job completed',
       );
     } catch (err) {
+      controller.abort();
       const isTimeout = err instanceof Error && err.message === 'Enrichment job timed out';
       if (job.attempts <= this.maxRetries) {
         // Exponential backoff: 1s, 2s, 4s, ...
@@ -228,8 +241,13 @@ export class CommitEnrichmentService {
    * Currently a no-op placeholder that writes a scaffold JSON note
    * to prove the plumbing works. Future: call LLM to generate a
    * rich commit description and write it as a git note.
+   *
+   * Accepts an AbortSignal so callers (e.g. timeout) can cancel
+   * in-progress work and prevent zombie enrichment jobs.
    */
-  private async doEnrichment(job: InternalJob): Promise<void> {
+  private async doEnrichment(job: InternalJob, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return;
+
     const note = JSON.stringify({
       enriched: true,
       trigger: job.context.trigger,
@@ -239,7 +257,8 @@ export class CommitEnrichmentService {
       turnNumber: job.context.turnNumber,
     });
 
-    await job.gitService.writeNote(job.commitHash, note);
+    if (signal?.aborted) return;
+    await job.gitService.writeNote(job.commitHash, note, signal);
   }
 }
 

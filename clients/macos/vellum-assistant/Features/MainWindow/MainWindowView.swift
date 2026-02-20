@@ -359,22 +359,20 @@ struct MainWindowView: View {
                 VStack(spacing: 0) {
                     // Top bar (always visible, above sidebar)
                     HStack(spacing: 0) {
-                        VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true) {
+                        VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true, tooltip: sidebarOpen ? "Hide sidebar" : "Show sidebar") {
                             withAnimation(.easeInOut(duration: 0.35)) {
                                 sidebarOpen.toggle()
                             }
                         }
-                        .help(sidebarOpen ? "Hide sidebar" : "Show sidebar")
                         if !sidebarOpen,
-                           let vm = threadManager.activeViewModel,
-                           threadManager.activeThread?.kind == .private
-                            || vm.messages.contains(where: { $0.role == .user }) {
+                           !windowState.isShowingChat
+                            || threadManager.activeThread?.kind == .private
+                            || threadManager.activeViewModel?.messages.contains(where: { $0.role == .user }) == true {
                             Spacer().frame(width: VSpacing.xs)
-                            VIconButton(label: "New Chat", icon: "plus.circle", iconOnly: true) {
+                            VIconButton(label: "New Chat", icon: "plus.circle", iconOnly: true, tooltip: "New chat") {
                                 windowState.selection = nil
                                 threadManager.createThread()
                             }
-                            .help("New chat")
                         }
                         Spacer()
                         if windowState.isShowingChat {
@@ -413,9 +411,9 @@ struct MainWindowView: View {
 
                             TemporaryChatToggle(
                                 isActive: threadManager.activeThread?.kind == .private,
+                                tooltip: threadManager.activeThread?.kind == .private ? "Exit temporary chat" : "Temporary chat",
                                 onToggle: { toggleTemporaryChat() }
                             )
-                            .help(threadManager.activeThread?.kind == .private ? "Exit temporary chat" : "Temporary chat")
                         }
                     }
                     .padding(.leading, trafficLightPadding)
@@ -480,10 +478,6 @@ struct MainWindowView: View {
                     // Control center drawer rendered at top level so it floats above all content
                     if showControlCenterDrawer {
                         DrawerMenuView(
-                            onTaskQueue: {
-                                showControlCenterDrawer = false
-                                (NSApp.delegate as? AppDelegate)?.showTasksWindow()
-                            },
                             onSettings: {
                                 showControlCenterDrawer = false
                                 windowState.togglePanel(.settings)
@@ -582,6 +576,8 @@ struct MainWindowView: View {
             if case .panel(.identity) = windowState.selection {
                 windowState.selection = nil
             }
+            // Clear subagent detail panel on thread switch
+            windowState.selectedSubagentId = nil
             // Clear stale activeSurfaceId on the old thread and sync the new one
             if let oldId {
                 threadManager.clearActiveSurface(threadId: oldId)
@@ -695,7 +691,7 @@ struct MainWindowView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.md)
-            .padding(.trailing, VSpacing.sm)
+            .padding(.trailing, isHovered ? (VSpacing.xs + 20 + VSpacing.xs + 20 + VSpacing.xs) : VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
             .background {
                 if isSelected || isHovered {
@@ -1156,14 +1152,12 @@ private struct ControlCenterRow: View {
 }
 
 private struct DrawerMenuView: View {
-    let onTaskQueue: () -> Void
     let onSettings: () -> Void
     let onDebug: () -> Void
     let onDoctor: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DrawerMenuItem(icon: "list.bullet.clipboard", label: "Tasks", action: onTaskQueue)
             DrawerMenuItem(icon: "gearshape", label: "Settings", action: onSettings)
 
             VColor.surfaceBorder.frame(height: 1)
@@ -1216,5 +1210,3 @@ private struct DrawerMenuItem: View {
         }
     }
 }
-
-

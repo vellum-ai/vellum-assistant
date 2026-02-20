@@ -184,7 +184,6 @@ export function initializeDb(): void {
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS attachments (
       id TEXT PRIMARY KEY,
-      assistant_id TEXT NOT NULL,
       original_filename TEXT NOT NULL,
       mime_type TEXT NOT NULL,
       size_bytes INTEGER NOT NULL,
@@ -223,7 +222,6 @@ export function initializeDb(): void {
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS channel_inbound_events (
       id TEXT PRIMARY KEY,
-      assistant_id TEXT NOT NULL,
       source_channel TEXT NOT NULL,
       external_chat_id TEXT NOT NULL,
       external_message_id TEXT NOT NULL,
@@ -232,18 +230,18 @@ export function initializeDb(): void {
       delivery_status TEXT NOT NULL DEFAULT 'pending',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      UNIQUE (assistant_id, source_channel, external_chat_id, external_message_id)
+      UNIQUE (source_channel, external_chat_id, external_message_id)
     )
   `);
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS message_runs (
       id TEXT PRIMARY KEY,
-      assistant_id TEXT NOT NULL,
       conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
       status TEXT NOT NULL DEFAULT 'running',
       pending_confirmation TEXT,
+      pending_secret TEXT,
       input_tokens INTEGER NOT NULL DEFAULT 0,
       output_tokens INTEGER NOT NULL DEFAULT 0,
       estimated_cost REAL NOT NULL DEFAULT 0,
@@ -252,6 +250,8 @@ export function initializeDb(): void {
       updated_at INTEGER NOT NULL
     )
   `);
+
+  try { database.run(/*sql*/ `ALTER TABLE message_runs ADD COLUMN pending_secret TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE message_runs ADD COLUMN pending_secret (likely already exists)'); }
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS reminders (
@@ -421,7 +421,6 @@ export function initializeDb(): void {
     CREATE TABLE IF NOT EXISTS llm_usage_events (
       id TEXT PRIMARY KEY,
       created_at INTEGER NOT NULL,
-      assistant_id TEXT,
       conversation_id TEXT,
       run_id TEXT,
       request_id TEXT,
@@ -507,11 +506,9 @@ export function initializeDb(): void {
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS conversation_keys (
       id TEXT PRIMARY KEY,
-      assistant_id TEXT NOT NULL,
-      conversation_key TEXT NOT NULL,
+      conversation_key TEXT NOT NULL UNIQUE,
       conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-      created_at INTEGER NOT NULL,
-      UNIQUE (assistant_id, conversation_key)
+      created_at INTEGER NOT NULL
     )
   `);
 
@@ -544,6 +541,7 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN memory_scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE attachments ADD COLUMN thumbnail_base64 TEXT`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE cron_jobs ADD COLUMN schedule_syntax TEXT NOT NULL DEFAULT 'cron'`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE messages ADD COLUMN metadata TEXT`); } catch { /* already exists */ }
 
   migrateJobDeferrals(database);
   migrateToolInvocationsFk(database);
@@ -551,6 +549,8 @@ export function initializeDb(): void {
   migrateMemoryItemsFingerprintScopeUnique(database);
   migrateMemoryItemsScopeSaltedFingerprints(database);
   migrateAssistantIdToSelf(database);
+  migrateRemoveAssistantIdColumns(database);
+  migrateLlmUsageEventsDropAssistantId(database);
 
   // Indexes for query performance on large datasets
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_request_logs_conv_created ON llm_request_logs(conversation_id, created_at)`);
@@ -591,17 +591,16 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_segments_scope_id ON memory_segments(scope_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_scope_id ON memory_items(scope_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_summaries_scope_id ON memory_summaries(scope_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversation_keys_assistant_key ON conversation_keys(assistant_id, conversation_key)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_attachments_assistant_id ON attachments(assistant_id)`);
-  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_content_dedup ON attachments(assistant_id, content_hash) WHERE content_hash IS NOT NULL`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversation_keys_key ON conversation_keys(conversation_key)`);
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_content_dedup ON attachments(content_hash) WHERE content_hash IS NOT NULL`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_attachments_message_id ON message_attachments(message_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment_id ON message_attachments(attachment_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_lookup ON channel_inbound_events(assistant_id, source_channel, external_chat_id, external_message_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_lookup ON channel_inbound_events(source_channel, external_chat_id, external_message_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_conversation ON channel_inbound_events(conversation_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_source_msg ON channel_inbound_events(assistant_id, source_channel, external_chat_id, source_message_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_source_msg ON channel_inbound_events(source_channel, external_chat_id, source_message_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_processing_retry ON channel_inbound_events(processing_status, retry_after)`);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_runs_assistant_status ON message_runs(assistant_id, status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_runs_status ON message_runs(status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_runs_conversation ON message_runs(conversation_id)`);
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_reminders_status_fire_at ON reminders(status, fire_at)`);
@@ -614,7 +613,6 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status)`);
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_created_at ON llm_usage_events(created_at)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_assistant_id ON llm_usage_events(assistant_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_provider ON llm_usage_events(provider)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_model ON llm_usage_events(model)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_usage_events_actor ON llm_usage_events(actor)`);
@@ -753,6 +751,9 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_processed_callbacks_dedupe_key ON processed_callbacks(dedupe_key)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_processed_callbacks_call_session_id ON processed_callbacks(call_session_id)`);
 
+  // Add claim ownership token to prevent cross-handler claim interference
+  try { database.run(/*sql*/ `ALTER TABLE processed_callbacks ADD COLUMN claim_id TEXT`); } catch { /* already exists */ }
+
   // Unique constraint: at most one non-null provider_call_sid per (provider, provider_call_sid).
   // On upgraded databases that pre-date this constraint, duplicate rows may exist; deduplicate
   // them first to avoid a UNIQUE constraint failure that would prevent startup.
@@ -846,6 +847,9 @@ export function initializeDb(): void {
       updated_at INTEGER NOT NULL
     )
   `);
+
+  // Work item run contract snapshot
+  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN required_tools TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE work_items ADD COLUMN required_tools (likely already exists)'); }
 
   // Work item permission preflight columns
   try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approved_tools TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE work_items ADD COLUMN approved_tools (likely already exists)'); }
@@ -1217,119 +1221,162 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
   ).get(checkpointKey);
   if (checkpoint) return;
 
+  // On fresh installs the tables are created without assistant_id (PR 7+). Skip the
+  // migration if NONE of the four affected tables have the column — pre-seed the
+  // checkpoint so subsequent startups are also skipped. Checking all four (not just
+  // conversation_keys) avoids a false negative on very old installs where
+  // conversation_keys may not exist yet but other tables still carry assistant_id data.
+  const affectedTables = ['conversation_keys', 'attachments', 'channel_inbound_events', 'message_runs'];
+  const anyHasAssistantId = affectedTables.some((tbl) => {
+    const ddl = raw.query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`,
+    ).get(tbl) as { sql: string } | null;
+    return ddl?.sql.includes('assistant_id') ?? false;
+  });
+  if (!anyHasAssistantId) {
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+    return;
+  }
+
+  // Helper: returns true if the given table's current DDL contains 'assistant_id'.
+  const tableHasAssistantId = (tbl: string): boolean => {
+    const ddl = raw.query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`,
+    ).get(tbl) as { sql: string } | null;
+    return ddl?.sql.includes('assistant_id') ?? false;
+  };
+
   try {
     raw.exec('BEGIN');
 
+    // Each section is guarded so that SQL referencing assistant_id is only executed
+    // when the column still exists in that table. This handles mixed-schema states
+    // (e.g., very old installs where some tables may already lack the column).
+
     // conversation_keys: UNIQUE (assistant_id, conversation_key)
-    //
-    // Step 1: Among non-self rows, keep only one per conversation_key so the
-    //         bulk UPDATE cannot hit a (non-self-A, key) + (non-self-B, key) collision.
-    raw.exec(/*sql*/ `
-      DELETE FROM conversation_keys
-      WHERE assistant_id != 'self'
-        AND rowid NOT IN (
-          SELECT MIN(rowid) FROM conversation_keys
-          WHERE assistant_id != 'self'
-          GROUP BY conversation_key
-        )
-    `);
-    // Step 2: For 'self' rows that have a non-self counterpart with the same
-    //         conversation_key, update the 'self' row to use the non-self row's
-    //         conversation_id. This preserves the historical conversation (which
-    //         has the message history from before the route change) rather than
-    //         discarding it in favour of a potentially-empty 'self' conversation.
-    raw.exec(/*sql*/ `
-      UPDATE conversation_keys
-      SET conversation_id = (
-        SELECT ck_ns.conversation_id
-        FROM conversation_keys ck_ns
-        WHERE ck_ns.assistant_id != 'self'
-          AND ck_ns.conversation_key = conversation_keys.conversation_key
-        ORDER BY ck_ns.rowid
-        LIMIT 1
-      )
-      WHERE assistant_id = 'self'
-        AND EXISTS (
-          SELECT 1 FROM conversation_keys ck_ns
+    if (tableHasAssistantId('conversation_keys')) {
+      // Step 1: Among non-self rows, keep only one per conversation_key so the
+      //         bulk UPDATE cannot hit a (non-self-A, key) + (non-self-B, key) collision.
+      raw.exec(/*sql*/ `
+        DELETE FROM conversation_keys
+        WHERE assistant_id != 'self'
+          AND rowid NOT IN (
+            SELECT MIN(rowid) FROM conversation_keys
+            WHERE assistant_id != 'self'
+            GROUP BY conversation_key
+          )
+      `);
+      // Step 2: For 'self' rows that have a non-self counterpart with the same
+      //         conversation_key, update the 'self' row to use the non-self row's
+      //         conversation_id. This preserves the historical conversation (which
+      //         has the message history from before the route change) rather than
+      //         discarding it in favour of a potentially-empty 'self' conversation.
+      raw.exec(/*sql*/ `
+        UPDATE conversation_keys
+        SET conversation_id = (
+          SELECT ck_ns.conversation_id
+          FROM conversation_keys ck_ns
           WHERE ck_ns.assistant_id != 'self'
             AND ck_ns.conversation_key = conversation_keys.conversation_key
+          ORDER BY ck_ns.rowid
+          LIMIT 1
         )
-    `);
-    // Step 3: Delete the now-redundant non-self rows (their conversation_ids
-    //         have been preserved in the 'self' rows above).
-    raw.exec(/*sql*/ `
-      DELETE FROM conversation_keys
-      WHERE assistant_id != 'self'
-        AND EXISTS (
-          SELECT 1 FROM conversation_keys ck2
-          WHERE ck2.assistant_id = 'self'
-            AND ck2.conversation_key = conversation_keys.conversation_key
-        )
-    `);
-    // Step 4: Remaining non-self rows have no 'self' counterpart — safe to bulk-update.
-    raw.exec(/*sql*/ `
-      UPDATE conversation_keys SET assistant_id = 'self' WHERE assistant_id != 'self'
-    `);
+        WHERE assistant_id = 'self'
+          AND EXISTS (
+            SELECT 1 FROM conversation_keys ck_ns
+            WHERE ck_ns.assistant_id != 'self'
+              AND ck_ns.conversation_key = conversation_keys.conversation_key
+          )
+      `);
+      // Step 3: Delete the now-redundant non-self rows (their conversation_ids
+      //         have been preserved in the 'self' rows above).
+      raw.exec(/*sql*/ `
+        DELETE FROM conversation_keys
+        WHERE assistant_id != 'self'
+          AND EXISTS (
+            SELECT 1 FROM conversation_keys ck2
+            WHERE ck2.assistant_id = 'self'
+              AND ck2.conversation_key = conversation_keys.conversation_key
+          )
+      `);
+      // Step 4: Remaining non-self rows have no 'self' counterpart — safe to bulk-update.
+      raw.exec(/*sql*/ `
+        UPDATE conversation_keys SET assistant_id = 'self' WHERE assistant_id != 'self'
+      `);
+    }
 
     // attachments: UNIQUE (assistant_id, content_hash) WHERE content_hash IS NOT NULL
     //
     // message_attachments rows reference attachment IDs with ON DELETE CASCADE, so we
     // must remap links to the surviving row BEFORE deleting duplicates to avoid
     // silently dropping attachment metadata from messages.
-    //
-    // Step 1: Remap message_attachments from non-self duplicates to their survivor
-    //         (MIN rowid per content_hash group), then delete the duplicates.
-    raw.exec(/*sql*/ `
-      UPDATE message_attachments
-      SET attachment_id = (
-        SELECT a_survivor.id
-        FROM attachments a_survivor
-        WHERE a_survivor.assistant_id != 'self'
-          AND a_survivor.content_hash = (
-            SELECT a_dup.content_hash FROM attachments a_dup
-            WHERE a_dup.id = message_attachments.attachment_id
-          )
-        ORDER BY a_survivor.rowid
-        LIMIT 1
-      )
-      WHERE attachment_id IN (
-        SELECT id FROM attachments
+    if (tableHasAssistantId('attachments')) {
+      // Step 1: Remap message_attachments from non-self duplicates to their survivor
+      //         (MIN rowid per content_hash group), then delete the duplicates.
+      raw.exec(/*sql*/ `
+        UPDATE message_attachments
+        SET attachment_id = (
+          SELECT a_survivor.id
+          FROM attachments a_survivor
+          WHERE a_survivor.assistant_id != 'self'
+            AND a_survivor.content_hash = (
+              SELECT a_dup.content_hash FROM attachments a_dup
+              WHERE a_dup.id = message_attachments.attachment_id
+            )
+          ORDER BY a_survivor.rowid
+          LIMIT 1
+        )
+        WHERE attachment_id IN (
+          SELECT id FROM attachments
+          WHERE assistant_id != 'self'
+            AND content_hash IS NOT NULL
+            AND rowid NOT IN (
+              SELECT MIN(rowid) FROM attachments
+              WHERE assistant_id != 'self' AND content_hash IS NOT NULL
+              GROUP BY content_hash
+            )
+        )
+      `);
+      raw.exec(/*sql*/ `
+        DELETE FROM attachments
         WHERE assistant_id != 'self'
           AND content_hash IS NOT NULL
           AND rowid NOT IN (
             SELECT MIN(rowid) FROM attachments
-            WHERE assistant_id != 'self' AND content_hash IS NOT NULL
+            WHERE assistant_id != 'self'
+              AND content_hash IS NOT NULL
             GROUP BY content_hash
           )
-      )
-    `);
-    raw.exec(/*sql*/ `
-      DELETE FROM attachments
-      WHERE assistant_id != 'self'
-        AND content_hash IS NOT NULL
-        AND rowid NOT IN (
-          SELECT MIN(rowid) FROM attachments
+      `);
+      // Step 2: Remap message_attachments from non-self rows conflicting with a 'self'
+      //         row to the 'self' row, then delete the now-unlinked non-self rows.
+      raw.exec(/*sql*/ `
+        UPDATE message_attachments
+        SET attachment_id = (
+          SELECT a_self.id
+          FROM attachments a_self
+          WHERE a_self.assistant_id = 'self'
+            AND a_self.content_hash = (
+              SELECT a_ns.content_hash FROM attachments a_ns
+              WHERE a_ns.id = message_attachments.attachment_id
+            )
+          LIMIT 1
+        )
+        WHERE attachment_id IN (
+          SELECT id FROM attachments
           WHERE assistant_id != 'self'
             AND content_hash IS NOT NULL
-          GROUP BY content_hash
+            AND EXISTS (
+              SELECT 1 FROM attachments a2
+              WHERE a2.assistant_id = 'self'
+                AND a2.content_hash = attachments.content_hash
+            )
         )
-    `);
-    // Step 2: Remap message_attachments from non-self rows conflicting with a 'self'
-    //         row to the 'self' row, then delete the now-unlinked non-self rows.
-    raw.exec(/*sql*/ `
-      UPDATE message_attachments
-      SET attachment_id = (
-        SELECT a_self.id
-        FROM attachments a_self
-        WHERE a_self.assistant_id = 'self'
-          AND a_self.content_hash = (
-            SELECT a_ns.content_hash FROM attachments a_ns
-            WHERE a_ns.id = message_attachments.attachment_id
-          )
-        LIMIT 1
-      )
-      WHERE attachment_id IN (
-        SELECT id FROM attachments
+      `);
+      raw.exec(/*sql*/ `
+        DELETE FROM attachments
         WHERE assistant_id != 'self'
           AND content_hash IS NOT NULL
           AND EXISTS (
@@ -1337,55 +1384,49 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
             WHERE a2.assistant_id = 'self'
               AND a2.content_hash = attachments.content_hash
           )
-      )
-    `);
-    raw.exec(/*sql*/ `
-      DELETE FROM attachments
-      WHERE assistant_id != 'self'
-        AND content_hash IS NOT NULL
-        AND EXISTS (
-          SELECT 1 FROM attachments a2
-          WHERE a2.assistant_id = 'self'
-            AND a2.content_hash = attachments.content_hash
-        )
-    `);
-    // Step 3: Bulk-update remaining non-self rows.
-    raw.exec(/*sql*/ `
-      UPDATE attachments SET assistant_id = 'self' WHERE assistant_id != 'self'
-    `);
+      `);
+      // Step 3: Bulk-update remaining non-self rows.
+      raw.exec(/*sql*/ `
+        UPDATE attachments SET assistant_id = 'self' WHERE assistant_id != 'self'
+      `);
+    }
 
     // channel_inbound_events: UNIQUE (assistant_id, source_channel, external_chat_id, external_message_id)
-    // Step 1: Dedup non-self rows sharing the same (source_channel, external_chat_id, external_message_id).
-    raw.exec(/*sql*/ `
-      DELETE FROM channel_inbound_events
-      WHERE assistant_id != 'self'
-        AND rowid NOT IN (
-          SELECT MIN(rowid) FROM channel_inbound_events
-          WHERE assistant_id != 'self'
-          GROUP BY source_channel, external_chat_id, external_message_id
-        )
-    `);
-    // Step 2: Delete non-self rows conflicting with existing 'self' rows.
-    raw.exec(/*sql*/ `
-      DELETE FROM channel_inbound_events
-      WHERE assistant_id != 'self'
-        AND EXISTS (
-          SELECT 1 FROM channel_inbound_events e2
-          WHERE e2.assistant_id = 'self'
-            AND e2.source_channel = channel_inbound_events.source_channel
-            AND e2.external_chat_id = channel_inbound_events.external_chat_id
-            AND e2.external_message_id = channel_inbound_events.external_message_id
-        )
-    `);
-    // Step 3: Bulk-update remaining non-self rows.
-    raw.exec(/*sql*/ `
-      UPDATE channel_inbound_events SET assistant_id = 'self' WHERE assistant_id != 'self'
-    `);
+    if (tableHasAssistantId('channel_inbound_events')) {
+      // Step 1: Dedup non-self rows sharing the same (source_channel, external_chat_id, external_message_id).
+      raw.exec(/*sql*/ `
+        DELETE FROM channel_inbound_events
+        WHERE assistant_id != 'self'
+          AND rowid NOT IN (
+            SELECT MIN(rowid) FROM channel_inbound_events
+            WHERE assistant_id != 'self'
+            GROUP BY source_channel, external_chat_id, external_message_id
+          )
+      `);
+      // Step 2: Delete non-self rows conflicting with existing 'self' rows.
+      raw.exec(/*sql*/ `
+        DELETE FROM channel_inbound_events
+        WHERE assistant_id != 'self'
+          AND EXISTS (
+            SELECT 1 FROM channel_inbound_events e2
+            WHERE e2.assistant_id = 'self'
+              AND e2.source_channel = channel_inbound_events.source_channel
+              AND e2.external_chat_id = channel_inbound_events.external_chat_id
+              AND e2.external_message_id = channel_inbound_events.external_message_id
+          )
+      `);
+      // Step 3: Bulk-update remaining non-self rows.
+      raw.exec(/*sql*/ `
+        UPDATE channel_inbound_events SET assistant_id = 'self' WHERE assistant_id != 'self'
+      `);
+    }
 
     // message_runs: no unique constraint on assistant_id — simple bulk update
-    raw.exec(/*sql*/ `
-      UPDATE message_runs SET assistant_id = 'self' WHERE assistant_id != 'self'
-    `);
+    if (tableHasAssistantId('message_runs')) {
+      raw.exec(/*sql*/ `
+        UPDATE message_runs SET assistant_id = 'self' WHERE assistant_id != 'self'
+      `);
+    }
 
     raw.query(
       `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
@@ -1395,6 +1436,295 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
   } catch (e) {
     try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
     throw e;
+  }
+}
+
+/**
+ * One-shot migration: rebuild tables that previously stored assistant_id to remove
+ * that column now that all rows are keyed to the implicit single-tenant identity ("self").
+ *
+ * Must run AFTER migrateAssistantIdToSelf (which normalises all values to "self")
+ * so there are no constraint violations when recreating the tables without the
+ * assistant_id dimension.
+ *
+ * Each table section is guarded by a DDL check so this is safe on fresh installs
+ * where the column was never created in the first place.
+ *
+ * Tables rebuilt:
+ *   - conversation_keys       UNIQUE (conversation_key)
+ *   - attachments             no structural unique; content-dedup index updated
+ *   - channel_inbound_events  UNIQUE (source_channel, external_chat_id, external_message_id)
+ *   - message_runs            no unique constraint on assistant_id
+ *   - llm_usage_events        nullable column with no constraint
+ */
+function migrateRemoveAssistantIdColumns(database: ReturnType<typeof drizzle<typeof schema>>): void {
+  const raw = (database as unknown as { $client: Database }).$client;
+  const checkpointKey = 'migration_remove_assistant_id_columns_v1';
+  const checkpoint = raw.query(
+    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
+  ).get(checkpointKey);
+  if (checkpoint) return;
+
+  raw.exec('PRAGMA foreign_keys = OFF');
+  try {
+    raw.exec('BEGIN');
+
+    // --- conversation_keys ---
+    const ckDdl = raw.query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'conversation_keys'`,
+    ).get() as { sql: string } | null;
+    if (ckDdl?.sql.includes('assistant_id')) {
+      raw.exec(/*sql*/ `
+        CREATE TABLE conversation_keys_new (
+          id TEXT PRIMARY KEY,
+          conversation_key TEXT NOT NULL UNIQUE,
+          conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+          created_at INTEGER NOT NULL
+        )
+      `);
+      raw.exec(/*sql*/ `
+        INSERT INTO conversation_keys_new (id, conversation_key, conversation_id, created_at)
+        SELECT id, conversation_key, conversation_id, created_at FROM conversation_keys
+      `);
+      raw.exec(/*sql*/ `DROP TABLE conversation_keys`);
+      raw.exec(/*sql*/ `ALTER TABLE conversation_keys_new RENAME TO conversation_keys`);
+    }
+
+    // --- attachments ---
+    const attDdl = raw.query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'attachments'`,
+    ).get() as { sql: string } | null;
+    if (attDdl?.sql.includes('assistant_id')) {
+      raw.exec(/*sql*/ `
+        CREATE TABLE attachments_new (
+          id TEXT PRIMARY KEY,
+          original_filename TEXT NOT NULL,
+          mime_type TEXT NOT NULL,
+          size_bytes INTEGER NOT NULL,
+          kind TEXT NOT NULL,
+          data_base64 TEXT NOT NULL,
+          content_hash TEXT,
+          thumbnail_base64 TEXT,
+          created_at INTEGER NOT NULL
+        )
+      `);
+      raw.exec(/*sql*/ `
+        INSERT INTO attachments_new (id, original_filename, mime_type, size_bytes, kind, data_base64, content_hash, thumbnail_base64, created_at)
+        SELECT id, original_filename, mime_type, size_bytes, kind, data_base64, content_hash, thumbnail_base64, created_at FROM attachments
+      `);
+      raw.exec(/*sql*/ `DROP TABLE attachments`);
+      raw.exec(/*sql*/ `ALTER TABLE attachments_new RENAME TO attachments`);
+    }
+
+    // --- channel_inbound_events ---
+    const cieDdl = raw.query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'channel_inbound_events'`,
+    ).get() as { sql: string } | null;
+    if (cieDdl?.sql.includes('assistant_id')) {
+      raw.exec(/*sql*/ `
+        CREATE TABLE channel_inbound_events_new (
+          id TEXT PRIMARY KEY,
+          source_channel TEXT NOT NULL,
+          external_chat_id TEXT NOT NULL,
+          external_message_id TEXT NOT NULL,
+          source_message_id TEXT,
+          conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+          message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
+          delivery_status TEXT NOT NULL DEFAULT 'pending',
+          processing_status TEXT NOT NULL DEFAULT 'pending',
+          processing_attempts INTEGER NOT NULL DEFAULT 0,
+          last_processing_error TEXT,
+          retry_after INTEGER,
+          raw_payload TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE (source_channel, external_chat_id, external_message_id)
+        )
+      `);
+      raw.exec(/*sql*/ `
+        INSERT INTO channel_inbound_events_new (
+          id, source_channel, external_chat_id, external_message_id, source_message_id,
+          conversation_id, message_id, delivery_status, processing_status,
+          processing_attempts, last_processing_error, retry_after, raw_payload,
+          created_at, updated_at
+        )
+        SELECT
+          id, source_channel, external_chat_id, external_message_id, source_message_id,
+          conversation_id, message_id, delivery_status, processing_status,
+          processing_attempts, last_processing_error, retry_after, raw_payload,
+          created_at, updated_at
+        FROM channel_inbound_events
+      `);
+      raw.exec(/*sql*/ `DROP TABLE channel_inbound_events`);
+      raw.exec(/*sql*/ `ALTER TABLE channel_inbound_events_new RENAME TO channel_inbound_events`);
+    }
+
+    // --- message_runs ---
+    const mrDdl = raw.query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'message_runs'`,
+    ).get() as { sql: string } | null;
+    if (mrDdl?.sql.includes('assistant_id')) {
+      raw.exec(/*sql*/ `
+        CREATE TABLE message_runs_new (
+          id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+          message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
+          status TEXT NOT NULL DEFAULT 'running',
+          pending_confirmation TEXT,
+          input_tokens INTEGER NOT NULL DEFAULT 0,
+          output_tokens INTEGER NOT NULL DEFAULT 0,
+          estimated_cost REAL NOT NULL DEFAULT 0,
+          error TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `);
+      raw.exec(/*sql*/ `
+        INSERT INTO message_runs_new (
+          id, conversation_id, message_id, status, pending_confirmation,
+          input_tokens, output_tokens, estimated_cost, error, created_at, updated_at
+        )
+        SELECT
+          id, conversation_id, message_id, status, pending_confirmation,
+          input_tokens, output_tokens, estimated_cost, error, created_at, updated_at
+        FROM message_runs
+      `);
+      raw.exec(/*sql*/ `DROP TABLE message_runs`);
+      raw.exec(/*sql*/ `ALTER TABLE message_runs_new RENAME TO message_runs`);
+    }
+
+    // --- llm_usage_events ---
+    const lueDdl = raw.query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'llm_usage_events'`,
+    ).get() as { sql: string } | null;
+    if (lueDdl?.sql.includes('assistant_id')) {
+      raw.exec(/*sql*/ `
+        CREATE TABLE llm_usage_events_new (
+          id TEXT PRIMARY KEY,
+          created_at INTEGER NOT NULL,
+          conversation_id TEXT,
+          run_id TEXT,
+          request_id TEXT,
+          actor TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          model TEXT NOT NULL,
+          input_tokens INTEGER NOT NULL,
+          output_tokens INTEGER NOT NULL,
+          cache_creation_input_tokens INTEGER,
+          cache_read_input_tokens INTEGER,
+          estimated_cost_usd REAL,
+          pricing_status TEXT NOT NULL,
+          metadata_json TEXT
+        )
+      `);
+      raw.exec(/*sql*/ `
+        INSERT INTO llm_usage_events_new (
+          id, created_at, conversation_id, run_id, request_id, actor, provider, model,
+          input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+          estimated_cost_usd, pricing_status, metadata_json
+        )
+        SELECT
+          id, created_at, conversation_id, run_id, request_id, actor, provider, model,
+          input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+          estimated_cost_usd, pricing_status, metadata_json
+        FROM llm_usage_events
+      `);
+      raw.exec(/*sql*/ `DROP TABLE llm_usage_events`);
+      raw.exec(/*sql*/ `ALTER TABLE llm_usage_events_new RENAME TO llm_usage_events`);
+    }
+
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+
+    raw.exec('COMMIT');
+  } catch (e) {
+    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    throw e;
+  } finally {
+    raw.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+/**
+ * One-shot migration: rebuild llm_usage_events to drop the assistant_id column.
+ *
+ * This is a SEPARATE migration from migrateRemoveAssistantIdColumns so that installs
+ * where the 4-table version of that migration already ran (checkpoint already set)
+ * still get the llm_usage_events column removed. Without a separate checkpoint key,
+ * those installs would skip the llm_usage_events rebuild entirely.
+ *
+ * Safe on fresh installs (DDL guard exits early) and idempotent via checkpoint.
+ */
+function migrateLlmUsageEventsDropAssistantId(database: ReturnType<typeof drizzle<typeof schema>>): void {
+  const raw = (database as unknown as { $client: Database }).$client;
+  const checkpointKey = 'migration_remove_assistant_id_lue_v1';
+  const checkpoint = raw.query(
+    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
+  ).get(checkpointKey);
+  if (checkpoint) return;
+
+  // DDL guard: if the column was already removed (fresh install or migrateRemoveAssistantIdColumns
+  // ran with the llm_usage_events block), just record the checkpoint and exit.
+  const lueDdl = raw.query(
+    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'llm_usage_events'`,
+  ).get() as { sql: string } | null;
+
+  if (!lueDdl?.sql.includes('assistant_id')) {
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+    return;
+  }
+
+  raw.exec('PRAGMA foreign_keys = OFF');
+  try {
+    raw.exec('BEGIN');
+
+    raw.exec(/*sql*/ `
+      CREATE TABLE llm_usage_events_new (
+        id TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL,
+        conversation_id TEXT,
+        run_id TEXT,
+        request_id TEXT,
+        actor TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        input_tokens INTEGER NOT NULL,
+        output_tokens INTEGER NOT NULL,
+        cache_creation_input_tokens INTEGER,
+        cache_read_input_tokens INTEGER,
+        estimated_cost_usd REAL,
+        pricing_status TEXT NOT NULL,
+        metadata_json TEXT
+      )
+    `);
+    raw.exec(/*sql*/ `
+      INSERT INTO llm_usage_events_new (
+        id, created_at, conversation_id, run_id, request_id, actor, provider, model,
+        input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+        estimated_cost_usd, pricing_status, metadata_json
+      )
+      SELECT
+        id, created_at, conversation_id, run_id, request_id, actor, provider, model,
+        input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+        estimated_cost_usd, pricing_status, metadata_json
+      FROM llm_usage_events
+    `);
+    raw.exec(/*sql*/ `DROP TABLE llm_usage_events`);
+    raw.exec(/*sql*/ `ALTER TABLE llm_usage_events_new RENAME TO llm_usage_events`);
+
+    raw.query(
+      `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+    ).run(checkpointKey, Date.now());
+
+    raw.exec('COMMIT');
+  } catch (e) {
+    try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
+    throw e;
+  } finally {
+    raw.exec('PRAGMA foreign_keys = ON');
   }
 }
 
@@ -1456,3 +1786,4 @@ function migrateCallSessionsProviderSidDedup(database: ReturnType<typeof drizzle
     throw e;
   }
 }
+

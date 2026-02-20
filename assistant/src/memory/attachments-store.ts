@@ -197,7 +197,6 @@ export function uploadAttachment(
 
   const record = {
     id: uuid(),
-    assistantId: 'self',
     originalFilename: filename,
     mimeType,
     sizeBytes,

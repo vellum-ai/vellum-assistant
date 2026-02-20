@@ -96,13 +96,13 @@ enum TasksTableContract {
     static func statusStyle(for status: WorkItemStatus) -> StatusStyle {
         switch status {
         case .queued:          return StatusStyle(label: "Queued",    color: VColor.textSecondary)
-        case .running:         return StatusStyle(label: "Running",   color: VColor.warning)
-        case .awaitingReview:  return StatusStyle(label: "Awaiting Review", color: VColor.accent)
-        case .failed:          return StatusStyle(label: "Failed",    color: VColor.error)
-        case .cancelled:       return StatusStyle(label: "Cancelled", color: VColor.textMuted)
-        case .done:            return StatusStyle(label: "Done",      color: VColor.success)
-        case .archived:        return StatusStyle(label: "Archived",  color: VColor.textMuted)
-        case .unknown(let raw): return StatusStyle(label: raw,        color: VColor.textMuted)
+        case .running:         return StatusStyle(label: "Running",   color: VColor.textSecondary)
+        case .awaitingReview:  return StatusStyle(label: "Awaiting Review", color: VColor.textSecondary)
+        case .failed:          return StatusStyle(label: "Failed",    color: VColor.textSecondary)
+        case .cancelled:       return StatusStyle(label: "Cancelled", color: VColor.textSecondary)
+        case .done:            return StatusStyle(label: "Done",      color: VColor.textSecondary)
+        case .archived:        return StatusStyle(label: "Archived",  color: VColor.textSecondary)
+        case .unknown(let raw): return StatusStyle(label: raw,        color: VColor.textSecondary)
         }
     }
 }

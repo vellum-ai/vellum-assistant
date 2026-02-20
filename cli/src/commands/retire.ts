@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { rmSync } from "fs";
+import { existsSync, readFileSync, rmSync, unlinkSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -34,30 +34,68 @@ function extractHostFromUrl(url: string): string {
 async function retireLocal(): Promise<void> {
   console.log("\u{1F5D1}\ufe0f  Stopping local daemon...\n");
 
-  try {
-    const child = spawn("bunx", ["vellum", "daemon", "stop"], {
-      stdio: "inherit",
-    });
-
-    await new Promise<void>((resolve) => {
-      child.on("close", () => resolve());
-      child.on("error", () => resolve());
-    });
-  } catch {}
-
-  try {
-    const killGateway = spawn("pkill", ["-f", "gateway/src/index.ts"], {
-      stdio: "ignore",
-    });
-
-    await new Promise<void>((resolve) => {
-      killGateway.on("close", () => resolve());
-      killGateway.on("error", () => resolve());
-    });
-  } catch {}
-
   const vellumDir = join(homedir(), ".vellum");
-  rmSync(vellumDir, { recursive: true, force: true });
+  const isDesktopApp = !!process.env.VELLUM_DESKTOP_APP;
+
+  // Stop daemon via PID file (works for both desktop app and standalone)
+  const pidFile = join(vellumDir, "vellum.pid");
+  const socketFile = join(vellumDir, "vellum.sock");
+
+  if (existsSync(pidFile)) {
+    try {
+      const pid = parseInt(readFileSync(pidFile, "utf-8").trim(), 10);
+      if (!isNaN(pid)) {
+        try {
+          process.kill(pid, 0); // Check if alive
+          process.kill(pid, "SIGTERM");
+          const deadline = Date.now() + 2000;
+          while (Date.now() < deadline) {
+            try {
+              process.kill(pid, 0);
+              await new Promise((r) => setTimeout(r, 100));
+            } catch {
+              break;
+            }
+          }
+          try {
+            process.kill(pid, 0);
+            process.kill(pid, "SIGKILL");
+          } catch {}
+        } catch {}
+      }
+    } catch {}
+    try { unlinkSync(pidFile); } catch {}
+    try { unlinkSync(socketFile); } catch {}
+  }
+
+  if (!isDesktopApp) {
+    // Non-desktop: also stop daemon via bunx (fallback) and kill gateway
+    try {
+      const child = spawn("bunx", ["vellum", "daemon", "stop"], {
+        stdio: "inherit",
+      });
+
+      await new Promise<void>((resolve) => {
+        child.on("close", () => resolve());
+        child.on("error", () => resolve());
+      });
+    } catch {}
+
+    try {
+      const killGateway = spawn("pkill", ["-f", "gateway/src/index.ts"], {
+        stdio: "ignore",
+      });
+
+      await new Promise<void>((resolve) => {
+        killGateway.on("close", () => resolve());
+        killGateway.on("error", () => resolve());
+      });
+    } catch {}
+
+    // Only delete ~/.vellum in non-desktop mode
+    rmSync(vellumDir, { recursive: true, force: true });
+  }
+
   console.log("\u2705 Local instance retired.");
 }
 

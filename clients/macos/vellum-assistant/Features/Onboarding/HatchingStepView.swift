@@ -6,7 +6,7 @@ import SwiftUI
 struct HatchingStepView: View {
     @Bindable var state: OnboardingState
 
-    @State private var cliLauncher = CLILauncher()
+    @State private var assistantCli = AssistantCli()
     @State private var showContent = false
     @State private var eggWobble = false
     @State private var eggCracked = false
@@ -249,8 +249,9 @@ struct HatchingStepView: View {
 
     private func startHatching() {
         let apiKey = APIKeyManager.getKey() ?? ""
+        let selectedModel = state.selectedModel
 
-        let config = CLILauncher.RemoteHatchConfig(
+        let config = AssistantCli.RemoteHatchConfig(
             remote: state.cloudProvider,
             gcpProjectId: state.gcpProjectId,
             gcpZone: state.gcpZone,
@@ -262,9 +263,9 @@ struct HatchingStepView: View {
             anthropicApiKey: apiKey
         )
 
-        Task.detached { [config] in
+        Task.detached { [config, selectedModel] in
             do {
-                try await cliLauncher.runRemoteHatch(config: config) { line in
+                try await assistantCli.runRemoteHatch(config: config) { line in
                     Task { @MainActor in
                         state.hatchLogLines.append(line)
                         if !eggCracked && state.hatchLogLines.count > 3 {
@@ -274,6 +275,41 @@ struct HatchingStepView: View {
                         }
                     }
                 }
+
+                let lockfilePath = FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent(".vellum.lock.json").path
+                if let data = FileManager.default.contents(atPath: lockfilePath),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let assistants = json["assistants"] as? [[String: Any]] {
+                    let isoFormatter = ISO8601DateFormatter()
+                    isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    let sorted = assistants.sorted { a, b in
+                        let dateA = (a["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
+                        let dateB = (b["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
+                        return dateA > dateB
+                    }
+                    if let latest = sorted.first,
+                       let assistantId = latest["assistantId"] as? String {
+                        UserDefaults.standard.set(assistantId, forKey: "connectedAssistantId")
+
+                        var homeConfig: [String: Any] = [:]
+                        if let cloud = latest["cloud"] as? String { homeConfig["cloud"] = cloud }
+                        if let runtimeUrl = latest["runtimeUrl"] as? String { homeConfig["runtimeUrl"] = runtimeUrl }
+                        if let project = latest["project"] as? String { homeConfig["project"] = project }
+                        if let region = latest["region"] as? String { homeConfig["region"] = region }
+                        if let zone = latest["zone"] as? String { homeConfig["zone"] = zone }
+                        if let instanceId = latest["instanceId"] as? String { homeConfig["instanceId"] = instanceId }
+
+                        let existing = WorkspaceConfigIO.read()
+                        var assistantConfig = existing["assistant"] as? [String: Any] ?? [:]
+                        assistantConfig["id"] = assistantId
+                        assistantConfig["home"] = homeConfig
+                        try? WorkspaceConfigIO.merge(["assistant": assistantConfig])
+                    }
+                }
+
+                try? WorkspaceConfigIO.merge(["model": selectedModel])
+
                 await MainActor.run {
                     state.hatchCompleted = true
                 }

@@ -5,6 +5,9 @@ import { executeSubagentSpawn } from '../tools/subagent/spawn.js';
 import { executeSubagentStatus } from '../tools/subagent/status.js';
 import { executeSubagentAbort } from '../tools/subagent/abort.js';
 import { executeSubagentMessage } from '../tools/subagent/message.js';
+import { executeSubagentRead } from '../tools/subagent/read.js';
+import { SubagentManager } from '../subagent/manager.js';
+import type { SubagentState } from '../subagent/types.js';
 
 // Load tool definitions from the bundled skill TOOLS.json
 const toolsJson = JSON.parse(
@@ -109,5 +112,107 @@ describe('Subagent tool execute validation', () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('required');
+  });
+});
+
+// ── Ownership validation tests ──────────────────────────────────────
+
+/**
+ * Inject a fake subagent into the singleton manager so tool executors
+ * can find it. Uses the same private-internals trick as the notify tests.
+ */
+function injectSubagent(
+  manager: SubagentManager,
+  subagentId: string,
+  parentSessionId: string,
+  status: SubagentState['status'] = 'running',
+): void {
+  const internals = manager as unknown as {
+    subagents: Map<string, { session: unknown; state: SubagentState; parentSendToClient: () => void }>;
+    parentToChildren: Map<string, Set<string>>;
+  };
+  const state: SubagentState = {
+    config: { id: subagentId, parentSessionId, label: 'Test', objective: 'test' },
+    status,
+    conversationId: `conv-${subagentId}`,
+    createdAt: Date.now(),
+    usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+  };
+  const fakeSession = {
+    abort: () => {},
+    dispose: () => {},
+    messages: [],
+    sendToClient: () => {},
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+  };
+  internals.subagents.set(subagentId, { session: fakeSession, state, parentSendToClient: () => {} });
+  if (!internals.parentToChildren.has(parentSessionId)) {
+    internals.parentToChildren.set(parentSessionId, new Set());
+  }
+  internals.parentToChildren.get(parentSessionId)!.add(subagentId);
+}
+
+import { getSubagentManager } from '../subagent/index.js';
+
+describe('Subagent tool ownership validation', () => {
+  const ownerSession = 'owner-sess';
+  const otherSession = 'other-sess';
+  const subagentId = 'owned-sub-1';
+
+  // Inject once — all tests share this subagent.
+  const manager = getSubagentManager();
+  injectSubagent(manager, subagentId, ownerSession);
+
+  test('status rejects non-owner session', async () => {
+    const result = await executeSubagentStatus(
+      { subagent_id: subagentId },
+      { workingDir: '/tmp', sessionId: otherSession, conversationId: 'conv-1' },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('No subagent found');
+  });
+
+  test('status succeeds for owner session', async () => {
+    const result = await executeSubagentStatus(
+      { subagent_id: subagentId },
+      { workingDir: '/tmp', sessionId: ownerSession, conversationId: 'conv-1' },
+    );
+    expect(result.isError).toBe(false);
+  });
+
+  test('message rejects non-owner session', async () => {
+    const result = await executeSubagentMessage(
+      { subagent_id: subagentId, content: 'hello' },
+      { workingDir: '/tmp', sessionId: otherSession, conversationId: 'conv-1' },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Could not send');
+  });
+
+  test('read rejects non-owner session', async () => {
+    const result = await executeSubagentRead(
+      { subagent_id: subagentId },
+      { workingDir: '/tmp', sessionId: otherSession, conversationId: 'conv-1' },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('No subagent found');
+  });
+
+  test('abort rejects non-owner session', async () => {
+    const result = await executeSubagentAbort(
+      { subagent_id: subagentId },
+      { workingDir: '/tmp', sessionId: otherSession, conversationId: 'conv-1' },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Could not abort');
+  });
+
+  test('abort succeeds for owner session', async () => {
+    const result = await executeSubagentAbort(
+      { subagent_id: subagentId },
+      { workingDir: '/tmp', sessionId: ownerSession, conversationId: 'conv-1' },
+    );
+    // Abort succeeds (subagent was running)
+    expect(result.isError).toBe(false);
   });
 });

@@ -96,7 +96,6 @@ export function getOrCreateConversation(
     tx.insert(conversationKeys)
       .values({
         id: uuid(),
-        assistantId: 'self',
         conversationKey,
         conversationId,
         createdAt: now,

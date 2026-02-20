@@ -6,7 +6,7 @@
  */
 
 import { getLogger } from '../util/logger.js';
-import { DENIED_NUMBERS } from './call-constants.js';
+import { isDeniedNumber } from './call-constants.js';
 import {
   createCallSession,
   getCallSession,
@@ -20,6 +20,8 @@ import { getCallOrchestrator, unregisterCallOrchestrator } from './call-state.js
 import { activeRelayConnections } from './relay-server.js';
 import { TwilioConversationRelayProvider } from './twilio-provider.js';
 import { getTwilioConfig } from './twilio-config.js';
+import { getTwilioVoiceWebhookUrl, getTwilioStatusCallbackUrl } from '../inbound/public-ingress-urls.js';
+import { loadConfig } from '../config/loader.js';
 import type { CallSession } from './types.js';
 
 const log = getLogger('call-domain');
@@ -81,20 +83,21 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
     return { ok: false, error: 'task is required and must be a non-empty string', status: 400 };
   }
 
-  if (DENIED_NUMBERS.has(phoneNumber)) {
+  if (isDeniedNumber(phoneNumber)) {
     return { ok: false, error: 'This phone number is not allowed to be called', status: 403 };
   }
 
   let sessionId: string | null = null;
 
   try {
-    const config = getTwilioConfig();
+    const twilioConfig = getTwilioConfig();
+    const ingressConfig = loadConfig();
     const provider = new TwilioConversationRelayProvider();
 
     const session = createCallSession({
       conversationId,
       provider: 'twilio',
-      fromNumber: config.phoneNumber,
+      fromNumber: twilioConfig.phoneNumber,
       toNumber: phoneNumber,
       task: callContext ? `${task}\n\nContext: ${callContext}` : task,
     });
@@ -102,12 +105,11 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
 
     log.info({ callSessionId: session.id, to: phoneNumber, task }, 'Initiating outbound call');
 
-    const baseUrl = config.webhookBaseUrl.replace(/\/$/, '');
     const { callSid } = await provider.initiateCall({
-      from: config.phoneNumber,
+      from: twilioConfig.phoneNumber,
       to: phoneNumber,
-      webhookUrl: `${baseUrl}/webhooks/twilio/voice?callSessionId=${session.id}`,
-      statusCallbackUrl: `${baseUrl}/webhooks/twilio/status`,
+      webhookUrl: getTwilioVoiceWebhookUrl(ingressConfig, session.id),
+      statusCallbackUrl: getTwilioStatusCallbackUrl(ingressConfig),
     });
 
     updateCallSession(session.id, { providerCallSid: callSid });

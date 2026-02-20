@@ -1,0 +1,403 @@
+import { describe, test, expect, mock, beforeEach, afterAll } from "bun:test";
+import type { GatewayConfig } from "../config.js";
+import {
+  createTwilioRelayWebsocketHandler,
+  getRelayWebsocketHandlers,
+} from "../http/routes/twilio-relay-websocket.js";
+
+// ---------------------------------------------------------------------------
+// Preserve WebSocket readyState constants so mocking the constructor
+// does not clobber the static values the source code compares against.
+// ---------------------------------------------------------------------------
+const WS_CONNECTING = WebSocket.CONNECTING; // 0
+const WS_OPEN = WebSocket.OPEN;             // 1
+const WS_CLOSED = WebSocket.CLOSED;         // 3
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const makeConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
+  telegramBotToken: "tok",
+  telegramWebhookSecret: "wh-ver",
+  telegramApiBaseUrl: "https://api.telegram.org",
+  assistantRuntimeBaseUrl: "http://localhost:7821",
+  routingEntries: [],
+  defaultAssistantId: undefined,
+  unmappedPolicy: "reject",
+  port: 7830,
+  runtimeBearerToken: undefined,
+  runtimeProxyEnabled: false,
+  runtimeProxyRequireAuth: true,
+  runtimeProxyBearerToken: undefined,
+  shutdownDrainMs: 5000,
+  runtimeTimeoutMs: 30000,
+  runtimeMaxRetries: 2,
+  runtimeInitialBackoffMs: 500,
+  telegramInitialBackoffMs: 1000,
+  telegramMaxRetries: 3,
+  telegramTimeoutMs: 15000,
+  maxWebhookPayloadBytes: 1048576,
+  logFile: { dir: undefined, retentionDays: 30 },
+  maxAttachmentBytes: 20971520,
+  maxAttachmentConcurrency: 3,
+  twilioAuthToken: undefined,
+  ingressPublicBaseUrl: undefined,
+  publicUrl: undefined,
+  ...overrides,
+});
+
+/**
+ * Lightweight fake that mimics a Bun ServerWebSocket for the relay handler.
+ * Tracks sent messages, close calls, and exposes `.data` for handler use.
+ */
+function createFakeDownstreamWs(data: Record<string, unknown> = {}) {
+  const sent: (string | Uint8Array)[] = [];
+  const closes: { code: number; reason: string }[] = [];
+  return {
+    data,
+    sent,
+    closes,
+    send: mock((msg: string | Uint8Array) => {
+      sent.push(msg);
+    }),
+    close: mock((code?: number, reason?: string) => {
+      closes.push({ code: code ?? 1000, reason: reason ?? "" });
+    }),
+  };
+}
+
+/**
+ * Minimal fake WebSocket that stores addEventListener listeners so tests
+ * can fire events synchronously, and tracks send / close calls.
+ */
+function createFakeUpstreamWs() {
+  const listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
+  const sent: unknown[] = [];
+  const closes: { code?: number; reason?: string }[] = [];
+  return {
+    readyState: WS_CONNECTING,
+    sent,
+    closes,
+    listeners,
+    addEventListener: mock((event: string, cb: (...args: unknown[]) => void) => {
+      (listeners[event] ??= []).push(cb);
+    }),
+    send: mock((msg: unknown) => {
+      sent.push(msg);
+    }),
+    close: mock((code?: number, reason?: string) => {
+      closes.push({ code, reason });
+    }),
+    /** Simulate firing an event on this fake socket. */
+    emit(event: string, detail: unknown = {}) {
+      for (const cb of listeners[event] ?? []) {
+        cb(detail);
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Upgrade handler tests
+// ---------------------------------------------------------------------------
+
+describe("createTwilioRelayWebsocketHandler", () => {
+  test("returns 400 when callSessionId is missing", () => {
+    const handler = createTwilioRelayWebsocketHandler(makeConfig());
+    const req = new Request("http://localhost:7830/ws/twilio/relay");
+    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server;
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(400);
+    expect(fakeServer.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("calls server.upgrade with callSessionId and config on valid request", () => {
+    const config = makeConfig();
+    const handler = createTwilioRelayWebsocketHandler(config);
+    const req = new Request(
+      "http://localhost:7830/ws/twilio/relay?callSessionId=sess-42",
+    );
+    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server;
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeUndefined();
+    expect(fakeServer.upgrade).toHaveBeenCalledTimes(1);
+
+    const call = (fakeServer.upgrade as ReturnType<typeof mock>).mock.calls[0] as unknown[];
+    // First arg is the request, second is { data: ... }
+    expect(call[0]).toBe(req);
+    const upgradeData = (call[1] as { data: { callSessionId: string; config: GatewayConfig } }).data;
+    expect(upgradeData.callSessionId).toBe("sess-42");
+    expect(upgradeData.config).toBe(config);
+  });
+
+  test("returns 500 when server.upgrade fails", () => {
+    const handler = createTwilioRelayWebsocketHandler(makeConfig());
+    const req = new Request(
+      "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",
+    );
+    const fakeServer = { upgrade: mock(() => false) } as unknown as import("bun").Server;
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WebSocket handler tests
+// ---------------------------------------------------------------------------
+
+describe("getRelayWebsocketHandlers", () => {
+  const OriginalWebSocket = globalThis.WebSocket;
+  let fakeUpstream: ReturnType<typeof createFakeUpstreamWs>;
+  let handlers: ReturnType<typeof getRelayWebsocketHandlers>;
+
+  beforeEach(() => {
+    fakeUpstream = createFakeUpstreamWs();
+    // Replace global WebSocket constructor so `open` handler creates our fake.
+    // Copy static readyState constants so the source code's comparisons
+    // against WebSocket.OPEN / WebSocket.CONNECTING work correctly.
+    const MockWS = mock(() => fakeUpstream);
+    Object.assign(MockWS, {
+      CONNECTING: WS_CONNECTING,
+      OPEN: WS_OPEN,
+      CLOSING: 2,
+      CLOSED: WS_CLOSED,
+    });
+    globalThis.WebSocket = MockWS as unknown as typeof WebSocket;
+    handlers = getRelayWebsocketHandlers();
+  });
+
+  // Restore after each file-level describe to avoid leaking
+  afterAll(() => {
+    globalThis.WebSocket = OriginalWebSocket;
+  });
+
+  // --- open handler ---------------------------------------------------------
+
+  test("open initializes pendingMessages buffer", () => {
+    const ws = createFakeDownstreamWs({
+      callSessionId: "sess-1",
+      config: makeConfig(),
+    });
+    handlers.open(ws as never);
+
+    expect(ws.data.pendingMessages).toEqual([]);
+  });
+
+  test("open creates upstream WebSocket to correct URL", () => {
+    const config = makeConfig({ assistantRuntimeBaseUrl: "http://runtime:8000" });
+    const ws = createFakeDownstreamWs({
+      callSessionId: "s&id=1",
+      config,
+    });
+    handlers.open(ws as never);
+
+    const ctorCall = (globalThis.WebSocket as ReturnType<typeof mock>).mock.calls[0] as unknown[];
+    const url = ctorCall[0] as string;
+    expect(url).toBe("ws://runtime:8000/v1/calls/relay?callSessionId=s%26id%3D1");
+  });
+
+  // --- message buffering before upstream open --------------------------------
+
+  test("buffers downstream messages while upstream is CONNECTING", () => {
+    const ws = createFakeDownstreamWs({
+      callSessionId: "sess-1",
+      config: makeConfig(),
+    });
+    handlers.open(ws as never);
+
+    // Upstream is still CONNECTING
+    fakeUpstream.readyState = WS_CONNECTING;
+
+    handlers.message(ws as never, "msg-1");
+    handlers.message(ws as never, "msg-2");
+
+    expect(ws.data.pendingMessages).toEqual(["msg-1", "msg-2"]);
+    expect(fakeUpstream.sent).toHaveLength(0);
+  });
+
+  test("flushes buffered messages on upstream open", () => {
+    const ws = createFakeDownstreamWs({
+      callSessionId: "sess-1",
+      config: makeConfig(),
+    });
+    handlers.open(ws as never);
+
+    // Buffer a couple of messages while CONNECTING
+    handlers.message(ws as never, "msg-a");
+    handlers.message(ws as never, "msg-b");
+
+    // Simulate upstream open event
+    fakeUpstream.readyState = WS_OPEN;
+    fakeUpstream.emit("open");
+
+    // Buffered messages should have been flushed to upstream
+    expect(fakeUpstream.sent).toEqual(["msg-a", "msg-b"]);
+    // Buffer should be cleared
+    expect(ws.data.pendingMessages).toBeUndefined();
+  });
+
+  test("forwards downstream messages directly when upstream is OPEN", () => {
+    const ws = createFakeDownstreamWs({
+      callSessionId: "sess-1",
+      config: makeConfig(),
+    });
+    handlers.open(ws as never);
+
+    // Mark upstream as OPEN
+    fakeUpstream.readyState = WS_OPEN;
+    fakeUpstream.emit("open");
+
+    handlers.message(ws as never, "direct-msg");
+
+    // The message after flush: 0 buffered before open, so sent has just the direct one
+    // After open, pendingMessages is undefined, so message handler sends directly
+    expect(fakeUpstream.sent).toContain("direct-msg");
+  });
+
+  // --- buffer overflow -------------------------------------------------------
+
+  test("closes downstream with 1008 on buffer overflow", () => {
+    const ws = createFakeDownstreamWs({
+      callSessionId: "sess-1",
+      config: makeConfig(),
+    });
+    handlers.open(ws as never);
+
+    // Fill the buffer to capacity (MAX_PENDING_MESSAGES = 100)
+    for (let i = 0; i < 100; i++) {
+      handlers.message(ws as never, `msg-${i}`);
+    }
+
+    // One more should trigger overflow
+    handlers.message(ws as never, "overflow");
+
+    expect(ws.closes).toHaveLength(1);
+    expect(ws.closes[0].code).toBe(1008);
+    expect(ws.closes[0].reason).toBe("Buffer overflow");
+  });
+
+  // --- downstream close while upstream is CONNECTING -------------------------
+
+  test("downstream close while upstream is CONNECTING closes upstream and clears buffer", () => {
+    const ws = createFakeDownstreamWs({
+      callSessionId: "sess-1",
+      config: makeConfig(),
+    });
+    handlers.open(ws as never);
+
+    // Buffer some messages
+    handlers.message(ws as never, "pending-1");
+
+    // Downstream closes before upstream opens
+    fakeUpstream.readyState = WS_CONNECTING;
+    handlers.close(ws as never, 1000, "client gone");
+
+    // Buffer should be cleared
+    expect(ws.data.pendingMessages).toBeUndefined();
+    // Upstream should be closed
+    expect(fakeUpstream.closes).toHaveLength(1);
+    expect(fakeUpstream.closes[0].code).toBe(1000);
+    expect(fakeUpstream.closes[0].reason).toBe("client gone");
+  });
+
+  // --- upstream close propagation --------------------------------------------
+
+  test("upstream close event propagates to downstream close", () => {
+    const ws = createFakeDownstreamWs({
+      callSessionId: "sess-1",
+      config: makeConfig(),
+    });
+    handlers.open(ws as never);
+
+    fakeUpstream.emit("close", { code: 1001, reason: "going away" });
+
+    expect(ws.closes).toHaveLength(1);
+    expect(ws.closes[0].code).toBe(1001);
+    expect(ws.closes[0].reason).toBe("going away");
+  });
+
+  // --- upstream error propagation --------------------------------------------
+
+  test("upstream error event closes downstream with 1011", () => {
+    const ws = createFakeDownstreamWs({
+      callSessionId: "sess-1",
+      config: makeConfig(),
+    });
+    handlers.open(ws as never);
+
+    fakeUpstream.emit("error", new Event("error"));
+
+    expect(ws.closes).toHaveLength(1);
+    expect(ws.closes[0].code).toBe(1011);
+    expect(ws.closes[0].reason).toBe("Upstream error");
+  });
+
+  // --- upstream message forwarding -------------------------------------------
+
+  test("upstream message is forwarded to downstream (string)", () => {
+    const ws = createFakeDownstreamWs({
+      callSessionId: "sess-1",
+      config: makeConfig(),
+    });
+    handlers.open(ws as never);
+
+    fakeUpstream.emit("message", { data: "hello from runtime" });
+
+    expect(ws.sent).toHaveLength(1);
+    expect(ws.sent[0]).toBe("hello from runtime");
+  });
+
+  test("upstream binary message is forwarded to downstream as Uint8Array", () => {
+    const ws = createFakeDownstreamWs({
+      callSessionId: "sess-1",
+      config: makeConfig(),
+    });
+    handlers.open(ws as never);
+
+    const buf = new ArrayBuffer(4);
+    fakeUpstream.emit("message", { data: buf });
+
+    expect(ws.sent).toHaveLength(1);
+    expect(ws.sent[0]).toBeInstanceOf(Uint8Array);
+  });
+
+  // --- downstream close with OPEN upstream -----------------------------------
+
+  test("downstream close with OPEN upstream closes upstream", () => {
+    const ws = createFakeDownstreamWs({
+      callSessionId: "sess-1",
+      config: makeConfig(),
+    });
+    handlers.open(ws as never);
+
+    fakeUpstream.readyState = WS_OPEN;
+
+    handlers.close(ws as never, 1000, "normal");
+
+    expect(fakeUpstream.closes).toHaveLength(1);
+    expect(fakeUpstream.closes[0].code).toBe(1000);
+    expect(fakeUpstream.closes[0].reason).toBe("normal");
+  });
+
+  // --- downstream close with already-closed upstream -------------------------
+
+  test("downstream close does not call upstream.close when upstream is already CLOSED", () => {
+    const ws = createFakeDownstreamWs({
+      callSessionId: "sess-1",
+      config: makeConfig(),
+    });
+    handlers.open(ws as never);
+
+    fakeUpstream.readyState = WS_CLOSED;
+
+    handlers.close(ws as never, 1000, "done");
+
+    expect(fakeUpstream.closes).toHaveLength(0);
+  });
+});

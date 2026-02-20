@@ -1,15 +1,15 @@
 import { GATEWAY_PORT } from "../lib/constants";
 import { buildOpenclawRuntimeServer } from "../lib/openclaw-runtime-server";
 
-export function buildOpenclawStartupScript(
+export async function buildOpenclawStartupScript(
   bearerToken: string,
   sshUser: string,
   anthropicApiKey: string,
   timestampRedirect: string,
   userSetup: string,
   ownershipFixup: string,
-): string {
-  const runtimeServer = buildOpenclawRuntimeServer();
+): Promise<string> {
+  const runtimeServer = await buildOpenclawRuntimeServer();
 
   return `#!/bin/bash
 set -e

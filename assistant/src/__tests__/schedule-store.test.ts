@@ -26,7 +26,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import {
   createSchedule,
   getSchedule,
@@ -42,6 +42,7 @@ function getRawDb(): import('bun:sqlite').Database {
 }
 
 afterAll(() => {
+  resetDb();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
 
@@ -155,6 +156,135 @@ describe('createSchedule (RRULE)', () => {
   });
 });
 
+// ── RRULE set expressions (RDATE, EXDATE, multi-RRULE) ──────────────
+
+describe('createSchedule (RRULE set)', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run('DELETE FROM cron_runs');
+    db.run('DELETE FROM cron_jobs');
+  });
+
+  test('creates schedule with RRULE + EXDATE set expression', () => {
+    const expression = [
+      'DTSTART:20250101T090000Z',
+      'RRULE:FREQ=DAILY;INTERVAL=1',
+      'EXDATE:20250102T090000Z',
+    ].join('\n');
+
+    const job = createSchedule({
+      name: 'Daily with exclusion',
+      cronExpression: expression,
+      message: 'set test',
+      syntax: 'rrule',
+      expression,
+    });
+
+    expect(job.syntax).toBe('rrule');
+    expect(job.expression).toContain('EXDATE');
+    expect(job.nextRunAt).toBeGreaterThan(0);
+  });
+
+  test('creates schedule with RRULE + RDATE set expression', () => {
+    const expression = [
+      'DTSTART:20250101T090000Z',
+      'RRULE:FREQ=WEEKLY;BYDAY=MO',
+      'RDATE:20250115T090000Z',
+    ].join('\n');
+
+    const job = createSchedule({
+      name: 'Weekly with extra dates',
+      cronExpression: expression,
+      message: 'rdate test',
+      syntax: 'rrule',
+      expression,
+    });
+
+    expect(job.syntax).toBe('rrule');
+    expect(job.expression).toContain('RDATE');
+  });
+
+  test('preserves full set expression text in DB without collapsing', () => {
+    const expression = [
+      'DTSTART:20250101T090000Z',
+      'RRULE:FREQ=DAILY;INTERVAL=1',
+      'EXDATE:20250102T090000Z',
+      'EXDATE:20250103T090000Z',
+    ].join('\n');
+
+    const job = createSchedule({
+      name: 'Multi-EXDATE',
+      cronExpression: expression,
+      message: 'preserve test',
+      syntax: 'rrule',
+      expression,
+    });
+
+    const raw = getRawDb().query('SELECT cron_expression FROM cron_jobs WHERE id = ?').get(job.id) as { cron_expression: string };
+    // The full expression including all EXDATE lines should be stored
+    expect(raw.cron_expression).toContain('EXDATE:20250102T090000Z');
+    expect(raw.cron_expression).toContain('EXDATE:20250103T090000Z');
+  });
+
+  test('retrieved set schedule matches what was stored', () => {
+    const expression = [
+      'DTSTART:20250101T090000Z',
+      'RRULE:FREQ=DAILY;INTERVAL=1',
+      'EXDATE:20250105T090000Z',
+    ].join('\n');
+
+    const job = createSchedule({
+      name: 'Retrieve set',
+      cronExpression: expression,
+      message: 'retrieve test',
+      syntax: 'rrule',
+      expression,
+    });
+
+    const retrieved = getSchedule(job.id);
+    expect(retrieved).not.toBeNull();
+    expect(retrieved!.syntax).toBe('rrule');
+    expect(retrieved!.expression).toBe(expression);
+    expect(retrieved!.expression).toContain('EXDATE');
+  });
+});
+
+// ── claimDueSchedules with RRULE sets ────────────────────────────────
+
+describe('claimDueSchedules (RRULE set)', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run('DELETE FROM cron_runs');
+    db.run('DELETE FROM cron_jobs');
+  });
+
+  test('claims RRULE set schedule and correctly advances nextRunAt past exclusions', () => {
+    const expression = [
+      'DTSTART:20250101T000000Z',
+      'RRULE:FREQ=MINUTELY;INTERVAL=1',
+      'EXDATE:20250101T000100Z',
+    ].join('\n');
+
+    const job = createSchedule({
+      name: 'Claim set test',
+      cronExpression: expression,
+      message: 'claim set',
+      syntax: 'rrule',
+      expression,
+    });
+
+    // Force due
+    getRawDb().run('UPDATE cron_jobs SET next_run_at = ? WHERE id = ?', [Date.now() - 1000, job.id]);
+
+    const now = Date.now();
+    const claimed = claimDueSchedules(now);
+    expect(claimed.length).toBe(1);
+    expect(claimed[0].syntax).toBe('rrule');
+    // nextRunAt should advance to a future time
+    expect(claimed[0].nextRunAt).toBeGreaterThanOrEqual(now);
+  });
+});
+
 // ── updateSchedule with syntax/expression ────────────────────────────
 
 describe('updateSchedule', () => {
@@ -202,6 +332,31 @@ describe('updateSchedule', () => {
     // Confirm DB has the right syntax
     const raw = getRawDb().query('SELECT schedule_syntax FROM cron_jobs WHERE id = ?').get(job.id) as { schedule_syntax: string } | null;
     expect(raw!.schedule_syntax).toBe('rrule');
+  });
+
+  test('updating to RRULE set expression preserves full text', () => {
+    const job = createSchedule({
+      name: 'Update to set',
+      cronExpression: '0 9 * * *',
+      message: 'update to set',
+    });
+
+    const setExpr = [
+      'DTSTART:20250101T090000Z',
+      'RRULE:FREQ=DAILY;INTERVAL=1',
+      'EXDATE:20250102T090000Z',
+    ].join('\n');
+
+    const updated = updateSchedule(job.id, {
+      syntax: 'rrule',
+      expression: setExpr,
+    });
+
+    expect(updated).not.toBeNull();
+    expect(updated!.syntax).toBe('rrule');
+    expect(updated!.expression).toBe(setExpr);
+    expect(updated!.expression).toContain('EXDATE');
+    expect(updated!.nextRunAt).toBeGreaterThan(0);
   });
 
   test('rejects invalid expression on update', () => {
@@ -277,6 +432,35 @@ describe('claimDueSchedules', () => {
 
     const claimed = claimDueSchedules(0); // timestamp 0 means nothing is due
     expect(claimed.length).toBe(0);
+  });
+
+  test('claims exhausted RRULE schedule and disables it', () => {
+    // COUNT=1 means only one occurrence — the DTSTART itself
+    const rrule = 'DTSTART:20250101T000000Z\nRRULE:FREQ=DAILY;COUNT=1';
+    const job = createSchedule({
+      name: 'Finite RRULE',
+      cronExpression: rrule,
+      message: 'one-shot',
+      syntax: 'rrule',
+      expression: rrule,
+    });
+
+    // Force the schedule to be due (past the only occurrence)
+    getRawDb().run('UPDATE cron_jobs SET next_run_at = ? WHERE id = ?', [Date.now() - 1000, job.id]);
+
+    const claimed = claimDueSchedules(Date.now());
+    expect(claimed.length).toBe(1);
+    expect(claimed[0].id).toBe(job.id);
+    expect(claimed[0].enabled).toBe(false);
+    expect(claimed[0].nextRunAt).toBe(0);
+
+    // Verify the schedule is disabled in the DB
+    const persisted = getSchedule(job.id);
+    expect(persisted!.enabled).toBe(false);
+
+    // A subsequent claim should not pick it up
+    const again = claimDueSchedules(Date.now());
+    expect(again.length).toBe(0);
   });
 
   test('optimistic lock prevents double-claiming', () => {

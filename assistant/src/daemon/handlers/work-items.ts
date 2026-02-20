@@ -2,7 +2,6 @@ import * as net from 'node:net';
 import type {
   WorkItemsListRequest,
   WorkItemGetRequest,
-  WorkItemCreateRequest,
   WorkItemUpdateRequest,
   WorkItemCompleteRequest,
   WorkItemDeleteRequest,
@@ -11,12 +10,10 @@ import type {
   WorkItemPreflightRequest,
   WorkItemApprovePermissionsRequest,
   WorkItemCancelRequest,
-  WorkItemRenderRequest,
 } from '../ipc-protocol.js';
-import { log, type HandlerContext, type DispatchMap } from './shared.js';
+import { log, defineHandlers, type HandlerContext } from './shared.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import {
-  createWorkItem,
   deleteWorkItem,
   getWorkItem,
   listWorkItems,
@@ -24,10 +21,11 @@ import {
   type WorkItemStatus,
 } from '../../work-items/work-item-store.js';
 import { getTask, getTaskRun } from '../../tasks/task-store.js';
-import { runTask, renderTemplate } from '../../tasks/task-runner.js';
+import { runTask } from '../../tasks/task-runner.js';
 import { getMessages } from '../../memory/conversation-store.js';
 import { classifyRisk, check } from '../../permissions/checker.js';
 import { truncate } from '../../util/truncate.js';
+import { sanitizeToolList, getRegisteredToolNames, getToolDescription } from '../../tasks/tool-sanitizer.js';
 
 export function handleWorkItemsList(
   msg: WorkItemsListRequest,
@@ -45,45 +43,6 @@ export function handleWorkItemGet(
 ): void {
   const item = getWorkItem(msg.id) ?? null;
   ctx.send(socket, { type: 'work_item_get_response', item });
-}
-
-export function handleWorkItemCreate(
-  msg: WorkItemCreateRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const task = getTask(msg.taskId);
-  if (!task) {
-    ctx.send(socket, { type: 'error', message: `Task not found: ${msg.taskId}` });
-    return;
-  }
-  const item = createWorkItem({
-    taskId: msg.taskId,
-    title: msg.title ?? task.title,
-    notes: msg.notes,
-    priorityTier: msg.priorityTier,
-    sortIndex: msg.sortIndex,
-  });
-
-  // Bundle the task's required tools as pre-approved permissions so the
-  // run-time preflight check can be skipped — the user implicitly approves
-  // these tools by adding the task to their queue.
-  const requiredTools: string[] = task.requiredTools ? JSON.parse(task.requiredTools) : [];
-  if (requiredTools.length > 0) {
-    updateWorkItem(item.id, {
-      approvedTools: JSON.stringify(requiredTools),
-      approvalStatus: 'approved',
-    });
-    // Reflect the update in the response
-    item.approvedTools = JSON.stringify(requiredTools);
-    item.approvalStatus = 'approved';
-  }
-
-  ctx.send(socket, { type: 'work_item_create_response', item });
-
-  // Notify all connected clients so open Task Queue views refresh immediately
-  broadcastWorkItemStatus(ctx, item.id);
-  ctx.broadcast({ type: 'tasks_changed' });
 }
 
 export function handleWorkItemUpdate(
@@ -189,6 +148,107 @@ function broadcastWorkItemStatus(ctx: HandlerContext, id: string): void {
   }
 }
 
+/** Extract plain text from a message content string (handles JSON content block arrays). */
+function extractTextFromContent(content: string): string {
+  try {
+    const parsed = JSON.parse(content);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((b: { type: string }) => b.type === 'text')
+        .map((b: { text: string }) => b.text)
+        .join('\n');
+    }
+  } catch {
+    // Plain text content — use as-is
+  }
+  return content;
+}
+
+/** Extract tool_result blocks from a user message's content. */
+function extractToolResults(content: string): Array<{ tool_use_id: string; content: string; is_error?: boolean }> {
+  try {
+    const parsed = JSON.parse(content);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((b: { type: string }) => b.type === 'tool_result')
+        .map((b: { tool_use_id: string; content?: string | Array<{ type: string; text?: string }>; is_error?: boolean }) => {
+          let text = '';
+          if (typeof b.content === 'string') {
+            text = b.content;
+          } else if (Array.isArray(b.content)) {
+            text = b.content
+              .filter((c) => c.type === 'text' && c.text)
+              .map((c) => c.text!)
+              .join('\n');
+          }
+          return { tool_use_id: b.tool_use_id, content: text, is_error: b.is_error };
+        });
+    }
+  } catch {
+    // Not JSON — no tool_result blocks
+  }
+  return [];
+}
+
+/**
+ * Build highlights from tool outcomes in the conversation. Scans for
+ * tool_use (assistant) and tool_result (user) pairs, extracting concrete
+ * outcomes like errors, file paths, and URLs.
+ */
+function extractToolHighlights(
+  msgs: Array<{ role: string; content: string }>,
+  maxHighlights: number,
+): string[] {
+  const highlights: string[] = [];
+
+  // Build a map of tool_use_id -> tool name from assistant messages
+  const toolNameById = new Map<string, string>();
+  for (const m of msgs) {
+    if (m.role !== 'assistant') continue;
+    try {
+      const parsed = JSON.parse(m.content);
+      if (Array.isArray(parsed)) {
+        for (const block of parsed) {
+          if (block.type === 'tool_use' && block.id && block.name) {
+            toolNameById.set(block.id, block.name);
+          }
+        }
+      }
+    } catch { /* skip */ }
+  }
+
+  // Scan tool_result messages in reverse order (most recent first)
+  for (let i = msgs.length - 1; i >= 0 && highlights.length < maxHighlights; i--) {
+    const m = msgs[i];
+    if (m.role !== 'user') continue;
+
+    const results = extractToolResults(m.content);
+    for (const result of results) {
+      if (highlights.length >= maxHighlights) break;
+
+      const toolName = toolNameById.get(result.tool_use_id) ?? 'tool';
+      const resultText = result.content.trim();
+
+      if (result.is_error) {
+        // Always surface errors
+        const errorSnippet = truncate(resultText, 200, '...');
+        highlights.push(`- ${toolName}: Error — ${errorSnippet}`);
+      } else if (resultText) {
+        // Extract notable signal from successful results: file paths, URLs, or
+        // a short summary of what happened
+        const firstLine = resultText.split('\n')[0].trim();
+        if (firstLine.length > 0 && firstLine.length <= 200) {
+          highlights.push(`- ${toolName}: ${firstLine}`);
+        } else if (firstLine.length > 200) {
+          highlights.push(`- ${toolName}: ${truncate(firstLine, 200, '...')}`);
+        }
+      }
+    }
+  }
+
+  return highlights;
+}
+
 export function handleWorkItemOutput(
   msg: WorkItemOutputRequest,
   socket: net.Socket,
@@ -201,41 +261,50 @@ export function handleWorkItemOutput(
       return;
     }
 
-    // If the work item has never been run, return an error so the client
-    // can show "No output yet" instead of an empty loaded state.
-    if (!workItem.lastRunConversationId) {
+    // Use the task run's conversationId as the authoritative source. This
+    // ensures we read from the actual run's conversation, not stale references
+    // on the work item.
+    let conversationId: string | null = null;
+    let completedAt: number | null = null;
+
+    if (workItem.lastRunId) {
+      const run = getTaskRun(workItem.lastRunId);
+      if (run) {
+        conversationId = run.conversationId;
+        completedAt = run.finishedAt != null ? Math.floor(run.finishedAt / 1000) : null;
+      }
+    }
+
+    // Fall back to the work item's stored conversationId if the run lookup
+    // didn't yield one (e.g. run record was deleted but work item still has
+    // the reference).
+    if (!conversationId) {
+      conversationId = workItem.lastRunConversationId;
+    }
+
+    if (!conversationId) {
       ctx.send(socket, { type: 'work_item_output_response', id: msg.id, success: false, error: 'This task has not been run yet. No output is available.' });
       return;
     }
 
     let summary = '';
-    const highlights: string[] = [];
+    let highlights: string[] = [];
 
-    const msgs = getMessages(workItem.lastRunConversationId);
-    // Find the last assistant message with text content (not tool calls)
+    const msgs = getMessages(conversationId);
+
+    // Find the last assistant message with text content (not tool calls).
+    // Skip messages that are purely about task management rather than
+    // reporting what the run actually did.
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
       if (m.role !== 'assistant') continue;
 
-      let text = m.content;
-      // Content may be JSON array of content blocks — extract text blocks only
-      try {
-        const parsed = JSON.parse(text);
-        if (Array.isArray(parsed)) {
-          text = parsed
-            .filter((b: { type: string }) => b.type === 'text')
-            .map((b: { text: string }) => b.text)
-            .join('\n');
-        }
-      } catch {
-        // Plain text content — use as-is
-      }
-
+      const text = extractTextFromContent(m.content);
       if (!text.trim()) continue;
 
       summary = truncate(text, 2000, '');
 
-      // Extract up to 5 notable lines (bullet points or key findings)
+      // Extract bullet points from the assistant's prose
       const lines = text.split('\n');
       for (const line of lines) {
         const trimmed = line.trim();
@@ -247,12 +316,22 @@ export function handleWorkItemOutput(
       break;
     }
 
-    // Convert finishedAt from milliseconds (Date.now()) to seconds for the
-    // client, which uses Date(timeIntervalSince1970:) expecting seconds.
-    let completedAt: number | null = null;
-    if (workItem.lastRunId) {
-      const run = getTaskRun(workItem.lastRunId);
-      completedAt = run?.finishedAt != null ? Math.floor(run.finishedAt / 1000) : null;
+    // If we didn't get enough highlights from the assistant prose, supplement
+    // with concrete tool outcomes from the conversation.
+    if (highlights.length < 5) {
+      const toolHighlights = extractToolHighlights(msgs, 5 - highlights.length);
+      highlights = [...highlights, ...toolHighlights];
+    }
+
+    // If there's no assistant summary at all, synthesize one from tool results
+    // so the user still sees what happened.
+    if (!summary && msgs.length > 0) {
+      const toolHighlights = extractToolHighlights(msgs, 10);
+      if (toolHighlights.length > 0) {
+        summary = 'Task completed. Tool outcomes:\n' + toolHighlights.join('\n');
+        // Use the tool highlights as the main highlights too
+        highlights = toolHighlights.slice(0, 5);
+      }
     }
 
     ctx.send(socket, {
@@ -263,7 +342,7 @@ export function handleWorkItemOutput(
         title: workItem.title,
         status: workItem.lastRunStatus ?? workItem.status,
         runId: workItem.lastRunId,
-        conversationId: workItem.lastRunConversationId,
+        conversationId,
         completedAt,
         summary,
         highlights,
@@ -303,6 +382,37 @@ export async function handleWorkItemRunTask(
     return;
   }
 
+  // Compute required tools using the same resolution logic as preflight:
+  // work-item snapshot first, then task template, then all registered tools.
+  let requiredTools: string[];
+  if (workItem.requiredTools !== null && workItem.requiredTools !== undefined) {
+    requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
+  } else {
+    requiredTools = task.requiredTools
+      ? sanitizeToolList(JSON.parse(task.requiredTools))
+      : getRegisteredToolNames();
+  }
+
+  // Permission checkpoint: if the task requires tools, verify all have been approved.
+  // Empty required tools means no approvals needed.
+  let approvedTools: string[] | undefined;
+  if (requiredTools.length > 0) {
+    approvedTools = workItem.approvedTools ? JSON.parse(workItem.approvedTools) : undefined;
+    const approvedSet = new Set<string>(approvedTools ?? []);
+    const missingApprovals = requiredTools.filter((t) => !approvedSet.has(t));
+    if (missingApprovals.length > 0) {
+      ctx.send(socket, {
+        type: 'work_item_run_task_response',
+        id: msg.id,
+        lastRunId: '',
+        success: false,
+        error: 'Required tool permissions have not been approved. Run preflight first.',
+        errorCode: 'permission_required',
+      });
+      return;
+    }
+  }
+
   // Set status to running
   updateWorkItem(msg.id, { status: 'running' });
 
@@ -313,34 +423,42 @@ export async function handleWorkItemRunTask(
   broadcastWorkItemStatus(ctx, msg.id);
   ctx.broadcast({ type: 'tasks_changed' });
 
-  // When chatRouted is true, the client handles execution by injecting
-  // the task content into the active chat session. The daemon only
-  // tracks status — it does NOT create a session or run the task.
-  if (msg.chatRouted) {
-    return;
-  }
-
   // Execute task asynchronously — lazily create a session inside the callback
   // using the conversationId provided by runTask, so the session references
   // the conversation that was actually inserted into the database.
+  let session: Awaited<ReturnType<typeof ctx.getOrCreateSession>> | null = null;
   try {
-    let session: Awaited<ReturnType<typeof ctx.getOrCreateSession>> | null = null;
-    // Pass pre-approved tools from the preflight flow if available
-    const approvedTools: string[] | undefined = workItem.approvedTools ? JSON.parse(workItem.approvedTools) : undefined;
     const result = await runTask(
       { taskId: workItem.taskId, workingDir: process.cwd(), approvedTools },
-      async (conversationId, message) => {
+      async (conversationId, message, taskRunId) => {
         if (!session) {
           // Store conversationId on the work item immediately so the cancel
           // handler can locate the session while the task is still running.
           updateWorkItem(msg.id, { lastRunConversationId: conversationId });
           session = await ctx.getOrCreateSession(conversationId);
+
+          // Notify clients so they can create a visible chat thread for this task run
+          ctx.broadcast({
+            type: 'task_run_thread_created',
+            conversationId,
+            workItemId: msg.id,
+            title: workItem.title,
+          });
+          // Wire the taskRunId so the executor can retrieve ephemeral permission rules
+          (session as unknown as { taskRunId?: string }).taskRunId = taskRunId;
+          // Prevent interactive clients from rebinding to this session mid-run
+          (session as unknown as { headlessLock: boolean }).headlessLock = true;
         }
         await session.processMessage(message, [], (event) => {
           ctx.broadcast(event);
         });
       },
     );
+
+    // Release the headless lock now that the task run is done
+    if (session) {
+      (session as unknown as { headlessLock: boolean }).headlessLock = false;
+    }
 
     // Don't overwrite cancelled status — the cancel handler already set it
     const current = getWorkItem(msg.id);
@@ -357,6 +475,10 @@ export async function handleWorkItemRunTask(
     broadcastWorkItemStatus(ctx, msg.id);
     ctx.broadcast({ type: 'tasks_changed' });
   } catch (err) {
+    // Release the headless lock on failure
+    if (session) {
+      (session as unknown as { headlessLock: boolean }).headlessLock = false;
+    }
     log.error({ err, workItemId: msg.id }, 'work_item_run_task failed');
     updateWorkItem(msg.id, {
       status: 'failed',
@@ -367,21 +489,6 @@ export async function handleWorkItemRunTask(
   }
 }
 
-const TOOL_DESCRIPTIONS: Record<string, string> = {
-  bash: 'Execute shell commands',
-  host_bash: 'Execute shell commands on host',
-  file_read: 'Read files',
-  file_write: 'Write files',
-  file_edit: 'Edit files',
-  host_file_read: 'Read host files',
-  host_file_write: 'Write host files',
-  host_file_edit: 'Edit host files',
-  web_fetch: 'Fetch web URLs',
-  web_search: 'Search the web',
-  browser_navigate: 'Navigate browser',
-  network_request: 'Make network requests',
-  skill_load: 'Load skills',
-};
 
 export async function handleWorkItemPreflight(
   msg: WorkItemPreflightRequest,
@@ -394,27 +501,38 @@ export async function handleWorkItemPreflight(
     return;
   }
 
-  // If permissions were already bundled at creation time, skip the
-  // preflight entirely — return empty permissions so the client runs
-  // the task immediately without showing the permission dialog.
-  if (workItem.approvedTools) {
-    const alreadyApproved: string[] = JSON.parse(workItem.approvedTools);
-    if (alreadyApproved.length > 0) {
-      ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: true, permissions: [] });
+  // Compute required tools from the work-item snapshot first; only fall
+  // back to the task template (or all registered tools) when the
+  // snapshot is null.
+  let requiredTools: string[];
+  if (workItem.requiredTools !== null && workItem.requiredTools !== undefined) {
+    requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
+  } else {
+    const task = getTask(workItem.taskId);
+    if (!task) {
+      ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: false, error: `Associated task not found: ${workItem.taskId}` });
       return;
     }
+    requiredTools = task.requiredTools
+      ? sanitizeToolList(JSON.parse(task.requiredTools))
+      : getRegisteredToolNames();
   }
 
-  const task = getTask(workItem.taskId);
-  if (!task) {
-    ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: false, error: `Associated task not found: ${workItem.taskId}` });
-    return;
-  }
-
-  const requiredTools: string[] = task.requiredTools ? JSON.parse(task.requiredTools) : [];
+  // If the work item explicitly requires no tools, skip the dialog.
   if (requiredTools.length === 0) {
     ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: true, permissions: [] });
     return;
+  }
+
+  // If some tools are already approved, only prompt for the missing ones.
+  // When all required tools are covered, skip the dialog entirely.
+  if (workItem.approvedTools) {
+    const approvedSet = new Set<string>(JSON.parse(workItem.approvedTools));
+    requiredTools = requiredTools.filter((t) => !approvedSet.has(t));
+    if (requiredTools.length === 0) {
+      ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: true, permissions: [] });
+      return;
+    }
   }
 
   const workingDir = process.cwd();
@@ -424,7 +542,7 @@ export async function handleWorkItemPreflight(
       const result = await check(tool, {}, workingDir);
       return {
         tool,
-        description: TOOL_DESCRIPTIONS[tool] ?? tool,
+        description: getToolDescription(tool),
         riskLevel: risk.toLowerCase() as 'low' | 'medium' | 'high',
         currentDecision: result.decision as 'allow' | 'deny' | 'prompt',
       };
@@ -445,8 +563,17 @@ export function handleWorkItemApprovePermissions(
     return;
   }
 
+  // Merge newly approved tools with any previously approved ones so reruns
+  // that only need a subset of previously-approved tools don't require
+  // re-approval.
+  const existingApproved: string[] = workItem.approvedTools
+    ? JSON.parse(workItem.approvedTools)
+    : [];
+  const newApproved = sanitizeToolList(msg.approvedTools);
+  const merged = [...new Set([...existingApproved, ...newApproved])];
+
   updateWorkItem(msg.id, {
-    approvedTools: JSON.stringify(msg.approvedTools),
+    approvedTools: JSON.stringify(sanitizeToolList(merged)),
     approvalStatus: 'approved',
   });
 
@@ -474,6 +601,7 @@ export function handleWorkItemCancel(
   if (conversationId) {
     const session = ctx.sessions.get(conversationId);
     if (session) {
+      (session as unknown as { headlessLock: boolean }).headlessLock = false;
       session.abort();
       getSubagentManager().abortAllForParent(conversationId);
     }
@@ -490,31 +618,9 @@ export function handleWorkItemCancel(
   ctx.broadcast({ type: 'tasks_changed' });
 }
 
-export function handleWorkItemRender(
-  msg: WorkItemRenderRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const workItem = getWorkItem(msg.id);
-  if (!workItem) {
-    ctx.send(socket, { type: 'work_item_render_response', id: msg.id, success: false, error: 'Work item not found' });
-    return;
-  }
-
-  const task = getTask(workItem.taskId);
-  if (!task) {
-    ctx.send(socket, { type: 'work_item_render_response', id: msg.id, success: false, error: `Associated task not found: ${workItem.taskId}` });
-    return;
-  }
-
-  const content = renderTemplate(task.template, {});
-  ctx.send(socket, { type: 'work_item_render_response', id: msg.id, success: true, content, title: workItem.title });
-}
-
-export const workItemHandlers: Partial<DispatchMap> = {
+export const workItemHandlers = defineHandlers({
   work_items_list: handleWorkItemsList,
   work_item_get: handleWorkItemGet,
-  work_item_create: handleWorkItemCreate,
   work_item_update: handleWorkItemUpdate,
   work_item_complete: handleWorkItemComplete,
   work_item_delete: handleWorkItemDelete,
@@ -523,5 +629,4 @@ export const workItemHandlers: Partial<DispatchMap> = {
   work_item_preflight: handleWorkItemPreflight,
   work_item_approve_permissions: handleWorkItemApprovePermissions,
   work_item_cancel: handleWorkItemCancel,
-  work_item_render: handleWorkItemRender,
-};
+});

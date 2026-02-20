@@ -35,7 +35,7 @@ mock.module('../memory/jobs-store.js', () => ({
 }));
 
 import type { Database } from 'bun:sqlite';
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import type { ToolContext } from '../tools/types.js';
 import {
   executePlaybookCreate,
@@ -47,6 +47,7 @@ import {
 initializeDb();
 
 afterAll(() => {
+  resetDb();
   try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
 });
 

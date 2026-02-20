@@ -2,15 +2,39 @@ import Foundation
 
 public struct DaemonConfig {
     #if os(macOS)
-    public let socketPath: String
+    /// Transport mode for communicating with the assistant daemon.
+    public enum Transport {
+        /// Local Unix domain socket (default for local assistants).
+        case socket(path: String)
+        /// HTTP + SSE via a remote gateway URL (for cloud/custom assistants).
+        case http(baseURL: String, bearerToken: String?, conversationKey: String)
+    }
 
+    public let transport: Transport
+
+    /// Socket path, for backwards compatibility.
+    /// Returns the socket path if using socket transport, otherwise the default path.
+    public var socketPath: String {
+        switch transport {
+        case .socket(let path):
+            return path
+        case .http:
+            return resolveSocketPath()
+        }
+    }
+
+    public init(transport: Transport) {
+        self.transport = transport
+    }
+
+    /// Convenience initializer for socket transport (backwards compatible).
     public init(socketPath: String) {
-        self.socketPath = socketPath
+        self.transport = .socket(path: socketPath)
     }
 
     public static var `default`: DaemonConfig {
         // Delegate to resolveSocketPath() to avoid duplication
-        return DaemonConfig(socketPath: resolveSocketPath())
+        return DaemonConfig(transport: .socket(path: resolveSocketPath()))
     }
     #elseif os(iOS)
     public let hostname: String

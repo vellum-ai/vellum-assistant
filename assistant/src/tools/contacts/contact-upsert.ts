@@ -53,9 +53,8 @@ export async function executeContactUpsert(
       channels,
     });
 
-    const isNew = contact.createdAt === contact.updatedAt;
     return {
-      content: `${isNew ? 'Created' : 'Updated'} contact:\n${formatContact(contact)}`,
+      content: `${contact.created ? 'Created' : 'Updated'} contact:\n${formatContact(contact)}`,
       isError: false,
     };
   } catch (err) {

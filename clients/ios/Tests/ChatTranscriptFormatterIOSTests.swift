@@ -130,7 +130,7 @@ final class ChatTranscriptFormatterIOSTests: XCTestCase {
         XCTAssertTrue(result.contains("### iPhone User"))
         XCTAssertTrue(result.contains("### Assistant"))
         XCTAssertFalse(result.contains("Velly"))
-        XCTAssertFalse(result.contains("User\n"))
+        XCTAssertFalse(result.contains("### User\n"), "Should not contain default 'User' participant name")
     }
 
     // MARK: - messagePlainText

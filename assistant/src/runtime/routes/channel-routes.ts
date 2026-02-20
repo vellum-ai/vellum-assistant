@@ -10,10 +10,10 @@ import { renderHistoryContent } from '../../daemon/handlers.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
+import { deliverChannelReply } from '../gateway-client.js';
 import type {
   MessageProcessor,
   RuntimeAttachmentMetadata,
-  RuntimeMessagePayload,
 } from '../http-types.js';
 
 const log = getLogger('runtime-http');
@@ -42,6 +42,7 @@ export async function handleDeleteConversation(req: Request): Promise<Response> 
 export async function handleChannelInbound(
   req: Request,
   processMessage?: MessageProcessor,
+  bearerToken?: string,
 ): Promise<Response> {
   const body = await req.json() as {
     sourceChannel?: string;
@@ -54,6 +55,7 @@ export async function handleChannelInbound(
     senderExternalUserId?: string;
     senderUsername?: string;
     sourceMetadata?: Record<string, unknown>;
+    replyCallbackUrl?: string;
   };
 
   const {
@@ -185,41 +187,95 @@ export async function handleChannelInbound(
     ? sourceMetadata.uxBrief.trim()
     : undefined;
 
-  // For new (non-duplicate) messages, run the agent loop to generate a reply.
-  let processingSucceeded = false;
+  const replyCallbackUrl = body.replyCallbackUrl;
+
+  // For new (non-duplicate) messages, run the secret ingress check
+  // synchronously, then fire off the agent loop in the background.
   if (!result.duplicate && processMessage) {
+    // Persist the raw payload first so dead-lettered events can always be
+    // replayed. If the ingress check later detects secrets we clear it
+    // before throwing, so secret-bearing content is never left on disk.
+    channelDeliveryStore.storePayload(result.eventId, {
+      sourceChannel, externalChatId, externalMessageId, content,
+      attachmentIds, sourceMetadata: body.sourceMetadata,
+      senderName: body.senderName,
+      senderExternalUserId: body.senderExternalUserId,
+      senderUsername: body.senderUsername,
+      replyCallbackUrl,
+    });
+
+    const contentToCheck = content ?? '';
+    let ingressCheck: ReturnType<typeof checkIngressForSecrets>;
     try {
-      // Persist the raw payload first so dead-lettered events can always be
-      // replayed. If the ingress check later detects secrets we clear it
-      // before throwing, so secret-bearing content is never left on disk.
-      channelDeliveryStore.storePayload(result.eventId, {
-        sourceChannel, externalChatId, externalMessageId, content,
-        attachmentIds, sourceMetadata: body.sourceMetadata,
-        senderName: body.senderName,
-        senderExternalUserId: body.senderExternalUserId,
-        senderUsername: body.senderUsername,
-      });
+      ingressCheck = checkIngressForSecrets(contentToCheck);
+    } catch (checkErr) {
+      channelDeliveryStore.clearPayload(result.eventId);
+      throw checkErr;
+    }
+    if (ingressCheck.blocked) {
+      channelDeliveryStore.clearPayload(result.eventId);
+      throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
+    }
 
-      const contentToCheck = content ?? '';
-      let ingressCheck: ReturnType<typeof checkIngressForSecrets>;
-      try {
-        ingressCheck = checkIngressForSecrets(contentToCheck);
-      } catch (checkErr) {
-        // If the secret check itself throws (e.g. ConfigError from corrupt
-        // config), clear the stored payload so secret-bearing content is
-        // never left on disk.
-        channelDeliveryStore.clearPayload(result.eventId);
-        throw checkErr;
-      }
-      if (ingressCheck.blocked) {
-        channelDeliveryStore.clearPayload(result.eventId);
-        throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
-      }
+    // Fire-and-forget: process the message and deliver the reply in the background.
+    // The HTTP response returns immediately so the gateway webhook is not blocked.
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId: result.conversationId,
+      eventId: result.eventId,
+      content: content ?? '',
+      attachmentIds: hasAttachments ? attachmentIds : undefined,
+      sourceChannel,
+      externalChatId,
+      metadataHints,
+      metadataUxBrief,
+      replyCallbackUrl,
+      bearerToken,
+    });
+  }
 
+  return Response.json({
+    accepted: result.accepted,
+    duplicate: result.duplicate,
+    eventId: result.eventId,
+  });
+}
+
+interface BackgroundProcessingParams {
+  processMessage: MessageProcessor;
+  conversationId: string;
+  eventId: string;
+  content: string;
+  attachmentIds?: string[];
+  sourceChannel: string;
+  externalChatId: string;
+  metadataHints: string[];
+  metadataUxBrief?: string;
+  replyCallbackUrl?: string;
+  bearerToken?: string;
+}
+
+function processChannelMessageInBackground(params: BackgroundProcessingParams): void {
+  const {
+    processMessage,
+    conversationId,
+    eventId,
+    content,
+    attachmentIds,
+    sourceChannel,
+    externalChatId,
+    metadataHints,
+    metadataUxBrief,
+    replyCallbackUrl,
+    bearerToken,
+  } = params;
+
+  (async () => {
+    try {
       const { messageId: userMessageId } = await processMessage(
-        result.conversationId,
-        content ?? '',
-        hasAttachments ? attachmentIds : undefined,
+        conversationId,
+        content,
+        attachmentIds,
         {
           transport: {
             channelId: sourceChannel,
@@ -229,60 +285,51 @@ export async function handleChannelInbound(
         },
         sourceChannel,
       );
-      // Link the user message to the inbound event so edits can find it later
-      channelDeliveryStore.linkMessage(result.eventId, userMessageId);
-      channelDeliveryStore.markProcessed(result.eventId);
-      processingSucceeded = true;
-    } catch (err) {
-      // Secret ingress blocks are not retryable — let the top-level handler return 422
-      if (err instanceof IngressBlockedError) throw err;
-      log.error({ err, conversationId: result.conversationId }, 'Failed to process channel inbound message');
-      channelDeliveryStore.recordProcessingFailure(result.eventId, err);
-    }
-  }
+      channelDeliveryStore.linkMessage(eventId, userMessageId);
+      channelDeliveryStore.markProcessed(eventId);
 
-  // Only look up the assistant reply when processing succeeded for a new
-  // (non-duplicate) message.  For duplicates or failed processing, returning
-  // a stale assistant message could cause the caller to resend old replies.
-  let assistantMessage: RuntimeMessagePayload | undefined;
-  if (processingSucceeded) {
-    const msgs = conversationStore.getMessages(result.conversationId);
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].role === 'assistant') {
-        let parsed: unknown;
-        try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
-        const rendered = renderHistoryContent(parsed);
-
-        const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id);
-        const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          sizeBytes: a.sizeBytes,
-          kind: a.kind,
-        }));
-
-        // Include the reply if it has text or attachments
-        if (rendered.text || replyAttachments.length > 0) {
-          assistantMessage = {
-            id: msgs[i].id,
-            role: 'assistant',
-            content: rendered.text,
-            timestamp: new Date(msgs[i].createdAt).toISOString(),
-            attachments: replyAttachments,
-          };
-        }
-        break;
+      if (replyCallbackUrl) {
+        await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
       }
+    } catch (err) {
+      log.error({ err, conversationId }, 'Background channel message processing failed');
+      channelDeliveryStore.recordProcessingFailure(eventId, err);
+    }
+  })();
+}
+
+async function deliverReplyViaCallback(
+  conversationId: string,
+  externalChatId: string,
+  callbackUrl: string,
+  bearerToken?: string,
+): Promise<void> {
+  const msgs = conversationStore.getMessages(conversationId);
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].role === 'assistant') {
+      let parsed: unknown;
+      try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
+      const rendered = renderHistoryContent(parsed);
+
+      const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id);
+      const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({
+        id: a.id,
+        filename: a.originalFilename,
+        mimeType: a.mimeType,
+        sizeBytes: a.sizeBytes,
+        kind: a.kind,
+      }));
+
+      if (rendered.text || replyAttachments.length > 0) {
+        await deliverChannelReply(callbackUrl, {
+          chatId: externalChatId,
+          text: rendered.text || undefined,
+          attachments: replyAttachments.length > 0 ? replyAttachments : undefined,
+        }, bearerToken);
+      }
+      break;
     }
   }
-
-  return Response.json({
-    accepted: result.accepted,
-    duplicate: result.duplicate,
-    eventId: result.eventId,
-    ...(assistantMessage ? { assistantMessage } : {}),
-  });
 }
 
 export function handleListDeadLetters(): Response {

@@ -167,14 +167,14 @@ describe('Parallel tool execution benchmarks', () => {
     expect(lastStart).toBeLessThanOrEqual(firstEnd);
   });
 
-  // 3. Mixed latencies: 1 slow (2s) + 4 fast (10ms) = ~2s total
+  // 3. Mixed latencies: 1 slow (2s) + 4 fast (100ms) = ~2s parallel, ~2.4s sequential
   test('mixed latencies: 1 slow + 4 fast tools complete in slow-tool time', async () => {
     const toolUseBlocks = [
       { id: 'slow', name: 'delay_tool', input: { delayMs: 2000 } },
-      { id: 'fast1', name: 'delay_tool', input: { delayMs: 10 } },
-      { id: 'fast2', name: 'delay_tool', input: { delayMs: 10 } },
-      { id: 'fast3', name: 'delay_tool', input: { delayMs: 10 } },
-      { id: 'fast4', name: 'delay_tool', input: { delayMs: 10 } },
+      { id: 'fast1', name: 'delay_tool', input: { delayMs: 100 } },
+      { id: 'fast2', name: 'delay_tool', input: { delayMs: 100 } },
+      { id: 'fast3', name: 'delay_tool', input: { delayMs: 100 } },
+      { id: 'fast4', name: 'delay_tool', input: { delayMs: 100 } },
     ];
 
     const { provider } = createMockProvider([
@@ -199,9 +199,10 @@ describe('Parallel tool execution benchmarks', () => {
     await loop.run([userMessage], collectEvents(events));
     const elapsed = Date.now() - start;
 
-    // Total time should be dominated by the slow tool (~2s), not additive (~2.04s)
+    // Parallel: ~2000ms (dominated by slow tool). Sequential: ~2400ms (2000 + 4*100).
+    // Upper bound of 2200ms ensures a sequential implementation would fail.
     expect(elapsed).toBeGreaterThanOrEqual(1900);
-    expect(elapsed).toBeLessThan(2500);
+    expect(elapsed).toBeLessThan(2200);
 
     // tool_result events should be emitted in tool_use order (slow first),
     // even though fast tools finish earlier
@@ -238,10 +239,20 @@ describe('Parallel tool execution benchmarks', () => {
 
       const controller = new AbortController();
 
+      // Track each tool executor's promise so we can wait for them all to
+      // settle after abort, ensuring late rejections are caught by our listener.
+      const toolPromises: Promise<unknown>[] = [];
+
       const toolExecutor = async () => {
-        // Each tool takes 10 seconds — abort should fire during execution
+        const p = new Promise<void>((resolve) => {
+          // Each tool takes 500ms — abort fires at 50ms, well before completion.
+          // Shorter than the original 10s so we can actually wait for settlement.
+          setTimeout(resolve, 500);
+        });
+        toolPromises.push(p);
+
         setTimeout(() => controller.abort(), 50);
-        await new Promise((r) => setTimeout(r, 10_000));
+        await p;
         return { content: 'should not return', isError: false };
       };
 
@@ -250,7 +261,7 @@ describe('Parallel tool execution benchmarks', () => {
       const history = await loop.run([userMessage], () => {}, controller.signal);
       const elapsed = Date.now() - start;
 
-      // Should exit quickly after the 50ms abort, not wait 10s
+      // Should exit quickly after the 50ms abort, not wait 500ms
       expect(elapsed).toBeLessThan(200);
 
       // History should have: user msg, assistant (tool_use), user (cancelled tool_results)
@@ -270,8 +281,9 @@ describe('Parallel tool execution benchmarks', () => {
         expect(block.is_error).toBe(true);
       }
 
-      // Wait a tick for any late rejections to surface
-      await new Promise((r) => setTimeout(r, 50));
+      // Wait for all abandoned tool promises to settle so any late rejections
+      // fire while our listener is still active
+      await Promise.allSettled(toolPromises);
 
       // Verify no unhandled rejections occurred
       expect(unhandledRejections).toHaveLength(0);

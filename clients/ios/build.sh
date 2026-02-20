@@ -1,0 +1,202 @@
+#!/bin/bash
+set -euo pipefail
+
+# iOS build script for vellum-assistant-ios.
+# Uses the native .xcodeproj (generated from project.yml via XcodeGen).
+# Produces a signed .ipa for TestFlight/App Store upload.
+#
+# Usage:
+#   ./build.sh              Build debug (simulator)
+#   ./build.sh release      Build release .ipa for TestFlight
+#   ./build.sh test         Run iOS tests (via xcodebuild)
+#   ./build.sh clean        Remove build artifacts
+#
+# Environment variables (for CI):
+#   DEVELOPMENT_TEAM  Apple team ID (required for release)
+#   DISPLAY_VERSION   Override CFBundleShortVersionString (default: from Package.swift)
+#   BUILD_VERSION     Override CFBundleVersion (default: 1)
+#   SIGN_IDENTITY     Override code signing identity (default: Apple Distribution)
+#
+# Migration notes:
+#   - Use `open clients/ios/vellum-assistant-ios.xcodeproj` (not Package.swift)
+#   - After switching: rm -rf ~/Library/Developer/Xcode/DerivedData/*vellum*
+#   - `swift build --product vellum-assistant-ios` no longer works — use xcodebuild
+#   - XcodeGen only needed when project structure changes: cd ios && xcodegen
+
+# ── DEVELOPER_DIR ──────────────────────────────────────────────────────
+if [ -z "${DEVELOPER_DIR:-}" ]; then
+    _dev_dir=$(xcode-select -p 2>/dev/null || echo "")
+    if [ -z "$_dev_dir" ] || [[ "$_dev_dir" == */CommandLineTools* ]]; then
+        DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+    else
+        DEVELOPER_DIR="$_dev_dir"
+    fi
+    unset _dev_dir
+fi
+export DEVELOPER_DIR
+
+# ── Paths ──────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CLIENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DIST_DIR="$SCRIPT_DIR/dist"
+
+# ── Configuration ──────────────────────────────────────────────────────
+SCHEME="VellumAssistantIOS"
+PROJECT="$SCRIPT_DIR/vellum-assistant-ios.xcodeproj"
+
+# Version (overridable via env, defaults to Package.swift)
+if [ -z "${DISPLAY_VERSION:-}" ]; then
+    DISPLAY_VERSION=$(sed -n 's/^let appVersion = "\(.*\)"/\1/p' "$CLIENTS_DIR/Package.swift" 2>/dev/null | head -1)
+    DISPLAY_VERSION="${DISPLAY_VERSION:-1.0}"
+fi
+BUILD_VERSION="${BUILD_VERSION:-1}"
+
+# Signing
+SIGN_IDENTITY="${SIGN_IDENTITY:-Apple Distribution}"
+DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
+
+CMD="${1:-build}"
+
+# ── Commands ───────────────────────────────────────────────────────────
+case "$CMD" in
+    test)
+        echo "Running iOS tests..."
+        xcodebuild test \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO
+        exit $?
+        ;;
+    clean)
+        echo "Cleaning..."
+        rm -rf "$DIST_DIR" "$CLIENTS_DIR/.build"
+        echo "Done."
+        exit 0
+        ;;
+    build|release)
+        ;;
+    *)
+        echo "Usage: $0 [build|release|test|clean]"
+        exit 1
+        ;;
+esac
+
+mkdir -p "$DIST_DIR"
+
+# ── Debug build (simulator) ───────────────────────────────────────────
+if [ "$CMD" = "build" ]; then
+    echo "Building debug (simulator)..."
+    xcodebuild build \
+        -project "$PROJECT" \
+        -scheme "$SCHEME" \
+        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        -configuration Debug \
+        CODE_SIGNING_ALLOWED=NO \
+        -derivedDataPath "$DIST_DIR/DerivedData" \
+        MARKETING_VERSION="$DISPLAY_VERSION" \
+        CURRENT_PROJECT_VERSION="$BUILD_VERSION"
+    echo "Debug build complete."
+    exit 0
+fi
+
+# ── Release build (.ipa for TestFlight) ────────────────────────────────
+if [ -z "$DEVELOPMENT_TEAM" ]; then
+    echo "ERROR: DEVELOPMENT_TEAM is required for release builds."
+    echo ""
+    echo "Set your Apple team ID:"
+    echo "  DEVELOPMENT_TEAM=XXXXXXXXXX ./build.sh release"
+    echo ""
+    echo "Find your team ID at: https://developer.apple.com/account"
+    exit 1
+fi
+
+ARCHIVE_PATH="$DIST_DIR/VellumAssistant.xcarchive"
+EXPORT_PATH="$DIST_DIR/export"
+
+echo "Building release archive..."
+echo "  Version: $DISPLAY_VERSION ($BUILD_VERSION)"
+echo "  Team: $DEVELOPMENT_TEAM"
+echo "  Identity: $SIGN_IDENTITY"
+
+# Clean previous artifacts
+rm -rf "$ARCHIVE_PATH" "$EXPORT_PATH"
+
+# Archive using the native .xcodeproj (Application target produces a proper
+# .app bundle in Products/Applications/ without build setting workarounds).
+xcodebuild archive \
+    -project "$PROJECT" \
+    -scheme "$SCHEME" \
+    -destination 'generic/platform=iOS' \
+    -archivePath "$ARCHIVE_PATH" \
+    -configuration Release \
+    DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+    CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
+    MARKETING_VERSION="$DISPLAY_VERSION" \
+    CURRENT_PROJECT_VERSION="$BUILD_VERSION"
+
+# ── Verify archive structure ──────────────────────────────────────────
+echo "Verifying archive..."
+APP_PATH=$(find "$ARCHIVE_PATH/Products/Applications" -name "*.app" -maxdepth 1 2>/dev/null | head -1)
+
+if [ -z "$APP_PATH" ]; then
+    echo "ERROR: Archive does not contain an iOS app in Products/Applications/"
+    echo ""
+    echo "Inspect the archive with:"
+    echo "  find '$ARCHIVE_PATH/Products' -type f"
+    exit 1
+fi
+echo "  App: $(basename "$APP_PATH")"
+
+# Check for unexpected items that would make this a generic archive
+EXTRA=$(find "$ARCHIVE_PATH/Products" -mindepth 1 -maxdepth 1 -not -name "Applications" 2>/dev/null || true)
+if [ -n "$EXTRA" ]; then
+    echo "WARNING: Archive contains unexpected items outside Products/Applications/:"
+    echo "$EXTRA"
+    echo "This may cause export to fail."
+fi
+
+# ── Generate exportOptions.plist ──────────────────────────────────────
+# Generated dynamically because teamID varies per developer/CI environment.
+EXPORT_OPTIONS="$DIST_DIR/exportOptions.plist"
+cat > "$EXPORT_OPTIONS" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store</string>
+    <key>teamID</key>
+    <string>$DEVELOPMENT_TEAM</string>
+    <key>signingStyle</key>
+    <string>automatic</string>
+    <key>uploadSymbols</key>
+    <true/>
+    <key>uploadBitcode</key>
+    <false/>
+    <key>destination</key>
+    <string>export</string>
+</dict>
+</plist>
+PLIST
+
+# ── Export .ipa ───────────────────────────────────────────────────────
+echo "Exporting .ipa..."
+xcodebuild -exportArchive \
+    -archivePath "$ARCHIVE_PATH" \
+    -exportOptionsPlist "$EXPORT_OPTIONS" \
+    -exportPath "$EXPORT_PATH"
+
+IPA_FILE=$(find "$EXPORT_PATH" -name "*.ipa" -maxdepth 1 | head -1)
+if [ -n "$IPA_FILE" ]; then
+    echo ""
+    echo "Success! IPA ready for TestFlight upload:"
+    echo "  $IPA_FILE"
+    echo ""
+    echo "Upload to App Store Connect:"
+    echo "  xcrun altool --upload-app -f '$IPA_FILE' -t ios -u YOUR_APPLE_ID -p YOUR_APP_PASSWORD"
+    echo "  # Or drag into Transporter.app"
+else
+    echo "WARNING: No .ipa found in export path. Check $EXPORT_PATH for output."
+fi

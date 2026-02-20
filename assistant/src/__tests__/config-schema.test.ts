@@ -514,6 +514,22 @@ describe('AssistantConfigSchema', () => {
       enrichmentConcurrency: 1,
       enrichmentJobTimeoutMs: 30000,
       enrichmentMaxRetries: 2,
+      commitMessageLLM: {
+        enabled: false,
+        useConfiguredProvider: true,
+        providerFastModelOverrides: {},
+        timeoutMs: 600,
+        maxTokens: 120,
+        temperature: 0.2,
+        maxFilesInPrompt: 30,
+        maxDiffBytes: 12000,
+        minRemainingTurnBudgetMs: 1000,
+        breaker: {
+          openAfterFailures: 3,
+          backoffBaseMs: 2000,
+          backoffMaxMs: 60000,
+        },
+      },
     });
   });
 
@@ -548,6 +564,77 @@ describe('AssistantConfigSchema', () => {
   test('rejects non-number workspaceGit.interactiveGitTimeoutMs', () => {
     const result = AssistantConfigSchema.safeParse({
       workspaceGit: { interactiveGitTimeoutMs: 'fast' },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  // ── commitMessageLLM config ──────────────────────────────────────────
+
+  test('default commitMessageLLM values are correct', () => {
+    const result = AssistantConfigSchema.parse({});
+    const llm = result.workspaceGit.commitMessageLLM;
+    expect(llm.enabled).toBe(false);
+    expect(llm.useConfiguredProvider).toBe(true);
+    expect(llm.providerFastModelOverrides).toEqual({});
+    expect(llm.timeoutMs).toBe(600);
+    expect(llm.maxTokens).toBe(120);
+    expect(llm.temperature).toBe(0.2);
+    expect(llm.maxFilesInPrompt).toBe(30);
+    expect(llm.maxDiffBytes).toBe(12000);
+    expect(llm.minRemainingTurnBudgetMs).toBe(1000);
+  });
+
+  test('rejects negative commitMessageLLM.timeoutMs', () => {
+    const result = AssistantConfigSchema.safeParse({
+      workspaceGit: { commitMessageLLM: { timeoutMs: -1 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects commitMessageLLM.temperature > 2', () => {
+    const result = AssistantConfigSchema.safeParse({
+      workspaceGit: { commitMessageLLM: { temperature: 2.5 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('breaker settings have correct defaults', () => {
+    const result = AssistantConfigSchema.parse({});
+    const breaker = result.workspaceGit.commitMessageLLM.breaker;
+    expect(breaker.openAfterFailures).toBe(3);
+    expect(breaker.backoffBaseMs).toBe(2000);
+    expect(breaker.backoffMaxMs).toBe(60000);
+  });
+
+  test('accepts valid commitMessageLLM overrides', () => {
+    const result = AssistantConfigSchema.parse({
+      workspaceGit: {
+        commitMessageLLM: {
+          enabled: true,
+          timeoutMs: 1000,
+          temperature: 0.5,
+          breaker: { openAfterFailures: 5 },
+        },
+      },
+    });
+    expect(result.workspaceGit.commitMessageLLM.enabled).toBe(true);
+    expect(result.workspaceGit.commitMessageLLM.timeoutMs).toBe(1000);
+    expect(result.workspaceGit.commitMessageLLM.temperature).toBe(0.5);
+    expect(result.workspaceGit.commitMessageLLM.breaker.openAfterFailures).toBe(5);
+    // Other breaker fields should still get defaults
+    expect(result.workspaceGit.commitMessageLLM.breaker.backoffBaseMs).toBe(2000);
+  });
+
+  test('rejects commitMessageLLM.temperature < 0', () => {
+    const result = AssistantConfigSchema.safeParse({
+      workspaceGit: { commitMessageLLM: { temperature: -0.1 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects non-integer commitMessageLLM.maxTokens', () => {
+    const result = AssistantConfigSchema.safeParse({
+      workspaceGit: { commitMessageLLM: { maxTokens: 3.5 } },
     });
     expect(result.success).toBe(false);
   });

@@ -5,14 +5,14 @@ user-invocable: true
 metadata: {"vellum": {"emoji": "\ud83e\udd16"}}
 ---
 
-You are helping your user connect a Telegram bot to the Vellum Assistant gateway. When this skill is invoked, walk through each step below using only existing tools.
+You are helping your user connect a Telegram bot to the Vellum Assistant gateway. Telegram webhooks are received exclusively by the gateway (the public ingress boundary) — they never hit the assistant runtime directly. When this skill is invoked, walk through each step below using only existing tools.
 
 ## What You Need
 
 1. **Bot token** from Telegram's @BotFather (the user provides this)
-2. **Gateway webhook URL** where the gateway receives webhooks (e.g. `https://their-domain/webhooks/telegram`)
+2. **Gateway webhook URL** — derived from the canonical ingress setting: `${ingress.publicBaseUrl}/webhooks/telegram`. The gateway is the only publicly reachable endpoint; Telegram sends webhooks to the gateway, which validates and forwards them to the assistant runtime internally. If `ingress.publicBaseUrl` is configured (Settings UI > Public Ingress, or `INGRESS_PUBLIC_BASE_URL` env var), use it to auto-derive the webhook URL. If it is not configured, ask the user to set it before proceeding.
 
-If the user has already provided the bot token in the conversation, use it directly. Otherwise, ask for it. Always confirm the gateway webhook URL if not provided.
+If the user has already provided the bot token in the conversation, use it directly. Otherwise, ask for it.
 
 ## Setup Steps
 
@@ -98,8 +98,4 @@ Summarize what was done:
 - Bot commands registered: /new
 - Credentials stored securely in the vault
 
-Remind the user that the gateway needs these environment variables set to match:
-- `TELEGRAM_BOT_TOKEN` — the bot token
-- `TELEGRAM_WEBHOOK_SECRET` — the generated secret
-
-The values are stored in the credential vault and can be retrieved for gateway configuration.
+The gateway automatically detects credentials from the vault and will begin accepting Telegram webhooks shortly. No manual environment variable configuration is needed.

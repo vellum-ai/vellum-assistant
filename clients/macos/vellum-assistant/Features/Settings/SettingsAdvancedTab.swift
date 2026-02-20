@@ -14,6 +14,8 @@ struct SettingsAdvancedTab: View {
     @State private var tokenCopied: Bool = false
     @State private var showingRetireConfirmation: Bool = false
     @State private var isRetiring: Bool = false
+    @State private var lockfileAssistants: [LockfileAssistant] = []
+    @State private var selectedAssistantId: String = ""
     #if DEBUG
     @State private var showingEnvVars = false
     @State private var appEnvVars: [(String, String)] = []
@@ -26,6 +28,7 @@ struct SettingsAdvancedTab: View {
             privateThreadSection
             archivedThreadsSection
             iosDeviceSection
+            switchAssistantSection
             retireAssistantSection
 
             #if DEBUG
@@ -35,6 +38,8 @@ struct SettingsAdvancedTab: View {
         .onAppear {
             let tokenPath = NSHomeDirectory() + "/.vellum/session-token"
             sessionToken = (try? String(contentsOfFile: tokenPath, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            lockfileAssistants = LockfileAssistant.loadAll()
+            selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
         }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -43,7 +48,11 @@ struct SettingsAdvancedTab: View {
                 NSApp.sendAction(#selector(AppDelegate.performRetire), to: nil, from: nil)
             }
         } message: {
-            Text("This will stop the assistant daemon, remove local data, and return to initial setup. This action cannot be undone.")
+            if lockfileAssistants.count > 1 {
+                Text("This will stop the current assistant and switch to another. The retired assistant's lockfile entry will be removed.")
+            } else {
+                Text("This will stop the assistant daemon, remove local data, and return to initial setup. This action cannot be undone.")
+            }
         }
         .sheet(isPresented: $isRetiring) {
             VStack(spacing: VSpacing.lg) {
@@ -205,6 +214,58 @@ struct SettingsAdvancedTab: View {
         }
     }
 
+    // MARK: - Switch Assistant
+
+    @ViewBuilder
+    private var switchAssistantSection: some View {
+        if lockfileAssistants.count > 1 {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Switch Assistant")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                ForEach(lockfileAssistants, id: \.assistantId) { assistant in
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: assistant.assistantId == selectedAssistantId
+                              ? "checkmark.circle.fill" : "circle")
+                            .foregroundColor(assistant.assistantId == selectedAssistantId
+                                             ? VColor.accent : VColor.textMuted)
+                            .font(.system(size: 16))
+
+                        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                            Text(assistant.assistantId)
+                                .font(VFont.bodyMedium)
+                                .foregroundColor(VColor.textPrimary)
+                            Text(assistant.home.displayLabel)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+
+                        Spacer()
+
+                        if assistant.assistantId != selectedAssistantId {
+                            VButton(label: "Switch", style: .primary) {
+                                switchToAssistant(assistant)
+                            }
+                        } else {
+                            Text("Active")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                    }
+                    .padding(.vertical, VSpacing.xs)
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+        }
+    }
+
+    private func switchToAssistant(_ assistant: LockfileAssistant) {
+        (NSApp.delegate as? AppDelegate)?.performSwitchAssistant(to: assistant)
+        onClose()
+    }
+
     // MARK: - Retire Assistant
 
     private var retireAssistantSection: some View {
@@ -218,9 +279,15 @@ struct SettingsAdvancedTab: View {
                     Text("Retire this assistant")
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
-                    Text("Stops the daemon, removes local data, and returns to initial setup.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                    if lockfileAssistants.count > 1 {
+                        Text("Stops the current assistant and switches to another.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    } else {
+                        Text("Stops the daemon, removes local data, and returns to initial setup.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
                 }
                 Spacer()
                 VButton(label: "Retire...", style: .danger) {

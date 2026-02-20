@@ -1,6 +1,6 @@
 # iOS App — vellum-assistant-ios
 
-The iOS target (`vellum-assistant-ios`) is part of the multi-platform Swift Package at `clients/Package.swift`.
+The iOS app is built via a native Xcode project (`vellum-assistant-ios.xcodeproj`) generated from `project.yml` using XcodeGen. It depends on `VellumAssistantShared` from the local SPM package at `clients/Package.swift`.
 
 ## Features
 
@@ -23,59 +23,45 @@ The iOS target (`vellum-assistant-ios`) is part of the multi-platform Swift Pack
 - Deep linking via `vellum://send?message=...` URL scheme
 - Responsive typography and spacing that scales down for iPhone compact width
 
-## Building and Running
+## Build & Test
 
-### Option A: Xcode (recommended for development)
-
-1. Open `clients/Package.swift` in Xcode
-2. Select the `vellum-assistant-ios` scheme
-3. Choose an iOS Simulator as destination (e.g. iPhone 17 Pro Max)
-4. Build and Run (⌘R)
-
-### Option B: xcodebuild + Simulator (command line)
+Single build script: `./build.sh` wraps `xcodebuild` using the native `.xcodeproj`.
 
 ```bash
-# Build
-cd clients
-xcodebuild build \
-  -scheme vellum-assistant-ios \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
-  CODE_SIGNING_ALLOWED=NO \
-  -derivedDataPath /tmp/vellum-ios-build
+# Build debug (simulator)
+./build.sh
 
-# Package into .app bundle
-BUILD_DIR=/tmp/vellum-ios-build/Build/Products/Debug-iphonesimulator
-APP_DIR=/tmp/VellumAssistant.app
-mkdir -p "$APP_DIR"
-cp "$BUILD_DIR/vellum-assistant-ios" "$APP_DIR/"
-cp -r "$BUILD_DIR/vellum-assistant_vellum-assistant-ios.bundle" "$APP_DIR/" 2>/dev/null || true
-cat > "$APP_DIR/Info.plist" << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-    <key>CFBundleExecutable</key><string>vellum-assistant-ios</string>
-    <key>CFBundleIdentifier</key><string>ai.vellum.assistant.ios</string>
-    <key>CFBundleName</key><string>Vellum</string>
-    <key>CFBundleDisplayName</key><string>Vellum</string>
-    <key>CFBundleVersion</key><string>1</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleSupportedPlatforms</key><array><string>iPhoneSimulator</string></array>
-    <key>UILaunchScreen</key><dict/>
-    <key>UISupportedInterfaceOrientations</key>
-    <array><string>UIInterfaceOrientationPortrait</string></array>
-    <key>MinimumOSVersion</key><string>17.0</string>
-    <key>DTPlatformName</key><string>iphonesimulator</string>
-</dict></plist>
-EOF
+# Build release .ipa for TestFlight
+DEVELOPMENT_TEAM=XXXXXXXXXX ./build.sh release
 
-# Install and launch in simulator
-UDID=$(xcrun simctl list devices available | grep 'iPhone 17 Pro Max' | head -1 | sed 's/.*(\([A-Z0-9-]*\)).*/\1/')
-xcrun simctl boot "$UDID" 2>/dev/null || true
-xcrun simctl uninstall "$UDID" ai.vellum.assistant.ios 2>/dev/null || true
-xcrun simctl install "$UDID" "$APP_DIR"
-open -a Simulator
-xcrun simctl launch "$UDID" ai.vellum.assistant.ios
+# Run iOS tests
+./build.sh test
+
+# Clean build artifacts
+./build.sh clean
+```
+
+Environment variables for CI:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEVELOPMENT_TEAM` | *(required for release)* | Apple team ID |
+| `DISPLAY_VERSION` | from `Package.swift` | CFBundleShortVersionString |
+| `BUILD_VERSION` | `1` | CFBundleVersion |
+| `SIGN_IDENTITY` | `Apple Distribution` | Code signing identity |
+
+### Building with Xcode (development)
+
+1. Open `clients/ios/vellum-assistant-ios.xcodeproj` in Xcode
+2. Select the `VellumAssistantIOS` scheme
+3. Choose an iOS Simulator as destination (e.g. iPhone 16 Pro)
+4. Build and Run (Cmd+R)
+
+### Building via command line (simulator)
+
+```bash
+cd clients/ios
+./build.sh
 ```
 
 ## Connection Modes
@@ -131,8 +117,8 @@ The macOS app sets `VELLUM_DAEMON_TCP_ENABLED=1` automatically when the daemon s
 The `vellum-assistant-iosTests` target contains 70 iOS-specific integration tests:
 
 ```bash
-cd clients
-swift test --filter vellum_assistant_iosTests
+cd clients/ios
+./build.sh test
 ```
 
 Test files in `clients/ios/Tests/`:

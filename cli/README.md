@@ -39,7 +39,7 @@ vellum-cli hatch [species] [options]
 
 #### Remote Targets
 
-- **`local`** -- Starts a local daemon on your machine via `bunx vellum daemon start`.
+- **`local`** -- Starts the local daemon and local gateway. Gateway source resolution order is: `VELLUM_GATEWAY_DIR` override, repo source tree, then installed `@vellumai/vellum-gateway` package.
 - **`gcp`** -- Creates a GCP Compute Engine VM (`e2-standard-4`: 4 vCPUs, 16 GB) with a startup script that bootstraps the assistant. Requires `gcloud` authentication and `GCP_PROJECT` / `GCP_DEFAULT_ZONE` environment variables.
 - **`aws`** -- Provisions an AWS instance.
 - **`custom`** -- Provisions on an arbitrary SSH host. Set `VELLUM_CUSTOM_HOST` (e.g. `user@hostname`) to specify the target.
@@ -52,6 +52,8 @@ vellum-cli hatch [species] [options]
 | `GCP_PROJECT`         | `gcp`        | GCP project ID. Falls back to the active `gcloud` project. |
 | `GCP_DEFAULT_ZONE`    | `gcp`        | GCP zone for the compute instance. |
 | `VELLUM_CUSTOM_HOST`  | `custom`     | SSH host in `user@hostname` format. |
+| `VELLUM_GATEWAY_DIR`  | `local`      | Optional absolute path to a local gateway source directory to run instead of the packaged gateway. |
+| `INGRESS_PUBLIC_BASE_URL` | `local` | Optional fallback public ingress URL when `ingress.publicBaseUrl` is not set in workspace config. |
 
 #### Examples
 

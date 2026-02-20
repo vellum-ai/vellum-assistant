@@ -315,11 +315,12 @@ export function drainDirectiveDisplayBuffer(buffer: string): DirectiveDisplayDra
       emitText += tag;
     } else {
       // Only trim the trailing newline when the directive occupied its own
-      // line (preceded by \n and followed by \n or end-of-buffer). This
-      // avoids corrupting inline text like "Hello\n<directive/>world" into
-      // "Helloworld".
+      // line (preceded by \n and followed by \n or \r\n). We intentionally
+      // do NOT trim when nextChar is undefined (end-of-buffer) because in
+      // streaming mode more data may arrive in the next chunk — eagerly
+      // trimming would merge words across the directive boundary.
       const nextChar = buffer[end + 2];
-      if (emitText.endsWith('\n') && (nextChar === '\n' || nextChar === undefined)) {
+      if (emitText.endsWith('\n') && (nextChar === '\n' || nextChar === '\r')) {
         emitText = emitText.slice(0, -1);
       }
     }

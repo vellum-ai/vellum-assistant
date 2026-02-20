@@ -27,10 +27,12 @@ export type {
   SkillEntryConfig,
   SkillsLoadConfig,
   SkillsInstallConfig,
+  AgentHeartbeatConfig,
   SwarmConfig,
   SkillsConfig,
   WorkspaceGitConfig,
   CallsConfig,
   CallsDisclosureConfig,
   CallsSafetyConfig,
+  IngressConfig,
 } from './schema.js';

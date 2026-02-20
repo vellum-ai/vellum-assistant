@@ -117,8 +117,16 @@ extension DaemonClient {
             onShareToSlackResponse?(msg)
         case .slackWebhookConfigResponse(let msg):
             onSlackWebhookConfigResponse?(msg)
+        case .ingressConfigResponse(let msg):
+            onIngressConfigResponse?(msg)
         case .vercelApiConfigResponse(let msg):
             onVercelApiConfigResponse?(msg)
+        case .twitterIntegrationConfigResponse(let msg):
+            onTwitterIntegrationConfigResponse?(msg)
+        case .twitterAuthResult(let msg):
+            onTwitterAuthResult?(msg)
+        case .twitterAuthStatusResponse(let msg):
+            onTwitterAuthStatusResponse?(msg)
         case .modelInfo(let msg):
             currentModel = msg.model
             onModelInfo?(msg)
@@ -190,14 +198,16 @@ extension DaemonClient {
             onWorkItemApprovePermissionsResponse?(msg)
         case .workItemCancelResponse(let msg):
             onWorkItemCancelResponse?(msg)
-        case .workItemRenderResponse(let msg):
-            onWorkItemRenderResponse?(msg)
+        case .taskRunThreadCreated(let msg):
+            onTaskRunThreadCreated?(msg)
         case .openTasksWindow:
             onOpenTasksWindow?()
         case .subagentSpawned(let msg):
             onSubagentSpawned?(msg)
         case .subagentStatusChanged(let msg):
             onSubagentStatusChanged?(msg)
+        case .subagentDetailResponse(let msg):
+            onSubagentDetailResponse?(msg)
         default:
             break
         }
@@ -243,6 +253,10 @@ extension DaemonClient {
             ))
         } catch {
             log.error("Failed to sign bundle payload: \(error.localizedDescription)")
+            try? send(SignBundlePayloadResponseMessage(
+                requestId: msg.requestId,
+                error: error.localizedDescription
+            ))
         }
     }
 
@@ -259,6 +273,10 @@ extension DaemonClient {
             ))
         } catch {
             log.error("Failed to get signing identity: \(error.localizedDescription)")
+            try? send(GetSigningIdentityResponseMessage(
+                requestId: msg.requestId,
+                error: error.localizedDescription
+            ))
         }
     }
     #endif

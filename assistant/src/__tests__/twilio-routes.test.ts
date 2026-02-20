@@ -7,8 +7,9 @@
  * - TWILIO_WEBHOOK_VALIDATION_DISABLED env flag bypass
  * - Duplicate callback replay (idempotency)
  * - Unknown status and malformed payload handling
+ * - Handler-level idempotency concurrency (concurrent duplicates, failure-retry)
  */
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterAll, mock, spyOn } from 'bun:test';
 import { createHmac } from 'node:crypto';
 import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -51,7 +52,7 @@ let mockAuthToken: string | undefined = 'test-auth-token-for-webhooks';
 
 mock.module('../security/secure-keys.js', () => ({
   getSecureKey: (account: string) => {
-    if (account === 'twilio_auth_token') return mockAuthToken;
+    if (account === 'credential:twilio:auth_token') return mockAuthToken;
     return undefined;
   },
 }));
@@ -71,7 +72,7 @@ mock.module('../calls/twilio-provider.js', () => {
       readonly name = 'twilio';
 
       static getAuthToken(): string | null {
-        return getSecureKey('twilio_auth_token') ?? null;
+        return getSecureKey('credential:twilio:auth_token') ?? null;
       }
 
       static verifyWebhookSignature(
@@ -98,24 +99,33 @@ mock.module('../calls/twilio-provider.js', () => {
   };
 });
 
+// Configurable mock Twilio config — tests can override wssBaseUrl
+let mockWssBaseUrl: string = 'wss://test.example.com';
+let mockWebhookBaseUrl: string = 'https://test.example.com';
+
 mock.module('../calls/twilio-config.js', () => ({
   getTwilioConfig: () => ({
     accountSid: 'AC_test',
     authToken: 'test-auth-token-for-webhooks',
     phoneNumber: '+15550001111',
-    webhookBaseUrl: 'https://test.example.com',
-    wssBaseUrl: 'wss://test.example.com',
+    webhookBaseUrl: mockWebhookBaseUrl,
+    wssBaseUrl: mockWssBaseUrl,
   }),
 }));
 
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { conversations } from '../memory/schema.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
+import * as callStore from '../calls/call-store.js';
 import {
   createCallSession,
   updateCallSession,
   getCallEvents,
+  buildCallbackDedupeKey,
+  claimCallback,
+  releaseCallbackClaim,
 } from '../calls/call-store.js';
+import { resolveRelayUrl, handleStatusCallback } from '../calls/twilio-routes.js';
 
 initializeDb();
 
@@ -184,6 +194,8 @@ describe('twilio webhook routes', () => {
   beforeEach(() => {
     resetTables();
     mockAuthToken = AUTH_TOKEN;
+    mockWssBaseUrl = 'wss://test.example.com';
+    mockWebhookBaseUrl = 'https://test.example.com';
     delete process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED;
   });
 
@@ -193,9 +205,9 @@ describe('twilio webhook routes', () => {
   });
 
   async function startServer(): Promise<void> {
-    port = 20000 + Math.floor(Math.random() * 1000);
-    server = new RuntimeHttpServer({ port, bearerToken: TEST_TOKEN });
+    server = new RuntimeHttpServer({ port: 0, bearerToken: TEST_TOKEN });
     await server.start();
+    port = server.actualPort;
   }
 
   async function stopServer(): Promise<void> {
@@ -518,6 +530,258 @@ describe('twilio webhook routes', () => {
 
       const res = await fetch(url, { method: 'POST', headers, body });
       expect(res.status).toBe(200);
+
+      await stopServer();
+    });
+  });
+
+  // ── resolveRelayUrl unit tests ──────────────────────────────────────
+
+  describe('resolveRelayUrl', () => {
+    test('uses wssBaseUrl when explicitly set', () => {
+      const url = resolveRelayUrl('wss://ws.example.com', 'https://web.example.com');
+      expect(url).toBe('wss://ws.example.com/v1/calls/relay');
+    });
+
+    test('falls back to webhookBaseUrl when wssBaseUrl is empty', () => {
+      const url = resolveRelayUrl('', 'https://web.example.com');
+      expect(url).toBe('wss://web.example.com/v1/calls/relay');
+    });
+
+    test('falls back to webhookBaseUrl when wssBaseUrl is whitespace-only', () => {
+      const url = resolveRelayUrl('   ', 'https://web.example.com');
+      expect(url).toBe('wss://web.example.com/v1/calls/relay');
+    });
+
+    test('normalizes http to ws in webhookBaseUrl fallback', () => {
+      const url = resolveRelayUrl('', 'http://localhost:3000');
+      expect(url).toBe('ws://localhost:3000/v1/calls/relay');
+    });
+
+    test('normalizes https to wss in webhookBaseUrl fallback', () => {
+      const url = resolveRelayUrl('', 'https://gateway.example.com');
+      expect(url).toBe('wss://gateway.example.com/v1/calls/relay');
+    });
+
+    test('strips trailing slash from wssBaseUrl', () => {
+      const url = resolveRelayUrl('wss://ws.example.com/', 'https://web.example.com');
+      expect(url).toBe('wss://ws.example.com/v1/calls/relay');
+    });
+
+    test('strips trailing slash from webhookBaseUrl fallback', () => {
+      const url = resolveRelayUrl('', 'https://web.example.com/');
+      expect(url).toBe('wss://web.example.com/v1/calls/relay');
+    });
+
+    test('preserves wss scheme in explicitly set wssBaseUrl', () => {
+      const url = resolveRelayUrl('wss://custom-relay.example.com', 'https://web.example.com');
+      expect(url).toBe('wss://custom-relay.example.com/v1/calls/relay');
+    });
+  });
+
+  // ── TwiML relay URL generation ──────────────────────────────────────
+
+  describe('voice webhook TwiML relay URL', () => {
+    function voiceUrl(sessionId: string): string {
+      return `http://127.0.0.1:${port}/v1/calls/twilio/voice-webhook?callSessionId=${sessionId}`;
+    }
+
+    test('TwiML uses explicit wssBaseUrl when set', async () => {
+      mockWssBaseUrl = 'wss://explicit-ws.example.com';
+      process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED = 'true';
+      await startServer();
+
+      const session = createTestSession('conv-twiml-1', 'CA_twiml_1');
+      const url = voiceUrl(session.id);
+      const params = { CallSid: 'CA_twiml_1' };
+      const body = buildFormBody(params);
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+
+      expect(res.status).toBe(200);
+      const twiml = await res.text();
+      expect(twiml).toContain('wss://explicit-ws.example.com/v1/calls/relay');
+
+      await stopServer();
+    });
+
+    test('TwiML falls back to webhookBaseUrl when wssBaseUrl is empty', async () => {
+      mockWssBaseUrl = '';
+      mockWebhookBaseUrl = 'https://gateway.example.com';
+      process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED = 'true';
+      await startServer();
+
+      const session = createTestSession('conv-twiml-2', 'CA_twiml_2');
+      const url = voiceUrl(session.id);
+      const params = { CallSid: 'CA_twiml_2' };
+      const body = buildFormBody(params);
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+
+      expect(res.status).toBe(200);
+      const twiml = await res.text();
+      expect(twiml).toContain('wss://gateway.example.com/v1/calls/relay');
+
+      await stopServer();
+    });
+  });
+
+  // ── Handler-level idempotency concurrency tests ─────────────────
+
+  describe('handler-level idempotency concurrency', () => {
+    test('two concurrent identical status callbacks produce exactly one event', async () => {
+      await startServer();
+      const session = createTestSession('conv-conc-1', 'CA_conc_1');
+      const url = statusUrl();
+      const params = {
+        CallSid: 'CA_conc_1',
+        CallStatus: 'in-progress',
+        Timestamp: '2025-01-20T10:00:00Z',
+      };
+      const { body, headers } = signedRequest(url, params);
+
+      // Fire two identical callbacks concurrently
+      const [res1, res2] = await Promise.all([
+        fetch(url, { method: 'POST', headers, body }),
+        fetch(url, { method: 'POST', headers, body }),
+      ]);
+
+      // Both should return 200 (one processes, one is deduplicated)
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+
+      // Only one event should be recorded despite two concurrent requests
+      const events = getCallEvents(session.id);
+      const connectedEvents = events.filter(e => e.eventType === 'call_connected');
+      expect(connectedEvents.length).toBe(1);
+
+      await stopServer();
+    });
+
+    test('three concurrent identical status callbacks still produce exactly one event', async () => {
+      await startServer();
+      const session = createTestSession('conv-conc-2', 'CA_conc_2');
+      const url = statusUrl();
+      const params = {
+        CallSid: 'CA_conc_2',
+        CallStatus: 'completed',
+        Timestamp: '2025-01-20T11:00:00Z',
+      };
+      const { body, headers } = signedRequest(url, params);
+
+      // Fire three identical callbacks concurrently
+      const [res1, res2, res3] = await Promise.all([
+        fetch(url, { method: 'POST', headers, body }),
+        fetch(url, { method: 'POST', headers, body }),
+        fetch(url, { method: 'POST', headers, body }),
+      ]);
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+      expect(res3.status).toBe(200);
+
+      const events = getCallEvents(session.id);
+      const endedEvents = events.filter(e => e.eventType === 'call_ended');
+      expect(endedEvents.length).toBe(1);
+
+      await stopServer();
+    });
+
+    test('processing failure releases claim and allows successful retry', async () => {
+      await startServer();
+      const session = createTestSession('conv-conc-3', 'CA_conc_3');
+      const url = statusUrl();
+      const params = {
+        CallSid: 'CA_conc_3',
+        CallStatus: 'in-progress',
+        Timestamp: '2025-01-20T12:00:00Z',
+      };
+
+      // Save original before spying so we can delegate on retry
+      const originalRecordCallEvent = callStore.recordCallEvent;
+
+      // Make recordCallEvent throw on the first call to exercise the handler's
+      // real catch path (twilio-routes.ts:217), which calls
+      // releaseCallbackClaim before re-throwing.
+      let shouldThrow = true;
+      const spy = spyOn(callStore, 'recordCallEvent').mockImplementation((...args: Parameters<typeof callStore.recordCallEvent>) => {
+        if (shouldThrow) {
+          shouldThrow = false;
+          throw new Error('Simulated side-effect failure');
+        }
+        spy.mockRestore();
+        return originalRecordCallEvent(...args);
+      });
+
+      // Call handleStatusCallback directly (not through Bun.serve) so we can
+      // catch the re-thrown error without Bun's HTTP server swallowing it.
+      const formBody = new URLSearchParams(params).toString();
+      const directReq = new Request(url, {
+        method: 'POST',
+        body: formBody,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      });
+
+      // The handler should claim → throw in recordCallEvent → catch releases claim → re-throw
+      let handlerThrew = false;
+      try {
+        await handleStatusCallback(directReq);
+      } catch (err) {
+        handlerThrew = true;
+        expect((err as Error).message).toBe('Simulated side-effect failure');
+      }
+      expect(handlerThrew).toBe(true);
+
+      // No events recorded (the failed attempt rolled back via releaseCallbackClaim)
+      const eventsAfterFailure = getCallEvents(session.id);
+      expect(eventsAfterFailure.length).toBe(0);
+
+      // Retry via the real HTTP handler — should succeed because the catch block
+      // released the claim, allowing a fresh claim on retry.
+      const { body, headers } = signedRequest(url, params);
+      const res = await fetch(url, { method: 'POST', headers, body });
+      expect(res.status).toBe(200);
+
+      // Now exactly one event should exist from the successful retry
+      const eventsAfterRetry = getCallEvents(session.id);
+      const connectedEvents = eventsAfterRetry.filter(e => e.eventType === 'call_connected');
+      expect(connectedEvents.length).toBe(1);
+
+      await stopServer();
+    });
+
+    test('permanently claimed callback cannot be retried', async () => {
+      await startServer();
+      const session = createTestSession('conv-conc-4', 'CA_conc_4');
+      const url = statusUrl();
+      const params = {
+        CallSid: 'CA_conc_4',
+        CallStatus: 'completed',
+        Timestamp: '2025-01-20T13:00:00Z',
+      };
+      const { body, headers } = signedRequest(url, params);
+
+      // First request processes successfully and finalizes the claim
+      const res1 = await fetch(url, { method: 'POST', headers, body });
+      expect(res1.status).toBe(200);
+
+      const events1 = getCallEvents(session.id);
+      expect(events1.filter(e => e.eventType === 'call_ended').length).toBe(1);
+
+      // Second request (retry) — should be deduplicated, no new events
+      const res2 = await fetch(url, { method: 'POST', headers, body });
+      expect(res2.status).toBe(200);
+
+      const events2 = getCallEvents(session.id);
+      expect(events2.filter(e => e.eventType === 'call_ended').length).toBe(1);
 
       await stopServer();
     });

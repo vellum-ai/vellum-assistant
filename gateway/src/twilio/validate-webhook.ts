@@ -67,10 +67,12 @@ export async function validateTwilioWebhookRequest(
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Reconstruct the public-facing URL that Twilio signed against.
+  // Reconstruct the public-facing URL that Twilio signed against
+  // using the canonical ingress base URL.
   const parsedUrl = new URL(req.url);
-  const publicUrl = config.twilioWebhookBaseUrl
-    ? config.twilioWebhookBaseUrl.replace(/\/$/, "") + parsedUrl.pathname + parsedUrl.search
+  const effectiveBaseUrl = config.ingressPublicBaseUrl;
+  const publicUrl = effectiveBaseUrl
+    ? effectiveBaseUrl.replace(/\/$/, "") + parsedUrl.pathname + parsedUrl.search
     : req.url;
 
   const isValid = verifyTwilioSignature(

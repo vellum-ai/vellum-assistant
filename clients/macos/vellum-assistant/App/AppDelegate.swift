@@ -85,7 +85,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     var thinkingWindow: ThinkingIndicatorWindow?
     public let services = AppServices()
-    private let daemonLauncher = DaemonLauncher()
+    private let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
 
     // Forwarding accessors — ownership lives in `services`, these keep
@@ -139,18 +139,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let skipOnboarding = false
         #endif
 
-        if !skipOnboarding && !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
-            // If the user already has an API key and model configured,
-            // skip onboarding entirely — they're a returning user whose
-            // hasCompletedOnboarding flag was cleared (e.g. by Retire).
-            // Provider is not checked because the daemon defaults to 'anthropic'.
-            let config = WorkspaceConfigIO.read()
-            if APIKeyManager.hasAnyKey(), config["model"] != nil {
-                UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
-            } else {
-                showOnboarding()
-                return
-            }
+        if !skipOnboarding && !lockfileHasAssistants() {
+            showOnboarding()
+            return
         }
 
         startAuthenticatedFlow()
@@ -202,10 +193,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func ensureDaemonConnected() {
-        guard !daemonClient.isConnected else { return }
+        // Skip if already connected or if a connection attempt is in progress
+        // (setupDaemonClient already started connecting — don't interfere).
+        guard !daemonClient.isConnected, !daemonClient.isConnecting else { return }
+
+        let isRemoteTransport: Bool
+        if case .http = daemonClient.config.transport {
+            isRemoteTransport = true
+        } else {
+            isRemoteTransport = false
+        }
+
         Task {
-            try? await daemonLauncher.launchIfNeeded()
-            daemonLauncher.startMonitoring()
+            if !isRemoteTransport {
+                try? await assistantCli.hatch(daemonOnly: true)
+                assistantCli.startMonitoring()
+            }
+            // Only connect if setupDaemonClient's connect hasn't already started
+            guard !daemonClient.isConnected, !daemonClient.isConnecting else { return }
             try? await daemonClient.connect()
             if daemonClient.isConnected {
                 setupAmbientAgent()
@@ -308,35 +313,49 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
-            daemonLauncher.stopMonitoring()
+            assistantCli.stopMonitoring()
             hasSetupApp = false
             hasSetupDaemon = false
             showAuthWindow()
         }
     }
 
-    @objc func performRetire() {
-        let cliLauncher = CLILauncher()
-        let lockfilePath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum.lock.json").path
+    /// Switches the app to a different lockfile assistant: stops the current
+    /// daemon, updates persisted state, and restarts with the new assistant.
+    func performSwitchAssistant(to assistant: LockfileAssistant) {
+        assistantCli.stop()
+        UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
+        assistant.writeToWorkspaceConfig()
 
-        var assistantName: String?
-        if let data = FileManager.default.contents(atPath: lockfilePath),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let assistants = json["assistants"] as? [[String: Any]],
-           let first = assistants.first,
-           let name = first["assistantId"] as? String {
-            assistantName = name
+        hasSetupDaemon = false
+        setupDaemonClient()
+    }
+
+    @objc func performRetire() {
+        let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
+
+        if assistantName == nil {
+            log.error("No stored connected assistant ID found — skipping retire")
         }
 
         Task {
-            daemonLauncher.stop()
-
             if let name = assistantName {
-                try? await cliLauncher.runRetire(name: name)
+                try? await assistantCli.retire(name: name)
+            } else {
+                assistantCli.stop()
             }
 
-            UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
+            // Check if other assistants remain in the lockfile
+            let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName }
+            if let next = remaining.first {
+                // Auto-switch to the next available assistant
+                settingsWindow?.close()
+                settingsWindow = nil
+                performSwitchAssistant(to: next)
+                return
+            }
+
+            // No assistants left — tear down fully and show onboarding
             OnboardingState.clearPersistedState()
 
             mainWindow?.close()
@@ -403,9 +422,58 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Reads `connectedAssistantId` from UserDefaults, looks it up in the lockfile
+    /// (falling back to the latest entry), and writes its config so the daemon connects
+    /// to the correct assistant.
+    ///
+    /// Returns the loaded assistant for transport selection, or nil if none found.
+    @discardableResult
+    private func loadAssistantFromLockfile() -> LockfileAssistant? {
+        let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let assistant: LockfileAssistant?
+
+        if let storedId, let found = LockfileAssistant.loadByName(storedId) {
+            assistant = found
+        } else {
+            assistant = LockfileAssistant.loadLatest()
+        }
+
+        guard let assistant else { return nil }
+
+        UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
+        assistant.writeToWorkspaceConfig()
+        return assistant
+    }
+
+    /// Configure the daemon client's transport based on the lockfile assistant.
+    /// For remote assistants (cloud != "local"), uses HTTP+SSE transport via the gateway URL.
+    /// For local assistants, uses the default Unix domain socket.
+    private func configureDaemonTransport(for assistant: LockfileAssistant?) {
+        guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
+            // Local assistant or no assistant — use default socket transport
+            return
+        }
+
+        let config = DaemonConfig(transport: .http(
+            baseURL: runtimeUrl,
+            bearerToken: assistant.bearerToken,
+            conversationKey: assistant.assistantId
+        ))
+
+        // Replace the daemon client's config. Since DaemonClient.config is let,
+        // we need to create a new DaemonClient with the HTTP config.
+        // The services property is mutable for this purpose.
+        services.reconfigureDaemonClient(config: config)
+
+        log.info("Configured HTTP transport for remote assistant \(assistant.assistantId) at \(runtimeUrl, privacy: .public)")
+    }
+
     func setupDaemonClient() {
         guard !hasSetupDaemon else { return }
         hasSetupDaemon = true
+
+        let assistant = loadAssistantFromLockfile()
+        configureDaemonTransport(for: assistant)
 
         // Show macOS notification when a reminder fires
         daemonClient.onReminderFired = { msg in
@@ -472,6 +540,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showTasksWindow()
         }
 
+        // Task run threads are no longer created automatically. Users can
+        // opt in via the "Open in Chat" button in the task output view.
+
         // Handle escalation: text_qa -> computer_use via computer_use_request_control
         daemonClient.onTaskRouted = { [weak self] routed in
             guard let self else { return }
@@ -521,9 +592,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Restart DaemonClient connection when the health monitor relaunches
         // the daemon process so we don't wait for the backoff timer to expire.
-        daemonLauncher.onDaemonRestarted = { [weak self] in
+        assistantCli.onDaemonRestarted = { [weak self] in
             guard let self else { return }
             Task {
+                // Don't reset an in-progress connection attempt
+                guard !self.daemonClient.isConnected, !self.daemonClient.isConnecting else { return }
                 try? await self.daemonClient.connect()
                 if self.daemonClient.isConnected {
                     self.setupAmbientAgent()
@@ -533,10 +606,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // For remote assistants (HTTP transport), skip local daemon hatching
+        // and connect directly via the gateway URL.
+        let isRemoteTransport: Bool
+        if case .http = daemonClient.config.transport {
+            isRemoteTransport = true
+        } else {
+            isRemoteTransport = false
+        }
+
         Task {
-            // Launch the bundled daemon if present (release builds)
-            try? await daemonLauncher.launchIfNeeded()
-            daemonLauncher.startMonitoring()
+            if !isRemoteTransport {
+                // Hatch the assistant via CLI (spawns daemon in release builds).
+                // daemonOnly: true prevents creating a new lockfile entry on every launch.
+                try? await assistantCli.hatch(daemonOnly: true)
+                assistantCli.startMonitoring()
+            }
             try? await daemonClient.connect()
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {
@@ -549,7 +634,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupAutoUpdate() {
         updateManager.onWillInstallUpdate = { [weak self] in
-            self?.daemonLauncher.stop()
+            self?.assistantCli.stop()
         }
         updateManager.startAutomaticChecks()
     }
@@ -943,13 +1028,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Onboarding
 
+    /// Returns `true` when `~/.vellum.lock.json` contains at least one assistant entry.
+    private func lockfileHasAssistants() -> Bool {
+        let lockfilePath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vellum.lock.json").path
+        guard let data = FileManager.default.contents(atPath: lockfilePath),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let assistants = json["assistants"] as? [[String: Any]] else {
+            return false
+        }
+        return !assistants.isEmpty
+    }
+
     private func showOnboarding() {
         setupDaemonClient()
 
         let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
-            UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
             UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
             writeVellumIdentityFile(name: state.assistantName)
@@ -1139,11 +1235,21 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showTasksWindow() {
         NSApp.setActivationPolicy(.regular)
-        // Always recreate the tasks window to ensure it has the latest
-        // ThreadManager reference (mainWindow may have been created after
-        // the previous TasksWindow instance).
         if tasksWindow == nil {
-            tasksWindow = TasksWindow(daemonClient: daemonClient, threadManager: mainWindow?.threadManager)
+            let window = TasksWindow(daemonClient: daemonClient)
+            window.onOpenInChat = { [weak self] conversationId, workItemId, title in
+                guard let self else { return }
+                self.mainWindow?.threadManager.createTaskRunThread(
+                    conversationId: conversationId,
+                    workItemId: workItemId,
+                    title: title
+                )
+                if let thread = self.mainWindow?.threadManager.threads.first(where: { $0.sessionId == conversationId }) {
+                    self.mainWindow?.threadManager.activeThreadId = thread.id
+                }
+                self.showMainWindow()
+            }
+            tasksWindow = window
         }
         tasksWindow?.show()
     }
@@ -1169,7 +1275,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         surfaceManager.dismissAll()
         toolConfirmationNotificationService.dismissAll()
         secretPromptManager.dismissAll()
-        daemonLauncher.stop()
+        assistantCli.stop()
     }
 
     // MARK: - Browser CDP Request Handling

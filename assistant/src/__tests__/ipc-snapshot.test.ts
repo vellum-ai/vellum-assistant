@@ -339,9 +339,23 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'slack_webhook_config',
     action: 'get',
   },
+  ingress_config: {
+    type: 'ingress_config',
+    action: 'get',
+  },
   vercel_api_config: {
     type: 'vercel_api_config',
     action: 'get',
+  },
+  twitter_integration_config: {
+    type: 'twitter_integration_config',
+    action: 'get',
+  },
+  twitter_auth_start: {
+    type: 'twitter_auth_start',
+  },
+  twitter_auth_status: {
+    type: 'twitter_auth_status',
   },
   link_open_request: {
     type: 'link_open_request',
@@ -423,14 +437,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'work_item_get',
     id: 'wi-001',
   },
-  work_item_create: {
-    type: 'work_item_create',
-    taskId: 'task-001',
-    title: 'Process report',
-    notes: 'High priority',
-    priorityTier: 1,
-    sortIndex: 0,
-  },
   work_item_update: {
     type: 'work_item_update',
     id: 'wi-001',
@@ -466,10 +472,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'work_item_cancel',
     id: 'wi-001',
   },
-  work_item_render: {
-    type: 'work_item_render',
-    id: 'wi-001',
-  },
   document_save: {
     type: 'document_save',
     surfaceId: 'doc-001',
@@ -493,7 +495,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   subagent_status: {
     type: 'subagent_status',
     subagentId: 'sub-001',
-    sessionId: 'sess-001',
   },
   subagent_message: {
     type: 'subagent_message',
@@ -891,6 +892,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     title: 'Urgent email from Alice',
     body: 'Meeting rescheduled to 3pm today.',
   },
+  agent_heartbeat_alert: {
+    type: 'agent_heartbeat_alert',
+    title: 'Agent heartbeat stalled',
+    body: 'No activity detected in the last 60 minutes.',
+  },
   watch_started: {
     type: 'watch_started',
     sessionId: 'sess-001',
@@ -1128,10 +1134,35 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     webhookUrl: 'https://hooks.slack.com/services/T00/B00/xxx',
     success: true,
   },
+  ingress_config_response: {
+    type: 'ingress_config_response',
+    publicBaseUrl: 'https://example.com',
+    localGatewayTarget: 'http://127.0.0.1:7830',
+    success: true,
+  },
   vercel_api_config_response: {
     type: 'vercel_api_config_response',
     hasToken: true,
     success: true,
+  },
+  twitter_integration_config_response: {
+    type: 'twitter_integration_config_response',
+    success: true,
+    mode: 'local_byo',
+    managedAvailable: false,
+    localClientConfigured: true,
+    connected: false,
+  },
+  twitter_auth_result: {
+    type: 'twitter_auth_result',
+    success: true,
+    accountInfo: '@vellum_test',
+  },
+  twitter_auth_status_response: {
+    type: 'twitter_auth_status_response',
+    connected: true,
+    accountInfo: '@vellum_test',
+    mode: 'local_byo',
   },
   open_url: {
     type: 'open_url',
@@ -1302,25 +1333,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       updatedAt: 1700000000,
     },
   },
-  work_item_create_response: {
-    type: 'work_item_create_response',
-    item: {
-      id: 'wi-001',
-      taskId: 'task-001',
-      title: 'Process report',
-      notes: null,
-      status: 'queued',
-      priorityTier: 1,
-      sortIndex: null,
-      lastRunId: null,
-      lastRunConversationId: null,
-      lastRunStatus: null,
-      sourceType: null,
-      sourceId: null,
-      createdAt: 1700000000,
-      updatedAt: 1700000000,
-    },
-  },
   work_item_update_response: {
     type: 'work_item_update_response',
     item: {
@@ -1383,13 +1395,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     id: 'wi-001',
     success: true,
   },
-  work_item_render_response: {
-    type: 'work_item_render_response',
-    id: 'wi-001',
-    success: true,
-    content: '# Rendered Work Item',
-    title: 'Process report',
-  },
   work_item_status_changed: {
     type: 'work_item_status_changed',
     item: {
@@ -1408,6 +1413,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   open_tasks_window: {
     type: 'open_tasks_window',
+  },
+  task_run_thread_created: {
+    type: 'task_run_thread_created',
+    conversationId: 'conv-task-run-001',
+    workItemId: 'wi-001',
+    title: 'Process report',
   },
   subagent_spawned: {
     type: 'subagent_spawned',

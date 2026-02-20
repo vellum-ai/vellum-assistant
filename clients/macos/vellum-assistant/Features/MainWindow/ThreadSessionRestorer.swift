@@ -46,6 +46,9 @@ final class ThreadSessionRestorer {
         daemonClient.onHistoryResponse = { [weak self] response in
             self?.handleHistoryResponse(response)
         }
+        daemonClient.onSubagentDetailResponse = { [weak self] response in
+            self?.handleSubagentDetailResponse(response)
+        }
 
         // On first launch after onboarding, skip the initial session list fetch
         // so the session restorer doesn't override the wake-up conversation thread.
@@ -139,6 +142,18 @@ final class ThreadSessionRestorer {
         guard let viewModel = delegate?.chatViewModel(for: threadId) else { return }
         viewModel.populateFromHistory(response.messages)
         log.info("Loaded \(response.messages.count) history messages for thread \(threadId)")
+    }
+
+    func handleSubagentDetailResponse(_ response: IPCSubagentDetailResponse) {
+        guard let delegate else { return }
+        // Find the ChatViewModel that owns this subagent
+        for thread in delegate.threads {
+            guard let viewModel = delegate.chatViewModel(for: thread.id) else { continue }
+            if viewModel.activeSubagents.contains(where: { $0.id == response.subagentId }) {
+                viewModel.subagentDetailStore.populateFromDetailResponse(response)
+                return
+            }
+        }
     }
 
     // MARK: - Private

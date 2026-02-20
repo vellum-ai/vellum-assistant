@@ -28,7 +28,8 @@ const makeConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
   maxAttachmentBytes: 20971520,
   maxAttachmentConcurrency: 3,
   twilioAuthToken: undefined,
-  twilioWebhookBaseUrl: undefined,
+  ingressPublicBaseUrl: undefined,
+  publicUrl: undefined,
   ...overrides,
 });
 

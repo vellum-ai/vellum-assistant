@@ -1,6 +1,7 @@
 import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { updateSchedule, formatLocalDate, describeCronExpression } from '../../schedule/schedule-store.js';
-import type { ScheduleSyntax } from '../../schedule/recurrence-types.js';
+import { normalizeScheduleSyntax, type ScheduleSyntax } from '../../schedule/recurrence-types.js';
+import { validateRruleSetLines } from '../../schedule/recurrence-engine.js';
 
 export async function executeScheduleUpdate(
   input: Record<string, unknown>,
@@ -17,19 +18,39 @@ export async function executeScheduleUpdate(
   if (input.message !== undefined) updates.message = input.message;
   if (input.enabled !== undefined) updates.enabled = input.enabled;
 
-  // New syntax/expression fields take precedence over legacy cron_expression
-  if (input.expression !== undefined) {
-    updates.expression = input.expression;
-  } else if (input.cron_expression !== undefined) {
-    updates.cronExpression = input.cron_expression;
-  }
-
-  if (input.syntax !== undefined) {
-    updates.syntax = input.syntax;
+  // Auto-detect syntax when expression changes without explicit syntax
+  const hasExpression = input.expression !== undefined || input.cron_expression !== undefined;
+  if (hasExpression || input.syntax !== undefined) {
+    const resolved = normalizeScheduleSyntax({
+      syntax: input.syntax as 'cron' | 'rrule' | undefined,
+      expression: input.expression as string | undefined,
+      legacyCronExpression: input.cron_expression as string | undefined,
+    });
+    if (resolved) {
+      updates.syntax = resolved.syntax;
+      updates.expression = resolved.expression;
+    } else if (input.expression !== undefined) {
+      updates.expression = input.expression;
+    } else if (input.cron_expression !== undefined) {
+      updates.cronExpression = input.cron_expression;
+    }
   }
 
   if (Object.keys(updates).length === 0) {
     return { content: 'Error: No updates provided. Specify at least one field to update.', isError: true };
+  }
+
+  // Set-aware pre-validation for RRULE expressions
+  const effectiveSyntax = updates.syntax as string | undefined;
+  const effectiveExpr = (updates.expression as string | undefined) ?? (updates.cronExpression as string | undefined);
+  if (effectiveExpr && typeof effectiveExpr === 'string' && (effectiveSyntax === 'rrule' || /^(DTSTART|RRULE:)/m.test(effectiveExpr))) {
+    const setError = validateRruleSetLines(effectiveExpr);
+    if (setError) {
+      return {
+        content: `Error: ${setError}. Supported line types: DTSTART, RRULE, RDATE, EXDATE, EXRULE.`,
+        isError: true,
+      };
+    }
   }
 
   try {

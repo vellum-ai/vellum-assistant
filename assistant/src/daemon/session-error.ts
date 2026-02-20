@@ -45,7 +45,8 @@ const CONTEXT_TOO_LARGE_PATTERNS = [
   /exceeded.*max_tokens/i,
 ];
 
-// Timeout patterns (provider-side timeouts distinct from network-level ETIMEDOUT)
+// Generic timeout patterns — checked after NETWORK_PATTERNS and PROVIDER_API_PATTERNS
+// so that "connection timeout" → PROVIDER_NETWORK and "gateway timeout" → PROVIDER_API
 const TIMEOUT_PATTERNS = [
   /\btimeout\b/i,
   /deadline.?exceeded/i,
@@ -218,18 +219,7 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
     }
   }
 
-  // Timeout errors (checked before network so generic "timeout" isn't caught by NETWORK_PATTERNS)
-  for (const pattern of TIMEOUT_PATTERNS) {
-    if (pattern.test(message)) {
-      return {
-        code: 'PROVIDER_API',
-        userMessage: 'The request took too long. This is usually temporary — try again shortly.',
-        retryable: true,
-      };
-    }
-  }
-
-  // Network errors
+  // Network errors (before timeout so "connection timeout" is classified as network)
   for (const pattern of NETWORK_PATTERNS) {
     if (pattern.test(message)) {
       return {
@@ -240,12 +230,24 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
     }
   }
 
-  // Provider API errors (5xx)
+  // Provider API errors (before timeout so "gateway timeout" keeps its specific message)
   for (const pattern of PROVIDER_API_PATTERNS) {
     if (pattern.test(message)) {
       return {
         code: 'PROVIDER_API',
         userMessage: 'The AI provider returned an error. This is usually temporary — try again shortly.',
+        retryable: true,
+      };
+    }
+  }
+
+  // Generic timeout errors (checked after network and provider API patterns so
+  // specific timeouts like "connection timeout" and "gateway timeout" aren't misclassified)
+  for (const pattern of TIMEOUT_PATTERNS) {
+    if (pattern.test(message)) {
+      return {
+        code: 'PROVIDER_API',
+        userMessage: 'The request took too long. This is usually temporary — try again shortly.',
         retryable: true,
       };
     }

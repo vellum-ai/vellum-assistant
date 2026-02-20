@@ -25,9 +25,13 @@
             "type": "number",
             "description": "Hours to wait for a response before marking as overdue. If omitted, no deadline is set."
           },
+          "reminder_schedule_id": {
+            "type": "string",
+            "description": "Optional recurrence schedule ID to fire a reminder when overdue"
+          },
           "reminder_cron_id": {
             "type": "string",
-            "description": "Optional cron job ID to fire a reminder when overdue"
+            "description": "Deprecated alias for reminder_schedule_id. Use reminder_schedule_id instead."
           }
         },
         "required": ["channel", "thread_id"]

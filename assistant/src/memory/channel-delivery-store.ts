@@ -82,7 +82,6 @@ export function recordInbound(
     tx.insert(channelInboundEvents)
       .values({
         id: eventId,
-        assistantId: 'self',
         sourceChannel,
         externalChatId,
         externalMessageId,

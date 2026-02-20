@@ -397,29 +397,31 @@ final class ComputerUseSession: ObservableObject {
                ChromeAccessibilityHelper.isChromium(frontApp),
                !ChromeAccessibilityHelper.hasWebContent(elements: result.elements) {
                 didChromeAccessibilityCheck = true
-                log.warning("Chrome detected but AX tree has no web content — needs restart with accessibility")
+                let browserName = frontApp.localizedName ?? "Chrome"
+                log.warning("\(browserName) detected but AX tree has no web content — needs restart with accessibility")
 
-                // Ask the user before restarting Chrome — they may have unsaved work
+                // Ask the user before restarting — they may have unsaved work
                 let alert = NSAlert()
-                alert.messageText = "Restart Chrome?"
-                alert.informativeText = "Chrome needs to restart with accessibility enabled for computer-use to work. You may lose unsaved form data. Continue?"
+                alert.messageText = "Restart \(browserName)?"
+                alert.informativeText = "\(browserName) needs to restart with accessibility enabled for computer-use to work. You may lose unsaved form data. Continue?"
                 alert.alertStyle = .warning
-                alert.addButton(withTitle: "Restart Chrome")
+                alert.addButton(withTitle: "Restart \(browserName)")
                 alert.addButton(withTitle: "Cancel")
+                NSApp.activate(ignoringOtherApps: true)
                 let response = alert.runModal()
 
                 if response == .alertFirstButtonReturn {
                     let restarted = await ChromeAccessibilityHelper.restartChromeWithAccessibility(app: frontApp)
                     if restarted {
                         AccessibilityTreeEnumerator.clearEnhancedAXCache()
-                        log.info("Chrome restarted — re-enumerating")
+                        log.info("\(browserName) restarted — re-enumerating")
                         screenshotPromise.cancel()
                         return await buildObservation(executionResult: executionResult, executionError: executionError)
                     } else {
-                        log.error("Chrome restart failed — continuing with limited AX tree")
+                        log.error("\(browserName) restart failed — continuing with limited AX tree")
                     }
                 } else {
-                    log.info("User declined Chrome restart — continuing with limited AX tree")
+                    log.info("User declined \(browserName) restart — continuing with limited AX tree")
                 }
             }
             didChromeAccessibilityCheck = true

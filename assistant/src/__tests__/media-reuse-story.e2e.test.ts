@@ -96,7 +96,7 @@ mock.module('../tools/network/script-proxy/certs.js', () => ({
 // Source imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { initializeDb, getDb } from '../memory/db.js';
+import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { uploadAttachment, linkAttachmentToMessage } from '../memory/attachments-store.js';
 import { createConversation, addMessage } from '../memory/conversation-store.js';
 import { assetSearchTool, searchAttachments } from '../tools/assets/search.js';
@@ -114,6 +114,7 @@ initializeDb();
 mkdirSync(sandboxDir, { recursive: true });
 
 afterAll(async () => {
+  resetDb();
   await stopAllSessions();
   resolveByIdResults = new Map();
   secureKeyValues = new Map();

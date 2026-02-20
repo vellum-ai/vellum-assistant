@@ -4,7 +4,7 @@ import VellumAssistantShared
 /// that were previously declared directly on `AppDelegate`.
 @MainActor
 public final class AppServices {
-    public let daemonClient = DaemonClient()
+    public private(set) var daemonClient: DaemonClient
     public let ambientAgent = AmbientAgent()
     let surfaceManager = SurfaceManager()
     let browserPiPManager = BrowserPiPManager()
@@ -22,4 +22,15 @@ public final class AppServices {
     public lazy var activityNotificationService: ActivityNotificationService = ActivityNotificationService(
         settingsStore: settingsStore
     )
+
+    init() {
+        self.daemonClient = DaemonClient()
+    }
+
+    /// Reconfigure the daemon client with a new config (e.g., for HTTP transport).
+    /// This replaces the daemon client instance. Must be called before any callbacks
+    /// are wired or connections are established.
+    func reconfigureDaemonClient(config: DaemonConfig) {
+        daemonClient = DaemonClient(config: config)
+    }
 }

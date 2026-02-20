@@ -9,6 +9,10 @@ public struct SettingsView: View {
     @State private var perplexityKeyText = ""
     @State private var imageGenKeyText = ""
     @State private var vercelKeyText = ""
+    @State private var twitterClientId = ""
+    @State private var twitterClientSecret = ""
+    @State private var ingressUrlText = ""
+    @FocusState private var isIngressUrlFocused: Bool
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
     @State private var showingPrivacy = false
@@ -217,6 +221,165 @@ public struct SettingsView: View {
                 }
             }
 
+            Section("Twitter / X") {
+                Picker("Integration mode", selection: $store.twitterMode) {
+                    Text("Local (BYO App)").tag("local_byo")
+                    Text("Managed").tag("managed")
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: store.twitterMode) { _, newValue in
+                    store.setTwitterMode(newValue)
+                }
+
+                if store.twitterMode == "managed" {
+                    HStack(spacing: 6) {
+                        Image(systemName: "info.circle")
+                            .foregroundStyle(.secondary)
+                        Text("Managed mode is coming soon. Switch to Local (BYO App) to connect now.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if store.twitterMode == "local_byo" {
+                    if !store.twitterLocalClientConfigured {
+                        VStack(alignment: .leading, spacing: 6) {
+                            TextField("OAuth Client ID", text: $twitterClientId)
+                                .textFieldStyle(.roundedBorder)
+                            SecureField("OAuth Client Secret (optional)", text: $twitterClientSecret)
+                                .textFieldStyle(.roundedBorder)
+                            HStack {
+                                Text("Create an app at developer.x.com")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Button("Save") {
+                                    store.saveTwitterLocalClient(
+                                        clientId: twitterClientId,
+                                        clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret
+                                    )
+                                    twitterClientId = ""
+                                    twitterClientSecret = ""
+                                }
+                                .disabled(twitterClientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            }
+                        }
+                    } else {
+                        if store.twitterConnected {
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                    .font(.system(size: 14))
+                                Text("Connected")
+                                    .foregroundStyle(.secondary)
+                                if let account = store.twitterAccountInfo {
+                                    Text(account)
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
+                                Spacer()
+                                Button("Disconnect") {
+                                    store.disconnectTwitter()
+                                }
+                                .tint(.red)
+                            }
+                        } else {
+                            HStack(spacing: 6) {
+                                Image(systemName: "circle")
+                                    .foregroundStyle(.tertiary)
+                                    .font(.system(size: 14))
+                                Text("App configured")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                if store.twitterAuthInProgress {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Connecting...")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Button("Connect") {
+                                        store.connectTwitter()
+                                    }
+                                }
+                            }
+                        }
+
+                        if let error = store.twitterAuthError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+
+                        HStack {
+                            Spacer()
+                            Button("Clear App Config") {
+                                store.clearTwitterLocalClient()
+                                twitterClientId = ""
+                                twitterClientSecret = ""
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+            }
+
+            Section("Public Ingress") {
+                TextField("Public Ingress URL (e.g. https://abc123.ngrok-free.app)", text: $ingressUrlText)
+                    .focused($isIngressUrlFocused)
+                    .textFieldStyle(.roundedBorder)
+
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.system(size: 12))
+                    Text("Setting a public base URL may expose this computer to the public internet. Use with caution.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("Webhook paths (e.g. /webhooks/twilio/voice) are appended automatically.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack {
+                    Spacer()
+                    Button("Save") {
+                        store.saveIngressPublicBaseUrl(ingressUrlText)
+                    }
+                }
+
+                Divider()
+
+                HStack {
+                    Text("Local Gateway Target")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+
+                HStack(spacing: 6) {
+                    Text(store.localGatewayTarget)
+                        .font(.body.monospaced())
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Copy gateway address")
+                }
+
+                Text("Point your tunnel service at this local address.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Computer Use") {
                 HStack {
                     Text("Max steps per session")
@@ -416,6 +579,9 @@ public struct SettingsView: View {
         .onAppear {
             store.refreshAPIKeyState()
             store.refreshVercelKeyState()
+            store.refreshTwitterStatus()
+            store.refreshIngressConfig()
+            ingressUrlText = store.ingressPublicBaseUrl
             checkPermissions()
         }
         .onDisappear {
@@ -425,6 +591,20 @@ public struct SettingsView: View {
         }
         .onReceive(permissionTimer) { _ in
             checkPermissions()
+        }
+        .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
+            // Only sync from store when the field is not focused, so
+            // background IPC responses don't overwrite in-progress edits.
+            if !isIngressUrlFocused {
+                ingressUrlText = newValue
+            }
+        }
+        .onChange(of: isIngressUrlFocused) { _, focused in
+            // Re-sync when focus leaves so any updates skipped while the
+            // user was editing are applied once they're done.
+            if !focused {
+                ingressUrlText = store.ingressPublicBaseUrl
+            }
         }
         .sheet(isPresented: $showingSkills, onDismiss: {
             skillsViewModel = nil

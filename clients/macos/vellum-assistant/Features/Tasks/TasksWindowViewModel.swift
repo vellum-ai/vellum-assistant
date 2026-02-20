@@ -50,18 +50,14 @@ class TasksWindowViewModel: ObservableObject {
     /// normal latency while still recovering from connection drops quickly.
     private static let runTimeoutSeconds: UInt64 = 10
 
-    /// Called when a task should be executed through the active chat thread.
-    /// Parameters: (workItemId, renderedContent, taskTitle).
-    /// Returns true if the message was successfully injected into chat.
-    /// Set by the app layer to inject the task content as a user message in chat.
-    var onRunTaskInChat: ((String, String, String) -> Bool)?
+    /// Called when the user taps "Open in Chat" — creates the thread in
+    /// the main window and brings it forward. Parameters: conversationId,
+    /// workItemId, title.
+    private let onOpenInChat: ((String, String, String) -> Void)?
 
-    /// Tracks work item IDs awaiting a render response from the daemon.
-    /// Maps work item ID to the item itself for context in the response handler.
-    private var pendingRenderIds: Set<String> = []
-
-    init(daemonClient: DaemonClient) {
+    init(daemonClient: DaemonClient, onOpenInChat: ((String, String, String) -> Void)? = nil) {
         self.daemonClient = daemonClient
+        self.onOpenInChat = onOpenInChat
         setupCallbacks()
         fetchItems()
     }
@@ -114,7 +110,15 @@ class TasksWindowViewModel: ObservableObject {
             self.cancelRunTimeout(id: response.id)
             if !response.success {
                 self.logger.error("onWorkItemRunTaskResponse: run failed for id=\(response.id, privacy: .public) errorCode=\(response.errorCode ?? "none", privacy: .public) error=\(response.error ?? "none", privacy: .public)")
-                self.errorMessage = response.error ?? "Failed to run task"
+                // When required tools changed after initial approval, the daemon
+                // returns permission_required — reopen the preflight dialog so the
+                // user can approve the updated set.
+                if response.errorCode == "permission_required",
+                   let item = self.items.first(where: { $0.id == response.id }) {
+                    self.initiateRun(item: item)
+                } else {
+                    self.errorMessage = response.error ?? "Failed to run task"
+                }
                 self.fetchItems()
             }
         }
@@ -181,35 +185,6 @@ class TasksWindowViewModel: ObservableObject {
             self.fetchItems()
         }
 
-        daemonClient.onWorkItemRenderResponse = { [weak self] response in
-            guard let self else { return }
-            self.pendingRenderIds.remove(response.id)
-
-            guard response.success, let content = response.content else {
-                self.logger.error("onWorkItemRenderResponse: render failed for id=\(response.id, privacy: .public) error=\(response.error ?? "none", privacy: .public)")
-                self.runInFlightIds.remove(response.id)
-                self.cancelRunTimeout(id: response.id)
-                self.errorMessage = response.error ?? "Failed to render task content"
-                return
-            }
-
-            let title = response.title ?? "Task"
-
-            // Try to route the rendered content through the active chat thread
-            let routed = self.onRunTaskInChat?(response.id, content, title) ?? false
-
-            // Tell the daemon to set status to "running". When chat routing
-            // succeeded, pass chatRouted=true so the daemon skips execution.
-            // Otherwise fall back to daemon-side execution.
-            do {
-                try self.daemonClient.sendWorkItemRunTask(id: response.id, chatRouted: routed)
-            } catch {
-                self.logger.error("runTask: transport error for id=\(response.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                self.runInFlightIds.remove(response.id)
-                self.cancelRunTimeout(id: response.id)
-                self.errorMessage = error.localizedDescription
-            }
-        }
     }
 
     func fetchItems() {
@@ -285,24 +260,6 @@ class TasksWindowViewModel: ObservableObject {
         runInFlightIds.insert(id)
         startRunTimeout(id: id)
 
-        // When a chat routing callback is available, request the rendered task
-        // content first. The render response handler will then send
-        // work_item_run_task with chatRouted=true and inject the content into chat.
-        if onRunTaskInChat != nil {
-            pendingRenderIds.insert(id)
-            do {
-                try daemonClient.sendWorkItemRender(id: id)
-            } catch {
-                logger.error("runTask: render transport error for id=\(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                runInFlightIds.remove(id)
-                cancelRunTimeout(id: id)
-                pendingRenderIds.remove(id)
-                errorMessage = error.localizedDescription
-            }
-            return
-        }
-
-        // Fallback: no chat routing callback — use the legacy daemon-side execution
         do {
             try daemonClient.sendWorkItemRunTask(id: id)
         } catch {
@@ -415,6 +372,25 @@ class TasksWindowViewModel: ObservableObject {
     /// Dismisses the output detail sheet.
     func dismissOutput() {
         selectedOutputItem = nil
+    }
+
+    /// Whether the currently loaded output has a conversation that can be
+    /// opened in chat.
+    var canOpenInChat: Bool {
+        guard onOpenInChat != nil else { return false }
+        if case .loaded(let output) = outputState {
+            return output.conversationId != nil
+        }
+        return false
+    }
+
+    /// Opens the current task output's conversation in the main chat window.
+    func openInChat() {
+        guard let item = selectedOutputItem,
+              case .loaded(let output) = outputState,
+              let conversationId = output.conversationId else { return }
+        onOpenInChat?(conversationId, item.id, item.title)
+        dismissOutput()
     }
 
     func updatePriority(id: String, tier: Double) {

@@ -30,10 +30,32 @@ Examples:
 
 iCalendar recurrence rules for complex patterns. Must include a DTSTART line.
 
-Examples:
+Supported lines (all expressions must include DTSTART + at least one RRULE or RDATE):
+
+| Line | Purpose |
+|------|---------|
+| `DTSTART` | Start date/time anchor (required) |
+| `RRULE:` | Recurrence rule (multiple lines = union of occurrences) |
+| `RDATE` | Add one-off dates not covered by the pattern |
+| `EXDATE` | Exclude specific dates from the set |
+| `EXRULE` | Exclude an entire recurring series |
+
+Exclusions (EXDATE, EXRULE) always take precedence over inclusions (RRULE, RDATE).
+
+#### Basic examples
 - `DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY` — every day at 9:00 AM UTC
 - `DTSTART:20250101T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR` — Mon/Wed/Fri at 9:00 AM UTC
 - `DTSTART:20250101T090000Z\nRRULE:FREQ=MONTHLY;BYMONTHDAY=1,15` — 1st and 15th of each month
+
+#### Bounded recurrence
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY;COUNT=30` — daily for 30 occurrences then stop
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20250331T235959Z` — every Monday until end of March
+
+#### Set construct examples
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR\nEXDATE:20250120T090000Z` — Mon/Wed/Fri except Jan 20
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=DAILY\nEXRULE:FREQ=WEEKLY;BYDAY=SA,SU` — every weekday (daily minus weekends)
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=MONTHLY;BYMONTHDAY=1\nRDATE:20250704T090000Z` — 1st of each month plus July 4th
+- `DTSTART:20250101T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=TU\nRRULE:FREQ=WEEKLY;BYDAY=TH` — union of Tuesdays and Thursdays
 
 ## Tool Input
 

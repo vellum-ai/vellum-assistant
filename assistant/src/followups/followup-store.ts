@@ -7,6 +7,7 @@ import type { FollowUp, FollowUpCreateInput, FollowUpStatus } from './types.js';
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function parseFollowUp(row: typeof followups.$inferSelect): FollowUp {
+  const scheduleId = row.reminderCronId;
   return {
     id: row.id,
     channel: row.channel,
@@ -15,7 +16,8 @@ function parseFollowUp(row: typeof followups.$inferSelect): FollowUp {
     sentAt: row.sentAt,
     expectedResponseBy: row.expectedResponseBy,
     status: row.status as FollowUpStatus,
-    reminderCronId: row.reminderCronId,
+    reminderScheduleId: scheduleId,
+    reminderCronId: scheduleId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -36,7 +38,7 @@ export function createFollowUp(input: FollowUpCreateInput): FollowUp {
     sentAt: input.sentAt ?? now,
     expectedResponseBy: input.expectedResponseBy ?? null,
     status: 'pending',
-    reminderCronId: input.reminderCronId ?? null,
+    reminderCronId: input.reminderScheduleId ?? input.reminderCronId ?? null,
     createdAt: now,
     updatedAt: now,
   }).run();

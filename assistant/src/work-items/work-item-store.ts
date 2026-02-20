@@ -20,6 +20,7 @@ export interface WorkItem {
   lastRunStatus: string | null;
   sourceType: string | null;
   sourceId: string | null;
+  requiredTools: string | null;
   approvedTools: string | null;
   approvalStatus: string | null;
   createdAt: number;
@@ -36,6 +37,7 @@ export function createWorkItem(opts: {
   sortIndex?: number;
   sourceType?: string;
   sourceId?: string;
+  requiredTools?: string;
 }): WorkItem {
   const db = getDb();
   const now = Date.now();
@@ -53,6 +55,7 @@ export function createWorkItem(opts: {
     lastRunStatus: null,
     sourceType: opts.sourceType ?? null,
     sourceId: opts.sourceId ?? null,
+    requiredTools: opts.requiredTools ?? null,
     approvedTools: null,
     approvalStatus: 'none',
     createdAt: now,
@@ -60,6 +63,24 @@ export function createWorkItem(opts: {
   };
   db.insert(workItems).values(item).run();
   return item;
+}
+
+/**
+ * Create a work item without any pre-approved permissions. Items start
+ * with `approvalStatus: 'none'` and no `approvedTools` — approval
+ * happens only via the explicit preflight flow before execution.
+ */
+export function createWorkItemWithPermissions(opts: {
+  taskId: string;
+  title: string;
+  notes?: string;
+  priorityTier?: number;
+  sortIndex?: number;
+  sourceType?: string;
+  sourceId?: string;
+  requiredTools?: string;
+}): WorkItem {
+  return createWorkItem(opts);
 }
 
 export function getWorkItem(id: string): WorkItem | undefined {
@@ -80,7 +101,7 @@ export function listWorkItems(opts?: { status?: WorkItemStatus }): WorkItem[] {
 
 export function updateWorkItem(
   id: string,
-  updates: Partial<Pick<WorkItem, 'title' | 'notes' | 'status' | 'priorityTier' | 'sortIndex' | 'lastRunId' | 'lastRunConversationId' | 'lastRunStatus' | 'approvedTools' | 'approvalStatus'>>,
+  updates: Partial<Pick<WorkItem, 'title' | 'notes' | 'status' | 'priorityTier' | 'sortIndex' | 'lastRunId' | 'lastRunConversationId' | 'lastRunStatus' | 'requiredTools' | 'approvedTools' | 'approvalStatus'>>,
 ): WorkItem | undefined {
   const db = getDb();
   db.update(workItems)

@@ -156,6 +156,24 @@ describe('Provider streaming benchmark', () => {
   test('event throughput through provider wrappers is within 20% of source rate', async () => {
     const tokenCount = 50;
     const sourceRate = 200; // tokens/sec
+
+    // Measure unwrapped baseline in the same run so we compare against actual
+    // timer resolution rather than the theoretical sourceRate (which setTimeout
+    // may not achieve on busy or coarse-timer hosts).
+    const baseline = makeStreamingProvider(tokenCount, sourceRate);
+    const baselineEvents: number[] = [];
+    const baselineStart = performance.now();
+
+    await baseline.sendMessage(SIMPLE_MESSAGES, undefined, undefined, {
+      onEvent: () => {
+        baselineEvents.push(performance.now());
+      },
+    });
+
+    const baselineElapsed = baselineEvents[baselineEvents.length - 1] - baselineStart;
+    const baselineRate = (baselineEvents.length / baselineElapsed) * 1000;
+
+    // Now measure the wrapped provider
     const inner = makeStreamingProvider(tokenCount, sourceRate);
     const wrapped = new RetryProvider(inner);
 
@@ -170,21 +188,32 @@ describe('Provider streaming benchmark', () => {
 
     const elapsed = events[events.length - 1] - start;
     const observedRate = (events.length / elapsed) * 1000;
-    // Source rate is bounded by setTimeout resolution, so we compare against
-    // the actual elapsed time of a direct call instead of the theoretical rate.
-    // The key assertion: we received all events and throughput didn't degrade
-    // by more than 20%.
+
     expect(events.length).toBe(tokenCount);
 
-    // Calculate the expected minimum rate — 80% of source rate
-    const minAcceptableRate = sourceRate * 0.8;
+    // Wrapped throughput should be within 20% of the measured unwrapped baseline
+    const minAcceptableRate = baselineRate * 0.8;
     expect(observedRate).toBeGreaterThanOrEqual(minAcceptableRate);
   });
 
   test('failover adds < 100ms overhead when primary provider fails', async () => {
     const failing = makeFailingProvider('failing-primary', 500);
     const healthy = makeStreamingProvider(5, 100, { name: 'healthy-fallback' });
-    const wrapped = new FailoverProvider([failing, healthy]);
+
+    // Measure the fallback provider's baseline execution time directly so we
+    // can isolate the failover overhead from the stream's own runtime.
+    const baselineEvents: ProviderEvent[] = [];
+    const baselineStart = performance.now();
+
+    await healthy.sendMessage(SIMPLE_MESSAGES, undefined, undefined, {
+      onEvent: (e) => baselineEvents.push(e),
+    });
+
+    const baselineElapsed = performance.now() - baselineStart;
+
+    // Now measure through the FailoverProvider (primary fails, falls back)
+    const healthy2 = makeStreamingProvider(5, 100, { name: 'healthy-fallback' });
+    const wrapped = new FailoverProvider([failing, healthy2]);
 
     const events: ProviderEvent[] = [];
     const start = performance.now();
@@ -196,9 +225,9 @@ describe('Provider streaming benchmark', () => {
     const elapsed = performance.now() - start;
     expect(events.length).toBe(5);
 
-    // The failover decision + fallback execution should complete quickly.
-    // 5 tokens at 100/sec = 40ms base. Total should be < 200ms including failover.
-    expect(elapsed).toBeLessThan(200);
+    // Isolate the failover overhead by subtracting the fallback stream's baseline
+    const failoverOverhead = elapsed - baselineElapsed;
+    expect(failoverOverhead).toBeLessThan(100);
   });
 
   test('createStreamTimeout fires within 50ms of configured deadline', async () => {
@@ -646,11 +675,11 @@ describe('Provider streaming benchmark', () => {
       },
     });
 
-    try {
-      // Use ANTHROPIC_BASE_URL env var to point AnthropicProvider at mock server
-      const origBaseUrl = process.env.ANTHROPIC_BASE_URL;
-      process.env.ANTHROPIC_BASE_URL = `http://localhost:${server.port}`;
+    // Save and override env var before try so it's always restored in finally
+    const origBaseUrl = process.env.ANTHROPIC_BASE_URL;
+    process.env.ANTHROPIC_BASE_URL = `http://localhost:${server.port}`;
 
+    try {
       // Import dynamically after setting env var so SDK picks it up
       const { AnthropicProvider } = await import('../providers/anthropic/client.js');
       const provider = new AnthropicProvider(BENCH_API_KEY, 'claude-3-5-sonnet-20241022');
@@ -673,13 +702,6 @@ describe('Provider streaming benchmark', () => {
         },
       );
 
-      // Restore env var
-      if (origBaseUrl === undefined) {
-        delete process.env.ANTHROPIC_BASE_URL;
-      } else {
-        process.env.ANTHROPIC_BASE_URL = origBaseUrl;
-      }
-
       // Verify the full adapter pipeline delivered all events
       const textDeltas = receivedEvents.filter((e) => e.type === 'text_delta');
       expect(textDeltas.length).toBe(tokenCount);
@@ -698,6 +720,11 @@ describe('Provider streaming benchmark', () => {
       const rate = (textDeltas.length / elapsed) * 1000;
       expect(rate).toBeGreaterThan(500);
     } finally {
+      if (origBaseUrl === undefined) {
+        delete process.env.ANTHROPIC_BASE_URL;
+      } else {
+        process.env.ANTHROPIC_BASE_URL = origBaseUrl;
+      }
       server.stop();
     }
   });
