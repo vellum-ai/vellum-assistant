@@ -11,6 +11,7 @@ struct IdentityPanel: View {
     @State private var metadata: AssistantMetadata?
     @State private var workspaceFiles: [WorkspaceFileNode] = []
     @State private var skills: [SkillInfo] = []
+    @State private var viewingFilePath: String?
 
     private let maxContentWidth: CGFloat = 1100
 
@@ -69,12 +70,23 @@ struct IdentityPanel: View {
             ConstellationView(
                 identity: identity,
                 skills: skills,
-                workspaceFiles: workspaceFiles
+                workspaceFiles: workspaceFiles,
+                onFileSelected: { path in
+                    viewingFilePath = path
+                }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(VColor.background)
         }
         .background(VColor.backgroundSubtle)
+        .sheet(isPresented: Binding(
+            get: { viewingFilePath != nil },
+            set: { if !$0 { viewingFilePath = nil } }
+        )) {
+            if let path = viewingFilePath {
+                WorkspaceFileSheet(filePath: path, onClose: { viewingFilePath = nil })
+            }
+        }
         .onAppear {
             identity = IdentityInfo.load()
             metadata = AssistantMetadata.load()
@@ -185,5 +197,61 @@ struct IdentityPanel: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+}
+
+// MARK: - Workspace File Sheet
+
+private struct WorkspaceFileSheet: View {
+    let filePath: String
+    let onClose: () -> Void
+
+    private var fileName: String {
+        (filePath as NSString).lastPathComponent
+    }
+
+    private var fileContent: String {
+        (try? String(contentsOfFile: filePath, encoding: .utf8)) ?? "Unable to read file."
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack {
+                Image(systemName: "doc.text.fill")
+                    .font(.system(size: 13))
+                    .foregroundColor(Amber._400)
+                Text(fileName)
+                    .font(VFont.cardTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+            }
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.vertical, VSpacing.lg)
+
+            Divider().background(VColor.surfaceBorder)
+
+            // Content
+            ScrollView {
+                Text(fileContent)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.textSecondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(VSpacing.xl)
+            }
+        }
+        .frame(minWidth: 500, minHeight: 400)
+        .frame(idealWidth: 600, idealHeight: 500)
+        .background(VColor.backgroundSubtle)
     }
 }

@@ -53,6 +53,7 @@ private struct OrbitItem: Identifiable {
     let icon: String
     let emoji: String?
     let color: Color
+    let filePath: String? // non-nil for workspace .md files
 }
 
 private struct CategoryGroup: Identifiable {
@@ -222,6 +223,7 @@ struct ConstellationView: View {
     let identity: IdentityInfo?
     let skills: [SkillInfo]
     let workspaceFiles: [WorkspaceFileNode]
+    var onFileSelected: ((String) -> Void)?
     @State private var appearance = AvatarAppearanceManager.shared
 
     @State private var phase: AnimationPhase = .hidden
@@ -237,7 +239,8 @@ struct ConstellationView: View {
 
     private var groups: [CategoryGroup] {
         let fileItems = existingFiles.enumerated().map { idx, node in
-            OrbitItem(id: "core-\(idx)", label: node.label, icon: "doc.text.fill", emoji: nil, color: Amber._400)
+            let path: String? = node.label.hasSuffix(".md") ? node.path : nil
+            return OrbitItem(id: "core-\(idx)", label: node.label, icon: "doc.text.fill", emoji: nil, color: Amber._400, filePath: path)
         }
 
         var categoryMap: [SkillCategory: [OrbitItem]] = [:]
@@ -249,7 +252,8 @@ struct ConstellationView: View {
                 label: skill.name,
                 icon: cat.icon,
                 emoji: skill.emoji,
-                color: cat.color
+                color: cat.color,
+                filePath: nil
             )
             categoryMap[cat, default: []].append(item)
         }
@@ -440,7 +444,10 @@ struct ConstellationView: View {
             DraggableNode(nodeKey: item.id, offsets: $nodeOffsets) {
                 ConstellationPill(
                     label: item.label, icon: item.icon,
-                    emoji: item.emoji, color: item.color
+                    emoji: item.emoji, color: item.color,
+                    onTap: item.filePath.map { path in
+                        { onFileSelected?(path) }
+                    }
                 )
             }
             .position(leafBasePositions[leafIdx])
@@ -521,8 +528,11 @@ private struct ConstellationPill: View {
     let icon: String
     let emoji: String?
     let color: Color
+    var onTap: (() -> Void)?
 
     @State private var isHovered = false
+
+    private var isTappable: Bool { onTap != nil }
 
     var body: some View {
         HStack(spacing: VSpacing.sm) {
@@ -569,6 +579,14 @@ private struct ConstellationPill: View {
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
             }
+            #if os(macOS)
+            if isTappable {
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+            #endif
+        }
+        .onTapGesture {
+            onTap?()
         }
     }
 }
