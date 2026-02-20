@@ -9,6 +9,7 @@ const log = getLogger('commit-message-llm');
 export type CommitMessageSource = 'llm' | 'deterministic';
 export type LLMFallbackReason =
   | 'disabled'
+  | 'missing_provider_api_key'
   | 'provider_not_initialized'
   | 'breaker_open'
   | 'insufficient_budget'
@@ -35,6 +36,12 @@ Rules:
 - Only mention files and changes actually provided
 - Total output must be under 300 characters
 - If you cannot determine a meaningful message, respond with exactly: FALLBACK`;
+
+const PROVIDER_DEFAULT_FAST_MODELS: Record<string, string> = {
+  anthropic: 'claude-haiku-4-5-20251001',
+  openai: 'gpt-4o-mini',
+  google: 'gemini-2.0-flash',
+};
 
 const deterministicProvider = new DefaultCommitMessageProvider();
 
@@ -103,6 +110,13 @@ export class ProviderCommitMessageGenerator {
       return buildDeterministicResult(context, 'disabled');
     }
 
+    // Step 2.5: API key preflight
+    const providerApiKey = config.apiKeys[config.provider];
+    if (!providerApiKey || providerApiKey === '') {
+      log.debug('Provider API key missing; falling back to deterministic');
+      return buildDeterministicResult(context, 'missing_provider_api_key');
+    }
+
     // Step 3: Circuit breaker
     if (this.isBreakerOpen()) {
       log.debug(
@@ -160,6 +174,14 @@ export class ProviderCommitMessageGenerator {
         },
       ];
 
+      // Resolve fast model
+      const fastModel = llmConfig.providerFastModelOverrides[config.provider]
+        ?? PROVIDER_DEFAULT_FAST_MODELS[config.provider];
+      if (!fastModel) {
+        log.debug({ provider: config.provider }, 'No default fast model for provider; falling back to deterministic');
+        return buildDeterministicResult(context, 'provider_error');
+      }
+
       // AbortController with timeout
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), llmConfig.timeoutMs);
@@ -172,7 +194,7 @@ export class ProviderCommitMessageGenerator {
           SYSTEM_PROMPT,
           {
             signal: ac.signal,
-            config: { max_tokens: llmConfig.maxTokens, temperature: llmConfig.temperature },
+            config: { model: fastModel, max_tokens: llmConfig.maxTokens, temperature: llmConfig.temperature },
           },
         );
       } catch (err: unknown) {
