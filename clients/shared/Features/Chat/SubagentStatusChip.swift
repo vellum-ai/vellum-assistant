@@ -33,52 +33,47 @@ public struct SubagentStatusChip: View {
 
     public var body: some View {
         HStack(spacing: VSpacing.sm) {
-            // Content area — tappable to open detail panel
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: statusIcon)
-                    .font(.system(size: 11))
-                    .foregroundColor(statusColor)
+            Image(systemName: statusIcon)
+                .font(.system(size: 11))
+                .foregroundColor(statusColor)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: VSpacing.xs) {
-                        Text(subagent.label)
-                            .font(VFont.captionMedium)
-                            .foregroundColor(VColor.textPrimary)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: VSpacing.xs) {
+                    Text(subagent.label)
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textPrimary)
 
-                        if !subagent.isTerminal {
-                            // Animated dots
-                            HStack(spacing: 2) {
-                                ForEach(0..<3, id: \.self) { index in
-                                    Circle()
-                                        .fill(VColor.textSecondary)
-                                        .frame(width: 4, height: 4)
-                                        .opacity(dotOpacity(for: index))
-                                }
+                    if !subagent.isTerminal {
+                        // Animated dots
+                        HStack(spacing: 2) {
+                            ForEach(0..<3, id: \.self) { index in
+                                Circle()
+                                    .fill(VColor.textSecondary)
+                                    .frame(width: 4, height: 4)
+                                    .opacity(dotOpacity(for: index))
                             }
                         }
                     }
+                }
 
-                    if let error = subagent.error, !error.isEmpty {
-                        Text(error)
-                            .font(VFont.caption)
-                            .foregroundColor(Rose._400)
-                            .lineLimit(2)
-                    }
+                if let error = subagent.error, !error.isEmpty {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(Rose._400)
+                        .lineLimit(2)
                 }
             }
-            .contentShape(Rectangle())
-            .onTapGesture { onTap?() }
 
             Spacer()
 
             if !subagent.isTerminal, let onAbort {
-                Button(action: onAbort) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(VColor.textMuted)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Abort subagent")
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(VColor.textMuted)
+                    .padding(VSpacing.xs)
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(TapGesture().onEnded { onAbort() })
+                    .accessibilityLabel("Abort subagent")
             }
         }
         .padding(.horizontal, VSpacing.sm)
@@ -87,6 +82,8 @@ public struct SubagentStatusChip: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(VColor.backgroundSubtle.opacity(0.3))
         )
+        .contentShape(Rectangle())
+        .onTapGesture { onTap?() }
         .onAppear { startDotAnimation() }
         .onDisappear { timer?.invalidate() }
         .onChange(of: subagent.status) {
