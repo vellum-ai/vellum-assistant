@@ -201,12 +201,28 @@ export const claudeCodeTool: Tool = {
       resolvedPrompt = prompt!;
     }
 
-    // If the project has .claude/commands/, hint the subprocess so it can discover them
+    // If the project has .claude/commands/ or .claude/skills/, hint the subprocess
     try {
       const { discoverCCCommands } = await import('../../commands/cc-command-registry.js');
       const registry = discoverCCCommands(workingDir);
       if (registry.entries.size > 0) {
-        resolvedPrompt += '\n\nNote: Custom project commands are available in .claude/commands/. Use Glob to list them and Read to view their instructions.';
+        let hasCommands = false;
+        let hasSkills = false;
+        for (const [, entry] of registry.entries) {
+          if (entry.artifactType === 'skill') hasSkills = true;
+          else hasCommands = true;
+          if (hasCommands && hasSkills) break;
+        }
+
+        let hint: string;
+        if (hasCommands && hasSkills) {
+          hint = 'Custom project commands are available in .claude/commands/ and skills in .claude/skills/.';
+        } else if (hasSkills) {
+          hint = 'Custom project skills are available in .claude/skills/.';
+        } else {
+          hint = 'Custom project commands are available in .claude/commands/.';
+        }
+        resolvedPrompt += `\n\nNote: ${hint} Use Glob to list them and Read to view their instructions.`;
       }
     } catch {
       // Non-fatal — skip hint if discovery fails

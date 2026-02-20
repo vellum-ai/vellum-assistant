@@ -8,6 +8,7 @@ import { indexCatalogById, validateIncludes } from '../../skills/include-graph.j
 import { computeSkillVersionHash } from '../../skills/version-hash.js';
 import { getLogger } from '../../util/logger.js';
 import { discoverCCCommands } from '../../commands/cc-command-registry.js';
+import type { CCCommandEntry } from '../../commands/cc-command-registry.js';
 
 const log = getLogger('skill-load');
 
@@ -118,18 +119,37 @@ export class SkillLoadTool implements Tool {
       }
     }
 
-    // When loading the claude-code skill, append available CC commands
+    // When loading the claude-code skill, append available CC commands and skills
     let ccCommandsSection = '';
     if (skill.id === 'claude-code' && context.workingDir) {
       const ccRegistry = discoverCCCommands(context.workingDir);
       if (ccRegistry.entries.size > 0) {
-        const lines = ['Available Claude Code Commands (from .claude/commands/):'];
+        const commands: CCCommandEntry[] = [];
+        const skills: CCCommandEntry[] = [];
         for (const [, entry] of ccRegistry.entries) {
-          lines.push(`- /${entry.name}: ${entry.summary}`);
+          if (entry.artifactType === 'skill') {
+            skills.push(entry);
+          } else {
+            commands.push(entry);
+          }
         }
-        lines.push('');
-        lines.push('Users can invoke these with /command-name. You can execute them using the claude_code tool with the `command` parameter.');
-        ccCommandsSection = '\n\n' + lines.join('\n');
+
+        const sections: string[] = [];
+        if (commands.length > 0) {
+          sections.push('Available Claude Code Commands (from .claude/commands/):');
+          for (const entry of commands) {
+            sections.push(`- /${entry.name}: ${entry.summary}`);
+          }
+        }
+        if (skills.length > 0) {
+          sections.push('Available Claude Code Skills (from .claude/skills/):');
+          for (const entry of skills) {
+            sections.push(`- /${entry.name}: ${entry.summary}`);
+          }
+        }
+        sections.push('');
+        sections.push('Users can invoke these with /command-name. You can execute them using the claude_code tool with the `command` parameter.');
+        ccCommandsSection = '\n\n' + sections.join('\n');
       }
     }
 
