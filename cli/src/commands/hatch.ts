@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 import { existsSync, unlinkSync, writeFileSync } from "fs";
+import { createRequire } from "module";
 import { tmpdir, userInfo } from "os";
 import { dirname, join } from "path";
 
@@ -21,6 +22,8 @@ import { getActiveProject, instanceExists, syncFirewallRules } from "../lib/gcp"
 import { buildInterfacesSeed } from "../lib/interfaces-seed";
 import { generateRandomSuffix } from "../lib/random-name";
 import { exec, execOutput } from "../lib/step-runner";
+
+const _require = createRequire(import.meta.url);
 
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
 const INSTALL_SCRIPT_PATH = join(import.meta.dir, "..", "adapters", "install.sh");
@@ -716,6 +719,22 @@ async function hatchCustom(
   }
 }
 
+function resolveGatewayDir(): string {
+  const sourceDir = join(import.meta.dir, "..", "..", "..", "gateway");
+  if (existsSync(sourceDir)) {
+    return sourceDir;
+  }
+
+  try {
+    const pkgPath = _require.resolve("@vellumai/vellum-gateway/package.json");
+    return dirname(pkgPath);
+  } catch {
+    throw new Error(
+      "Gateway not found. Ensure @vellumai/vellum-gateway is installed or run from the source tree.",
+    );
+  }
+}
+
 async function hatchLocal(species: Species, name: string | null): Promise<void> {
   const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
 
@@ -778,24 +797,19 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
   }
 
   console.log("🌐 Starting gateway...");
-  const gatewayDir = join(import.meta.dir, "..", "..", "..", "gateway");
-  if (!existsSync(gatewayDir)) {
-    console.warn("⚠️  Gateway directory not found at", gatewayDir);
-    console.warn('   Gateway will not be started\n');
-  } else {
-    const gateway = spawn("bun", ["run", "src/index.ts"], {
-      cwd: gatewayDir,
-      detached: true,
-      stdio: "ignore",
-      env: {
-        ...process.env,
-        GATEWAY_RUNTIME_PROXY_ENABLED: "true",
-        GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
-      },
-    });
-    gateway.unref();
-    console.log("✅ Gateway started\n");
-  }
+  const gatewayDir = resolveGatewayDir();
+  const gateway = spawn("bun", ["run", "src/index.ts"], {
+    cwd: gatewayDir,
+    detached: true,
+    stdio: "ignore",
+    env: {
+      ...process.env,
+      GATEWAY_RUNTIME_PROXY_ENABLED: "true",
+      GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
+    },
+  });
+  gateway.unref();
+  console.log("✅ Gateway started\n");
 
   const runtimeUrl = `http://localhost:${GATEWAY_PORT}`;
   const localEntry: AssistantEntry = {
