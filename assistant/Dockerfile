@@ -1,32 +1,4 @@
-# Use debian as base image
-FROM us-central1-docker.pkg.dev/code-executor-service/base-images/debian:bookworm@sha256:940221f8c2564efc4e7909caba7014dc8bcba7f05b7881eb2b557b4058c41269 AS builder
-
-WORKDIR /app
-
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    unzip \
-    python3 \
-    make \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install bun
-RUN curl -fsSL https://bun.sh/install | bash
-ENV PATH="/root/.bun/bin:${PATH}"
-
-# Copy package files
-COPY package.json bun.lock ./
-
-# Install dependencies
-RUN bun install --frozen-lockfile
-
-# Copy source
-COPY . .
-
-# Final stage
-FROM debian:bookworm AS runner
+FROM debian:bookworm
 
 WORKDIR /app
 
@@ -45,16 +17,14 @@ RUN apt-get update && apt-get install -y \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy bun binary from builder instead of re-installing
-COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
+# Install bun
+RUN curl -fsSL https://bun.sh/install | bash && \
+    cp /root/.bun/bin/bun /usr/local/bin/bun
 
 # Create non-root user that also has sudo access so it can like install stuff
 RUN groupadd --system --gid 1001 assistant && \
     useradd --system --uid 1001 --gid assistant --create-home --shell /bin/bash assistant && \
     echo "assistant ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-
-# Copy from builder
-COPY --from=builder /app /app
 
 # Set up data directory
 RUN mkdir -p /home/assistant/.vellum /data && \
@@ -95,5 +65,5 @@ ENV RUNTIME_HTTP_PORT=3001
 ENV VELLUM_DAEMON_SOCKET=/home/assistant/.vellum/vellum.sock
 ENV BASE_DATA_DIR=/data
 
-# Run the daemon + http server
-CMD ["bun", "run", "src/daemon/main.ts"]
+# Install the vellum package into /data and run the daemon at container startup
+CMD ["sh", "-c", "bun install -g vellum && exec vellum daemon start"]
