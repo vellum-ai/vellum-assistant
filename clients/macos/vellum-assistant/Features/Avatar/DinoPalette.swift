@@ -53,7 +53,7 @@ struct DinoOutfit: Equatable {
 enum BodyColorScale {
     static let scales: [String: (outline: UInt32, dark: UInt32, mid: UInt32, light: UInt32, belly: UInt32)] = [
         // From ColorTokens.swift
-        "violet":  (0x5C2FB2, 0x7240CC, 0x8A5BE0, 0x9878EA, 0xD4C8F7),
+        "violet":  (0x5C2FB2, 0x7240CC, 0x8A5BE0, 0x9878EA, 0xB8A6F1),
         "emerald": (0x0C7356, 0x10906A, 0x18B07A, 0x38CF93, 0xA6F2D1),
         "rose":    (0xA8183E, 0xD02050, 0xE84060, 0xF06A86, 0xFCBFC9),
         "amber":   (0xA35E0C, 0xC97C10, 0xE8A020, 0xFAC426, 0xFEEC94),
