@@ -382,4 +382,57 @@ final class ChatViewModelIOSTests: XCTestCase {
 
         XCTAssertEqual(viewModel.messages.count, 0, "Deltas should be suppressed when cancelling")
     }
+
+    // MARK: - Always Allow Decision Plumbing
+
+    func testRespondToAlwaysAllowSendsHighRiskDecision() {
+        viewModel.sessionId = "sess-hr"
+
+        viewModel.respondToAlwaysAllow(
+            requestId: "req-1",
+            selectedPattern: "rm -rf *",
+            selectedScope: "project",
+            decision: "always_allow_high_risk"
+        )
+
+        // Verify the sent message carries the high-risk decision
+        let confirmations = mockClient.sentMessages.compactMap { $0 as? ConfirmationResponseMessage }
+        XCTAssertEqual(confirmations.count, 1)
+        XCTAssertEqual(confirmations[0].decision, "always_allow_high_risk")
+        XCTAssertEqual(confirmations[0].selectedPattern, "rm -rf *")
+        XCTAssertEqual(confirmations[0].selectedScope, "project")
+    }
+
+    func testRespondToAlwaysAllowSendsDefaultDecision() {
+        viewModel.sessionId = "sess-default"
+
+        viewModel.respondToAlwaysAllow(
+            requestId: "req-2",
+            selectedPattern: "npm test",
+            selectedScope: "project"
+        )
+
+        // Default decision should be "always_allow"
+        let confirmations = mockClient.sentMessages.compactMap { $0 as? ConfirmationResponseMessage }
+        XCTAssertEqual(confirmations.count, 1)
+        XCTAssertEqual(confirmations[0].decision, "always_allow")
+    }
+
+    func testRespondToAlwaysAllowFailsWhenDisconnected() {
+        viewModel.sessionId = "sess-fallback"
+        mockClient.isConnected = false
+
+        viewModel.respondToAlwaysAllow(
+            requestId: "req-3",
+            selectedPattern: "npm install",
+            selectedScope: "project",
+            decision: "always_allow_high_risk"
+        )
+
+        // Should set error text when daemon is not connected
+        XCTAssertNotNil(viewModel.errorText)
+        // No IPC messages should have been sent
+        let confirmations = mockClient.sentMessages.compactMap { $0 as? ConfirmationResponseMessage }
+        XCTAssertTrue(confirmations.isEmpty)
+    }
 }

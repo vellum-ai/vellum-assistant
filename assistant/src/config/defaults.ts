@@ -228,4 +228,8 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       denyCategories: [],
     },
   },
+  ingress: {
+    publicBaseUrl: '',
+    mode: 'compat' as const,
+  },
 };

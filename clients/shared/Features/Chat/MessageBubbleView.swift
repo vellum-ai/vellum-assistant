@@ -13,20 +13,20 @@ public struct MessageBubbleView: View {
     /// When non-nil, a "Regenerate" option appears in the long-press context menu
     /// for the last assistant message. Pass nil when generation is in-flight.
     public let onRegenerate: (() -> Void)?
-    public let onAddTrustRule: ((String, String, String, String) -> Bool)?
+    public let onAlwaysAllow: ((String, String, String, String) -> Void)?
 
     public init(
         message: ChatMessage,
         onConfirmationResponse: ((String, String) -> Void)?,
         onSurfaceAction: ((String, String, [String: AnyCodable]?) -> Void)?,
         onRegenerate: (() -> Void)?,
-        onAddTrustRule: ((String, String, String, String) -> Bool)? = nil
+        onAlwaysAllow: ((String, String, String, String) -> Void)? = nil
     ) {
         self.message = message
         self.onConfirmationResponse = onConfirmationResponse
         self.onSurfaceAction = onSurfaceAction
         self.onRegenerate = onRegenerate
-        self.onAddTrustRule = onAddTrustRule
+        self.onAlwaysAllow = onAlwaysAllow
     }
 
     public var body: some View {
@@ -46,8 +46,8 @@ public struct MessageBubbleView: View {
                         onDeny: {
                             onConfirmationResponse?(confirmation.requestId, "deny")
                         },
-                        onAddTrustRule: { toolName, pattern, scope, decision in
-                            onAddTrustRule?(toolName, pattern, scope, decision) ?? false
+                        onAlwaysAllow: { requestId, pattern, scope, decision in
+                            onAlwaysAllow?(requestId, pattern, scope, decision)
                         }
                     )
                 } else if message.role == .assistant && hasInterleavedContent {

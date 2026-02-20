@@ -1,31 +1,24 @@
-import { getLogger } from '../util/logger.js';
+/**
+ * Twilio webhook URL helpers.
+ *
+ * This module is a thin backward-compat wrapper that delegates to the
+ * centralized URL builders in inbound/public-ingress-urls.ts.
+ */
 
-const log = getLogger('twilio-webhook-urls');
+import {
+  getPublicBaseUrl,
+  type IngressConfig,
+} from '../inbound/public-ingress-urls.js';
 
 /**
  * Resolve the webhook base URL from config, falling back to the
  * TWILIO_WEBHOOK_BASE_URL environment variable with a deprecation warning.
  * Throws if neither source provides a value.
+ *
+ * @deprecated Use `getPublicBaseUrl` from `inbound/public-ingress-urls.ts` instead.
  */
-export function getWebhookBaseUrl(config: { calls: { webhookBaseUrl?: string } }): string {
-  const configValue = config.calls.webhookBaseUrl;
-  if (configValue) {
-    const normalized = normalizeBaseUrl(configValue);
-    if (normalized) return normalized;
-  }
-
-  const envValue = process.env.TWILIO_WEBHOOK_BASE_URL;
-  if (envValue) {
-    log.warn(
-      'TWILIO_WEBHOOK_BASE_URL env var is deprecated — set calls.webhookBaseUrl in config instead.',
-    );
-    const normalized = normalizeBaseUrl(envValue);
-    if (normalized) return normalized;
-  }
-
-  throw new Error(
-    'No webhook base URL configured. Set calls.webhookBaseUrl in config or TWILIO_WEBHOOK_BASE_URL env var.',
-  );
+export function getWebhookBaseUrl(config: { calls: { webhookBaseUrl?: string }; ingress?: { publicBaseUrl?: string } }): string {
+  return getPublicBaseUrl(config as IngressConfig);
 }
 
 /**
@@ -37,6 +30,8 @@ export function normalizeBaseUrl(url: string): string {
 
 /**
  * Build the Twilio voice webhook URL for a given call session.
+ *
+ * @deprecated Use `getTwilioVoiceWebhookUrl` from `inbound/public-ingress-urls.ts` instead.
  */
 export function buildTwilioVoiceWebhookUrl(baseUrl: string, callSessionId: string): string {
   return `${normalizeBaseUrl(baseUrl)}/webhooks/twilio/voice?callSessionId=${callSessionId}`;
@@ -44,6 +39,8 @@ export function buildTwilioVoiceWebhookUrl(baseUrl: string, callSessionId: strin
 
 /**
  * Build the Twilio status callback URL.
+ *
+ * @deprecated Use `getTwilioStatusCallbackUrl` from `inbound/public-ingress-urls.ts` instead.
  */
 export function buildTwilioStatusCallbackUrl(baseUrl: string): string {
   return `${normalizeBaseUrl(baseUrl)}/webhooks/twilio/status`;

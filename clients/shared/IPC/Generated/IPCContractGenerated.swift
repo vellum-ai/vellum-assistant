@@ -781,6 +781,19 @@ public struct IPCImageGenModelSetRequest: Codable, Sendable {
     public let model: String
 }
 
+public struct IPCIngressConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let publicBaseUrl: String?
+}
+
+public struct IPCIngressConfigResponse: Codable, Sendable {
+    public let type: String
+    public let publicBaseUrl: String
+    public let success: Bool
+    public let error: String?
+}
+
 public struct IPCIntegrationConnectRequest: Codable, Sendable {
     public let type: String
     public let integrationId: String
@@ -1078,6 +1091,8 @@ public struct IPCRideShotgunStart: Codable, Sendable {
     public let intervalSeconds: Double
     public let mode: String?
     public let targetDomain: String?
+    /// Domain to auto-navigate (may differ from targetDomain, e.g. open.spotify.com vs spotify.com).
+    public let navigateDomain: String?
     public let autoNavigate: Bool?
 }
 

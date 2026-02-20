@@ -12,7 +12,7 @@ import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import { loadConfig } from '../config/loader.js';
-import { getWebhookBaseUrl } from '../calls/twilio-webhook-urls.js';
+import { getPublicBaseUrl } from '../inbound/public-ingress-urls.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 
 // Route handlers — grouped by domain
@@ -65,6 +65,7 @@ import {
 } from '../calls/twilio-routes.js';
 import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
+import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
 
 // Re-export shared types so existing consumers don't need to update imports
 export type {
@@ -186,7 +187,7 @@ async function validateTwilioWebhook(
   // used to compute the HMAC-SHA1 signature.
   let publicBaseUrl: string | undefined;
   try {
-    publicBaseUrl = getWebhookBaseUrl(loadConfig());
+    publicBaseUrl = getPublicBaseUrl(loadConfig());
   } catch {
     // No webhook base URL configured — fall back to using req.url as-is
   }
@@ -626,6 +627,27 @@ export class RuntimeHttpServer {
           body: formBody,
         });
         return await handleConnectAction(fakeReq);
+      }
+
+      // ── Internal OAuth callback endpoint (gateway → runtime) ──
+      if (endpoint === 'internal/oauth/callback' && req.method === 'POST') {
+        const json = await req.json() as { state: string; code?: string; error?: string };
+        if (!json.state) {
+          return Response.json({ error: 'Missing state parameter' }, { status: 400 });
+        }
+        if (json.error) {
+          const consumed = consumeCallbackError(json.state, json.error);
+          return consumed
+            ? Response.json({ ok: true })
+            : Response.json({ error: 'Unknown state' }, { status: 404 });
+        }
+        if (json.code) {
+          const consumed = consumeCallback(json.state, json.code);
+          return consumed
+            ? Response.json({ ok: true })
+            : Response.json({ error: 'Unknown state' }, { status: 404 });
+        }
+        return Response.json({ error: 'Missing code or error parameter' }, { status: 400 });
       }
 
       return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });

@@ -378,7 +378,7 @@ export const claudeCodeTool: Tool = {
                 parts.push(`Errors: ${errors.join('; ')}`);
               }
               if (denials.length > 0) {
-                const denialSummary = denials.map(d => `${d.tool_name}`).join(', ');
+                const denialSummary = denials.map((d: { tool_name: string }) => `${d.tool_name}`).join(', ');
                 parts.push(`Permission denied: ${denialSummary}`);
               }
               resultText += `\n\n${parts.join('\n')}`;

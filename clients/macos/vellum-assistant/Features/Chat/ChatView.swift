@@ -33,7 +33,7 @@ struct ChatView: View {
     var configuredProviders: Set<String> = []
     let onConfirmationAllow: (String) -> Void
     let onConfirmationDeny: (String) -> Void
-    let onAddTrustRule: (String, String, String, String) -> Bool
+    let onAlwaysAllow: (String, String, String, String) -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onRegenerate: () -> Void
     let sessionError: SessionError?
@@ -387,7 +387,7 @@ struct ChatView: View {
                                     confirmation: confirmation,
                                     onAllow: { onConfirmationAllow(confirmation.requestId) },
                                     onDeny: { onConfirmationDeny(confirmation.requestId) },
-                                    onAddTrustRule: onAddTrustRule
+                                    onAlwaysAllow: onAlwaysAllow
                                 )
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -407,7 +407,7 @@ struct ChatView: View {
                                         confirmation: confirmation,
                                         onAllow: { onConfirmationAllow(confirmation.requestId) },
                                         onDeny: { onConfirmationDeny(confirmation.requestId) },
-                                        onAddTrustRule: onAddTrustRule
+                                        onAlwaysAllow: onAlwaysAllow
                                     )
                                     .id(message.id)
                                     .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -642,7 +642,7 @@ private struct ChatViewPreviewWrapper: View {
                 onMicrophoneToggle: {},
                 onConfirmationAllow: { _ in },
                 onConfirmationDeny: { _ in },
-                onAddTrustRule: { _, _, _, _ in true },
+                onAlwaysAllow: { _, _, _, _ in },
                 onSurfaceAction: { _, _, _ in },
                 onRegenerate: {},
                 sessionError: nil,

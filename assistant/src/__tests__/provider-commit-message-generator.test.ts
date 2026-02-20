@@ -262,34 +262,51 @@ describe('ProviderCommitMessageGenerator', () => {
     expect(result.reason).toBe('invalid_output');
   });
 
-  // 11. LLM output too long (subject > 72 chars)
-  test('LLM output too long (subject > 72 chars) → returns deterministic, reason "invalid_output"', async () => {
-    const longSubject = 'a'.repeat(73);
+  // 11. LLM subject > 72 chars → truncated to 72, still source "llm"
+  test('LLM subject > 72 chars → truncated to 72, source "llm"', async () => {
+    const longSubject = 'a'.repeat(100);
     mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(longSubject));
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
-    expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('invalid_output');
+    expect(result.source).toBe('llm');
+    expect(result.reason).toBeUndefined();
+    expect(result.message.split('\n')[0].length).toBeLessThanOrEqual(72);
+    expect(result.message).toBe('a'.repeat(72));
   });
 
-  // 12. Keyless provider (Ollama) skips API key preflight
-  test('Ollama without API key → does not return missing_provider_api_key', async () => {
+  // 11b. LLM subject > 72 chars with body → subject truncated, body preserved
+  test('LLM subject > 72 chars with body → subject truncated, body preserved', async () => {
+    const longSubject = 'b'.repeat(80);
+    const body = '\n\n- bullet one\n- bullet two';
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(longSubject + body));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('llm');
+    expect(result.reason).toBeUndefined();
+    expect(result.message.split('\n')[0].length).toBeLessThanOrEqual(72);
+    expect(result.message).toBe('b'.repeat(72) + body);
+  });
+
+  // 12. Keyless provider (Ollama) without fast model → missing_fast_model (skips API key check)
+  test('Ollama without API key or fast model → returns deterministic, reason "missing_fast_model"', async () => {
     (currentConfig as Record<string, unknown>).provider = 'ollama';
     currentConfig.apiKeys = {} as Record<string, string>;
-    // Ollama has no default fast model, so it will fall through to provider_error,
-    // but crucially it should NOT be blocked by missing_provider_api_key
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
     });
     expect(result.source).toBe('deterministic');
+    expect(result.reason).toBe('missing_fast_model');
     expect(result.reason).not.toBe('missing_provider_api_key');
+    expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
-  // 13. No default fast model for unknown provider
-  test('No default fast model for unknown provider → returns deterministic fallback', async () => {
+  // 13. Unknown provider without fast model default → missing_fast_model, no provider call
+  test('Unknown provider without fast model default → returns deterministic, reason "missing_fast_model"', async () => {
     (currentConfig as Record<string, unknown>).provider = 'exotic-provider';
     currentConfig.apiKeys = { 'exotic-provider': 'sk-exotic' } as Record<string, string>;
     const gen = getCommitMessageGenerator();
@@ -297,7 +314,29 @@ describe('ProviderCommitMessageGenerator', () => {
       changedFiles: baseContext.changedFiles,
     });
     expect(result.source).toBe('deterministic');
-    expect(result.reason).toBe('provider_error');
+    expect(result.reason).toBe('missing_fast_model');
     expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  // 14. Fast-model override enables LLM path for provider without built-in default
+  test('fast-model override enables LLM path for provider without built-in default', async () => {
+    (currentConfig as Record<string, unknown>).provider = 'ollama';
+    currentConfig.apiKeys = {} as Record<string, string>; // Ollama is keyless
+    currentConfig.workspaceGit.commitMessageLLM.providerFastModelOverrides = {
+      ollama: 'llama3.2:3b',
+    };
+    const commitMsg = 'fix: local model commit';
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('llm');
+    expect(result.message).toBe(commitMsg);
+
+    // Verify the override model was passed
+    const callArgs = mockSendMessage.mock.calls[0];
+    const options = callArgs[3] as { config: { model: string } };
+    expect(options.config.model).toBe('llama3.2:3b');
   });
 });

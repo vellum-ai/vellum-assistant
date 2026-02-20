@@ -487,4 +487,68 @@ describe('LLM commit message integration', () => {
 
     expect(fullMessage).toContain('Turn:');
   });
+
+  test('changed files from preStatus are passed to generator', async () => {
+    let capturedContext: { changedFiles: string[] } | undefined;
+    let capturedOptions: { changedFiles: string[] } | undefined;
+
+    const llmResult: GenerateCommitMessageResult = {
+      message: 'feat: captured context test',
+      source: 'llm',
+    };
+
+    mock.module('../workspace/provider-commit-message-generator.js', () => ({
+      getCommitMessageGenerator: () => ({
+        generateCommitMessage: async (ctx: { changedFiles: string[] }, opts: { changedFiles: string[] }) => {
+          capturedContext = ctx;
+          capturedOptions = opts;
+          return llmResult;
+        },
+      }),
+    }));
+
+    const { commitTurnChanges: commit } = await import('../workspace/turn-commit.js');
+
+    const service = new WorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    writeFileSync(join(testDir, 'alpha.ts'), 'export const a = 1;');
+    writeFileSync(join(testDir, 'beta.ts'), 'export const b = 2;');
+
+    await commit(testDir, 'sess_files', 1);
+
+    // The generator should have received the actual file list, not empty arrays
+    expect(capturedContext).toBeDefined();
+    expect(capturedContext!.changedFiles.length).toBeGreaterThan(0);
+    expect(capturedContext!.changedFiles).toContain('alpha.ts');
+    expect(capturedContext!.changedFiles).toContain('beta.ts');
+
+    expect(capturedOptions).toBeDefined();
+    expect(capturedOptions!.changedFiles.length).toBeGreaterThan(0);
+    expect(capturedOptions!.changedFiles).toContain('alpha.ts');
+    expect(capturedOptions!.changedFiles).toContain('beta.ts');
+  });
+
+  test('clean workspace skips LLM generator call', async () => {
+    let generatorCalled = false;
+
+    mock.module('../workspace/provider-commit-message-generator.js', () => ({
+      getCommitMessageGenerator: () => ({
+        generateCommitMessage: async () => {
+          generatorCalled = true;
+          return { message: 'should not be called', source: 'llm' as const };
+        },
+      }),
+    }));
+
+    const { commitTurnChanges: commit } = await import('../workspace/turn-commit.js');
+
+    const service = new WorkspaceGitService(testDir);
+    await service.ensureInitialized();
+
+    // No file changes — workspace is clean
+    await commit(testDir, 'sess_clean', 1);
+
+    expect(generatorCalled).toBe(false);
+  });
 });
