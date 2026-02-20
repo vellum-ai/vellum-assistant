@@ -27,6 +27,7 @@ import {
 } from './session-surfaces.js';
 import type { SurfaceSessionContext } from './session-surfaces.js';
 import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
+import { openAppViaSurface } from '../tools/apps/open-proxy.js';
 import { registerSessionSender } from '../tools/browser/browser-screencast.js';
 import type { ProxyApprovalCallback, ProxyApprovalRequest } from '../tools/network/script-proxy/index.js';
 import { projectSkillTools, type SkillProjectionCache } from './session-skill-tools.js';
@@ -265,13 +266,18 @@ export function createToolExecutor(
       },
     });
 
-    // Auto-refresh workspace surfaces when a persisted app is updated
+    // Auto-refresh workspace surfaces when a persisted app is updated.
+    // If no surface is currently showing the app, auto-open it.
     if (name === 'app_update' && !result.isError) {
       const appId = input.app_id as string | undefined;
       if (appId) {
-        refreshSurfacesForApp(ctx, appId);
+        const refreshed = refreshSurfacesForApp(ctx, appId);
         broadcastToAllClients?.({ type: 'app_files_changed', appId });
         void updatePublishedAppDeployment(appId);
+        if (!refreshed) {
+          const resolver = (tn: string, pi: Record<string, unknown>) => surfaceProxyResolver(ctx, tn, pi);
+          void openAppViaSurface(appId, resolver);
+        }
       }
     }
 
@@ -286,14 +292,19 @@ export function createToolExecutor(
       broadcastToAllClients?.({ type: 'tasks_changed' });
     }
 
-    // Auto-refresh workspace surfaces when app files are edited
+    // Auto-refresh workspace surfaces when app files are edited.
+    // If no surface is currently showing the app, auto-open it.
     if ((name === 'app_file_edit' || name === 'app_file_write') && !result.isError) {
       const appId = input.app_id as string | undefined;
       const status = input.status as string | undefined;
       if (appId) {
-        refreshSurfacesForApp(ctx, appId, { fileChange: true, status });
+        const refreshed = refreshSurfacesForApp(ctx, appId, { fileChange: true, status });
         broadcastToAllClients?.({ type: 'app_files_changed', appId });
         void updatePublishedAppDeployment(appId);
+        if (!refreshed) {
+          const resolver = (tn: string, pi: Record<string, unknown>) => surfaceProxyResolver(ctx, tn, pi);
+          void openAppViaSurface(appId, resolver);
+        }
       }
     }
 

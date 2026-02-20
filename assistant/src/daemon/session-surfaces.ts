@@ -407,10 +407,11 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
 /**
  * After an app_update, refresh any active surface that displays the updated app.
  */
-export function refreshSurfacesForApp(ctx: SurfaceSessionContext, appId: string, opts?: { fileChange?: boolean; status?: string }): void {
+export function refreshSurfacesForApp(ctx: SurfaceSessionContext, appId: string, opts?: { fileChange?: boolean; status?: string }): boolean {
   const app = getApp(appId);
-  if (!app) return;
+  if (!app) return false;
 
+  let refreshed = false;
   for (const [surfaceId, stored] of ctx.surfaceState.entries()) {
     if (stored.surfaceType !== 'dynamic_page') continue;
     const data = stored.data as DynamicPageSurfaceData;
@@ -436,8 +437,10 @@ export function refreshSurfacesForApp(ctx: SurfaceSessionContext, appId: string,
       data: updatedData,
     });
 
+    refreshed = true;
     log.info({ conversationId: ctx.conversationId, surfaceId, appId }, 'Auto-refreshed surface after app_update');
   }
+  return refreshed;
 }
 
 export function buildCompletionSummary(surfaceType: string | undefined, actionId: string, data?: Record<string, unknown>): string {
