@@ -1231,7 +1231,7 @@ function migrateAssistantIdToSelf(database: ReturnType<typeof drizzle<typeof sch
     return;
   }
 
-  // Helper: check if a table has assistant_id in its DDL.
+  // Helper: returns true if the given table's current DDL contains 'assistant_id'.
   const tableHasAssistantId = (tbl: string): boolean => {
     const ddl = raw.query(
       `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`,
