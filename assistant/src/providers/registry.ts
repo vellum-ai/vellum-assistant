@@ -16,7 +16,7 @@ const DEFAULT_MODELS: Record<string, string> = {
   gemini: 'gemini-3-flash',
   ollama: 'llama3.2',
   fireworks: 'accounts/fireworks/models/kimi-k2p5',
-  openrouter: 'anthropic/claude-sonnet-4',
+  openrouter: 'x-ai/grok-4',
 };
 
 const providers = new Map<string, Provider>();
