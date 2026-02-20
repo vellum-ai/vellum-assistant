@@ -104,35 +104,24 @@ struct ComposerView: View {
                     attachmentStrip
                 }
 
-                // Text field always lives at the same structural position
-                // so that the NSViewRepresentable is never destroyed and
-                // recreated when toggling between compact/expanded layouts.
-                // In compact mode, buttons are overlaid at trailing edge;
-                // in expanded mode, they sit on a separate row below.
-                HStack(alignment: .center, spacing: VSpacing.md) {
+                // Text field and action buttons always live in the same
+                // HStack so the text container width stays constant when
+                // toggling between compact/expanded layouts. In compact mode
+                // buttons are vertically centered; in expanded mode they
+                // anchor to the bottom so they sit near the last line of text.
+                HStack(alignment: isComposerExpanded ? .bottom : .center, spacing: VSpacing.md) {
                     composerTextField
                         .frame(height: clampedComposerHeight)
                         .frame(maxHeight: isComposerExpanded ? clampedComposerHeight : .infinity, alignment: .center)
                         .clipped()
-                    if !isComposerExpanded {
-                        composerActionButtons
-                            .frame(maxHeight: .infinity, alignment: .center)
-                            .offset(y: compactActionOpticalYOffset)
-                    }
+                    composerActionButtons
+                        .frame(maxHeight: .infinity, alignment: isComposerExpanded ? .bottom : .center)
+                        .offset(y: isComposerExpanded ? 0 : compactActionOpticalYOffset)
                 }
                 .frame(height: isComposerExpanded ? clampedComposerHeight : compactRowHeight, alignment: .center)
-
-                if isComposerExpanded {
-                    // Expanded: buttons on a separate row below the text area
-                    HStack(spacing: VSpacing.md) {
-                        Spacer()
-                        composerActionButtons
-                    }
-                    .padding(.top, VSpacing.xs)
-                }
             }
-            .padding(.top, isComposerExpanded ? VSpacing.md : VSpacing.sm)
-            .padding(.bottom, isComposerExpanded ? VSpacing.sm : VSpacing.sm)
+            .padding(.top, VSpacing.sm)
+            .padding(.bottom, VSpacing.sm)
             .padding(.leading, VSpacing.lg)
             .padding(.trailing, VSpacing.lg)
             .background(
@@ -569,6 +558,11 @@ private struct ComposerTextView: NSViewRepresentable {
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
+        // Use overlay scrollers so the scroller draws on top of the
+        // content rather than reserving horizontal space. This prevents
+        // the text container width from shifting when the scroller
+        // appears or disappears during multi-line transitions.
+        scrollView.scrollerStyle = .overlay
         scrollView.autohidesScrollers = true
         // Ensure text content is clipped to the scroll view frame so it
         // never renders outside the composer box.

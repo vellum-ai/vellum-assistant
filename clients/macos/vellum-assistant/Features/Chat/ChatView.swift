@@ -179,11 +179,11 @@ struct ChatView: View {
     private var composerReservedHeight: CGFloat {
         let editorClamped = min(max(editorContentHeight, 34), 200)
         let contentHeight = max(editorClamped, 34)
-        let expanded = isComposerExpanded
-        let topPad: CGFloat = expanded ? VSpacing.md : VSpacing.sm
-        let bottomPad: CGFloat = expanded ? VSpacing.sm : VSpacing.sm
-        let buttonRow: CGFloat = expanded ? 34 + VSpacing.xs : 0
-        let base: CGFloat = VSpacing.sm + VSpacing.md + topPad + bottomPad + contentHeight + buttonRow
+        let topPad: CGFloat = VSpacing.sm
+        let bottomPad: CGFloat = VSpacing.sm
+        // Action buttons now always live inline in the same HStack as the
+        // text field (no separate button row), so no extra buttonRow height.
+        let base: CGFloat = VSpacing.sm + VSpacing.md + topPad + bottomPad + contentHeight
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
         let error: CGFloat = (sessionError == nil && errorText != nil) ? 36 : 0
         let queueCount = CGFloat(queuedMessages.count)
