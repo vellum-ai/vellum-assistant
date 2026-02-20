@@ -1234,6 +1234,16 @@ export interface HistoryResponse {
       label: string;
       status: 'completed' | 'failed' | 'aborted';
       error?: string;
+      conversationId?: string;
+      /** Subagent objective text, populated from DB on history load. */
+      objective?: string;
+      /** Subagent events (text, tool_use, tool_result), populated from DB on history load. */
+      events?: Array<{
+        type: string;
+        content: string;
+        toolName?: string;
+        isError?: boolean;
+      }>;
     };
   }>;
 }
