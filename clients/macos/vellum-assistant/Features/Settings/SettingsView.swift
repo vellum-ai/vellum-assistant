@@ -550,7 +550,6 @@ public struct SettingsView: View {
             store.refreshVercelKeyState()
             store.refreshTwitterStatus()
             store.refreshTwilioWebhookConfig()
-            twilioWebhookUrlText = store.twilioWebhookBaseUrl
             checkPermissions()
         }
         .onDisappear {
