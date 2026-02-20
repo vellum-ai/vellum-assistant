@@ -139,18 +139,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let skipOnboarding = false
         #endif
 
-        if !skipOnboarding && !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
-            // If the user already has an API key and model configured,
-            // skip onboarding entirely — they're a returning user whose
-            // hasCompletedOnboarding flag was cleared (e.g. by Retire).
-            // Provider is not checked because the daemon defaults to 'anthropic'.
-            let config = WorkspaceConfigIO.read()
-            if APIKeyManager.hasAnyKey(), config["model"] != nil {
-                UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
-            } else {
-                showOnboarding()
-                return
-            }
+        if !skipOnboarding && !lockfileHasAssistants() {
+            showOnboarding()
+            return
         }
 
         startAuthenticatedFlow()
@@ -333,7 +324,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 assistantCli.stop()
             }
 
-            UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
             OnboardingState.clearPersistedState()
 
             mainWindow?.close()
@@ -945,13 +935,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Onboarding
 
+    /// Returns `true` when `~/.vellum.lock.json` contains at least one assistant entry.
+    private func lockfileHasAssistants() -> Bool {
+        let lockfilePath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vellum.lock.json").path
+        guard let data = FileManager.default.contents(atPath: lockfilePath),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let assistants = json["assistants"] as? [[String: Any]] else {
+            return false
+        }
+        return !assistants.isEmpty
+    }
+
     private func showOnboarding() {
         setupDaemonClient()
 
         let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
-            UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
             UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
             writeVellumIdentityFile(name: state.assistantName)
