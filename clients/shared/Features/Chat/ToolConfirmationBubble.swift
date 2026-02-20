@@ -491,11 +491,18 @@ public struct ToolConfirmationBubble: View {
         guard let model = popoverKeyboardModel else { return }
         switch model.handleEscape() {
         case .backToPatterns:
-            pendingPattern = nil
-            popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
-                mode: .patterns,
-                itemCount: confirmation.allowlistOptions.count
-            )
+            if showScopePickerMenu {
+                // Standalone scope picker has no pattern list to return to — just close.
+                showScopePickerMenu = false
+                popoverKeyboardModel = nil
+                pendingPattern = nil
+            } else {
+                pendingPattern = nil
+                popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
+                    mode: .patterns,
+                    itemCount: confirmation.allowlistOptions.count
+                )
+            }
         case .closePopover:
             if showAlwaysAllowMenu {
                 showAlwaysAllowMenu = false
