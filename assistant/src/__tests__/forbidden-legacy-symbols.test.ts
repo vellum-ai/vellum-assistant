@@ -12,7 +12,7 @@ import { resolve } from 'node:path';
  */
 describe('forbidden legacy symbols', () => {
   test('no production code references removed Twilio ingress symbols', () => {
-    const repoRoot = resolve(__dirname, '..', '..', '..', '..');
+    const repoRoot = resolve(__dirname, '..', '..', '..');
     let matches = '';
     try {
       matches = execSync(
