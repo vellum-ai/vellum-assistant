@@ -4,8 +4,8 @@
  * Verifies:
  * - Direct Twilio webhook routes return 410 in gateway_only mode
  * - Internal forwarding routes (gateway→runtime) still work in gateway_only mode
- * - Relay WebSocket upgrade blocked for non-private-network origins in gateway_only mode
- * - Relay WebSocket upgrade allowed from private network peers in gateway_only mode
+ * - Relay WebSocket upgrade blocked for non-private-network origins (isPrivateNetworkOrigin) in gateway_only mode
+ * - Relay WebSocket upgrade allowed from private network peers/origins in gateway_only mode
  * - All routes work normally in compat mode
  * - Startup warning when RUNTIME_HTTP_HOST is not loopback in gateway_only mode
  */
@@ -313,7 +313,7 @@ describe('gateway-only ingress enforcement', () => {
     });
 
     test('allows request with no origin header (private network peer)', async () => {
-      // Without an origin header, isLoopbackOrigin returns true.
+      // Without an origin header, isPrivateNetworkOrigin returns true.
       // The peer address (127.0.0.1) passes the private network peer check.
       const res = await fetch(`http://127.0.0.1:${port}/v1/calls/relay?callSessionId=sess-123`, {
         headers: {

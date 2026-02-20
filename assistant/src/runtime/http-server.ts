@@ -145,16 +145,20 @@ const GATEWAY_SUBPATH_MAP: Record<string, string> = {
 const GATEWAY_ONLY_BLOCKED_SUBPATHS = new Set(['voice-webhook', 'status', 'connect-action']);
 
 /**
- * Check if a request origin is from localhost / loopback.
+ * Check if a request origin is from a private/internal network address.
+ * Extracts the hostname from the Origin header and validates it against
+ * isPrivateAddress(), consistent with the isPrivateNetworkPeer check.
  */
-function isLoopbackOrigin(req: Request): boolean {
+function isPrivateNetworkOrigin(req: Request): boolean {
   const origin = req.headers.get('origin');
   // No origin header (e.g., server-initiated or same-origin) — allow
   if (!origin) return true;
   try {
     const url = new URL(origin);
     const host = url.hostname;
-    return host === '127.0.0.1' || host === '::1' || host === 'localhost';
+    // "localhost" is not a raw IP, so check it explicitly
+    if (host === 'localhost') return true;
+    return isPrivateAddress(host);
   } catch {
     return false;
   }
@@ -438,7 +442,7 @@ export class RuntimeHttpServer {
       // and RFC 1918/4193 private addresses to support container deployments.
       // Secondary check: Origin header (defense in depth).
       const config = loadConfig();
-      if (config.ingress.mode === 'gateway_only' && (!isPrivateNetworkPeer(server, req) || !isLoopbackOrigin(req))) {
+      if (config.ingress.mode === 'gateway_only' && (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req))) {
         return Response.json(
           { error: 'Direct relay access disabled in gateway-only mode', code: 'GATEWAY_ONLY' },
           { status: 403 },
