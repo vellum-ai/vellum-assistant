@@ -35,8 +35,9 @@ final class SkillsManager: ObservableObject {
         self.daemonClient = daemonClient
     }
 
-    func fetchSkills() {
+    func fetchSkills(force: Bool = false) {
         guard !isLoading else { return }
+        if !force && !skills.isEmpty { return }
         isLoading = true
 
         Task {
@@ -88,8 +89,10 @@ final class SkillsManager: ObservableObject {
         }
     }
 
-    func searchSkills(query: String = "") {
+    func searchSkills(query: String = "", force: Bool = false) {
         guard !isSearching else { return }
+        // Skip if we already have results for this query (unless forced)
+        if !force && !searchResults.isEmpty { return }
         isSearching = true
 
         Task {
@@ -134,7 +137,7 @@ final class SkillsManager: ObservableObject {
                    response.operation == "install" {
                     if response.success {
                         installResult = InstallResult(slug: slug, success: true, error: nil)
-                        fetchSkills()
+                        fetchSkills(force: true)
                     } else {
                         installResult = InstallResult(slug: slug, success: false, error: response.error)
                     }
@@ -220,7 +223,7 @@ final class SkillsManager: ObservableObject {
                    response.operation == "uninstall" {
                     if response.success {
                         uninstallResult = UninstallResult(id: id, success: true, error: nil)
-                        fetchSkills()
+                        fetchSkills(force: true)
                     } else {
                         uninstallResult = UninstallResult(id: id, success: false, error: response.error)
                     }
