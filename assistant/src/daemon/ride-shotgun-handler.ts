@@ -160,7 +160,7 @@ export async function handleRideShotgunStart(
                 completeSession(session);
               }
             });
-          } else if (targetDomain) {
+          } else if (msg.autoNavigate && targetDomain) {
             const abortSignal = { aborted: false };
             const checkInterval = setInterval(() => {
               if (session.status !== 'active') {

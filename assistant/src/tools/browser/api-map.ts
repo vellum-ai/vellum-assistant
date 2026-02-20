@@ -101,7 +101,7 @@ export function analyzeApiMap(
     }
 
     const method = request.method.toUpperCase();
-    const urlPattern = normalizePathSegments(parsed.pathname);
+    const urlPattern = `${parsed.hostname}${normalizePathSegments(parsed.pathname)}`;
     const key = `${method} ${urlPattern}`;
 
     let group = groups.get(key);

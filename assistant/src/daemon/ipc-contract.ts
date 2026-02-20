@@ -212,6 +212,7 @@ export interface RideShotgunStart {
   intervalSeconds: number;
   mode?: 'observe' | 'learn';
   targetDomain?: string;
+  autoNavigate?: boolean;
 }
 
 export interface RideShotgunStop {

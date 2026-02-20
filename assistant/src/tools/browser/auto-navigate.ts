@@ -25,7 +25,13 @@ class MiniCDP {
       const ws = new WebSocket(wsUrl);
       ws.onopen = () => { this.ws = ws; resolve(); };
       ws.onerror = (e) => reject(new Error(`CDP error: ${e}`));
-      ws.onclose = () => { this.ws = null; };
+      ws.onclose = () => {
+        this.ws = null;
+        for (const [, cb] of this.callbacks) {
+          cb.reject(new Error('WebSocket closed'));
+        }
+        this.callbacks.clear();
+      };
       ws.onmessage = (event) => {
         const msg = JSON.parse(String(event.data));
         if (msg.id != null) {
@@ -68,9 +74,13 @@ export async function autoNavigate(domain: string, abortSignal?: { aborted: bool
       return [];
     }
     const targets = (await res.json()) as Array<{ type: string; url: string; webSocketDebuggerUrl: string }>;
-    const domainTab = targets.find(
-      t => t.type === 'page' && t.url.includes(domain),
-    );
+    const domainTab = targets.find(t => {
+      if (t.type !== 'page') return false;
+      try {
+        const hostname = new URL(t.url).hostname;
+        return hostname === domain || hostname.endsWith('.' + domain);
+      } catch { return false; }
+    });
     wsUrl = domainTab?.webSocketDebuggerUrl ?? targets.find(t => t.type === 'page')?.webSocketDebuggerUrl ?? null;
   } catch (err) {
     log.warn({ err }, 'Failed to discover Chrome tabs');
@@ -120,22 +130,22 @@ export async function autoNavigate(domain: string, abortSignal?: { aborted: bool
   await sleep(SCROLL_WAIT_MS);
 
   // Discover internal links from the current page
-  let discoveredPaths = await discoverInternalLinks(cdp, domain);
-  log.info({ count: discoveredPaths.length }, 'Discovered internal links from root');
+  let discoveredLinks = await discoverInternalLinks(cdp, domain);
+  log.info({ count: discoveredLinks.length }, 'Discovered internal links from root');
 
   // Visit discovered pages
-  for (const path of discoveredPaths) {
+  for (const link of discoveredLinks) {
     if (abortSignal?.aborted) break;
     if (visited.size >= MAX_PAGES) break;
-    if (visited.has(path)) continue;
+    if (visited.has(link.key)) continue;
 
-    const url = `https://${domain}${path}`;
+    const url = link.url;
     log.info({ url }, 'Auto-navigate visiting page');
 
     try {
       await cdp.send('Page.navigate', { url });
       await sleep(PAGE_WAIT_MS);
-      visited.add(path);
+      visited.add(link.key);
       visitedUrls.push(url);
 
       // Scroll to trigger lazy-loaded content
@@ -147,10 +157,10 @@ export async function autoNavigate(domain: string, abortSignal?: { aborted: bool
       await sleep(1500);
 
       // Discover more links from this page
-      const newPaths = await discoverInternalLinks(cdp, domain);
-      for (const np of newPaths) {
-        if (!visited.has(np) && !discoveredPaths.includes(np)) {
-          discoveredPaths.push(np);
+      const newLinks = await discoverInternalLinks(cdp, domain);
+      for (const nl of newLinks) {
+        if (!visited.has(nl.key) && !discoveredLinks.some(l => l.key === nl.key)) {
+          discoveredLinks.push(nl);
         }
       }
 
@@ -165,15 +175,22 @@ export async function autoNavigate(domain: string, abortSignal?: { aborted: bool
   return visitedUrls;
 }
 
-/** Extract internal link paths from the current page DOM. */
-async function discoverInternalLinks(cdp: MiniCDP, domain: string): Promise<string[]> {
+interface DiscoveredLink {
+  /** Full URL to navigate to (preserves subdomain). */
+  url: string;
+  /** Deduplication key: origin + pathname. */
+  key: string;
+}
+
+/** Extract internal links from the current page DOM, preserving subdomains. */
+async function discoverInternalLinks(cdp: MiniCDP, domain: string): Promise<DiscoveredLink[]> {
   try {
     const result = await cdp.send('Runtime.evaluate', {
       expression: `
         (function() {
           const domain = ${JSON.stringify(domain)};
           const seen = new Set();
-          const paths = [];
+          const links = [];
           for (const a of document.querySelectorAll('a[href]')) {
             const href = a.getAttribute('href');
             if (!href) continue;
@@ -184,18 +201,19 @@ async function discoverInternalLinks(cdp: MiniCDP, domain: string): Promise<stri
               // Skip anchors, query-only links, file downloads, and trivial paths
               if (path === '/' || path === '') continue;
               if (path.match(/\\.(png|jpg|jpeg|gif|svg|css|js|woff|pdf|zip)$/i)) continue;
-              if (!seen.has(path)) {
-                seen.add(path);
-                paths.push(path);
+              const key = url.origin + url.pathname;
+              if (!seen.has(key)) {
+                seen.add(key);
+                links.push({ url: url.origin + url.pathname, key });
               }
             } catch { /* skip malformed URLs */ }
           }
-          return paths;
+          return links;
         })()
       `,
       awaitPromise: false,
       returnByValue: true,
-    }) as { result?: { value?: string[] } };
+    }) as { result?: { value?: DiscoveredLink[] } };
     return result?.result?.value ?? [];
   } catch {
     return [];

@@ -124,6 +124,7 @@ async function startLearnSession(domain: string, durationSeconds: number): Promi
           intervalSeconds: 5,
           mode: 'learn',
           targetDomain: domain,
+          autoNavigate: true,
         } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
       );
     };
