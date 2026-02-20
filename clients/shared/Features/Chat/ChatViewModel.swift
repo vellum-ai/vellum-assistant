@@ -1075,6 +1075,28 @@ public final class ChatViewModel: ObservableObject {
         onInlineConfirmationResponse?(requestId, decision)
     }
 
+    /// Respond to a tool confirmation with "always_allow", sending the selected pattern and scope
+    /// so the backend atomically persists the trust rule alongside the confirmation response.
+    public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String) {
+        guard daemonClient.isConnected else {
+            errorText = "Failed to send confirmation response."
+            return
+        }
+        do {
+            try daemonClient.send(ConfirmationResponseMessage(requestId: requestId, decision: "always_allow", selectedPattern: selectedPattern, selectedScope: selectedScope))
+        } catch {
+            log.error("Failed to send always_allow confirmation response: \(error.localizedDescription)")
+            errorText = "Failed to send confirmation response."
+            return
+        }
+        // IPC send succeeded — update the message state
+        if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
+            messages[index].confirmation?.state = .approved
+        }
+        // Dismiss the corresponding floating panel / native notification if one exists
+        onInlineConfirmationResponse?(requestId, "allow")
+    }
+
     /// Update the inline confirmation message state without sending a response to the daemon.
     /// Used when the floating panel handles the response.
     public func updateConfirmationState(requestId: String, decision: String) {
