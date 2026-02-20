@@ -931,7 +931,7 @@ export const IngressConfigSchema = z.object({
     .enum(VALID_INGRESS_MODES, {
       error: `ingress.mode must be one of: ${VALID_INGRESS_MODES.join(', ')}`,
     })
-    .default('compat'),
+    .default('gateway_only'),
 });
 
 export const AssistantConfigSchema = z.object({
@@ -1184,7 +1184,7 @@ export const AssistantConfigSchema = z.object({
   }),
   ingress: IngressConfigSchema.default({
     publicBaseUrl: '',
-    mode: 'compat',
+    mode: 'gateway_only',
   }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {

@@ -318,6 +318,38 @@ export async function startOAuth2Flow(
   const codeChallenge = generateCodeChallenge(codeVerifier);
   const state = generateState();
 
+  // In gateway_only mode, enforce gateway transport and require a public ingress URL
+  let ingressMode: string | undefined;
+  try {
+    const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
+    ingressMode = loadConfig().ingress.mode;
+  } catch {
+    // Config unavailable — proceed with default transport detection
+  }
+
+  if (ingressMode === 'gateway_only') {
+    // Verify a public ingress URL is configured; fail fast with actionable error if not
+    let hasPublicUrl = false;
+    try {
+      const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
+      const { getPublicBaseUrl } = require('../inbound/public-ingress-urls.js') as typeof import('../inbound/public-ingress-urls.js');
+      getPublicBaseUrl(loadConfig());
+      hasPublicUrl = true;
+    } catch {
+      // No public URL configured
+    }
+
+    if (!hasPublicUrl) {
+      throw new Error(
+        'OAuth requires a public ingress URL in gateway-only mode. Set ingress.publicBaseUrl or INGRESS_PUBLIC_BASE_URL so OAuth callbacks can route through the gateway.',
+      );
+    }
+
+    // In gateway_only mode, always use gateway transport — never fall back to loopback
+    log.debug({ transport: 'gateway' }, 'OAuth2 flow starting (gateway_only mode)');
+    return runGatewayFlow(config, callbacks, codeVerifier, codeChallenge, state);
+  }
+
   const transport = options?.callbackTransport ?? detectTransport();
   log.debug({ transport }, 'OAuth2 flow starting');
 

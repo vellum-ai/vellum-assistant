@@ -229,6 +229,6 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   },
   ingress: {
     publicBaseUrl: '',
-    mode: 'compat' as const,
+    mode: 'gateway_only' as const,
   },
 };
