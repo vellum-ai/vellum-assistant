@@ -897,7 +897,7 @@ export class DaemonServer {
         if (rateLimit.maxRequestsPerMinute > 0 || rateLimit.maxTokensPerSession > 0) {
           provider = new RateLimitProvider(provider, rateLimit, this.sharedRequestTimestamps);
         }
-        const workingDir = getSandboxWorkingDir();
+        const workingDir = config.workingDir ?? getSandboxWorkingDir();
 
         const systemPrompt = storedOptions?.systemPromptOverride ?? buildSystemPrompt();
         const maxTokens = storedOptions?.maxResponseTokens ?? config.maxTokens;

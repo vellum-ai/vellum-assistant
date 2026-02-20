@@ -1065,6 +1065,9 @@ export const AssistantConfigSchema = z.object({
       maxInjectTokens: 800,
     },
   }),
+  workingDir: z
+    .string({ error: 'workingDir must be a string' })
+    .optional(),
   dataDir: z
     .string({ error: 'dataDir must be a string' })
     .default(getDataDir()),
