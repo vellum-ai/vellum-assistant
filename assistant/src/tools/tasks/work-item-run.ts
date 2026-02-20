@@ -25,7 +25,7 @@ export async function executeTaskQueueRun(
       const item = getWorkItem(workItemId);
       if (!item) {
         const entity = identifyEntityById(workItemId);
-        if (entity.type === 'task') {
+        if (entity.type === 'task_template') {
           return {
             content: `Error: "${workItemId}" is a task template ID, not a work item. Use task_list_show to find the work item ID.`,
             isError: true,

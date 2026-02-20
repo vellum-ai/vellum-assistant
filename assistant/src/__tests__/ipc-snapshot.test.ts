@@ -343,6 +343,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'twilio_webhook_config',
     action: 'get',
   },
+  ingress_config: {
+    type: 'ingress_config',
+    action: 'get',
+  },
   vercel_api_config: {
     type: 'vercel_api_config',
     action: 'get',
@@ -1139,6 +1143,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     webhookBaseUrl: 'https://example.com/twilio',
     success: true,
   },
+  ingress_config_response: {
+    type: 'ingress_config_response',
+    publicBaseUrl: 'https://example.com',
+    success: true,
+  },
   vercel_api_config_response: {
     type: 'vercel_api_config_response',
     hasToken: true,
@@ -1439,17 +1448,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       text: 'Searching for docs...',
       sessionId: 'sub-sess-001',
     },
-  },
-  agent_heartbeat_alert: {
-    type: 'agent_heartbeat_alert',
-    title: 'Agent unresponsive',
-    body: 'The agent has not responded for 5 minutes.',
-  },
-  task_run_thread_created: {
-    type: 'task_run_thread_created',
-    conversationId: 'conv-task-001',
-    workItemId: 'work-item-001',
-    title: 'Task run thread',
   },
 };
 
