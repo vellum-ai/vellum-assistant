@@ -12,6 +12,7 @@ import atexit
 import argparse
 import os
 import pathlib
+import re
 import signal
 import subprocess
 import sys
@@ -47,6 +48,16 @@ def print_live_segments(rows: list[dict[str, Any]], min_conf: float) -> None:
             base_label = f"Person {gid.replace('anon-', '')}"
         text = str(row.get("text") or "").strip()
         print(f"[{fmt_time(start)}] {base_label} ({status}, conf={conf:.2f}): {text}")
+
+
+def extract_http_status(err: Exception) -> int | None:
+    m = re.search(r"transcription failed\\s+(\\d{3})", str(err))
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
 
 
 def build_capture_command(args: argparse.Namespace, chunks_dir: pathlib.Path) -> list[str]:
@@ -104,6 +115,8 @@ def main() -> int:
     parser.add_argument("--capture-min-chunk-ms", type=int, default=900)
     parser.add_argument("--capture-max-chunk-ms", type=int, default=60000)
     parser.add_argument("--capture-device", default=None)
+    parser.add_argument("--max-transcribe-retries-per-chunk", type=int, default=6)
+    parser.add_argument("--max-failure-backoff-s", type=float, default=120.0)
     parser.add_argument("--api-key-env", default="OPENAI_API_KEY")
     args = parser.parse_args()
 
@@ -128,8 +141,10 @@ def main() -> int:
     chunks_dir.mkdir(parents=True, exist_ok=True)
     identity_dir.mkdir(parents=True, exist_ok=True)
 
-    state = load_json(state_path, {"processed": []})
+    state = load_json(state_path, {"processed": [], "failed": {}, "permanent_failed": []})
     processed: set[str] = set(state.get("processed", []))
+    failed: dict[str, dict[str, Any]] = state.get("failed", {})
+    permanent_failed: set[str] = set(state.get("permanent_failed", []))
     registry = load_json(registry_path, create_registry())
     encoder, encoder_backend = create_voice_encoder(prefer_resemblyzer=not args.no_resemblyzer)
 
@@ -146,12 +161,13 @@ def main() -> int:
                 capture_proc.kill()
         capture_proc = None
 
-    def on_signal(_sig: int, _frame: object) -> None:
+    def on_sigterm(_sig: int, _frame: object) -> None:
         nonlocal stop
         stop = True
 
-    signal.signal(signal.SIGINT, on_signal)
-    signal.signal(signal.SIGTERM, on_signal)
+    # Keep Ctrl-C on default behavior (KeyboardInterrupt) so blocking calls
+    # interrupt promptly; use SIGTERM for graceful shutdown in non-interactive runs.
+    signal.signal(signal.SIGTERM, on_sigterm)
     atexit.register(shutdown_capture)
 
     print(
@@ -166,77 +182,126 @@ def main() -> int:
     else:
         print("[pipeline] capture disabled (--no-capture); expecting WAV files in chunks dir")
 
-    while not stop:
-        if capture_proc and capture_proc.poll() is not None:
-            print(f"[pipeline] capture exited with code={capture_proc.returncode}")
-            stop = True
-            break
+    try:
+        while not stop:
+            if capture_proc and capture_proc.poll() is not None:
+                print(f"[pipeline] capture exited with code={capture_proc.returncode}")
+                stop = True
+                break
 
         wavs = sorted(chunks_dir.glob("*.wav"))
         for wav in wavs:
+            if stop:
+                break
             if wav.name in processed:
+                continue
+            if wav.name in permanent_failed:
+                continue
+            failure_entry = failed.get(wav.name) or {}
+            next_retry_at = float(failure_entry.get("next_retry_at", 0.0) or 0.0)
+            if next_retry_at > time.time():
                 continue
 
             try:
                 raw = transcribe_file(
                     wav_path=wav,
                     api_key=api_key,
-                    model=args.model,
-                    language=None,
+                        model=args.model,
+                        language=None,
                     temperature=None,
                 )
             except Exception as exc:
-                print(f"[pipeline] transcribe failed {wav.name}: {exc}")
+                now = time.time()
+                status = extract_http_status(exc)
+                attempts = int(failure_entry.get("attempts", 0)) + 1
+                backoff_s = min(args.max_failure_backoff_s, float(2 ** min(attempts, 7)))
+                failed[wav.name] = {
+                    "attempts": attempts,
+                    "last_error": str(exc),
+                    "last_status": status,
+                    "next_retry_at": now + backoff_s,
+                    "last_failed_at": now,
+                }
+                state["failed"] = failed
+                write_json(state_path, state)
+
+                # 4xx errors are usually caller/config issues; stop retrying after threshold.
+                if status is not None and 400 <= status < 500 and attempts >= args.max_transcribe_retries_per_chunk:
+                    permanent_failed.add(wav.name)
+                    state["permanent_failed"] = sorted(permanent_failed)
+                    processed.add(wav.name)
+                    state["processed"] = sorted(processed)
+                    write_json(state_path, state)
+                    print(
+                        f"[pipeline] transcribe permanently failed {wav.name} after {attempts} attempts "
+                        f"(status={status}). Skipping this chunk."
+                    )
+                else:
+                    print(
+                        f"[pipeline] transcribe failed {wav.name} (attempt {attempts}, "
+                        f"retry in {backoff_s:.0f}s): {exc}"
+                    )
                 continue
+            if wav.name in failed:
+                del failed[wav.name]
+                state["failed"] = failed
+                write_json(state_path, state)
 
-            raw_path = transcripts_dir / f"{wav.stem}.json"
-            segments_path = transcripts_dir / f"{wav.stem}.segments.json"
-            write_json(raw_path, raw)
-            segments = extract_segments(raw)
-            write_json(segments_path, {"segments": segments})
+                if stop:
+                    break
 
-            identity = infer_identity_evidence(
-                segments=segments,
-                api_key=api_key,
-                model=args.identity_model,
-            )
-            identity_path = identity_dir / f"{wav.stem}.identity.json"
-            write_json(identity_path, identity)
+                raw_path = transcripts_dir / f"{wav.stem}.json"
+                segments_path = transcripts_dir / f"{wav.stem}.segments.json"
+                write_json(raw_path, raw)
+                segments = extract_segments(raw)
+                write_json(segments_path, {"segments": segments})
 
-            labeled = process_pair(
-                wav,
-                segments_path,
-                registry=registry,
-                encoder=encoder,
-                similarity_threshold=args.similarity_threshold,
-                min_segment_s=args.min_segment_s,
-                identity_evidence=identity.get("evidence"),
-                min_name_score=args.min_name_score,
-                min_name_margin=args.min_name_margin,
-                min_name_confidence=args.min_name_confidence,
-            )
-            labeled_path = labeled_dir / f"{wav.stem}.labeled.json"
-            write_json(
-                labeled_path,
-                {
-                    "source_wav": str(wav),
-                    "source_transcript": str(segments_path),
-                    "source_identity_evidence": str(identity_path),
-                    "segments": labeled,
-                },
-            )
+                identity = infer_identity_evidence(
+                    segments=segments,
+                    api_key=api_key,
+                    model=args.identity_model,
+                )
+                identity_path = identity_dir / f"{wav.stem}.identity.json"
+                write_json(identity_path, identity)
 
-            processed.add(wav.name)
-            state["processed"] = sorted(processed)
-            write_json(state_path, state)
-            write_json(registry_path, registry)
-            print(f"[pipeline] processed {wav.name} -> {labeled_path.name}")
-            print_live_segments(labeled, min_conf=args.min_display_name_confidence)
+                labeled = process_pair(
+                    wav,
+                    segments_path,
+                    registry=registry,
+                    encoder=encoder,
+                    similarity_threshold=args.similarity_threshold,
+                    min_segment_s=args.min_segment_s,
+                    identity_evidence=identity.get("evidence"),
+                    min_name_score=args.min_name_score,
+                    min_name_margin=args.min_name_margin,
+                    min_name_confidence=args.min_name_confidence,
+                )
+                labeled_path = labeled_dir / f"{wav.stem}.labeled.json"
+                write_json(
+                    labeled_path,
+                    {
+                        "source_wav": str(wav),
+                        "source_transcript": str(segments_path),
+                        "source_identity_evidence": str(identity_path),
+                        "segments": labeled,
+                    },
+                )
 
-        time.sleep(args.poll_interval_s)
+                processed.add(wav.name)
+                state["processed"] = sorted(processed)
+                write_json(state_path, state)
+                write_json(registry_path, registry)
+                print(f"[pipeline] processed {wav.name} -> {labeled_path.name}")
+                print_live_segments(labeled, min_conf=args.min_display_name_confidence)
 
-    shutdown_capture()
-    print("[pipeline] stopped")
+            if not stop:
+                time.sleep(args.poll_interval_s)
+    except KeyboardInterrupt:
+        print("[pipeline] interrupt received, shutting down...")
+    finally:
+        shutdown_capture()
+        print("[pipeline] stopped")
+
     return 0
 
 

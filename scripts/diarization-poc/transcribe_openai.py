@@ -34,28 +34,58 @@ def transcribe_file(
     temperature: float | None,
 ) -> dict[str, Any]:
     headers = {"Authorization": f"Bearer {api_key}"}
-    data: dict[str, str] = {
-        "model": model,
-        "response_format": "verbose_json",
-    }
-    if language:
-        data["language"] = language
-    if temperature is not None:
-        data["temperature"] = str(temperature)
+    prefers_json = "diarize" in model
+    format_candidates = (
+        ["diarized_json", "json", "verbose_json", "text"]
+        if prefers_json
+        else ["verbose_json", "json", "text"]
+    )
 
-    with wav_path.open("rb") as f:
-        files = {"file": (wav_path.name, f, "audio/wav")}
-        resp = requests.post(
-            "https://api.openai.com/v1/audio/transcriptions",
-            headers=headers,
-            data=data,
-            files=files,
-            timeout=240,
-        )
+    last_error: RuntimeError | None = None
+    for response_format in format_candidates:
+        data: dict[str, str] = {
+            "model": model,
+            "response_format": response_format,
+        }
+        if "diarize" in model:
+            data["chunking_strategy"] = "auto"
+        if language:
+            data["language"] = language
+        if temperature is not None:
+            data["temperature"] = str(temperature)
 
-    if resp.status_code >= 300:
-        raise RuntimeError(f"transcription failed {resp.status_code}: {resp.text}")
-    return resp.json()
+        with wav_path.open("rb") as f:
+            files = {"file": (wav_path.name, f, "audio/wav")}
+            resp = requests.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers=headers,
+                data=data,
+                files=files,
+                timeout=240,
+            )
+
+        if resp.status_code < 300:
+            if response_format == "text":
+                return {"text": resp.text}
+            return resp.json()
+
+        # If model rejects this response_format, try the next one.
+        if resp.status_code == 400:
+            try:
+                err_obj = resp.json().get("error", {})
+            except Exception:
+                err_obj = {}
+            if err_obj.get("param") == "response_format" and err_obj.get("code") == "unsupported_value":
+                last_error = RuntimeError(
+                    f"transcription failed {resp.status_code} (format={response_format}): {resp.text}"
+                )
+                continue
+
+        raise RuntimeError(f"transcription failed {resp.status_code} (format={response_format}): {resp.text}")
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("transcription failed: no compatible response_format found")
 
 
 def extract_segments(obj: dict[str, Any]) -> list[dict[str, Any]]:
