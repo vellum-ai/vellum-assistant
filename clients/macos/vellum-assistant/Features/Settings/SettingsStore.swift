@@ -338,7 +338,11 @@ public final class SettingsStore: ObservableObject {
         twitterAuthInProgress = true
         twitterAuthError = nil
         do {
-            try daemonClient?.send(TwitterAuthStartMessage())
+            guard let daemonClient else {
+                twitterAuthInProgress = false
+                return
+            }
+            try daemonClient.send(TwitterAuthStartMessage())
         } catch {
             twitterAuthInProgress = false
         }
