@@ -146,7 +146,6 @@ private struct TasksWindowRow: View {
     let onRemove: () -> Void
     let onPriorityChange: (Double) -> Void
     @State private var isHovered = false
-    @State private var isStatusHovered = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
@@ -255,17 +254,6 @@ private struct TasksWindowRow: View {
             .background(style.color.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
 
-            if hasOutput {
-                Text("See result")
-                    .font(VFont.small)
-                    .foregroundColor(VColor.accent)
-                    .underline()
-                    .onHover { hovering in isStatusHovered = hovering }
-                    .opacity(isStatusHovered ? 0.7 : 1.0)
-                    .onTapGesture { onTap() }
-                    .accessibilityLabel("View task output")
-                    .accessibilityAddTraits(.isButton)
-            }
         }
     }
 
@@ -278,6 +266,7 @@ private struct TasksWindowRow: View {
         let isTimedOut = timeoutIds.contains(item.id)
         let isFailed = status == .failed || status == .cancelled
         let isRerun = status == .done || status == .awaitingReview
+        let showSeeResult = isRerun && hasOutput
         let showRun = status != .archived && !isRunning
         let runEnabled = !isRunning
         let buttonColor = (isFailed || isTimedOut) ? VColor.warning : VColor.accent
@@ -309,6 +298,23 @@ private struct TasksWindowRow: View {
                 .opacity(isCancelling ? 0.4 : 1.0)
                 .accessibilityLabel(isCancelling ? "Stopping task" : "Stop task")
                 .accessibilityHint("Cancel the running task")
+            } else if showSeeResult {
+                Button(action: onTap) {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 10))
+                        Text("See Result")
+                            .font(VFont.caption)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
+                    .background(VColor.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("View task output")
             } else if showRun {
                 VStack(alignment: .center, spacing: 2) {
                     Button(action: onRun) {
