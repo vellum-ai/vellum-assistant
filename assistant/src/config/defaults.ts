@@ -169,6 +169,10 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     retentionDays: 30,
   },
   pricingOverrides: [],
+  agentHeartbeat: {
+    enabled: false,
+    intervalMs: 3_600_000,
+  },
   swarm: {
     enabled: true,
     maxWorkers: 3,

@@ -105,6 +105,7 @@
   ],
   "serverMessageTypes": [
     "AcceptStarterBundleResponse",
+    "AgentHeartbeatAlert",
     "AppDataResponse",
     "AppFilesChanged",
     "AppPreviewResponse",
@@ -325,6 +326,7 @@
   ],
   "serverWireTypes": [
     "accept_starter_bundle_response",
+    "agent_heartbeat_alert",
     "app_data_response",
     "app_files_changed",
     "app_preview_response",

@@ -44,6 +44,7 @@ import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
 import { HeartbeatService } from '../workspace/heartbeat-service.js';
+import { AgentHeartbeatService } from '../agent-heartbeat/agent-heartbeat-service.js';
 import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
 import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
@@ -455,6 +456,14 @@ export async function runDaemon(): Promise<void> {
   const heartbeat = new HeartbeatService();
   heartbeat.start();
 
+  // Start model-driven heartbeat service (opt-in via config).
+  const agentHeartbeat = new AgentHeartbeatService({
+    processMessage: (conversationId, content) =>
+      server.processMessage(conversationId, content),
+    alerter: (alert) => server.broadcast(alert),
+  });
+  agentHeartbeat.start();
+
   // Graceful shutdown
   let shuttingDown = false;
   const shutdown = async () => {
@@ -475,6 +484,7 @@ export async function runDaemon(): Promise<void> {
     forceTimer.unref();
 
     await heartbeat.stop();
+    await agentHeartbeat.stop();
 
     try {
       await hookManager.trigger('daemon-stop', { pid: process.pid });

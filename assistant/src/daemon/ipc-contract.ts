@@ -1705,6 +1705,12 @@ export interface WatcherEscalation {
   body: string;
 }
 
+export interface AgentHeartbeatAlert {
+  type: 'agent_heartbeat_alert';
+  title: string;
+  body: string;
+}
+
 export interface WatchStarted {
   type: 'watch_started';
   sessionId: string;
@@ -2128,6 +2134,7 @@ export type ServerMessage =
   | ScheduleComplete
   | WatcherNotification
   | WatcherEscalation
+  | AgentHeartbeatAlert
   | WatchStarted
   | WatchCompleteRequest
   | TrustRulesListResponse
