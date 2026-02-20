@@ -171,7 +171,7 @@ export async function autoNavigate(domain: string, abortSignal?: { aborted: bool
   }
 
   cdp.close();
-  log.info({ visited: visitedUrls.length, total: discoveredPaths.length + 1 }, 'Auto-navigation finished');
+  log.info({ visited: visitedUrls.length, total: discoveredLinks.length + 1 }, 'Auto-navigation finished');
   return visitedUrls;
 }
 
