@@ -3,7 +3,7 @@ import type { SwarmRole } from './types.js';
 /**
  * Profile names that scope tool access for worker tasks.
  */
-export type WorkerProfile = 'general' | 'researcher' | 'coder' | 'reviewer';
+export type WorkerProfile = 'general' | 'researcher' | 'coder' | 'reviewer' | 'worker';
 
 /**
  * Maps swarm roles to worker profiles.
@@ -70,6 +70,13 @@ export function getProfilePolicy(profile: WorkerProfile): ProfilePolicy {
       return {
         allow: new Set(READ_ONLY_TOOLS),
         deny: new Set([...WRITE_TOOLS, 'Bash']),
+        approvalRequired: new Set(),
+      };
+
+    case 'worker':
+      return {
+        allow: new Set([...READ_ONLY_TOOLS, 'Bash', ...WRITE_TOOLS, 'Task']),
+        deny: new Set(),
         approvalRequired: new Set(),
       };
 
