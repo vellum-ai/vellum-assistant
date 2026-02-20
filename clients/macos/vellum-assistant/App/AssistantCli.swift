@@ -87,7 +87,7 @@ final class AssistantCli {
     /// waits for the socket, and registers the assistant entry.
     ///
     /// - Parameter name: Optional assistant name to reuse (for health monitor restarts).
-    func hatch(name: String? = nil) async throws {
+    func hatch(name: String? = nil, daemonOnly: Bool = false) async throws {
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping hatch (dev mode)")
             return
@@ -96,6 +96,9 @@ final class AssistantCli {
         log.info("Running hatch via CLI at \(binaryURL.path)")
 
         var arguments = ["hatch", "-d"]
+        if daemonOnly {
+            arguments.append("--daemon-only")
+        }
         if let name {
             arguments += ["--name", name]
         }
@@ -111,8 +114,17 @@ final class AssistantCli {
         log.info("CLI hatch completed successfully")
     }
 
+    /// How long to wait for the retire CLI command before giving up.
+    private static let retireTimeout: TimeInterval = 60.0
+
     /// Retire an assistant via the CLI. Stops the daemon, deregisters the
     /// assistant entry. Does NOT delete ~/.vellum (macOS app manages its data).
+    ///
+    /// Uses `terminationHandler` + `DispatchQueue` instead of `waitUntilExit()`
+    /// inside `Task.detached` to avoid blocking a cooperative thread pool thread,
+    /// which can cause hangs when the pool is saturated.
+    ///
+    /// Times out after 60 seconds; on timeout the CLI process is terminated.
     func retire(name: String) async throws {
         isStopping = true
         stopMonitoring()
@@ -124,7 +136,72 @@ final class AssistantCli {
 
         log.info("Running retire via CLI at \(binaryURL.path) for '\(name)'")
 
-        let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["retire", name])
+        let (stderr, status) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(String, Int32), Error>) in
+            let proc = Process()
+            proc.executableURL = binaryURL
+            proc.arguments = ["retire", name]
+
+            let stderrPipe = Pipe()
+            proc.standardOutput = FileHandle.nullDevice
+            proc.standardError = stderrPipe
+
+            let fullEnv = ProcessInfo.processInfo.environment
+            var env: [String: String] = [
+                "HOME": NSHomeDirectory(),
+                "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                "VELLUM_DESKTOP_APP": "1",
+            ]
+            for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR", "VELLUM_DEBUG",
+                        "SENTRY_DSN", "TMPDIR", "USER", "LANG"] {
+                if let val = fullEnv[key] { env[key] = val }
+            }
+            proc.environment = env
+
+            var resumed = false
+            let lock = NSLock()
+
+            // Timeout: terminate the process if it takes too long
+            let timeoutItem = DispatchWorkItem { [weak proc] in
+                lock.lock()
+                let alreadyResumed = resumed
+                if !alreadyResumed { resumed = true }
+                lock.unlock()
+
+                if !alreadyResumed {
+                    proc?.terminate()
+                    continuation.resume(throwing: CLIError.executionFailed("Retire timed out after 60 seconds"))
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.retireTimeout, execute: timeoutItem)
+
+            proc.terminationHandler = { finished in
+                timeoutItem.cancel()
+                lock.lock()
+                let alreadyResumed = resumed
+                if !alreadyResumed { resumed = true }
+                lock.unlock()
+
+                guard !alreadyResumed else { return }
+
+                let stderrData = stderrPipe.fileHandleForReading.availableData
+                let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
+                continuation.resume(returning: (stderrStr, finished.terminationStatus))
+            }
+
+            do {
+                try proc.run()
+            } catch {
+                timeoutItem.cancel()
+                lock.lock()
+                let alreadyResumed = resumed
+                if !alreadyResumed { resumed = true }
+                lock.unlock()
+
+                if !alreadyResumed {
+                    continuation.resume(throwing: CLIError.executionFailed("Failed to launch retire: \(error.localizedDescription)"))
+                }
+            }
+        }
 
         if status != 0 {
             log.error("CLI retire failed with exit code \(status): \(stderr)")
@@ -371,7 +448,7 @@ final class AssistantCli {
         do {
             // Pass the existing assistant name so the CLI reuses it
             let existingName = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            try await hatch(name: existingName)
+            try await hatch(name: existingName, daemonOnly: true)
             log.info("Daemon restarted successfully via CLI")
             onDaemonRestarted?()
         } catch {

@@ -241,6 +241,11 @@ struct LockfileAssistant {
     }
 
     static func loadLatest() -> LockfileAssistant? {
+        loadAll().first
+    }
+
+    /// Returns all assistant entries from the lockfile, sorted newest first.
+    static func loadAll() -> [LockfileAssistant] {
         let home = NSHomeDirectory()
         let candidatePaths = [
             home + "/.vellum.lock.json",
@@ -262,24 +267,44 @@ struct LockfileAssistant {
                 return dateA > dateB
             }
 
-            guard let latest = sorted.first,
-                  let assistantId = latest["assistantId"] as? String else {
-                continue
+            return sorted.compactMap { entry -> LockfileAssistant? in
+                guard let assistantId = entry["assistantId"] as? String else { return nil }
+                return LockfileAssistant(
+                    assistantId: assistantId,
+                    runtimeUrl: entry["runtimeUrl"] as? String,
+                    cloud: entry["cloud"] as? String ?? "local",
+                    project: entry["project"] as? String,
+                    region: entry["region"] as? String,
+                    zone: entry["zone"] as? String,
+                    instanceId: entry["instanceId"] as? String,
+                    hatchedAt: entry["hatchedAt"] as? String
+                )
             }
-
-            return LockfileAssistant(
-                assistantId: assistantId,
-                runtimeUrl: latest["runtimeUrl"] as? String,
-                cloud: latest["cloud"] as? String ?? "local",
-                project: latest["project"] as? String,
-                region: latest["region"] as? String,
-                zone: latest["zone"] as? String,
-                instanceId: latest["instanceId"] as? String,
-                hatchedAt: latest["hatchedAt"] as? String
-            )
         }
 
-        return nil
+        return []
+    }
+
+    /// Find an assistant by its ID in the lockfile.
+    static func loadByName(_ name: String) -> LockfileAssistant? {
+        loadAll().first { $0.assistantId == name }
+    }
+
+    /// Writes this assistant's config to `~/.vellum/workspace/config.json`
+    /// via `WorkspaceConfigIO.merge()`.
+    func writeToWorkspaceConfig() {
+        var homeConfig: [String: Any] = ["cloud": cloud]
+        if let runtimeUrl { homeConfig["runtimeUrl"] = runtimeUrl }
+        if let project { homeConfig["project"] = project }
+        if let region { homeConfig["region"] = region }
+        if let zone { homeConfig["zone"] = zone }
+        if let instanceId { homeConfig["instanceId"] = instanceId }
+
+        let existing = WorkspaceConfigIO.read()
+        var assistantConfig = existing["assistant"] as? [String: Any] ?? [:]
+        assistantConfig["id"] = assistantId
+        assistantConfig["home"] = homeConfig
+        try? WorkspaceConfigIO.merge(["assistant": assistantConfig])
     }
 }
 
