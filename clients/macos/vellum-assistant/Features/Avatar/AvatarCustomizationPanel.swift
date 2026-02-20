@@ -76,6 +76,13 @@ struct AvatarCustomizationPanel: View {
             .frame(maxWidth: .infinity)
         }
         .background(VColor.backgroundSubtle)
+        .onTapGesture {
+            if expandedField != nil {
+                withAnimation(VAnimation.fast) {
+                    expandedField = nil
+                }
+            }
+        }
         .onAppear {
             evolutionState.load()
             identity = IdentityInfo.load()
