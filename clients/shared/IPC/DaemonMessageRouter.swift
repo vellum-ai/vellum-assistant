@@ -206,6 +206,8 @@ extension DaemonClient {
             onSubagentSpawned?(msg)
         case .subagentStatusChanged(let msg):
             onSubagentStatusChanged?(msg)
+        case .subagentDetailResponse(let msg):
+            onSubagentDetailResponse?(msg)
         default:
             break
         }

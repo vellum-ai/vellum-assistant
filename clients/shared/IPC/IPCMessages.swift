@@ -1797,6 +1797,18 @@ extension IPCSessionSwitchRequest {
     }
 }
 
+/// Sent by the client to request subagent detail (events) for a completed subagent.
+public struct SubagentDetailRequestMessage: Encodable, Sendable {
+    public let type: String = "subagent_detail_request"
+    public let subagentId: String
+    public let conversationId: String
+
+    public init(subagentId: String, conversationId: String) {
+        self.subagentId = subagentId
+        self.conversationId = conversationId
+    }
+}
+
 /// Sent by the client to abort a running subagent.
 public struct SubagentAbortMessage: Encodable, Sendable {
     public let type: String = "subagent_abort"
@@ -1920,6 +1932,7 @@ public enum ServerMessage: Decodable, Sendable {
     case subagentSpawned(IPCSubagentSpawned)
     case subagentStatusChanged(IPCSubagentStatusChanged)
     indirect case subagentEvent(SubagentEventMessage)
+    case subagentDetailResponse(IPCSubagentDetailResponse)
     case pong
     case unknown(String)
 
@@ -2238,6 +2251,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "subagent_event":
             let message = try SubagentEventMessage(from: decoder)
             self = .subagentEvent(message)
+        case "subagent_detail_response":
+            let message = try IPCSubagentDetailResponse(from: decoder)
+            self = .subagentDetailResponse(message)
         case "pong":
             self = .pong
         default:

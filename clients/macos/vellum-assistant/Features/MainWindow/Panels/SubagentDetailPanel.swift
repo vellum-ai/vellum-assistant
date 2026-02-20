@@ -6,6 +6,7 @@ struct SubagentDetailPanel: View {
     @ObservedObject var viewModel: ChatViewModel
     @ObservedObject var detailStore: SubagentDetailStore
     var onAbort: (() -> Void)?
+    var onRequestDetail: (() -> Void)?
     var onClose: () -> Void
 
     private var subagentInfo: SubagentInfo? { viewModel.activeSubagents.first(where: { $0.id == subagentId }) }
@@ -99,6 +100,12 @@ struct SubagentDetailPanel: View {
                         eventRow(event)
                     }
                 }
+            }
+        }
+        .onAppear {
+            // Lazy-load events from DB when the panel opens for a completed subagent with no cached events
+            if events.isEmpty, subagentInfo?.conversationId != nil {
+                onRequestDetail?()
             }
         }
     }

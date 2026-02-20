@@ -867,12 +867,15 @@ public struct SubagentInfo: Equatable, Identifiable {
     /// The chat message ID that was active when this subagent was spawned.
     /// Used to render the subagent chip inline after the spawning message.
     public var parentMessageId: UUID?
+    /// The subagent's own conversation ID, used for lazy-loading detail events.
+    public var conversationId: String?
 
-    public init(id: String, label: String, status: SubagentStatus = .pending, parentMessageId: UUID? = nil) {
+    public init(id: String, label: String, status: SubagentStatus = .pending, parentMessageId: UUID? = nil, conversationId: String? = nil) {
         self.id = id
         self.label = label
         self.status = status
         self.parentMessageId = parentMessageId
+        self.conversationId = conversationId
     }
 
     public var isTerminal: Bool { status.isTerminal }

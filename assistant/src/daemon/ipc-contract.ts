@@ -978,7 +978,8 @@ export type ClientMessage =
   | WorkItemCancelRequest
   | SubagentAbortRequest
   | SubagentStatusRequest
-  | SubagentMessageRequest;
+  | SubagentMessageRequest
+  | SubagentDetailRequest;
 
 // ── Legacy integration IPC stubs ────────────────────────────────────
 // The macOS Settings panel still sends these messages. Stub types keep
@@ -1228,15 +1229,6 @@ export interface HistoryResponse {
       status: 'completed' | 'failed' | 'aborted';
       error?: string;
       conversationId?: string;
-      /** Subagent objective text, populated from DB on history load. */
-      objective?: string;
-      /** Subagent events (text, tool_use, tool_result), populated from DB on history load. */
-      events?: Array<{
-        type: string;
-        content: string;
-        toolName?: string;
-        isError?: boolean;
-      }>;
     };
   }>;
 }
@@ -2231,7 +2223,8 @@ export type ServerMessage =
   | OpenTasksWindow
   | SubagentSpawned
   | SubagentStatusChanged
-  | SubagentEvent;
+  | SubagentEvent
+  | SubagentDetailResponse;
 
 // === Subagent IPC ─────────────────────────────────────────────────────
 
@@ -2249,6 +2242,18 @@ export interface SubagentStatusChanged {
   status: import('../subagent/types.js').SubagentStatus;
   error?: string;
   usage?: UsageStats;
+}
+
+export interface SubagentDetailResponse {
+  type: 'subagent_detail_response';
+  subagentId: string;
+  objective?: string;
+  events: Array<{
+    type: string;
+    content: string;
+    toolName?: string;
+    isError?: boolean;
+  }>;
 }
 
 /** Wraps any ServerMessage emitted by a subagent session for routing to the client. */
@@ -2275,6 +2280,12 @@ export interface SubagentMessageRequest {
   type: 'subagent_message';
   subagentId: string;
   content: string;
+}
+
+export interface SubagentDetailRequest {
+  type: 'subagent_detail_request';
+  subagentId: string;
+  conversationId: string;
 }
 
 // === Contract schema ===
