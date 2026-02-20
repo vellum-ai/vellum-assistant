@@ -29,7 +29,7 @@
     "@qdrant/js-client-rest": "^1.16.2",
     "@sentry/node": "^10.38.0",
     "@vellumai/cli": "0.1.7",
-    "@vellumai/vellum-gateway": "^0.1.7",
+    "@vellumai/vellum-gateway": "^0.1.8",
     "agentmail": "^0.1.0",
     "archiver": "^7.0.1",
     "commander": "^13.1.0",
