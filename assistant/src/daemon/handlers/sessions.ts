@@ -274,14 +274,27 @@ export async function handleSessionSwitch(
     ctx.send(socket, { type: 'error', message: `Session ${msg.sessionId} not found` });
     return;
   }
+
+  // If the target session is headless-locked (actively executing a task run),
+  // skip rebinding the socket so tool confirmations stay suppressed.
+  const existingSession = ctx.sessions.get(msg.sessionId);
+  const isHeadlessLocked = existingSession && (existingSession as unknown as { headlessLock?: boolean }).headlessLock;
+
   ctx.socketToSession.set(socket, msg.sessionId);
-  const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
-  // Only wire the escalation handler if one isn't already set — handleTaskSubmit
-  // sets a handler with the client's actual screen dimensions, and overwriting it
-  // here would replace those dimensions with the daemon's defaults.
-  if (!session.hasEscalationHandler()) {
-    wireEscalationHandler(session, socket, ctx);
+
+  if (isHeadlessLocked) {
+    // Load the session without rebinding the client — the session stays headless
+    await ctx.getOrCreateSession(msg.sessionId, socket, false);
+  } else {
+    const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
+    // Only wire the escalation handler if one isn't already set — handleTaskSubmit
+    // sets a handler with the client's actual screen dimensions, and overwriting it
+    // here would replace those dimensions with the daemon's defaults.
+    if (!session.hasEscalationHandler()) {
+      wireEscalationHandler(session, socket, ctx);
+    }
   }
+
   ctx.send(socket, {
     type: 'session_info',
     sessionId: conversation.id,

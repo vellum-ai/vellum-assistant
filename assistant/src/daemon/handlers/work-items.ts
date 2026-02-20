@@ -326,12 +326,19 @@ export async function handleWorkItemRunTask(
           });
           // Wire the taskRunId so the executor can retrieve ephemeral permission rules
           (session as unknown as { taskRunId?: string }).taskRunId = taskRunId;
+          // Prevent interactive clients from rebinding to this session mid-run
+          (session as unknown as { headlessLock: boolean }).headlessLock = true;
         }
         await session.processMessage(message, [], (event) => {
           ctx.broadcast(event);
         });
       },
     );
+
+    // Release the headless lock now that the task run is done
+    if (session) {
+      (session as unknown as { headlessLock: boolean }).headlessLock = false;
+    }
 
     // Don't overwrite cancelled status — the cancel handler already set it
     const current = getWorkItem(msg.id);
@@ -348,6 +355,10 @@ export async function handleWorkItemRunTask(
     broadcastWorkItemStatus(ctx, msg.id);
     ctx.broadcast({ type: 'tasks_changed' });
   } catch (err) {
+    // Release the headless lock on failure
+    if (session) {
+      (session as unknown as { headlessLock: boolean }).headlessLock = false;
+    }
     log.error({ err, workItemId: msg.id }, 'work_item_run_task failed');
     updateWorkItem(msg.id, {
       status: 'failed',
@@ -461,6 +472,7 @@ export function handleWorkItemCancel(
   if (conversationId) {
     const session = ctx.sessions.get(conversationId);
     if (session) {
+      (session as unknown as { headlessLock: boolean }).headlessLock = false;
       session.abort();
       getSubagentManager().abortAllForParent(conversationId);
     }

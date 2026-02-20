@@ -47,6 +47,8 @@ export interface ToolSetupContext extends SurfaceSessionContext {
   memoryPolicy: { scopeId: string; strictSideEffects: boolean };
   /** True when the session has no connected IPC client (HTTP-only path). */
   hasNoClient?: boolean;
+  /** When true, the session is executing a task run and must not become interactive. */
+  headlessLock?: boolean;
   /** When set, this session is executing a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
 }
@@ -206,7 +208,7 @@ export function createToolExecutor(
           });
         }
       },
-      isInteractive: !ctx.hasNoClient,
+      isInteractive: !ctx.hasNoClient && !ctx.headlessLock,
       proxyToolResolver: (toolName: string, proxyInput: Record<string, unknown>) => surfaceProxyResolver(ctx, toolName, proxyInput),
       proxyApprovalCallback: createProxyApprovalCallback(prompter, ctx),
       requestSecret: async (params) => {
