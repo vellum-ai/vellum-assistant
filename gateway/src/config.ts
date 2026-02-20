@@ -41,7 +41,7 @@ export type GatewayConfig = {
   twilioWebhookBaseUrl: string | undefined;
   unmappedPolicy: "reject" | "default";
   /** The gateway's own public-facing URL (e.g. http://<external-ip>:7830). */
-  publicUrl: string | undefined;
+  publicUrl?: string;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {

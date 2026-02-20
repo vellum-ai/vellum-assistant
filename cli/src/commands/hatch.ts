@@ -117,23 +117,6 @@ GATEWAY_RUNTIME_PROXY_ENABLED=true
 RUNTIME_PROXY_BEARER_TOKEN=${bearerToken}
 VELLUM_ASSISTANT_NAME=${instanceName}
 VELLUM_CLOUD=${cloud}
-
-# Discover external IP from cloud metadata
-EXTERNAL_IP=""
-if [ "\$VELLUM_CLOUD" = "gcp" ]; then
-  EXTERNAL_IP=\$(curl -sf -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip 2>/dev/null || true)
-elif [ "\$VELLUM_CLOUD" = "aws" ]; then
-  EXTERNAL_IP=\$(curl -sf http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || true)
-fi
-
-if [ -n "\$EXTERNAL_IP" ]; then
-  GATEWAY_PUBLIC_URL="http://\$EXTERNAL_IP:${GATEWAY_PORT}"
-  echo "Discovered external IP: \$EXTERNAL_IP"
-else
-  GATEWAY_PUBLIC_URL=""
-  echo "Could not discover external IP (cloud=\$VELLUM_CLOUD)"
-fi
-
 ${interfacesSeed}
 mkdir -p "\$HOME/.vellum"
 cat > "\$HOME/.vellum/.env" << DOTENV_EOF
@@ -143,7 +126,6 @@ RUNTIME_PROXY_BEARER_TOKEN=\$RUNTIME_PROXY_BEARER_TOKEN
 INTERFACES_SEED_DIR=\$INTERFACES_SEED_DIR
 RUNTIME_HTTP_PORT=7821
 VELLUM_CLOUD=\$VELLUM_CLOUD
-GATEWAY_PUBLIC_URL=\$GATEWAY_PUBLIC_URL
 DOTENV_EOF
 
 mkdir -p "\$HOME/.vellum/workspace"
@@ -793,6 +775,46 @@ function resolveGatewayDir(): string {
   }
 }
 
+async function discoverPublicUrl(): Promise<string | undefined> {
+  const cloud = process.env.VELLUM_CLOUD;
+  if (!cloud || cloud === "local") {
+    return `http://localhost:${GATEWAY_PORT}`;
+  }
+
+  let externalIp: string | undefined;
+  try {
+    if (cloud === "gcp") {
+      const resp = await fetch(
+        "http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip",
+        { headers: { "Metadata-Flavor": "Google" } },
+      );
+      if (resp.ok) externalIp = (await resp.text()).trim();
+    } else if (cloud === "aws") {
+      // Use IMDSv2 (token-based) for compatibility with HttpTokens=required
+      const tokenResp = await fetch(
+        "http://169.254.169.254/latest/api/token",
+        { method: "PUT", headers: { "X-aws-ec2-metadata-token-ttl-seconds": "30" } },
+      );
+      if (tokenResp.ok) {
+        const token = await tokenResp.text();
+        const ipResp = await fetch(
+          "http://169.254.169.254/latest/meta-data/public-ipv4",
+          { headers: { "X-aws-ec2-metadata-token": token } },
+        );
+        if (ipResp.ok) externalIp = (await ipResp.text()).trim();
+      }
+    }
+  } catch {
+    // metadata service not reachable
+  }
+
+  if (externalIp) {
+    console.log(`   Discovered external IP: ${externalIp}`);
+    return `http://${externalIp}:${GATEWAY_PORT}`;
+  }
+  return undefined;
+}
+
 async function hatchLocal(species: Species, name: string | null): Promise<void> {
   const instanceName =
     name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
@@ -871,19 +893,24 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
     });
   }
 
+  const publicUrl = await discoverPublicUrl();
+  if (publicUrl) {
+    console.log(`   Public URL: ${publicUrl}`);
+  }
+
   console.log("🌐 Starting gateway...");
   const gatewayDir = resolveGatewayDir();
+  const gatewayEnv: Record<string, string> = {
+    ...process.env as Record<string, string>,
+    GATEWAY_RUNTIME_PROXY_ENABLED: "true",
+    GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
+  };
+  if (publicUrl) gatewayEnv.GATEWAY_PUBLIC_URL = publicUrl;
   const gateway = spawn("bun", ["run", "src/index.ts"], {
     cwd: gatewayDir,
     detached: true,
     stdio: "ignore",
-    env: {
-      ...process.env,
-      GATEWAY_RUNTIME_PROXY_ENABLED: "true",
-      GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
-      GATEWAY_PUBLIC_URL: `http://localhost:${GATEWAY_PORT}`,
-      VELLUM_CLOUD: "local",
-    },
+    env: gatewayEnv,
   });
   gateway.unref();
   console.log("✅ Gateway started\n");
