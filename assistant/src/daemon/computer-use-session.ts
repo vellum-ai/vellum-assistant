@@ -15,6 +15,7 @@ import { AgentLoop } from '../agent/loop.js';
 import { ToolExecutor } from '../tools/executor.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
+import type { UserDecision } from '../permissions/types.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { allComputerUseTools } from '../tools/computer-use/definitions.js';
 import { registerSkillTools } from '../tools/registry.js';
@@ -893,7 +894,7 @@ export class ComputerUseSession {
 
   handleConfirmationResponse(
     requestId: string,
-    decision: 'allow' | 'always_allow' | 'deny',
+    decision: UserDecision,
     selectedPattern?: string,
     selectedScope?: string,
   ): void {
