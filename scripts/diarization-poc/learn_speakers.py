@@ -16,18 +16,85 @@ import json
 import pathlib
 import wave
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
-from resemblyzer import VoiceEncoder
 
 
 @dataclass
 class Segment:
-    speaker: str
-    start: float
-    end: float
-    text: str
+  speaker: str
+  start: float
+  end: float
+  text: str
+
+
+class VoiceEmbeddingEncoder(Protocol):
+  def embed_utterance(self, audio: np.ndarray) -> np.ndarray:
+    ...
+
+
+class SpectralVoiceEncoder:
+  """
+  Fallback voice encoder used when resemblyzer cannot import.
+
+  It is not as strong as a learned speaker model, but preserves cross-chunk
+  continuity well enough for operational fallback behavior.
+  """
+
+  def __init__(self, dim: int = 256) -> None:
+    self.dim = dim
+
+  def embed_utterance(self, audio: np.ndarray) -> np.ndarray:
+    x = np.asarray(audio, dtype=np.float32)
+    if x.size == 0:
+      return np.zeros(self.dim, dtype=np.float32)
+
+    x = x - np.mean(x)
+    frame = 400  # 25 ms at 16k
+    hop = 160    # 10 ms at 16k
+    nfft = 512
+    window = np.hanning(frame).astype(np.float32)
+
+    if x.size < frame:
+      x = np.pad(x, (0, frame - x.size))
+
+    count = 1 + max(0, (x.size - frame) // hop)
+    spectrum_sum = np.zeros(nfft // 2 + 1, dtype=np.float32)
+    for i in range(count):
+      start = i * hop
+      seg = x[start:start + frame]
+      if seg.size < frame:
+        seg = np.pad(seg, (0, frame - seg.size))
+      fft = np.fft.rfft(seg * window, n=nfft)
+      spectrum_sum += np.log1p(np.abs(fft)).astype(np.float32)
+
+    mean_spectrum = spectrum_sum / max(1, count)
+    src_x = np.arange(mean_spectrum.size, dtype=np.float32)
+    dst_x = np.linspace(0, mean_spectrum.size - 1, num=self.dim, dtype=np.float32)
+    emb = np.interp(dst_x, src_x, mean_spectrum).astype(np.float32)
+
+    # Inject robust global features in fixed slots.
+    rms = float(np.sqrt(np.mean(np.square(x))) + 1e-8)
+    zcr = float(np.mean(np.abs(np.diff(np.signbit(x)).astype(np.float32))))
+    emb[0] = np.log(rms + 1e-8)
+    emb[1] = zcr
+
+    norm = float(np.linalg.norm(emb))
+    if norm > 0:
+      emb /= norm
+    return emb
+
+
+def create_voice_encoder(prefer_resemblyzer: bool = True) -> tuple[VoiceEmbeddingEncoder, str]:
+  if prefer_resemblyzer:
+    try:
+      from resemblyzer import VoiceEncoder as ResemblyzerVoiceEncoder
+
+      return ResemblyzerVoiceEncoder(), "resemblyzer"
+    except Exception as exc:
+      return SpectralVoiceEncoder(), f"spectral-fallback ({exc.__class__.__name__})"
+  return SpectralVoiceEncoder(), "spectral-fallback"
 
 
 def now_iso() -> str:
@@ -296,13 +363,13 @@ def recompute_identity_state(
 
 
 def process_pair(
-    wav_path: pathlib.Path,
-    transcript_path: pathlib.Path,
-    registry: dict[str, Any],
-    encoder: VoiceEncoder,
-    similarity_threshold: float,
-    min_segment_s: float,
-    identity_evidence: list[dict[str, Any]] | None,
+  wav_path: pathlib.Path,
+  transcript_path: pathlib.Path,
+  registry: dict[str, Any],
+  encoder: VoiceEmbeddingEncoder,
+  similarity_threshold: float,
+  min_segment_s: float,
+  identity_evidence: list[dict[str, Any]] | None,
     min_name_score: float,
     min_name_margin: float,
     min_name_confidence: float,
@@ -417,6 +484,7 @@ def main() -> int:
     parser.add_argument("--min-name-score", type=float, default=2.2)
     parser.add_argument("--min-name-margin", type=float, default=0.8)
     parser.add_argument("--min-name-confidence", type=float, default=0.72)
+    parser.add_argument("--no-resemblyzer", action="store_true")
     args = parser.parse_args()
 
     chunks_dir = pathlib.Path(args.chunks_dir)
@@ -427,7 +495,8 @@ def main() -> int:
     identity_evidence_dir = pathlib.Path(args.identity_evidence_dir)
 
     registry = load_json(registry_path, create_registry())
-    encoder = VoiceEncoder()
+    encoder, encoder_backend = create_voice_encoder(prefer_resemblyzer=not args.no_resemblyzer)
+    print(f"[learn] voice-encoder={encoder_backend}")
 
     wavs = sorted(chunks_dir.glob("*.wav"))
     if not wavs:
@@ -440,7 +509,11 @@ def main() -> int:
         transcript_raw = transcripts_dir / f"{wav.stem}.json"
         transcript = transcript_segments if transcript_segments.exists() else transcript_raw
         identity_evidence_path = identity_evidence_dir / f"{wav.stem}.identity.json"
-        identity_obj = load_json(identity_evidence_path, {"evidence": []}) if identity_evidence_path.exists() else {"evidence": []}
+        identity_obj = (
+            load_json(identity_evidence_path, {"evidence": []})
+            if identity_evidence_path.exists()
+            else {"evidence": []}
+        )
         if not transcript.exists():
             continue
         try:

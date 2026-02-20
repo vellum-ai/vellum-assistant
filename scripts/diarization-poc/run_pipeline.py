@@ -1,30 +1,32 @@
 #!/usr/bin/env python3
 """
-Continuous pipeline:
-  chunks/*.wav -> OpenAI diarized transcript -> persistent speaker learning
+Single-command live pipeline:
+  mic capture -> chunk WAV -> OpenAI diarized transcript -> identity evidence -> speaker learning
 
-Primary speaker signal is provider diarization (gpt-4o-transcribe-diarize).
-Local embeddings are used only to stitch stable identities across chunks.
+By default this script launches local capture internally, so you only need one terminal.
 """
 
 from __future__ import annotations
 
+import atexit
 import argparse
 import os
 import pathlib
+import signal
+import subprocess
+import sys
 import time
 from typing import Any
 
-from resemblyzer import VoiceEncoder
-
-from transcribe_openai import transcribe_file, extract_segments
 from identity_evidence_openai import infer_identity_evidence
 from learn_speakers import (
     create_registry,
+    create_voice_encoder,
     load_json,
     process_pair,
     write_json,
 )
+from transcribe_openai import extract_segments, transcribe_file
 
 
 def fmt_time(seconds: float) -> str:
@@ -40,21 +42,50 @@ def print_live_segments(rows: list[dict[str, Any]], min_conf: float) -> None:
         base_label = str(row.get("speaker_display_name") or "Unknown")
         conf = float(row.get("speaker_name_confidence") or 0.0)
         if status != "named" or conf < min_conf:
-            # Show anonymous form until model confidence is strong enough.
             gid = str(row.get("speaker_global_id") or "anon")
             base_label = f"Person {gid.replace('anon-', '')}"
         text = str(row.get("text") or "").strip()
         print(f"[{fmt_time(start)}] {base_label} ({status}, conf={conf:.2f}): {text}")
 
 
+def build_capture_command(args: argparse.Namespace, chunks_dir: pathlib.Path) -> list[str]:
+    script = pathlib.Path(__file__).with_name("capture_vad_chunks.py")
+    cmd = [
+        sys.executable,
+        str(script),
+        "--out-dir",
+        str(chunks_dir),
+        "--sample-rate",
+        str(args.capture_sample_rate),
+        "--frame-ms",
+        str(args.capture_frame_ms),
+        "--vad-mode",
+        str(args.capture_vad_mode),
+        "--pre-roll-ms",
+        str(args.capture_pre_roll_ms),
+        "--silence-ms",
+        str(args.capture_silence_ms),
+        "--min-chunk-ms",
+        str(args.capture_min_chunk_ms),
+        "--max-chunk-ms",
+        str(args.capture_max_chunk_ms),
+    ]
+    if args.capture_device:
+        cmd.extend(["--device", str(args.capture_device)])
+    return cmd
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run continuous diarization + speaker-learning pipeline.")
+    parser = argparse.ArgumentParser(
+        description="Run continuous diarization + speaker-learning pipeline in one process."
+    )
     parser.add_argument("--chunks-dir", default="scripts/diarization-poc/out/chunks")
     parser.add_argument("--transcripts-dir", default="scripts/diarization-poc/out/transcripts")
     parser.add_argument("--labeled-dir", default="scripts/diarization-poc/out/labeled")
     parser.add_argument("--state-file", default="scripts/diarization-poc/out/pipeline_state.json")
     parser.add_argument("--registry", default="scripts/diarization-poc/out/speaker_registry.json")
     parser.add_argument("--model", default="gpt-4o-transcribe-diarize")
+    parser.add_argument("--identity-model", default="gpt-4o-mini")
     parser.add_argument("--poll-interval-s", type=float, default=2.0)
     parser.add_argument("--similarity-threshold", type=float, default=0.72)
     parser.add_argument("--min-segment-s", type=float, default=1.0)
@@ -62,7 +93,16 @@ def main() -> int:
     parser.add_argument("--min-name-margin", type=float, default=0.8)
     parser.add_argument("--min-name-confidence", type=float, default=0.72)
     parser.add_argument("--min-display-name-confidence", type=float, default=0.8)
-    parser.add_argument("--identity-model", default="gpt-4o-mini")
+    parser.add_argument("--no-resemblyzer", action="store_true")
+    parser.add_argument("--capture", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--capture-sample-rate", type=int, default=16000)
+    parser.add_argument("--capture-frame-ms", type=int, default=30, choices=[10, 20, 30])
+    parser.add_argument("--capture-vad-mode", type=int, default=2, choices=[0, 1, 2, 3])
+    parser.add_argument("--capture-pre-roll-ms", type=int, default=300)
+    parser.add_argument("--capture-silence-ms", type=int, default=2500)
+    parser.add_argument("--capture-min-chunk-ms", type=int, default=900)
+    parser.add_argument("--capture-max-chunk-ms", type=int, default=60000)
+    parser.add_argument("--capture-device", default=None)
     parser.add_argument("--api-key-env", default="OPENAI_API_KEY")
     args = parser.parse_args()
 
@@ -85,14 +125,47 @@ def main() -> int:
     state = load_json(state_path, {"processed": []})
     processed: set[str] = set(state.get("processed", []))
     registry = load_json(registry_path, create_registry())
-    encoder = VoiceEncoder()
+    encoder, encoder_backend = create_voice_encoder(prefer_resemblyzer=not args.no_resemblyzer)
+
+    stop = False
+    capture_proc: subprocess.Popen[Any] | None = None
+
+    def shutdown_capture() -> None:
+        nonlocal capture_proc
+        if capture_proc and capture_proc.poll() is None:
+            capture_proc.terminate()
+            try:
+                capture_proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                capture_proc.kill()
+        capture_proc = None
+
+    def on_signal(_sig: int, _frame: object) -> None:
+        nonlocal stop
+        stop = True
+
+    signal.signal(signal.SIGINT, on_signal)
+    signal.signal(signal.SIGTERM, on_signal)
+    atexit.register(shutdown_capture)
 
     print(
         f"[pipeline] watching={chunks_dir} model={args.model} "
-        f"similarity_threshold={args.similarity_threshold}"
+        f"similarity_threshold={args.similarity_threshold} encoder={encoder_backend}"
     )
 
-    while True:
+    if args.capture:
+        capture_cmd = build_capture_command(args, chunks_dir)
+        capture_proc = subprocess.Popen(capture_cmd)
+        print(f"[pipeline] started capture pid={capture_proc.pid}")
+    else:
+        print("[pipeline] capture disabled (--no-capture); expecting WAV files in chunks dir")
+
+    while not stop:
+        if capture_proc and capture_proc.poll() is not None:
+            print(f"[pipeline] capture exited with code={capture_proc.returncode}")
+            stop = True
+            break
+
         wavs = sorted(chunks_dir.glob("*.wav"))
         for wav in wavs:
             if wav.name in processed:
@@ -155,6 +228,10 @@ def main() -> int:
             print_live_segments(labeled, min_conf=args.min_display_name_confidence)
 
         time.sleep(args.poll_interval_s)
+
+    shutdown_capture()
+    print("[pipeline] stopped")
+    return 0
 
 
 if __name__ == "__main__":

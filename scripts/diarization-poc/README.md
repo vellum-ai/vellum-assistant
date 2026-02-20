@@ -24,16 +24,7 @@ export OPENAI_API_KEY=...
 
 ## Run (Recommended)
 
-Terminal 1: capture local mic into VAD chunks
-
-```bash
-uv run python capture_vad_chunks.py \
-  --out-dir out/chunks \
-  --silence-ms 2500 \
-  --vad-mode 2
-```
-
-Terminal 2: continuous transcription + learning
+Single terminal: capture + transcription + diarization + identity learning
 
 ```bash
 uv run python run_pipeline.py \
@@ -43,6 +34,17 @@ uv run python run_pipeline.py \
   --registry out/speaker_registry.json \
   --model gpt-4o-transcribe-diarize \
   --identity-model gpt-4o-mini
+```
+
+Notes:
+- `run_pipeline.py` starts local capture by default.
+- If `resemblyzer` fails to import (common on some Python 3.13 envs), the pipeline automatically uses a built-in spectral embedding fallback.
+- Capture also falls back to energy-based VAD when `webrtcvad` is unavailable.
+
+Optional replay mode (no live mic capture):
+
+```bash
+uv run python run_pipeline.py --no-capture --chunks-dir out/chunks
 ```
 
 ## Output Files
