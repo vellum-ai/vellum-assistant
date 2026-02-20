@@ -133,16 +133,18 @@ If no tunnel is found, check `/tmp/ngrok.log` for errors and report them to the 
 
 ## Step 6: Persist the Ingress Setting
 
-Save the discovered public URL as the assistant's ingress base URL:
+Save the discovered public URL and enable ingress:
 
 ```bash
 vellum config set ingress.publicBaseUrl "<public-url>"
+vellum config set ingress.enabled true
 ```
 
 Verify it was saved:
 
 ```bash
 vellum config get ingress.publicBaseUrl
+vellum config get ingress.enabled
 ```
 
 ## Step 7: Report Completion

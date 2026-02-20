@@ -95,6 +95,11 @@ public final class SettingsStore: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
 
+    /// Guards against stale IPC `get` responses overwriting an optimistic
+    /// toggle. Set when `setIngressEnabled` fires; cleared once a matching
+    /// response arrives.
+    private var pendingIngressEnabled: Bool?
+
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle sessions.
     private var lastDaemonModel: String?
@@ -187,8 +192,19 @@ public final class SettingsStore: ObservableObject {
             guard let self else { return }
             self.localGatewayTarget = response.localGatewayTarget
             if response.success {
+                if let pending = self.pendingIngressEnabled, response.enabled != pending {
+                    // A set operation is in-flight and this response disagrees
+                    // with the optimistic value — it's a stale get response.
+                    // Skip updating enabled to prevent the toggle from bouncing.
+                    self.ingressPublicBaseUrl = response.publicBaseUrl
+                    return
+                }
+                self.pendingIngressEnabled = nil
                 self.ingressEnabled = response.enabled
                 self.ingressPublicBaseUrl = response.publicBaseUrl
+            } else {
+                // On failure, clear pending so future responses apply normally
+                self.pendingIngressEnabled = nil
             }
         }
 
@@ -215,8 +231,9 @@ public final class SettingsStore: ObservableObject {
         // Refresh Twitter integration status on init
         refreshTwitterStatus()
 
-        // Refresh ingress config on init
-        refreshIngressConfig()
+        // Ingress config is refreshed by onAppear in SettingsPanel /
+        // SettingsView, not here, to avoid duplicate get requests whose
+        // stale responses could overwrite an optimistic toggle.
     }
 
     // MARK: - API Key Actions
@@ -391,6 +408,7 @@ public final class SettingsStore: ObservableObject {
 
     func setIngressEnabled(_ enabled: Bool) {
         ingressEnabled = enabled
+        pendingIngressEnabled = enabled
         try? daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: ingressPublicBaseUrl, enabled: enabled))
     }
 
