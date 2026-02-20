@@ -298,12 +298,17 @@ function extractFirstMatch(text: string, regex: RegExp, captureGroup = 1): strin
 }
 
 function extractHtmlMetadata(html: string): { title?: string; description?: string } {
-  const title = extractFirstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i);
+  // Only search the <head> section (or first 50KB) to avoid catastrophic
+  // regex backtracking on large HTML documents.
+  const headEnd = html.search(/<\/head[\s>]/i);
+  const searchRegion = headEnd > 0 ? html.slice(0, headEnd + 10) : html.slice(0, 50_000);
+
+  const title = extractFirstMatch(searchRegion, /<title[^>]*>([\s\S]*?)<\/title>/i);
   const description =
-    extractFirstMatch(html, /<meta\s+[^>]*name=(['"])description\1[^>]*content=(['"])([\s\S]*?)\2[^>]*>/i, 3)
-    ?? extractFirstMatch(html, /<meta\s+[^>]*content=(['"])([\s\S]*?)\1[^>]*name=(['"])description\3[^>]*>/i, 2)
-    ?? extractFirstMatch(html, /<meta\s+[^>]*property=(['"])og:description\1[^>]*content=(['"])([\s\S]*?)\2[^>]*>/i, 3)
-    ?? extractFirstMatch(html, /<meta\s+[^>]*content=(['"])([\s\S]*?)\1[^>]*property=(['"])og:description\3[^>]*>/i, 2);
+    extractFirstMatch(searchRegion, /<meta\s+[^>]*name=(['"])description\1[^>]*content=(['"])([\s\S]*?)\2[^>]*>/i, 3)
+    ?? extractFirstMatch(searchRegion, /<meta\s+[^>]*content=(['"])([\s\S]*?)\1[^>]*name=(['"])description\3[^>]*>/i, 2)
+    ?? extractFirstMatch(searchRegion, /<meta\s+[^>]*property=(['"])og:description\1[^>]*content=(['"])([\s\S]*?)\2[^>]*>/i, 3)
+    ?? extractFirstMatch(searchRegion, /<meta\s+[^>]*content=(['"])([\s\S]*?)\1[^>]*property=(['"])og:description\3[^>]*>/i, 2);
 
   return { title, description };
 }
@@ -437,7 +442,10 @@ export async function executeWebFetch(
   const safeRequestedUrl = sanitizeUrlForOutput(parsedUrl);
 
   const controller = new AbortController();
-  const timeoutHandle = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
+  const timeoutHandle = setTimeout(() => {
+    log.warn({ url: safeRequestedUrl, timeoutSeconds }, 'Web fetch timeout fired, aborting');
+    controller.abort();
+  }, timeoutSeconds * 1000);
 
   try {
     log.debug({ url: safeRequestedUrl, timeoutSeconds, maxChars, startIndex, rawMode }, 'Fetching webpage');
