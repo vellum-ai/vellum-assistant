@@ -518,6 +518,8 @@ export function handleTwitterIntegrationConfig(
       if (msg.clientSecret) {
         const storedSecret = setSecureKey('credential:integration:twitter:oauth_client_secret', msg.clientSecret);
         if (!storedSecret) {
+          // Roll back the already-persisted client ID to avoid inconsistent OAuth state
+          deleteSecureKey('credential:integration:twitter:oauth_client_id');
           ctx.send(socket, {
             type: 'twitter_integration_config_response',
             success: false,
