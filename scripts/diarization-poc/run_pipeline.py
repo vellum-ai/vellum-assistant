@@ -18,6 +18,7 @@ import sys
 import time
 from typing import Any
 
+from dotenv import load_dotenv
 from identity_evidence_openai import infer_identity_evidence
 from learn_speakers import (
     create_registry,
@@ -105,6 +106,11 @@ def main() -> int:
     parser.add_argument("--capture-device", default=None)
     parser.add_argument("--api-key-env", default="OPENAI_API_KEY")
     args = parser.parse_args()
+
+    # Load local script .env first, then parent cwd fallback.
+    script_dir = pathlib.Path(__file__).resolve().parent
+    load_dotenv(script_dir / ".env", override=False)
+    load_dotenv(override=False)
 
     api_key = os.getenv(args.api_key_env)
     if not api_key:

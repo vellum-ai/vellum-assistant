@@ -13,6 +13,7 @@ import sys
 import time
 from typing import Any
 
+from dotenv import load_dotenv
 import requests
 
 
@@ -100,6 +101,10 @@ def main() -> int:
     parser.add_argument("--api-key-env", default="OPENAI_API_KEY")
     parser.add_argument("--max-retries", type=int, default=4)
     args = parser.parse_args()
+
+    script_dir = pathlib.Path(__file__).resolve().parent
+    load_dotenv(script_dir / ".env", override=False)
+    load_dotenv(override=False)
 
     api_key = os.getenv(args.api_key_env)
     if not api_key:

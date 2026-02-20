@@ -22,6 +22,12 @@ Set key:
 export OPENAI_API_KEY=...
 ```
 
+Or create `scripts/diarization-poc/.env`:
+
+```bash
+OPENAI_API_KEY=...
+```
+
 ## Run (Recommended)
 
 Single terminal: capture + transcription + diarization + identity learning
