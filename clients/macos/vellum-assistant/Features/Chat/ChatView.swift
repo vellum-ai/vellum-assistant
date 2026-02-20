@@ -67,6 +67,7 @@ struct ChatView: View {
         return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
     }
 
+    @State private var isNearBottom = true
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
     @State private var isComposerExpanded = false
@@ -514,6 +515,9 @@ struct ChatView: View {
                     // Invisible anchor at the very bottom of all content
                     Color.clear.frame(height: 1)
                         .id("scroll-bottom-anchor")
+                        .onAppear {
+                            isNearBottom = true
+                        }
                 }
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
@@ -523,12 +527,43 @@ struct ChatView: View {
             }
             .scrollContentBackground(.hidden)
             .scrollDisabled(messages.isEmpty && !isSending)
+            .background {
+                ScrollWheelDetector {
+                    isNearBottom = false
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if !isNearBottom {
+                    Button(action: {
+                        isNearBottom = true
+                        withAnimation(VAnimation.fast) {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
+                    }) {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "arrow.down")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text("Scroll to latest")
+                                .font(VFont.monoSmall)
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, VSpacing.lg)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
             .onAppear {
                 // Scroll to bottom on initial load
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
             .onChange(of: isSending) {
                 if isSending {
+                    isNearBottom = true
                     withAnimation(VAnimation.standard) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
@@ -543,13 +578,17 @@ struct ChatView: View {
                 }
             }
             .onChange(of: streamingScrollTrigger) {
-                withAnimation(VAnimation.fast) {
-                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                if isNearBottom {
+                    withAnimation(VAnimation.fast) {
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
                 }
             }
             .onChange(of: messages.count) {
-                withAnimation(VAnimation.fast) {
-                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                if isNearBottom {
+                    withAnimation(VAnimation.fast) {
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
                 }
             }
         }
@@ -584,6 +623,48 @@ struct ChatView: View {
             .foregroundColor(.white)
             .background(VColor.warning)
         }
+    }
+}
+
+// MARK: - Scroll Wheel Detection
+
+/// Detects user-initiated scroll-up events via NSEvent monitoring.
+/// Used to untether auto-scroll when the user scrolls away from the bottom during streaming.
+private struct ScrollWheelDetector: NSViewRepresentable {
+    let onScrollUp: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        let coordinator = context.coordinator
+        coordinator.onScrollUp = onScrollUp
+        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            // Only act on direct user scroll gestures (not momentum),
+            // and only when scrolling up (positive deltaY = toward older content).
+            if event.scrollingDeltaY > 3 && event.momentumPhase.isEmpty {
+                coordinator.onScrollUp?()
+            }
+            return event
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onScrollUp = onScrollUp
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        if let monitor = coordinator.monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+
+    class Coordinator {
+        var onScrollUp: (() -> Void)?
+        var monitor: Any?
     }
 }
 
