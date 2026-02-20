@@ -1,8 +1,18 @@
 You are running a single iteration of a cronjob that runs periodically for task scheduling.
 
+Arguments (optional): $ARGUMENTS
+
+Parse optional flags from `$ARGUMENTS`:
+
+- **`--namespace NAME`** (optional): when provided, only process PRs whose head branch starts with `swarm/<NAME>/`. Any TODO items added will be prefixed with `[<NAME>]` (e.g., `- [<NAME>] Address the feedback on <link>`). When omitted, process all PRs and add items without a namespace prefix (default behavior).
+
+To check a PR's head branch name, include `headRefName` in the `--json` fields when fetching PR data.
+
 <instructions>
 
 Look at every item in .private/UNREVIEWED_PRS.md. Each line is a PR URL like `https://github.com/<owner>/<repo>/pull/123`.
+
+**If `--namespace` was provided**: before processing, filter the PR list to only include PRs whose head branch starts with `swarm/<namespace>/`. Skip all other PRs (leave them in UNREVIEWED_PRS.md untouched).
 
 Check each PR to see if **both** chatgpt-codex-connector and devin-ai-integration have reviewed it and whether they have feedback.
 
@@ -55,7 +65,7 @@ Examples of feedback that would cause a regression:
 - **Rate-limited Codex:** If Codex is rate-limited, re-trigger the review by commenting `@codex review` on the PR and keep the PR in UNREVIEWED_PRS.md. Do NOT remove the PR.
 - **Skipped Devin:** If Devin's status is `skipped` (pending for 30+ minutes), treat it as if Devin approved — Devin likely errored out and won't review.
 - If either reviewer hasn't reviewed yet (status is `pending`, not `skipped`), keep the PR in UNREVIEWED_PRS.md for next time.
-- If both have reviewed and either review requested changes with **valid feedback**, add `- Address the feedback on <link to PR>` to the **top** of .private/TODO.md (ordered by PR number, lowest first).
+- If both have reviewed and either review requested changes with **valid feedback**, add the feedback item to the **top** of .private/TODO.md (ordered by PR number, lowest first). If `--namespace` was provided, prefix the item: `- [<namespace>] Address the feedback on <link to PR>`. Otherwise: `- Address the feedback on <link to PR>`.
 - If all feedback on a PR was classified as nonsensical, treat that reviewer as having approved.
 - If any feedback is classified as **regression risk**, do NOT add it to TODO. Instead, flag it to the user (see output section) and **stop processing further PRs**. Keep the PR in .private/UNREVIEWED_PRS.md so it is revisited on the next run. Wait for the user to decide what to do.
 - If fully reviewed (both have reviewed), Codex is not rate-limited, and no feedback was classified as regression risk, remove the PR from .private/UNREVIEWED_PRS.md.
@@ -101,15 +111,18 @@ Do NOT continue processing remaining PRs until the user responds.
 
 After processing all items in UNREVIEWED_PRS.md, check for recently merged PRs where CI failed on the main branch.
 
+**If `--namespace` was provided**: only consider CI failures from PRs whose head branch started with `swarm/<namespace>/`. Skip failures from unrelated PRs.
+
 ### How to detect CI failures
 
 Run: `gh run list --branch main --status failure --limit 10 --json databaseId,headSha,displayTitle,url,conclusion,createdAt,event`
 
 This returns failed workflow runs on main. For each failed run:
 
-1. **Find the associated PR**: Use `gh pr list --state merged --search "<headSha>" --json number,url,title,mergedAt --limit 1` or cross-reference the run's `displayTitle` / `headSha` with merged PRs. If you can't find a matching PR, use the run URL directly.
-2. **Skip if already in TODO**: Read .private/TODO.md and check if there's already a `Fix CI failures` entry for that PR or run. Don't add duplicates.
-3. **Add to TODO**: For each new CI failure, add `- Fix CI failures from merged PR <link to PR> (run: <link to failed run>)` to the **top** of .private/TODO.md (after any "Address the feedback" items, but before other tasks).
+1. **Find the associated PR**: Use `gh pr list --state merged --search "<headSha>" --json number,url,title,mergedAt,headRefName --limit 1` or cross-reference the run's `displayTitle` / `headSha` with merged PRs. If you can't find a matching PR, use the run URL directly.
+2. **Namespace filter**: If `--namespace` was provided, check the PR's `headRefName`. Skip this failure if the branch does NOT start with `swarm/<namespace>/`.
+3. **Skip if already in TODO**: Read .private/TODO.md and check if there's already a `Fix CI failures` entry for that PR or run. Don't add duplicates.
+4. **Add to TODO**: For each new CI failure, add the item to the **top** of .private/TODO.md (after any "Address the feedback" items, but before other tasks). If `--namespace` was provided, prefix it: `- [<namespace>] Fix CI failures from merged PR <link to PR> (run: <link to failed run>)`. Otherwise: `- Fix CI failures from merged PR <link to PR> (run: <link to failed run>)`.
 
 ### Output
 
