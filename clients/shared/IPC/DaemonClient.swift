@@ -399,10 +399,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Internal (not private) for testability via @testable import.
     var pendingProbeId: String?
 
+    /// HTTP transport used when connecting to a remote assistant via gateway.
+    /// Non-nil when `config.transport` is `.http`.
+    #if os(macOS)
+    var httpTransport: HTTPTransport?
+    #endif
+
     let encoder = JSONEncoder()
     let decoder = JSONDecoder()
 
-    let config: DaemonConfig
+    public let config: DaemonConfig
 
     // MARK: - Init
 
@@ -429,6 +435,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         blobProbeTask?.cancel()
         pathMonitor?.cancel()
         connection?.cancel()
+        // httpTransport is cleaned up via disconnectInternal() before dealloc;
     }
 
     // MARK: - Socket Path
@@ -487,6 +494,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             try override(message)
             return
         }
+
+        #if os(macOS)
+        // Route through HTTP transport when active (remote assistants).
+        if let httpTransport {
+            guard httpTransport.isConnected else {
+                throw SendError.notConnected
+            }
+            try httpTransport.send(message)
+            return
+        }
+        #endif
 
         guard let conn = connection else {
             log.warning("Cannot send: not connected")

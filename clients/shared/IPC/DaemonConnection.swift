@@ -15,7 +15,8 @@ extension DaemonClient {
     static let authTimeout: TimeInterval = 5.0
 
     /// Connect to the daemon. If already connected, disconnects first.
-    /// - macOS: Connects to Unix domain socket at `~/.vellum/vellum.sock`
+    /// - macOS (socket): Connects to Unix domain socket at `~/.vellum/vellum.sock`
+    /// - macOS (http): Connects to remote assistant via HTTP REST + SSE
     /// - iOS: Connects to TCP endpoint (hostname from UserDefaults or localhost:8765)
     public func connect() async throws {
         // Disconnect any existing connection without triggering reconnect.
@@ -25,6 +26,12 @@ extension DaemonClient {
         shouldReconnect = true
 
         #if os(macOS)
+        // Check if we should use HTTP transport for a remote assistant.
+        if case .http(let baseURL, let bearerToken, let conversationKey) = config.transport {
+            try await connectHTTP(baseURL: baseURL, bearerToken: bearerToken, conversationKey: conversationKey)
+            return
+        }
+
         log.info("Connecting to daemon socket at \(self.config.socketPath, privacy: .public)")
         let endpoint = NWEndpoint.unix(path: self.config.socketPath)
         let parameters = NWParameters()
@@ -257,6 +264,49 @@ extension DaemonClient {
     }
     #endif
 
+    // MARK: - HTTP Transport (macOS only)
+
+    #if os(macOS)
+    /// Connect to a remote assistant via HTTP REST + SSE.
+    /// Used when `config.transport` is `.http`.
+    func connectHTTP(baseURL: String, bearerToken: String?, conversationKey: String) async throws {
+        let transport = HTTPTransport(
+            baseURL: baseURL,
+            bearerToken: bearerToken,
+            conversationKey: conversationKey
+        )
+
+        // Wire incoming SSE messages through the existing handleServerMessage infrastructure.
+        transport.onMessage = { [weak self] message in
+            self?.handleServerMessage(message)
+        }
+
+        // Bridge HTTP transport connection state to DaemonClient's @Published isConnected.
+        transport.onConnectionStateChanged = { [weak self] connected in
+            guard let self else { return }
+            self.isConnected = connected
+            self.isConnecting = false
+            if connected {
+                NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
+            }
+        }
+
+        self.httpTransport = transport
+
+        do {
+            try await transport.connect()
+            // isConnected is set by the onConnectionStateChanged callback
+            // when the SSE stream establishes.
+            isAuthenticated = true  // HTTP transport uses bearer token, no IPC auth needed
+            isConnecting = false
+        } catch {
+            isConnecting = false
+            httpTransport = nil
+            throw error
+        }
+    }
+    #endif
+
     // MARK: - Disconnect
 
     /// Disconnect from the daemon. Stops reconnect and ping timers.
@@ -287,6 +337,11 @@ extension DaemonClient {
         pendingProbeId = nil
         isBlobTransportAvailable = false
         isAuthenticated = false
+
+        #if os(macOS)
+        httpTransport?.disconnect()
+        httpTransport = nil
+        #endif
 
         if let conn = connection {
             conn.stateUpdateHandler = nil

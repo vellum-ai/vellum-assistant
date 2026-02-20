@@ -196,9 +196,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Skip if already connected or if a connection attempt is in progress
         // (setupDaemonClient already started connecting — don't interfere).
         guard !daemonClient.isConnected, !daemonClient.isConnecting else { return }
+
+        let isRemoteTransport: Bool
+        if case .http = daemonClient.config.transport {
+            isRemoteTransport = true
+        } else {
+            isRemoteTransport = false
+        }
+
         Task {
-            try? await assistantCli.hatch(daemonOnly: true)
-            assistantCli.startMonitoring()
+            if !isRemoteTransport {
+                try? await assistantCli.hatch(daemonOnly: true)
+                assistantCli.startMonitoring()
+            }
             // Only connect if setupDaemonClient's connect hasn't already started
             guard !daemonClient.isConnected, !daemonClient.isConnecting else { return }
             try? await daemonClient.connect()
@@ -415,7 +425,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Reads `connectedAssistantId` from UserDefaults, looks it up in the lockfile
     /// (falling back to the latest entry), and writes its config so the daemon connects
     /// to the correct assistant.
-    private func loadAssistantFromLockfile() {
+    ///
+    /// Returns the loaded assistant for transport selection, or nil if none found.
+    @discardableResult
+    private func loadAssistantFromLockfile() -> LockfileAssistant? {
         let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         let assistant: LockfileAssistant?
 
@@ -425,17 +438,42 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             assistant = LockfileAssistant.loadLatest()
         }
 
-        guard let assistant else { return }
+        guard let assistant else { return nil }
 
         UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
         assistant.writeToWorkspaceConfig()
+        return assistant
+    }
+
+    /// Configure the daemon client's transport based on the lockfile assistant.
+    /// For remote assistants (cloud != "local"), uses HTTP+SSE transport via the gateway URL.
+    /// For local assistants, uses the default Unix domain socket.
+    private func configureDaemonTransport(for assistant: LockfileAssistant?) {
+        guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
+            // Local assistant or no assistant — use default socket transport
+            return
+        }
+
+        let config = DaemonConfig(transport: .http(
+            baseURL: runtimeUrl,
+            bearerToken: assistant.bearerToken,
+            conversationKey: assistant.assistantId
+        ))
+
+        // Replace the daemon client's config. Since DaemonClient.config is let,
+        // we need to create a new DaemonClient with the HTTP config.
+        // The services property is mutable for this purpose.
+        services.reconfigureDaemonClient(config: config)
+
+        log.info("Configured HTTP transport for remote assistant \(assistant.assistantId) at \(runtimeUrl, privacy: .public)")
     }
 
     func setupDaemonClient() {
         guard !hasSetupDaemon else { return }
         hasSetupDaemon = true
 
-        loadAssistantFromLockfile()
+        let assistant = loadAssistantFromLockfile()
+        configureDaemonTransport(for: assistant)
 
         // Show macOS notification when a reminder fires
         daemonClient.onReminderFired = { msg in
@@ -568,11 +606,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // For remote assistants (HTTP transport), skip local daemon hatching
+        // and connect directly via the gateway URL.
+        let isRemoteTransport: Bool
+        if case .http = daemonClient.config.transport {
+            isRemoteTransport = true
+        } else {
+            isRemoteTransport = false
+        }
+
         Task {
-            // Hatch the assistant via CLI (spawns daemon in release builds).
-            // daemonOnly: true prevents creating a new lockfile entry on every launch.
-            try? await assistantCli.hatch(daemonOnly: true)
-            assistantCli.startMonitoring()
+            if !isRemoteTransport {
+                // Hatch the assistant via CLI (spawns daemon in release builds).
+                // daemonOnly: true prevents creating a new lockfile entry on every launch.
+                try? await assistantCli.hatch(daemonOnly: true)
+                assistantCli.startMonitoring()
+            }
             try? await daemonClient.connect()
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {
