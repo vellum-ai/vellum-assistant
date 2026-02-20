@@ -126,15 +126,22 @@ export function handleSubagentDetailRequest(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  // Ownership check: verify the caller's session owns this subagent.
+  // Ownership check: reject if the socket has no bound session.
   const callerSessionId = ctx.socketToSession.get(socket);
-  if (callerSessionId) {
-    const manager = getSubagentManager();
-    const state = manager.getState(msg.subagentId);
-    if (state && state.config.parentSessionId !== callerSessionId) {
-      log.warn({ subagentId: msg.subagentId, callerSessionId }, 'Detail request rejected: subagent not owned by caller');
-      return;
-    }
+  if (!callerSessionId) {
+    log.warn({ subagentId: msg.subagentId }, 'Detail request rejected: socket has no bound session');
+    return;
+  }
+
+  // If the subagent is still in memory, verify the caller owns it.
+  // After daemon restart getState() returns null — we allow the request
+  // since the conversationId itself acts as a capability token (the client
+  // only knows it because it was sent in a prior subagent_notification).
+  const manager = getSubagentManager();
+  const state = manager.getState(msg.subagentId);
+  if (state && state.config.parentSessionId !== callerSessionId) {
+    log.warn({ subagentId: msg.subagentId, callerSessionId }, 'Detail request rejected: subagent not owned by caller');
+    return;
   }
 
   const subagentMsgs = conversationStore.getMessages(msg.conversationId);
