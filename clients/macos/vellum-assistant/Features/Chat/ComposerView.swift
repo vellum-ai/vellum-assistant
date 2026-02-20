@@ -260,7 +260,7 @@ struct ComposerView: View {
             if isSending {
                 Button(action: onStop) {
                     ZStack {
-                        Circle()
+                        RoundedRectangle(cornerRadius: 10)
                             .fill(VColor.textPrimary)
                             .frame(width: 30, height: 30)
                         RoundedRectangle(cornerRadius: VRadius.xs)
