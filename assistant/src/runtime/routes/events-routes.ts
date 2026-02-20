@@ -31,6 +31,9 @@ export function handleSubscribeAssistantEvents(
   const encoder = new TextEncoder();
   let sub: AssistantEventSubscription | null = null;
 
+  // Allow up to 16 queued frames before treating the consumer as stalled.
+  // This absorbs normal token-stream bursts without prematurely closing the
+  // connection, while still shedding genuinely slow clients.
   const stream = new ReadableStream({
     start(controller) {
       // 'self' is the assistantId that RunOrchestrator assigns to all HTTP-run events
@@ -42,7 +45,8 @@ export function handleSubscribeAssistantEvents(
         { assistantId: 'self', sessionId: mapping.conversationId },
         (event) => {
           try {
-            // Shed slow consumers: if the queue is full the client can't keep up.
+            // Shed stalled consumers: desiredSize <= 0 means the 16-event buffer
+            // is full and the client isn't draining it.
             if (controller.desiredSize !== null && controller.desiredSize <= 0) {
               sub?.dispose();
               try { controller.close(); } catch { /* already closed */ }
@@ -63,7 +67,7 @@ export function handleSubscribeAssistantEvents(
     cancel() {
       sub?.dispose();
     },
-  });
+  }, new CountQueuingStrategy({ highWaterMark: 16 }));
 
   return new Response(stream, {
     headers: {

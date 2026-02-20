@@ -60,6 +60,7 @@ export function consumeCallbackError(state: string, error: string): boolean {
 export function clearAllCallbacks(): void {
   for (const entry of pendingCallbacks.values()) {
     clearTimeout(entry.timer);
+    entry.reject(new Error('OAuth callback registry cleared'));
   }
   pendingCallbacks.clear();
 }
