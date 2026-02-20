@@ -38,6 +38,10 @@ import {
   handleReplayDeadLetters,
 } from './routes/channel-routes.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
+import * as conversationStore from '../memory/conversation-store.js';
+import * as attachmentsStore from '../memory/attachments-store.js';
+import { renderHistoryContent } from '../daemon/handlers.js';
+import { deliverChannelReply } from './gateway-client.js';
 import {
   handleServePage,
   handleShareApp,
@@ -695,9 +699,54 @@ export class RuntimeHttpServer {
         channelDeliveryStore.linkMessage(event.id, userMessageId);
         channelDeliveryStore.markProcessed(event.id);
         log.info({ eventId: event.id }, 'Successfully replayed failed channel event');
+
+        const replyCallbackUrl = typeof payload.replyCallbackUrl === 'string'
+          ? payload.replyCallbackUrl
+          : undefined;
+        if (replyCallbackUrl) {
+          const externalChatId = typeof payload.externalChatId === 'string'
+            ? payload.externalChatId
+            : undefined;
+          if (externalChatId) {
+            await this.deliverReplyViaCallback(event.conversationId, externalChatId, replyCallbackUrl);
+          }
+        }
       } catch (err) {
         log.error({ err, eventId: event.id }, 'Retry failed for channel event');
         channelDeliveryStore.recordProcessingFailure(event.id, err);
+      }
+    }
+  }
+
+  private async deliverReplyViaCallback(
+    conversationId: string,
+    externalChatId: string,
+    callbackUrl: string,
+  ): Promise<void> {
+    const msgs = conversationStore.getMessages(conversationId);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'assistant') {
+        let parsed: unknown;
+        try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
+        const rendered = renderHistoryContent(parsed);
+
+        const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id);
+        const replyAttachments = linked.map((a) => ({
+          id: a.id,
+          filename: a.originalFilename,
+          mimeType: a.mimeType,
+          sizeBytes: a.sizeBytes,
+          kind: a.kind,
+        }));
+
+        if (rendered.text || replyAttachments.length > 0) {
+          await deliverChannelReply(callbackUrl, {
+            chatId: externalChatId,
+            text: rendered.text || undefined,
+            attachments: replyAttachments.length > 0 ? replyAttachments : undefined,
+          });
+        }
+        break;
       }
     }
   }

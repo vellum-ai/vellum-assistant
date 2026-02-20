@@ -35,6 +35,7 @@ export type RuntimeInboundPayload = {
   senderUsername?: string;
   sourceMetadata?: Record<string, unknown>;
   attachmentIds?: string[];
+  replyCallbackUrl?: string;
 };
 
 export type RuntimeAttachmentMeta = {

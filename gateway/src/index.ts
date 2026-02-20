@@ -1,6 +1,7 @@
 import { loadConfig } from "./config.js";
 import { CredentialWatcher } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
+import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
@@ -9,7 +10,6 @@ import { createTwilioRelayWebsocketHandler, getRelayWebsocketHandlers } from "./
 import { getLogger, initLogger } from "./logger.js";
 import { buildSchema } from "./schema.js";
 import { callTelegramApi } from "./telegram/api.js";
-import { sendTelegramAttachments, sendTelegramReply } from "./telegram/send.js";
 
 const log = getLogger("main");
 
@@ -21,34 +21,8 @@ function main() {
 
   log.info("Starting Vellum Gateway...");
 
-  const handleTelegramWebhook = createTelegramWebhookHandler(
-    config,
-    async (chatId, result, assistantId) => {
-      const msg = result.runtimeResponse?.assistantMessage;
-      const content = msg?.content;
-      const attachments = msg?.attachments ?? [];
-
-      if (!content && attachments.length === 0) {
-        return;
-      }
-
-      try {
-        if (content) {
-          await sendTelegramReply(config, chatId, content);
-        }
-      } catch (err) {
-        log.error({ err, chatId }, "Failed to send Telegram reply");
-      }
-
-      if (attachments.length > 0) {
-        try {
-          await sendTelegramAttachments(config, chatId, assistantId, attachments);
-        } catch (err) {
-          log.error({ err, chatId }, "Failed to send Telegram attachments");
-        }
-      }
-    },
-  );
+  const handleTelegramWebhook = createTelegramWebhookHandler(config);
+  const handleTelegramDeliver = createTelegramDeliverHandler(config);
 
   const isTelegramConfigured = () =>
     !!(config.telegramBotToken && config.telegramWebhookSecret);
@@ -91,6 +65,16 @@ function main() {
           );
         }
         return handleTelegramWebhook(req);
+      }
+
+      if (url.pathname === "/deliver/telegram") {
+        if (!isTelegramConfigured()) {
+          return Response.json(
+            { error: "Telegram integration not configured" },
+            { status: 503 },
+          );
+        }
+        return handleTelegramDeliver(req);
       }
 
       if (
