@@ -478,10 +478,6 @@ struct MainWindowView: View {
                     // Control center drawer rendered at top level so it floats above all content
                     if showControlCenterDrawer {
                         DrawerMenuView(
-                            onTaskQueue: {
-                                showControlCenterDrawer = false
-                                (NSApp.delegate as? AppDelegate)?.showTasksWindow()
-                            },
                             onSettings: {
                                 showControlCenterDrawer = false
                                 windowState.togglePanel(.settings)
@@ -1156,14 +1152,12 @@ private struct ControlCenterRow: View {
 }
 
 private struct DrawerMenuView: View {
-    let onTaskQueue: () -> Void
     let onSettings: () -> Void
     let onDebug: () -> Void
     let onDoctor: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DrawerMenuItem(icon: "list.bullet.clipboard", label: "Tasks", action: onTaskQueue)
             DrawerMenuItem(icon: "gearshape", label: "Settings", action: onSettings)
 
             VColor.surfaceBorder.frame(height: 1)

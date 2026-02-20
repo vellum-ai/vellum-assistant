@@ -7,21 +7,28 @@ public struct ToolConfirmationBubble: View {
     public let confirmation: ToolConfirmationData
     public let onAllow: () -> Void
     public let onDeny: () -> Void
-    public let onAddTrustRule: (String, String, String, String) -> Bool
+    public let onAlwaysAllow: (String, String, String) -> Void
 
     @State private var showDiff = false
     @State private var showAlwaysAllowMenu = false
     @State private var showTechnicalDetails = true
+    /// Tracks a selected pattern while waiting for the user to pick a scope.
+    @State private var pendingPattern: String?
+    @State private var showScopePickerMenu = false
 
-    public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAddTrustRule: @escaping (String, String, String, String) -> Bool) {
+    public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAlwaysAllow: @escaping (String, String, String) -> Void) {
         self.confirmation = confirmation
         self.onAllow = onAllow
         self.onDeny = onDeny
-        self.onAddTrustRule = onAddTrustRule
+        self.onAlwaysAllow = onAlwaysAllow
     }
 
     private var hasRuleOptions: Bool {
         !confirmation.allowlistOptions.isEmpty && !confirmation.scopeOptions.isEmpty
+    }
+
+    private var needsScopeChoice: Bool {
+        confirmation.scopeOptions.count > 1
     }
 
     private var isDecided: Bool {
@@ -346,13 +353,26 @@ public struct ToolConfirmationBubble: View {
             let patternDesc = confirmation.allowlistOptions.first?.description ?? ""
             confirmationButton("Always Allow", isPrimary: true, isDanger: false) {
                 let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
-                let scope = confirmation.scopeOptions.first?.scope ?? ""
-                if !pattern.isEmpty && !scope.isEmpty {
-                    _ = onAddTrustRule(confirmation.toolName, pattern, scope, "allow")
+                if pattern.isEmpty {
+                    onAllow()
+                    return
                 }
-                onAllow()
+                if needsScopeChoice {
+                    pendingPattern = pattern
+                    showScopePickerMenu = true
+                } else {
+                    let scope = confirmation.scopeOptions.first?.scope ?? ""
+                    if !scope.isEmpty {
+                        onAlwaysAllow(confirmation.requestId, pattern, scope)
+                    } else {
+                        onAllow()
+                    }
+                }
             }
             .help(patternDesc.isEmpty ? "Always allow this action" : patternDesc)
+            .popover(isPresented: $showScopePickerMenu, arrowEdge: .bottom) {
+                scopePickerContent
+            }
         }
     }
 
@@ -362,30 +382,109 @@ public struct ToolConfirmationBubble: View {
     private var alwaysAllowDropdown: some View {
         confirmationButton("Always Allow", isPrimary: true, isDanger: false) {
             withAnimation(VAnimation.fast) {
+                pendingPattern = nil
                 showAlwaysAllowMenu.toggle()
             }
         }
         .popover(isPresented: $showAlwaysAllowMenu, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(confirmation.allowlistOptions.enumerated()), id: \.element.pattern) { index, option in
-                    AlwaysAllowRow(label: option.description) {
-                        showAlwaysAllowMenu = false
-                        let scope = confirmation.scopeOptions.first?.scope ?? ""
-                        if !option.pattern.isEmpty && !scope.isEmpty {
-                            _ = onAddTrustRule(confirmation.toolName, option.pattern, scope, "allow")
+                if let pending = pendingPattern, needsScopeChoice {
+                    // Scope selection step after pattern was chosen
+                    HStack(spacing: VSpacing.xs) {
+                        Button {
+                            pendingPattern = nil
+                        } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(VColor.textMuted)
                         }
-                        onAllow()
-                    }
+                        .buttonStyle(.plain)
 
-                    if index < confirmation.allowlistOptions.count - 1 {
-                        Divider()
-                            .background(VColor.divider)
+                        Text("Choose scope")
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
+
+                    Divider()
+                        .background(VColor.divider)
+
+                    ForEach(Array(confirmation.scopeOptions.enumerated()), id: \.element.scope) { index, scopeOption in
+                        ScopePickerRow(label: scopeOption.label) {
+                            showAlwaysAllowMenu = false
+                            pendingPattern = nil
+                            onAlwaysAllow(confirmation.requestId, pending, scopeOption.scope)
+                        }
+
+                        if index < confirmation.scopeOptions.count - 1 {
+                            Divider()
+                                .background(VColor.divider)
+                        }
+                    }
+                } else {
+                    // Pattern selection step
+                    ForEach(Array(confirmation.allowlistOptions.enumerated()), id: \.element.pattern) { index, option in
+                        AlwaysAllowRow(label: option.description) {
+                            if option.pattern.isEmpty {
+                                showAlwaysAllowMenu = false
+                                onAllow()
+                            } else if needsScopeChoice {
+                                pendingPattern = option.pattern
+                            } else {
+                                showAlwaysAllowMenu = false
+                                let scope = confirmation.scopeOptions.first?.scope ?? ""
+                                if !scope.isEmpty {
+                                    onAlwaysAllow(confirmation.requestId, option.pattern, scope)
+                                } else {
+                                    onAllow()
+                                }
+                            }
+                        }
+
+                        if index < confirmation.allowlistOptions.count - 1 {
+                            Divider()
+                                .background(VColor.divider)
+                        }
                     }
                 }
             }
             .padding(VSpacing.xs)
             .frame(minWidth: 200)
         }
+    }
+
+    // MARK: - Scope Picker (inline button popover)
+
+    @ViewBuilder
+    private var scopePickerContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Choose scope")
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.textMuted)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
+
+            Divider()
+                .background(VColor.divider)
+
+            ForEach(Array(confirmation.scopeOptions.enumerated()), id: \.element.scope) { index, scopeOption in
+                ScopePickerRow(label: scopeOption.label) {
+                    showScopePickerMenu = false
+                    if let pattern = pendingPattern {
+                        onAlwaysAllow(confirmation.requestId, pattern, scopeOption.scope)
+                        pendingPattern = nil
+                    }
+                }
+
+                if index < confirmation.scopeOptions.count - 1 {
+                    Divider()
+                        .background(VColor.divider)
+                }
+            }
+        }
+        .padding(VSpacing.xs)
+        .frame(minWidth: 180)
     }
 
     // MARK: - Tool Permission (decided)
@@ -459,6 +558,41 @@ private struct AlwaysAllowRow: View {
     }
 }
 
+// MARK: - Scope Picker Row
+
+private struct ScopePickerRow: View {
+    let label: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, VSpacing.sm)
+                .padding(.horizontal, VSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        #if os(macOS)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.set() }
+            else { NSCursor.arrow.set() }
+        }
+        #else
+        .onHover { isHovered = $0 }
+        #endif
+    }
+}
+
 #if DEBUG
 #Preview("ToolConfirmationBubble") {
     VStack(spacing: VSpacing.lg) {
@@ -479,7 +613,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
 
         // File write — high risk, pending
@@ -493,7 +627,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
 
         // Bash — low risk, pending
@@ -507,7 +641,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
 
         // Always-allow dropdown — medium risk
@@ -529,7 +663,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
 
         // Collapsed — approved
@@ -543,7 +677,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
 
         // Collapsed — denied
@@ -557,7 +691,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
 
         // Unknown tool fallback
@@ -570,7 +704,7 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
         )
 
         // System permission request (pending)
@@ -586,7 +720,51 @@ private struct AlwaysAllowRow: View {
             ),
             onAllow: {},
             onDeny: {},
-            onAddTrustRule: { _, _, _, _ in true }
+            onAlwaysAllow: { _, _, _ in }
+        )
+
+        // Inline always-allow with multiple scopes (scope picker on click)
+        ToolConfirmationBubble(
+            confirmation: ToolConfirmationData(
+                requestId: "test-inline-multi-scope",
+                toolName: "host_bash",
+                input: ["command": AnyCodable("npm test")],
+                riskLevel: "medium",
+                allowlistOptions: [
+                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "exact", description: "This exact command", pattern: "npm test"),
+                ],
+                scopeOptions: [
+                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "This project", scope: "project"),
+                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "Everywhere", scope: "everywhere"),
+                ],
+                executionTarget: "host"
+            ),
+            onAllow: {},
+            onDeny: {},
+            onAlwaysAllow: { _, _, _ in }
+        )
+
+        // Dropdown always-allow with multiple scopes (two-step selection)
+        ToolConfirmationBubble(
+            confirmation: ToolConfirmationData(
+                requestId: "test-dropdown-multi-scope",
+                toolName: "host_bash",
+                input: ["command": AnyCodable("git push origin main")],
+                riskLevel: "medium",
+                allowlistOptions: [
+                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "exact", description: "This exact command", pattern: "git push origin main"),
+                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "prefix", description: "Any \"git push\" command", pattern: "git push *"),
+                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "tool", description: "Any git command", pattern: "git *"),
+                ],
+                scopeOptions: [
+                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "This project", scope: "project"),
+                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "Everywhere", scope: "everywhere"),
+                ],
+                executionTarget: "host"
+            ),
+            onAllow: {},
+            onDeny: {},
+            onAlwaysAllow: { _, _, _ in }
         )
     }
     .padding(VSpacing.xl)
