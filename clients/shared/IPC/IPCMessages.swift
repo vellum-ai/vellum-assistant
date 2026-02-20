@@ -1632,12 +1632,27 @@ public struct IngressConfigRequestMessage: Encodable, Sendable {
     }
 }
 
-public struct IngressConfigResponseMessage: Decodable, Sendable {
+public struct IngressConfigResponseMessage: Sendable {
     public let type: String
     public let publicBaseUrl: String
     public let localGatewayTarget: String
     public let success: Bool
     public let error: String?
+}
+
+extension IngressConfigResponseMessage: Decodable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        publicBaseUrl = try container.decode(String.self, forKey: .publicBaseUrl)
+        localGatewayTarget = try container.decodeIfPresent(String.self, forKey: .localGatewayTarget) ?? "http://127.0.0.1:7830"
+        success = try container.decode(Bool.self, forKey: .success)
+        error = try container.decodeIfPresent(String.self, forKey: .error)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type, publicBaseUrl, localGatewayTarget, success, error
+    }
 }
 
 // MARK: - Model Config Messages
