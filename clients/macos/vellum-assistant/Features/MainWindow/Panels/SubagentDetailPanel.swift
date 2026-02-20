@@ -4,9 +4,9 @@ import VellumAssistantShared
 struct SubagentDetailPanel: View {
     let subagentId: String
     @ObservedObject var viewModel: ChatViewModel
+    @ObservedObject var detailStore: SubagentDetailStore
     var onClose: () -> Void
 
-    private var detailStore: SubagentDetailStore { viewModel.subagentDetailStore }
     private var subagentInfo: SubagentInfo? { viewModel.activeSubagents.first(where: { $0.id == subagentId }) }
     private var objective: String? { detailStore.objectives[subagentId] }
     private var usage: SubagentUsageStats? { detailStore.usageStats[subagentId] }

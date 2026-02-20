@@ -272,6 +272,7 @@ extension MainWindowView {
                     SubagentDetailPanel(
                         subagentId: subagentId,
                         viewModel: viewModel,
+                        detailStore: viewModel.subagentDetailStore,
                         onClose: { windowState.selectedSubagentId = nil }
                     )
                 } else {
