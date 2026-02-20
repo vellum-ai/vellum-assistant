@@ -394,10 +394,6 @@ export function createProxyApprovalCallback(
   ctx: ToolSetupContext,
 ): ProxyApprovalCallback {
   return async (request: ProxyApprovalRequest): Promise<boolean> => {
-    if (getConfig().permissions.mode === 'workspace_full_access') {
-      return true;
-    }
-
     const { decision } = request;
     const { hostname, port, path } = decision.target;
 
@@ -430,6 +426,13 @@ export function createProxyApprovalCallback(
     const uniqueCandidates = [...new Set(candidates)];
 
     const existingRule = findHighestPriorityRule(toolName, uniqueCandidates, ctx.workingDir);
+    const permissionsMode = getConfig().permissions?.mode ?? 'legacy';
+
+    // workspace_full_access should still honor explicit deny rules.
+    if (permissionsMode === 'workspace_full_access') {
+      return existingRule?.decision !== 'deny';
+    }
+
     if (existingRule && existingRule.decision !== 'ask') {
       if (existingRule.decision === 'deny') return false;
       // For high-risk proxy decisions, a plain allow rule (without allowHighRisk)

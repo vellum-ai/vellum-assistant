@@ -8,6 +8,9 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+// Defensive reset in case another test file mocked shared modules first.
+mock.restore();
+
 const testDir = mkdtempSync(join(tmpdir(), 'twilio-provider-test-'));
 
 mock.module('../util/platform.js', () => ({

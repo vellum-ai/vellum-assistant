@@ -1,4 +1,7 @@
-import { describe, test, expect, afterEach } from 'bun:test';
+import { describe, test, expect, afterEach, mock } from 'bun:test';
+
+// Defensive reset in case another test file mocked this module in the same worker.
+mock.restore();
 import {
   registerPendingCallback,
   consumeCallback,
@@ -63,11 +66,12 @@ describe('OAuth callback registry', () => {
     const promise = new Promise<string>((resolve, reject) => {
       registerPendingCallback('state-ttl', resolve, reject, 50);
     });
+    const rejection = expect(promise).rejects.toThrow('OAuth callback timed out');
 
     // Wait for the TTL to expire
     await new Promise((r) => setTimeout(r, 100));
 
-    await expect(promise).rejects.toThrow('OAuth callback timed out');
+    await rejection;
 
     // After expiry, consume should return false
     const consumed = consumeCallback('state-ttl', 'late-code');

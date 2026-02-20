@@ -342,7 +342,7 @@ export async function check(
   policyContext?: PolicyContext,
 ): Promise<PermissionCheckResult> {
   const risk = await classifyRisk(toolName, input, workingDir);
-  const permissionsMode = getConfig().permissions.mode;
+  const permissionsMode = getConfig().permissions?.mode ?? 'legacy';
   const hostPermissionTarget = isHostPermissionTarget(toolName, policyContext);
 
   // Build command string candidates for rule matching

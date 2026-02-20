@@ -139,9 +139,10 @@ export class ToolExecutor {
       // Private threads force prompting for side-effect tools even when a
       // trust/allow rule would auto-allow. Deny decisions are preserved —
       // only allow → prompt promotion happens here.
+      const permissionsMode = getConfig().permissions?.mode ?? 'legacy';
       if (
         context.forcePromptSideEffects
-        && getConfig().permissions.mode !== 'workspace_full_access'
+        && permissionsMode !== 'workspace_full_access'
         && result.decision === 'allow'
         && isSideEffectTool(name, input)
       ) {

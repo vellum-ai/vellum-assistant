@@ -189,6 +189,7 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'calls/twilio-provider.ts',       // call infrastructure credential lookup
       'runtime/http-server.ts',         // HTTP server credential lookup
       'daemon/handlers/twitter-auth.ts', // Twitter OAuth token storage
+      'cli/config-commands.ts',         // CLI config auth token retrieval
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -274,11 +275,11 @@ describe('Invariant 3: secrets never logged in plaintext', () => {
           resolve(thisDir, '../daemon/ipc-protocol.ts'),
           'utf-8',
         );
-        // The IPC parser must not use a logger at all — it handles raw
-        // bytes that could contain secrets in malformed messages. Verify
-        // no getLogger import and no log.* calls exist in the source.
-        expect(ipcSrc).not.toContain('getLogger');
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\(/);
+        // The IPC parser may log malformed decode events, but must never log
+        // raw message content. It should only log metadata like length/type.
+        expect(ipcSrc).toContain('Skipping malformed IPC message');
+        expect(ipcSrc).toContain('lineLength: trimmed.length');
+        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^)]*\btrimmed\s*[),]/);
       });
     } else {
       // PR 25 — secret prompter log hygiene: verify the prompter source

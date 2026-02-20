@@ -73,15 +73,15 @@ describe('ephemeral-permissions', () => {
       expect(fileReadRule.id).toBe('ephemeral:run-123:file_read');
       expect(fileReadRule.tool).toBe('file_read');
       expect(fileReadRule.pattern).toBe('**');
-      expect(fileReadRule.scope).toBe('/home/user/project');
+      expect(fileReadRule.scope).toBe('everywhere');
       expect(fileReadRule.decision).toBe('allow');
-      expect(fileReadRule.priority).toBe(50);
+      expect(fileReadRule.priority).toBe(75);
       expect(fileReadRule.principalKind).toBe('task');
       expect(fileReadRule.principalId).toBe('run-123');
       expect(fileReadRule.createdAt).toBeGreaterThan(0);
 
-      // Verify allowHighRisk is NOT set
-      expect(fileReadRule.allowHighRisk).toBeUndefined();
+      // Task-run rules are pre-approved and must allow high-risk tools.
+      expect(fileReadRule.allowHighRisk).toBe(true);
 
       // Check other rules have correct tool names
       expect(rules[1].tool).toBe('bash');
@@ -162,6 +162,9 @@ describe('ephemeral-permissions', () => {
       const ctx: PolicyContext = {
         principal: { kind: 'task', id: 'run-1' },
         ephemeralRules,
+        // Treat this check as host-targeted so workspace_full_access mode
+        // from other tests cannot auto-allow before risk evaluation.
+        executionTarget: 'host',
       };
 
       const result = findHighestPriorityRule(

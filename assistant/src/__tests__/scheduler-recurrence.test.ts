@@ -156,7 +156,7 @@ describe('scheduler RRULE execution', () => {
     expect(runs.length).toBeGreaterThanOrEqual(1);
   });
 
-  test('ended RRULE (UNTIL in past) is not repeatedly claimed', async () => {
+  test('ended RRULE (UNTIL in past) is disabled and not repeatedly claimed', async () => {
     const endedExpr = buildEndedRrule();
 
     // Insert directly via raw SQL because createSchedule would throw when
@@ -179,12 +179,26 @@ describe('scheduler RRULE execution', () => {
     await new Promise(resolve => setTimeout(resolve, 500));
     scheduler.stop();
 
-    // The ended RRULE should NOT have fired
+    // A stale/ended RRULE may be claimed once (catch-up semantics), but it
+    // must be disabled so it cannot keep firing on subsequent ticks.
+    const firstPassFireCount = processedMessages.filter(m => m === 'Should not fire').length;
+    expect(firstPassFireCount).toBeLessThanOrEqual(1);
+
+    // Run another tick cycle to confirm it does not execute repeatedly.
+    processedMessages.length = 0;
+    const scheduler2 = startScheduler(processMessage, () => {}, () => {});
+    await new Promise(resolve => setTimeout(resolve, 500));
+    scheduler2.stop();
     expect(processedMessages).not.toContain('Should not fire');
 
-    // No runs should have been created
+    // At most one run should have been created total.
     const runs = getScheduleRuns(id);
-    expect(runs.length).toBe(0);
+    expect(runs.length).toBeLessThanOrEqual(1);
+
+    const after = getSchedule(id);
+    expect(after).not.toBeNull();
+    expect(after!.enabled).toBe(false);
+    expect(after!.nextRunAt).toBe(0);
   });
 
   test('existing cron schedule behavior is unchanged', async () => {

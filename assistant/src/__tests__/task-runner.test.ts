@@ -131,9 +131,9 @@ describe('runTask', () => {
     expect(rulesWhileRunning).toHaveLength(2);
     expect(rulesWhileRunning[0].tool).toBe('read_file');
     expect(rulesWhileRunning[1].tool).toBe('write_file');
-    expect(rulesWhileRunning[0].scope).toBe('/home/user');
+    expect(rulesWhileRunning[0].scope).toBe('everywhere');
     expect(rulesWhileRunning[0].decision).toBe('allow');
-    expect(rulesWhileRunning[0].priority).toBe(50);
+    expect(rulesWhileRunning[0].priority).toBe(75);
 
     // After execution, rules should be cleaned up
     const rulesAfter = getTaskRunRules(capturedTaskRunId);

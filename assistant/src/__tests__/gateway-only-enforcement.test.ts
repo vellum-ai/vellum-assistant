@@ -8,7 +8,7 @@
  * - Relay WebSocket upgrade allowed from private network peers/origins
  * - Startup warning when RUNTIME_HTTP_HOST is not loopback
  */
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -83,33 +83,6 @@ mock.module('../config/loader.js', () => ({
     },
   }),
   invalidateConfigCache: () => {},
-}));
-
-// Mock Twilio provider
-mock.module('../calls/twilio-provider.js', () => ({
-  TwilioConversationRelayProvider: class {
-    static getAuthToken() { return 'mock-auth-token'; }
-    static verifyWebhookSignature() { return true; }
-    async initiateCall() { return { callSid: 'CA_mock_sid' }; }
-    async endCall() { return; }
-  },
-}));
-
-// Mock Twilio config
-mock.module('../calls/twilio-config.js', () => ({
-  getTwilioConfig: () => ({
-    accountSid: 'AC_test',
-    authToken: 'test_token',
-    phoneNumber: '+15550001111',
-    webhookBaseUrl: 'https://test.example.com',
-    wssBaseUrl: 'wss://test.example.com',
-  }),
-}));
-
-mock.module('../security/secure-keys.js', () => ({
-  getSecureKey: () => null,
-  setSecureKey: () => true,
-  deleteSecureKey: () => {},
 }));
 
 mock.module('../inbound/public-ingress-urls.js', () => ({
@@ -433,4 +406,8 @@ describe('gateway-only ingress enforcement', () => {
       await loopbackServer.stop();
     });
   });
+});
+
+afterAll(() => {
+  mock.restore();
 });

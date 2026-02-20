@@ -7,6 +7,7 @@ import type { ProxyApprovalRequest } from '../tools/network/script-proxy/types.j
 
 const addRuleMock = mock(() => {});
 const findHighestPriorityRuleMock = mock(() => null as ReturnType<typeof import('../permissions/trust-store.js').findHighestPriorityRule>);
+let mockPermissionsMode: 'legacy' | 'strict' | 'workspace_full_access' = 'legacy';
 
 mock.module('../permissions/trust-store.js', () => ({
   addRule: addRuleMock,
@@ -18,7 +19,7 @@ mock.module('../config/loader.js', () => ({
   getConfig: () => ({
     provider: 'mock-provider',
     timeouts: { permissionTimeoutSec: 5 },
-    permissions: { mode: 'legacy' },
+    permissions: { mode: mockPermissionsMode },
     skills: { load: { extraDirs: [] } },
   }),
 }));
@@ -88,6 +89,7 @@ function makeAskUnauthenticatedRequest(
 
 describe('createProxyApprovalCallback', () => {
   beforeEach(() => {
+    mockPermissionsMode = 'legacy';
     addRuleMock.mockClear();
     findHighestPriorityRuleMock.mockClear();
     findHighestPriorityRuleMock.mockReturnValue(null);
@@ -255,6 +257,42 @@ describe('createProxyApprovalCallback', () => {
 
     expect(result).toBe(false);
     // Prompter should not have been called — fast-deny path
+    expect(prompterSendToClient).not.toHaveBeenCalled();
+  });
+
+  test('workspace_full_access bypasses prompt when no deny rule matches', async () => {
+    mockPermissionsMode = 'workspace_full_access';
+    const ctx = makeContext();
+    const prompterSendToClient = mock(() => {});
+    const prompter = new PermissionPrompter(prompterSendToClient);
+
+    const callback = createProxyApprovalCallback(prompter, ctx);
+    const result = await callback(makeAskMissingCredentialRequest());
+
+    expect(result).toBe(true);
+    expect(prompterSendToClient).not.toHaveBeenCalled();
+  });
+
+  test('workspace_full_access still respects explicit deny rules', async () => {
+    mockPermissionsMode = 'workspace_full_access';
+    findHighestPriorityRuleMock.mockReturnValue({
+      id: 'rule-wfa-deny',
+      tool: 'network_request',
+      pattern: 'network_request:https://api.fal.ai/*',
+      scope: '/tmp/test-project',
+      decision: 'deny' as const,
+      priority: 100,
+      createdAt: Date.now(),
+    });
+
+    const ctx = makeContext();
+    const prompterSendToClient = mock(() => {});
+    const prompter = new PermissionPrompter(prompterSendToClient);
+
+    const callback = createProxyApprovalCallback(prompter, ctx);
+    const result = await callback(makeAskMissingCredentialRequest());
+
+    expect(result).toBe(false);
     expect(prompterSendToClient).not.toHaveBeenCalled();
   });
 

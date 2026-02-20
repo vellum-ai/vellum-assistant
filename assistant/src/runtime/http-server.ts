@@ -496,14 +496,20 @@ export class RuntimeHttpServer {
       // Reconstruct request so handlers can read the body
       const validatedReq = cloneRequestWithBody(req, validation.body);
 
-      if (twilioSubpath === 'voice-webhook') {
-        return await handleVoiceWebhook(validatedReq);
-      }
-      if (twilioSubpath === 'status') {
-        return await handleStatusCallback(validatedReq);
-      }
-      if (twilioSubpath === 'connect-action') {
-        return await handleConnectAction(validatedReq);
+      try {
+        if (twilioSubpath === 'voice-webhook') {
+          return await handleVoiceWebhook(validatedReq);
+        }
+        if (twilioSubpath === 'status') {
+          return await handleStatusCallback(validatedReq);
+        }
+        if (twilioSubpath === 'connect-action') {
+          return await handleConnectAction(validatedReq);
+        }
+      } catch (err) {
+        log.error({ err, endpoint: `twilio/${twilioSubpath}` }, 'Runtime HTTP handler error');
+        const message = err instanceof Error ? err.message : 'Internal server error';
+        return Response.json({ error: message }, { status: 500 });
       }
     }
 
