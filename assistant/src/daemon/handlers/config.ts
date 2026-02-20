@@ -400,7 +400,8 @@ export function handleSlackWebhookConfig(
 }
 
 function computeLocalGatewayTarget(): string {
-  const port = process.env.GATEWAY_PORT || '7830';
+  const portRaw = process.env.GATEWAY_PORT || '7830';
+  const port = Number(portRaw) || 7830;
   return `http://127.0.0.1:${port}`;
 }
 
@@ -579,7 +580,7 @@ export function handleTwitterIntegrationConfig(
             type: 'twitter_integration_config_response',
             success: false,
             managedAvailable: false,
-            localClientConfigured: false,
+            localClientConfigured: !!previousClientId,
             connected: false,
             error: 'Failed to store client secret in secure storage',
           });

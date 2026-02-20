@@ -156,9 +156,10 @@ function isPrivateNetworkOrigin(req: Request): boolean {
   try {
     const url = new URL(origin);
     const host = url.hostname;
-    // "localhost" is not a raw IP, so check it explicitly
     if (host === 'localhost') return true;
-    return isPrivateAddress(host);
+    // URL.hostname wraps IPv6 addresses in brackets (e.g. "[::1]") — strip them
+    const rawHost = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+    return isPrivateAddress(rawHost);
   } catch {
     return false;
   }

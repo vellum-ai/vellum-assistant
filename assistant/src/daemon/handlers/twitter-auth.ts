@@ -4,6 +4,7 @@ import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secu
 import { startOAuth2Flow } from '../../security/oauth2.js';
 import { getPublicBaseUrl } from '../../inbound/public-ingress-urls.js';
 import { upsertCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import { ConfigError } from '../../util/errors.js';
 import type { TwitterAuthStartRequest, TwitterAuthStatusRequest } from '../ipc-protocol.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
 import type { OAuth2Config } from '../../security/oauth2.js';
@@ -39,8 +40,21 @@ export async function handleTwitterAuthStart(
 
     // Fail fast if no public ingress URL is configured — Twitter OAuth
     // callbacks must route through the gateway, never via loopback.
+    let config;
     try {
-      getPublicBaseUrl(loadConfig());
+      config = loadConfig();
+    } catch (err) {
+      const detail = err instanceof ConfigError ? err.message : String(err);
+      ctx.send(socket, {
+        type: 'twitter_auth_result',
+        success: false,
+        error: `Unable to load config: ${detail}`,
+      });
+      return;
+    }
+
+    try {
+      getPublicBaseUrl(config);
     } catch {
       ctx.send(socket, {
         type: 'twitter_auth_result',

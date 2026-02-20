@@ -42,7 +42,7 @@ jobs:
       - name: Install dependencies
         if: steps.version.outputs.changed == 'true'
         run: |
-          if ! bun install; then
+          if ! bun install --frozen-lockfile; then
             echo "bun install failed (likely stale lockfile integrity hash), retrying without lockfile..."
             rm -f bun.lock
             rm -rf node_modules

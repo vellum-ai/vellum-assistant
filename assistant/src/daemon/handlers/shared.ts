@@ -76,10 +76,6 @@ export interface SubagentNotificationData {
   status: 'completed' | 'failed' | 'aborted';
   error?: string;
   conversationId?: string;
-  /** Populated during history enrichment from the subagent's conversation. */
-  objective?: string;
-  /** Populated during history enrichment from the subagent's conversation. */
-  events?: Array<{ type: string; content: string; toolName?: string; isError?: boolean }>;
 }
 
 export interface ParsedHistoryMessage {

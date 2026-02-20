@@ -102,6 +102,47 @@ public final class SubagentDetailStore: ObservableObject {
         }
     }
 
+    /// Populate events from a lazy-loaded `subagent_detail_response`.
+    public func populateFromDetailResponse(_ response: IPCSubagentDetailResponse) {
+        let subagentId = response.subagentId
+        if let objective = response.objective {
+            objectives[subagentId] = objective
+        }
+        // Only populate if we don't already have events (avoid duplicates on re-open)
+        guard (eventsBySubagent[subagentId] ?? []).isEmpty else { return }
+        if eventsBySubagent[subagentId] == nil {
+            eventsBySubagent[subagentId] = []
+        }
+        for event in response.events {
+            switch event.type {
+            case "text":
+                handleEvent(
+                    subagentId: subagentId,
+                    event: .assistantTextDelta(IPCAssistantTextDelta(type: "assistant_text_delta", text: event.content, sessionId: nil))
+                )
+            case "tool_use":
+                let input: [String: AnyCodable]
+                if let data = event.content.data(using: .utf8),
+                   let parsed = try? JSONDecoder().decode([String: AnyCodable].self, from: data) {
+                    input = parsed
+                } else {
+                    input = [:]
+                }
+                handleEvent(
+                    subagentId: subagentId,
+                    event: .toolUseStart(IPCToolUseStart(type: "tool_use_start", toolName: event.toolName ?? "unknown", input: input, sessionId: nil))
+                )
+            case "tool_result":
+                handleEvent(
+                    subagentId: subagentId,
+                    event: .toolResult(IPCToolResult(type: "tool_result", toolName: event.toolName ?? "unknown", result: event.content, isError: event.isError, diff: nil, status: nil, sessionId: nil, imageData: nil))
+                )
+            default:
+                break
+            }
+        }
+    }
+
     /// Simple tool input summary for subagent event display.
     private func summarizeToolInput(_ input: [String: AnyCodable]) -> String {
         let priorityKeys = ["command", "file_path", "path", "query", "url", "pattern", "glob"]

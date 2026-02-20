@@ -599,6 +599,13 @@ public struct SettingsView: View {
                 ingressUrlText = newValue
             }
         }
+        .onChange(of: isIngressUrlFocused) { _, focused in
+            // Re-sync when focus leaves so any updates skipped while the
+            // user was editing are applied once they're done.
+            if !focused {
+                ingressUrlText = store.ingressPublicBaseUrl
+            }
+        }
         .sheet(isPresented: $showingSkills, onDismiss: {
             skillsViewModel = nil
         }) {

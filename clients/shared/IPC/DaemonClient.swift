@@ -326,6 +326,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when a subagent's status changes (running, completed, failed, aborted).
     public var onSubagentStatusChanged: ((IPCSubagentStatusChanged) -> Void)?
 
+    /// Called when the daemon sends a `subagent_detail_response` with lazy-loaded events.
+    public var onSubagentDetailResponse: ((IPCSubagentDetailResponse) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -693,6 +696,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Abort a running subagent.
     public func sendSubagentAbort(subagentId: String) throws {
         try send(SubagentAbortMessage(subagentId: subagentId))
+    }
+
+    /// Request subagent detail events (lazy-loaded when the user opens the detail panel).
+    public func sendSubagentDetailRequest(subagentId: String, conversationId: String) throws {
+        try send(SubagentDetailRequestMessage(subagentId: subagentId, conversationId: conversationId))
     }
 
     // MARK: - Skills Management
