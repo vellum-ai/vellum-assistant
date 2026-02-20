@@ -1130,16 +1130,17 @@ graph TB
     **Commit message LLM fallback chain**: The generator runs a sequence of pre-flight checks before calling the LLM. Each check that fails produces a machine-readable `llmFallbackReason` in the structured log output and immediately returns a deterministic message. The checks, in order:
 
     1. `disabled` — `commitMessageLLM.enabled` is `false` or `useConfiguredProvider` is `false`
-    2. `missing_provider_api_key` — the configured provider's API key is not set in `config.apiKeys` (sendMessage is never called)
-    3. `breaker_open` — the generator's internal circuit breaker is open after consecutive LLM failures (exponential backoff)
-    4. `insufficient_budget` — the remaining turn budget (`deadlineMs - Date.now()`) is below `minRemainingTurnBudgetMs`
-    5. `timeout` — the LLM call exceeded `timeoutMs` (AbortController fires)
-    6. `provider_error` — the provider threw an exception, is not initialized, or no fast model is available for the provider
-    7. `invalid_output` — the LLM returned empty text, the literal string "FALLBACK", total output > 500 chars, or subject line > 72 chars
+    2. `missing_provider_api_key` — the configured provider's API key is not set in `config.apiKeys` (skipped for keyless providers like Ollama that run without an API key)
+    3. `provider_not_initialized` — the configured provider is not registered/bootstrapped (e.g., `getProvider()` throws)
+    4. `breaker_open` — the generator's internal circuit breaker is open after consecutive LLM failures (exponential backoff)
+    5. `insufficient_budget` — the remaining turn budget (`deadlineMs - Date.now()`) is below `minRemainingTurnBudgetMs`
+    6. `timeout` — the LLM call exceeded `timeoutMs` (AbortController fires)
+    7. `provider_error` — the provider threw an exception or no fast model is available for the provider
+    8. `invalid_output` — the LLM returned empty text, the literal string "FALLBACK", total output > 500 chars, or subject line > 72 chars
 
     **Fast model resolution**: The LLM call uses a small/fast model to minimize latency and cost. The model is resolved as follows:
     - If `commitMessageLLM.providerFastModelOverrides[provider]` is set, that model is used.
-    - Otherwise, a built-in default is used: `anthropic` -> `claude-haiku-4-5-20251001`, `openai` -> `gpt-4o-mini`, `google` -> `gemini-2.0-flash`.
+    - Otherwise, a built-in default is used: `anthropic` -> `claude-haiku-4-5-20251001`, `openai` -> `gpt-4o-mini`, `gemini` -> `gemini-2.0-flash`.
     - If the configured provider has no override and no built-in default, the generator returns deterministic with reason `provider_error` without calling sendMessage.
 
     **Pre-mutex LLM attempt**: The LLM generation runs BEFORE entering `commitIfDirty()` (outside the git mutex). Changed files are captured from a read-only `getStatus()` call (the "pre-status") outside the mutex. This avoids holding the mutex during network calls. The `commitIfDirty` callback uses its own mutex-protected status for the actual commit, so the file list used for commit and for the LLM prompt may differ slightly if files change between the two status calls — this is accepted as a tradeoff for not blocking concurrent git operations on LLM latency.
