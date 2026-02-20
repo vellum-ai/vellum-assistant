@@ -33,13 +33,18 @@ OPENAI_API_KEY=...
 Single terminal: capture + transcription + diarization + identity learning
 
 ```bash
-uv run python run_pipeline.py \
-  --chunks-dir out/chunks \
-  --transcripts-dir out/transcripts \
-  --labeled-dir out/labeled \
-  --registry out/speaker_registry.json \
+uv run python start_clean.py \
   --model gpt-4o-transcribe-diarize \
   --identity-model gpt-4o-mini
+```
+
+`start_clean.py` clears stale `out/chunks`, `out/transcripts`, `out/labeled`, and `out/pipeline_state.json`, then launches `run_pipeline.py`.
+It only modifies files under `scripts/diarization-poc/out`, and launches from that directory so defaults are stable regardless of your current working directory.
+
+If you also want to forget learned speaker names:
+
+```bash
+uv run python start_clean.py --reset-registry
 ```
 
 Notes:

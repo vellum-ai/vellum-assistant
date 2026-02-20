@@ -88,14 +88,15 @@ def build_capture_command(args: argparse.Namespace, chunks_dir: pathlib.Path) ->
 
 
 def main() -> int:
+    script_dir = pathlib.Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(
         description="Run continuous diarization + speaker-learning pipeline in one process."
     )
-    parser.add_argument("--chunks-dir", default="out/chunks")
-    parser.add_argument("--transcripts-dir", default="out/transcripts")
-    parser.add_argument("--labeled-dir", default="out/labeled")
-    parser.add_argument("--state-file", default="out/pipeline_state.json")
-    parser.add_argument("--registry", default="out/speaker_registry.json")
+    parser.add_argument("--chunks-dir", default=str(script_dir / "out/chunks"))
+    parser.add_argument("--transcripts-dir", default=str(script_dir / "out/transcripts"))
+    parser.add_argument("--labeled-dir", default=str(script_dir / "out/labeled"))
+    parser.add_argument("--state-file", default=str(script_dir / "out/pipeline_state.json"))
+    parser.add_argument("--registry", default=str(script_dir / "out/speaker_registry.json"))
     parser.add_argument("--model", default="gpt-4o-transcribe-diarize")
     parser.add_argument("--identity-model", default="gpt-4o-mini")
     parser.add_argument("--poll-interval-s", type=float, default=2.0)
@@ -120,7 +121,6 @@ def main() -> int:
     parser.add_argument("--api-key-env", default="OPENAI_API_KEY")
     args = parser.parse_args()
 
-    script_dir = pathlib.Path(__file__).resolve().parent
     load_dotenv(script_dir / ".env", override=False)
     load_dotenv(override=False)
 
