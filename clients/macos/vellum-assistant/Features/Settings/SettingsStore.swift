@@ -73,6 +73,7 @@ public final class SettingsStore: ObservableObject {
     @Published var twitterConnected: Bool = false
     @Published var twitterAccountInfo: String?
     @Published var twitterAuthInProgress: Bool = false
+    @Published var twitterAuthError: String?
 
     // MARK: - Trust Rules Coordination
 
@@ -181,6 +182,9 @@ public final class SettingsStore: ObservableObject {
             if response.success {
                 self.twitterConnected = true
                 self.twitterAccountInfo = response.accountInfo
+                self.twitterAuthError = nil
+            } else {
+                self.twitterAuthError = response.error
             }
             self.refreshTwitterStatus()
         }
@@ -329,6 +333,7 @@ public final class SettingsStore: ObservableObject {
 
     func connectTwitter() {
         twitterAuthInProgress = true
+        twitterAuthError = nil
         try? daemonClient?.send(TwitterAuthStartMessage())
     }
 
