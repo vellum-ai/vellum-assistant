@@ -259,6 +259,7 @@ func parseTableCells(_ line: String) -> [String] {
 struct MarkdownTableView: View {
     let headers: [String]
     let rows: [[String]]
+    var maxWidth: CGFloat = 520
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -295,7 +296,7 @@ struct MarkdownTableView: View {
             RoundedRectangle(cornerRadius: VRadius.sm)
                 .stroke(VColor.surfaceBorder, lineWidth: 0.5)
         )
-        .frame(maxWidth: 520, alignment: .leading)
+        .frame(maxWidth: maxWidth, alignment: .leading)
     }
 
     private func inlineMarkdownCell(_ text: String) -> some View {
