@@ -62,6 +62,12 @@ describe("/schema route", () => {
     expect(body.paths["/readyz"]).toBeDefined();
     expect(body.paths["/schema"]).toBeDefined();
     expect(body.paths["/webhooks/telegram"]).toBeDefined();
+    expect(body.paths["/webhooks/twilio/voice"]).toBeDefined();
+    expect(body.paths["/webhooks/twilio/status"]).toBeDefined();
+    expect(body.paths["/webhooks/twilio/connect-action"]).toBeDefined();
+    expect(body.paths["/webhooks/twilio/relay"]).toBeDefined();
+    expect(body.paths["/webhooks/oauth/callback"]).toBeDefined();
+    expect(body.paths["/deliver/telegram"]).toBeDefined();
     expect(body.paths["/{path}"]).toBeDefined();
   });
 
@@ -106,6 +112,8 @@ describe("buildSchema()", () => {
     expect(schemaNames).toContain("TelegramMessage");
     expect(schemaNames).toContain("TelegramPhotoSize");
     expect(schemaNames).toContain("TelegramDocument");
+    expect(schemaNames).toContain("TelegramDeliverRequest");
+    expect(schemaNames).toContain("RuntimeAttachmentMeta");
   });
 
   test("returns a JSON-serializable object", () => {

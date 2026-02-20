@@ -180,6 +180,12 @@ graph TB
         GW_FORWARD["Runtime Client<br/>POST /channels/inbound"]
         GW_REPLY["Send Reply<br/>Telegram sendMessage"]
         GW_ATTACH["Send Attachments<br/>sendPhoto / sendDocument"]
+        GW_TG_DELIVER["Telegram Deliver<br/>/deliver/telegram<br/>(internal, from runtime)"]
+        GW_TWILIO_VOICE["Twilio Voice Webhook<br/>/webhooks/twilio/voice"]
+        GW_TWILIO_STATUS["Twilio Status Webhook<br/>/webhooks/twilio/status"]
+        GW_TWILIO_CONNECT["Twilio Connect-Action<br/>/webhooks/twilio/connect-action"]
+        GW_TWILIO_RELAY["Twilio Relay WS<br/>/webhooks/twilio/relay<br/>(bidirectional proxy)"]
+        GW_OAUTH["OAuth Callback<br/>/webhooks/oauth/callback"]
         GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
         GW_PROBES["/healthz + /readyz<br/>k8s liveness/readiness"]
     end
@@ -303,6 +309,20 @@ graph TB
     HTTP_SERVER -->|"channels/inbound transport<br/>channelId + hints + uxBrief"| PLAYBOOK_MGR
     GW_REPLY -->|"Telegram API"| GW_WEBHOOK
     GW_ATTACH -->|"download from runtime<br/>+ upload to Telegram"| GW_WEBHOOK
+
+    %% Gateway flow — Telegram deliver (runtime → gateway → Telegram)
+    HTTP_SERVER -->|"POST /deliver/telegram"| GW_TG_DELIVER
+    GW_TG_DELIVER --> GW_REPLY
+    GW_TG_DELIVER --> GW_ATTACH
+
+    %% Gateway flow — Twilio webhooks
+    GW_TWILIO_VOICE -->|"HTTP"| HTTP_SERVER
+    GW_TWILIO_STATUS -->|"HTTP"| HTTP_SERVER
+    GW_TWILIO_CONNECT -->|"HTTP"| HTTP_SERVER
+    GW_TWILIO_RELAY -->|"WebSocket proxy"| HTTP_SERVER
+
+    %% Gateway flow — OAuth callback
+    GW_OAUTH -->|"forward code + state"| HTTP_SERVER
 
     %% Gateway flow — Runtime proxy path (optional)
     GW_PROXY -->|"HTTP (forwarded)"| HTTP_SERVER

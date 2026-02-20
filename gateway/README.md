@@ -80,13 +80,26 @@ The gateway serves as the single public ingress point for all external callbacks
 | Route | Method | Description |
 |-------|--------|-------------|
 | `/webhooks/telegram` | POST | Telegram bot webhook (validated via `TELEGRAM_WEBHOOK_SECRET`) |
+| `/deliver/telegram` | POST | Internal endpoint for the assistant runtime to deliver outbound messages/attachments to Telegram chats |
 | `/webhooks/twilio/voice` | POST | Twilio voice webhook (validated via HMAC-SHA1 signature) |
 | `/webhooks/twilio/status` | POST | Twilio status callback (validated via HMAC-SHA1 signature) |
 | `/webhooks/twilio/connect-action` | POST | Twilio connect-action callback (validated via HMAC-SHA1 signature) |
-| `/webhooks/twilio/relay` | WS | Twilio ConversationRelay WebSocket (bidirectional proxy) |
+| `/webhooks/twilio/relay` | WS | Twilio ConversationRelay WebSocket (bidirectional proxy to runtime, requires `callSessionId` query param) |
 | `/webhooks/oauth/callback` | GET | OAuth2 callback endpoint — receives authorization codes from OAuth providers (Google, Slack, etc.) and forwards them to the assistant runtime |
 | `/healthz` | GET | Liveness probe |
 | `/readyz` | GET | Readiness probe |
+| `/schema` | GET | Returns the OpenAPI 3.1 schema for this gateway |
+
+#### Backward-Compatibility Paths
+
+The following legacy paths are aliases that map to their canonical equivalents above:
+
+| Legacy Path | Canonical Path |
+|-------------|---------------|
+| `/v1/calls/twilio/voice-webhook` | `/webhooks/twilio/voice` |
+| `/v1/calls/twilio/status` | `/webhooks/twilio/status` |
+| `/v1/calls/twilio/connect-action` | `/webhooks/twilio/connect-action` |
+| `/v1/calls/relay` | `/webhooks/twilio/relay` |
 
 ### Tunnel Setup
 

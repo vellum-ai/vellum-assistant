@@ -307,6 +307,159 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/webhooks/twilio/relay": {
+        get: {
+          summary: "Twilio ConversationRelay WebSocket",
+          description:
+            "Accepts a WebSocket upgrade from Twilio ConversationRelay and bidirectionally proxies frames to the assistant runtime's /v1/calls/relay endpoint. Requires a callSessionId query parameter. Also available at /v1/calls/relay for backward compatibility.",
+          operationId: "twilioRelayWebsocket",
+          parameters: [
+            {
+              name: "callSessionId",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description: "Call session identifier used to correlate the WebSocket connection with the runtime relay session.",
+            },
+          ],
+          responses: {
+            "101": {
+              description: "WebSocket upgrade successful — bidirectional frame proxying begins.",
+            },
+            "400": {
+              description: "Missing callSessionId query parameter",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "500": {
+              description: "WebSocket upgrade failed",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/webhooks/oauth/callback": {
+        get: {
+          summary: "OAuth2 callback",
+          description:
+            "Receives OAuth2 authorization code callbacks from external providers (Google, Slack, etc.). Forwards the authorization code and state parameter to the assistant runtime for token exchange. Returns an HTML success or error page to the user's browser.",
+          operationId: "oauthCallback",
+          parameters: [
+            {
+              name: "state",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description: "Opaque state parameter used to correlate the callback with the original OAuth flow.",
+            },
+            {
+              name: "code",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Authorization code returned by the OAuth provider on success.",
+            },
+            {
+              name: "error",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Error code returned by the OAuth provider on failure.",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Authorization successful — HTML page rendered",
+              content: {
+                "text/html": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "400": {
+              description: "Missing state parameter or authorization failed — HTML error page rendered",
+              content: {
+                "text/html": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "502": {
+              description: "Failed to forward callback to assistant runtime — HTML error page rendered",
+              content: {
+                "text/html": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/deliver/telegram": {
+        post: {
+          summary: "Telegram delivery (internal)",
+          description:
+            "Internal endpoint called by the assistant runtime to deliver outbound messages and attachments to a Telegram chat. Not intended for external use.",
+          operationId: "telegramDeliver",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/TelegramDeliverRequest" },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Message delivered",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/TelegramOk" },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid JSON or missing required fields",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed (only POST accepted)",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "502": {
+              description: "Failed to deliver message via Telegram API",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "503": {
+              description: "Telegram integration not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/{path}": {
         get: {
           summary: "Runtime proxy",
@@ -526,6 +679,29 @@ export function buildSchema(): Record<string, unknown> {
             file_name: { type: "string" },
             mime_type: { type: "string" },
             file_size: { type: "integer" },
+          },
+        },
+        TelegramDeliverRequest: {
+          type: "object",
+          required: ["chatId"],
+          properties: {
+            chatId: { type: "string", description: "Telegram chat ID to deliver the message to" },
+            text: { type: "string", description: "Text content to send" },
+            assistantId: { type: "string", description: "Assistant ID (required when sending attachments)" },
+            attachments: {
+              type: "array",
+              description: "Attachments to deliver (images sent via sendPhoto, others via sendDocument)",
+              items: { $ref: "#/components/schemas/RuntimeAttachmentMeta" },
+            },
+          },
+        },
+        RuntimeAttachmentMeta: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            filename: { type: "string" },
+            mimeType: { type: "string" },
+            sizeBytes: { type: "integer" },
           },
         },
       },
