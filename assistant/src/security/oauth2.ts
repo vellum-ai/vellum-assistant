@@ -324,7 +324,10 @@ export async function startOAuth2Flow(
     const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
     ingressMode = loadConfig().ingress.mode;
   } catch {
-    // Config unavailable — proceed with default transport detection
+    // Fail closed: if config can't be loaded (e.g., malformed config.json), default to the
+    // most restrictive mode to prevent loopback fallback from creating a fail-open path.
+    log.warn('Failed to load config for OAuth ingress mode detection; defaulting to gateway_only (fail closed)');
+    ingressMode = 'gateway_only';
   }
 
   if (ingressMode === 'gateway_only') {
