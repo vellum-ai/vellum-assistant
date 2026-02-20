@@ -538,6 +538,89 @@ describe('bundled browser skill', () => {
   });
 });
 
+describe('bundled public-ingress skill', () => {
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, 'skills'), { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
+  });
+
+  test('public-ingress skill appears in full catalog (including bundled)', () => {
+    const catalog = loadSkillCatalog();
+    const skill = catalog.find((s) => s.id === 'public-ingress');
+    expect(skill).toBeDefined();
+    expect(skill!.name).toBe('Public Ingress');
+    expect(skill!.bundled).toBe(true);
+  });
+
+  test('public-ingress skill has correct description', () => {
+    const catalog = loadSkillCatalog();
+    const skill = catalog.find((s) => s.id === 'public-ingress');
+    expect(skill).toBeDefined();
+    expect(skill!.description).toContain('ngrok');
+    expect(skill!.description).toContain('ingress.publicBaseUrl');
+  });
+
+  test('public-ingress skill is user-invocable', () => {
+    const catalog = loadSkillCatalog();
+    const skill = catalog.find((s) => s.id === 'public-ingress');
+    expect(skill).toBeDefined();
+    expect(skill!.userInvocable).toBe(true);
+  });
+
+  test('public-ingress skill has no tool manifest (instructions-only)', () => {
+    const catalog = loadSkillCatalog();
+    const skill = catalog.find((s) => s.id === 'public-ingress');
+    expect(skill).toBeDefined();
+    expect(skill!.toolManifest).toBeUndefined();
+  });
+});
+
+describe('ingress-dependent setup skills declare public-ingress', () => {
+  const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
+  const VELLUM_SKILLS_DIR = join(import.meta.dir, '..', 'config', 'vellum-skills');
+
+  function readVellumSkillIncludes(skillId: string): string[] | undefined {
+    const content = require('node:fs').readFileSync(join(VELLUM_SKILLS_DIR, skillId, 'SKILL.md'), 'utf-8');
+    const match = content.match(FRONTMATTER_REGEX);
+    if (!match) return undefined;
+    for (const line of match[1].split(/\r?\n/)) {
+      const sep = line.indexOf(':');
+      if (sep === -1) continue;
+      const key = line.slice(0, sep).trim();
+      if (key !== 'includes') continue;
+      const val = line.slice(sep + 1).trim();
+      try {
+        const parsed = JSON.parse(val);
+        if (Array.isArray(parsed)) return parsed as string[];
+      } catch { /* ignore */ }
+    }
+    return undefined;
+  }
+
+  test('telegram-setup includes public-ingress', () => {
+    const includes = readVellumSkillIncludes('telegram-setup');
+    expect(includes).toBeDefined();
+    expect(includes).toContain('public-ingress');
+  });
+
+  test('google-oauth-setup includes public-ingress', () => {
+    const includes = readVellumSkillIncludes('google-oauth-setup');
+    expect(includes).toBeDefined();
+    expect(includes).toContain('public-ingress');
+  });
+
+  test('slack-oauth-setup includes public-ingress', () => {
+    const includes = readVellumSkillIncludes('slack-oauth-setup');
+    expect(includes).toBeDefined();
+    expect(includes).toContain('public-ingress');
+  });
+});
+
 describe('bundled computer-use skill', () => {
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, 'skills'), { recursive: true });
