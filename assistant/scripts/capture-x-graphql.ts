@@ -63,7 +63,14 @@ class CDPClient {
         const msg = JSON.parse(String(event.data));
         if (msg.id != null) {
           const cb = this.callbacks.get(msg.id);
-          if (cb) { this.callbacks.delete(msg.id); if (msg.error) { cb.reject(new Error(msg.error.message)); } else { cb.resolve(msg.result); } }
+          if (cb) {
+            this.callbacks.delete(msg.id);
+            if (msg.error) {
+              cb.reject(new Error(msg.error.message));
+            } else {
+              cb.resolve(msg.result);
+            }
+          }
         } else if (msg.method) {
           for (const h of this.eventHandlers.get(msg.method) ?? []) h(msg.params ?? {});
         }

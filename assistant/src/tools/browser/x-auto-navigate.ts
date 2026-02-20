@@ -35,7 +35,11 @@ class MiniCDP {
           const cb = this.callbacks.get(msg.id);
           if (cb) {
             this.callbacks.delete(msg.id);
-            if (msg.error) { cb.reject(new Error(msg.error.message)); } else { cb.resolve(msg.result); }
+            if (msg.error) {
+              cb.reject(new Error(msg.error.message));
+            } else {
+              cb.resolve(msg.result);
+            }
           }
         }
       };
