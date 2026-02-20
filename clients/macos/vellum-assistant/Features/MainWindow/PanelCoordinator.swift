@@ -260,7 +260,7 @@ extension MainWindowView {
     var defaultChatLayout: some View {
         let config = windowState.layoutConfig
         let showConfigPanel = config.right.visible && config.right.content != .empty
-        let showSubagentPanel = windowState.selectedSubagentId != nil
+        let showSubagentPanel = windowState.selectedSubagentId != nil && threadManager.activeViewModel != nil
 
         VSplitView(
             panelWidth: $sidePanelWidth,
