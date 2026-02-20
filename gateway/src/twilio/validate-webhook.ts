@@ -4,6 +4,55 @@ import { verifyTwilioSignature } from "./verify.js";
 
 const log = getLogger("twilio-validate");
 
+function firstHeaderValue(value: string | null): string | undefined {
+  if (!value) return undefined;
+  const first = value.split(",")[0]?.trim();
+  return first ? first : undefined;
+}
+
+/**
+ * Build URL candidates Twilio may have used when computing the webhook signature.
+ *
+ * Precedence:
+ * 1) Canonical configured ingress URL (when present)
+ * 2) Forwarded public URL headers from tunnel/proxy
+ * 3) Raw request URL (last-resort fallback)
+ */
+function buildSignatureUrlCandidates(req: Request, config: GatewayConfig): string[] {
+  const parsedUrl = new URL(req.url);
+  const pathAndQuery = parsedUrl.pathname + parsedUrl.search;
+  const candidates: string[] = [];
+
+  const addBase = (base: string | undefined): void => {
+    if (!base) return;
+    const normalized = base.trim().replace(/\/+$/, "");
+    if (!normalized) return;
+    const candidate = `${normalized}${pathAndQuery}`;
+    if (!candidates.includes(candidate)) {
+      candidates.push(candidate);
+    }
+  };
+
+  addBase(config.ingressPublicBaseUrl);
+
+  const forwardedProto =
+    firstHeaderValue(req.headers.get("x-forwarded-proto")) ??
+    firstHeaderValue(req.headers.get("x-original-proto"));
+  const forwardedHost =
+    firstHeaderValue(req.headers.get("x-forwarded-host")) ??
+    firstHeaderValue(req.headers.get("x-original-host")) ??
+    firstHeaderValue(req.headers.get("host"));
+  if (forwardedProto && forwardedHost) {
+    addBase(`${forwardedProto}://${forwardedHost}`);
+  }
+
+  if (candidates.length === 0) {
+    candidates.push(req.url);
+  }
+
+  return candidates;
+}
+
 export type TwilioValidationSuccess = {
   /** Raw form-urlencoded body as a string. */
   rawBody: string;
@@ -67,23 +116,16 @@ export async function validateTwilioWebhookRequest(
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Reconstruct the public-facing URL that Twilio signed against
-  // using the canonical ingress base URL.
-  const parsedUrl = new URL(req.url);
-  const effectiveBaseUrl = config.ingressPublicBaseUrl;
-  const publicUrl = effectiveBaseUrl
-    ? effectiveBaseUrl.replace(/\/$/, "") + parsedUrl.pathname + parsedUrl.search
-    : req.url;
-
-  const isValid = verifyTwilioSignature(
-    publicUrl,
-    params,
-    signature,
-    config.twilioAuthToken,
+  const signatureUrlCandidates = buildSignatureUrlCandidates(req, config);
+  const isValid = signatureUrlCandidates.some((candidate) =>
+    verifyTwilioSignature(candidate, params, signature, config.twilioAuthToken!),
   );
 
   if (!isValid) {
-    log.warn("Twilio webhook signature validation failed");
+    log.warn(
+      { candidateCount: signatureUrlCandidates.length },
+      "Twilio webhook signature validation failed",
+    );
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 

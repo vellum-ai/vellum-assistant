@@ -20,8 +20,9 @@
  *   - The assistant's outbound callback URLs (Twilio webhooks, OAuth
  *     redirect URIs, etc.) match the gateway's inbound signature
  *     reconstruction URL.
- *   - Changing the URL in Settings propagates to the gateway on restart,
- *     eliminating Twilio signature mismatch risk.
+ *   - Changing the URL in Settings immediately updates outbound callback
+ *     registration, while the gateway can validate inbound Twilio signatures
+ *     using forwarded public URL headers from tunnels/proxies.
  *
  * All public-facing ingress URL construction is centralized here.
  */
