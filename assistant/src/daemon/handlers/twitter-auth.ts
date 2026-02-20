@@ -103,7 +103,7 @@ export async function handleTwitterAuthStart(
       oauth2ClientId: clientId,
       ...(clientSecret != null ? { oauth2ClientSecret: clientSecret } : {}),
       grantedScopes: result.grantedScopes,
-      expiresAt: result.tokens.expiresIn ? Date.now() + result.tokens.expiresIn * 1000 : undefined,
+      expiresAt: result.tokens.expiresIn ? Date.now() + result.tokens.expiresIn * 1000 : null,
     });
 
     ctx.send(socket, {
