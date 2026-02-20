@@ -1,6 +1,6 @@
 import * as net from 'node:net';
 import { loadRawConfig } from '../../config/loader.js';
-import { getSecureKey, setSecureKey } from '../../security/secure-keys.js';
+import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
 import { startOAuth2Flow } from '../../security/oauth2.js';
 import { upsertCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import type { TwitterAuthStartRequest, TwitterAuthStatusRequest } from '../ipc-protocol.js';
@@ -51,30 +51,59 @@ export async function handleTwitterAuthStart(
       },
     });
 
-    setSecureKey('credential:integration:twitter:access_token', result.tokens.accessToken);
-    if (result.tokens.refreshToken) {
-      setSecureKey('credential:integration:twitter:refresh_token', result.tokens.refreshToken);
-    }
-
-    // Verify identity via Twitter API
-    let accountInfo: string | undefined;
+    // Verify identity via Twitter API before persisting any tokens
+    let accountInfo: string;
     try {
       const userResp = await fetch('https://api.x.com/2/users/me', {
         headers: { Authorization: `Bearer ${result.tokens.accessToken}` },
       });
-      if (userResp.ok) {
-        const userData = (await userResp.json()) as { data?: { username?: string } };
-        if (userData.data?.username) {
-          accountInfo = `@${userData.data.username}`;
-        }
+      if (!userResp.ok) {
+        log.error({ status: userResp.status }, 'Twitter identity verification returned non-2xx');
+        ctx.send(socket, {
+          type: 'twitter_auth_result',
+          success: false,
+          error: 'Failed to verify Twitter identity. Please try again.',
+        });
+        return;
       }
+      const userData = (await userResp.json()) as { data?: { username?: string } };
+      if (!userData.data?.username) {
+        log.error({ userData }, 'Twitter identity verification returned no username');
+        ctx.send(socket, {
+          type: 'twitter_auth_result',
+          success: false,
+          error: 'Failed to verify Twitter identity. Please try again.',
+        });
+        return;
+      }
+      accountInfo = `@${userData.data.username}`;
     } catch (err) {
-      log.warn({ err }, 'Failed to verify Twitter identity after OAuth');
+      log.error({ err }, 'Twitter identity verification fetch failed');
+      ctx.send(socket, {
+        type: 'twitter_auth_result',
+        success: false,
+        error: 'Failed to verify Twitter identity. Please try again.',
+      });
+      return;
+    }
+
+    // Persist tokens only after successful verification
+    setSecureKey('credential:integration:twitter:access_token', result.tokens.accessToken);
+    if (result.tokens.refreshToken) {
+      setSecureKey('credential:integration:twitter:refresh_token', result.tokens.refreshToken);
+    } else {
+      deleteSecureKey('credential:integration:twitter:refresh_token');
     }
 
     upsertCredentialMetadata('integration:twitter', 'access_token', {
       accountInfo,
       allowedTools: ['twitter_post', 'twitter_read'],
+      allowedDomains: [],
+      oauth2TokenUrl: 'https://api.x.com/2/oauth2/token',
+      oauth2ClientId: clientId,
+      ...(clientSecret != null ? { oauth2ClientSecret: clientSecret } : {}),
+      grantedScopes: result.grantedScopes,
+      expiresAt: result.tokens.expiresIn ? Date.now() + result.tokens.expiresIn * 1000 : undefined,
     });
 
     ctx.send(socket, {
@@ -85,10 +114,23 @@ export async function handleTwitterAuthStart(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Twitter OAuth flow failed');
+
+    let userError: string;
+    const lower = message.toLowerCase();
+    if (lower.includes('timed out')) {
+      userError = 'Twitter authentication timed out. Please try again.';
+    } else if (lower.includes('user_cancelled') || lower.includes('cancelled')) {
+      userError = 'Twitter authentication was cancelled.';
+    } else if (lower.includes('denied') || lower.includes('invalid_grant')) {
+      userError = 'Twitter denied the authorization request. Please try again.';
+    } else {
+      userError = 'Twitter authentication failed. Please try again.';
+    }
+
     ctx.send(socket, {
       type: 'twitter_auth_result',
       success: false,
-      error: `Twitter authentication failed: ${message}`,
+      error: userError,
     });
   }
 }
