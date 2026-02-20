@@ -294,10 +294,23 @@ export function resolveSlash(content: string, cwd?: string): SlashResolution {
     if (cwd) {
       const ccRegistry = discoverCCCommands(cwd);
       if (ccRegistry.entries.size > 0) {
-        lines.push('');
-        lines.push('Claude Code commands:');
-        for (const [, entry] of ccRegistry.entries) {
-          lines.push(`- /${entry.name} — ${entry.summary}`);
+        const commands = Array.from(ccRegistry.entries.values()).filter((e) => e.artifactType === 'command');
+        const skills = Array.from(ccRegistry.entries.values()).filter((e) => e.artifactType === 'skill');
+
+        if (commands.length > 0) {
+          lines.push('');
+          lines.push('Claude Code commands:');
+          for (const entry of commands) {
+            lines.push(`- /${entry.name} — ${entry.summary}`);
+          }
+        }
+
+        if (skills.length > 0) {
+          lines.push('');
+          lines.push('Claude Code skills:');
+          for (const entry of skills) {
+            lines.push(`- /${entry.name} — ${entry.summary}`);
+          }
         }
       }
     }
@@ -353,7 +366,7 @@ export function resolveSlash(content: string, cwd?: string): SlashResolution {
     };
   } else if (hasCc && !hasVellum) {
     // cc_only → route to CC command
-    result = buildCCCommandResolution(ccMatch.name, trailingArgs);
+    result = buildCCCommandResolution(ccMatch.name, trailingArgs, ccMatch.artifactType);
   } else if (hasVellum && hasCc) {
     // both → check collision preference
     const preference = config.slashCollisionPreference;
@@ -369,7 +382,7 @@ export function resolveSlash(content: string, cwd?: string): SlashResolution {
         skillId: vellumMatch.canonicalId,
       };
     } else if (preference === 'prefer_cc') {
-      result = buildCCCommandResolution(ccMatch.name, trailingArgs);
+      result = buildCCCommandResolution(ccMatch.name, trailingArgs, ccMatch.artifactType);
     } else {
       // 'ask' — return disambiguation message
       result = {
@@ -405,12 +418,23 @@ export function resolveSlash(content: string, cwd?: string): SlashResolution {
 }
 
 /** Build a cc_command resolution with a rewritten prompt. */
-function buildCCCommandResolution(commandName: string, trailingArgs: string): SlashResolution {
-  const rewrittenPrompt = [
-    `The user invoked the slash command \`/${commandName}\`.`,
-    `Execute the Claude Code command "${commandName}" using the claude_code tool with command="${commandName}".`,
-    trailingArgs ? `\nPass the following as the \`arguments\` input: ${trailingArgs}` : '',
-  ].filter(Boolean).join('\n');
+function buildCCCommandResolution(commandName: string, trailingArgs: string, artifactType: 'command' | 'skill'): SlashResolution {
+  let rewrittenPrompt: string;
+
+  if (artifactType === 'skill') {
+    rewrittenPrompt = [
+      `The user invoked the slash command \`/${commandName}\`.`,
+      `Load the Claude Code skill "${commandName}" using the claude_code tool with command="${commandName}".`,
+      'The content should be used as reference context, not executed as a command.',
+      trailingArgs ? `\nUser arguments: ${trailingArgs}` : '',
+    ].filter(Boolean).join('\n');
+  } else {
+    rewrittenPrompt = [
+      `The user invoked the slash command \`/${commandName}\`.`,
+      `Execute the Claude Code command "${commandName}" using the claude_code tool with command="${commandName}".`,
+      trailingArgs ? `\nPass the following as the \`arguments\` input: ${trailingArgs}` : '',
+    ].filter(Boolean).join('\n');
+  }
 
   return {
     kind: 'cc_command',
