@@ -561,6 +561,9 @@ public struct SettingsView: View {
         .onReceive(permissionTimer) { _ in
             checkPermissions()
         }
+        .onChange(of: store.twilioWebhookBaseUrl) { _, newValue in
+            twilioWebhookUrlText = newValue
+        }
         .sheet(isPresented: $showingSkills, onDismiss: {
             skillsViewModel = nil
         }) {
