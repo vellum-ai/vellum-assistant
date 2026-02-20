@@ -52,7 +52,7 @@ let mockAuthToken: string | undefined = 'test-auth-token-for-webhooks';
 
 mock.module('../security/secure-keys.js', () => ({
   getSecureKey: (account: string) => {
-    if (account === 'twilio_auth_token') return mockAuthToken;
+    if (account === 'credential:twilio:auth_token') return mockAuthToken;
     return undefined;
   },
 }));
@@ -72,7 +72,7 @@ mock.module('../calls/twilio-provider.js', () => {
       readonly name = 'twilio';
 
       static getAuthToken(): string | null {
-        return getSecureKey('twilio_auth_token') ?? null;
+        return getSecureKey('credential:twilio:auth_token') ?? null;
       }
 
       static verifyWebhookSignature(
