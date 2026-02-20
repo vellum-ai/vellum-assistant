@@ -19,6 +19,15 @@ export function registerPendingCallback(
   reject: (error: Error) => void,
   ttlMs = DEFAULT_TTL_MS,
 ): void {
+  // Clear any existing entry for this state to prevent timer leaks and
+  // cross-callback timeouts when the same state is registered twice.
+  const existing = pendingCallbacks.get(state);
+  if (existing) {
+    clearTimeout(existing.timer);
+    existing.reject(new Error('OAuth callback superseded by new registration'));
+    pendingCallbacks.delete(state);
+  }
+
   const timer = setTimeout(() => {
     const entry = pendingCallbacks.get(state);
     if (entry) {
@@ -51,6 +60,7 @@ export function consumeCallbackError(state: string, error: string): boolean {
 export function clearAllCallbacks(): void {
   for (const entry of pendingCallbacks.values()) {
     clearTimeout(entry.timer);
+    entry.reject(new Error('OAuth callback registry cleared'));
   }
   pendingCallbacks.clear();
 }

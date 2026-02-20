@@ -80,21 +80,58 @@ The gateway serves as the single public ingress point for all external callbacks
 | Route | Method | Description |
 |-------|--------|-------------|
 | `/webhooks/telegram` | POST | Telegram bot webhook (validated via `TELEGRAM_WEBHOOK_SECRET`) |
+| `/deliver/telegram` | POST | Internal endpoint for the assistant runtime to deliver outbound messages/attachments to Telegram chats |
 | `/webhooks/twilio/voice` | POST | Twilio voice webhook (validated via HMAC-SHA1 signature) |
 | `/webhooks/twilio/status` | POST | Twilio status callback (validated via HMAC-SHA1 signature) |
 | `/webhooks/twilio/connect-action` | POST | Twilio connect-action callback (validated via HMAC-SHA1 signature) |
-| `/webhooks/twilio/relay` | WS | Twilio ConversationRelay WebSocket (bidirectional proxy) |
+| `/webhooks/twilio/relay` | WS | Twilio ConversationRelay WebSocket (bidirectional proxy to runtime, requires `callSessionId` query param) |
 | `/webhooks/oauth/callback` | GET | OAuth2 callback endpoint — receives authorization codes from OAuth providers (Google, Slack, etc.) and forwards them to the assistant runtime |
 | `/healthz` | GET | Liveness probe |
 | `/readyz` | GET | Readiness probe |
+| `/schema` | GET | Returns the OpenAPI 3.1 schema for this gateway |
+
+#### Backward-Compatibility Paths
+
+The following legacy paths are aliases that map to their canonical equivalents above:
+
+| Legacy Path | Canonical Path |
+|-------------|---------------|
+| `/v1/calls/twilio/voice-webhook` | `/webhooks/twilio/voice` |
+| `/v1/calls/twilio/status` | `/webhooks/twilio/status` |
+| `/v1/calls/twilio/connect-action` | `/webhooks/twilio/connect-action` |
+| `/v1/calls/relay` | `/webhooks/twilio/relay` |
 
 ### Tunnel Setup
 
 To receive external callbacks during local development, point a tunnel service at the local gateway (default `http://127.0.0.1:7830`) and configure the resulting public URL:
 
+#### Test Gateway Source Changes Locally (No Release Needed)
+
+Use this flow when you are changing files under `gateway/` and need to validate immediately without publishing `@vellumai/vellum-gateway`.
+
+```bash
+# Terminal 1: restart assistant runtime HTTP server
+cd assistant
+bun run daemon:restart:http
+
+# Terminal 2: run gateway from local source with runtime proxy enabled
+cd gateway
+bun run dev:proxy
+```
+
+If `7830` is already in use, start the gateway on another port:
+
+```bash
+cd gateway
+GATEWAY_PORT=7840 bun run dev:proxy
+```
+
+Then point your tunnel to that same local target (for example `http://127.0.0.1:7840`).
+
 1. Start your tunnel (e.g. ngrok, Cloudflare Tunnel, or similar) targeting `http://127.0.0.1:7830`
 2. Copy the public URL provided by the tunnel service (e.g. `https://abc123.ngrok-free.app`)
-3. Set the URL as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section) **or** as the `INGRESS_PUBLIC_BASE_URL` environment variable
+3. Set the URL as `ingress.publicBaseUrl` in the Settings UI (Public Ingress section) **or** as the `INGRESS_PUBLIC_BASE_URL` environment variable.
+4. Use the Settings UI "Local Gateway Target" value as the source of truth for tunnel destination (it reflects `GATEWAY_PORT`).
 
 The assistant runtime uses this URL to construct all webhook and OAuth callback URLs automatically.
 

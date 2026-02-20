@@ -326,6 +326,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when a subagent's status changes (running, completed, failed, aborted).
     public var onSubagentStatusChanged: ((IPCSubagentStatusChanged) -> Void)?
 
+    /// Called when the daemon sends a `subagent_detail_response` with lazy-loaded events.
+    public var onSubagentDetailResponse: ((IPCSubagentDetailResponse) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages
@@ -396,10 +399,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Internal (not private) for testability via @testable import.
     var pendingProbeId: String?
 
+    /// HTTP transport used when connecting to a remote assistant via gateway.
+    /// Non-nil when `config.transport` is `.http`.
+    #if os(macOS)
+    var httpTransport: HTTPTransport?
+    #endif
+
     let encoder = JSONEncoder()
     let decoder = JSONDecoder()
 
-    let config: DaemonConfig
+    public let config: DaemonConfig
 
     // MARK: - Init
 
@@ -426,6 +435,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         blobProbeTask?.cancel()
         pathMonitor?.cancel()
         connection?.cancel()
+        // httpTransport is cleaned up via disconnectInternal() before dealloc;
     }
 
     // MARK: - Socket Path
@@ -484,6 +494,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             try override(message)
             return
         }
+
+        #if os(macOS)
+        // Route through HTTP transport when active (remote assistants).
+        if let httpTransport {
+            guard httpTransport.isConnected else {
+                throw SendError.notConnected
+            }
+            try httpTransport.send(message)
+            return
+        }
+        #endif
 
         guard let conn = connection else {
             log.warning("Cannot send: not connected")
@@ -693,6 +714,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Abort a running subagent.
     public func sendSubagentAbort(subagentId: String) throws {
         try send(SubagentAbortMessage(subagentId: subagentId))
+    }
+
+    /// Request subagent detail events (lazy-loaded when the user opens the detail panel).
+    public func sendSubagentDetailRequest(subagentId: String, conversationId: String) throws {
+        try send(SubagentDetailRequestMessage(subagentId: subagentId, conversationId: conversationId))
     }
 
     // MARK: - Skills Management

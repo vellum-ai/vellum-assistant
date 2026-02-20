@@ -274,8 +274,14 @@ extension MainWindowView {
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
                         onAbort: { try? daemonClient.sendSubagentAbort(subagentId: subagentId) },
+                        onRequestDetail: {
+                            if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
+                                try? daemonClient.sendSubagentDetailRequest(subagentId: subagentId, conversationId: conversationId)
+                            }
+                        },
                         onClose: { windowState.selectedSubagentId = nil }
                     )
+                    .id(subagentId)
                 } else {
                     slotView(for: config.right.content)
                 }

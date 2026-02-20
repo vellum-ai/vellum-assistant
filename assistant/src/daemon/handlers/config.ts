@@ -400,7 +400,8 @@ export function handleSlackWebhookConfig(
 }
 
 function computeLocalGatewayTarget(): string {
-  const port = process.env.GATEWAY_PORT || '7830';
+  const portRaw = process.env.GATEWAY_PORT || '7830';
+  const port = Number(portRaw) || 7830;
   return `http://127.0.0.1:${port}`;
 }
 
@@ -420,7 +421,11 @@ export function handleIngressConfig(
       const value = (msg.publicBaseUrl ?? '').trim().replace(/\/+$/, '');
       const raw = loadRawConfig();
 
-      // Update ingress.publicBaseUrl
+      // Update ingress.publicBaseUrl — this is the single source of truth for
+      // the canonical public ingress URL. The gateway receives this value via
+      // the INGRESS_PUBLIC_BASE_URL env var at spawn time (see hatch.ts).
+      // A gateway restart is required for the new value to take effect in
+      // inbound Twilio signature validation.
       const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
       ingress.publicBaseUrl = value || undefined;
 
@@ -436,6 +441,19 @@ export function handleIngressConfig(
       if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
       const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
       ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+
+      // Propagate to the gateway's process environment so it picks up the
+      // new URL on its next config load. For the local-deployment path the
+      // gateway runs as a child process that inherited the assistant's env,
+      // so updating process.env here ensures the value is visible when the
+      // gateway is restarted (e.g. by the self-upgrade skill or a manual
+      // `pkill -f gateway`).
+      if (value) {
+        process.env.INGRESS_PUBLIC_BASE_URL = value;
+      }
+      // When cleared, do NOT delete the env var — the original env-provided
+      // value (if any) serves as a fallback per the documented precedence model.
+
       ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: value, localGatewayTarget, success: true });
     } else {
       ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
@@ -579,7 +597,7 @@ export function handleTwitterIntegrationConfig(
             type: 'twitter_integration_config_response',
             success: false,
             managedAvailable: false,
-            localClientConfigured: false,
+            localClientConfigured: !!previousClientId,
             connected: false,
             error: 'Failed to store client secret in secure storage',
           });

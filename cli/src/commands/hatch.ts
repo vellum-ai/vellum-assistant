@@ -26,8 +26,18 @@ import { exec, execOutput } from "../lib/step-runner";
 const _require = createRequire(import.meta.url);
 
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
-const INSTALL_SCRIPT_PATH = join(import.meta.dir, "..", "adapters", "install.sh");
 const MACHINE_TYPE = "e2-standard-4"; // 4 vCPUs, 16 GB memory
+
+// Resolve the install script path. In source tree, use the file directly.
+// In compiled binary ($bunfs), the file may not be available.
+async function resolveInstallScriptPath(): Promise<string | null> {
+  const sourcePath = join(import.meta.dir, "..", "adapters", "install.sh");
+  if (existsSync(sourcePath)) {
+    return sourcePath;
+  }
+  console.warn("⚠️  Install script not found at", sourcePath, "(expected in compiled binary)");
+  return null;
+}
 const HATCH_TIMEOUT_MS: Record<Species, number> = {
   vellum: 2 * 60 * 1000,
   openclaw: 10 * 60 * 1000,
@@ -103,7 +113,7 @@ export async function buildStartupScript(
     );
   }
 
-  const interfacesSeed = buildInterfacesSeed();
+  const interfacesSeed = await buildInterfacesSeed();
 
   return `#!/bin/bash
 set -e
@@ -157,6 +167,7 @@ interface HatchArgs {
   detached: boolean;
   name: string | null;
   remote: RemoteHost;
+  daemonOnly: boolean;
 }
 
 function parseArgs(): HatchArgs {
@@ -165,11 +176,14 @@ function parseArgs(): HatchArgs {
   let detached = false;
   let name: string | null = null;
   let remote: RemoteHost = DEFAULT_REMOTE;
+  let daemonOnly = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "-d") {
       detached = true;
+    } else if (arg === "--daemon-only") {
+      daemonOnly = true;
     } else if (arg === "--name") {
       const next = args[i + 1];
       if (!next || next.startsWith("-")) {
@@ -192,13 +206,13 @@ function parseArgs(): HatchArgs {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --daemon-only, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>`,
       );
       process.exit(1);
     }
   }
 
-  return { species, detached, name, remote };
+  return { species, detached, name, remote, daemonOnly };
 }
 
 export interface PollResult {
@@ -307,14 +321,16 @@ async function recoverFromCurlFailure(
   sshUser: string,
   account?: string,
 ): Promise<void> {
-  if (!existsSync(INSTALL_SCRIPT_PATH)) {
-    throw new Error(`Install script not found at ${INSTALL_SCRIPT_PATH}`);
+  const installScriptPath = await resolveInstallScriptPath();
+  if (!installScriptPath) {
+    console.warn("⚠️  Skipping install script upload (not available in compiled binary)");
+    return;
   }
 
   const scpArgs = [
     "compute",
     "scp",
-    INSTALL_SCRIPT_PATH,
+    installScriptPath,
     `${instanceName}:${INSTALL_SCRIPT_REMOTE_PATH}`,
     `--zone=${zone}`,
     `--project=${project}`,
@@ -699,14 +715,19 @@ async function hatchCustom(
     writeFileSync(startupScriptPath, startupScript);
 
     try {
-      console.log("📋 Uploading install script to instance...");
-      await exec("scp", [
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "LogLevel=ERROR",
-        INSTALL_SCRIPT_PATH,
-        `${host}:${INSTALL_SCRIPT_REMOTE_PATH}`,
-      ]);
+      const installScriptPath = await resolveInstallScriptPath();
+      if (installScriptPath) {
+        console.log("📋 Uploading install script to instance...");
+        await exec("scp", [
+          "-o", "StrictHostKeyChecking=no",
+          "-o", "UserKnownHostsFile=/dev/null",
+          "-o", "LogLevel=ERROR",
+          installScriptPath,
+          `${host}:${INSTALL_SCRIPT_REMOTE_PATH}`,
+        ]);
+      } else {
+        console.warn("⚠️  Skipping install script upload (not available in compiled binary)");
+      }
 
       console.log("📋 Uploading startup script to instance...");
       const remoteStartupPath = `/tmp/${instanceName}-startup.sh`;
@@ -759,10 +780,47 @@ async function hatchCustom(
   }
 }
 
+function isGatewaySourceDir(dir: string): boolean {
+  return existsSync(join(dir, "package.json")) && existsSync(join(dir, "src", "index.ts"));
+}
+
+function findGatewaySourceFromCwd(): string | undefined {
+  let current = process.cwd();
+  while (true) {
+    if (isGatewaySourceDir(current)) {
+      return current;
+    }
+    const nestedCandidate = join(current, "gateway");
+    if (isGatewaySourceDir(nestedCandidate)) {
+      return nestedCandidate;
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return undefined;
+    }
+    current = parent;
+  }
+}
+
 function resolveGatewayDir(): string {
+  const override = process.env.VELLUM_GATEWAY_DIR?.trim();
+  if (override) {
+    if (!isGatewaySourceDir(override)) {
+      throw new Error(
+        `VELLUM_GATEWAY_DIR is set to "${override}", but it is not a valid gateway source directory.`,
+      );
+    }
+    return override;
+  }
+
   const sourceDir = join(import.meta.dir, "..", "..", "..", "gateway");
-  if (existsSync(sourceDir)) {
+  if (isGatewaySourceDir(sourceDir)) {
     return sourceDir;
+  }
+
+  const cwdSourceDir = findGatewaySourceFromCwd();
+  if (cwdSourceDir) {
+    return cwdSourceDir;
   }
 
   try {
@@ -770,8 +828,26 @@ function resolveGatewayDir(): string {
     return dirname(pkgPath);
   } catch {
     throw new Error(
-      "Gateway not found. Ensure @vellumai/vellum-gateway is installed or run from the source tree.",
+      "Gateway not found. Ensure @vellumai/vellum-gateway is installed, run from the source tree, or set VELLUM_GATEWAY_DIR.",
     );
+  }
+}
+
+function normalizeIngressUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().replace(/\/+$/, "");
+  return normalized || undefined;
+}
+
+function readWorkspaceIngressPublicBaseUrl(): string | undefined {
+  const baseDataDir = process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir());
+  const workspaceConfigPath = join(baseDataDir, ".vellum", "workspace", "config.json");
+  try {
+    const raw = JSON.parse(readFileSync(workspaceConfigPath, "utf-8")) as Record<string, unknown>;
+    const ingress = raw.ingress as Record<string, unknown> | undefined;
+    return normalizeIngressUrl(ingress?.publicBaseUrl);
+  } catch {
+    return undefined;
   }
 }
 
@@ -815,7 +891,7 @@ async function discoverPublicUrl(): Promise<string | undefined> {
   return undefined;
 }
 
-async function hatchLocal(species: Species, name: string | null): Promise<void> {
+async function hatchLocal(species: Species, name: string | null, daemonOnly: boolean = false): Promise<void> {
   const instanceName =
     name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
 
@@ -990,7 +1066,19 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
       GATEWAY_RUNTIME_PROXY_ENABLED: "true",
       GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
     };
+    const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl();
+    const ingressPublicBaseUrl =
+      workspaceIngressPublicBaseUrl
+      ?? normalizeIngressUrl(process.env.INGRESS_PUBLIC_BASE_URL);
+    if (ingressPublicBaseUrl) {
+      gatewayEnv.INGRESS_PUBLIC_BASE_URL = ingressPublicBaseUrl;
+      console.log(`   Ingress URL: ${ingressPublicBaseUrl}`);
+      if (!workspaceIngressPublicBaseUrl) {
+        console.log("   (using INGRESS_PUBLIC_BASE_URL env fallback)");
+      }
+    }
     if (publicUrl) gatewayEnv.GATEWAY_PUBLIC_URL = publicUrl;
+
     const gateway = spawn("bun", ["run", "src/index.ts"], {
       cwd: gatewayDir,
       detached: true,
@@ -1011,21 +1099,24 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
     species,
     hatchedAt: new Date().toISOString(),
   };
-  saveAssistantEntry(localEntry);
+  if (!daemonOnly) {
+    saveAssistantEntry(localEntry);
 
-  console.log("");
-  console.log(`✅ Local assistant hatched!`);
-  console.log("");
-  console.log("Instance details:");
-  console.log(`  Name: ${instanceName}`);
-  console.log(`  Runtime: ${runtimeUrl}`);
-  console.log("");
+    console.log("");
+    console.log(`✅ Local assistant hatched!`);
+    console.log("");
+    console.log("Instance details:");
+    console.log(`  Name: ${instanceName}`);
+    console.log(`  Runtime: ${runtimeUrl}`);
+    console.log("");
+  }
 }
 
 function getCliVersion(): string {
   try {
-    const pkgPath = join(import.meta.dir, "..", "..", "package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    // Use createRequire for JSON import — works in both Bun dev and compiled binary.
+    const require = createRequire(import.meta.url);
+    const pkg = require("../../package.json") as { version?: string };
     return pkg.version ?? "unknown";
   } catch {
     return "unknown";
@@ -1036,10 +1127,10 @@ export async function hatch(): Promise<void> {
   const cliVersion = getCliVersion();
   console.log(`@vellumai/cli v${cliVersion}`);
 
-  const { species, detached, name, remote } = parseArgs();
+  const { species, detached, name, remote, daemonOnly } = parseArgs();
 
   if (remote === "local") {
-    await hatchLocal(species, name);
+    await hatchLocal(species, name, daemonOnly);
     return;
   }
 

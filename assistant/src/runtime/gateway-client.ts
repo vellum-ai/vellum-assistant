@@ -15,10 +15,16 @@ export interface ChannelReplyPayload {
 export async function deliverChannelReply(
   callbackUrl: string,
   payload: ChannelReplyPayload,
+  bearerToken?: string,
 ): Promise<void> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (bearerToken) {
+    headers['Authorization'] = `Bearer ${bearerToken}`;
+  }
+
   const response = await fetch(callbackUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
   });

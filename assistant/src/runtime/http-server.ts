@@ -30,6 +30,7 @@ import {
   handleCreateRun,
   handleGetRun,
   handleRunDecision,
+  handleRunSecret,
   handleAddTrustRule,
 } from './routes/run-routes.js';
 import {
@@ -65,6 +66,7 @@ import {
 } from '../calls/twilio-routes.js';
 import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
+import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
 import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
 
 // Re-export shared types so existing consumers don't need to update imports
@@ -156,9 +158,10 @@ function isPrivateNetworkOrigin(req: Request): boolean {
   try {
     const url = new URL(origin);
     const host = url.hostname;
-    // "localhost" is not a raw IP, so check it explicitly
     if (host === 'localhost') return true;
-    return isPrivateAddress(host);
+    // URL.hostname wraps IPv6 addresses in brackets (e.g. "[::1]") — strip them
+    const rawHost = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+    return isPrivateAddress(rawHost);
   } catch {
     return false;
   }
@@ -343,6 +346,11 @@ export class RuntimeHttpServer {
     this.interfacesDir = options.interfacesDir ?? null;
   }
 
+  /** The port the server is actually listening on (resolved after start). */
+  get actualPort(): number {
+    return this.server?.port ?? this.port;
+  }
+
   async start(): Promise<void> {
     this.server = Bun.serve<RelayWebSocketData>({
       port: this.port,
@@ -399,7 +407,7 @@ export class RuntimeHttpServer {
       // Config loading may fail during startup — don't block server start
     }
 
-    log.info({ port: this.port, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
+    log.info({ port: this.actualPort, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
   }
 
   async stop(): Promise<void> {
@@ -650,8 +658,8 @@ export class RuntimeHttpServer {
         return await handleCreateRun(req, this.runOrchestrator);
       }
 
-      // Match runs/:runId, runs/:runId/decision, runs/:runId/trust-rule
-      const runsMatch = endpoint.match(/^runs\/([^/]+)(\/decision|\/trust-rule)?$/);
+      // Match runs/:runId, runs/:runId/decision, runs/:runId/trust-rule, runs/:runId/secret
+      const runsMatch = endpoint.match(/^runs\/([^/]+)(\/decision|\/trust-rule|\/secret)?$/);
       if (runsMatch) {
         if (!this.runOrchestrator) {
           return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
@@ -659,6 +667,9 @@ export class RuntimeHttpServer {
         const runId = runsMatch[1];
         if (runsMatch[2] === '/decision' && req.method === 'POST') {
           return await handleRunDecision(runId, req, this.runOrchestrator);
+        }
+        if (runsMatch[2] === '/secret' && req.method === 'POST') {
+          return await handleRunSecret(runId, req, this.runOrchestrator);
         }
         if (runsMatch[2] === '/trust-rule' && req.method === 'POST') {
           const run = this.runOrchestrator.getRun(runId);
@@ -682,7 +693,7 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
-        return await handleChannelInbound(req, this.processMessage);
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {
@@ -757,6 +768,10 @@ export class RuntimeHttpServer {
           body: formBody,
         });
         return await handleConnectAction(fakeReq);
+      }
+
+      if (endpoint === 'events' && req.method === 'GET') {
+        return handleSubscribeAssistantEvents(req, url);
       }
 
       // ── Internal OAuth callback endpoint (gateway → runtime) ──
@@ -903,7 +918,7 @@ export class RuntimeHttpServer {
             chatId: externalChatId,
             text: rendered.text || undefined,
             attachments: replyAttachments.length > 0 ? replyAttachments : undefined,
-          });
+          }, this.bearerToken);
         }
         break;
       }

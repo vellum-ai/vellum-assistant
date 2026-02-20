@@ -379,9 +379,11 @@ public final class SettingsStore: ObservableObject {
 
     func saveIngressPublicBaseUrl(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Don't update local state optimistically — wait for the daemon's
-        // success response (handled by onIngressConfigResponse) so the UI
-        // reverts automatically if the save fails.
+        // Update local state optimistically so the focus-leave onChange handler
+        // in SettingsPanel/SettingsView reads the new value instead of reverting
+        // the text field to a stale URL. The daemon's success response
+        // (handled by onIngressConfigResponse) will confirm or correct.
+        ingressPublicBaseUrl = trimmed
         try? daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed))
     }
 

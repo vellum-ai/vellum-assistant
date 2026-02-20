@@ -186,7 +186,11 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.isSending = true
         viewModel.isThinking = true
 
+        // Assistant starts streaming before user cancels
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
+
+        // User initiates cancel, then server acknowledges
+        viewModel.isCancelling = true
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
 
         XCTAssertFalse(viewModel.isSending)
@@ -197,6 +201,7 @@ final class ChatViewModelTests: XCTestCase {
     func testGenerationCancelledWithoutStreamingMessage() {
         viewModel.isSending = true
         viewModel.isThinking = true
+        viewModel.isCancelling = true
 
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
 
@@ -753,7 +758,8 @@ final class ChatViewModelTests: XCTestCase {
         let messageBAfterDequeue = viewModel.messages.first(where: { $0.text == "Message B" })!
         XCTAssertEqual(messageBAfterDequeue.status, .processing)
 
-        // Generation is cancelled
+        // User initiates cancel, then server acknowledges
+        viewModel.isCancelling = true
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
 
         let messageBAfterCancel = viewModel.messages.first(where: { $0.text == "Message B" })!
@@ -1517,6 +1523,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.sessionId = "sess-1"
         viewModel.isThinking = true
         viewModel.isSending = true
+        viewModel.isCancelling = true
 
         viewModel.handleServerMessage(.generationCancelled(
             GenerationCancelledMessage(sessionId: "sess-1")
@@ -2031,7 +2038,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testCreateSessionIfNeededSetsBootstrapping() {
         viewModel.createSessionIfNeeded(threadType: "private")
-        XCTAssertTrue(viewModel.isSending, "Should enter sending state during bootstrap")
+        XCTAssertFalse(viewModel.isSending, "Message-less session creates should not set isSending")
         XCTAssertFalse(viewModel.isThinking, "Should not show thinking for message-less session create")
         XCTAssertNotNil(viewModel.bootstrapCorrelationId, "Should set correlation ID")
         XCTAssertEqual(viewModel.threadType, "private")
@@ -2109,7 +2116,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testCreateSessionIfNeededWithoutThreadType() {
         viewModel.createSessionIfNeeded()
-        XCTAssertTrue(viewModel.isSending)
+        XCTAssertFalse(viewModel.isSending, "Message-less session creates should not set isSending")
         XCTAssertNil(viewModel.threadType, "threadType should remain nil when not specified")
     }
 

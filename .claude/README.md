@@ -122,7 +122,7 @@ Combines `/check-reviews` and `/swarm` into a single command. First triages all 
 
 ### `/mainline` - Ship current changes to main
 
-Takes all uncommitted changes, creates a branch, commits, opens a PR, merges it via squash, adds the PR to the unreviewed list, and switches back to main. A one-shot command for shipping adhoc work.
+Takes all uncommitted changes, creates a branch, commits, opens a PR, merges it via squash, adds the PR to the unreviewed list, and switches back to main. A one-shot command for shipping adhoc work. The PR body includes the original prompt (if provided) for traceability.
 
 **When to use:** When you've been working on something interactively and want to ship it without manually going through the branch/PR/merge dance.
 
@@ -135,7 +135,7 @@ Takes all uncommitted changes, creates a branch, commits, opens a PR, merges it 
 
 ### `/do` - Implement and ship a one-off task
 
-Takes a description of changes, creates an isolated git worktree, implements the changes, creates a PR, merges it, and cleans up the worktree. Like `/work` but for ad-hoc tasks that aren't in the backlog, and isolated in a worktree so it doesn't interfere with your working tree.
+Takes a description of changes, creates an isolated git worktree, implements the changes, creates a PR, merges it, and cleans up the worktree. Like `/work` but for ad-hoc tasks that aren't in the backlog, and isolated in a worktree so it doesn't interfere with your working tree. The PR body includes the original prompt for traceability.
 
 **When to use:** When you want to describe a change and have it implemented and shipped end-to-end without touching your current working directory.
 
@@ -148,7 +148,7 @@ Takes a description of changes, creates an isolated git worktree, implements the
 
 ### `/execute-plan` - Execute a multi-PR rollout plan
 
-Reads a plan file from `.private/plans/`, then sequentially implements and mainlines each PR described in the plan. Automatically detects which PRs have already been completed and picks up where it left off.
+Reads a plan file from `.private/plans/`, then sequentially implements and mainlines each PR described in the plan. Automatically detects which PRs have already been completed and picks up where it left off. The PR body includes the full plan content for traceability.
 
 **When to use:** When you have a large feature broken into an ordered sequence of PRs (created manually or via brainstorming) and want to execute them one by one.
 
@@ -167,7 +167,7 @@ A three-command workflow for executing plans one PR at a time with human review 
 2. `/safe-check-review [file]` — check for reviewer feedback, push fixes if needed, confirm ready to merge
 3. `/resume-plan [file]` — merge the current PR, implement the next one, stop for review again
 
-Multiple plans can run in parallel by specifying the plan name.
+Multiple plans can run in parallel by specifying the plan name. Each plan PR body includes the full plan content for traceability.
 
 ### `/safe-blitz` - End-to-end feature execution on a feature branch
 
@@ -187,7 +187,7 @@ Squash-merges the feature branch PR into main, closes the project issue, and cle
 
 ### `/ship-and-merge` - Ship with automated review loop
 
-Ships uncommitted changes via a PR, waits for Codex/Devin reviews, fixes valid feedback (up to 3 rounds), and squash-merges.
+Ships uncommitted changes via a PR, waits for Codex/Devin reviews, fixes valid feedback (up to 3 rounds), and squash-merges. The PR body includes the original prompt (if provided) for traceability.
 
 ### `/plan-html` - Create or refresh a plan with HTML view
 

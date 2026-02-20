@@ -241,7 +241,11 @@ final class ChatViewModelIOSTests: XCTestCase {
         viewModel.isSending = true
         viewModel.isThinking = true
 
+        // Assistant starts streaming before user cancels
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
+
+        // User initiates cancel, then server acknowledges
+        viewModel.isCancelling = true
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
 
         XCTAssertFalse(viewModel.isSending)

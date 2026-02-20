@@ -42,6 +42,7 @@ export async function handleDeleteConversation(req: Request): Promise<Response> 
 export async function handleChannelInbound(
   req: Request,
   processMessage?: MessageProcessor,
+  bearerToken?: string,
 ): Promise<Response> {
   const body = await req.json() as {
     sourceChannel?: string;
@@ -229,6 +230,7 @@ export async function handleChannelInbound(
       metadataHints,
       metadataUxBrief,
       replyCallbackUrl,
+      bearerToken,
     });
   }
 
@@ -250,6 +252,7 @@ interface BackgroundProcessingParams {
   metadataHints: string[];
   metadataUxBrief?: string;
   replyCallbackUrl?: string;
+  bearerToken?: string;
 }
 
 function processChannelMessageInBackground(params: BackgroundProcessingParams): void {
@@ -264,6 +267,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     metadataHints,
     metadataUxBrief,
     replyCallbackUrl,
+    bearerToken,
   } = params;
 
   (async () => {
@@ -285,7 +289,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
       channelDeliveryStore.markProcessed(eventId);
 
       if (replyCallbackUrl) {
-        await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl);
+        await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
       }
     } catch (err) {
       log.error({ err, conversationId }, 'Background channel message processing failed');
@@ -298,6 +302,7 @@ async function deliverReplyViaCallback(
   conversationId: string,
   externalChatId: string,
   callbackUrl: string,
+  bearerToken?: string,
 ): Promise<void> {
   const msgs = conversationStore.getMessages(conversationId);
   for (let i = msgs.length - 1; i >= 0; i--) {
@@ -320,7 +325,7 @@ async function deliverReplyViaCallback(
           chatId: externalChatId,
           text: rendered.text || undefined,
           attachments: replyAttachments.length > 0 ? replyAttachments : undefined,
-        });
+        }, bearerToken);
       }
       break;
     }

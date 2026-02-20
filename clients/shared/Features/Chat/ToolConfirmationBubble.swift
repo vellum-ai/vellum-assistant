@@ -15,6 +15,11 @@ public struct ToolConfirmationBubble: View {
     /// Tracks a selected pattern while waiting for the user to pick a scope.
     @State private var pendingPattern: String?
     @State private var showScopePickerMenu = false
+    @State private var keyboardModel: ToolConfirmationKeyboardModel?
+    @State private var popoverKeyboardModel: ToolConfirmationPopoverKeyboardModel?
+    #if os(macOS)
+    @State private var keyMonitor: Any?
+    #endif
 
     public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAlwaysAllow: @escaping (String, String, String, String) -> Void) {
         self.confirmation = confirmation
@@ -322,18 +327,248 @@ public struct ToolConfirmationBubble: View {
 
     // MARK: - Button Row
 
+    /// Build the ordered list of top-level actions based on current confirmation state.
+    private var topLevelActions: [ToolConfirmationKeyboardModel.Action] {
+        var actions: [ToolConfirmationKeyboardModel.Action] = [.allowOnce]
+        if hasRuleOptions && confirmation.persistentDecisionsAllowed {
+            actions.append(.alwaysAllow)
+        }
+        actions.append(.dontAllow)
+        return actions
+    }
+
     @ViewBuilder
     private var buttonRow: some View {
+        let actions = topLevelActions
         HStack(spacing: VSpacing.xs) {
+            confirmationButton(
+                "Allow Once",
+                isPrimary: true,
+                isDanger: false,
+                isKeyboardSelected: keyboardModel?.selectedAction == .allowOnce
+            ) { onAllow() }
             if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
-            confirmationButton("Allow Once", isPrimary: false, isDanger: false) { onAllow() }
-            confirmationButton("Don\u{2019}t Allow", isPrimary: false, isDanger: false) { onDeny() }
+            confirmationButton(
+                "Don\u{2019}t Allow",
+                isPrimary: false,
+                isDanger: false,
+                isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
+            ) { onDeny() }
             Spacer()
+        }
+        .onAppear {
+            #if os(macOS)
+            installKeyMonitor(actions: actions)
+            #else
+            keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
+            #endif
+        }
+        .onDisappear {
+            popoverKeyboardModel = nil
+            #if os(macOS)
+            removeKeyMonitor()
+            #endif
+        }
+    }
+
+    // MARK: - Key Monitor (macOS)
+
+    #if os(macOS)
+    private func installKeyMonitor(actions: [ToolConfirmationKeyboardModel.Action]) {
+        removeKeyMonitor()
+        keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Nested popover is open — handle up/down/enter/escape within it
+            if showAlwaysAllowMenu || showScopePickerMenu {
+                return handlePopoverKey(event)
+            }
+            // Top-level button row navigation
+            switch event.keyCode {
+            case 48 where event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .shift:
+                // Shift+Tab — move left
+                keyboardModel?.moveLeft()
+                return nil
+            case 48:
+                // Tab — move right
+                keyboardModel?.moveRight()
+                return nil
+            case 36, 76:
+                // Return / numpad Enter — activate
+                if let action = keyboardModel?.selectedAction {
+                    activateAction(action)
+                }
+                return nil
+            case 53:
+                // Escape — deny
+                activateAction(.dontAllow)
+                return nil
+            default:
+                return event
+            }
+        }
+    }
+
+    /// Handle key events when a nested popover (Always Allow dropdown or
+    /// scope picker) is open.
+    private func handlePopoverKey(_ event: NSEvent) -> NSEvent? {
+        switch event.keyCode {
+        case 126:
+            // Up arrow
+            popoverKeyboardModel?.moveUp()
+            return nil
+        case 125:
+            // Down arrow
+            popoverKeyboardModel?.moveDown()
+            return nil
+        case 36, 76:
+            // Return / numpad Enter — activate selected row
+            activatePopoverSelection()
+            return nil
+        case 53:
+            // Escape — back or close
+            handlePopoverEscape()
+            return nil
+        default:
+            return event
+        }
+    }
+
+    /// Activate the currently selected row in the nested popover.
+    private func activatePopoverSelection() {
+        guard let model = popoverKeyboardModel else { return }
+        let index = model.selectedIndex
+
+        if showAlwaysAllowMenu {
+            if pendingPattern != nil && needsScopeChoice {
+                // We're in the scope step of the dropdown
+                guard index < confirmation.scopeOptions.count else { return }
+                let scopeOption = confirmation.scopeOptions[index]
+                showAlwaysAllowMenu = false
+                let pattern = pendingPattern!
+                pendingPattern = nil
+                popoverKeyboardModel = nil
+                onAlwaysAllow(confirmation.requestId, pattern, scopeOption.scope, alwaysAllowDecision)
+            } else {
+                // We're in the pattern step of the dropdown
+                guard index < confirmation.allowlistOptions.count else { return }
+                let option = confirmation.allowlistOptions[index]
+                if option.pattern.isEmpty {
+                    showAlwaysAllowMenu = false
+                    popoverKeyboardModel = nil
+                    onAllow()
+                } else if needsScopeChoice {
+                    pendingPattern = option.pattern
+                    popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
+                        mode: .scopes,
+                        itemCount: confirmation.scopeOptions.count
+                    )
+                } else {
+                    showAlwaysAllowMenu = false
+                    popoverKeyboardModel = nil
+                    let scope = confirmation.scopeOptions.first?.scope ?? ""
+                    if !scope.isEmpty {
+                        onAlwaysAllow(confirmation.requestId, option.pattern, scope, alwaysAllowDecision)
+                    } else {
+                        onAllow()
+                    }
+                }
+            }
+        } else if showScopePickerMenu {
+            // Inline scope picker
+            guard index < confirmation.scopeOptions.count else { return }
+            let scopeOption = confirmation.scopeOptions[index]
+            showScopePickerMenu = false
+            popoverKeyboardModel = nil
+            if let pattern = pendingPattern {
+                onAlwaysAllow(confirmation.requestId, pattern, scopeOption.scope, alwaysAllowDecision)
+                pendingPattern = nil
+            }
+        }
+    }
+
+    /// Handle Escape in a nested popover.
+    private func handlePopoverEscape() {
+        guard let model = popoverKeyboardModel else { return }
+        switch model.handleEscape() {
+        case .backToPatterns:
+            pendingPattern = nil
+            popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
+                mode: .patterns,
+                itemCount: confirmation.allowlistOptions.count
+            )
+        case .closePopover:
+            if showAlwaysAllowMenu {
+                showAlwaysAllowMenu = false
+            }
+            if showScopePickerMenu {
+                showScopePickerMenu = false
+            }
+            popoverKeyboardModel = nil
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
+        }
+    }
+    #endif
+
+    /// Trigger the callback for a given top-level action.
+    private func activateAction(_ action: ToolConfirmationKeyboardModel.Action) {
+        switch action {
+        case .allowOnce:
+            onAllow()
+        case .alwaysAllow:
+            if confirmation.allowlistOptions.count > 1 {
+                withAnimation(VAnimation.fast) {
+                    pendingPattern = nil
+                    showAlwaysAllowMenu.toggle()
+                }
+                if showAlwaysAllowMenu {
+                    popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
+                        mode: .patterns,
+                        itemCount: confirmation.allowlistOptions.count
+                    )
+                } else {
+                    popoverKeyboardModel = nil
+                }
+            } else {
+                handleSingleOptionAlwaysAllow()
+            }
+        case .dontAllow:
+            onDeny()
+        }
+    }
+
+    /// Shared logic for the single-option Always Allow action, used by both the
+    /// inline button click handler and keyboard Enter activation.
+    private func handleSingleOptionAlwaysAllow() {
+        let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
+        if pattern.isEmpty {
+            onAllow()
+            return
+        }
+        if needsScopeChoice {
+            pendingPattern = pattern
+            showScopePickerMenu = true
+            popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
+                mode: .scopes,
+                itemCount: confirmation.scopeOptions.count
+            )
+        } else {
+            let scope = confirmation.scopeOptions.first?.scope ?? ""
+            if !scope.isEmpty {
+                onAlwaysAllow(confirmation.requestId, pattern, scope, alwaysAllowDecision)
+            } else {
+                onAllow()
+            }
         }
     }
 
     @ViewBuilder
-    private func confirmationButton(_ label: String, isPrimary: Bool, isDanger: Bool, action: @escaping () -> Void) -> some View {
+    private func confirmationButton(_ label: String, isPrimary: Bool, isDanger: Bool, isKeyboardSelected: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
                 .font(VFont.caption)
@@ -344,7 +579,10 @@ public struct ToolConfirmationBubble: View {
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(isPrimary || isDanger ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(
+                            isKeyboardSelected ? VColor.accent : (isPrimary || isDanger ? Color.clear : VColor.surfaceBorder),
+                            lineWidth: isKeyboardSelected ? 2 : 1
+                        )
                 )
         }
         .buttonStyle(.plain)
@@ -358,23 +596,8 @@ public struct ToolConfirmationBubble: View {
             alwaysAllowDropdown
         } else {
             let patternDesc = confirmation.allowlistOptions.first?.description ?? ""
-            confirmationButton("Always Allow", isPrimary: true, isDanger: false) {
-                let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
-                if pattern.isEmpty {
-                    onAllow()
-                    return
-                }
-                if needsScopeChoice {
-                    pendingPattern = pattern
-                    showScopePickerMenu = true
-                } else {
-                    let scope = confirmation.scopeOptions.first?.scope ?? ""
-                    if !scope.isEmpty {
-                        onAlwaysAllow(confirmation.requestId, pattern, scope, alwaysAllowDecision)
-                    } else {
-                        onAllow()
-                    }
-                }
+            confirmationButton("Always Allow", isPrimary: false, isDanger: false, isKeyboardSelected: keyboardModel?.selectedAction == .alwaysAllow) {
+                handleSingleOptionAlwaysAllow()
             }
             .help(patternDesc.isEmpty ? "Always allow this action" : patternDesc)
             .popover(isPresented: $showScopePickerMenu, arrowEdge: .bottom) {
@@ -387,10 +610,18 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var alwaysAllowDropdown: some View {
-        confirmationButton("Always Allow", isPrimary: true, isDanger: false) {
+        confirmationButton("Always Allow", isPrimary: false, isDanger: false, isKeyboardSelected: keyboardModel?.selectedAction == .alwaysAllow) {
             withAnimation(VAnimation.fast) {
                 pendingPattern = nil
                 showAlwaysAllowMenu.toggle()
+            }
+            if showAlwaysAllowMenu {
+                popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
+                    mode: .patterns,
+                    itemCount: confirmation.allowlistOptions.count
+                )
+            } else {
+                popoverKeyboardModel = nil
             }
         }
         .popover(isPresented: $showAlwaysAllowMenu, arrowEdge: .bottom) {
@@ -400,6 +631,10 @@ public struct ToolConfirmationBubble: View {
                     HStack(spacing: VSpacing.xs) {
                         Button {
                             pendingPattern = nil
+                            popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
+                                mode: .patterns,
+                                itemCount: confirmation.allowlistOptions.count
+                            )
                         } label: {
                             Image(systemName: "chevron.left")
                                 .font(.system(size: 10, weight: .semibold))
@@ -418,9 +653,13 @@ public struct ToolConfirmationBubble: View {
                         .background(VColor.divider)
 
                     ForEach(Array(confirmation.scopeOptions.enumerated()), id: \.element.scope) { index, scopeOption in
-                        ScopePickerRow(label: scopeOption.label) {
+                        ScopePickerRow(
+                            label: scopeOption.label,
+                            isKeyboardSelected: popoverKeyboardModel?.mode == .scopes && popoverKeyboardModel?.selectedIndex == index
+                        ) {
                             showAlwaysAllowMenu = false
                             pendingPattern = nil
+                            popoverKeyboardModel = nil
                             onAlwaysAllow(confirmation.requestId, pending, scopeOption.scope, alwaysAllowDecision)
                         }
 
@@ -432,14 +671,23 @@ public struct ToolConfirmationBubble: View {
                 } else {
                     // Pattern selection step
                     ForEach(Array(confirmation.allowlistOptions.enumerated()), id: \.element.pattern) { index, option in
-                        AlwaysAllowRow(label: option.description) {
+                        AlwaysAllowRow(
+                            label: option.description,
+                            isKeyboardSelected: popoverKeyboardModel?.mode == .patterns && popoverKeyboardModel?.selectedIndex == index
+                        ) {
                             if option.pattern.isEmpty {
                                 showAlwaysAllowMenu = false
+                                popoverKeyboardModel = nil
                                 onAllow()
                             } else if needsScopeChoice {
                                 pendingPattern = option.pattern
+                                popoverKeyboardModel = ToolConfirmationPopoverKeyboardModel(
+                                    mode: .scopes,
+                                    itemCount: confirmation.scopeOptions.count
+                                )
                             } else {
                                 showAlwaysAllowMenu = false
+                                popoverKeyboardModel = nil
                                 let scope = confirmation.scopeOptions.first?.scope ?? ""
                                 if !scope.isEmpty {
                                     onAlwaysAllow(confirmation.requestId, option.pattern, scope, alwaysAllowDecision)
@@ -476,8 +724,12 @@ public struct ToolConfirmationBubble: View {
                 .background(VColor.divider)
 
             ForEach(Array(confirmation.scopeOptions.enumerated()), id: \.element.scope) { index, scopeOption in
-                ScopePickerRow(label: scopeOption.label) {
+                ScopePickerRow(
+                    label: scopeOption.label,
+                    isKeyboardSelected: popoverKeyboardModel?.mode == .scopes && popoverKeyboardModel?.selectedIndex == index
+                ) {
                     showScopePickerMenu = false
+                    popoverKeyboardModel = nil
                     if let pattern = pendingPattern {
                         onAlwaysAllow(confirmation.requestId, pattern, scopeOption.scope, alwaysAllowDecision)
                         pendingPattern = nil
@@ -534,6 +786,7 @@ public struct ToolConfirmationBubble: View {
 
 private struct AlwaysAllowRow: View {
     let label: String
+    var isKeyboardSelected: Bool = false
     let action: () -> Void
 
     @State private var isHovered = false
@@ -548,7 +801,11 @@ private struct AlwaysAllowRow: View {
                 .padding(.horizontal, VSpacing.sm)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear)
+                        .fill(isHovered || isKeyboardSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .stroke(isKeyboardSelected ? VColor.accent : .clear, lineWidth: 2)
                 )
                 .contentShape(Rectangle())
         }
@@ -569,6 +826,7 @@ private struct AlwaysAllowRow: View {
 
 private struct ScopePickerRow: View {
     let label: String
+    var isKeyboardSelected: Bool = false
     let action: () -> Void
 
     @State private var isHovered = false
@@ -583,7 +841,11 @@ private struct ScopePickerRow: View {
                 .padding(.horizontal, VSpacing.sm)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear)
+                        .fill(isHovered || isKeyboardSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .stroke(isKeyboardSelected ? VColor.accent : .clear, lineWidth: 2)
                 )
                 .contentShape(Rectangle())
         }

@@ -1,10 +1,29 @@
 /**
  * Centralized URL builders for all public-facing ingress endpoints.
  *
- * Resolves the canonical public base URL via:
- *   ingress.publicBaseUrl → env INGRESS_PUBLIC_BASE_URL
+ * ## Source-of-truth precedence
  *
- * Supersedes the per-domain URL helpers in calls/twilio-webhook-urls.ts.
+ * The canonical public base URL is resolved through a two-level chain:
+ *
+ *   1. **User Settings** (`config.ingress.publicBaseUrl`) — set via the
+ *      Settings UI or `config set ingress.publicBaseUrl`. This is the
+ *      primary source of truth. When the assistant spawns or restarts
+ *      the gateway, this value is forwarded as the `INGRESS_PUBLIC_BASE_URL`
+ *      environment variable so both processes agree on the same URL.
+ *
+ *   2. **Environment variable** (`INGRESS_PUBLIC_BASE_URL`) — serves as a
+ *      fallback for operational use (e.g. direct gateway-only deployments
+ *      without the assistant, or CI overrides). When the assistant is
+ *      managing the gateway, the env var is set automatically from (1).
+ *
+ * This chain ensures that:
+ *   - The assistant's outbound callback URLs (Twilio webhooks, OAuth
+ *     redirect URIs, etc.) match the gateway's inbound signature
+ *     reconstruction URL.
+ *   - Changing the URL in Settings propagates to the gateway on restart,
+ *     eliminating Twilio signature mismatch risk.
+ *
+ * All public-facing ingress URL construction is centralized here.
  */
 
 export interface IngressConfig {
@@ -19,9 +38,8 @@ function normalizeUrl(url: string): string {
 }
 
 /**
- * Resolve the canonical public base URL:
- *   1. ingress.publicBaseUrl (preferred, workspace config)
- *   2. INGRESS_PUBLIC_BASE_URL env var
+ * Resolve the canonical public base URL using the precedence chain
+ * documented at the top of this module.
  *
  * Throws if no source provides a non-empty value.
  */

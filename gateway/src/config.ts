@@ -209,24 +209,11 @@ export function loadConfig(): GatewayConfig {
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN || undefined;
   const publicUrl = process.env.GATEWAY_PUBLIC_URL || undefined;
 
-  // Detect legacy TWILIO_WEBHOOK_BASE_URL env var and use as fallback so
-  // existing deploys don't silently break after the ingress cleanup (#5955).
-  const legacyTwilioWebhookBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL || undefined;
-  const ingressEnvValue = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
-  if (legacyTwilioWebhookBaseUrl) {
-    if (ingressEnvValue) {
-      log.warn(
-        'TWILIO_WEBHOOK_BASE_URL is deprecated and will be ignored because INGRESS_PUBLIC_BASE_URL is set. ' +
-        'Remove TWILIO_WEBHOOK_BASE_URL from your environment.',
-      );
-    } else {
-      log.warn(
-        'TWILIO_WEBHOOK_BASE_URL is deprecated. Set INGRESS_PUBLIC_BASE_URL instead. ' +
-        'Using TWILIO_WEBHOOK_BASE_URL as a fallback for now.',
-      );
-    }
-  }
-  const ingressPublicBaseUrl = ingressEnvValue || legacyTwilioWebhookBaseUrl;
+  // In the default local deployment, the assistant's hatch process sets this
+  // env var from config.ingress.publicBaseUrl when spawning the gateway.
+  // This ensures the gateway reconstructs the same canonical URL that the
+  // assistant used to register Twilio webhooks, preventing signature mismatch.
+  const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
 
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
 

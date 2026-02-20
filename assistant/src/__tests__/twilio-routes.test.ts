@@ -52,7 +52,7 @@ let mockAuthToken: string | undefined = 'test-auth-token-for-webhooks';
 
 mock.module('../security/secure-keys.js', () => ({
   getSecureKey: (account: string) => {
-    if (account === 'twilio_auth_token') return mockAuthToken;
+    if (account === 'credential:twilio:auth_token') return mockAuthToken;
     return undefined;
   },
 }));
@@ -72,7 +72,7 @@ mock.module('../calls/twilio-provider.js', () => {
       readonly name = 'twilio';
 
       static getAuthToken(): string | null {
-        return getSecureKey('twilio_auth_token') ?? null;
+        return getSecureKey('credential:twilio:auth_token') ?? null;
       }
 
       static verifyWebhookSignature(
@@ -205,9 +205,9 @@ describe('twilio webhook routes', () => {
   });
 
   async function startServer(): Promise<void> {
-    port = 20000 + Math.floor(Math.random() * 1000);
-    server = new RuntimeHttpServer({ port, bearerToken: TEST_TOKEN });
+    server = new RuntimeHttpServer({ port: 0, bearerToken: TEST_TOKEN });
     await server.start();
+    port = server.actualPort;
   }
 
   async function stopServer(): Promise<void> {

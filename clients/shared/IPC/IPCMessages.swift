@@ -1632,12 +1632,27 @@ public struct IngressConfigRequestMessage: Encodable, Sendable {
     }
 }
 
-public struct IngressConfigResponseMessage: Decodable, Sendable {
+public struct IngressConfigResponseMessage: Sendable {
     public let type: String
     public let publicBaseUrl: String
     public let localGatewayTarget: String
     public let success: Bool
     public let error: String?
+}
+
+extension IngressConfigResponseMessage: Decodable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        publicBaseUrl = try container.decode(String.self, forKey: .publicBaseUrl)
+        localGatewayTarget = try container.decodeIfPresent(String.self, forKey: .localGatewayTarget) ?? "http://127.0.0.1:7830"
+        success = try container.decode(Bool.self, forKey: .success)
+        error = try container.decodeIfPresent(String.self, forKey: .error)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type, publicBaseUrl, localGatewayTarget, success, error
+    }
 }
 
 // MARK: - Model Config Messages
@@ -1797,6 +1812,18 @@ extension IPCSessionSwitchRequest {
     }
 }
 
+/// Sent by the client to request subagent detail (events) for a completed subagent.
+public struct SubagentDetailRequestMessage: Encodable, Sendable {
+    public let type: String = "subagent_detail_request"
+    public let subagentId: String
+    public let conversationId: String
+
+    public init(subagentId: String, conversationId: String) {
+        self.subagentId = subagentId
+        self.conversationId = conversationId
+    }
+}
+
 /// Sent by the client to abort a running subagent.
 public struct SubagentAbortMessage: Encodable, Sendable {
     public let type: String = "subagent_abort"
@@ -1920,6 +1947,7 @@ public enum ServerMessage: Decodable, Sendable {
     case subagentSpawned(IPCSubagentSpawned)
     case subagentStatusChanged(IPCSubagentStatusChanged)
     indirect case subagentEvent(SubagentEventMessage)
+    case subagentDetailResponse(IPCSubagentDetailResponse)
     case pong
     case unknown(String)
 
@@ -2238,6 +2266,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "subagent_event":
             let message = try SubagentEventMessage(from: decoder)
             self = .subagentEvent(message)
+        case "subagent_detail_response":
+            let message = try IPCSubagentDetailResponse(from: decoder)
+            self = .subagentDetailResponse(message)
         case "pong":
             self = .pong
         default:

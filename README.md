@@ -211,15 +211,15 @@ Connect via the Settings UI or `integration_connect` IPC message. OAuth2 tokens 
 
 ### Twitter (X)
 
-Twitter integration supports posting to X via two mechanisms:
+Twitter integration has two components: an OAuth2 identity flow and a CDP-based posting path.
 
-1. **OAuth2 PKCE flow** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The daemon runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. Tokens are stored in the credential vault with `allowedTools: ["twitter_post"]`. Connect via the Settings UI or `twitter_auth_start` IPC message.
+- **OAuth2 PKCE flow** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The daemon runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. This flow is used for **identity verification only** (`GET /2/users/me`) — it confirms the user's Twitter account and stores credentials in the vault, but is not used for posting. Connect via the Settings UI or `twitter_auth_start` IPC message.
 
-2. **Browser session** (CDP): The `vellum x post` CLI command posts via Chrome DevTools Protocol, executing GraphQL mutations through an authenticated x.com browser tab. Session cookies are captured via Ride Shotgun (`vellum x refresh`).
+- **Browser session posting** (CDP): The `vellum x post` CLI command posts via Chrome DevTools Protocol, executing GraphQL mutations through an authenticated x.com browser tab. This is the **only posting mechanism**. Session cookies are captured via Ride Shotgun (`vellum x refresh`).
 
-**Available tool**: `twitter_post` — posts a tweet. The OAuth2 scopes include `tweet.read` and `users.read` for identity verification, but read functionality is not exposed as a tool.
+**Available tool**: `twitter_post` — posts a tweet via CDP. OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`) are requested during the auth flow, but posting is handled exclusively through the browser session.
 
-**Setup (OAuth2 mode)**: Store your Twitter app's Client ID via the credential vault (`credential:integration:twitter:oauth_client_id`). Optionally store a Client Secret. Then initiate the OAuth2 flow from the Settings UI.
+**Setup**: Store your Twitter app's Client ID via the credential vault (`credential:integration:twitter:oauth_client_id`). Optionally store a Client Secret. Initiate the OAuth2 flow from the Settings UI to verify your identity. For posting, ensure Chrome is running with remote debugging enabled and an authenticated x.com tab.
 
 ## Dynamic Skill Authoring
 
@@ -467,7 +467,7 @@ This repo includes Claude Code slash commands (in `.claude/commands/`) for agent
 | `/safe-blitz <feature>` | End-to-end feature delivery on a feature branch — plans, creates issues, swarm-executes in parallel, sweeps for review feedback (scoped to the namespace). All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--auto`, `--workers N`, `--skip-plan`, `--branch NAME`. |
 | `/safe-blitz-done [PR\|branch]` | Finalize a safe-blitz — squash-merges the feature branch PR into main, sets the project issue to Done, closes the issue, and deletes the local branch. Auto-detects the PR from current branch, open `feature/*` PRs, or project board "In Review" items. |
 | `/execute-plan <file>` | Sequential multi-PR rollout — reads a plan file from `.private/plans/`, executes each PR in order, mainlining each before moving to the next. |
-| `/check-reviews-and-swarm [workers] [max-tasks] [--namespace NAME]` | Combined review sweep + execution pass — runs review checks, then swarms on actionable feedback items. When `--namespace` is provided, it is passed to both `/check-reviews` (to filter PRs and prefix TODO items) and `/swarm` (to filter TODO items and namespace branches). |
+| `/check-reviews-and-swarm [workers] [max-tasks] [--namespace NAME]` | Combined review sweep + execution pass — runs review checks, then swarms on actionable feedback items. When `--namespace` is provided, it is passed to both `/check-reviews` (to filter PRs and prefix TODO items) and `/swarm` (to filter TODO items and namespace branches). When omitted, `/check-reviews` still infers namespaces from PR branch names matching `swarm/<NAME>/...`. |
 
 ### Human-in-the-loop plan execution
 
@@ -494,13 +494,14 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 |---------|---------|
 | `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists). |
 | `/release [version]` | Cut a release: pull main, determine/create version tag, generate release notes, publish GitHub Release, and verify CI trigger. |
+| `/update` | Pull latest from `main`, restart daemon/app, preserve any source-run gateway process, and launch app with `VELLUM_GATEWAY_DIR` pinned to local `gateway/`. |
 
 
 ### Review
 
 | Command | Purpose |
 |---------|---------|
-| `/check-reviews [--namespace NAME]` | Checks for review feedback on unreviewed PRs, assesses feedback contextually (valid, nonsensical, or regression risk), creates follow-up tasks for valid feedback, and halts for user decision on regression risks. When `--namespace` is provided, only PRs whose head branch starts with `swarm/<namespace>/` are processed, and any TODO items added are prefixed with `[<namespace>]`. |
+| `/check-reviews [--namespace NAME]` | Checks for review feedback on unreviewed PRs, assesses feedback contextually (valid, nonsensical, or regression risk), creates follow-up tasks for valid feedback, and halts for user decision on regression risks. When `--namespace` is provided, only PRs whose head branch starts with `swarm/<namespace>/` are processed, and any TODO items added are prefixed with `[<namespace>]`. When `--namespace` is omitted, all PRs are processed, but TODO items are still namespaced if the PR's branch name matches `swarm/<NAME>/...` (the namespace is inferred from the branch). |
 
 ### Typical flow
 

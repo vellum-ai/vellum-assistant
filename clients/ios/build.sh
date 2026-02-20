@@ -2,12 +2,13 @@
 set -euo pipefail
 
 # iOS build script for vellum-assistant-ios.
+# Uses the native .xcodeproj (generated from project.yml via XcodeGen).
 # Produces a signed .ipa for TestFlight/App Store upload.
 #
 # Usage:
 #   ./build.sh              Build debug (simulator)
 #   ./build.sh release      Build release .ipa for TestFlight
-#   ./build.sh test         Run iOS tests
+#   ./build.sh test         Run iOS tests (via xcodebuild)
 #   ./build.sh clean        Remove build artifacts
 #
 # Environment variables (for CI):
@@ -15,6 +16,12 @@ set -euo pipefail
 #   DISPLAY_VERSION   Override CFBundleShortVersionString (default: from Package.swift)
 #   BUILD_VERSION     Override CFBundleVersion (default: 1)
 #   SIGN_IDENTITY     Override code signing identity (default: Apple Distribution)
+#
+# Migration notes:
+#   - Use `open clients/ios/vellum-assistant-ios.xcodeproj` (not Package.swift)
+#   - After switching: rm -rf ~/Library/Developer/Xcode/DerivedData/*vellum*
+#   - `swift build --product vellum-assistant-ios` no longer works — use xcodebuild
+#   - XcodeGen only needed when project structure changes: cd ios && xcodegen
 
 # ── DEVELOPER_DIR ──────────────────────────────────────────────────────
 if [ -z "${DEVELOPER_DIR:-}" ]; then
@@ -34,10 +41,8 @@ CLIENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIST_DIR="$SCRIPT_DIR/dist"
 
 # ── Configuration ──────────────────────────────────────────────────────
-BUNDLE_ID="com.vellum.vellum-assistant-ios"
-SCHEME="vellum-assistant-ios"
-INFOPLIST="$SCRIPT_DIR/Resources/Info.plist"
-ENTITLEMENTS="$SCRIPT_DIR/Resources/vellum-assistant-ios.entitlements"
+SCHEME="VellumAssistantIOS"
+PROJECT="$SCRIPT_DIR/vellum-assistant-ios.xcodeproj"
 
 # Version (overridable via env, defaults to Package.swift)
 if [ -z "${DISPLAY_VERSION:-}" ]; then
@@ -56,32 +61,13 @@ CMD="${1:-build}"
 case "$CMD" in
     test)
         echo "Running iOS tests..."
-        cd "$CLIENTS_DIR"
-        # swift test --filter compiles ALL test targets before filtering at
-        # runtime. The macOS test target may crash with fatalError on CI
-        # (WebKit headless environment). Tolerate that specific case — same
-        # pattern as macos/build.sh.
-        set +e
-        TEST_OUTPUT=$(swift test --filter vellum_assistant_iosTests 2>&1)
-        TEST_EXIT=$?
-        set -e
-        echo "$TEST_OUTPUT"
-
-        if [ $TEST_EXIT -eq 0 ]; then
-            exit 0
-        fi
-
-        # Tolerate fatalError / signal-5 crashes from the macOS test target
-        # if no actual test failures were reported for the iOS tests.
-        if echo "$TEST_OUTPUT" | grep -q "fatalError\|unexpected signal code 5" && \
-           ! echo "$TEST_OUTPUT" | grep -qE "with [1-9][0-9]* failure"; then
-            echo ""
-            echo "warning: swift test exited non-zero due to macOS test target crash (fatalError/signal 5)."
-            echo "iOS test assertions passed. See macos/build.sh for the same tolerance pattern."
-            exit 0
-        fi
-
-        exit $TEST_EXIT
+        xcodebuild test \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO
+        exit $?
         ;;
     clean)
         echo "Cleaning..."
@@ -102,15 +88,16 @@ mkdir -p "$DIST_DIR"
 # ── Debug build (simulator) ───────────────────────────────────────────
 if [ "$CMD" = "build" ]; then
     echo "Building debug (simulator)..."
-    cd "$CLIENTS_DIR"
     xcodebuild build \
+        -project "$PROJECT" \
         -scheme "$SCHEME" \
         -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
         -configuration Debug \
         CODE_SIGNING_ALLOWED=NO \
-        -derivedDataPath "$DIST_DIR/DerivedData"
+        -derivedDataPath "$DIST_DIR/DerivedData" \
+        MARKETING_VERSION="$DISPLAY_VERSION" \
+        CURRENT_PROJECT_VERSION="$BUILD_VERSION"
     echo "Debug build complete."
-    echo "Binary: $DIST_DIR/DerivedData/Build/Products/Debug-iphonesimulator/$SCHEME"
     exit 0
 fi
 
@@ -136,27 +123,16 @@ echo "  Identity: $SIGN_IDENTITY"
 # Clean previous artifacts
 rm -rf "$ARCHIVE_PATH" "$EXPORT_PATH"
 
-# Archive with build settings overrides to fix the Generic Archive issue.
-# SPM executable targets produce bare Mach-O binaries by default. These
-# overrides tell Xcode to produce a proper .app bundle in the archive's
-# Products/Applications/ directory, which is required for iOS distribution.
-# See: https://developer.apple.com/documentation/technotes/tn3110-resolving-generic-xcode-archive-issue
-cd "$CLIENTS_DIR"
+# Archive using the native .xcodeproj (Application target produces a proper
+# .app bundle in Products/Applications/ without build setting workarounds).
 xcodebuild archive \
+    -project "$PROJECT" \
     -scheme "$SCHEME" \
     -destination 'generic/platform=iOS' \
     -archivePath "$ARCHIVE_PATH" \
     -configuration Release \
-    WRAPPER_EXTENSION=app \
-    INSTALL_PATH=/Applications \
-    GENERATE_INFOPLIST_FILE=NO \
-    INFOPLIST_FILE="$INFOPLIST" \
-    CODE_SIGN_STYLE=Automatic \
     DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
     CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
-    PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-    CODE_SIGN_ENTITLEMENTS="$ENTITLEMENTS" \
-    ENABLE_BITCODE=NO \
     MARKETING_VERSION="$DISPLAY_VERSION" \
     CURRENT_PROJECT_VERSION="$BUILD_VERSION"
 
@@ -167,11 +143,8 @@ APP_PATH=$(find "$ARCHIVE_PATH/Products/Applications" -name "*.app" -maxdepth 1 
 if [ -z "$APP_PATH" ]; then
     echo "ERROR: Archive does not contain an iOS app in Products/Applications/"
     echo ""
-    echo "This is a Generic Archive — the build settings overrides may not have worked."
     echo "Inspect the archive with:"
     echo "  find '$ARCHIVE_PATH/Products' -type f"
-    echo ""
-    echo "See: https://developer.apple.com/documentation/technotes/tn3110-resolving-generic-xcode-archive-issue"
     exit 1
 fi
 echo "  App: $(basename "$APP_PATH")"

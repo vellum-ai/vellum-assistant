@@ -719,17 +719,6 @@ public struct IPCHistoryResponseMessageSubagentNotification: Codable, Sendable {
     public let status: String
     public let error: String?
     public let conversationId: String?
-    /// Subagent objective text, populated from DB on history load.
-    public let objective: String?
-    /// Subagent events (text, tool_use, tool_result), populated from DB on history load.
-    public let events: [IPCHistoryResponseMessageSubagentNotificationEvent]?
-}
-
-public struct IPCHistoryResponseMessageSubagentNotificationEvent: Codable, Sendable {
-    public let type: String
-    public let content: String
-    public let toolName: String?
-    public let isError: Bool?
 }
 
 public struct IPCHistoryResponseSurface: Codable, Sendable {
@@ -1516,6 +1505,26 @@ public struct IPCSlackWebhookConfigResponse: Codable, Sendable {
 public struct IPCSubagentAbortRequest: Codable, Sendable {
     public let type: String
     public let subagentId: String
+}
+
+public struct IPCSubagentDetailRequest: Codable, Sendable {
+    public let type: String
+    public let subagentId: String
+    public let conversationId: String
+}
+
+public struct IPCSubagentDetailResponse: Codable, Sendable {
+    public let type: String
+    public let subagentId: String
+    public let objective: String?
+    public let events: [IPCSubagentDetailResponseEvent]
+}
+
+public struct IPCSubagentDetailResponseEvent: Codable, Sendable {
+    public let type: String
+    public let content: String
+    public let toolName: String?
+    public let isError: Bool?
 }
 
 public struct IPCSubagentMessageRequest: Codable, Sendable {
