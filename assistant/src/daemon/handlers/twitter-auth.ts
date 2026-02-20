@@ -101,7 +101,7 @@ export async function handleTwitterAuthStart(
       allowedDomains: [],
       oauth2TokenUrl: 'https://api.x.com/2/oauth2/token',
       oauth2ClientId: clientId,
-      ...(clientSecret != null ? { oauth2ClientSecret: clientSecret } : {}),
+      oauth2ClientSecret: clientSecret ?? null,
       grantedScopes: result.grantedScopes,
       expiresAt: result.tokens.expiresIn ? Date.now() + result.tokens.expiresIn * 1000 : null,
     });
