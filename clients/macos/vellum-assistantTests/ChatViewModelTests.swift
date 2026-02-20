@@ -201,8 +201,8 @@ final class ChatViewModelTests: XCTestCase {
     func testGenerationCancelledWithoutStreamingMessage() {
         viewModel.isSending = true
         viewModel.isThinking = true
-        viewModel.isCancelling = true
 
+        viewModel.isCancelling = true
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
 
         XCTAssertFalse(viewModel.isSending)
@@ -1972,6 +1972,109 @@ final class ChatViewModelTests: XCTestCase {
         // Should not be tracked in pendingMessageIds since it's sent directly
         XCTAssertEqual(viewModel.pendingMessageIds.count, 0,
                         "Retried message should not be tracked when no other send is in progress")
+    }
+
+    // MARK: - Confirmation State Reconciliation
+
+    func testToolResultPermissionDeniedDowngradesApprovedConfirmation() {
+        viewModel.isSending = true
+
+        // Build an assistant turn with one pending tool call.
+        viewModel.handleServerMessage(
+            .toolUseStart(
+                ToolUseStartMessage(
+                    type: "tool_use_start",
+                    toolName: "computer_use_click",
+                    input: ["x": AnyCodable(100), "y": AnyCodable(200)],
+                    sessionId: nil
+                )
+            )
+        )
+
+        var confirmation = ToolConfirmationData(
+            requestId: "req-accessibility",
+            toolName: "computer_use_click",
+            input: ["x": AnyCodable(100), "y": AnyCodable(200)],
+            riskLevel: "high",
+            diff: nil,
+            allowlistOptions: [],
+            scopeOptions: [],
+            executionTarget: nil,
+            persistentDecisionsAllowed: true
+        )
+        confirmation.state = .approved
+        viewModel.messages.append(ChatMessage(role: .assistant, text: "", confirmation: confirmation))
+
+        viewModel.handleServerMessage(
+            .toolResult(
+                ToolResultMessage(
+                    type: "tool_result",
+                    toolName: "computer_use_click",
+                    result: "Accessibility permission not granted",
+                    isError: true,
+                    diff: nil,
+                    status: nil,
+                    sessionId: nil,
+                    imageData: nil
+                )
+            )
+        )
+
+        XCTAssertEqual(
+            viewModel.messages.last?.confirmation?.state,
+            .denied,
+            "Permission-denied execution errors should not leave confirmation in approved state"
+        )
+    }
+
+    func testToolResultNonPermissionErrorKeepsApprovedConfirmation() {
+        viewModel.isSending = true
+
+        viewModel.handleServerMessage(
+            .toolUseStart(
+                ToolUseStartMessage(
+                    type: "tool_use_start",
+                    toolName: "computer_use_click",
+                    input: ["x": AnyCodable(100), "y": AnyCodable(200)],
+                    sessionId: nil
+                )
+            )
+        )
+
+        var confirmation = ToolConfirmationData(
+            requestId: "req-non-permission",
+            toolName: "computer_use_click",
+            input: ["x": AnyCodable(100), "y": AnyCodable(200)],
+            riskLevel: "high",
+            diff: nil,
+            allowlistOptions: [],
+            scopeOptions: [],
+            executionTarget: nil,
+            persistentDecisionsAllowed: true
+        )
+        confirmation.state = .approved
+        viewModel.messages.append(ChatMessage(role: .assistant, text: "", confirmation: confirmation))
+
+        viewModel.handleServerMessage(
+            .toolResult(
+                ToolResultMessage(
+                    type: "tool_result",
+                    toolName: "computer_use_click",
+                    result: "Action failed: target element disappeared",
+                    isError: true,
+                    diff: nil,
+                    status: nil,
+                    sessionId: nil,
+                    imageData: nil
+                )
+            )
+        )
+
+        XCTAssertEqual(
+            viewModel.messages.last?.confirmation?.state,
+            .approved,
+            "Non-permission failures should preserve the user's approval decision"
+        )
     }
 
     // MARK: - Thinking Indicator During Tool Execution
