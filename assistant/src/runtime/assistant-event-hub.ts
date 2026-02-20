@@ -122,6 +122,11 @@ export class AssistantEventHub {
   subscriberCount(): number {
     return this.subscribers.size;
   }
+
+  /** Returns true if the hub can accept at least one more subscriber. */
+  hasCapacity(): boolean {
+    return this.subscribers.size < this.maxSubscribers;
+  }
 }
 
 // ── Process-level singleton ───────────────────────────────────────────────────

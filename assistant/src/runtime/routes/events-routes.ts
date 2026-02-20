@@ -41,6 +41,13 @@ export function handleSubscribeAssistantEvents(
   const hub = options?.hub ?? assistantEventHub;
   const heartbeatIntervalMs = options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
 
+  // ── Capacity pre-check ───────────────────────────────────────────────────
+  // Check hub capacity before calling getOrCreateConversation so that
+  // rejected connections (hub full) do not create persistent DB rows.
+  if (!hub.hasCapacity()) {
+    return Response.json({ error: 'Too many concurrent connections' }, { status: 503 });
+  }
+
   const mapping = getOrCreateConversation(conversationKey);
   const encoder = new TextEncoder();
 
