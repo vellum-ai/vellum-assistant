@@ -241,6 +241,7 @@ export function initializeDb(): void {
       message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
       status TEXT NOT NULL DEFAULT 'running',
       pending_confirmation TEXT,
+      pending_secret TEXT,
       input_tokens INTEGER NOT NULL DEFAULT 0,
       output_tokens INTEGER NOT NULL DEFAULT 0,
       estimated_cost REAL NOT NULL DEFAULT 0,
@@ -249,6 +250,8 @@ export function initializeDb(): void {
       updated_at INTEGER NOT NULL
     )
   `);
+
+  try { database.run(/*sql*/ `ALTER TABLE message_runs ADD COLUMN pending_secret TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE message_runs ADD COLUMN pending_secret (likely already exists)'); }
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS reminders (

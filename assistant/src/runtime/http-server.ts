@@ -30,6 +30,7 @@ import {
   handleCreateRun,
   handleGetRun,
   handleRunDecision,
+  handleRunSecret,
   handleAddTrustRule,
 } from './routes/run-routes.js';
 import {
@@ -657,8 +658,8 @@ export class RuntimeHttpServer {
         return await handleCreateRun(req, this.runOrchestrator);
       }
 
-      // Match runs/:runId, runs/:runId/decision, runs/:runId/trust-rule
-      const runsMatch = endpoint.match(/^runs\/([^/]+)(\/decision|\/trust-rule)?$/);
+      // Match runs/:runId, runs/:runId/decision, runs/:runId/trust-rule, runs/:runId/secret
+      const runsMatch = endpoint.match(/^runs\/([^/]+)(\/decision|\/trust-rule|\/secret)?$/);
       if (runsMatch) {
         if (!this.runOrchestrator) {
           return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
@@ -666,6 +667,9 @@ export class RuntimeHttpServer {
         const runId = runsMatch[1];
         if (runsMatch[2] === '/decision' && req.method === 'POST') {
           return await handleRunDecision(runId, req, this.runOrchestrator);
+        }
+        if (runsMatch[2] === '/secret' && req.method === 'POST') {
+          return await handleRunSecret(runId, req, this.runOrchestrator);
         }
         if (runsMatch[2] === '/trust-rule' && req.method === 'POST') {
           const run = this.runOrchestrator.getRun(runId);

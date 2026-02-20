@@ -88,6 +88,7 @@ export function handleGetRun(
     status: run.status,
     messageId: run.messageId,
     pendingConfirmation: run.pendingConfirmation,
+    pendingSecret: run.pendingSecret,
     error: run.error,
     createdAt: new Date(run.createdAt).toISOString(),
     updatedAt: new Date(run.updatedAt).toISOString(),
@@ -216,4 +217,46 @@ export async function handleAddTrustRule(
     log.error({ err }, 'Failed to add trust rule');
     return Response.json({ error: 'Failed to add trust rule' }, { status: 500 });
   }
+}
+
+export async function handleRunSecret(
+  runId: string,
+  req: Request,
+  runOrchestrator: RunOrchestrator,
+): Promise<Response> {
+  const run = runOrchestrator.getRun(runId);
+  if (!run) {
+    return Response.json({ error: 'Run not found' }, { status: 404 });
+  }
+
+  const body = await req.json() as {
+    value?: string;
+    delivery?: string;
+  };
+
+  const { value, delivery } = body;
+
+  if (delivery !== undefined && delivery !== 'store' && delivery !== 'transient_send') {
+    return Response.json(
+      { error: 'delivery must be "store" or "transient_send"' },
+      { status: 400 },
+    );
+  }
+
+  const result = runOrchestrator.submitSecret(
+    runId,
+    value,
+    delivery as 'store' | 'transient_send' | undefined,
+  );
+  if (result === 'run_not_found') {
+    return Response.json({ error: 'Run not found' }, { status: 404 });
+  }
+  if (result === 'no_pending_secret') {
+    return Response.json(
+      { error: 'No secret pending for this run' },
+      { status: 409 },
+    );
+  }
+
+  return Response.json({ accepted: true });
 }
