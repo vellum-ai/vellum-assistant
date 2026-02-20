@@ -30,6 +30,15 @@ function createCommandsDir(base: string, files: Record<string, string>): void {
   }
 }
 
+/** Helper to create a .claude/skills/ directory with markdown files. */
+function createSkillsDir(base: string, files: Record<string, string>): void {
+  const skillsDir = join(base, '.claude', 'skills');
+  mkdirSync(skillsDir, { recursive: true });
+  for (const [name, content] of Object.entries(files)) {
+    writeFileSync(join(skillsDir, name), content, 'utf-8');
+  }
+}
+
 describe('discoverCCCommands', () => {
   test('discovers commands in .claude/commands/', () => {
     createCommandsDir(tmpDir, {
@@ -45,11 +54,13 @@ describe('discoverCCCommands', () => {
     expect(hello!.name).toBe('hello');
     expect(hello!.summary).toBe('Hello World');
     expect(hello!.source).toBe(tmpDir);
+    expect(hello!.artifactType).toBe('command');
 
     const deploy = registry.entries.get('deploy');
     expect(deploy).toBeDefined();
     expect(deploy!.name).toBe('deploy');
     expect(deploy!.summary).toBe('Deploy the application to production.');
+    expect(deploy!.artifactType).toBe('command');
   });
 
   test('child directory commands override parent on name collisions', () => {
@@ -129,6 +140,107 @@ describe('discoverCCCommands', () => {
     expect(registry.entries.has('parent-only')).toBe(true);
     expect(registry.entries.has('child-only')).toBe(true);
   });
+
+  test('discovers skills in .claude/skills/', () => {
+    createSkillsDir(tmpDir, {
+      'summarize.md': '# Summarize\nSummarize any document.',
+      'translate.md': 'Translate text between languages.',
+    });
+
+    const registry = discoverCCCommands(tmpDir);
+    expect(registry.entries.size).toBe(2);
+
+    const summarize = registry.entries.get('summarize');
+    expect(summarize).toBeDefined();
+    expect(summarize!.name).toBe('summarize');
+    expect(summarize!.summary).toBe('Summarize');
+    expect(summarize!.source).toBe(tmpDir);
+    expect(summarize!.artifactType).toBe('skill');
+
+    const translate = registry.entries.get('translate');
+    expect(translate).toBeDefined();
+    expect(translate!.name).toBe('translate');
+    expect(translate!.summary).toBe('Translate text between languages.');
+    expect(translate!.artifactType).toBe('skill');
+  });
+
+  test('commands take precedence over skills at the same directory level', () => {
+    createCommandsDir(tmpDir, {
+      'shared.md': 'Command version of shared.',
+    });
+    createSkillsDir(tmpDir, {
+      'shared.md': 'Skill version of shared.',
+    });
+
+    const registry = discoverCCCommands(tmpDir);
+    const shared = registry.entries.get('shared');
+    expect(shared).toBeDefined();
+    expect(shared!.summary).toBe('Command version of shared.');
+    expect(shared!.artifactType).toBe('command');
+  });
+
+  test('child skill overrides parent command (child wins across levels)', () => {
+    // Parent has a command
+    createCommandsDir(tmpDir, {
+      'analyze.md': 'Parent command version.',
+    });
+
+    // Child has a skill with the same name
+    const childDir = join(tmpDir, 'project');
+    mkdirSync(childDir, { recursive: true });
+    createSkillsDir(childDir, {
+      'analyze.md': 'Child skill version.',
+    });
+
+    const registry = discoverCCCommands(childDir);
+    const analyze = registry.entries.get('analyze');
+    expect(analyze).toBeDefined();
+    expect(analyze!.summary).toBe('Child skill version.');
+    expect(analyze!.artifactType).toBe('skill');
+    expect(analyze!.source).toBe(childDir);
+  });
+
+  test('mixed hierarchy: commands at child, skills at parent', () => {
+    // Parent has skills
+    createSkillsDir(tmpDir, {
+      'parent-skill.md': 'A parent skill.',
+    });
+
+    // Child has commands
+    const childDir = join(tmpDir, 'project');
+    mkdirSync(childDir, { recursive: true });
+    createCommandsDir(childDir, {
+      'child-cmd.md': 'A child command.',
+    });
+
+    const registry = discoverCCCommands(childDir);
+    expect(registry.entries.size).toBe(2);
+
+    const parentSkill = registry.entries.get('parent-skill');
+    expect(parentSkill).toBeDefined();
+    expect(parentSkill!.artifactType).toBe('skill');
+    expect(parentSkill!.source).toBe(tmpDir);
+
+    const childCmd = registry.entries.get('child-cmd');
+    expect(childCmd).toBeDefined();
+    expect(childCmd!.artifactType).toBe('command');
+    expect(childCmd!.source).toBe(childDir);
+  });
+
+  test('skills and commands with different names are both discovered', () => {
+    createCommandsDir(tmpDir, {
+      'deploy.md': 'Deploy command.',
+    });
+    createSkillsDir(tmpDir, {
+      'summarize.md': 'Summarize skill.',
+    });
+
+    const registry = discoverCCCommands(tmpDir);
+    expect(registry.entries.size).toBe(2);
+
+    expect(registry.entries.get('deploy')!.artifactType).toBe('command');
+    expect(registry.entries.get('summarize')!.artifactType).toBe('skill');
+  });
 });
 
 describe('caching', () => {
@@ -165,6 +277,25 @@ describe('caching', () => {
     const first = discoverCCCommands(tmpDir, 0);
     const second = discoverCCCommands(tmpDir, 0);
     expect(first).not.toBe(second); // different object reference due to expired TTL
+  });
+
+  test('cache covers both commands and skills', () => {
+    createCommandsDir(tmpDir, {
+      'cmd.md': 'A command.',
+    });
+    createSkillsDir(tmpDir, {
+      'skl.md': 'A skill.',
+    });
+
+    const first = discoverCCCommands(tmpDir);
+    expect(first.entries.size).toBe(2);
+    expect(first.entries.get('cmd')!.artifactType).toBe('command');
+    expect(first.entries.get('skl')!.artifactType).toBe('skill');
+
+    // Second call returns cached instance with both entries
+    const second = discoverCCCommands(tmpDir);
+    expect(first).toBe(second);
+    expect(second.entries.size).toBe(2);
   });
 });
 

@@ -13,8 +13,10 @@ export interface CCCommandEntry {
   summary: string;
   /** Absolute path to the .md file. */
   filePath: string;
-  /** Directory containing the `.claude/commands/` folder. */
+  /** Directory containing the `.claude/commands/` or `.claude/skills/` folder. */
   source: string;
+  /** Whether this entry was discovered from a `commands/` or `skills/` directory. */
+  artifactType: 'command' | 'skill';
 }
 
 export interface CCCommandRegistry {
@@ -102,11 +104,73 @@ function extractSummary(content: string): string {
   return '';
 }
 
+// ─── Artifact scanning ───────────────────────────────────────────────────────
+
+/**
+ * Scan a single `.claude/commands/` or `.claude/skills/` directory and add
+ * discovered entries to `entries`. Entries that already exist in the map are
+ * skipped (child-level / higher-precedence entries win).
+ */
+function scanArtifactDir(
+  dir: string,
+  artifactType: 'command' | 'skill',
+  source: string,
+  entries: Map<string, CCCommandEntry>,
+): void {
+  if (!existsSync(dir)) return;
+
+  try {
+    const files = readdirSync(dir, { withFileTypes: true });
+    for (const file of files) {
+      if (!file.isFile()) continue;
+      if (!file.name.endsWith('.md')) continue;
+
+      const nameWithoutExt = basename(file.name, '.md');
+
+      // Validate command name
+      if (!COMMAND_NAME_REGEX.test(nameWithoutExt) || nameWithoutExt.includes('..')) {
+        log.warn({ fileName: file.name, dir }, 'Skipping invalid CC artifact filename');
+        continue;
+      }
+
+      const key = nameWithoutExt.toLowerCase();
+
+      // Skip if already discovered from a closer ancestor or higher-precedence source
+      if (entries.has(key)) continue;
+
+      const filePath = join(dir, file.name);
+
+      let summary = '';
+      try {
+        const head = readFileHead(filePath, SUMMARY_READ_BYTES);
+        summary = extractSummary(head);
+      } catch (err) {
+        log.warn({ err, filePath }, 'Failed to read CC artifact file for summary extraction');
+      }
+
+      entries.set(key, {
+        name: nameWithoutExt,
+        summary,
+        filePath,
+        source,
+        artifactType,
+      });
+    }
+  } catch (err) {
+    log.warn({ err, dir }, 'Failed to read CC artifact directory');
+  }
+}
+
 // ─── Discovery ───────────────────────────────────────────────────────────────
 
 /**
- * Discover `.claude/commands/*.md` files by walking up from `cwd`.
- * Nearest directory wins on name collisions (child overrides parent).
+ * Discover `.claude/commands/*.md` and `.claude/skills/*.md` files by walking
+ * up from `cwd`.
+ *
+ * Precedence rules:
+ * - Child directories win over parent directories (unchanged).
+ * - Within the same directory level, commands take precedence over skills.
+ *
  * Results are cached per cwd with a 30-second TTL.
  */
 export function discoverCCCommands(cwd: string, ttlMs: number = DEFAULT_CACHE_TTL_MS): CCCommandRegistry {
@@ -124,53 +188,16 @@ export function discoverCCCommands(cwd: string, ttlMs: number = DEFAULT_CACHE_TT
   const entries = new Map<string, CCCommandEntry>();
   let current = resolvedCwd;
 
-  // Walk up the directory tree; collect commands from each level.
+  // Walk up the directory tree; collect entries from each level.
   // Since child directories should win on name collisions, we only add entries
   // that haven't been seen yet (first occurrence = nearest ancestor).
+  // At each level, commands are scanned before skills so commands take
+  // precedence over skills with the same name at the same level.
   while (true) {
-    const commandsDir = join(current, '.claude', 'commands');
+    const claudeDir = join(current, '.claude');
 
-    if (existsSync(commandsDir)) {
-      try {
-        const files = readdirSync(commandsDir, { withFileTypes: true });
-        for (const file of files) {
-          if (!file.isFile()) continue;
-          if (!file.name.endsWith('.md')) continue;
-
-          const nameWithoutExt = basename(file.name, '.md');
-
-          // Validate command name
-          if (!COMMAND_NAME_REGEX.test(nameWithoutExt) || nameWithoutExt.includes('..')) {
-            log.warn({ fileName: file.name, dir: commandsDir }, 'Skipping invalid CC command filename');
-            continue;
-          }
-
-          const key = nameWithoutExt.toLowerCase();
-
-          // Child directories win — skip if already discovered from a closer ancestor
-          if (entries.has(key)) continue;
-
-          const filePath = join(commandsDir, file.name);
-
-          let summary = '';
-          try {
-            const head = readFileHead(filePath, SUMMARY_READ_BYTES);
-            summary = extractSummary(head);
-          } catch (err) {
-            log.warn({ err, filePath }, 'Failed to read CC command file for summary extraction');
-          }
-
-          entries.set(key, {
-            name: nameWithoutExt,
-            summary,
-            filePath,
-            source: current,
-          });
-        }
-      } catch (err) {
-        log.warn({ err, commandsDir }, 'Failed to read CC commands directory');
-      }
-    }
+    scanArtifactDir(join(claudeDir, 'commands'), 'command', current, entries);
+    scanArtifactDir(join(claudeDir, 'skills'), 'skill', current, entries);
 
     const parent = dirname(current);
     if (parent === current) break; // reached filesystem root
