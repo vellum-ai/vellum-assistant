@@ -1,5 +1,5 @@
 import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { getWorkItem, listWorkItems, identifyEntityById } from '../../work-items/work-item-store.js';
+import { getWorkItem, listWorkItems, identifyEntityById, buildTaskTemplateMismatchError } from '../../work-items/work-item-store.js';
 import { runWorkItemInBackground } from '../../work-items/work-item-runner.js';
 import { getTask } from '../../tasks/task-store.js';
 
@@ -27,7 +27,7 @@ export async function executeTaskQueueRun(
         const entity = identifyEntityById(workItemId);
         if (entity.type === 'task_template') {
           return {
-            content: `Error: "${workItemId}" is a task template ID, not a work item. Use task_list_show to find the work item ID.`,
+            content: `Error: ${buildTaskTemplateMismatchError(workItemId, entity.title!, 'task_list_show to view work items')}`,
             isError: true,
           };
         }

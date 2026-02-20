@@ -343,6 +343,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'ingress_config',
     action: 'get',
   },
+  ingress_config: {
+    type: 'ingress_config',
+    action: 'get',
+  },
   vercel_api_config: {
     type: 'vercel_api_config',
     action: 'get',
@@ -1154,6 +1158,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     enabled: true,
     publicBaseUrl: 'https://example.com',
     localGatewayTarget: 'http://127.0.0.1:7830',
+    success: true,
+  },
+  ingress_config_response: {
+    type: 'ingress_config_response',
+    publicBaseUrl: 'https://example.com',
     success: true,
   },
   vercel_api_config_response: {
