@@ -616,6 +616,7 @@ struct SettingsPanel: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Copy gateway address")
+                    .help("Copy address")
 
                     // Check Gateway button
                     Button {
@@ -640,6 +641,7 @@ struct SettingsPanel: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Check gateway health")
+                    .help("Check gateway health")
                 }
 
                 Text("Point your tunnel service at this local address.")
@@ -1081,6 +1083,11 @@ struct SettingsPanel: View {
             } catch {
                 gatewayReachable = false
             }
+
+            // Auto-reset after 4 seconds so the result is transient and
+            // the button returns to its default "check" icon.
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            gatewayReachable = nil
         }
     }
 
