@@ -982,6 +982,9 @@ function buildDynamicSkillWorkflowSection(): string {
     '',
     '### Browser Skill Prerequisite',
     'If you need browser capabilities (navigating web pages, clicking elements, extracting content) and `browser_*` tools are not available, load the "browser" skill first using `skill_load`.',
+    '',
+    '### X (Twitter) Skill',
+    'When the user asks to post, reply, or interact with X/Twitter, load the "twitter" skill using `skill_load`. Do NOT use computer-use or the browser skill for X — the X skill provides CLI commands (`vellum x post`, `vellum x reply`) that are faster and more reliable.',
   ].join('\n');
 }
 
