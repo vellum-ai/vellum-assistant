@@ -52,8 +52,33 @@ struct ChatBubble: View {
         } else if message.isError {
             AnyShapeStyle(VColor.error.opacity(0.1))
         } else {
-            AnyShapeStyle(Color.clear)
+            AnyShapeStyle(VColor.surface)
         }
+    }
+
+    @ViewBuilder
+    private var bubbleBorderOverlay: some View {
+        if message.isError {
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
+        } else if !isUser {
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .strokeBorder(VColor.surfaceBorder.opacity(0.85), lineWidth: 0.5)
+        }
+    }
+
+    private func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(bubbleFill)
+            )
+            .overlay {
+                bubbleBorderOverlay
+            }
+            .frame(maxWidth: 520, alignment: isUser ? .trailing : .leading)
     }
 
     private var formattedTimestamp: String {
@@ -718,115 +743,117 @@ struct ChatBubble: View {
             }
         })
 
-        if hasRichContent {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                    switch segment {
-                    case .text(let text):
-                        let options = AttributedString.MarkdownParsingOptions(
-                            interpretedSyntax: .inlineOnlyPreservingWhitespace
-                        )
-                        let attributed = (try? AttributedString(markdown: text, options: options))
-                            ?? AttributedString(text)
-                        Text(attributed)
-                            .font(.system(size: 13))
-                            .foregroundColor(VColor.textPrimary)
-                            .tint(VColor.accent)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: 520, alignment: .leading)
-                    case .table(let headers, let rows):
-                        MarkdownTableView(headers: headers, rows: rows)
-                    case .image(let alt, let url):
-                        AnimatedImageView(urlString: url)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .accessibilityLabel(alt.isEmpty ? "Image" : alt)
+        bubbleChrome {
+            if hasRichContent {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                        switch segment {
+                        case .text(let text):
+                            let options = AttributedString.MarkdownParsingOptions(
+                                interpretedSyntax: .inlineOnlyPreservingWhitespace
+                            )
+                            let attributed = (try? AttributedString(markdown: text, options: options))
+                                ?? AttributedString(text)
+                            Text(attributed)
+                                .font(.system(size: 13))
+                                .foregroundColor(VColor.textPrimary)
+                                .tint(VColor.accent)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: 520, alignment: .leading)
+                        case .table(let headers, let rows):
+                            MarkdownTableView(headers: headers, rows: rows)
+                        case .image(let alt, let url):
+                            AnimatedImageView(urlString: url)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                                .accessibilityLabel(alt.isEmpty ? "Image" : alt)
 
-                    case .heading(let level, let headingText):
-                        let font: Font = switch level {
-                        case 1: .system(size: 20, weight: .bold)
-                        case 2: .system(size: 17, weight: .semibold)
-                        case 3: .system(size: 14, weight: .semibold)
-                        default: .system(size: 13, weight: .semibold)
-                        }
-                        Text(headingText)
-                            .font(font)
-                            .foregroundColor(VColor.textPrimary)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: 520, alignment: .leading)
-                            .padding(.top, level == 1 ? VSpacing.xs : 0)
-
-                    case .codeBlock(let language, let code):
-                        VStack(alignment: .leading, spacing: 0) {
-                            if let language, !language.isEmpty {
-                                Text(language)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(VColor.textMuted)
-                                    .padding(.horizontal, VSpacing.sm)
-                                    .padding(.top, VSpacing.xs)
+                        case .heading(let level, let headingText):
+                            let font: Font = switch level {
+                            case 1: .system(size: 20, weight: .bold)
+                            case 2: .system(size: 17, weight: .semibold)
+                            case 3: .system(size: 14, weight: .semibold)
+                            default: .system(size: 13, weight: .semibold)
                             }
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                Text(code)
-                                    .font(VFont.mono)
-                                    .foregroundColor(VColor.textPrimary)
-                                    .textSelection(.enabled)
-                                    .fixedSize(horizontal: true, vertical: true)
-                                    .padding(VSpacing.sm)
-                            }
-                        }
-                        .frame(maxWidth: 520, alignment: .leading)
-                        .background(VColor.backgroundSubtle)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            Text(headingText)
+                                .font(font)
+                                .foregroundColor(VColor.textPrimary)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: 520, alignment: .leading)
+                                .padding(.top, level == 1 ? VSpacing.xs : 0)
 
-                    case .horizontalRule:
-                        Rectangle()
-                            .fill(VColor.surfaceBorder)
-                            .frame(height: 1)
-                            .frame(maxWidth: 520)
-                            .padding(.vertical, VSpacing.xs)
-
-                    case .list(let items):
-                        VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                                let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
-                                let indentLevel = item.indent / 2
-                                HStack(alignment: .top, spacing: 0) {
-                                    Text(prefix)
-                                        .font(.system(size: 13))
-                                        .foregroundColor(VColor.textSecondary)
-                                    let options = AttributedString.MarkdownParsingOptions(
-                                        interpretedSyntax: .inlineOnlyPreservingWhitespace
-                                    )
-                                    let attributed = (try? AttributedString(markdown: item.text, options: options))
-                                        ?? AttributedString(item.text)
-                                    Text(attributed)
-                                        .font(.system(size: 13))
-                                        .foregroundColor(VColor.textPrimary)
-                                        .tint(VColor.accent)
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
+                        case .codeBlock(let language, let code):
+                            VStack(alignment: .leading, spacing: 0) {
+                                if let language, !language.isEmpty {
+                                    Text(language)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(VColor.textMuted)
+                                        .padding(.horizontal, VSpacing.sm)
+                                        .padding(.top, VSpacing.xs)
                                 }
-                                .padding(.leading, CGFloat(indentLevel) * 16)
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    Text(code)
+                                        .font(VFont.mono)
+                                        .foregroundColor(VColor.textPrimary)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: true, vertical: true)
+                                        .padding(VSpacing.sm)
+                                }
                             }
+                            .frame(maxWidth: 520, alignment: .leading)
+                            .background(VColor.backgroundSubtle)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+
+                        case .horizontalRule:
+                            Rectangle()
+                                .fill(VColor.surfaceBorder)
+                                .frame(height: 1)
+                                .frame(maxWidth: 520)
+                                .padding(.vertical, VSpacing.xs)
+
+                        case .list(let items):
+                            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                                    let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
+                                    let indentLevel = item.indent / 2
+                                    HStack(alignment: .top, spacing: 0) {
+                                        Text(prefix)
+                                            .font(.system(size: 13))
+                                            .foregroundColor(VColor.textSecondary)
+                                        let options = AttributedString.MarkdownParsingOptions(
+                                            interpretedSyntax: .inlineOnlyPreservingWhitespace
+                                        )
+                                        let attributed = (try? AttributedString(markdown: item.text, options: options))
+                                            ?? AttributedString(item.text)
+                                        Text(attributed)
+                                            .font(.system(size: 13))
+                                            .foregroundColor(VColor.textPrimary)
+                                            .tint(VColor.accent)
+                                            .textSelection(.enabled)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .padding(.leading, CGFloat(indentLevel) * 16)
+                                }
+                            }
+                            .frame(maxWidth: 520, alignment: .leading)
                         }
-                        .frame(maxWidth: 520, alignment: .leading)
                     }
                 }
+            } else {
+                let options = AttributedString.MarkdownParsingOptions(
+                    interpretedSyntax: .inlineOnlyPreservingWhitespace
+                )
+                let attributed = (try? AttributedString(markdown: segmentText, options: options))
+                    ?? AttributedString(segmentText)
+                Text(attributed)
+                    .font(.system(size: 13))
+                    .foregroundColor(VColor.textPrimary)
+                    .tint(VColor.accent)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 520, alignment: .leading)
             }
-        } else {
-            let options = AttributedString.MarkdownParsingOptions(
-                interpretedSyntax: .inlineOnlyPreservingWhitespace
-            )
-            let attributed = (try? AttributedString(markdown: segmentText, options: options))
-                ?? AttributedString(segmentText)
-            Text(attributed)
-                .font(.system(size: 13))
-                .foregroundColor(VColor.textPrimary)
-                .tint(VColor.accent)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 520, alignment: .leading)
         }
     }
 
@@ -866,178 +893,167 @@ struct ChatBubble: View {
 
     private var bubbleContent: some View {
         let partitioned = partitionedAttachments
-        return VStack(alignment: .leading, spacing: VSpacing.sm) {
-            if let skillInvocation = message.skillInvocation {
-                SkillInvocationChip(data: skillInvocation)
-            }
-
-            if message.isError && hasText {
-                HStack(alignment: .top, spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(VColor.error)
-                        .padding(.top, 1)
-                    Text(message.text)
-                        .font(.system(size: 13))
-                        .foregroundColor(VColor.textPrimary)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+        return bubbleChrome {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                if let skillInvocation = message.skillInvocation {
+                    SkillInvocationChip(data: skillInvocation)
                 }
-            } else if hasText {
-                let segments = Self.cachedSegments(for: message.text)
-                let hasRichContent = segments.contains(where: {
-                    switch $0 {
-                    case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
-                    case .text: return false
-                    }
-                })
-                VStack(alignment: .leading, spacing: hasRichContent ? VSpacing.lg : VSpacing.xs) {
 
-                    if hasRichContent {
-                        ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                            switch segment {
-                            case .text(let text):
-                                let options = AttributedString.MarkdownParsingOptions(
-                                    interpretedSyntax: .inlineOnlyPreservingWhitespace
-                                )
-                                let attributed = (try? AttributedString(markdown: text, options: options))
-                                    ?? AttributedString(text)
-                                Text(attributed)
-                                    .font(.system(size: 13))
-                                    .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                                    .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                                    .textSelection(.enabled)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            case .table(let headers, let rows):
-                                MarkdownTableView(headers: headers, rows: rows)
-                            case .image(let alt, let url):
-                                AnimatedImageView(urlString: url)
-                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                                    .accessibilityLabel(alt.isEmpty ? "Image" : alt)
-                            case .heading(let level, let headingText):
-                                let font: Font = switch level {
-                                case 1: .system(size: 20, weight: .bold)
-                                case 2: .system(size: 17, weight: .semibold)
-                                case 3: .system(size: 14, weight: .semibold)
-                                default: .system(size: 13, weight: .semibold)
-                                }
-                                Text(headingText)
-                                    .font(font)
-                                    .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                                    .textSelection(.enabled)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .padding(.top, level == 1 ? VSpacing.xs : 0)
-
-                            case .codeBlock(let language, let code):
-                                VStack(alignment: .leading, spacing: 0) {
-                                    if let language, !language.isEmpty {
-                                        Text(language)
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textMuted)
-                                            .padding(.horizontal, VSpacing.sm)
-                                            .padding(.top, VSpacing.xs)
-                                    }
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        Text(code)
-                                            .font(VFont.mono)
-                                            .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                                            .textSelection(.enabled)
-                                            .fixedSize(horizontal: true, vertical: true)
-                                            .padding(VSpacing.sm)
-                                    }
-                                }
-                                .background(isUser ? VColor.userBubbleText.opacity(0.1) : VColor.backgroundSubtle)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-
-                            case .horizontalRule:
-                                Rectangle()
-                                    .fill(isUser ? VColor.userBubbleText.opacity(0.3) : VColor.surfaceBorder)
-                                    .frame(height: 1)
-                                    .padding(.vertical, VSpacing.xs)
-
-                            case .list(let items):
-                                VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                                        let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
-                                        let indentLevel = item.indent / 2
-                                        HStack(alignment: .top, spacing: 0) {
-                                            Text(prefix)
-                                                .font(.system(size: 13))
-                                                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
-                                            let options = AttributedString.MarkdownParsingOptions(
-                                                interpretedSyntax: .inlineOnlyPreservingWhitespace
-                                            )
-                                            let attributed = (try? AttributedString(markdown: item.text, options: options))
-                                                ?? AttributedString(item.text)
-                                            Text(attributed)
-                                                .font(.system(size: 13))
-                                                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                                                .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                                                .textSelection(.enabled)
-                                                .fixedSize(horizontal: false, vertical: true)
-                                        }
-                                        .padding(.leading, CGFloat(indentLevel) * 16)
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        Text(markdownText)
+                if message.isError && hasText {
+                    HStack(alignment: .top, spacing: VSpacing.sm) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(VColor.error)
+                            .padding(.top, 1)
+                        Text(message.text)
                             .font(.system(size: 13))
-                            .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                            .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                            .foregroundColor(VColor.textPrimary)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                } else if hasText {
+                    let segments = Self.cachedSegments(for: message.text)
+                    let hasRichContent = segments.contains(where: {
+                        switch $0 {
+                        case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
+                        case .text: return false
+                        }
+                    })
+                    VStack(alignment: .leading, spacing: hasRichContent ? VSpacing.lg : VSpacing.xs) {
+
+                        if hasRichContent {
+                            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                                switch segment {
+                                case .text(let text):
+                                    let options = AttributedString.MarkdownParsingOptions(
+                                        interpretedSyntax: .inlineOnlyPreservingWhitespace
+                                    )
+                                    let attributed = (try? AttributedString(markdown: text, options: options))
+                                        ?? AttributedString(text)
+                                    Text(attributed)
+                                        .font(.system(size: 13))
+                                        .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                        .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                case .table(let headers, let rows):
+                                    MarkdownTableView(headers: headers, rows: rows)
+                                case .image(let alt, let url):
+                                    AnimatedImageView(urlString: url)
+                                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                                        .accessibilityLabel(alt.isEmpty ? "Image" : alt)
+                                case .heading(let level, let headingText):
+                                    let font: Font = switch level {
+                                    case 1: .system(size: 20, weight: .bold)
+                                    case 2: .system(size: 17, weight: .semibold)
+                                    case 3: .system(size: 14, weight: .semibold)
+                                    default: .system(size: 13, weight: .semibold)
+                                    }
+                                    Text(headingText)
+                                        .font(font)
+                                        .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .padding(.top, level == 1 ? VSpacing.xs : 0)
+
+                                case .codeBlock(let language, let code):
+                                    VStack(alignment: .leading, spacing: 0) {
+                                        if let language, !language.isEmpty {
+                                            Text(language)
+                                                .font(.system(size: 11, weight: .medium))
+                                                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textMuted)
+                                                .padding(.horizontal, VSpacing.sm)
+                                                .padding(.top, VSpacing.xs)
+                                        }
+                                        ScrollView(.horizontal, showsIndicators: false) {
+                                            Text(code)
+                                                .font(VFont.mono)
+                                                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                                .textSelection(.enabled)
+                                                .fixedSize(horizontal: true, vertical: true)
+                                                .padding(VSpacing.sm)
+                                        }
+                                    }
+                                    .background(isUser ? VColor.userBubbleText.opacity(0.1) : VColor.backgroundSubtle)
+                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+
+                                case .horizontalRule:
+                                    Rectangle()
+                                        .fill(isUser ? VColor.userBubbleText.opacity(0.3) : VColor.surfaceBorder)
+                                        .frame(height: 1)
+                                        .padding(.vertical, VSpacing.xs)
+
+                                case .list(let items):
+                                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                                            let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
+                                            let indentLevel = item.indent / 2
+                                            HStack(alignment: .top, spacing: 0) {
+                                                Text(prefix)
+                                                    .font(.system(size: 13))
+                                                    .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
+                                                let options = AttributedString.MarkdownParsingOptions(
+                                                    interpretedSyntax: .inlineOnlyPreservingWhitespace
+                                                )
+                                                let attributed = (try? AttributedString(markdown: item.text, options: options))
+                                                    ?? AttributedString(item.text)
+                                                Text(attributed)
+                                                    .font(.system(size: 13))
+                                                    .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                                    .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                                                    .textSelection(.enabled)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                            }
+                                            .padding(.leading, CGFloat(indentLevel) * 16)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Text(markdownText)
+                                .font(.system(size: 13))
+                                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                } else if !message.attachments.isEmpty {
+                    Text(attachmentSummary)
+                        .font(VFont.caption)
+                        .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
                 }
-            } else if !message.attachments.isEmpty {
-                Text(attachmentSummary)
-                    .font(VFont.caption)
-                    .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
-            }
 
-            if !partitioned.images.isEmpty {
-                attachmentImageGrid(partitioned.images)
-            }
+                if !partitioned.images.isEmpty {
+                    attachmentImageGrid(partitioned.images)
+                }
 
-            if !partitioned.videos.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    ForEach(partitioned.videos) { attachment in
-                        InlineVideoAttachmentView(attachment: attachment, daemonHttpPort: daemonHttpPort)
+                if !partitioned.videos.isEmpty {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        ForEach(partitioned.videos) { attachment in
+                            InlineVideoAttachmentView(attachment: attachment, daemonHttpPort: daemonHttpPort)
+                        }
                     }
                 }
-            }
 
-            if !partitioned.files.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    ForEach(partitioned.files) { attachment in
-                        fileAttachmentChip(attachment)
+                if !partitioned.files.isEmpty {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        ForEach(partitioned.files) { attachment in
+                            fileAttachmentChip(attachment)
+                        }
                     }
                 }
-            }
 
-            // User messages keep tool calls inside the bubble
-            if isUser && !message.toolCalls.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    ForEach(message.toolCalls) { toolCall in
-                        ToolCallChip(toolCall: toolCall)
+                // User messages keep tool calls inside the bubble
+                if isUser && !message.toolCalls.isEmpty {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        ForEach(message.toolCalls) { toolCall in
+                            ToolCallChip(toolCall: toolCall)
+                        }
                     }
                 }
             }
         }
-        .padding(.horizontal, isUser || message.isError ? VSpacing.lg : 0)
-        .padding(.vertical, isUser || message.isError ? VSpacing.md : 0)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(bubbleFill)
-        )
-        .overlay(
-            message.isError
-                ? RoundedRectangle(cornerRadius: VRadius.lg)
-                    .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
-                : nil
-        )
-        .frame(maxWidth: 520, alignment: isUser ? .trailing : .leading)
     }
 
     @ViewBuilder
