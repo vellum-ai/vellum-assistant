@@ -84,6 +84,7 @@ export async function buildStartupScript(
   bearerToken: string,
   sshUser: string,
   anthropicApiKey: string,
+  instanceName: string,
 ): Promise<string> {
   const platformUrl = process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai";
   const timestampRedirect = buildTimestampRedirect();
@@ -113,6 +114,7 @@ ${userSetup}
 ANTHROPIC_API_KEY=${anthropicApiKey}
 GATEWAY_RUNTIME_PROXY_ENABLED=true
 RUNTIME_PROXY_BEARER_TOKEN=${bearerToken}
+VELLUM_ASSISTANT_NAME=${instanceName}
 ${interfacesSeed}
 mkdir -p "\$HOME/.vellum"
 cat > "\$HOME/.vellum/.env" << DOTENV_EOF
@@ -135,6 +137,7 @@ CONFIG_EOF
 ${ownershipFixup}
 
 export VELLUM_SSH_USER="\$SSH_USER"
+export VELLUM_ASSISTANT_NAME="\$VELLUM_ASSISTANT_NAME"
 echo "Downloading install script from ${platformUrl}/install.sh..."
 curl -fsSL ${platformUrl}/install.sh -o ${INSTALL_SCRIPT_REMOTE_PATH}
 echo "Install script downloaded (\$(wc -c < ${INSTALL_SCRIPT_REMOTE_PATH}) bytes)"
@@ -502,7 +505,13 @@ async function hatchGcp(
       console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
       process.exit(1);
     }
-    const startupScript = await buildStartupScript(species, bearerToken, sshUser, anthropicApiKey);
+    const startupScript = await buildStartupScript(
+      species,
+      bearerToken,
+      sshUser,
+      anthropicApiKey,
+      instanceName,
+    );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
 
@@ -674,7 +683,13 @@ async function hatchCustom(
       process.exit(1);
     }
 
-    const startupScript = await buildStartupScript(species, bearerToken, sshUser, anthropicApiKey);
+    const startupScript = await buildStartupScript(
+      species,
+      bearerToken,
+      sshUser,
+      anthropicApiKey,
+      instanceName,
+    );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
 
@@ -756,7 +771,8 @@ function resolveGatewayDir(): string {
 }
 
 async function hatchLocal(species: Species, name: string | null): Promise<void> {
-  const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
+  const instanceName =
+    name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
 
   console.log(`🥚 Hatching local assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
