@@ -478,13 +478,24 @@ struct ChatView: View {
                     let lastVisible = displayMessages.last
                     let hasPendingConfirmation = lastVisible?.confirmation?.state == .pending
                     let hasActiveToolCall = lastVisible?.toolCalls.contains(where: { !$0.isComplete }) == true
-                    if isSending && !(lastVisible?.isStreaming == true) && !hasPendingConfirmation && !hasActiveToolCall {
+                    // Keep a lightweight "typing" indicator visible whenever the model is
+                    // still working but there is no explicit in-message progress surface.
+                    // We intentionally do not suppress this for completed historical tools,
+                    // because that can otherwise look idle between queue handoffs.
+                    let shouldShowTypingIndicator = (isSending || isThinking)
+                        && !(lastVisible?.isStreaming == true)
+                        && !hasPendingConfirmation
+                        && !hasActiveToolCall
+                    let isWakeUpTurn = !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
+                    if shouldShowTypingIndicator {
                         RunningIndicator(
-                            label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
-                            showIcon: false
+                            label: isWakeUpTurn ? "Waking up..." : "Typing",
+                            showIcon: false,
+                            progressiveLabels: isWakeUpTurn ? [] : ["Typing", "Still working", "Almost ready"],
+                            labelInterval: 8
                         )
                         .frame(maxWidth: 520, alignment: .leading)
-                        .id("thinking-indicator")
+                        .id("typing-indicator")
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
