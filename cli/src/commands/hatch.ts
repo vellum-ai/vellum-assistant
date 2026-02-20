@@ -85,6 +85,7 @@ export async function buildStartupScript(
   sshUser: string,
   anthropicApiKey: string,
   instanceName: string,
+  cloud: RemoteHost,
 ): Promise<string> {
   const platformUrl = process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai";
   const timestampRedirect = buildTimestampRedirect();
@@ -115,6 +116,24 @@ ANTHROPIC_API_KEY=${anthropicApiKey}
 GATEWAY_RUNTIME_PROXY_ENABLED=true
 RUNTIME_PROXY_BEARER_TOKEN=${bearerToken}
 VELLUM_ASSISTANT_NAME=${instanceName}
+VELLUM_CLOUD=${cloud}
+
+# Discover external IP from cloud metadata
+EXTERNAL_IP=""
+if [ "\$VELLUM_CLOUD" = "gcp" ]; then
+  EXTERNAL_IP=\$(curl -sf -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip 2>/dev/null || true)
+elif [ "\$VELLUM_CLOUD" = "aws" ]; then
+  EXTERNAL_IP=\$(curl -sf http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || true)
+fi
+
+if [ -n "\$EXTERNAL_IP" ]; then
+  GATEWAY_PUBLIC_URL="http://\$EXTERNAL_IP:${GATEWAY_PORT}"
+  echo "Discovered external IP: \$EXTERNAL_IP"
+else
+  GATEWAY_PUBLIC_URL=""
+  echo "Could not discover external IP (cloud=\$VELLUM_CLOUD)"
+fi
+
 ${interfacesSeed}
 mkdir -p "\$HOME/.vellum"
 cat > "\$HOME/.vellum/.env" << DOTENV_EOF
@@ -123,6 +142,8 @@ GATEWAY_RUNTIME_PROXY_ENABLED=\$GATEWAY_RUNTIME_PROXY_ENABLED
 RUNTIME_PROXY_BEARER_TOKEN=\$RUNTIME_PROXY_BEARER_TOKEN
 INTERFACES_SEED_DIR=\$INTERFACES_SEED_DIR
 RUNTIME_HTTP_PORT=7821
+VELLUM_CLOUD=\$VELLUM_CLOUD
+GATEWAY_PUBLIC_URL=\$GATEWAY_PUBLIC_URL
 DOTENV_EOF
 
 mkdir -p "\$HOME/.vellum/workspace"
@@ -511,6 +532,7 @@ async function hatchGcp(
       sshUser,
       anthropicApiKey,
       instanceName,
+      "gcp",
     );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
@@ -689,6 +711,7 @@ async function hatchCustom(
       sshUser,
       anthropicApiKey,
       instanceName,
+      "custom",
     );
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
@@ -858,6 +881,8 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
       ...process.env,
       GATEWAY_RUNTIME_PROXY_ENABLED: "true",
       GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
+      GATEWAY_PUBLIC_URL: `http://localhost:${GATEWAY_PORT}`,
+      VELLUM_CLOUD: "local",
     },
   });
   gateway.unref();
