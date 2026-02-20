@@ -2,13 +2,17 @@
 name: "Google OAuth Setup"
 description: "Create Google Cloud OAuth credentials for Gmail integration using browser automation"
 user-invocable: true
-includes: ["browser"]
+includes: ["browser", "public-ingress"]
 metadata: {"vellum": {"emoji": "\ud83d\udd11"}}
 ---
 
 You are helping your user create Google Cloud OAuth credentials so the Gmail and Google Calendar integrations can connect. Walk through each step below using `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, and `browser_extract` tools.
 
 **Tone:** Be friendly and reassuring throughout. Narrate what you're doing in plain language so the user always knows what's happening. After each step, briefly confirm what was accomplished before moving on.
+
+## Prerequisites
+
+Before starting, check that `ingress.publicBaseUrl` is configured (Settings > Public Ingress, or `INGRESS_PUBLIC_BASE_URL` env var). If it is not set, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the public URL. The OAuth redirect URI depends on this value.
 
 ## Before You Start
 
