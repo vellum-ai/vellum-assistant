@@ -300,8 +300,12 @@ function extractFirstMatch(text: string, regex: RegExp, captureGroup = 1): strin
 function extractHtmlMetadata(html: string): { title?: string; description?: string } {
   // Only search the <head> section (or first 50KB) to avoid catastrophic
   // regex backtracking on large HTML documents.
-  const headEnd = html.search(/<\/head[\s>]/i);
-  const searchRegion = headEnd > 0 ? html.slice(0, headEnd + 10) : html.slice(0, 50_000);
+  // Strip <script> blocks first so that a literal "</head>" inside a script
+  // doesn't cause a false match that truncates the search region prematurely.
+  const candidate = html.slice(0, 200_000);
+  const stripped = candidate.replace(/<script[\s>][\s\S]*?<\/script>/gi, '');
+  const headEnd = stripped.search(/<\/head[\s>]/i);
+  const searchRegion = headEnd > 0 ? stripped.slice(0, headEnd + 10) : stripped.slice(0, 50_000);
 
   const title = extractFirstMatch(searchRegion, /<title[^>]*>([\s\S]*?)<\/title>/i);
   const description =
