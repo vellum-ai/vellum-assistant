@@ -69,6 +69,13 @@ jobs:
       pull-requests: write
 
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -94,7 +101,7 @@ jobs:
 
       - name: Create Pull Request
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           NEW_VERSION: ${{ needs.publish.outputs.version }}
         run: |
           BRANCH="auto/bump-gateway-${NEW_VERSION}"
@@ -109,6 +116,7 @@ jobs:
             --body "Auto-generated PR to update @vellumai/vellum-gateway to ${NEW_VERSION} and bump assistant version." \
             --base main \
             --head "$BRANCH")
+          sleep 10
           gh pr merge "$PR_URL" --auto --squash
 
   notify-failure:
