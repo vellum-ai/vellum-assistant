@@ -2,7 +2,7 @@ import { existsSync, readFileSync, unlinkSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
-export async function stop(): Promise<void> {
+export async function sleep(): Promise<void> {
   const vellumDir = join(homedir(), ".vellum");
   const pidFile = join(vellumDir, "vellum.pid");
   const socketFile = join(vellumDir, "vellum.sock");

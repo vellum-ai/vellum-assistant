@@ -152,7 +152,7 @@ final class AssistantCli {
         // stop must be synchronous (called from applicationWillTerminate)
         let proc = Process()
         proc.executableURL = binaryURL
-        proc.arguments = ["stop"]
+        proc.arguments = ["sleep"]
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
 
