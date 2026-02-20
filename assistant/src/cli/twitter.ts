@@ -16,6 +16,15 @@ import {
   postTweet,
   getUserByScreenName,
   getUserTweets,
+  getTweetDetail,
+  searchTweets,
+  getBookmarks,
+  getHomeTimeline,
+  getNotifications,
+  getLikes,
+  getFollowers,
+  getFollowing,
+  getUserMedia,
   SessionExpiredError,
 } from '../twitter/client.js';
 import { getSocketPath, readSessionToken } from '../util/platform.js';
@@ -237,6 +246,140 @@ export function registerTwitterCommand(program: Command): void {
       await run(cmd, async () => {
         const user = await getUserByScreenName(screenName.replace(/^@/, ''));
         const tweets = await getUserTweets(user.userId, parseInt(opts.count, 10));
+        return { user, tweets };
+      });
+    });
+
+  // =========================================================================
+  // tweet — fetch a single tweet and its replies
+  // =========================================================================
+  tw.command('tweet')
+    .description('Fetch a tweet and its reply thread')
+    .argument('<tweetIdOrUrl>', 'Tweet ID or URL')
+    .action(async (tweetIdOrUrl: string, _opts: unknown, cmd: Command) => {
+      await run(cmd, async () => {
+        const idMatch = tweetIdOrUrl.match(/(\d+)\s*$/);
+        if (!idMatch) throw new Error(`Could not extract tweet ID from: ${tweetIdOrUrl}`);
+        const tweets = await getTweetDetail(idMatch[1]);
+        return { tweets };
+      });
+    });
+
+  // =========================================================================
+  // search — search tweets
+  // =========================================================================
+  tw.command('search')
+    .description('Search tweets')
+    .argument('<query>', 'Search query')
+    .option('--count <n>', 'Number of results', '20')
+    .option('--product <type>', 'Top, Latest, People, or Media', 'Top')
+    .action(async (query: string, opts: { count: string; product: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const tweets = await searchTweets(
+          query,
+          parseInt(opts.count, 10),
+          opts.product as 'Top' | 'Latest' | 'People' | 'Media',
+        );
+        return { query, tweets };
+      });
+    });
+
+  // =========================================================================
+  // bookmarks — fetch bookmarks
+  // =========================================================================
+  tw.command('bookmarks')
+    .description('Fetch your bookmarks')
+    .option('--count <n>', 'Number of bookmarks', '20')
+    .action(async (opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const tweets = await getBookmarks(parseInt(opts.count, 10));
+        return { tweets };
+      });
+    });
+
+  // =========================================================================
+  // home — fetch home timeline
+  // =========================================================================
+  tw.command('home')
+    .description('Fetch your home timeline')
+    .option('--count <n>', 'Number of tweets', '20')
+    .action(async (opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const tweets = await getHomeTimeline(parseInt(opts.count, 10));
+        return { tweets };
+      });
+    });
+
+  // =========================================================================
+  // notifications — fetch notifications
+  // =========================================================================
+  tw.command('notifications')
+    .description('Fetch your notifications')
+    .option('--count <n>', 'Number of notifications', '20')
+    .action(async (opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const notifications = await getNotifications(parseInt(opts.count, 10));
+        return { notifications };
+      });
+    });
+
+  // =========================================================================
+  // likes — fetch a user's liked tweets
+  // =========================================================================
+  tw.command('likes')
+    .description("Fetch a user's liked tweets")
+    .argument('<screenName>', 'Twitter screen name (without @)')
+    .option('--count <n>', 'Number of likes', '20')
+    .action(async (screenName: string, opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const user = await getUserByScreenName(screenName.replace(/^@/, ''));
+        const tweets = await getLikes(user.userId, parseInt(opts.count, 10));
+        return { user, tweets };
+      });
+    });
+
+  // =========================================================================
+  // followers — fetch a user's followers
+  // =========================================================================
+  tw.command('followers')
+    .description("Fetch a user's followers")
+    .argument('<screenName>', 'Twitter screen name (without @)')
+    .option('--count <n>', 'Number of followers', '20')
+    .action(async (screenName: string, opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const cleanName = screenName.replace(/^@/, '');
+        const user = await getUserByScreenName(cleanName);
+        const followers = await getFollowers(user.userId, parseInt(opts.count, 10), cleanName);
+        return { user, followers };
+      });
+    });
+
+  // =========================================================================
+  // following — fetch who a user follows
+  // =========================================================================
+  tw.command('following')
+    .description("Fetch who a user follows")
+    .argument('<screenName>', 'Twitter screen name (without @)')
+    .option('--count <n>', 'Number of following', '20')
+    .action(async (screenName: string, opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const user = await getUserByScreenName(screenName.replace(/^@/, ''));
+        const following = await getFollowing(user.userId, parseInt(opts.count, 10));
+        return { user, following };
+      });
+    });
+
+  // =========================================================================
+  // media — fetch a user's media tweets
+  // =========================================================================
+  tw.command('media')
+    .description("Fetch a user's media tweets")
+    .argument('<screenName>', 'Twitter screen name (without @)')
+    .option('--count <n>', 'Number of media tweets', '20')
+    .action(async (screenName: string, opts: { count: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const user = await getUserByScreenName(screenName.replace(/^@/, ''));
+        const tweets = await getUserMedia(user.userId, parseInt(opts.count, 10));
         return { user, tweets };
       });
     });
