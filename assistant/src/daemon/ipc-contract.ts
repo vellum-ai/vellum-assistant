@@ -941,6 +941,7 @@ export type ClientMessage =
   | ShareAppCloudRequest
   | ShareToSlackRequest
   | SlackWebhookConfigRequest
+  | TwilioWebhookConfigRequest
   | IngressConfigRequest
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
@@ -980,9 +981,25 @@ export type ClientMessage =
   | SubagentStatusRequest
   | SubagentMessageRequest;
 
-// ── Legacy integration IPC stubs ────────────────────────────────────
-// The macOS Settings panel still sends these messages. Stub types keep
-// the dispatch map happy until the client-side migration lands.
+// ── Legacy IPC stubs ────────────────────────────────────────────────
+// Older clients may still send these messages. Stub types keep the
+// dispatch map happy and ensure the daemon returns a deterministic
+// response so version-skewed clients don't stall waiting for a reply.
+
+/** @deprecated Use IngressConfigRequest instead. Kept for version-skew compat. */
+export interface TwilioWebhookConfigRequest {
+  type: 'twilio_webhook_config';
+  action: 'get' | 'set';
+  webhookBaseUrl?: string;
+}
+
+/** @deprecated Use IngressConfigResponse instead. Kept for version-skew compat. */
+export interface TwilioWebhookConfigResponse {
+  type: 'twilio_webhook_config_response';
+  webhookBaseUrl: string;
+  success: boolean;
+  error?: string;
+}
 
 export interface IntegrationListRequest {
   type: 'integration_list';
@@ -2192,6 +2209,7 @@ export type ServerMessage =
   | GalleryInstallResponse
   | ShareToSlackResponse
   | SlackWebhookConfigResponse
+  | TwilioWebhookConfigResponse
   | IngressConfigResponse
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse

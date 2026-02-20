@@ -22,7 +22,11 @@ describe('forbidden legacy symbols', () => {
         " --glob '!**/CHANGELOG*'" +
         " --glob '!**/.private/**'" +
         " --glob '!assistant/src/config/loader.ts'" +
-        " --glob '!gateway/src/config.ts'",
+        " --glob '!gateway/src/config.ts'" +
+        // Compat stubs in IPC contract and handler dispatch legitimately
+        // reference the deprecated symbol to keep version-skewed clients working.
+        " --glob '!**/ipc-contract.ts'" +
+        " --glob '!**/handlers/index.ts'",
         { cwd: repoRoot, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
       );
     } catch (err: unknown) {
