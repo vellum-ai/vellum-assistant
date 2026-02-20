@@ -392,8 +392,8 @@ public struct ToolConfirmationBubble: View {
                 // Tab — move right
                 keyboardModel?.moveRight()
                 return nil
-            case 36, 76:
-                // Return / numpad Enter — activate
+            case 36, 76 where event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty:
+                // Plain Return / numpad Enter — activate (modified Enter passes through, e.g. Shift+Enter for newline)
                 if let action = keyboardModel?.selectedAction {
                     activateAction(action)
                 }
