@@ -273,7 +273,6 @@ extension MainWindowView {
                         subagentId: subagentId,
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
-                        subagentInfo: viewModel.activeSubagents.first(where: { $0.id == subagentId }),
                         onAbort: { try? daemonClient.sendSubagentAbort(subagentId: subagentId) },
                         onClose: { windowState.selectedSubagentId = nil }
                     )
