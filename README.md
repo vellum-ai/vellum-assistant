@@ -462,12 +462,12 @@ This repo includes Claude Code slash commands (in `.claude/commands/`) for agent
 | Command | Purpose |
 |---------|---------|
 | `/brainstorm` | Deep-read the codebase, generate a prioritized list of improvements, and update `.private/TODO.md` after approval. |
-| `/swarm [workers] [max-tasks] [--namespace NAME]` | Parallel execution — spawns a pool of agents (default: 12 workers) that work through `.private/TODO.md` concurrently, each in its own worktree. Uses `--namespace` to prefix branch names and avoid collisions with other parallel swarms (auto-generates a random 4-char hex if omitted). PRs are auto-assigned to the current user. |
-| `/blitz <feature>` | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, sweeps for review feedback, addresses it, and reports. Merges directly to main. Derives a namespace from the feature description for branch naming and collision avoidance. |
-| `/safe-blitz <feature>` | End-to-end feature delivery on a feature branch — plans, creates issues, swarm-executes in parallel, sweeps for review feedback. All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Derives a namespace from the feature description for branch naming and collision avoidance. Supports `--auto`, `--workers N`, `--skip-plan`, `--branch NAME`. |
+| `/swarm [workers] [max-tasks] [--namespace NAME]` | Parallel execution — spawns a pool of agents (default: 12 workers) that work through `.private/TODO.md` concurrently, each in its own worktree. Uses `--namespace` to prefix branch names and avoid collisions with other parallel swarms (auto-generates a random 4-char hex if omitted). When `--namespace` is explicitly provided, only TODO items prefixed with `[<namespace>]` are processed; when auto-generated, all items are processed. PRs are auto-assigned to the current user. |
+| `/blitz <feature>` | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, sweeps for review feedback (scoped to the namespace), addresses it, and reports. Merges directly to main. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. |
+| `/safe-blitz <feature>` | End-to-end feature delivery on a feature branch — plans, creates issues, swarm-executes in parallel, sweeps for review feedback (scoped to the namespace). All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--auto`, `--workers N`, `--skip-plan`, `--branch NAME`. |
 | `/safe-blitz-done [PR\|branch]` | Finalize a safe-blitz — squash-merges the feature branch PR into main, sets the project issue to Done, closes the issue, and deletes the local branch. Auto-detects the PR from current branch, open `feature/*` PRs, or project board "In Review" items. |
 | `/execute-plan <file>` | Sequential multi-PR rollout — reads a plan file from `.private/plans/`, executes each PR in order, mainlining each before moving to the next. |
-| `/check-reviews-and-swarm` | Combined review sweep + execution pass — runs review checks, then swarms on actionable feedback items. |
+| `/check-reviews-and-swarm [workers] [max-tasks] [--namespace NAME]` | Combined review sweep + execution pass — runs review checks, then swarms on actionable feedback items. When `--namespace` is provided, it is passed to both `/check-reviews` (to filter PRs and prefix TODO items) and `/swarm` (to filter TODO items and namespace branches). |
 
 ### Human-in-the-loop plan execution
 
@@ -500,7 +500,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 
 | Command | Purpose |
 |---------|---------|
-| `/check-reviews` | Checks for review feedback on unreviewed PRs, assesses feedback contextually (valid, nonsensical, or regression risk), creates follow-up tasks for valid feedback, and halts for user decision on regression risks. |
+| `/check-reviews [--namespace NAME]` | Checks for review feedback on unreviewed PRs, assesses feedback contextually (valid, nonsensical, or regression risk), creates follow-up tasks for valid feedback, and halts for user decision on regression risks. When `--namespace` is provided, only PRs whose head branch starts with `swarm/<namespace>/` are processed, and any TODO items added are prefixed with `[<namespace>]`. |
 
 ### Typical flow
 
