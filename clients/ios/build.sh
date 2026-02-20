@@ -165,11 +165,16 @@ cat > "$EXPORT_OPTIONS" <<PLIST
 <plist version="1.0">
 <dict>
     <key>method</key>
-    <string>app-store</string>
+    <string>app-store-connect</string>
     <key>teamID</key>
     <string>$DEVELOPMENT_TEAM</string>
     <key>signingStyle</key>
-    <string>automatic</string>
+    <string>manual</string>
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>com.vellum.vellum-assistant-ios</key>
+        <string>Vellum Assistant iOS Distribution</string>
+    </dict>
     <key>uploadSymbols</key>
     <true/>
     <key>uploadBitcode</key>
