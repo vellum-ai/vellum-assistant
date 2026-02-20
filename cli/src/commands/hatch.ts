@@ -26,8 +26,18 @@ import { exec, execOutput } from "../lib/step-runner";
 const _require = createRequire(import.meta.url);
 
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
-const INSTALL_SCRIPT_PATH = join(import.meta.dir, "..", "adapters", "install.sh");
 const MACHINE_TYPE = "e2-standard-4"; // 4 vCPUs, 16 GB memory
+
+// Resolve the install script path. In source tree, use the file directly.
+// In compiled binary ($bunfs), the file may not be available.
+async function resolveInstallScriptPath(): Promise<string | null> {
+  const sourcePath = join(import.meta.dir, "..", "adapters", "install.sh");
+  if (existsSync(sourcePath)) {
+    return sourcePath;
+  }
+  console.warn("⚠️  Install script not found at", sourcePath, "(expected in compiled binary)");
+  return null;
+}
 const HATCH_TIMEOUT_MS: Record<Species, number> = {
   vellum: 2 * 60 * 1000,
   openclaw: 10 * 60 * 1000,
@@ -103,7 +113,7 @@ export async function buildStartupScript(
     );
   }
 
-  const interfacesSeed = buildInterfacesSeed();
+  const interfacesSeed = await buildInterfacesSeed();
 
   return `#!/bin/bash
 set -e
@@ -311,14 +321,16 @@ async function recoverFromCurlFailure(
   sshUser: string,
   account?: string,
 ): Promise<void> {
-  if (!existsSync(INSTALL_SCRIPT_PATH)) {
-    throw new Error(`Install script not found at ${INSTALL_SCRIPT_PATH}`);
+  const installScriptPath = await resolveInstallScriptPath();
+  if (!installScriptPath) {
+    console.warn("⚠️  Skipping install script upload (not available in compiled binary)");
+    return;
   }
 
   const scpArgs = [
     "compute",
     "scp",
-    INSTALL_SCRIPT_PATH,
+    installScriptPath,
     `${instanceName}:${INSTALL_SCRIPT_REMOTE_PATH}`,
     `--zone=${zone}`,
     `--project=${project}`,
@@ -703,14 +715,19 @@ async function hatchCustom(
     writeFileSync(startupScriptPath, startupScript);
 
     try {
-      console.log("📋 Uploading install script to instance...");
-      await exec("scp", [
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "LogLevel=ERROR",
-        INSTALL_SCRIPT_PATH,
-        `${host}:${INSTALL_SCRIPT_REMOTE_PATH}`,
-      ]);
+      const installScriptPath = await resolveInstallScriptPath();
+      if (installScriptPath) {
+        console.log("📋 Uploading install script to instance...");
+        await exec("scp", [
+          "-o", "StrictHostKeyChecking=no",
+          "-o", "UserKnownHostsFile=/dev/null",
+          "-o", "LogLevel=ERROR",
+          installScriptPath,
+          `${host}:${INSTALL_SCRIPT_REMOTE_PATH}`,
+        ]);
+      } else {
+        console.warn("⚠️  Skipping install script upload (not available in compiled binary)");
+      }
 
       console.log("📋 Uploading startup script to instance...");
       const remoteStartupPath = `/tmp/${instanceName}-startup.sh`;
@@ -1097,8 +1114,9 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
 
 function getCliVersion(): string {
   try {
-    const pkgPath = join(import.meta.dir, "..", "..", "package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    // Use createRequire for JSON import — works in both Bun dev and compiled binary.
+    const require = createRequire(import.meta.url);
+    const pkg = require("../../package.json") as { version?: string };
     return pkg.version ?? "unknown";
   } catch {
     return "unknown";
