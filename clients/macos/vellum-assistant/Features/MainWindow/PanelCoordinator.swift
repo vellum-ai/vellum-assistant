@@ -281,6 +281,7 @@ extension MainWindowView {
                         },
                         onClose: { windowState.selectedSubagentId = nil }
                     )
+                    .id(subagentId)
                 } else {
                     slotView(for: config.right.content)
                 }

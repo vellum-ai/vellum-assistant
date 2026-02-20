@@ -108,13 +108,6 @@ struct SubagentDetailPanel: View {
                 onRequestDetail?()
             }
         }
-        .onChange(of: subagentId) { _ in
-            // When switching between subagents, onAppear doesn't fire since the panel
-            // stays on screen — trigger lazy load for the newly selected subagent.
-            if events.isEmpty, subagentInfo?.conversationId != nil {
-                onRequestDetail?()
-            }
-        }
     }
 
     // MARK: - Status Badge
@@ -221,10 +214,8 @@ struct SubagentDetailPanel: View {
     private func eventContent(_ event: SubagentEventItem) -> some View {
         switch event.kind {
         case .text:
-            Text(event.content)
+            MarkdownRenderer(text: event.content)
                 .font(VFont.monoSmall)
-                .foregroundColor(VColor.textPrimary)
-                .textSelection(.enabled)
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(

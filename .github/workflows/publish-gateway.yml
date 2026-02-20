@@ -58,7 +58,8 @@ jobs:
 
       - name: Publish to npm
         if: steps.version.outputs.changed == 'true'
-        run: npm publish --access public
+        # --no-provenance: sigstore provenance signing fails for private repos (see PR #1660)
+        run: npm publish --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

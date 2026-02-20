@@ -20,7 +20,8 @@ import { getCallOrchestrator, unregisterCallOrchestrator } from './call-state.js
 import { activeRelayConnections } from './relay-server.js';
 import { TwilioConversationRelayProvider } from './twilio-provider.js';
 import { getTwilioConfig } from './twilio-config.js';
-import { buildTwilioVoiceWebhookUrl, buildTwilioStatusCallbackUrl } from './twilio-webhook-urls.js';
+import { getTwilioVoiceWebhookUrl, getTwilioStatusCallbackUrl } from '../inbound/public-ingress-urls.js';
+import { loadConfig } from '../config/loader.js';
 import type { CallSession } from './types.js';
 
 const log = getLogger('call-domain');
@@ -89,13 +90,14 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
   let sessionId: string | null = null;
 
   try {
-    const config = getTwilioConfig();
+    const twilioConfig = getTwilioConfig();
+    const ingressConfig = loadConfig();
     const provider = new TwilioConversationRelayProvider();
 
     const session = createCallSession({
       conversationId,
       provider: 'twilio',
-      fromNumber: config.phoneNumber,
+      fromNumber: twilioConfig.phoneNumber,
       toNumber: phoneNumber,
       task: callContext ? `${task}\n\nContext: ${callContext}` : task,
     });
@@ -104,10 +106,10 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
     log.info({ callSessionId: session.id, to: phoneNumber, task }, 'Initiating outbound call');
 
     const { callSid } = await provider.initiateCall({
-      from: config.phoneNumber,
+      from: twilioConfig.phoneNumber,
       to: phoneNumber,
-      webhookUrl: buildTwilioVoiceWebhookUrl(config.webhookBaseUrl, session.id),
-      statusCallbackUrl: buildTwilioStatusCallbackUrl(config.webhookBaseUrl),
+      webhookUrl: getTwilioVoiceWebhookUrl(ingressConfig, session.id),
+      statusCallbackUrl: getTwilioStatusCallbackUrl(ingressConfig),
     });
 
     updateCallSession(session.id, { providerCallSid: callSid });
