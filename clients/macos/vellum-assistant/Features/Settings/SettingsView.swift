@@ -332,10 +332,6 @@ public struct SettingsView: View {
                 ))
                 .disabled(store.ingressPublicBaseUrl.isEmpty && !store.ingressEnabled)
 
-                TextField("Public Ingress URL (e.g. https://abc123.ngrok-free.app)", text: $ingressUrlText)
-                    .focused($isIngressUrlFocused)
-                    .textFieldStyle(.roundedBorder)
-
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
@@ -345,9 +341,9 @@ public struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text("Webhook paths (e.g. /webhooks/twilio/voice) are appended automatically.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                TextField("Public Ingress URL (e.g. https://abc123.ngrok-free.app)", text: $ingressUrlText)
+                    .focused($isIngressUrlFocused)
+                    .textFieldStyle(.roundedBorder)
 
                 HStack {
                     Spacer()

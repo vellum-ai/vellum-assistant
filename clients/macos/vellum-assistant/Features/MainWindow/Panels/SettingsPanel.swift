@@ -547,6 +547,15 @@ struct SettingsPanel: View {
                     .disabled(store.ingressPublicBaseUrl.isEmpty && !store.ingressEnabled)
                 }
 
+                HStack(alignment: .top, spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 12))
+                    Text("Setting a public base URL may expose this computer to the public internet. Use with caution.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
                 // Public Ingress URL field
                 HStack(spacing: VSpacing.xs) {
                     Text("Public Ingress URL")
@@ -566,19 +575,6 @@ struct SettingsPanel: View {
                         RoundedRectangle(cornerRadius: VRadius.md)
                             .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                     )
-
-                HStack(alignment: .top, spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 12))
-                    Text("Setting a public base URL may expose this computer to the public internet. Use with caution.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                Text("Webhook paths (e.g. /webhooks/twilio/voice) are appended automatically.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
 
                 VButton(label: "Save", style: .primary) {
                     store.saveIngressPublicBaseUrl(ingressUrlText)
