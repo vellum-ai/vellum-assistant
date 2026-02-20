@@ -15,7 +15,7 @@ const ALLOWED_TOOLS = new Set([
   'LS', 'Task', 'Bash(grep *)', 'Bash(rg *)', 'Bash(find *)',
 ]);
 
-const VALID_PROFILES: readonly WorkerProfile[] = ['general', 'researcher', 'coder', 'reviewer'];
+const VALID_PROFILES: readonly WorkerProfile[] = ['general', 'researcher', 'coder', 'reviewer', 'worker'];
 
 // Maximum nesting depth for Claude Code subprocesses.
 // Depth 0 = top-level assistant, depth 1 = first subprocess, etc.
@@ -90,7 +90,7 @@ export const claudeCodeTool: Tool = {
           },
           profile: {
             type: 'string',
-            enum: ['general', 'researcher', 'coder', 'reviewer'],
+            enum: ['general', 'researcher', 'coder', 'reviewer', 'worker'],
             description: 'Worker profile that scopes tool access. Defaults to general (backward compatible).',
           },
         },
