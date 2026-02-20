@@ -75,6 +75,10 @@ public final class SettingsStore: ObservableObject {
     @Published var twitterAuthInProgress: Bool = false
     @Published var twitterAuthError: String?
 
+    // MARK: - Twilio Webhook State
+
+    @Published var twilioWebhookBaseUrl: String = ""
+
     // MARK: - Trust Rules Coordination
 
     /// Whether any settings surface currently has a trust rules sheet open.
@@ -175,6 +179,14 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
+        // Wire up Twilio webhook config IPC response
+        daemonClient?.onTwilioWebhookConfigResponse = { [weak self] response in
+            guard let self else { return }
+            if response.success {
+                self.twilioWebhookBaseUrl = response.webhookBaseUrl
+            }
+        }
+
         // Wire up Twitter auth result IPC response
         daemonClient?.onTwitterAuthResult = { [weak self] response in
             guard let self else { return }
@@ -197,6 +209,9 @@ public final class SettingsStore: ObservableObject {
 
         // Refresh Twitter integration status on init
         refreshTwitterStatus()
+
+        // Refresh Twilio webhook config on init
+        refreshTwilioWebhookConfig()
     }
 
     // MARK: - API Key Actions
@@ -351,6 +366,18 @@ public final class SettingsStore: ObservableObject {
     func disconnectTwitter() {
         twitterAuthInProgress = false
         try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "disconnect"))
+    }
+
+    // MARK: - Twilio Webhook Actions
+
+    func refreshTwilioWebhookConfig() {
+        try? daemonClient?.send(TwilioWebhookConfigRequestMessage(action: "get"))
+    }
+
+    func saveTwilioWebhookBaseUrl(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        try? daemonClient?.send(TwilioWebhookConfigRequestMessage(action: "set", webhookBaseUrl: trimmed))
+        twilioWebhookBaseUrl = trimmed
     }
 
     // MARK: - Model Actions
