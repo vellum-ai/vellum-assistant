@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 import { randomBytes } from "crypto";
-import { existsSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { tmpdir, userInfo } from "os";
 import { dirname, join } from "path";
@@ -108,7 +108,7 @@ set -e
 
 ${timestampRedirect}
 
-trap 'EXIT_CODE=\$?; if [ \$EXIT_CODE -ne 0 ]; then echo "Startup script failed with exit code \$EXIT_CODE" > /var/log/startup-error; fi' EXIT
+trap 'EXIT_CODE=\$?; if [ \$EXIT_CODE -ne 0 ]; then echo "Startup script failed with exit code \$EXIT_CODE at line \$LINENO" > /var/log/startup-error; echo "Last 20 log lines:" >> /var/log/startup-error; tail -20 /var/log/startup-script.log >> /var/log/startup-error 2>/dev/null || true; fi' EXIT
 ${userSetup}
 ANTHROPIC_API_KEY=${anthropicApiKey}
 GATEWAY_RUNTIME_PROXY_ENABLED=true
@@ -135,8 +135,11 @@ CONFIG_EOF
 ${ownershipFixup}
 
 export VELLUM_SSH_USER="\$SSH_USER"
+echo "Downloading install script from ${platformUrl}/install.sh..."
 curl -fsSL ${platformUrl}/install.sh -o ${INSTALL_SCRIPT_REMOTE_PATH}
+echo "Install script downloaded (\$(wc -c < ${INSTALL_SCRIPT_REMOTE_PATH}) bytes)"
 chmod +x ${INSTALL_SCRIPT_REMOTE_PATH}
+echo "Running install script..."
 source ${INSTALL_SCRIPT_REMOTE_PATH}
 `;
 }
@@ -196,6 +199,7 @@ export interface PollResult {
   lastLine: string | null;
   done: boolean;
   failed: boolean;
+  errorContent: string;
 }
 
 async function pollInstance(
@@ -227,7 +231,7 @@ async function pollInstance(
     const output = await execOutput("gcloud", args);
     const sepIdx = output.indexOf("===HATCH_SEP===");
     if (sepIdx === -1) {
-      return { lastLine: output.trim() || null, done: false, failed: false };
+      return { lastLine: output.trim() || null, done: false, failed: false, errorContent: "" };
     }
     const errIdx = output.indexOf("===HATCH_ERR===");
     const lastLine = output.substring(0, sepIdx).trim() || null;
@@ -237,9 +241,9 @@ async function pollInstance(
       errIdx === -1 ? "" : output.substring(errIdx + "===HATCH_ERR===".length).trim();
     const done = lastLine !== null && status !== "active" && status !== "activating";
     const failed = errorContent.length > 0 || status === "failed";
-    return { lastLine, done, failed };
+    return { lastLine, done, failed, errorContent };
   } catch {
-    return { lastLine: null, done: false, failed: false };
+    return { lastLine: null, done: false, failed: false, errorContent: "" };
   }
 }
 
@@ -326,17 +330,23 @@ async function recoverFromCurlFailure(
   await exec("gcloud", sshArgs);
 }
 
+export interface WatchHatchingResult {
+  success: boolean;
+  errorContent: string;
+}
+
 export async function watchHatching(
   pollFn: () => Promise<PollResult>,
   instanceName: string,
   startTime: number,
   species: Species,
-): Promise<boolean> {
+): Promise<WatchHatchingResult> {
   let spinnerIdx = 0;
   let lastLogLine: string | null = null;
   let linesDrawn = 0;
   let finished = false;
   let failed = false;
+  let lastErrorContent = "";
   let pollInFlight = false;
   let nextPollAt = Date.now() + 15000;
 
@@ -386,6 +396,9 @@ export async function watchHatching(
       if (result.lastLine) {
         lastLogLine = result.lastLine;
       }
+      if (result.errorContent) {
+        lastErrorContent = result.errorContent;
+      }
       if (result.done) {
         finished = true;
         failed = result.failed;
@@ -396,12 +409,12 @@ export async function watchHatching(
     }
   }
 
-  return new Promise<boolean>((resolve) => {
+  return new Promise<WatchHatchingResult>((resolve) => {
     const interval = setInterval(() => {
       if (finished) {
         draw();
         clearInterval(interval);
-        resolve(!failed);
+        resolve({ success: !failed, errorContent: lastErrorContent });
         return;
       }
 
@@ -412,7 +425,7 @@ export async function watchHatching(
         console.log(`   ⏰ Timed out after ${formatElapsed(elapsed)}. Instance is still running.`);
         console.log(`   Monitor with: vel logs ${instanceName}`);
         console.log("");
-        resolve(true);
+        resolve({ success: true, errorContent: lastErrorContent });
         return;
       }
 
@@ -574,25 +587,32 @@ async function hatchGcp(
       console.log("   Press Ctrl+C to detach (instance will keep running)");
       console.log("");
 
-      const success = await watchHatching(
+      const result = await watchHatching(
         () => pollInstance(instanceName, project, zone, account),
         instanceName,
         startTime,
         species,
       );
 
-      if (!success) {
+      if (!result.success) {
+        console.log("");
+        if (result.errorContent) {
+          console.log("📋 Startup error:");
+          console.log(`   ${result.errorContent}`);
+          console.log("");
+        }
+
+        await fetchAndDisplayStartupLogs(instanceName, project, zone, account);
+
         if (
           species === "vellum" &&
           (await checkCurlFailure(instanceName, project, zone, account))
         ) {
-          console.log("");
           const installScriptUrl = `${process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai"}/install.sh`;
           console.log(`🔄 Detected install script curl failure for ${installScriptUrl}, attempting recovery...`);
           await recoverFromCurlFailure(instanceName, project, zone, sshUser, account);
           console.log("✅ Recovery successful!");
         } else {
-          console.log("");
           process.exit(1);
         }
       }
@@ -608,6 +628,45 @@ async function hatchGcp(
   } catch (error) {
     console.error("❌ Error:", error instanceof Error ? error.message : error);
     process.exit(1);
+  }
+}
+
+async function fetchAndDisplayStartupLogs(
+  instanceName: string,
+  project: string,
+  zone: string,
+  account?: string,
+): Promise<void> {
+  try {
+    const remoteCmd =
+      'echo "=== Last 50 lines of /var/log/startup-script.log ==="; ' +
+      "tail -50 /var/log/startup-script.log 2>/dev/null || echo '(no startup log found)'; " +
+      'echo ""; ' +
+      'echo "=== /var/log/startup-error ==="; ' +
+      "cat /var/log/startup-error 2>/dev/null || echo '(no error file found)'";
+    const args = [
+      "compute",
+      "ssh",
+      instanceName,
+      `--project=${project}`,
+      `--zone=${zone}`,
+      "--quiet",
+      "--ssh-flag=-o StrictHostKeyChecking=no",
+      "--ssh-flag=-o UserKnownHostsFile=/dev/null",
+      "--ssh-flag=-o ConnectTimeout=10",
+      "--ssh-flag=-o LogLevel=ERROR",
+      `--command=${remoteCmd}`,
+    ];
+    if (account) args.push(`--account=${account}`);
+    const output = await execOutput("gcloud", args);
+    console.log("📋 Startup logs from instance:");
+    for (const line of output.split("\n")) {
+      console.log(`   ${line}`);
+    }
+    console.log("");
+  } catch {
+    console.log("⚠️  Could not retrieve startup logs from instance");
+    console.log("");
   }
 }
 
@@ -830,7 +889,20 @@ async function hatchLocal(species: Species, name: string | null): Promise<void> 
   console.log("");
 }
 
+function getCliVersion(): string {
+  try {
+    const pkgPath = join(import.meta.dir, "..", "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 export async function hatch(): Promise<void> {
+  const cliVersion = getCliVersion();
+  console.log(`@vellumai/cli v${cliVersion}`);
+
   const { species, detached, name, remote } = parseArgs();
 
   if (remote === "local") {

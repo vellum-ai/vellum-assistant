@@ -87,6 +87,10 @@ main() {
     ensure_git
     ensure_bun
 
+    info "Resolving vellum package..."
+    VELLUM_VERSION=$(bunx vellum --version 2>/dev/null || echo "unknown")
+    success "vellum package version: $VELLUM_VERSION"
+
     info "Running vellum hatch..."
     printf "\n"
     if [ -n "${VELLUM_SSH_USER:-}" ] && [ "$(id -u)" = "0" ]; then
