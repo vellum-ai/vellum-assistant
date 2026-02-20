@@ -133,7 +133,7 @@ struct ComposerView: View {
             .padding(.top, isComposerExpanded ? VSpacing.md : VSpacing.xs)
             .padding(.bottom, isComposerExpanded ? VSpacing.sm : VSpacing.xs)
             .padding(.leading, VSpacing.lg)
-            .padding(.trailing, 2)
+            .padding(.trailing, VSpacing.lg)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(VColor.surface)
@@ -359,7 +359,7 @@ struct ComposerView: View {
                 }
             }
         }
-        .padding(.trailing, VSpacing.xs)
+        .padding(.trailing, -(VSpacing.lg - 2))
         .animation(VAnimation.spring, value: canSend)
     }
 
