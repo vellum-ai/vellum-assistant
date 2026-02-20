@@ -363,6 +363,7 @@ struct ChatView: View {
                         if msg.isSubagentNotification { return false }
                         return true
                     }
+                    let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
                     ForEach(Array(displayMessages.enumerated()), id: \.element.id) { index, message in
                         if shouldShowTimestamp(at: index, in: displayMessages) {
                             TimestampDivider(date: message.timestamp)
@@ -373,6 +374,7 @@ struct ChatView: View {
                                 // Show pending confirmations as inline buttons
                                 ToolConfirmationBubble(
                                     confirmation: confirmation,
+                                    isKeyboardActive: confirmation.requestId == activePendingRequestId,
                                     onAllow: { onConfirmationAllow(confirmation.requestId) },
                                     onDeny: { onConfirmationDeny(confirmation.requestId) },
                                     onAlwaysAllow: onAlwaysAllow

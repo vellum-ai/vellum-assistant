@@ -8,6 +8,10 @@ public struct ToolConfirmationBubble: View {
     public let onAllow: () -> Void
     public let onDeny: () -> Void
     public let onAlwaysAllow: (String, String, String, String) -> Void
+    /// When `true` this bubble owns the keyboard monitor and shows selection
+    /// highlights. When `false` the monitor is removed and keyboard-only state
+    /// is cleared so a lower stacked bubble doesn't steal input.
+    public let isKeyboardActive: Bool
 
     @State private var showDiff = false
     @State private var showAlwaysAllowMenu = false
@@ -21,8 +25,9 @@ public struct ToolConfirmationBubble: View {
     @State private var keyMonitor: Any?
     #endif
 
-    public init(confirmation: ToolConfirmationData, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAlwaysAllow: @escaping (String, String, String, String) -> Void) {
+    public init(confirmation: ToolConfirmationData, isKeyboardActive: Bool = true, onAllow: @escaping () -> Void, onDeny: @escaping () -> Void, onAlwaysAllow: @escaping (String, String, String, String) -> Void) {
         self.confirmation = confirmation
+        self.isKeyboardActive = isKeyboardActive
         self.onAllow = onAllow
         self.onDeny = onDeny
         self.onAlwaysAllow = onAlwaysAllow
@@ -357,17 +362,37 @@ public struct ToolConfirmationBubble: View {
             Spacer()
         }
         .onAppear {
-            #if os(macOS)
-            installKeyMonitor(actions: actions)
-            #else
-            keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
-            #endif
+            if isKeyboardActive {
+                #if os(macOS)
+                installKeyMonitor(actions: actions)
+                #else
+                keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
+                #endif
+            }
         }
         .onDisappear {
             popoverKeyboardModel = nil
             #if os(macOS)
             removeKeyMonitor()
             #endif
+        }
+        .onChange(of: isKeyboardActive) {
+            if isKeyboardActive {
+                #if os(macOS)
+                installKeyMonitor(actions: actions)
+                #else
+                keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
+                #endif
+            } else {
+                #if os(macOS)
+                removeKeyMonitor()
+                #endif
+                keyboardModel = nil
+                popoverKeyboardModel = nil
+                showAlwaysAllowMenu = false
+                showScopePickerMenu = false
+                pendingPattern = nil
+            }
         }
     }
 
