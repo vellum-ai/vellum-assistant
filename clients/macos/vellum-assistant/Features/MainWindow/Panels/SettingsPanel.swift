@@ -26,8 +26,8 @@ struct SettingsPanel: View {
     @State private var twitterClientSecret: String = ""
     @State private var ingressUrlText: String = ""
     @FocusState private var isIngressUrlFocused: Bool
-    @State private var gatewayReachable: Bool? = nil
     @State private var checkingGateway: Bool = false
+    @State private var gatewayHealthResult: Bool? = nil
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
     @State private var connectingIntegration: String?
     @State private var integrationError: (id: String, message: String)?
@@ -626,11 +626,6 @@ struct SettingsPanel: View {
                             ProgressView()
                                 .controlSize(.small)
                                 .frame(width: 28, height: 28)
-                        } else if let reachable = gatewayReachable {
-                            Image(systemName: reachable ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .font(.system(size: 14))
-                                .foregroundColor(reachable ? VColor.success : VColor.error)
-                                .frame(width: 28, height: 28)
                         } else {
                             Image(systemName: "antenna.radiowaves.left.and.right")
                                 .font(.system(size: 12, weight: .medium))
@@ -640,8 +635,21 @@ struct SettingsPanel: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .disabled(checkingGateway)
                     .accessibilityLabel("Check gateway health")
                     .help("Check gateway health")
+                }
+
+                if let reachable = gatewayHealthResult {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: reachable ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(reachable ? VColor.success : VColor.error)
+                        Text(reachable ? "Gateway is reachable" : "Gateway is not reachable")
+                            .font(VFont.caption)
+                            .foregroundColor(reachable ? VColor.success : VColor.error)
+                    }
+                    .transition(.opacity)
                 }
 
                 Text("Point your tunnel service at this local address.")
@@ -1059,35 +1067,37 @@ struct SettingsPanel: View {
     // MARK: - Gateway Health Check
 
     private func checkGatewayHealth() {
-        gatewayReachable = nil
+        gatewayHealthResult = nil
         checkingGateway = true
 
         Task {
             defer { checkingGateway = false }
 
             guard let url = URL(string: "\(store.localGatewayTarget)/healthz") else {
-                gatewayReachable = false
+                withAnimation(VAnimation.fast) { gatewayHealthResult = false }
                 return
             }
 
             var request = URLRequest(url: url)
             request.timeoutInterval = 3
 
+            let reachable: Bool
             do {
                 let (_, response) = try await URLSession.shared.data(for: request)
                 if let httpResponse = response as? HTTPURLResponse {
-                    gatewayReachable = (200..<300).contains(httpResponse.statusCode)
+                    reachable = (200..<300).contains(httpResponse.statusCode)
                 } else {
-                    gatewayReachable = false
+                    reachable = false
                 }
             } catch {
-                gatewayReachable = false
+                reachable = false
             }
 
-            // Auto-reset after 4 seconds so the result is transient and
-            // the button returns to its default "check" icon.
+            withAnimation(VAnimation.fast) { gatewayHealthResult = reachable }
+
+            // Auto-dismiss the status message after 4 seconds
             try? await Task.sleep(nanoseconds: 4_000_000_000)
-            gatewayReachable = nil
+            withAnimation(VAnimation.fast) { gatewayHealthResult = nil }
         }
     }
 
