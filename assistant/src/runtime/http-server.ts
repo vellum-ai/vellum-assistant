@@ -12,7 +12,7 @@ import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import { loadConfig } from '../config/loader.js';
-import { getWebhookBaseUrl } from '../calls/twilio-webhook-urls.js';
+import { getPublicBaseUrl } from '../inbound/public-ingress-urls.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 
 // Route handlers — grouped by domain
@@ -186,7 +186,7 @@ async function validateTwilioWebhook(
   // used to compute the HMAC-SHA1 signature.
   let publicBaseUrl: string | undefined;
   try {
-    publicBaseUrl = getWebhookBaseUrl(loadConfig());
+    publicBaseUrl = getPublicBaseUrl(loadConfig());
   } catch {
     // No webhook base URL configured — fall back to using req.url as-is
   }

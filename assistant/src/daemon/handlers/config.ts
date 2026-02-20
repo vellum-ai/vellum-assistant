@@ -20,6 +20,7 @@ import type {
   ShareToSlackRequest,
   SlackWebhookConfigRequest,
   TwilioWebhookConfigRequest,
+  IngressConfigRequest,
   VercelApiConfigRequest,
   TwitterIntegrationConfigRequest,
 } from '../ipc-protocol.js';
@@ -434,6 +435,51 @@ export function handleTwilioWebhookConfig(
   }
 }
 
+export function handleIngressConfig(
+  msg: IngressConfigRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    if (msg.action === 'get') {
+      const raw = loadRawConfig();
+      const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+      const publicBaseUrl = (ingress.publicBaseUrl as string) ?? '';
+      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl, success: true });
+    } else if (msg.action === 'set') {
+      const value = (msg.publicBaseUrl ?? '').trim().replace(/\/+$/, '');
+      const raw = loadRawConfig();
+
+      // Update ingress.publicBaseUrl
+      const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+      ingress.publicBaseUrl = value || undefined;
+
+      // Also update calls.webhookBaseUrl for backward compat
+      const calls = (raw?.calls ?? {}) as Record<string, unknown>;
+      calls.webhookBaseUrl = value || undefined;
+
+      const wasSuppressed = ctx.suppressConfigReload;
+      ctx.setSuppressConfigReload(true);
+      try {
+        saveRawConfig({ ...raw, ingress, calls });
+      } catch (err) {
+        ctx.setSuppressConfigReload(wasSuppressed);
+        throw err;
+      }
+      const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
+      if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
+      const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
+      ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: value, success: true });
+    } else {
+      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', success: false, error: message });
+  }
+}
+
 export function handleVercelApiConfig(
   msg: VercelApiConfigRequest,
   socket: net.Socket,
@@ -660,6 +706,7 @@ export const configHandlers = defineHandlers({
   share_to_slack: handleShareToSlack,
   slack_webhook_config: handleSlackWebhookConfig,
   twilio_webhook_config: handleTwilioWebhookConfig,
+  ingress_config: handleIngressConfig,
   vercel_api_config: handleVercelApiConfig,
   twitter_integration_config: handleTwitterIntegrationConfig,
   env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
