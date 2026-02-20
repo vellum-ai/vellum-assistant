@@ -341,32 +341,39 @@ export async function handleWorkItemPreflight(
     return;
   }
 
-  // If permissions were already bundled at creation time, skip the
-  // preflight entirely — return empty permissions so the client runs
-  // the task immediately without showing the permission dialog.
+  // Compute required tools from the work-item snapshot first; only fall
+  // back to the task template (or CANONICAL_TOOLS default) when the
+  // snapshot is null.
+  let requiredTools: string[];
+  if (workItem.requiredTools !== null && workItem.requiredTools !== undefined) {
+    requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
+  } else {
+    const task = getTask(workItem.taskId);
+    if (!task) {
+      ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: false, error: `Associated task not found: ${workItem.taskId}` });
+      return;
+    }
+    requiredTools = task.requiredTools
+      ? sanitizeToolList(JSON.parse(task.requiredTools))
+      : Object.keys(CANONICAL_TOOLS);
+  }
+
+  // If the work item explicitly requires no tools, skip the dialog.
+  if (requiredTools.length === 0) {
+    ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: true, permissions: [] });
+    return;
+  }
+
+  // If some tools are already approved, only prompt for the missing ones.
+  // When all required tools are covered, skip the dialog entirely.
   if (workItem.approvedTools) {
-    const alreadyApproved: string[] = JSON.parse(workItem.approvedTools);
-    if (alreadyApproved.length > 0) {
+    const approvedSet = new Set<string>(JSON.parse(workItem.approvedTools));
+    requiredTools = requiredTools.filter((t) => !approvedSet.has(t));
+    if (requiredTools.length === 0) {
       ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: true, permissions: [] });
       return;
     }
   }
-
-  const task = getTask(workItem.taskId);
-  if (!task) {
-    ctx.send(socket, { type: 'work_item_preflight_response', id: msg.id, success: false, error: `Associated task not found: ${workItem.taskId}` });
-    return;
-  }
-
-  // If the task has explicit requiredTools, sanitize them against the
-  // canonical set. Otherwise fall back to all canonical tools so the
-  // preflight dialog always appears — ad-hoc tasks never have
-  // requiredTools, and without this fallback the task would run with
-  // zero approved tools, leaving it unable to execute any tool calls
-  // during the run.
-  const requiredTools: string[] = task.requiredTools
-    ? sanitizeToolList(JSON.parse(task.requiredTools))
-    : Object.keys(CANONICAL_TOOLS);
 
   const workingDir = process.cwd();
   const permissions = await Promise.all(
