@@ -345,6 +345,7 @@ struct ChatContentView: View {
             Image(uiImage: uiImage)
                 .resizable()
                 .scaledToFill()
+                .clipped()
                 .allowsHitTesting(false)
         }
     }
