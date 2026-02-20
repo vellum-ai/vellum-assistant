@@ -212,8 +212,18 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
       expirePendingQuestions(session.id);
     }
 
-    // Mark the claim as permanently processed so it never expires
-    finalizeCallbackClaim(dedupeKey, claimId);
+    // Mark the claim as permanently processed so it never expires.
+    // If finalization returns false, another handler reclaimed this key
+    // after our claim expired — our business writes already landed but
+    // the dedupe row now belongs to the other handler, risking duplicate
+    // processing on later retries.
+    const finalized = finalizeCallbackClaim(dedupeKey, claimId);
+    if (!finalized) {
+      log.warn(
+        { dedupeKey, claimId, callSid, callStatus },
+        'Lost claim during finalization — business writes committed but dedupe ownership was taken by another handler',
+      );
+    }
   } catch (err) {
     // Release claim so Twilio retries can reprocess
     releaseCallbackClaim(dedupeKey, claimId);

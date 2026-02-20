@@ -392,8 +392,14 @@ export function releaseCallbackClaim(dedupeKey: string, claimId: string): void {
  *
  * Only updates the row if both dedupe_key AND claim_id match, preventing
  * handler A from finalizing a claim that was reclaimed by handler B.
+ *
+ * Returns true if the claim was successfully finalized, or false if 0 rows
+ * were updated — meaning the claim was reclaimed by another handler after
+ * expiry. Callers should treat a false return as a lost-claim signal: the
+ * business writes already happened but the dedupe row belongs to someone
+ * else, so duplicate processing may occur on later retries.
  */
-export function finalizeCallbackClaim(dedupeKey: string, claimId: string): void {
+export function finalizeCallbackClaim(dedupeKey: string, claimId: string): boolean {
   const db = getDb();
   const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
   // Set created_at far in the future so expiry check never matches
@@ -401,4 +407,10 @@ export function finalizeCallbackClaim(dedupeKey: string, claimId: string): void 
   raw.query(
     `UPDATE processed_callbacks SET created_at = ? WHERE dedupe_key = ? AND claim_id = ?`,
   ).run(NEVER_EXPIRE, dedupeKey, claimId);
+  const changes = raw.query('SELECT changes() as c').get() as { c: number };
+  if (changes.c === 0) {
+    log.warn({ dedupeKey, claimId }, 'finalizeCallbackClaim: claim was lost — another handler reclaimed this key after expiry');
+    return false;
+  }
+  return true;
 }
