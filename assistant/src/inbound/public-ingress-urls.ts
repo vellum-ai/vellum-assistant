@@ -2,7 +2,7 @@
  * Centralized URL builders for all public-facing ingress endpoints.
  *
  * Resolves the canonical public base URL via a fallback chain:
- *   ingress.publicBaseUrl → calls.webhookBaseUrl → env TWILIO_WEBHOOK_BASE_URL
+ *   ingress.publicBaseUrl → calls.webhookBaseUrl → env INGRESS_PUBLIC_BASE_URL → env TWILIO_WEBHOOK_BASE_URL
  *
  * Supersedes the per-domain URL helpers in calls/twilio-webhook-urls.ts.
  */
@@ -24,10 +24,11 @@ function normalizeUrl(url: string): string {
 }
 
 /**
- * Resolve the canonical public base URL with a three-level fallback chain:
- *   1. ingress.publicBaseUrl (preferred)
- *   2. calls.webhookBaseUrl (backward compat)
- *   3. TWILIO_WEBHOOK_BASE_URL env var (legacy, deprecated)
+ * Resolve the canonical public base URL with a four-level fallback chain:
+ *   1. ingress.publicBaseUrl (preferred, workspace config)
+ *   2. calls.webhookBaseUrl (workspace config, deprecated)
+ *   3. INGRESS_PUBLIC_BASE_URL env var (gateway-compatible)
+ *   4. TWILIO_WEBHOOK_BASE_URL env var (legacy, deprecated)
  *
  * Throws if no source provides a non-empty value.
  */
@@ -49,17 +50,23 @@ export function getPublicBaseUrl(config: IngressConfig): string {
     }
   }
 
+  const ingressEnvValue = process.env.INGRESS_PUBLIC_BASE_URL;
+  if (ingressEnvValue) {
+    const normalized = normalizeUrl(ingressEnvValue);
+    if (normalized) return normalized;
+  }
+
   const envValue = process.env.TWILIO_WEBHOOK_BASE_URL;
   if (envValue) {
     log.warn(
-      'TWILIO_WEBHOOK_BASE_URL env var is deprecated — set ingress.publicBaseUrl in config instead.',
+      'TWILIO_WEBHOOK_BASE_URL env var is deprecated — set ingress.publicBaseUrl in config or INGRESS_PUBLIC_BASE_URL env var instead.',
     );
     const normalized = normalizeUrl(envValue);
     if (normalized) return normalized;
   }
 
   throw new Error(
-    'No public base URL configured. Set ingress.publicBaseUrl in config, calls.webhookBaseUrl, or TWILIO_WEBHOOK_BASE_URL env var.',
+    'No public base URL configured. Set ingress.publicBaseUrl in config, INGRESS_PUBLIC_BASE_URL env var, or TWILIO_WEBHOOK_BASE_URL env var.',
   );
 }
 
