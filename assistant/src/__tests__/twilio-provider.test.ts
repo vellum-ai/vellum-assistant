@@ -30,10 +30,12 @@ mock.module('../util/logger.js', () => ({
 
 // Start with a configured auth token
 let mockAuthToken: string | undefined = 'test-auth-token-secret';
+let mockAccountSid: string | undefined = 'AC_test_account';
 
 mock.module('../security/secure-keys.js', () => ({
   getSecureKey: (account: string) => {
     if (account === 'credential:twilio:auth_token') return mockAuthToken;
+    if (account === 'credential:twilio:account_sid') return mockAccountSid;
     return undefined;
   },
 }));
@@ -60,6 +62,7 @@ function computeValidSignature(
 describe('TwilioConversationRelayProvider', () => {
   beforeEach(() => {
     mockAuthToken = 'test-auth-token-secret';
+    mockAccountSid = 'AC_test_account';
   });
 
   describe('verifyWebhookSignature', () => {
@@ -138,6 +141,39 @@ describe('TwilioConversationRelayProvider', () => {
       mockAuthToken = undefined;
       const token = TwilioConversationRelayProvider.getAuthToken();
       expect(token).toBeNull();
+    });
+  });
+
+  describe('initiateCall', () => {
+    test('sends repeated StatusCallbackEvent parameters', async () => {
+      const provider = new TwilioConversationRelayProvider();
+      const originalFetch = globalThis.fetch;
+      let capturedBody = '';
+
+      globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        capturedBody = String(init?.body ?? '');
+        return new Response(JSON.stringify({ sid: 'CA_test_123' }), { status: 200 });
+      }) as typeof fetch;
+
+      try {
+        const result = await provider.initiateCall({
+          from: '+15550001111',
+          to: '+15550002222',
+          webhookUrl: 'https://example.com/webhooks/twilio/voice?callSessionId=s1',
+          statusCallbackUrl: 'https://example.com/webhooks/twilio/status',
+        });
+
+        expect(result.callSid).toBe('CA_test_123');
+        const params = new URLSearchParams(capturedBody);
+        expect(params.getAll('StatusCallbackEvent')).toEqual([
+          'initiated',
+          'ringing',
+          'answered',
+          'completed',
+        ]);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     });
   });
 });

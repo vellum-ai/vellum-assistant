@@ -378,6 +378,7 @@ export class RuntimeHttpServer {
           log.info({ callSessionId, code, reason: reason?.toString() }, 'ConversationRelay WebSocket closed');
           if (callSessionId) {
             const connection = activeRelayConnections.get(callSessionId);
+            connection?.handleTransportClosed(code, reason?.toString());
             connection?.destroy();
             activeRelayConnections.delete(callSessionId);
           }
