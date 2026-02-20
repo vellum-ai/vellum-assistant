@@ -214,7 +214,8 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
                 attachments: nil,
                 textSegments: nil,
                 contentOrder: nil,
-                surfaces: nil
+                surfaces: nil,
+                subagentNotification: nil
             ),
         ]
 

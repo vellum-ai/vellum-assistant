@@ -446,7 +446,8 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
                 attachments: nil,
                 textSegments: nil,
                 contentOrder: nil,
-                surfaces: [historySurface]
+                surfaces: [historySurface],
+                subagentNotification: nil
             ),
         ]
 
