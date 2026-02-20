@@ -282,7 +282,7 @@ export function createToolExecutor(
 
     // Broadcast tasks_changed so connected clients (e.g. macOS Tasks window)
     // auto-refresh when the LLM mutates the task queue via tools
-    if ((name === 'task_list_add' || name === 'task_list_update' || name === 'task_list_remove') && !result.isError) {
+    if ((name === 'task_list_add' || name === 'task_list_update' || name === 'task_list_remove' || name === 'task_queue_run') && !result.isError) {
       broadcastToAllClients?.({ type: 'tasks_changed' });
     }
 
