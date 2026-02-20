@@ -425,6 +425,8 @@ export function handleTwilioWebhookConfig(
       const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
       ctx.debounceTimers.set('__suppress_reset__', resetTimer);
       ctx.send(socket, { type: 'twilio_webhook_config_response', webhookBaseUrl: value, success: true });
+    } else {
+      ctx.send(socket, { type: 'twilio_webhook_config_response', webhookBaseUrl: '', success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

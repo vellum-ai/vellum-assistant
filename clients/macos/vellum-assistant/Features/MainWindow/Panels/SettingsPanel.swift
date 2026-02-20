@@ -87,7 +87,6 @@ struct SettingsPanel: View {
             store.refreshAPIKeyState()
             store.refreshTwitterStatus()
             store.refreshTwilioWebhookConfig()
-            twilioWebhookUrlText = store.twilioWebhookBaseUrl
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
         }
@@ -99,6 +98,9 @@ struct SettingsPanel: View {
                 NSEvent.removeMonitor(monitor)
                 mouseDownMonitor = nil
             }
+        }
+        .onChange(of: store.twilioWebhookBaseUrl) { _, newValue in
+            twilioWebhookUrlText = newValue
         }
         .onChange(of: showModelDropdown) { _, isOpen in
             if let monitor = mouseDownMonitor {

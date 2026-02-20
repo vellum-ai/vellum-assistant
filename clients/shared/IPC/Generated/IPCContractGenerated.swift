@@ -1078,6 +1078,8 @@ public struct IPCRideShotgunStart: Codable, Sendable {
     public let intervalSeconds: Double
     public let mode: String?
     public let targetDomain: String?
+    /// Domain to auto-navigate (may differ from targetDomain, e.g. open.spotify.com vs spotify.com).
+    public let navigateDomain: String?
     public let autoNavigate: Bool?
 }
 

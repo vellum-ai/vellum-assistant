@@ -550,7 +550,6 @@ public struct SettingsView: View {
             store.refreshVercelKeyState()
             store.refreshTwitterStatus()
             store.refreshTwilioWebhookConfig()
-            twilioWebhookUrlText = store.twilioWebhookBaseUrl
             checkPermissions()
         }
         .onDisappear {
@@ -560,6 +559,9 @@ public struct SettingsView: View {
         }
         .onReceive(permissionTimer) { _ in
             checkPermissions()
+        }
+        .onChange(of: store.twilioWebhookBaseUrl) { _, newValue in
+            twilioWebhookUrlText = newValue
         }
         .sheet(isPresented: $showingSkills, onDismiss: {
             skillsViewModel = nil
