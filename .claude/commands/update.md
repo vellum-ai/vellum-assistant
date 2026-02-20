@@ -24,9 +24,9 @@ Pull the latest changes from main, restart the backend daemon, and rebuild/launc
    cd assistant && bun install && cd ..
    ```
 
-4. Start the daemon fresh:
+4. Start the daemon fresh with runtime HTTP enabled (required for gateway/Twilio/OAuth ingress):
    ```bash
-   cd assistant && bun run src/index.ts daemon start && cd ..
+   cd assistant && bun run daemon:restart:http && cd ..
    ```
 
 5. Build and launch the macOS app from source. Pin gateway resolution to the repo `gateway/` directory so local gateway changes are used instead of a packaged fallback. Run this in the background since `build.sh run` enters a watch loop:
