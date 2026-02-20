@@ -338,11 +338,11 @@ describe('LLM commit message integration', () => {
     expect(fullMessage).toContain('feat: add user authentication module');
   });
 
-  test('missing API key returns deterministic without attempting LLM', async () => {
+  test('uninitialized provider returns deterministic without attempting LLM', async () => {
     const deterministicResult: GenerateCommitMessageResult = {
       message: 'Turn: missing-key.txt',
       source: 'deterministic',
-      reason: 'missing_provider_api_key',
+      reason: 'provider_not_initialized',
     };
 
     mock.module('../workspace/provider-commit-message-generator.js', () => ({

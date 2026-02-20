@@ -9,7 +9,6 @@ const log = getLogger('commit-message-llm');
 export type CommitMessageSource = 'llm' | 'deterministic';
 export type LLMFallbackReason =
   | 'disabled'
-  | 'missing_provider_api_key'
   | 'provider_not_initialized'
   | 'breaker_open'
   | 'insufficient_budget'
@@ -104,14 +103,7 @@ export class ProviderCommitMessageGenerator {
       return buildDeterministicResult(context, 'disabled');
     }
 
-    // Step 3: API key check
-    const apiKey = config.apiKeys[config.provider];
-    if (!apiKey) {
-      log.debug({ provider: config.provider }, 'No API key for provider; falling back to deterministic');
-      return buildDeterministicResult(context, 'missing_provider_api_key');
-    }
-
-    // Step 4: Circuit breaker
+    // Step 3: Circuit breaker
     if (this.isBreakerOpen()) {
       log.debug(
         { consecutiveFailures: this.consecutiveFailures },
@@ -120,7 +112,7 @@ export class ProviderCommitMessageGenerator {
       return buildDeterministicResult(context, 'breaker_open');
     }
 
-    // Step 5: Budget check
+    // Step 4: Budget check
     if (options.deadlineMs !== undefined) {
       const remaining = options.deadlineMs - Date.now();
       if (remaining < llmConfig.minRemainingTurnBudgetMs) {
@@ -132,7 +124,7 @@ export class ProviderCommitMessageGenerator {
       }
     }
 
-    // Step 6: Call the provider
+    // Step 5: Call the provider
     try {
       const { getProvider } = await import('../providers/registry.js');
 
@@ -156,7 +148,7 @@ export class ProviderCommitMessageGenerator {
       if (options.diffSummary) {
         const diffBytes = new TextEncoder().encode(options.diffSummary).length;
         const diff = diffBytes > llmConfig.maxDiffBytes
-          ? options.diffSummary.slice(0, llmConfig.maxDiffBytes) + '\n... (truncated)'
+          ? new TextDecoder().decode(new TextEncoder().encode(options.diffSummary).slice(0, llmConfig.maxDiffBytes)) + '\n... (truncated)'
           : options.diffSummary;
         userText += `\n\nDiff summary:\n${diff}`;
       }
@@ -225,7 +217,7 @@ export class ProviderCommitMessageGenerator {
       this.recordSuccess();
       return { message: text, source: 'llm' };
     } catch (err: unknown) {
-      // Step 7: Any error -> deterministic fallback
+      // Step 6: Any error -> deterministic fallback
       log.warn(
         { err: err instanceof Error ? err.message : String(err) },
         'Commit message LLM provider error; falling back to deterministic',
