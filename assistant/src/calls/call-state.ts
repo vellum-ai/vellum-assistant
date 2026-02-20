@@ -28,6 +28,29 @@ export function fireCallQuestionNotifier(conversationId: string, callSessionId: 
   questionNotifiers.get(conversationId)?.(callSessionId, question);
 }
 
+// ── Transcript notifiers ────────────────────────────────────────────
+const transcriptNotifiers = new Map<string, (callSessionId: string, speaker: 'caller' | 'assistant', text: string) => void>();
+
+export function registerCallTranscriptNotifier(
+  conversationId: string,
+  callback: (callSessionId: string, speaker: 'caller' | 'assistant', text: string) => void,
+): void {
+  transcriptNotifiers.set(conversationId, callback);
+}
+
+export function unregisterCallTranscriptNotifier(conversationId: string): void {
+  transcriptNotifiers.delete(conversationId);
+}
+
+export function fireCallTranscriptNotifier(
+  conversationId: string,
+  callSessionId: string,
+  speaker: 'caller' | 'assistant',
+  text: string,
+): void {
+  transcriptNotifiers.get(conversationId)?.(callSessionId, speaker, text);
+}
+
 // ── Completion notifiers ────────────────────────────────────────────
 const completionNotifiers = new Map<string, (callSessionId: string) => void>();
 

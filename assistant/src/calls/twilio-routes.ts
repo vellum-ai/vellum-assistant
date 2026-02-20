@@ -24,6 +24,7 @@ import { isTerminalState } from './call-state-machine.js';
 import { getTwilioConfig } from './twilio-config.js';
 import { loadConfig } from '../config/loader.js';
 import { getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
+import { fireCallCompletionNotifier } from './call-state.js';
 
 const log = getLogger('twilio-routes');
 
@@ -74,9 +75,12 @@ export function resolveRelayUrl(wssBaseUrl: string, webhookBaseUrl: string): str
  */
 function mapTwilioStatus(twilioStatus: string): CallStatus | null {
   switch (twilioStatus) {
+    case 'initiated':
     case 'queued':
+      return 'initiated';
     case 'ringing':
       return 'ringing';
+    case 'answered':
     case 'in-progress':
       return 'in_progress';
     case 'completed':
@@ -189,6 +193,8 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
   }
 
   try {
+    const wasTerminal = isTerminalState(session.status);
+
     // Build updates
     const updates: Parameters<typeof updateCallSession>[1] = {
       status: mappedStatus,
@@ -218,6 +224,10 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
     // Expire pending questions on terminal status
     if (isTerminal) {
       expirePendingQuestions(session.id);
+
+      if (!wasTerminal) {
+        fireCallCompletionNotifier(session.conversationId, session.id);
+      }
     }
 
     // Mark the claim as permanently processed so it never expires.
@@ -255,4 +265,3 @@ export async function handleConnectAction(_req: Request): Promise<Response> {
     },
   );
 }
-

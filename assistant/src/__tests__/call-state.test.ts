@@ -10,6 +10,9 @@ import {
   registerCallQuestionNotifier,
   unregisterCallQuestionNotifier,
   fireCallQuestionNotifier,
+  registerCallTranscriptNotifier,
+  unregisterCallTranscriptNotifier,
+  fireCallTranscriptNotifier,
   registerCallCompletionNotifier,
   unregisterCallCompletionNotifier,
   fireCallCompletionNotifier,
@@ -23,6 +26,7 @@ describe('call-state', () => {
   // Clean up notifiers between tests
   beforeEach(() => {
     unregisterCallQuestionNotifier('test-conv');
+    unregisterCallTranscriptNotifier('test-conv');
     unregisterCallCompletionNotifier('test-conv');
     unregisterCallOrchestrator('test-session');
   });
@@ -60,6 +64,43 @@ describe('call-state', () => {
   test('fireCallQuestionNotifier does nothing when no notifier is registered', () => {
     // Should not throw
     fireCallQuestionNotifier('unregistered-conv', 'session-1', 'question');
+  });
+
+  // ── Transcript notifiers ──────────────────────────────────────────
+
+  test('registerCallTranscriptNotifier + fireCallTranscriptNotifier: callback receives args', () => {
+    let receivedSessionId = '';
+    let receivedSpeaker = '';
+    let receivedText = '';
+
+    registerCallTranscriptNotifier('test-conv', (callSessionId, speaker, text) => {
+      receivedSessionId = callSessionId;
+      receivedSpeaker = speaker;
+      receivedText = text;
+    });
+
+    fireCallTranscriptNotifier('test-conv', 'session-321', 'caller', 'Hello from caller');
+
+    expect(receivedSessionId).toBe('session-321');
+    expect(receivedSpeaker).toBe('caller');
+    expect(receivedText).toBe('Hello from caller');
+  });
+
+  test('unregisterCallTranscriptNotifier: fire after unregister does nothing', () => {
+    let called = false;
+
+    registerCallTranscriptNotifier('test-conv', () => {
+      called = true;
+    });
+
+    unregisterCallTranscriptNotifier('test-conv');
+    fireCallTranscriptNotifier('test-conv', 'session-321', 'assistant', 'Test');
+
+    expect(called).toBe(false);
+  });
+
+  test('fireCallTranscriptNotifier does nothing when no notifier is registered', () => {
+    fireCallTranscriptNotifier('unregistered-conv', 'session-1', 'caller', 'text');
   });
 
   // ── Completion notifiers ──────────────────────────────────────────

@@ -18,7 +18,7 @@ import {
 } from './call-store.js';
 import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
 import type { RelayConnection } from './relay-server.js';
-import { registerCallOrchestrator, unregisterCallOrchestrator, fireCallQuestionNotifier, fireCallCompletionNotifier } from './call-state.js';
+import { registerCallOrchestrator, unregisterCallOrchestrator, fireCallQuestionNotifier, fireCallCompletionNotifier, fireCallTranscriptNotifier } from './call-state.js';
 import type { PromptSpeakerContext } from './speaker-identification.js';
 
 const log = getLogger('call-orchestrator');
@@ -290,6 +290,13 @@ export class CallOrchestrator {
       // Record the assistant response
       this.conversationHistory.push({ role: 'assistant', content: responseText });
       recordCallEvent(this.callSessionId, 'assistant_spoke', { text: responseText });
+      const spokenText = responseText.replace(ASK_USER_REGEX, '').replace(END_CALL_MARKER, '').trim();
+      if (spokenText.length > 0) {
+        const session = getCallSession(this.callSessionId);
+        if (session) {
+          fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'assistant', spokenText);
+        }
+      }
 
       // Check for ASK_USER pattern
       const askMatch = responseText.match(ASK_USER_REGEX);
@@ -324,14 +331,19 @@ export class CallOrchestrator {
 
       // Check for END_CALL marker
       if (responseText.includes(END_CALL_MARKER)) {
+        const currentSession = getCallSession(this.callSessionId);
+        const shouldNotifyCompletion = currentSession
+          ? currentSession.status !== 'completed' && currentSession.status !== 'failed' && currentSession.status !== 'cancelled'
+          : false;
+
         this.relay.endSession('Call completed');
         updateCallSession(this.callSessionId, { status: 'completed', endedAt: Date.now() });
         recordCallEvent(this.callSessionId, 'call_ended', { reason: 'completed' });
 
-        // Notify the conversation that the call completed
-        const endSession = getCallSession(this.callSessionId);
-        if (endSession) {
-          fireCallCompletionNotifier(endSession.conversationId, this.callSessionId);
+        // Notify the conversation when this is the first transition
+        // into a terminal call state.
+        if (shouldNotifyCompletion && currentSession) {
+          fireCallCompletionNotifier(currentSession.conversationId, this.callSessionId);
         }
         this.state = 'idle';
         return;
@@ -373,9 +385,17 @@ export class CallOrchestrator {
       );
       // Give TTS a moment to play, then end
       this.durationEndTimer = setTimeout(() => {
+        const currentSession = getCallSession(this.callSessionId);
+        const shouldNotifyCompletion = currentSession
+          ? currentSession.status !== 'completed' && currentSession.status !== 'failed' && currentSession.status !== 'cancelled'
+          : false;
+
         this.relay.endSession('Maximum call duration reached');
         updateCallSession(this.callSessionId, { status: 'completed', endedAt: Date.now() });
         recordCallEvent(this.callSessionId, 'call_ended', { reason: 'max_duration' });
+        if (shouldNotifyCompletion && currentSession) {
+          fireCallCompletionNotifier(currentSession.conversationId, this.callSessionId);
+        }
       }, 3000);
     }, maxDurationMs);
   }
