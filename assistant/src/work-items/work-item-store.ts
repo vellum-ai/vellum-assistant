@@ -2,7 +2,6 @@ import { eq, desc, asc } from 'drizzle-orm';
 import { getDb } from '../memory/db.js';
 import { workItems } from '../memory/schema.js';
 import { getTask } from '../tasks/task-store.js';
-import { sanitizeToolList } from '../tasks/tool-sanitizer.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -67,10 +66,9 @@ export function createWorkItem(opts: {
 }
 
 /**
- * Create a work item and bundle the associated task's required tools as
- * pre-approved permissions. This is the canonical create path — both
- * the `task_list_add` tool and any IPC callers should use this to ensure
- * permissions are always set at creation time.
+ * Create a work item without any pre-approved permissions. Items start
+ * with `approvalStatus: 'none'` and no `approvedTools` — approval
+ * happens only via the explicit preflight flow before execution.
  */
 export function createWorkItemWithPermissions(opts: {
   taskId: string;
@@ -82,21 +80,7 @@ export function createWorkItemWithPermissions(opts: {
   sourceId?: string;
   requiredTools?: string;
 }): WorkItem {
-  const item = createWorkItem(opts);
-
-  const task = getTask(opts.taskId);
-  if (task) {
-    const requiredTools = sanitizeToolList(task.requiredTools ? JSON.parse(task.requiredTools) : []);
-    if (requiredTools.length > 0) {
-      const updated = updateWorkItem(item.id, {
-        approvedTools: JSON.stringify(requiredTools),
-        approvalStatus: 'approved',
-      });
-      if (updated) return updated;
-    }
-  }
-
-  return item;
+  return createWorkItem(opts);
 }
 
 export function getWorkItem(id: string): WorkItem | undefined {
