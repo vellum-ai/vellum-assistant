@@ -412,6 +412,7 @@ struct AgentPanelContent: View {
             .foregroundColor(VColor.textMuted)
             .padding(.leading, 24 + VSpacing.md)
         }
+        .padding(VSpacing.lg)
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(VAnimation.standard) {
@@ -419,7 +420,6 @@ struct AgentPanelContent: View {
                 skillsManager.inspectSkill(slug: skill.slug)
             }
         }
-        .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
     }
 
