@@ -11,6 +11,7 @@ final class SkillsManager: ObservableObject {
     @Published var inspectedSkill: ClawhubInspectData?
     @Published var isInspecting = false
     @Published var inspectError: String?
+    private var inspectCache: [String: ClawhubInspectData] = [:]
     @Published var installResult: InstallResult?
     @Published var uninstallResult: UninstallResult?
     @Published var isUninstalling = false
@@ -152,9 +153,17 @@ final class SkillsManager: ObservableObject {
 
     func inspectSkill(slug: String) {
         currentInspectSlug = slug
+        inspectError = nil
+
+        // Return cached result immediately if available
+        if let cached = inspectCache[slug] {
+            inspectedSkill = cached
+            isInspecting = false
+            return
+        }
+
         isInspecting = true
         inspectedSkill = nil
-        inspectError = nil
 
         Task {
             let stream = daemonClient.subscribe()
@@ -176,6 +185,7 @@ final class SkillsManager: ObservableObject {
                     guard currentInspectSlug == slug else { return }
                     if let data = response.data {
                         inspectedSkill = data
+                        inspectCache[slug] = data
                     } else {
                         inspectError = response.error ?? "Unknown error"
                     }
