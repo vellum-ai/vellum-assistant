@@ -48,7 +48,6 @@ Environment variables for CI:
 | `DEVELOPMENT_TEAM` | *(required for release)* | Apple team ID |
 | `DISPLAY_VERSION` | from `Package.swift` | CFBundleShortVersionString |
 | `BUILD_VERSION` | `1` | CFBundleVersion |
-| `SIGN_IDENTITY` | `Apple Distribution` | Code signing identity |
 
 ### Building with Xcode (development)
 

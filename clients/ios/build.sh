@@ -15,7 +15,6 @@ set -euo pipefail
 #   DEVELOPMENT_TEAM  Apple team ID (required for release)
 #   DISPLAY_VERSION   Override CFBundleShortVersionString (default: from Package.swift)
 #   BUILD_VERSION     Override CFBundleVersion (default: 1)
-#   SIGN_IDENTITY     Override code signing identity (default: Apple Distribution)
 #
 # Migration notes:
 #   - Use `open clients/ios/vellum-assistant-ios.xcodeproj` (not Package.swift)
@@ -52,7 +51,6 @@ fi
 BUILD_VERSION="${BUILD_VERSION:-1}"
 
 # Signing
-SIGN_IDENTITY="${SIGN_IDENTITY:-Apple Distribution}"
 DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
 
 CMD="${1:-build}"
@@ -118,7 +116,6 @@ EXPORT_PATH="$DIST_DIR/export"
 echo "Building release archive..."
 echo "  Version: $DISPLAY_VERSION ($BUILD_VERSION)"
 echo "  Team: $DEVELOPMENT_TEAM"
-echo "  Identity: $SIGN_IDENTITY"
 
 # Clean previous artifacts
 rm -rf "$ARCHIVE_PATH" "$EXPORT_PATH"
@@ -132,7 +129,7 @@ xcodebuild archive \
     -archivePath "$ARCHIVE_PATH" \
     -configuration Release \
     DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-    CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
+    CODE_SIGN_STYLE=Automatic \
     MARKETING_VERSION="$DISPLAY_VERSION" \
     CURRENT_PROJECT_VERSION="$BUILD_VERSION"
 
