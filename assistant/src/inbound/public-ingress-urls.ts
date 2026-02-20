@@ -28,7 +28,7 @@
  */
 
 export interface IngressConfig {
-  ingress?: { publicBaseUrl?: string };
+  ingress?: { enabled?: boolean; publicBaseUrl?: string };
 }
 
 /**
@@ -42,9 +42,19 @@ function normalizeUrl(url: string): string {
  * Resolve the canonical public base URL using the precedence chain
  * documented at the top of this module.
  *
- * Throws if no source provides a non-empty value.
+ * When `ingress.enabled` is explicitly `false`, the public ingress is
+ * considered disabled regardless of whether a URL is configured. This
+ * allows the user to toggle ingress off without clearing the URL value.
+ *
+ * Throws if no source provides a non-empty value or if ingress is disabled.
  */
 export function getPublicBaseUrl(config: IngressConfig): string {
+  if (config.ingress?.enabled === false) {
+    throw new Error(
+      'Public ingress is disabled. Enable it in Settings to use public-facing webhooks.',
+    );
+  }
+
   const ingressValue = config.ingress?.publicBaseUrl;
   if (ingressValue) {
     const normalized = normalizeUrl(ingressValue);

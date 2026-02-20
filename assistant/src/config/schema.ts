@@ -924,6 +924,9 @@ export const SkillsConfigSchema = z.object({
 });
 
 export const IngressConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'ingress.enabled must be a boolean' })
+    .default(false),
   publicBaseUrl: z
     .string({ error: 'ingress.publicBaseUrl must be a string' })
     .default(''),
@@ -1183,6 +1186,7 @@ export const AssistantConfigSchema = z.object({
     },
   }),
   ingress: IngressConfigSchema.default({
+    enabled: false,
     publicBaseUrl: '',
     mode: 'gateway_only',
   }),

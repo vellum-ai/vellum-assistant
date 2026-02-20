@@ -77,6 +77,7 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Ingress Config State
 
+    @Published var ingressEnabled: Bool = false
     @Published var ingressPublicBaseUrl: String = ""
     /// Read-only gateway target derived from daemon config (GATEWAY_PORT env var, default 7830).
     @Published var localGatewayTarget: String = "http://127.0.0.1:7830"
@@ -186,6 +187,7 @@ public final class SettingsStore: ObservableObject {
             guard let self else { return }
             self.localGatewayTarget = response.localGatewayTarget
             if response.success {
+                self.ingressEnabled = response.enabled
                 self.ingressPublicBaseUrl = response.publicBaseUrl
             }
         }
@@ -384,7 +386,12 @@ public final class SettingsStore: ObservableObject {
         // the text field to a stale URL. The daemon's success response
         // (handled by onIngressConfigResponse) will confirm or correct.
         ingressPublicBaseUrl = trimmed
-        try? daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed))
+        try? daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed, enabled: ingressEnabled))
+    }
+
+    func setIngressEnabled(_ enabled: Bool) {
+        ingressEnabled = enabled
+        try? daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: ingressPublicBaseUrl, enabled: enabled))
     }
 
     // MARK: - Model Actions

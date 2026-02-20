@@ -326,6 +326,12 @@ public struct SettingsView: View {
             }
 
             Section("Public Ingress") {
+                Toggle("Enable Public Ingress", isOn: Binding(
+                    get: { store.ingressEnabled },
+                    set: { store.setIngressEnabled($0) }
+                ))
+                .disabled(store.ingressPublicBaseUrl.isEmpty && !store.ingressEnabled)
+
                 TextField("Public Ingress URL (e.g. https://abc123.ngrok-free.app)", text: $ingressUrlText)
                     .focused($isIngressUrlFocused)
                     .textFieldStyle(.roundedBorder)

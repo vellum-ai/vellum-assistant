@@ -420,7 +420,8 @@ export function handleIngressConfig(
       const raw = loadRawConfig();
       const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
       const publicBaseUrl = (ingress.publicBaseUrl as string) ?? '';
-      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl, localGatewayTarget, success: true });
+      const enabled = (ingress.enabled as boolean) ?? false;
+      ctx.send(socket, { type: 'ingress_config_response', enabled, publicBaseUrl, localGatewayTarget, success: true });
     } else if (msg.action === 'set') {
       const value = (msg.publicBaseUrl ?? '').trim().replace(/\/+$/, '');
       const raw = loadRawConfig();
@@ -432,6 +433,9 @@ export function handleIngressConfig(
       // URL headers, so local tunnel updates generally apply without restarts.
       const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
       ingress.publicBaseUrl = value || undefined;
+      if (msg.enabled !== undefined) {
+        ingress.enabled = msg.enabled;
+      }
 
       const wasSuppressed = ctx.suppressConfigReload;
       ctx.setSuppressConfigReload(true);
@@ -460,13 +464,14 @@ export function handleIngressConfig(
         delete process.env.INGRESS_PUBLIC_BASE_URL;
       }
 
-      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: value, localGatewayTarget, success: true });
+      const enabled = (ingress.enabled as boolean) ?? false;
+      ctx.send(socket, { type: 'ingress_config_response', enabled, publicBaseUrl: value, localGatewayTarget, success: true });
     } else {
-      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
+      ctx.send(socket, { type: 'ingress_config_response', enabled: false, publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', localGatewayTarget, success: false, error: message });
+    ctx.send(socket, { type: 'ingress_config_response', enabled: false, publicBaseUrl: '', localGatewayTarget, success: false, error: message });
   }
 }
 
