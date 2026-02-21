@@ -21,9 +21,9 @@ When a call is placed:
 5. The transcript is relayed live to the user's conversation thread
 
 Three voice quality modes are available:
-- **`twilio_standard`** (default) — Standard Twilio TTS with Google voices. No extra setup required.
-- **`twilio_elevenlabs_tts`** — Uses ElevenLabs voices through Twilio ConversationRelay for more natural speech.
-- **`elevenlabs_agent`** — Full ElevenLabs conversational agent mode for the highest quality (requires ElevenLabs agent setup).
+- **`twilio_standard`** (default) — Fully supported. Standard Twilio TTS with Google voices. No extra setup required.
+- **`twilio_elevenlabs_tts`** — Fully supported. Uses ElevenLabs voices through Twilio ConversationRelay for more natural speech.
+- **`elevenlabs_agent`** — **Experimental/restricted.** Full ElevenLabs conversational agent mode. Consultation bridging (`waiting_on_user`) is not yet supported in this mode; the runtime guard blocks it before any ElevenLabs API calls are made. See the "Runtime behavior" section below for fallback and strict-fail details.
 
 You can keep using Twilio only — no changes needed. Enabling ElevenLabs can improve naturalness and quality.
 
@@ -165,9 +165,11 @@ vellum config set calls.voice.mode twilio_elevenlabs_tts
 vellum config set calls.voice.elevenlabs.voiceId "<your-voice-id>"
 ```
 
-### Mode: `elevenlabs_agent`
+### Mode: `elevenlabs_agent` (experimental/restricted)
 
 Full ElevenLabs conversational agent mode. This requires an ElevenLabs account with an agent configured on their platform.
+
+**Restriction:** This mode is currently restricted because consultation bridging (`waiting_on_user`) is not yet supported. A runtime guard in `handleVoiceWebhook` blocks `elevenlabs_agent` before any ElevenLabs API calls are made.
 
 **Setup:**
 
@@ -184,9 +186,26 @@ vellum config set calls.voice.mode elevenlabs_agent
 vellum config set calls.voice.elevenlabs.agentId "<your-agent-id>"
 ```
 
-### Fallback behavior
+### Fallback behavior and `fallbackToStandardOnError`
 
-By default, `calls.voice.fallbackToStandardOnError` is `true`. This means if ElevenLabs is unavailable or misconfigured (e.g., missing voice ID, API errors), calls automatically fall back to standard Twilio TTS rather than failing. You can disable this if you want strict ElevenLabs-only behavior:
+By default, `calls.voice.fallbackToStandardOnError` is `true`. This setting controls what happens when an ElevenLabs mode encounters errors or is restricted.
+
+#### Invalid configuration (e.g., missing voiceId or agentId)
+
+- **`true` (default):** The profile resolver silently falls back to `twilio_standard` mode and logs a warning. The call proceeds with standard Twilio TTS.
+- **`false`:** The voice webhook returns **HTTP 500** with the specific configuration error details (e.g., `"Voice quality configuration error: calls.voice.elevenlabs.voiceId is required..."`).
+
+#### `elevenlabs_agent` mode guard (consultation bridging unsupported)
+
+- **`true` (default):** The `elevenlabs_agent` mode is silently downgraded to standard ConversationRelay TwiML with a warning log. The call proceeds normally with standard Twilio TTS.
+- **`false`:** The voice webhook returns **HTTP 501** with the message: `"elevenlabs_agent mode is restricted: consultation bridging (waiting_on_user) is not yet supported."`.
+
+#### ElevenLabs API errors (register-call failure)
+
+- **`true` (default):** Falls back to `twilio_standard` mode and proceeds with the call.
+- **`false`:** Returns **HTTP 502** `"ElevenLabs service unavailable"`.
+
+You can disable fallback if you want strict ElevenLabs-only behavior:
 
 ```bash
 vellum config set calls.voice.fallbackToStandardOnError false
@@ -408,7 +427,8 @@ The system has a 30-second silence timeout. If nobody speaks for 30 seconds, the
 - If mode is `elevenlabs_agent`, ensure `calls.voice.elevenlabs.agentId` is also set
 
 ### ElevenLabs mode falls back to standard
-When `calls.voice.fallbackToStandardOnError` is `true` (the default), the system silently falls back to standard Twilio TTS if ElevenLabs encounters an error. Check:
-- For `elevenlabs_agent` mode: verify the API key is stored (`credential_store action=get service=credential:elevenlabs:api_key`) and that `calls.voice.elevenlabs.agentId` is configured
+When `calls.voice.fallbackToStandardOnError` is `true` (the default), the system silently falls back to standard Twilio TTS if ElevenLabs encounters an error or restriction. Check:
+- For `elevenlabs_agent` mode: this mode is currently restricted (consultation bridging not yet supported) and will always fall back to standard when fallback is enabled. If fallback is disabled, the voice webhook returns HTTP 501.
 - For `twilio_elevenlabs_tts` mode: verify `calls.voice.elevenlabs.voiceId` is set to a valid voice ID
-- Review daemon logs for error messages related to ElevenLabs
+- For invalid configs (missing voiceId/agentId): if fallback is disabled, the voice webhook returns HTTP 500 with the config error
+- Review daemon logs for warning messages about fallback or guard activation
