@@ -934,29 +934,55 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         return await httpTransport?.fetchRemoteIdentity()
     }
     #elseif os(iOS)
-    /// On iOS, constructs the HTTP URL from the daemon config hostname and the
-    /// runtime HTTP port (received via `daemon_status` IPC message).
+    /// On iOS, fetches identity via IPC instead of HTTP to avoid bearer token
+    /// authentication issues.
     public func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
-        guard let httpPort else { return nil }
-        let scheme = config.tlsEnabled ? "https" : "http"
-        let urlString = "\(scheme)://\(config.hostname):\(httpPort)/v1/identity"
-        guard let url = URL(string: urlString) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 10
-        if let token = config.authToken {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-
+        let stream = subscribe()
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-            return try? JSONDecoder().decode(RemoteIdentityInfo.self, from: data)
+            try sendIdentityGet()
         } catch {
             return nil
         }
+
+        // Race the stream against a 10-second timeout so we don't wait forever
+        // if the daemon doesn't support this message.
+        let response: IdentityGetResponseMessage? = await withTaskGroup(of: IdentityGetResponseMessage?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .identityGetResponse(let msg) = message {
+                        return msg
+                    }
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        guard let response else { return nil }
+        return RemoteIdentityInfo(
+            name: response.name,
+            role: response.role,
+            personality: response.personality,
+            emoji: response.emoji,
+            version: response.version,
+            assistantId: response.assistantId,
+            home: response.home,
+            createdAt: response.createdAt,
+            originSystem: response.originSystem
+        )
     }
     #endif
+
+    /// Request identity info via IPC.
+    public func sendIdentityGet() throws {
+        try send(IdentityGetRequestMessage())
+    }
 
     // MARK: - Workspace Files
 

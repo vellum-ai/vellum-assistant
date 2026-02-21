@@ -1014,6 +1014,18 @@ extension IPCWorkspaceFilesListResponseFile: Identifiable {
 /// Response containing a workspace file's content.
 public typealias WorkspaceFileReadResponseMessage = IPCWorkspaceFileReadResponse
 
+/// Request to fetch assistant identity info via IPC.
+public typealias IdentityGetRequestMessage = IPCIdentityGetRequest
+
+extension IPCIdentityGetRequest {
+    public init() {
+        self.init(type: "identity_get")
+    }
+}
+
+/// Response containing assistant identity info.
+public typealias IdentityGetResponseMessage = IPCIdentityGetResponse
+
 /// Push event: skill state changed.
 /// Backed by generated `IPCSkillStateChanged`.
 public typealias SkillStateChangedMessage = IPCSkillStateChanged
@@ -1987,6 +1999,7 @@ public enum ServerMessage: Decodable, Sendable {
     case subagentDetailResponse(IPCSubagentDetailResponse)
     case workspaceFilesListResponse(WorkspaceFilesListResponseMessage)
     case workspaceFileReadResponse(WorkspaceFileReadResponseMessage)
+    case identityGetResponse(IdentityGetResponseMessage)
     case pong
     case unknown(String)
 
@@ -2314,6 +2327,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "workspace_file_read_response":
             let message = try WorkspaceFileReadResponseMessage(from: decoder)
             self = .workspaceFileReadResponse(message)
+        case "identity_get_response":
+            let message = try IdentityGetResponseMessage(from: decoder)
+            self = .identityGetResponse(message)
         case "pong":
             self = .pong
         default:

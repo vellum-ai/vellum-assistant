@@ -777,6 +777,23 @@ public struct IPCHomeBaseGetResponseHomeBasePreviewMetric: Codable, Sendable {
     public let value: String
 }
 
+public struct IPCIdentityGetRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCIdentityGetResponse: Codable, Sendable {
+    public let type: String
+    public let name: String
+    public let role: String
+    public let personality: String
+    public let emoji: String
+    public let home: String
+    public let version: String?
+    public let assistantId: String?
+    public let createdAt: String?
+    public let originSystem: String?
+}
+
 public struct IPCImageGenModelSetRequest: Codable, Sendable {
     public let type: String
     public let model: String

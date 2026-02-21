@@ -888,6 +888,10 @@ export interface WorkspaceFileReadRequest {
   path: string;
 }
 
+export interface IdentityGetRequest {
+  type: 'identity_get';
+}
+
 export type ClientMessage =
   | AuthMessage
   | UserMessage
@@ -994,7 +998,8 @@ export type ClientMessage =
   | SubagentMessageRequest
   | SubagentDetailRequest
   | WorkspaceFilesListRequest
-  | WorkspaceFileReadRequest;
+  | WorkspaceFileReadRequest
+  | IdentityGetRequest;
 
 export interface IntegrationListRequest {
   type: 'integration_list';
@@ -2140,6 +2145,19 @@ export interface WorkspaceFileReadResponse {
   error?: string;
 }
 
+export interface IdentityGetResponse {
+  type: 'identity_get_response';
+  name: string;
+  role: string;
+  personality: string;
+  emoji: string;
+  home: string;
+  version?: string;
+  assistantId?: string;
+  createdAt?: string;
+  originSystem?: string;
+}
+
 export type ServerMessage =
   | AuthResult
   | UserMessageEcho
@@ -2259,7 +2277,8 @@ export type ServerMessage =
   | SubagentEvent
   | SubagentDetailResponse
   | WorkspaceFilesListResponse
-  | WorkspaceFileReadResponse;
+  | WorkspaceFileReadResponse
+  | IdentityGetResponse;
 
 // === Subagent IPC ─────────────────────────────────────────────────────
 

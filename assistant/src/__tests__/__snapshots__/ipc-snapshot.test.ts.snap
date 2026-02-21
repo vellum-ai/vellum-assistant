@@ -2204,3 +2204,112 @@ exports[`IPC message snapshots ServerMessage types subagent_event serializes to 
   "type": "subagent_event",
 }
 `;
+
+exports[`IPC message snapshots ClientMessage types ingress_config serializes to expected JSON 1`] = `
+{
+  "action": "get",
+  "type": "ingress_config",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types subagent_detail_request serializes to expected JSON 1`] = `
+{
+  "conversationId": "conv-001",
+  "subagentId": "sub-001",
+  "type": "subagent_detail_request",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types workspace_files_list serializes to expected JSON 1`] = `
+{
+  "type": "workspace_files_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types workspace_file_read serializes to expected JSON 1`] = `
+{
+  "path": "IDENTITY.md",
+  "type": "workspace_file_read",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types identity_get serializes to expected JSON 1`] = `
+{
+  "type": "identity_get",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types agent_heartbeat_alert serializes to expected JSON 1`] = `
+{
+  "body": "No activity detected in the last 60 minutes.",
+  "title": "Agent heartbeat stalled",
+  "type": "agent_heartbeat_alert",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types ingress_config_response serializes to expected JSON 1`] = `
+{
+  "enabled": true,
+  "localGatewayTarget": "http://127.0.0.1:7830",
+  "publicBaseUrl": "https://example.com",
+  "success": true,
+  "type": "ingress_config_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types task_run_thread_created serializes to expected JSON 1`] = `
+{
+  "conversationId": "conv-task-run-001",
+  "title": "Process report",
+  "type": "task_run_thread_created",
+  "workItemId": "wi-001",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types subagent_detail_response serializes to expected JSON 1`] = `
+{
+  "events": [
+    {
+      "content": "Reading file...",
+      "isError": false,
+      "toolName": "read_file",
+      "type": "tool_use",
+    },
+  ],
+  "objective": "Search for documentation",
+  "subagentId": "sub-001",
+  "type": "subagent_detail_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types workspace_files_list_response serializes to expected JSON 1`] = `
+{
+  "files": [
+    {
+      "exists": true,
+      "name": "IDENTITY.md",
+      "path": "IDENTITY.md",
+    },
+  ],
+  "type": "workspace_files_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types workspace_file_read_response serializes to expected JSON 1`] = `
+{
+  "content": "# My Identity",
+  "path": "IDENTITY.md",
+  "type": "workspace_file_read_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types identity_get_response serializes to expected JSON 1`] = `
+{
+  "emoji": "✨",
+  "home": "~/workspace",
+  "name": "Vex",
+  "personality": "Friendly",
+  "role": "AI assistant",
+  "type": "identity_get_response",
+}
+`;

@@ -30,11 +30,27 @@ final class IdentityViewModel {
         } catch {
             return
         }
-        for await message in stream {
-            if case .skillsListResponse(let response) = message {
-                skills = response.skills.filter { $0.state == "enabled" }
-                return
+
+        let response: SkillsListResponseMessage? = await withTaskGroup(of: SkillsListResponseMessage?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .skillsListResponse(let msg) = message {
+                        return msg
+                    }
+                }
+                return nil
             }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        if let response {
+            skills = response.skills.filter { $0.state == "enabled" }
         }
     }
 
@@ -45,11 +61,27 @@ final class IdentityViewModel {
         } catch {
             return
         }
-        for await message in stream {
-            if case .workspaceFilesListResponse(let response) = message {
-                workspaceFiles = response.files.filter { $0.exists }
-                return
+
+        let response: WorkspaceFilesListResponseMessage? = await withTaskGroup(of: WorkspaceFilesListResponseMessage?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .workspaceFilesListResponse(let msg) = message {
+                        return msg
+                    }
+                }
+                return nil
             }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        if let response {
+            workspaceFiles = response.files.filter { $0.exists }
         }
     }
 }
