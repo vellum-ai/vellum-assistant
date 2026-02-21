@@ -103,6 +103,7 @@ public final class SettingsStore: ObservableObject {
     /// toggle. Set when `setIngressEnabled` fires; cleared once a matching
     /// response arrives.
     private var pendingIngressEnabled: Bool?
+    private var pendingIngressUrl: String?
 
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle sessions.
@@ -210,10 +211,15 @@ public final class SettingsStore: ObservableObject {
                     return
                 }
                 self.pendingIngressEnabled = nil
+                self.pendingIngressUrl = nil
                 self.ingressEnabled = response.enabled
                 self.ingressPublicBaseUrl = response.publicBaseUrl
             } else {
-                // On failure, clear pending so future responses apply normally
+                // On failure, revert optimistic updates so the UI reflects reality
+                if let previousUrl = self.pendingIngressUrl {
+                    self.ingressPublicBaseUrl = previousUrl
+                }
+                self.pendingIngressUrl = nil
                 self.pendingIngressEnabled = nil
             }
         }
@@ -448,8 +454,16 @@ public final class SettingsStore: ObservableObject {
         // in SettingsPanel/SettingsView reads the new value instead of reverting
         // the text field to a stale URL. The daemon's success response
         // (handled by onIngressConfigResponse) will confirm or correct.
+        let previous = ingressPublicBaseUrl
         ingressPublicBaseUrl = trimmed
-        try? daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed, enabled: ingressEnabled))
+        pendingIngressUrl = previous
+        do {
+            try daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed, enabled: ingressEnabled))
+        } catch {
+            // IPC send failed — roll back the optimistic update
+            ingressPublicBaseUrl = previous
+            pendingIngressUrl = nil
+        }
     }
 
     func setIngressEnabled(_ enabled: Bool) {

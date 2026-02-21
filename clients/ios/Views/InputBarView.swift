@@ -189,7 +189,7 @@ struct InputBarView: View {
 
     private func requestPermissionsAndRecord() {
         // Request microphone access
-        AVAudioSession.sharedInstance().requestRecordPermission { granted in
+        AVAudioApplication.requestRecordPermission { granted in
             guard granted else {
                 log.warning("Microphone access denied")
                 return

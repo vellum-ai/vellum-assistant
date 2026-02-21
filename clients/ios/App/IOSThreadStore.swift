@@ -100,7 +100,7 @@ class IOSThreadStore: ObservableObject {
             .filter { $0 }
             .first()
             .sink { [weak self] _ in
-                guard let self else { return }
+                guard self != nil else { return }
                 try? daemon.sendSessionList()
             }
             .store(in: &cancellables)
