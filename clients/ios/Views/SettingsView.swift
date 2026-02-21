@@ -2,40 +2,18 @@
 import SwiftUI
 import VellumAssistantShared
 
-enum ConnectionMode: String, CaseIterable {
-    case standalone = "Standalone"
-    case connected = "Connected to Mac"
-}
-
 struct SettingsView: View {
     @EnvironmentObject var clientProvider: ClientProvider
-    @AppStorage(UserDefaultsKeys.connectionMode) private var connectionMode: String = ConnectionMode.standalone.rawValue
     @AppStorage(UserDefaultsKeys.appearanceMode) private var appearanceMode: String = "system"
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Connection Mode") {
-                    Picker("Mode", selection: $connectionMode) {
-                        ForEach(ConnectionMode.allCases, id: \.rawValue) { mode in
-                            Text(mode.rawValue).tag(mode.rawValue)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: connectionMode) { _, newMode in
-                        switchClient(to: newMode)
-                    }
-                }
-
-                if connectionMode == ConnectionMode.standalone.rawValue {
-                    APIKeySection()
-                } else {
-                    DaemonConnectionSection()
-                    IntegrationsSection()
-                    TrustRulesSection()
-                    SchedulesSection()
-                    RemindersSection()
-                }
+                DaemonConnectionSection()
+                IntegrationsSection()
+                TrustRulesSection()
+                SchedulesSection()
+                RemindersSection()
 
                 Section("Appearance") {
                     Picker("Theme", selection: $appearanceMode) {
@@ -58,26 +36,6 @@ struct SettingsView: View {
             .navigationTitle("Settings")
         }
     }
-
-    private func switchClient(to mode: String) {
-        clientProvider.client.disconnect()
-        clientProvider.isConnected = false
-        let newClient: any DaemonClientProtocol
-        if mode == ConnectionMode.connected.rawValue {
-            newClient = DaemonClient(config: .fromUserDefaults())
-        } else {
-            newClient = DirectClaudeClient()
-        }
-        clientProvider.client = newClient
-        Task {
-            do {
-                try await clientProvider.client.connect()
-                clientProvider.isConnected = true
-            } catch {
-                // Connection failed — sections will handle their own loading
-            }
-        }
-    }
 }
 
 extension Bundle {
@@ -88,6 +46,6 @@ extension Bundle {
 
 #Preview {
     SettingsView()
-        .environmentObject(ClientProvider(client: DirectClaudeClient()))
+        .environmentObject(ClientProvider(client: DaemonClient(config: .fromUserDefaults())))
 }
 #endif

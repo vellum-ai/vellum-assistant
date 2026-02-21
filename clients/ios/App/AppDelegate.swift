@@ -23,14 +23,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     let clientProvider: ClientProvider
 
     override init() {
-        let mode = UserDefaults.standard.string(forKey: "connection_mode") ?? ConnectionMode.standalone.rawValue
-        let client: any DaemonClientProtocol
-        if mode == ConnectionMode.connected.rawValue {
-            client = DaemonClient(config: .fromUserDefaults())
-        } else {
-            client = DirectClaudeClient()
-        }
-        self.clientProvider = ClientProvider(client: client)
+        self.clientProvider = ClientProvider(client: DaemonClient(config: .fromUserDefaults()))
         super.init()
     }
 
