@@ -157,9 +157,9 @@ public enum VColor {
     public static let warning = adaptiveColor(light: Amber._700, dark: Amber._600)
 
     // Chat
-    public static let userBubble = adaptiveColor(light: Forest._100, dark: Forest._900)
-    public static let userBubbleText = adaptiveColor(light: Stone._900, dark: Moss._100)
-    public static let userBubbleTextSecondary = adaptiveColor(light: Stone._600, dark: Moss._100.opacity(0.8))
+    public static let userBubble = adaptiveColor(light: Forest._800, dark: Forest._900)
+    public static let userBubbleText = adaptiveColor(light: Color.white, dark: Moss._50)
+    public static let userBubbleTextSecondary = adaptiveColor(light: Color.white.opacity(0.8), dark: Moss._50.opacity(0.8))
 
     // Interactive states
     public static let ghostHover = adaptiveColor(light: Stone._100, dark: Moss._700)
