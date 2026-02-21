@@ -112,7 +112,6 @@ export function buildSystemPrompt(): string {
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
   parts.push(buildActionableUiSection());
-  parts.push(buildDocumentCreationSection());
   parts.push(buildStarterTaskPlaybookSection());
   parts.push(buildToolPermissionSection());
   parts.push(buildSystemPermissionSection());
@@ -458,75 +457,6 @@ function buildActionableUiSection(): string {
     '- The surface stays alive for multiple action rounds (select → act → select more → act again)',
     '- Use `widgets.groupedSelect()` to wire up grouped multi-select with action bar auto-show/hide',
     '- Use `widgets.removeItems()` to animate processed items out and auto-clean empty groups',
-  ].join('\n');
-}
-
-function buildDocumentCreationSection(): string {
-  return [
-    '## Document Creation Workflow',
-    '',
-    'When creating documents with `document_create` (see Tool Routing for when to use this):',
-    '',
-    '**IMPORTANT: Call tools immediately, not after conversational preamble.**',
-    'Example: User says "write a blog post about X" → You immediately call `document_create`, then explain what you\'re doing.',
-    '',
-    '### Workflow Steps',
-    '1. **Create the document**: Call `document_create` with a title (inferred from the request)',
-    '   - The editor opens in full-screen workspace mode with chat docked to the side',
-    '   - The user sees a rich text editor powered by Toast UI Editor',
-    '',
-    '2. **Write content**: Generate the content in Markdown format',
-    '   - Write naturally and continuously',
-    '   - Use proper Markdown structure: `#` for titles, `##` for sections, `###` for subsections',
-    '   - Use **bold** and *italic* for emphasis',
-    '   - Include code blocks with ` ```language ` syntax',
-    '   - Add tables, lists, blockquotes as appropriate',
-    '',
-    '3. **CRITICAL - Stream content in chunks**: You MUST call `document_update` multiple times, NOT just once',
-    '   - Break your content into logical chunks (paragraphs, sections, or every 200-300 words)',
-    '   - Call `document_update` with `mode: "append"` for EACH chunk separately',
-    '   - DO NOT generate all content and send it in one call - this defeats the purpose of streaming',
-    '   - Think: "First paragraph" → call document_update → "Second paragraph" → call document_update → etc.',
-    '   - The user experiences real-time content appearing as you write, not a dump at the end',
-    '',
-    '4. **Respond to edits**: When the user requests changes via the docked chat',
-    '   - Listen for edit requests like "make the intro shorter", "add a section about X"',
-    '   - Generate the updated content',
-    '   - Use `document_update` with appropriate mode (replace for full rewrites, append for additions)',
-    '',
-    '### Content quality standards',
-    '- Write in clear, engaging prose appropriate for the content type',
-    '- Use active voice and vary sentence structure',
-    '- Break content into logical sections with descriptive headings',
-    '- Include transitions between sections',
-    '- For technical content: use code blocks with syntax highlighting',
-    '- For data-heavy content: use Markdown tables',
-    '',
-    '### Example flow',
-    '```',
-    'User: "Write a blog post about the future of AI"',
-    '',
-    'Assistant: "I\'ll create a document for your blog post about the future of AI."',
-    '  → Calls document_create with title: "The Future of AI"',
-    '',
-    'Assistant: (generates content in SEPARATE chunks - one document_update call per chunk)',
-    '  → document_update with mode: "append", content: "# The Future of AI\\n\\nArtificial intelligence..."',
-    '  → document_update with mode: "append", content: "## Current State\\n\\nToday\'s AI landscape..."',
-    '  → document_update with mode: "append", content: "The past decade has witnessed..."',
-    '  → document_update with mode: "append", content: "## Emerging Trends\\n\\nLooking ahead..."',
-    '',
-    'User (via docked chat): "Add a section about ethical considerations"',
-    '',
-    'Assistant: "I\'ll add a section on AI ethics."',
-    '  → document_update with mode: "append", content: "## Ethical Considerations\\n\\n..."',
-    '```',
-    '',
-    '### Important notes',
-    '- Documents are automatically saved and accessible via the Generated panel',
-    '- Users can manually edit documents at any time - your role is to help generate and refine content',
-    '- The editor supports drag-and-drop images, which are converted to base64 inline',
-    '- Word count is tracked automatically and displayed to the user',
-    '- Acknowledge the document creation in chat before opening the editor',
   ].join('\n');
 }
 
