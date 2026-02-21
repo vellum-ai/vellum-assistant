@@ -253,9 +253,9 @@ public final class ChatViewModel: ObservableObject {
 
         // Fire auto-title callback on the first user message (skip slash commands
         // like /model so the thread title isn't set to a command string)
-        if !text.isEmpty, !text.hasPrefix("/"), let callback = onFirstUserMessage {
+        if !rawText.isEmpty, !rawText.hasPrefix("/"), let callback = onFirstUserMessage {
             onFirstUserMessage = nil
-            callback(text)
+            callback(rawText)
         }
 
         // Block rapid-fire only when bootstrapping with a queued message.
@@ -272,7 +272,7 @@ public final class ChatViewModel: ObservableObject {
                     IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                 }
                 isThinking = true
-                messages.append(ChatMessage(role: .user, text: text, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments))
+                messages.append(ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments))
                 pendingSkillInvocation = nil
                 inputText = ""
                 suggestion = nil
@@ -286,7 +286,7 @@ public final class ChatViewModel: ObservableObject {
                 secretBlockedAttachments = nil
                 secretBlockedActiveSurfaceId = nil
                 secretBlockedCurrentPage = nil
-                currentTurnUserText = text
+                currentTurnUserText = rawText
                 return
             }
             pendingSkillInvocation = nil
@@ -304,7 +304,7 @@ public final class ChatViewModel: ObservableObject {
         var queuedMessageId: UUID?
         if !isWorkspaceRefinement {
             let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
-            let userMessage = ChatMessage(role: .user, text: text, status: status, skillInvocation: pendingSkillInvocation, attachments: attachments)
+            let userMessage = ChatMessage(role: .user, text: rawText, status: status, skillInvocation: pendingSkillInvocation, attachments: attachments)
             messages.append(userMessage)
             if willBeQueued {
                 pendingMessageIds.append(userMessage.id)
@@ -341,7 +341,7 @@ public final class ChatViewModel: ObservableObject {
         // response correctly (e.g. modelList for "/models") without scanning the
         // whole transcript. For queued messages this is set in messageDequeued.
         if !willBeQueued {
-            currentTurnUserText = text
+            currentTurnUserText = rawText
         }
 
         if sessionId == nil {

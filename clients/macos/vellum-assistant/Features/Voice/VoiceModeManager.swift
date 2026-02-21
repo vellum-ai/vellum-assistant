@@ -114,6 +114,11 @@ final class VoiceModeManager: ObservableObject {
     func deactivate() {
         guard state != .off else { return }
 
+        // Set state to .off BEFORE shutdown so that any synchronous
+        // ttsOnComplete callbacks (from stopSpeaking) won't re-enter
+        // startListening() during teardown.
+        state = .off
+
         // Fully shut down audio engine to release the microphone
         voiceService.shutdown()
 
@@ -274,6 +279,12 @@ final class VoiceModeManager: ObservableObject {
             self.startListening()
         }
 
+        // Start monitoring mic for barge-in BEFORE finishTextStream,
+        // because finishTextStream may complete synchronously (no ElevenLabs key)
+        // and its completion calls startListening() which installs a recording tap.
+        // Starting barge-in after that would install a conflicting second tap.
+        voiceService.startBargeInMonitor()
+
         voiceService.finishTextStream { [weak self] in
             guard let self, self.state == .speaking else { return }
             self.ttsTimeoutTask?.cancel()
@@ -284,9 +295,6 @@ final class VoiceModeManager: ObservableObject {
             // Auto-start listening for the next turn
             self.startListening()
         }
-
-        // Start monitoring mic for barge-in (interrupt by speaking)
-        voiceService.startBargeInMonitor()
     }
 
     // MARK: - Voice-Driven Permission Handling
@@ -423,8 +431,13 @@ final class VoiceModeManager: ObservableObject {
                            "sure", "okay", "ok", "do it", "proceed"]
         let negative = ["no", "nope", "don't", "deny", "stop", "cancel", "reject"]
 
-        let isApproved = affirmative.contains(where: { lower.contains($0) })
-        let isDenied = negative.contains(where: { lower.contains($0) })
+        let hasAffirmative = affirmative.contains(where: { lower.contains($0) })
+        let hasNegative = negative.contains(where: { lower.contains($0) })
+
+        // If both affirmative and negative substrings match (e.g. "no, don't do it"
+        // contains "do it" + "no"/"don't"), treat as denial for safety.
+        let isApproved = hasAffirmative && !hasNegative
+        let isDenied = hasNegative
 
         guard let chatViewModel else {
             pendingPermissionIds = []

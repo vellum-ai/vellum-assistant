@@ -149,6 +149,8 @@ final class OpenAIVoiceService: ObservableObject {
             log.info("Recording started")
         } catch {
             log.error("Failed to start audio engine: \(error.localizedDescription)")
+            audioEngine.inputNode.removeTap(onBus: 0)
+            recordingFormat = nil
         }
     }
 
@@ -369,6 +371,7 @@ final class OpenAIVoiceService: ObservableObject {
             log.info("Barge-in monitor started")
         } catch {
             log.error("Failed to start barge-in monitor: \(error.localizedDescription)")
+            audioEngine.inputNode.removeTap(onBus: 0)
             bargeInMonitorActive = false
         }
     }
