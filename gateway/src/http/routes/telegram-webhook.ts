@@ -26,6 +26,21 @@ export function buildTelegramTransportMetadata(): { hints: string[]; uxBrief: st
   };
 }
 
+// Rate limiter for routing rejection notices — at most one reply per chat
+// within the cooldown window to avoid spamming the user.
+const REJECTION_NOTICE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const rejectionNoticeTimestamps = new Map<string, number>();
+
+function shouldSendRejectionNotice(chatId: string): boolean {
+  const now = Date.now();
+  const lastSent = rejectionNoticeTimestamps.get(chatId);
+  if (lastSent !== undefined && now - lastSent < REJECTION_NOTICE_COOLDOWN_MS) {
+    return false;
+  }
+  rejectionNoticeTimestamps.set(chatId, now);
+  return true;
+}
+
 export function createTelegramWebhookHandler(config: GatewayConfig) {
   const dedupCache = new DedupCache();
 
@@ -207,7 +222,24 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         replyCallbackUrl: `http://127.0.0.1:${config.port}/deliver/telegram`,
       });
 
-      if (!result.forwarded && !result.rejected) {
+      if (result.rejected) {
+        log.warn(
+          { chatId, reason: result.rejectionReason },
+          "Routing rejected inbound Telegram message",
+        );
+        if (shouldSendRejectionNotice(chatId)) {
+          sendTelegramReply(
+            config,
+            chatId,
+            "\u26a0\ufe0f This message could not be routed to an assistant. Please check your gateway routing configuration.",
+          ).catch((err) => {
+            log.error({ err, chatId }, "Failed to send routing rejection notice");
+          });
+        }
+        return respond({ ok: true });
+      }
+
+      if (!result.forwarded) {
         log.error({ updateId: payload.update_id }, "Failed to forward inbound event");
         if (updateId !== undefined) dedupCache.unreserve(updateId);
         return Response.json({ error: "Internal error" }, { status: 500 });
