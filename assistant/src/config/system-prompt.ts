@@ -110,9 +110,6 @@ export function buildSystemPrompt(): string {
   parts.push(buildConfigSection());
   parts.push(buildTaskScheduleReminderRoutingSection());
   parts.push(buildAttachmentSection());
-  parts.push(buildDynamicUiSection());
-  parts.push(buildActionableUiSection());
-  parts.push(buildDocumentCreationSection());
   if (!isOnboardingComplete()) {
     parts.push(buildStarterTaskPlaybookSection());
   }
