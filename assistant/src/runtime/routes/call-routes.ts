@@ -9,6 +9,7 @@
 
 import { startCall, getCallStatus, cancelCall, answerCall } from '../../calls/call-domain.js';
 import { getConfig } from '../../config/loader.js';
+import { VALID_CALLER_IDENTITY_MODES } from '../../config/schema.js';
 
 /**
  * POST /v1/calls/start
@@ -38,6 +39,14 @@ export async function handleStartCall(req: Request): Promise<Response> {
 
   if (!body.conversationId) {
     return Response.json({ error: 'conversationId is required' }, { status: 400 });
+  }
+
+  if (body.callerIdentityMode != null &&
+      !(VALID_CALLER_IDENTITY_MODES as readonly string[]).includes(body.callerIdentityMode as string)) {
+    return Response.json(
+      { error: `Invalid callerIdentityMode: "${body.callerIdentityMode}". Must be one of: ${VALID_CALLER_IDENTITY_MODES.join(', ')}` },
+      { status: 400 },
+    );
   }
 
   const result = await startCall({

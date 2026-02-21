@@ -10,7 +10,7 @@ const VALID_DOCKER_NETWORKS = ['none', 'bridge'] as const;
 const VALID_PERMISSIONS_MODES = ['legacy', 'strict'] as const;
 const VALID_CALL_PROVIDERS = ['twilio'] as const;
 const VALID_CALL_VOICE_MODES = ['twilio_standard', 'twilio_elevenlabs_tts', 'elevenlabs_agent'] as const;
-const VALID_CALLER_IDENTITY_MODES = ['assistant_number', 'user_number'] as const;
+export const VALID_CALLER_IDENTITY_MODES = ['assistant_number', 'user_number'] as const;
 const VALID_CALL_TRANSCRIPTION_PROVIDERS = ['Deepgram', 'Google'] as const;
 
 export const TimeoutConfigSchema = z.object({
