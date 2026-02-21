@@ -1,6 +1,6 @@
 import Foundation
 
-/// Identity fields fetched from a remote assistant's `GET /v1/identity` endpoint.
+/// Identity fields fetched from a remote assistant's identity endpoint.
 public struct RemoteIdentityInfo: Decodable {
     public let name: String
     public let role: String
@@ -11,6 +11,28 @@ public struct RemoteIdentityInfo: Decodable {
     public let home: String?
     public let createdAt: String?
     public let originSystem: String?
+
+    public init(
+        name: String,
+        role: String,
+        personality: String,
+        emoji: String,
+        version: String? = nil,
+        assistantId: String? = nil,
+        home: String? = nil,
+        createdAt: String? = nil,
+        originSystem: String? = nil
+    ) {
+        self.name = name
+        self.role = role
+        self.personality = personality
+        self.emoji = emoji
+        self.version = version
+        self.assistantId = assistantId
+        self.home = home
+        self.createdAt = createdAt
+        self.originSystem = originSystem
+    }
 }
 
 public struct DaemonConfig {

@@ -513,6 +513,9 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'workspace_file_read',
     path: 'IDENTITY.md',
   },
+  identity_get: {
+    type: 'identity_get',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1477,6 +1480,14 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'workspace_file_read_response',
     path: 'IDENTITY.md',
     content: '# My Identity',
+  },
+  identity_get_response: {
+    type: 'identity_get_response',
+    name: 'Vex',
+    role: 'AI assistant',
+    personality: 'Friendly',
+    emoji: '✨',
+    home: '~/workspace',
   },
 };
 

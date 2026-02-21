@@ -24,12 +24,29 @@ final class HomeBaseViewModel {
             isLoading = false
             return
         }
-        for await message in stream {
-            if case .homeBaseGetResponse(let msg) = message {
-                response = msg
-                isLoading = false
-                return
+
+        // Race the stream against a 10-second timeout so isLoading doesn't
+        // stay true forever if the daemon ignores this message.
+        let msg: HomeBaseGetResponseMessage? = await withTaskGroup(of: HomeBaseGetResponseMessage?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .homeBaseGetResponse(let msg) = message {
+                        return msg
+                    }
+                }
+                return nil
             }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        if let msg {
+            response = msg
         }
         isLoading = false
     }

@@ -21,6 +21,7 @@ import { browserHandlers } from './browser.js';
 import { signingHandlers } from './signing.js';
 import { twitterAuthHandlers } from './twitter-auth.js';
 import { workspaceFileHandlers } from './workspace-files.js';
+import { identityHandlers } from './identity.js';
 
 // Re-export types and utilities for backwards compatibility
 export type {
@@ -104,6 +105,7 @@ const handlers = {
   ...signingHandlers,
   ...twitterAuthHandlers,
   ...workspaceFileHandlers,
+  ...identityHandlers,
   ...inlineHandlers,
 } satisfies DispatchMap;
 

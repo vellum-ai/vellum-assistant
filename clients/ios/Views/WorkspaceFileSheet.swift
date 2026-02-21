@@ -93,19 +93,34 @@ struct WorkspaceFileSheet: View {
             return
         }
 
-        for await message in stream {
-            if case .workspaceFileReadResponse(let response) = message, response.path == file.path {
-                if let fileContent = response.content {
-                    content = fileContent
-                } else {
-                    self.error = response.error ?? "Unable to read file."
+        let filePath = file.path
+        let response: WorkspaceFileReadResponseMessage? = await withTaskGroup(of: WorkspaceFileReadResponseMessage?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .workspaceFileReadResponse(let msg) = message, msg.path == filePath {
+                        return msg
+                    }
                 }
-                isLoading = false
-                return
+                return nil
             }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
         }
 
-        error = "Connection lost."
+        if let response {
+            if let fileContent = response.content {
+                content = fileContent
+            } else {
+                self.error = response.error ?? "Unable to read file."
+            }
+        } else {
+            self.error = "Request timed out."
+        }
         isLoading = false
     }
 }
