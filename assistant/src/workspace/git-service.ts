@@ -733,6 +733,17 @@ export class WorkspaceGitService {
   }
 
   /**
+   * Run an arbitrary read-only git command in the workspace directory.
+   * Uses the same clean env and timeout as other git operations.
+   * Does NOT acquire the mutex — callers must ensure they are not
+   * writing to the repo concurrently (or accept eventual-consistency).
+   */
+  async runReadOnlyGit(args: string[]): Promise<{ stdout: string; stderr: string }> {
+    await this.ensureInitialized();
+    return this.execGit(args);
+  }
+
+  /**
    * Get the commit hash of the current HEAD.
    * This is a lightweight read-only operation that does not require the mutex.
    */
