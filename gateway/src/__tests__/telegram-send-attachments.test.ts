@@ -148,6 +148,45 @@ describe("sendTelegramAttachments", () => {
     expect(calls[0]).toContain("sendMessage");
   });
 
+  test("downloads via assistant-less path when assistantId is undefined", async () => {
+    const calls: string[] = [];
+
+    mockFetch(async (url: string) => {
+      calls.push(url);
+      if (url.includes("/attachments/att-no-assist")) {
+        return new Response(
+          JSON.stringify({
+            id: "att-no-assist",
+            filename: "image.jpg",
+            mimeType: "image/jpeg",
+            sizeBytes: 80,
+            kind: "generated_image",
+            data: "/9j/4AAQ",
+          }),
+        );
+      }
+      return new Response(JSON.stringify(telegramOk));
+    });
+
+    const config = makeConfig();
+    const meta: RuntimeAttachmentMeta = {
+      id: "att-no-assist",
+      filename: "image.jpg",
+      mimeType: "image/jpeg",
+      sizeBytes: 80,
+      kind: "generated_image",
+    };
+
+    await sendTelegramAttachments(config, "chat-1", undefined, [meta]);
+
+    expect(calls).toHaveLength(2);
+    // Should use /v1/attachments/ path (no assistantId in URL)
+    const downloadUrl = calls[0];
+    expect(downloadUrl).toContain("/v1/attachments/att-no-assist");
+    expect(downloadUrl).not.toContain("/assistants/");
+    expect(calls[1]).toContain("sendPhoto");
+  });
+
   test("continues sending remaining attachments on individual failure", async () => {
     const calls: string[] = [];
 

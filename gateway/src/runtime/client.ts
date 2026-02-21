@@ -182,6 +182,30 @@ export async function downloadAttachment(
   return (await response.json()) as RuntimeAttachmentPayload;
 }
 
+/**
+ * Download an attachment without requiring an assistantId.
+ * Uses the assistant-less /v1/attachments/:attachmentId endpoint.
+ */
+export async function downloadAttachmentById(
+  config: GatewayConfig,
+  attachmentId: string,
+): Promise<RuntimeAttachmentPayload> {
+  const url = `${config.assistantRuntimeBaseUrl}/v1/attachments/${encodeURIComponent(attachmentId)}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: runtimeHeaders(config),
+    signal: AbortSignal.timeout(config.runtimeTimeoutMs),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Attachment download failed (${response.status}): ${body}`);
+  }
+
+  return (await response.json()) as RuntimeAttachmentPayload;
+}
+
 // ── Twilio webhook forwarding ────────────────────────────────────────
 
 export type TwilioForwardResponse = {

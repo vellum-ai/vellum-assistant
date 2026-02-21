@@ -51,6 +51,112 @@ function mockTelegramApi() {
   }) as any;
 }
 
+describe("/deliver/telegram attachment delivery without assistantId", () => {
+  test("delivers attachments without assistantId using assistant-less download path", async () => {
+    const calls: string[] = [];
+    globalThis.fetch = mock(async (url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      calls.push(urlStr);
+      // Runtime attachment download (assistant-less path)
+      if (urlStr.includes("/v1/attachments/att-1")) {
+        return new Response(
+          JSON.stringify({
+            id: "att-1",
+            filename: "photo.png",
+            mimeType: "image/png",
+            sizeBytes: 100,
+            kind: "generated_image",
+            data: "iVBORw0KGgo=",
+          }),
+        );
+      }
+      // Telegram API calls
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const handler = createTelegramDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined }),
+    );
+    const req = new Request("http://localhost:7830/deliver/telegram", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chatId: "123",
+        attachments: [
+          { id: "att-1", filename: "photo.png", mimeType: "image/png", sizeBytes: 100, kind: "generated_image" },
+        ],
+      }),
+    });
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Should have downloaded via /v1/attachments/att-1 (no assistantId in URL)
+    const downloadCall = calls.find((u) => u.includes("/attachments/att-1"));
+    expect(downloadCall).toBeDefined();
+    expect(downloadCall).not.toContain("/assistants/");
+
+    // Should have sent the photo via Telegram
+    const telegramCall = calls.find((u) => u.includes("sendPhoto"));
+    expect(telegramCall).toBeDefined();
+  });
+
+  test("delivers attachments with assistantId using legacy download path", async () => {
+    const calls: string[] = [];
+    globalThis.fetch = mock(async (url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      calls.push(urlStr);
+      // Runtime attachment download (legacy path)
+      if (urlStr.includes("/attachments/att-2")) {
+        return new Response(
+          JSON.stringify({
+            id: "att-2",
+            filename: "doc.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 200,
+            kind: "filesystem",
+            data: "JVBER",
+          }),
+        );
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const handler = createTelegramDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined }),
+    );
+    const req = new Request("http://localhost:7830/deliver/telegram", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chatId: "456",
+        assistantId: "my-assistant",
+        attachments: [
+          { id: "att-2", filename: "doc.pdf", mimeType: "application/pdf", sizeBytes: 200, kind: "filesystem" },
+        ],
+      }),
+    });
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Should have downloaded via legacy /v1/assistants/my-assistant/attachments/att-2
+    const downloadCall = calls.find((u) => u.includes("/attachments/att-2"));
+    expect(downloadCall).toBeDefined();
+    expect(downloadCall).toContain("/assistants/my-assistant/");
+  });
+});
+
 describe("/deliver/telegram bearer auth enforcement", () => {
   test("rejects request without Authorization header with 401", async () => {
     const handler = createTelegramDeliverHandler(makeConfig());
