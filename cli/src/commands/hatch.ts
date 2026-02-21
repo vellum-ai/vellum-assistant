@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, unlinkSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { tmpdir, userInfo } from "os";
 import { join } from "path";
@@ -17,7 +17,7 @@ import {
 } from "../lib/constants";
 import type { RemoteHost, Species } from "../lib/constants";
 import type { FirewallRuleSpec } from "../lib/gcp";
-import { fetchAndDisplayStartupLogs, getActiveProject, instanceExists, syncFirewallRules } from "../lib/gcp";
+import { activateServiceAccount, fetchAndDisplayStartupLogs, getActiveProject, instanceExists, syncFirewallRules } from "../lib/gcp";
 import { buildInterfacesSeed } from "../lib/interfaces-seed";
 import { startLocalDaemon, startGateway } from "../lib/local";
 import { generateRandomSuffix } from "../lib/random-name";
@@ -475,21 +475,7 @@ async function hatchGcp(
 ): Promise<void> {
   const startTime = Date.now();
   const account = process.env.GCP_ACCOUNT_EMAIL;
-  const keyFile = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-
-  // Activate the service account in an isolated gcloud config directory so
-  // we don't mutate the user's global ~/.config/gcloud credentials.
-  let gcpConfigDir: string | null = null;
-  if (account && keyFile) {
-    gcpConfigDir = mkdtempSync(join(tmpdir(), "vellum-gcloud-"));
-    process.env.CLOUDSDK_CONFIG = gcpConfigDir;
-    await exec("gcloud", [
-      "auth",
-      "activate-service-account",
-      account,
-      `--key-file=${keyFile}`,
-    ]);
-  }
+  const cleanupServiceAccount = await activateServiceAccount();
 
   try {
     const project = process.env.GCP_PROJECT ?? (await getActiveProject());
@@ -674,10 +660,7 @@ async function hatchGcp(
     console.error("❌ Error:", error instanceof Error ? error.message : error);
     process.exit(1);
   } finally {
-    if (gcpConfigDir) {
-      delete process.env.CLOUDSDK_CONFIG;
-      try { rmSync(gcpConfigDir, { recursive: true, force: true }); } catch {}
-    }
+    cleanupServiceAccount?.();
   }
 }
 

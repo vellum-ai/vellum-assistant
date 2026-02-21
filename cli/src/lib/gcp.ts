@@ -1,6 +1,29 @@
 import { spawn } from "child_process";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 import { exec, execOutput } from "./step-runner";
+
+export async function activateServiceAccount(): Promise<(() => void) | null> {
+  const account = process.env.GCP_ACCOUNT_EMAIL;
+  const keyFile = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (!account || !keyFile) return null;
+
+  const gcpConfigDir = mkdtempSync(join(tmpdir(), "vellum-gcloud-"));
+  process.env.CLOUDSDK_CONFIG = gcpConfigDir;
+  await exec("gcloud", [
+    "auth",
+    "activate-service-account",
+    account,
+    `--key-file=${keyFile}`,
+  ]);
+
+  return () => {
+    delete process.env.CLOUDSDK_CONFIG;
+    try { rmSync(gcpConfigDir, { recursive: true, force: true }); } catch {}
+  };
+}
 
 export async function getActiveProject(): Promise<string> {
   const output = await execOutput("gcloud", [
