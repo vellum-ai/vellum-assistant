@@ -295,15 +295,12 @@ export async function startGateway(): Promise<string> {
   const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl();
   const ingressPublicBaseUrl =
     workspaceIngressPublicBaseUrl
-    ?? normalizeIngressUrl(process.env.INGRESS_PUBLIC_BASE_URL);
+    ?? normalizeIngressUrl(process.env.INGRESS_PUBLIC_BASE_URL)
+    ?? publicUrl;
   if (ingressPublicBaseUrl) {
     gatewayEnv.INGRESS_PUBLIC_BASE_URL = ingressPublicBaseUrl;
     console.log(`   Ingress URL: ${ingressPublicBaseUrl}`);
-    if (!workspaceIngressPublicBaseUrl) {
-      console.log("   (using INGRESS_PUBLIC_BASE_URL env fallback)");
-    }
   }
-  if (publicUrl) gatewayEnv.GATEWAY_PUBLIC_URL = publicUrl;
 
   const gateway = spawn("bun", ["run", "src/index.ts"], {
     cwd: gatewayDir,
