@@ -10,13 +10,22 @@ You are helping the user set up and make outgoing phone calls via Twilio. This s
 
 ## Overview
 
-The calling system uses Twilio's ConversationRelay to place outbound phone calls. When a call is placed:
+The calling system uses Twilio's ConversationRelay to place outbound phone calls. Twilio works out of the box as the default voice provider. Optionally, you can enable ElevenLabs integration for higher-quality, more natural-sounding voices — but this is entirely optional.
+
+When a call is placed:
 
 1. The assistant initiates an outbound call via the Twilio REST API
 2. Twilio connects to the gateway's voice webhook, which returns TwiML
 3. Twilio opens a ConversationRelay WebSocket for real-time voice streaming
 4. An LLM-driven orchestrator manages the conversation — receiving caller speech (transcribed by Deepgram), generating responses via Claude, and streaming text back for TTS playback
 5. The transcript is relayed live to the user's conversation thread
+
+Three voice quality modes are available:
+- **`twilio_standard`** (default) — Standard Twilio TTS with Google voices. No extra setup required.
+- **`twilio_elevenlabs_tts`** — Uses ElevenLabs voices through Twilio ConversationRelay for more natural speech.
+- **`elevenlabs_agent`** — Full ElevenLabs conversational agent mode for the highest quality (requires ElevenLabs agent setup).
+
+You can keep using Twilio only — no changes needed. Enabling ElevenLabs can improve naturalness and quality.
 
 The user's assistant gets its own personal phone number through Twilio.
 
@@ -137,6 +146,59 @@ Before making real calls, offer a quick verification:
 Suggest a test call to the user's own phone: **"Want to do a quick test call to your phone to make sure everything works?"**
 
 If they agree, ask for their personal phone number and place a test call with a simple task like "Introduce yourself and confirm the call system is working."
+
+## Optional: Higher Quality Voice with ElevenLabs
+
+ElevenLabs integration is entirely optional. The standard Twilio-only setup works unchanged — this section is only relevant if you want to improve voice quality.
+
+### Mode: `twilio_elevenlabs_tts`
+
+Uses ElevenLabs voices through Twilio's ConversationRelay. Speech is more natural-sounding than the default Google TTS voices. No ElevenLabs API key is needed for this mode — just a voice ID.
+
+**Setup:**
+
+1. Browse ElevenLabs voices at https://elevenlabs.io/voice-library and pick a voice ID
+2. Set the voice mode and voice ID:
+
+```bash
+vellum config set calls.voice.mode twilio_elevenlabs_tts
+vellum config set calls.voice.elevenlabs.voiceId "<your-voice-id>"
+```
+
+### Mode: `elevenlabs_agent`
+
+Full ElevenLabs conversational agent mode. This requires an ElevenLabs account with an agent configured on their platform.
+
+**Setup:**
+
+1. Store your ElevenLabs API key securely:
+
+```
+credential_store action=set service=credential:elevenlabs:api_key value=<your_api_key>
+```
+
+2. Set the voice mode and agent ID:
+
+```bash
+vellum config set calls.voice.mode elevenlabs_agent
+vellum config set calls.voice.elevenlabs.agentId "<your-agent-id>"
+```
+
+### Fallback behavior
+
+By default, `calls.voice.fallbackToStandardOnError` is `true`. This means if ElevenLabs is unavailable or misconfigured (e.g., missing voice ID, API errors), calls automatically fall back to standard Twilio TTS rather than failing. You can disable this if you want strict ElevenLabs-only behavior:
+
+```bash
+vellum config set calls.voice.fallbackToStandardOnError false
+```
+
+### Reverting to standard Twilio
+
+To go back to the default voice at any time:
+
+```bash
+vellum config set calls.voice.mode twilio_standard
+```
 
 ## Making Calls
 
@@ -282,6 +344,13 @@ All call-related settings can be managed via `vellum config`:
 | `calls.userConsultTimeoutSeconds` | How long to wait for user answers | `120` (2 min) |
 | `calls.disclosure.enabled` | Whether the AI announces itself at call start | `true` |
 | `calls.disclosure.text` | The disclosure message spoken at call start | `"I should let you know that I'm an AI assistant calling on behalf of my user."` |
+| `calls.model` | Override LLM model for call orchestration | *(uses default model)* |
+| `calls.voice.mode` | Voice quality mode (`twilio_standard`, `twilio_elevenlabs_tts`, `elevenlabs_agent`) | `twilio_standard` |
+| `calls.voice.language` | Language code for TTS and transcription | `en-US` |
+| `calls.voice.transcriptionProvider` | Speech-to-text provider (`Deepgram`, `Google`) | `Deepgram` |
+| `calls.voice.fallbackToStandardOnError` | Auto-fallback to standard Twilio TTS on ElevenLabs errors | `true` |
+| `calls.voice.elevenlabs.voiceId` | ElevenLabs voice ID (for `twilio_elevenlabs_tts` mode) | *(empty)* |
+| `calls.voice.elevenlabs.agentId` | ElevenLabs agent ID (for `elevenlabs_agent` mode) | *(empty)* |
 
 ### Adjusting settings
 
@@ -332,3 +401,14 @@ Or re-run the public-ingress skill to auto-detect and save the new URL.
 
 ### Call drops after 30 seconds of silence
 The system has a 30-second silence timeout. If nobody speaks for 30 seconds, the agent will ask "Are you still there?" This is expected behavior.
+
+### Call quality didn't improve after enabling ElevenLabs
+- Verify `calls.voice.mode` is set to `twilio_elevenlabs_tts` or `elevenlabs_agent` (not still `twilio_standard`)
+- Check that `calls.voice.elevenlabs.voiceId` contains a valid ElevenLabs voice ID
+- If mode is `elevenlabs_agent`, ensure `calls.voice.elevenlabs.agentId` is also set
+
+### ElevenLabs mode falls back to standard
+When `calls.voice.fallbackToStandardOnError` is `true` (the default), the system silently falls back to standard Twilio TTS if ElevenLabs encounters an error. Check:
+- For `elevenlabs_agent` mode: verify the API key is stored (`credential_store action=get service=credential:elevenlabs:api_key`) and that `calls.voice.elevenlabs.agentId` is configured
+- For `twilio_elevenlabs_tts` mode: verify `calls.voice.elevenlabs.voiceId` is set to a valid voice ID
+- Review daemon logs for error messages related to ElevenLabs
