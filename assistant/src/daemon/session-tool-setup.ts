@@ -433,7 +433,7 @@ export function createProxyApprovalCallback(
     }
 
     // Use the checker's built-in allowlist generation for network_request
-    const allowlistOptions = generateAllowlistOptions('network_request', { url });
+    const allowlistOptions = await generateAllowlistOptions('network_request', { url });
 
     const scopeOptions = generateScopeOptions(ctx.workingDir);
 

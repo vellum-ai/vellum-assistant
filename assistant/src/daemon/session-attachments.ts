@@ -51,7 +51,7 @@ export async function approveHostAttachmentRead(
     toolName,
     input,
     await classifyRisk(toolName, input, workingDir),
-    generateAllowlistOptions(toolName, input),
+    await generateAllowlistOptions(toolName, input),
     generateScopeOptions(workingDir, toolName),
     undefined,
     undefined,
