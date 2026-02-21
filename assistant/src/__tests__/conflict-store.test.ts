@@ -233,6 +233,8 @@ describe('conflict-store', () => {
     expect(details).toHaveLength(1);
     expect(details[0].existingStatement).toBe('Existing statement details');
     expect(details[0].candidateStatement).toBe('Candidate statement details');
+    expect(details[0].existingKind).toBe('fact');
+    expect(details[0].candidateKind).toBe('fact');
   });
 
   test('applyConflictResolution keeps candidate and resolves conflict row', () => {
