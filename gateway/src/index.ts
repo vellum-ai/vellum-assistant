@@ -11,6 +11,7 @@ import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { getLogger, initLogger } from "./logger.js";
 import { buildSchema } from "./schema.js";
 import { callTelegramApi } from "./telegram/api.js";
+import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 
 const log = getLogger("main");
 
@@ -131,6 +132,9 @@ function main() {
 
   if (isTelegramConfigured()) {
     registerTelegramCommands();
+    reconcileTelegramWebhook(config).catch((err) => {
+      log.error({ err }, "Failed to reconcile Telegram webhook on startup");
+    });
   }
 
   const credentialWatcher = new CredentialWatcher((credentials) => {
@@ -139,6 +143,9 @@ function main() {
       config.telegramWebhookSecret = credentials.webhookSecret;
       log.info("Telegram credentials loaded from credential vault");
       registerTelegramCommands();
+      reconcileTelegramWebhook(config, { forceUpdate: true }).catch((err) => {
+        log.error({ err }, "Failed to reconcile Telegram webhook after credential change");
+      });
     } else {
       config.telegramBotToken = undefined;
       config.telegramWebhookSecret = undefined;
