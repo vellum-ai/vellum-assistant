@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import pino from "pino";
+import pinoPretty from "pino-pretty";
 
 export type LogFileConfig = {
   dir: string | undefined;
@@ -52,7 +53,7 @@ let activeConfig: LogFileConfig | null = null;
 
 function buildLogger(config: LogFileConfig | null): pino.Logger {
   if (!config?.dir) {
-    return pino({ name: "gateway" });
+    return pino({ name: "gateway" }, pinoPretty({ destination: 1 }));
   }
 
   if (!existsSync(config.dir)) {
@@ -70,7 +71,7 @@ function buildLogger(config: LogFileConfig | null): pino.Logger {
     { name: "gateway" },
     pino.multistream([
       { stream: fileStream, level: "info" as const },
-      { stream: pino.destination(1), level: "info" as const },
+      { stream: pinoPretty({ destination: 1 }), level: "info" as const },
     ]),
   );
 }

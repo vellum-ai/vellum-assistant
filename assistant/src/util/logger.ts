@@ -55,7 +55,7 @@ let activeLogFileConfig: LogFileConfig | null = null;
 
 function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   if (!config.dir) {
-    return pino({ name: 'assistant' });
+    return pino({ name: 'assistant' }, pinoPretty({ destination: 1 }));
   }
 
   if (!existsSync(config.dir)) {
@@ -86,7 +86,7 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
     { name: 'assistant', level },
     pino.multistream([
       { stream: fileStream, level: 'info' as const },
-      { stream: pino.destination(1), level: 'info' as const },
+      { stream: pinoPretty({ destination: 1 }), level: 'info' as const },
     ]),
   );
 }
@@ -142,14 +142,14 @@ function getRootLogger(): pino.Logger {
           { level: 'info' },
           pino.multistream([
             { stream: fileStream, level: 'info' as const },
-            { stream: pino.destination(1), level: 'info' as const },
+            { stream: pinoPretty({ destination: 1 }), level: 'info' as const },
           ]),
         );
       } else {
         rootLogger = pino({ level: 'info' }, fileStream);
       }
     } catch {
-      rootLogger = pino({ level: process.env.VELLUM_DEBUG === '1' ? 'debug' : 'info' }, pino.destination(2));
+      rootLogger = pino({ level: process.env.VELLUM_DEBUG === '1' ? 'debug' : 'info' }, pinoPretty({ destination: 2 }));
     }
   }
   return rootLogger;
