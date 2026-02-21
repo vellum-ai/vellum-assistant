@@ -36,6 +36,11 @@ export async function executeScheduleUpdate(
     } else if (input.cron_expression !== undefined) {
       updates.cronExpression = input.cron_expression;
     }
+    // When only syntax is provided (no expression), normalizeScheduleSyntax returns null
+    // but we still need to persist the explicit syntax value.
+    if (input.syntax !== undefined && updates.syntax === undefined) {
+      updates.syntax = input.syntax;
+    }
   }
 
   if (Object.keys(updates).length === 0) {
