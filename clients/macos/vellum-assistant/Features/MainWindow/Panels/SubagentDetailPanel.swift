@@ -136,8 +136,8 @@ struct SubagentDetailPanel: View {
         switch status {
         case .completed: return Emerald._500
         case .failed, .aborted: return Danger._500
-        case .running: return Violet._500
-        default: return Slate._400
+        case .running: return Forest._500
+        default: return Moss._400
         }
     }
 
@@ -189,9 +189,9 @@ struct SubagentDetailPanel: View {
     private func eventLabel(for kind: SubagentEventItem.Kind) -> some View {
         switch kind {
         case .text:
-            label(icon: "text.bubble.fill", text: "RESPONSE", color: Indigo._400)
+            label(icon: "text.bubble.fill", text: "RESPONSE", color: Forest._400)
         case .toolUse:
-            label(icon: "wrench.fill", text: "TOOL CALL", color: Violet._400)
+            label(icon: "wrench.fill", text: "TOOL CALL", color: Forest._400)
         case .toolResult(let isError):
             label(icon: isError ? "xmark.circle.fill" : "checkmark.circle.fill", text: isError ? "TOOL ERROR" : "TOOL RESULT", color: isError ? Danger._400 : Emerald._400)
         case .error:
@@ -226,7 +226,7 @@ struct SubagentDetailPanel: View {
             HStack(spacing: VSpacing.xs) {
                 Text(name)
                     .font(VFont.captionMedium)
-                    .foregroundColor(Violet._300)
+                    .foregroundColor(Forest._300)
                 if !event.content.isEmpty {
                     Text(event.content)
                         .font(VFont.monoSmall)
@@ -239,10 +239,10 @@ struct SubagentDetailPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(Violet._500.opacity(0.06))
+                    .fill(Forest._500.opacity(0.06))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .strokeBorder(Violet._500.opacity(0.12), lineWidth: 1)
+                            .strokeBorder(Forest._500.opacity(0.12), lineWidth: 1)
                     )
             )
 

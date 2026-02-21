@@ -38,20 +38,6 @@ public func adaptiveColor(light: Color, dark: Color) -> Color {
 
 // MARK: - Color Scales
 
-public enum Slate {
-    public static let _950 = Color(hex: 0x070D19)
-    public static let _900 = Color(hex: 0x0F172A)
-    public static let _800 = Color(hex: 0x1E293B)
-    public static let _700 = Color(hex: 0x334155)
-    public static let _600 = Color(hex: 0x475569)
-    public static let _500 = Color(hex: 0x64748B)
-    public static let _400 = Color(hex: 0x94A3B8)
-    public static let _300 = Color(hex: 0xCBD5E1)
-    public static let _200 = Color(hex: 0xE2E8F0)
-    public static let _100 = Color(hex: 0xF1F5F9)
-    public static let _50  = Color(hex: 0xF8FAFC)
-}
-
 public enum Emerald {
     public static let _950 = Color(hex: 0x073D2E)
     public static let _900 = Color(hex: 0x0A5843)
@@ -65,30 +51,17 @@ public enum Emerald {
     public static let _100 = Color(hex: 0xECFDF5)
 }
 
-public enum Violet {
-    public static let _950 = Color(hex: 0x321669)
-    public static let _900 = Color(hex: 0x4A2390)
-    public static let _800 = Color(hex: 0x5C2FB2)
-    public static let _700 = Color(hex: 0x7240CC)
-    public static let _600 = Color(hex: 0x8A5BE0)
-    public static let _500 = Color(hex: 0x9878EA)
-    public static let _400 = Color(hex: 0xB8A6F1)
-    public static let _300 = Color(hex: 0xD4C8F7)
-    public static let _200 = Color(hex: 0xE8E1FB)
-    public static let _100 = Color(hex: 0xF4F0FD)
-}
-
-public enum Indigo {
-    public static let _950 = Color(hex: 0x180F66)
-    public static let _900 = Color(hex: 0x261A96)
-    public static let _800 = Color(hex: 0x3525C4)
-    public static let _700 = Color(hex: 0x4636E8)
-    public static let _600 = Color(hex: 0x5B4EFF)
-    public static let _500 = Color(hex: 0x7B6BFF)
-    public static let _400 = Color(hex: 0x9488FF)
-    public static let _300 = Color(hex: 0xB8B4FF)
-    public static let _200 = Color(hex: 0xD8D8FF)
-    public static let _100 = Color(hex: 0xEEEEFF)
+public enum Sage {
+    public static let _950 = Color(hex: 0x1A2316)
+    public static let _900 = Color(hex: 0x2A3825)
+    public static let _800 = Color(hex: 0x3D4F36)
+    public static let _700 = Color(hex: 0x516748)
+    public static let _600 = Color(hex: 0x657D5B)
+    public static let _500 = Color(hex: 0x7A8B6F)
+    public static let _400 = Color(hex: 0x98A88F)
+    public static let _300 = Color(hex: 0xB5C3AE)
+    public static let _200 = Color(hex: 0xD4DFD0)
+    public static let _100 = Color(hex: 0xEDF2EB)
 }
 
 public enum Danger {
