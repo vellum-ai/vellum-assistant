@@ -10,6 +10,10 @@ struct OnboardingFlowView: View {
     var onOpenSettings: () -> Void
 
     @State private var isAdvancingFromWakeUp = false
+    /// Tracks whether the user was already authenticated when the flow appeared,
+    /// so the auth onChange handler only fires for logins that happen during
+    /// this session (not for pre-existing auth from "Hatch New Assistant").
+    @State private var wasAuthenticatedOnAppear = false
 
     private var maxOnboardingStep: Int {
         state.userHostedEnabled ? 2 : 1
@@ -114,8 +118,11 @@ struct OnboardingFlowView: View {
                 onComplete()
             }
         }
+        .onAppear {
+            wasAuthenticatedOnAppear = authManager.isAuthenticated
+        }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
-            if isAuthenticated {
+            if isAuthenticated && !wasAuthenticatedOnAppear {
                 onComplete()
             }
         }
