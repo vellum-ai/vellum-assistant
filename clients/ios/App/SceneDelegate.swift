@@ -7,7 +7,10 @@ class SceneDelegate: NSObject, UIWindowSceneDelegate {
     func sceneWillEnterForeground(_ scene: UIScene) {
         guard let appDelegate = UIApplication.shared.delegate as? AppDelegate else { return }
         let provider = appDelegate.clientProvider
-        guard !provider.client.isConnected else { return }
+        if provider.client.isConnected {
+            provider.isConnected = true
+            return
+        }
         Task {
             do {
                 await MainActor.run { provider.isConnected = false }
