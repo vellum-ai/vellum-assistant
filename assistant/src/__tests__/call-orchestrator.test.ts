@@ -29,6 +29,8 @@ mock.module('../util/logger.js', () => ({
 
 // ── Config mock ─────────────────────────────────────────────────────
 
+let mockCallModel: string | undefined = undefined;
+
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
     apiKeys: { anthropic: 'test-key' },
@@ -41,6 +43,7 @@ mock.module('../config/loader.js', () => ({
       silenceTimeoutSeconds: 30,
       disclosure: { enabled: false, text: '' },
       safety: { denyCategories: [] },
+      model: mockCallModel,
     },
   }),
 }));
@@ -192,6 +195,7 @@ function setupOrchestrator(task?: string) {
 describe('call-orchestrator', () => {
   beforeEach(() => {
     resetTables();
+    mockCallModel = undefined;
     // Reset the stream mock to default behaviour
     mockStreamFn.mockImplementation(() => createMockStream(['Hello', ' there']));
   });
@@ -450,5 +454,33 @@ describe('call-orchestrator', () => {
     orchestrator.destroy();
     // Second destroy should not throw
     expect(() => orchestrator.destroy()).not.toThrow();
+  });
+
+  // ── Model override from config ──────────────────────────────────────
+
+  test('uses default model when calls.model is not set', async () => {
+    mockCallModel = undefined;
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { model: string };
+      expect(firstArg.model).toBe('claude-sonnet-4-20250514');
+      return createMockStream(['Default model response.']);
+    });
+
+    const { orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('Hello');
+    orchestrator.destroy();
+  });
+
+  test('uses calls.model override from config when set', async () => {
+    mockCallModel = 'claude-haiku-4-5-20251001';
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { model: string };
+      expect(firstArg.model).toBe('claude-haiku-4-5-20251001');
+      return createMockStream(['Override model response.']);
+    });
+
+    const { orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('Hello');
+    orchestrator.destroy();
   });
 });
