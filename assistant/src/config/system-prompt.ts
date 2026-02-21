@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getWorkspaceDir, getWorkspacePromptPath } from '../util/platform.js';
+import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
 import { getConfig } from './loader.js';
@@ -408,6 +408,22 @@ function buildAccessPreferenceSection(): string {
     '- Can I get the data via web_fetch?',
     '',
     'If yes to any of these, use that path instead of the browser.',
+    ...(isMacOS() ? [
+      '',
+      '### macOS App Automation',
+      '',
+      'When automating macOS apps or system interactions (open an app, play music, send a notification,',
+      'control system settings, move windows, etc.), prefer **osascript** via host_bash over browser',
+      'automation or computer-use:',
+      '',
+      '```bash',
+      'osascript -e \'tell application "Spotify" to play\'',
+      'osascript -e \'display notification "Done!" with title "Vellum"\'',
+      '```',
+      '',
+      'osascript (AppleScript/JXA) has direct, reliable access to macOS app APIs and system events.',
+      'Use it whenever the task involves a native macOS app or system-level interaction.',
+    ] : []),
   ].join('\n');
 }
 
