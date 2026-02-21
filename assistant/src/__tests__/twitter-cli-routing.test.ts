@@ -149,10 +149,11 @@ describe('Twitter strategy router', () => {
         await routedPostTweet('will fail');
         expect(true).toBe(false); // should not reach
       } catch (err) {
-        const e = err as Error & { pathUsed: string };
+        const e = err as Error & { pathUsed: string; oauthError?: string };
         expect(e).toBeInstanceOf(MockSessionExpiredError);
         expect(e.message).toBe('Browser session expired');
         expect(e.pathUsed).toBe('auto');
+        expect(e.oauthError).toBe('OAuth failed');
       }
     });
   });

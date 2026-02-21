@@ -193,7 +193,7 @@ export function registerTwitterCommand(program: Command): void {
         const daemonResponse = await sendDaemonMessage({
           type: 'twitter_integration_config',
           action: 'get',
-        } as import('../daemon/ipc-protocol.js').ClientMessage);
+        } as import('../daemon/ipc-protocol.js').ClientMessage, 'twitter_integration_config_response');
         const r = daemonResponse as Record<string, unknown>;
         oauthInfo = {
           oauthConnected: r.connected ?? false,
@@ -231,7 +231,7 @@ export function registerTwitterCommand(program: Command): void {
         const daemonResponse = await sendDaemonMessage({
           type: 'twitter_integration_config',
           action: 'get_strategy',
-        } as import('../daemon/ipc-protocol.js').ClientMessage);
+        } as import('../daemon/ipc-protocol.js').ClientMessage, 'twitter_integration_config_response');
         const r = daemonResponse as Record<string, unknown>;
         output({ ok: true, strategy: r.strategy ?? 'auto' }, json);
       } catch (err) {
@@ -249,7 +249,7 @@ export function registerTwitterCommand(program: Command): void {
           type: 'twitter_integration_config',
           action: 'set_strategy',
           strategy: value,
-        } as import('../daemon/ipc-protocol.js').ClientMessage);
+        } as import('../daemon/ipc-protocol.js').ClientMessage, 'twitter_integration_config_response');
         const r = daemonResponse as Record<string, unknown>;
         if (r.success) {
           output({ ok: true, strategy: r.strategy }, json);
@@ -458,6 +458,7 @@ export function registerTwitterCommand(program: Command): void {
 
 function sendDaemonMessage(
   message: import('../daemon/ipc-protocol.js').ClientMessage,
+  expectedResponseType: string,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const socketPath = getSocketPath();
@@ -502,16 +503,14 @@ function sendDaemonMessage(
           continue;
         }
 
-        // Skip auth_result echoes, daemon_status broadcasts, and session_info
-        if (m.type === 'auth_result' || m.type === 'daemon_status' || m.type === 'pong' || m.type === 'session_info') {
-          continue;
+        // Only resolve on the expected response type; skip everything else
+        if (m.type === expectedResponseType) {
+          clearTimeout(timeoutHandle);
+          socket.destroy();
+          resolve(m);
+          return;
         }
-
-        // First substantive response — return it
-        clearTimeout(timeoutHandle);
-        socket.destroy();
-        resolve(m);
-        return;
+        // Skip all other message types (auth_result, daemon_status, pong, session_info, tasks_changed, etc.)
       }
     });
 
