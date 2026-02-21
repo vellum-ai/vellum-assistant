@@ -654,7 +654,7 @@ struct ChatBubble: View {
         if !partitioned.files.isEmpty {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 ForEach(partitioned.files) { attachment in
-                    fileAttachmentChip(attachment)
+                    fileAttachmentCard(attachment)
                 }
             }
         }
@@ -731,6 +731,15 @@ struct ChatBubble: View {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 if let skillInvocation = message.skillInvocation {
                     SkillInvocationChip(data: skillInvocation)
+                }
+
+                // File attachments render above text
+                if !partitioned.files.isEmpty {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        ForEach(partitioned.files) { attachment in
+                            fileAttachmentCard(attachment)
+                        }
+                    }
                 }
 
                 if message.isError && hasText {
@@ -870,14 +879,6 @@ struct ChatBubble: View {
                     }
                 }
 
-                if !partitioned.files.isEmpty {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        ForEach(partitioned.files) { attachment in
-                            fileAttachmentChip(attachment)
-                        }
-                    }
-                }
-
                 // User messages keep tool calls inside the bubble
                 if isUser && !message.toolCalls.isEmpty {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -927,26 +928,39 @@ struct ChatBubble: View {
         }
     }
 
-    private func fileAttachmentChip(_ attachment: ChatAttachment) -> some View {
-        HStack(spacing: VSpacing.xs) {
-            Image(systemName: fileIcon(for: attachment.mimeType))
-                .font(VFont.caption)
-                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
-
-            Text(attachment.filename)
-                .font(VFont.caption)
-                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                .lineLimit(1)
-
-            Text(formattedFileSize(base64Length: attachment.dataLength))
-                .font(VFont.small)
-                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textMuted)
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .background(
+    private func fileAttachmentCard(_ attachment: ChatAttachment) -> some View {
+        HStack(spacing: VSpacing.md) {
+            // Icon badge
             RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(isUser ? VColor.userBubbleText.opacity(0.15) : VColor.surfaceBorder.opacity(0.5))
+                .fill(fileIconColor(for: attachment.mimeType))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Image(systemName: fileIcon(for: attachment.mimeType))
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white)
+                )
+
+            // Filename + type label
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                Text(attachment.filename)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Text(fileTypeLabel(for: attachment.mimeType))
+                    .font(VFont.caption)
+                    .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textMuted)
+            }
+        }
+        .padding(VSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(isUser ? VColor.userBubbleText.opacity(0.1) : VColor.surfaceBorder.opacity(0.3))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .strokeBorder(isUser ? VColor.userBubbleText.opacity(0.15) : VColor.surfaceBorder.opacity(0.6), lineWidth: 0.5)
         )
     }
 
@@ -988,13 +1002,22 @@ struct ChatBubble: View {
         return "doc.fill"
     }
 
-    private func formattedFileSize(base64Length: Int) -> String {
-        let bytes = base64Length * 3 / 4
-        if bytes < 1024 { return "\(bytes) B" }
-        let kb = Double(bytes) / 1024
-        if kb < 1024 { return String(format: "%.1f KB", kb) }
-        let mb = kb / 1024
-        return String(format: "%.1f MB", mb)
+    private func fileIconColor(for mimeType: String) -> Color {
+        if mimeType == "application/pdf" { return Rose._500 }
+        if mimeType.hasPrefix("text/") { return Slate._500 }
+        if mimeType.hasPrefix("audio/") { return Violet._500 }
+        if mimeType.hasPrefix("video/") { return Indigo._500 }
+        if mimeType.contains("zip") || mimeType.contains("archive") { return Amber._500 }
+        return Slate._500
+    }
+
+    private func fileTypeLabel(for mimeType: String) -> String {
+        if mimeType == "application/pdf" { return "PDF" }
+        if mimeType.hasPrefix("text/") { return "Text" }
+        if mimeType.hasPrefix("audio/") { return "Audio" }
+        if mimeType.hasPrefix("video/") { return "Video" }
+        if mimeType.contains("zip") || mimeType.contains("archive") { return "Archive" }
+        return "File"
     }
 
     /// Cached markdown segment parser to avoid re-parsing on every render.
