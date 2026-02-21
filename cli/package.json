@@ -3,6 +3,12 @@
   "version": "0.1.11",
   "description": "CLI tools for vellum-assistant",
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json",
+    "./src/components/DefaultMainScreen": "./src/components/DefaultMainScreen.tsx",
+    "./src/lib/constants": "./src/lib/constants.ts"
+  },
   "bin": {
     "vellum-cli": "./src/index.ts"
   },

@@ -1,19 +1,9 @@
-import { type ReactElement } from "react";
-import { basename } from "node:path";
-import { Box, render as inkRender, Text } from "ink";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { getSocketPath, getWorkspaceDir } from "../util/platform.js";
-import { APP_VERSION } from "../version.js";
 
 const LEFT_PANEL_WIDTH = 36;
-
-const VELLY_ART = [
-  "    ,___,",
-  "   ( O O )",
-  "    /)V(\\",
-  "   //   \\\\",
-  '  /"     "\\',
-  "  ^       ^",
-];
+const RIGHT_LINE_COUNT = 11;
 
 export interface MainScreenLayout {
   height: number;
@@ -21,116 +11,24 @@ export interface MainScreenLayout {
   statusCol: number;
 }
 
-function DefaultMainScreen(): ReactElement {
+export function renderMainScreen(): MainScreenLayout {
   const socketPath = getSocketPath();
   const workspace = getWorkspaceDir();
-  const dirName = basename(workspace);
+  const assistantId = workspace.split("/").pop() ?? "vellum";
 
-  const tips = [
-    "Send a message to start chatting",
-    "Use /help to see available commands",
-  ];
+  const require = createRequire(import.meta.url);
+  const cliPkgPath = require.resolve("@vellumai/cli/package.json");
+  const cliRoot = dirname(cliPkgPath);
+  // Dynamic require to bypass NodeNext strict module resolution for the
+  // CLI package which ships raw TypeScript with bundler-style imports.
+  const { render } = require(join(cliRoot, "src", "components", "DefaultMainScreen.tsx")) as {
+    render: (runtimeUrl: string, assistantId: string, species: string) => number;
+  };
 
-  const leftLines = [
-    " ",
-    "    Meet your Assistant!",
-    " ",
-    ...VELLY_ART.map((l) => `  ${l}`),
-    " ",
-    `  ${socketPath}`,
-    `  ~/${dirName}`,
-  ];
+  const height = render(socketPath, assistantId, "vellum");
 
-  const rightLines = [
-    " ",
-    "Tips for getting started",
-    ...tips,
-    " ",
-    "Daemon",
-    "connecting...",
-    "Version",
-    APP_VERSION,
-    "Status",
-    "checking...",
-  ];
-
-  const maxLines = Math.max(leftLines.length, rightLines.length);
-
-  return (
-    <Box flexDirection="column" width={72}>
-      <Text dimColor>{"── Vellum " + "─".repeat(62)}</Text>
-      <Box flexDirection="row">
-        <Box flexDirection="column" width={LEFT_PANEL_WIDTH}>
-          {Array.from({ length: maxLines }, (_, i) => {
-            const line = leftLines[i] ?? " ";
-            if (i === 1) {
-              return (
-                <Text key={i} bold>
-                  {line}
-                </Text>
-              );
-            }
-            if (i > 2 && i <= 2 + VELLY_ART.length) {
-              return (
-                <Text key={i} color="magenta">
-                  {line}
-                </Text>
-              );
-            }
-            if (i > 2 + VELLY_ART.length) {
-              return (
-                <Text key={i} dimColor>
-                  {line}
-                </Text>
-              );
-            }
-            return <Text key={i}>{line}</Text>;
-          })}
-        </Box>
-        <Box flexDirection="column">
-          {Array.from({ length: maxLines }, (_, i) => {
-            const line = rightLines[i] ?? " ";
-            const isHeading = i === 1 || i === 6;
-            const isDim = i === 5 || i === 7 || i === 9;
-            if (isHeading) {
-              return (
-                <Text key={i} color="magenta">
-                  {line}
-                </Text>
-              );
-            }
-            if (isDim) {
-              return (
-                <Text key={i} dimColor>
-                  {line}
-                </Text>
-              );
-            }
-            return <Text key={i}>{line}</Text>;
-          })}
-        </Box>
-      </Box>
-      <Text dimColor>{"─".repeat(72)}</Text>
-      <Text> </Text>
-      <Text dimColor> ? for shortcuts</Text>
-      <Text> </Text>
-    </Box>
-  );
-}
-
-export function renderMainScreen(): MainScreenLayout {
-  const leftLineCount = 3 + VELLY_ART.length + 3;
-  const rightLineCount = 11;
-  const maxLines = Math.max(leftLineCount, rightLineCount);
-
-  const { unmount } = inkRender(<DefaultMainScreen />, {
-    exitOnCtrlC: false,
-  });
-  unmount();
-
-  const statusCanvasLine = rightLineCount + 1;
+  const statusCanvasLine = RIGHT_LINE_COUNT + 1;
   const statusCol = LEFT_PANEL_WIDTH + 1;
-  const height = 1 + maxLines + 4;
 
   return { height, statusLine: statusCanvasLine, statusCol };
 }

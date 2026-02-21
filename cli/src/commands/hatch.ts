@@ -17,7 +17,6 @@ import {
 import type { RemoteHost, Species } from "../lib/constants";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
-import { buildInterfacesSeed } from "../lib/interfaces-seed";
 import { startLocalDaemon, startGateway } from "../lib/local";
 import { generateRandomSuffix } from "../lib/random-name";
 import { exec } from "../lib/step-runner";
@@ -94,8 +93,6 @@ export async function buildStartupScript(
     );
   }
 
-  const interfacesSeed = await buildInterfacesSeed();
-
   return `#!/bin/bash
 set -e
 
@@ -108,13 +105,11 @@ GATEWAY_RUNTIME_PROXY_ENABLED=true
 RUNTIME_PROXY_BEARER_TOKEN=${bearerToken}
 VELLUM_ASSISTANT_NAME=${instanceName}
 VELLUM_CLOUD=${cloud}
-${interfacesSeed}
 mkdir -p "\$HOME/.vellum"
 cat > "\$HOME/.vellum/.env" << DOTENV_EOF
 ANTHROPIC_API_KEY=\$ANTHROPIC_API_KEY
 GATEWAY_RUNTIME_PROXY_ENABLED=\$GATEWAY_RUNTIME_PROXY_ENABLED
 RUNTIME_PROXY_BEARER_TOKEN=\$RUNTIME_PROXY_BEARER_TOKEN
-INTERFACES_SEED_DIR=\$INTERFACES_SEED_DIR
 RUNTIME_HTTP_PORT=7821
 VELLUM_CLOUD=\$VELLUM_CLOUD
 DOTENV_EOF
