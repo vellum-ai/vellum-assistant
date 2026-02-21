@@ -78,19 +78,6 @@ public enum Violet {
     public static let _100 = Color(hex: 0xF4F0FD)
 }
 
-public enum Sage {
-    public static let _950 = Color(hex: 0x1A2316)
-    public static let _900 = Color(hex: 0x2A3825)
-    public static let _800 = Color(hex: 0x3D4F36)
-    public static let _700 = Color(hex: 0x516748)
-    public static let _600 = Color(hex: 0x657D5B)
-    public static let _500 = Color(hex: 0x7A8B6F)
-    public static let _400 = Color(hex: 0x98A88F)
-    public static let _300 = Color(hex: 0xB5C3AE)
-    public static let _200 = Color(hex: 0xD4DFD0)
-    public static let _100 = Color(hex: 0xEDF2EB)
-}
-
 public enum Indigo {
     public static let _950 = Color(hex: 0x180F66)
     public static let _900 = Color(hex: 0x261A96)
@@ -197,7 +184,7 @@ public enum VColor {
 
     // Send button — always green
     public static let sendButton = Color(hex: 0x216C37)
-    public static let accentSubtle = adaptiveColor(light: Sage._100, dark: Forest._900)
+    public static let accentSubtle = adaptiveColor(light: Forest._100, dark: Forest._900)
 
     // Onboarding accent (amber) — always dark theme
     public static let onboardingAccent = Amber._500
