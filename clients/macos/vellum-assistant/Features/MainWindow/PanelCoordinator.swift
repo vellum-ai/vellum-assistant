@@ -95,6 +95,15 @@ extension MainWindowView {
             IdentityPanel(onClose: { windowState.selection = nil }, onCustomizeAvatar: { windowState.selection = .panel(.avatarCustomization) }, daemonClient: daemonClient)
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(.identity) })
+        case .voiceMode:
+            VoiceModePanel(
+                manager: voiceModeManager,
+                voiceService: voiceModeManager.voiceService,
+                onClose: {
+                    voiceModeManager.deactivate()
+                    windowState.selection = nil
+                }
+            )
         }
     }
 
@@ -243,6 +252,16 @@ extension MainWindowView {
                             daemonClient: daemonClient,
                             onClose: { windowState.selection = nil; documentManager.closeDocument() }
                         )
+                    }
+                )
+            } else if panelType == .voiceMode {
+                // Voice mode: split view with chat on left, voice panel on right
+                VSplitView(
+                    panelWidth: $sidePanelWidth,
+                    showPanel: true,
+                    main: { chatView },
+                    panel: {
+                        nativePanelView(.voiceMode)
                     }
                 )
             } else {

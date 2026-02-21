@@ -1156,6 +1156,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
         }
+        // Voice mode uses OpenAI Whisper + TTS directly (no VoiceInputManager needed)
         main.threadManager.onInlineConfirmationResponse = { [weak self] requestId, decision in
             guard let self else { return }
             // Resume the notification service continuation with a sentinel so

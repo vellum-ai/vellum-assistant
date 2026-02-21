@@ -455,6 +455,9 @@ extension ChatViewModel {
             }
             isThinking = false
             currentAssistantHasText = true
+            if pendingVoiceMessage {
+                onVoiceTextDelta?(delta.text)
+            }
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 if lastContentWasToolCall || messages[index].textSegments.isEmpty {

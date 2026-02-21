@@ -52,8 +52,9 @@ struct MainWindowView: View {
     let avatarEvolutionState: AvatarEvolutionState?
     @State private var lastAppliedBootstrapTurn: Int = 0
     let onMicrophoneToggle: () -> Void
+    @ObservedObject var voiceModeManager: VoiceModeManager
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager()) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
@@ -66,6 +67,7 @@ struct MainWindowView: View {
         self.documentManager = documentManager
         self.avatarEvolutionState = avatarEvolutionState
         self.onMicrophoneToggle = onMicrophoneToggle
+        self.voiceModeManager = voiceModeManager
     }
 
     // MARK: - Layout Constants
@@ -141,6 +143,24 @@ struct MainWindowView: View {
     /// When true, the client shows a chat-only interface — no Home Base dashboard.
     private var isBootstrapOnboardingActive: Bool {
         FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/workspace/BOOTSTRAP.md")
+    }
+
+    private func toggleVoiceMode() {
+        if voiceModeManager.state != .off {
+            voiceModeManager.deactivate()
+            windowState.selection = nil
+        } else {
+            // Ensure a thread exists
+            if threadManager.activeViewModel == nil {
+                threadManager.createThread()
+            }
+            windowState.selection = .panel(.voiceMode)
+            // Activate directly — voiceInput was set on VoiceModeManager at MainWindow creation
+            if let viewModel = threadManager.activeViewModel {
+                voiceModeManager.activate(chatViewModel: viewModel, settingsStore: settingsStore)
+                voiceModeManager.startListening()
+            }
+        }
     }
 
     private func toggleTemporaryChat() {
@@ -271,6 +291,13 @@ struct MainWindowView: View {
     var body: some View {
         coreLayoutView
             .onChange(of: windowState.selection) { oldSelection, newSelection in
+                // Deactivate voice mode when navigating away from the voice panel
+                if case .panel(.voiceMode) = oldSelection, voiceModeManager.state != .off {
+                    if case .panel(.voiceMode) = newSelection {} else {
+                        voiceModeManager.deactivate()
+                    }
+                }
+
                 // When selection transitions to .thread, ensure ThreadManager is synced
                 // so chat content targets the correct thread (e.g. after dismissOverlay).
                 // Guard against archived threads: if the thread was archived while an
@@ -407,6 +434,17 @@ struct MainWindowView: View {
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("Copy thread")
                                 .help(showCopyThreadConfirmation ? "Copied!" : "Copy thread")
+                            }
+
+                            // Voice mode toggle
+                            VIconButton(
+                                label: "Voice Mode",
+                                icon: voiceModeManager.state != .off ? "waveform.circle.fill" : "waveform.circle",
+                                isActive: voiceModeManager.state != .off,
+                                iconOnly: true,
+                                tooltip: voiceModeManager.state != .off ? "Exit voice mode" : "Voice mode"
+                            ) {
+                                toggleVoiceMode()
                             }
 
                             TemporaryChatToggle(

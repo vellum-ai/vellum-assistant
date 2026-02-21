@@ -8,6 +8,7 @@ public struct SettingsView: View {
     @State private var braveKeyText = ""
     @State private var perplexityKeyText = ""
     @State private var imageGenKeyText = ""
+    @State private var openaiKeyText = ""
     @State private var vercelKeyText = ""
     @State private var twitterClientId = ""
     @State private var twitterClientSecret = ""
@@ -189,6 +190,38 @@ public struct SettingsView: View {
                             imageGenKeyText = ""
                         }
                         .disabled(imageGenKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+
+            Section("OpenAI API Key") {
+                if store.hasOpenAIKey {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 14))
+                        Text(store.maskedOpenAIKey)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Clear") {
+                            store.clearOpenAIKey()
+                            openaiKeyText = ""
+                        }
+                        .tint(.red)
+                    }
+                } else {
+                    SecureField("Enter OpenAI API key", text: $openaiKeyText)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Text("Get your API key at platform.openai.com/api-keys")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Save") {
+                            store.saveOpenAIKey(openaiKeyText)
+                            openaiKeyText = ""
+                        }
+                        .disabled(openaiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
             }

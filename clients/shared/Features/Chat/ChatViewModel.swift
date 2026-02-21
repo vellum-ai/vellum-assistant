@@ -70,6 +70,10 @@ public final class ChatViewModel: ObservableObject {
     public var pendingVoiceMessage: Bool = false
     /// Called when a voice-triggered assistant response completes, with the response text.
     public var onVoiceResponseComplete: ((String) -> Void)?
+    /// Called with each streaming text delta during a voice-triggered response, for real-time TTS.
+    public var onVoiceTextDelta: ((String) -> Void)?
+    /// When true, messages are prefixed with a concise-response instruction for voice conversations.
+    public var isVoiceModeActive: Bool = false
     var pendingUserAttachments: [IPCAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
     private(set) var lastFailedMessageText: String?
@@ -234,7 +238,10 @@ public final class ChatViewModel: ObservableObject {
     // MARK: - Sending
 
     public func sendMessage() {
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = isVoiceModeActive
+            ? "[Voice conversation — keep spoken responses brief (2-3 sentences) but fully complete the task using any tools needed. Do not give up early. When interacting with macOS apps (Messages, Contacts, Calendar, Reminders, Notes, Mail, etc.), always use osascript with AppleScript — never query databases directly or use sqlite3.]\n\n\(rawText)"
+            : rawText
         let hasAttachments = !pendingAttachments.isEmpty
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
