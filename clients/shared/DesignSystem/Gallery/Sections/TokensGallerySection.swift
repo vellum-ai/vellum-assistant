@@ -69,10 +69,6 @@ struct TokensGallerySection: View {
                         Forest._950, Forest._900, Forest._800, Forest._700, Forest._600,
                         Forest._500, Forest._400, Forest._300, Forest._200, Forest._100
                     ])
-                    colorScaleRow(name: "Sage", colors: [
-                        Sage._950, Sage._900, Sage._800, Sage._700, Sage._600,
-                        Sage._500, Sage._400, Sage._300, Sage._200, Sage._100
-                    ])
                     colorScaleRow(name: "Emerald", colors: [
                         Emerald._950, Emerald._900, Emerald._800, Emerald._700, Emerald._600,
                         Emerald._500, Emerald._400, Emerald._300, Emerald._200, Emerald._100
