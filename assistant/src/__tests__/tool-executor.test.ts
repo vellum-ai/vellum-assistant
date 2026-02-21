@@ -1515,6 +1515,25 @@ describe('ToolExecutor forcePromptSideEffects enforcement', () => {
     expect(promptCalled).toBe(false);
   });
 
+  // ── Workspace mode + forcePromptSideEffects interaction ──────────
+
+  test('workspace mode allow → prompt promotion still works for side-effect tools in private threads', async () => {
+    // Simulate workspace mode returning 'allow' for a workspace-scoped file_write
+    checkResultOverride = { decision: 'allow', reason: 'Workspace mode: workspace-scoped operation auto-allowed' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'file_write',
+      { path: '/tmp/project/test.txt', content: 'data' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    // file_write is a side-effect tool, so forcePromptSideEffects must promote
+    // the workspace mode allow → prompt, requiring explicit user approval
+    expect(promptCalled).toBe(true);
+  });
+
   // ── Action-aware mixed-action tools (PR fix5) ──────────
 
   test('account_manage create forces prompt in private thread', async () => {

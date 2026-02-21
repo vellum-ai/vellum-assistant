@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, beforeAll, beforeEach, afterEach, mock } from 'bun:test';
 import { mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -307,6 +307,75 @@ describe('ephemeral-permissions', () => {
       );
 
       expect(result.decision).toBe('prompt');
+    });
+  });
+
+  describe('workspace mode interactions', () => {
+    beforeEach(() => {
+      clearCache();
+      testConfig.permissions.mode = 'workspace';
+    });
+
+    afterEach(() => {
+      testConfig.permissions.mode = 'legacy';
+    });
+
+    test('workspace mode auto-allows workspace-scoped file_write (medium risk)', async () => {
+      const filePath = join(testDir, 'workspace-test-file.txt');
+      const result = await check('file_write', { path: filePath }, testDir);
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('Workspace mode');
+    });
+
+    test('workspace mode still prompts for file_write outside workspace', async () => {
+      const result = await check('file_write', { path: '/etc/config' }, testDir);
+      expect(result.decision).toBe('prompt');
+    });
+
+    test('explicit deny rule overrides workspace mode auto-allow', async () => {
+      addRule('file_write', '**', testDir, 'deny', 100);
+      const filePath = join(testDir, 'should-be-denied.txt');
+      const result = await check('file_write', { path: filePath }, testDir);
+      expect(result.decision).toBe('deny');
+    });
+
+    test('proxied bash still prompts in workspace mode', async () => {
+      const result = await check(
+        'bash',
+        { command: 'echo hello', network_mode: 'proxied' },
+        testDir,
+      );
+      expect(result.decision).toBe('prompt');
+      expect(result.reason).toContain('Proxied');
+    });
+
+    test('ephemeral task rules + workspace mode: deny rule wins', async () => {
+      // Add a persistent deny rule for file_write in the workspace
+      addRule('file_write', '**', testDir, 'deny', 100);
+
+      // Create ephemeral allow rules (lower priority than deny)
+      const ephemeralRules: TrustRule[] = [{
+        id: 'ephemeral:run-ws:file_write',
+        tool: 'file_write',
+        pattern: '**',
+        scope: testDir,
+        decision: 'allow',
+        priority: 50,
+        createdAt: Date.now(),
+        principalKind: 'task',
+        principalId: 'run-ws',
+      }];
+
+      const ctx: PolicyContext = {
+        principal: { kind: 'task', id: 'run-ws' },
+        ephemeralRules,
+      };
+
+      const filePath = join(testDir, 'task-file.txt');
+      const result = await check('file_write', { path: filePath }, testDir, ctx);
+      // The persistent deny rule (priority 100) should override
+      // both the ephemeral allow (priority 50) and workspace mode auto-allow
+      expect(result.decision).toBe('deny');
     });
   });
 });
