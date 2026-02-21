@@ -37,11 +37,16 @@ export function resolveProvider(platformInput?: string): MessagingProvider {
 
 /**
  * Execute a callback with a valid OAuth token for the given provider.
+ * Providers that manage their own auth (e.g. Telegram with a bot token)
+ * expose isConnected() and don't need an OAuth access_token lookup.
  */
 export async function withProviderToken<T>(
   provider: MessagingProvider,
   fn: (token: string) => Promise<T>,
 ): Promise<T> {
+  if (provider.isConnected?.()) {
+    return fn('');
+  }
   return withValidToken(provider.credentialService, fn);
 }
 
