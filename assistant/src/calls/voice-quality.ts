@@ -90,3 +90,8 @@ export function resolveVoiceQualityProfile(config?: ReturnType<typeof loadConfig
 
   return standardProfile;
 }
+
+/** Returns false when the profile has any validation errors. */
+export function isVoiceProfileValid(profile: VoiceQualityProfile): boolean {
+  return profile.validationErrors.length === 0;
+}
