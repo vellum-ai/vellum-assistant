@@ -309,7 +309,7 @@ private struct UsedToolsRow: View {
         let isDiff = result.contains("@@") && result.contains("---") && result.contains("+++")
         guard isDiff else { return VColor.textSecondary }
         if line.hasPrefix("+") { return Emerald._400 }
-        if line.hasPrefix("-") { return Rose._400 }
+        if line.hasPrefix("-") { return Danger._400 }
         if line.hasPrefix("@@") { return VColor.textMuted }
         return VColor.textSecondary
     }

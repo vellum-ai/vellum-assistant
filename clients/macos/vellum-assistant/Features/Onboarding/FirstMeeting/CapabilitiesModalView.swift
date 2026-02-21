@@ -24,7 +24,7 @@ struct CapabilitiesModalView: View {
 
                     sectionView(
                         icon: "shield.lefthalf.filled",
-                        iconColor: Rose._500,
+                        iconColor: Danger._500,
                         title: "What I won\u{2019}t do",
                         items: [
                             "Act without asking when something\u{2019}s irreversible",

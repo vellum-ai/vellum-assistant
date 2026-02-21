@@ -159,7 +159,7 @@ public struct InlineTaskProgressWidget: View {
                 .foregroundColor(Amber._500)
         case "failed":
             Image(systemName: "xmark.circle.fill")
-                .foregroundColor(Rose._500)
+                .foregroundColor(Danger._500)
         default:
             Image(systemName: "circle")
                 .foregroundColor(Slate._500)
@@ -175,7 +175,7 @@ public struct InlineTaskProgressWidget: View {
         case "waiting":
             return ("Waiting", "clock.fill", Amber._500)
         case "failed":
-            return ("Failed", "xmark.circle.fill", Rose._500)
+            return ("Failed", "xmark.circle.fill", Danger._500)
         default:
             return ("Pending", "circle", Slate._500)
         }

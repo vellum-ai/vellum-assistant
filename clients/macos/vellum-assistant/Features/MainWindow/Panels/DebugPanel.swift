@@ -76,7 +76,7 @@ struct DebugPanel: View {
                         icon: "exclamationmark.triangle.fill",
                         label: "Failures",
                         value: "\(failures)",
-                        color: Rose._500
+                        color: Danger._500
                     )
                 }
 

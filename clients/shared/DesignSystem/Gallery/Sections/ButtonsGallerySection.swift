@@ -136,8 +136,8 @@ struct ButtonsGallerySection: View {
                         VCircleButton(icon: "mic.fill", label: "Record", size: 48, iconSize: 20) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Small (24pt, Rose)").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VCircleButton(icon: "xmark", label: "Close", fillColor: Rose._600, size: 24, iconSize: 10) {}
+                        Text("Small (24pt, Danger)").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VCircleButton(icon: "xmark", label: "Close", fillColor: Danger._600, size: 24, iconSize: 10) {}
                     }
                 }
             }
