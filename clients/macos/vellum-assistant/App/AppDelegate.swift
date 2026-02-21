@@ -67,6 +67,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public let services = AppServices()
     private let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
+    private let debugStateWriter = DebugStateWriter()
 
     // Forwarding accessors — ownership lives in `services`, these keep
     // existing internal references working without a mass-rename.
@@ -176,6 +177,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotifications()
         setupAutoUpdate()
         showMainWindow(initialMessage: isFirstLaunch ? "Wake up, my friend" : nil, isFirstLaunch: isFirstLaunch)
+        debugStateWriter.start(appDelegate: self)
 
         if isFirstLaunch {
             ensureDaemonConnected()
@@ -1286,6 +1288,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         surfaceManager.dismissAll()
         toolConfirmationNotificationService.dismissAll()
         secretPromptManager.dismissAll()
+        debugStateWriter.stop()
         assistantCli.stop()
     }
 
