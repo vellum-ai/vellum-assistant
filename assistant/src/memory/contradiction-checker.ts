@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
+import { isConflictKindEligible } from './conflict-policy.js';
 import { createOrUpdatePendingConflict } from './conflict-store.js';
 import { getDb } from './db.js';
 import { enqueueMemoryJob } from './jobs-store.js';
@@ -58,6 +59,11 @@ export async function checkContradictions(newItemId: string): Promise<void> {
   const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     log.debug('No Anthropic API key available for contradiction checking');
+    return;
+  }
+
+  if (!isConflictKindEligible(newItem.kind, config.memory.conflicts)) {
+    log.debug({ newItemId, kind: newItem.kind }, 'Skipping contradiction check — kind not eligible for conflicts');
     return;
   }
 

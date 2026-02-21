@@ -51,9 +51,19 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+let mockConflictableKinds: string[] = [
+  'preference', 'profile', 'project', 'decision', 'todo',
+  'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style',
+];
+
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
     apiKeys: { anthropic: 'test-key' },
+    memory: {
+      conflicts: {
+        conflictableKinds: mockConflictableKinds,
+      },
+    },
   }),
 }));
 
@@ -67,6 +77,10 @@ beforeAll(() => {
 
 beforeEach(() => {
   classifyCallCount = 0;
+  mockConflictableKinds = [
+    'preference', 'profile', 'project', 'decision', 'todo',
+    'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style',
+  ];
   const db = getDb();
   db.run('DELETE FROM memory_item_conflicts');
   db.run('DELETE FROM memory_item_sources');
@@ -88,12 +102,13 @@ function insertMemoryItem(params: {
   statement: string;
   scopeId?: string;
   status?: 'active' | 'pending_clarification';
+  kind?: string;
 }): void {
   const now = Date.now();
   const db = getDb();
   db.insert(memoryItems).values({
     id: params.id,
-    kind: 'preference',
+    kind: params.kind ?? 'preference',
     subject: 'framework preference',
     statement: params.statement,
     status: params.status ?? 'active',
@@ -211,6 +226,27 @@ describe('checkContradictions', () => {
 
     expect(classifyCallCount).toBe(0);
     expect(candidate?.status).toBe('active');
+    expect(conflicts).toHaveLength(0);
+  });
+
+  test('skips classification when item kind is not in conflictableKinds', async () => {
+    mockConflictableKinds = ['instruction', 'style'];
+    nextRelationship = 'ambiguous_contradiction';
+
+    insertMemoryItem({
+      id: 'item-existing-ineligible',
+      statement: 'User prefers React for frontend work.',
+    });
+    insertMemoryItem({
+      id: 'item-candidate-ineligible',
+      statement: 'User prefers Vue for frontend work.',
+    });
+
+    await checkContradictions('item-candidate-ineligible');
+
+    expect(classifyCallCount).toBe(0);
+    const db = getDb();
+    const conflicts = db.select().from(memoryItemConflicts).all();
     expect(conflicts).toHaveLength(0);
   });
 });
