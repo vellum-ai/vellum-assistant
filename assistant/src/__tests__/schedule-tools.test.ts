@@ -420,6 +420,41 @@ describe('schedule_update with RRULE', () => {
     expect(result.content).toContain('Syntax: rrule');
     expect(result.content).toContain('RRULE:FREQ=DAILY');
   });
+
+  test('auto-detects rrule syntax when updating expression without explicit syntax', async () => {
+    await executeScheduleCreate({
+      name: 'Auto-detect on update',
+      cron_expression: '0 9 * * *',
+      message: 'test',
+    }, ctx);
+
+    const row = getRawDb().query('SELECT id FROM cron_jobs LIMIT 1').get() as { id: string };
+    const result = await executeScheduleUpdate({
+      job_id: row.id,
+      expression: 'DTSTART:20250601T120000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Syntax: rrule');
+    expect(result.content).toContain('RRULE:FREQ=WEEKLY');
+  });
+
+  test('auto-detects cron syntax when updating expression without explicit syntax', async () => {
+    await executeScheduleCreate({
+      name: 'Cron auto-detect',
+      cron_expression: '0 9 * * *',
+      message: 'test',
+    }, ctx);
+
+    const row = getRawDb().query('SELECT id FROM cron_jobs LIMIT 1').get() as { id: string };
+    const result = await executeScheduleUpdate({
+      job_id: row.id,
+      expression: '30 17 * * 1-5',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Syntax: cron');
+  });
 });
 
 describe('schedule_list with RRULE', () => {
