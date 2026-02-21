@@ -136,10 +136,6 @@ struct IdentityPanel: View {
     @ViewBuilder
     private func idCardSection(identity: IdentityInfo?, remoteIdentity: RemoteIdentityInfo?) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            if let assistantId = lockfileAssistant?.assistantId {
-                idRow(label: "Assistant ID", value: assistantId, mono: true)
-            }
-
             // Agent ID (only available from local identity)
             if let identity {
                 idRow(label: "Agent ID", value: identity.agentID, mono: true)
@@ -172,39 +168,6 @@ struct IdentityPanel: View {
             }
 
             idRow(label: "Origin system", value: metadata?.originSystem ?? "local")
-
-            let home = lockfileAssistant?.home ?? identity?.home ?? .local(workspacePath: NSHomeDirectory() + "/.vellum/workspace")
-            homeRow(home: home)
-        }
-    }
-
-    @ViewBuilder
-    private func homeRow(home: AssistantHome) -> some View {
-        HStack(alignment: .top) {
-            Text("Home")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .frame(width: 100, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text(home.displayLabel)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
-
-                ForEach(Array(home.displayDetails.enumerated()), id: \.offset) { _, detail in
-                    HStack(spacing: VSpacing.xs) {
-                        Text(detail.label + ":")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                        Text(detail.value)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textSecondary)
-                            .textSelection(.enabled)
-                    }
-                }
-            }
-
-            Spacer()
         }
     }
 

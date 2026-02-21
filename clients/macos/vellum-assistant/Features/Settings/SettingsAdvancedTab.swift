@@ -16,6 +16,8 @@ struct SettingsAdvancedTab: View {
     @State private var isRetiring: Bool = false
     @State private var lockfileAssistants: [LockfileAssistant] = []
     @State private var selectedAssistantId: String = ""
+    @State private var identity: IdentityInfo?
+    @State private var remoteIdentity: RemoteIdentityInfo?
     #if DEBUG
     @State private var showingEnvVars = false
     @State private var appEnvVars: [(String, String)] = []
@@ -24,6 +26,7 @@ struct SettingsAdvancedTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
+            assistantInfoSection
             computerUsageSection
             privateThreadSection
             archivedThreadsSection
@@ -41,6 +44,13 @@ struct SettingsAdvancedTab: View {
             sessionToken = (try? String(contentsOfFile: tokenPath, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            identity = IdentityInfo.load()
+
+            if identity == nil, let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }), assistant.isRemote {
+                Task {
+                    remoteIdentity = await daemonClient?.fetchRemoteIdentity()
+                }
+            }
         }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -84,6 +94,71 @@ struct SettingsAdvancedTab: View {
             daemonClient?.onEnvVarsResponse = nil
         }
         #endif
+    }
+
+    // MARK: - Assistant Info
+
+    private var assistantInfoSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Assistant Info")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) {
+                infoRow(label: "Assistant ID", value: assistant.assistantId, mono: true)
+
+                let home = assistant.home
+                homeRow(home: home)
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    private func infoRow(label: String, value: String, mono: Bool = false) -> some View {
+        HStack(alignment: .top) {
+            Text(label)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .frame(width: 100, alignment: .leading)
+
+            Text(value)
+                .font(mono ? VFont.mono : VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .textSelection(.enabled)
+
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private func homeRow(home: AssistantHome) -> some View {
+        HStack(alignment: .top) {
+            Text("Home")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .frame(width: 100, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text(home.displayLabel)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+
+                ForEach(Array(home.displayDetails.enumerated()), id: \.offset) { _, detail in
+                    HStack(spacing: VSpacing.xs) {
+                        Text(detail.label + ":")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        Text(detail.value)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.textSecondary)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+
+            Spacer()
+        }
     }
 
     // MARK: - Computer Usage
