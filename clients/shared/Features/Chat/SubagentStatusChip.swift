@@ -11,7 +11,7 @@ public struct SubagentStatusChip: View {
     private var statusColor: Color {
         switch subagent.status {
         case .completed: return Emerald._500
-        case .failed, .aborted: return Rose._500
+        case .failed, .aborted: return Danger._500
         default: return Violet._500
         }
     }
@@ -59,7 +59,7 @@ public struct SubagentStatusChip: View {
                 if let error = subagent.error, !error.isEmpty {
                     Text(error)
                         .font(VFont.caption)
-                        .foregroundColor(Rose._400)
+                        .foregroundColor(Danger._400)
                         .lineLimit(2)
                 }
             }

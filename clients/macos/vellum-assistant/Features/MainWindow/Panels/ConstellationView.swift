@@ -29,7 +29,7 @@ private enum SkillCategory: String, CaseIterable {
         case .communication: return Forest._400
         case .daily: return Emerald._400
         case .utilities: return Stone._400
-        case .skills: return Rose._400
+        case .skills: return Danger._400
         }
     }
 

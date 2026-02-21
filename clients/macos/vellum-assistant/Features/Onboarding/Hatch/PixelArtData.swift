@@ -25,8 +25,8 @@ enum PixelArtData {
     static let dP: UInt32 = 0x1E293B // pupil
 
     // Dino accents
-    static let cK: UInt32 = 0xF99AAE // cheek pink (Rose._400)
-    static let tR: UInt32 = 0xF06A86 // tongue (Rose._500)
+    static let cK: UInt32 = 0xF99AAE // cheek pink (Danger._400)
+    static let tR: UInt32 = 0xF06A86 // tongue (Danger._500)
     static let wA: UInt32 = 0xFDD94E // wing light (Amber._400)
     static let wB: UInt32 = 0xFAC426 // wing mid (Amber._500)
     static let wC: UInt32 = 0xE8A020 // wing dark (Amber._600)
