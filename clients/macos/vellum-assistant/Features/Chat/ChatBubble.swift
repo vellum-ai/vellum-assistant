@@ -100,7 +100,6 @@ struct ChatBubble: View {
 
             if !isUser {
                 Image(nsImage: appearance.chatAvatarImage)
-                    .interpolation(.none)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(width: 28, height: 28)
