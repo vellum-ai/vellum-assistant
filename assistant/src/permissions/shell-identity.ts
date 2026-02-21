@@ -1,4 +1,5 @@
 import { parse, type ParsedCommand, type CommandSegment, type DangerousPattern } from '../tools/terminal/parser.js';
+import type { AllowlistOption } from './types.js';
 
 export interface ShellActionKey {
   /** e.g. "action:gh", "action:gh pr", "action:gh pr view" */
@@ -154,4 +155,52 @@ export async function buildShellCommandCandidates(command: string): Promise<stri
 
   // Deduplicate while preserving order
   return [...new Set(candidates)];
+}
+
+/**
+ * Build allowlist options for shell commands using parser-derived identity.
+ *
+ * For simple actions (optional setup prefix + one action), options are:
+ *   1. Exact canonical primary command
+ *   2. Deepest action key (e.g. "action:gh pr view")
+ *   3. Broader action keys (e.g. "action:gh pr", "action:gh")
+ *
+ * For complex commands (pipelines, multi-action chains), only the exact
+ * command is offered (no broad options).
+ */
+export async function buildShellAllowlistOptions(command: string): Promise<AllowlistOption[]> {
+  const trimmed = command.trim();
+  if (!trimmed) return [];
+
+  const analysis = await analyzeShellCommand(trimmed);
+  const actionResult = deriveShellActionKeys(analysis);
+
+  if (!actionResult.isSimpleAction || !actionResult.primarySegment) {
+    // Complex command — exact only
+    return [{ label: trimmed, description: 'This exact command (compound)', pattern: trimmed }];
+  }
+
+  const options: AllowlistOption[] = [];
+
+  // Exact canonical primary command
+  const canonical = actionResult.primarySegment.command;
+  options.push({ label: canonical, description: 'This exact command', pattern: canonical });
+
+  // Action keys from narrowest to broadest
+  for (const actionKey of actionResult.keys) {
+    const keyTokens = actionKey.key.replace(/^action:/, '');
+    options.push({
+      label: `${keyTokens} *`,
+      description: `Any "${keyTokens}" command`,
+      pattern: actionKey.key,
+    });
+  }
+
+  // Deduplicate by pattern
+  const seen = new Set<string>();
+  return options.filter((o) => {
+    if (seen.has(o.pattern)) return false;
+    seen.add(o.pattern);
+    return true;
+  });
 }

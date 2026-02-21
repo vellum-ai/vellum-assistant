@@ -196,7 +196,7 @@ export class ToolExecutor {
         }
 
         // Need user approval
-        const allowlistOptions = generateAllowlistOptions(name, input);
+        const allowlistOptions = await generateAllowlistOptions(name, input);
         const scopeOptions = generateScopeOptions(context.workingDir, name);
 
         // Compute preview diff for file tools so the user sees what will change

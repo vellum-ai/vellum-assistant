@@ -11,7 +11,7 @@ import { homedir } from 'node:os';
 import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
 import { normalizeFilePath, isSkillSourcePath } from '../skills/path-classifier.js';
 import { isWorkspaceScopedInvocation } from './workspace-policy.js';
-import { buildShellCommandCandidates } from './shell-identity.js';
+import { buildShellCommandCandidates, buildShellAllowlistOptions } from './shell-identity.js';
 
 // Ensures the legacy mode deprecation warning fires at most once per process.
 let _legacyDeprecationWarned = false;
@@ -473,38 +473,10 @@ function friendlyHostname(url: URL): string {
   return url.hostname.replace(/^www\./, '');
 }
 
-export function generateAllowlistOptions(toolName: string, input: Record<string, unknown>): AllowlistOption[] {
+export async function generateAllowlistOptions(toolName: string, input: Record<string, unknown>): Promise<AllowlistOption[]> {
   if (toolName === 'bash' || toolName === 'host_bash') {
     const command = ((input.command as string) ?? '').trim();
-    const parts = command.split(/\s+/);
-    const program = parts[0] ?? command;
-    const options: AllowlistOption[] = [];
-
-    // Exact match
-    options.push({ label: command, description: 'This exact command', pattern: command });
-
-    if (parts.length >= 2) {
-      // Subcommand wildcard: "npm install *"
-      const sub = parts.slice(0, -1).join(' ');
-      options.push({
-        label: `${sub} *`,
-        description: `Any "${sub}" command`,
-        pattern: `${sub} *`,
-      });
-    }
-
-    if (parts.length >= 1) {
-      // Program wildcard: "npm *"
-      options.push({ label: `${program} *`, description: `Any ${program} command`, pattern: `${program} *` });
-    }
-
-    // Deduplicate
-    const seen = new Set<string>();
-    return options.filter((o) => {
-      if (seen.has(o.pattern)) return false;
-      seen.add(o.pattern);
-      return true;
-    });
+    return buildShellAllowlistOptions(command);
   }
 
   if (
