@@ -177,7 +177,7 @@ export async function buildShellAllowlistOptions(command: string): Promise<Allow
 
   if (!actionResult.isSimpleAction || !actionResult.primarySegment) {
     // Complex command — exact only
-    return [{ label: trimmed, description: 'This exact command (compound)', pattern: trimmed }];
+    return [{ label: trimmed, description: 'This exact compound command', pattern: trimmed }];
   }
 
   const options: AllowlistOption[] = [];
