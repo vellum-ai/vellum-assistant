@@ -25,7 +25,7 @@ import { getTwilioConfig } from './twilio-config.js';
 import { loadConfig } from '../config/loader.js';
 import { getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
 import { fireCallCompletionNotifier } from './call-state.js';
-import { resolveVoiceQualityProfile } from './voice-quality.js';
+import { resolveVoiceQualityProfile, isVoiceProfileValid } from './voice-quality.js';
 import { getElevenLabsConfig } from './elevenlabs-config.js';
 import { ElevenLabsClient } from './elevenlabs-client.js';
 
@@ -147,6 +147,30 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     log.warn({ callSessionId, errors: profile.validationErrors }, 'Voice quality profile has validation warnings');
   }
 
+  // WS-A: Enforce strict fallback semantics — reject invalid profiles when fallback is disabled
+  if (!isVoiceProfileValid(profile)) {
+    if (!profile.fallbackToStandardOnError) {
+      const errorMsg = `Voice quality configuration error: ${profile.validationErrors.join('; ')}`;
+      log.error({ callSessionId, errors: profile.validationErrors }, errorMsg);
+      return new Response(errorMsg, { status: 500 });
+    }
+    // Fallback is enabled — profile already resolved to standard; log explicitly
+    log.info({ callSessionId }, 'Profile invalid with fallback enabled; proceeding with standard mode');
+  }
+
+  // WS-B: Guard elevenlabs_agent until consultation bridge exists.
+  // This fires BEFORE any ElevenLabs API calls, blocking the entire mode.
+  let elevenLabsAgentGuarded = false;
+  if (profile.mode === 'elevenlabs_agent') {
+    if (!profile.fallbackToStandardOnError) {
+      const msg = 'elevenlabs_agent mode is restricted: consultation bridging (waiting_on_user) is not yet supported. Set calls.voice.fallbackToStandardOnError=true to fall back to standard mode.';
+      log.error({ callSessionId }, msg);
+      return new Response(msg, { status: 501 });
+    }
+    log.warn({ callSessionId }, 'elevenlabs_agent mode is restricted/experimental — consultation bridging is not yet supported; falling back to standard ConversationRelay TwiML');
+    elevenLabsAgentGuarded = true;
+  }
+
   const twilioConfig = getTwilioConfig();
   let relayUrl: string;
   try {
@@ -157,7 +181,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   }
   const welcomeGreeting = process.env.CALL_WELCOME_GREETING ?? 'Hello, how can I help you today?';
 
-  if (profile.mode === 'elevenlabs_agent') {
+  if (profile.mode === 'elevenlabs_agent' && !elevenLabsAgentGuarded) {
     try {
       const elevenLabsConfig = getElevenLabsConfig();
       const client = new ElevenLabsClient({
