@@ -91,12 +91,22 @@ Use `credential_store` twice to securely save the credentials:
 2. **Store the webhook secret:**
    - action: `store`, service: `telegram`, field: `webhook_secret`, value: the generated secret
 
-### Step 6: Report Success
+### Step 6: Validate Routing Configuration
+
+Verify that the gateway routing is configured to deliver inbound messages to the assistant:
+
+- In **single-assistant mode** (the default local deployment), routing is automatically configured. The CLI sets `GATEWAY_UNMAPPED_POLICY=default` and `GATEWAY_DEFAULT_ASSISTANT_ID` to the current assistant's ID when starting the gateway, so no manual routing configuration is needed.
+- In **multi-assistant mode**, the operator must set `GATEWAY_ASSISTANT_ROUTING_JSON` to map specific chat IDs or user IDs to assistant IDs, or configure a default assistant via `GATEWAY_DEFAULT_ASSISTANT_ID` with `GATEWAY_UNMAPPED_POLICY=default`.
+
+If routing is misconfigured, inbound Telegram messages will be rejected and the gateway will send a visible notice to the chat explaining the issue (rate-limited to once per 5 minutes per chat).
+
+### Step 7: Report Success
 
 Summarize what was done:
 - Bot verified: @username (ID: nnn)
 - Webhook registered at the provided URL
 - Bot commands registered: /new
 - Credentials stored securely in the vault
+- Routing configuration validated
 
-The gateway automatically detects credentials from the vault and will begin accepting Telegram webhooks shortly. No manual environment variable configuration is needed.
+The gateway automatically detects credentials from the vault and will begin accepting Telegram webhooks shortly. In single-assistant mode, routing is automatically configured — no manual environment variable configuration is needed.
