@@ -8,6 +8,7 @@ let resolverCallCount = 0;
 let markAskedCalls: string[] = [];
 let conflictScopeCalls: string[] = [];
 let memoryEnabled = true;
+let askOnIrrelevantTurns = false;
 let pendingConflicts: Array<{
   id: string;
   scopeId: string;
@@ -96,7 +97,7 @@ mock.module('../config/loader.js', () => ({
         reaskCooldownTurns: 3,
         resolverLlmTimeoutMs: 250,
         relevanceThreshold: 0.2,
-        askOnIrrelevantTurns: true,
+        askOnIrrelevantTurns,
       },
     },
   }),
@@ -281,6 +282,7 @@ describe('Session conflict soft gate', () => {
     markAskedCalls = [];
     conflictScopeCalls = [];
     memoryEnabled = true;
+    askOnIrrelevantTurns = false;
     pendingConflicts = [];
     persistedMessages.length = 0;
     resolverResult = {
@@ -326,7 +328,42 @@ describe('Session conflict soft gate', () => {
     expect(events.some((event) => event.type === 'message_complete')).toBe(true);
   });
 
-  test('irrelevant unresolved conflict injects soft clarification when askOnIrrelevantTurns is true (default)', async () => {
+  test('irrelevant unresolved conflict does not inject side-question when askOnIrrelevantTurns is false (default)', async () => {
+    pendingConflicts = [{
+      id: 'conflict-irrelevant-silent',
+      scopeId: 'default',
+      existingItemId: 'existing-b',
+      candidateItemId: 'candidate-b',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Should I assume Postgres or MySQL?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Use Postgres as the default database.',
+      candidateStatement: 'Use MySQL as the default database.',
+    }];
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events: ServerMessage[] = [];
+    await session.processMessage('How do I set up pre-commit hooks?', [], (event) => events.push(event));
+
+    // Agent loop runs without conflict side-question injection
+    expect(runCalls).toHaveLength(1);
+    const injectedUser = runCalls[0][runCalls[0].length - 1];
+    expect(injectedUser.role).toBe('user');
+    const injectedText = extractText(injectedUser);
+    expect(injectedText).not.toContain('Memory clarification request');
+    expect(resolverCallCount).toBe(0);
+    expect(markAskedCalls).toEqual([]);
+    expect(events.some((event) => event.type === 'message_complete')).toBe(true);
+  });
+
+  test('irrelevant unresolved conflict injects soft clarification when askOnIrrelevantTurns is explicitly true', async () => {
+    askOnIrrelevantTurns = true;
     pendingConflicts = [{
       id: 'conflict-irrelevant',
       scopeId: 'default',
@@ -526,7 +563,41 @@ describe('Session conflict soft gate', () => {
     expect(runCalls).toHaveLength(1);
   });
 
-  test('irrelevant conflict is soft-asked on first turn but cooldown prevents re-ask on subsequent turns', async () => {
+  test('irrelevant conflicts remain silent across subsequent turns when askOnIrrelevantTurns is false (default)', async () => {
+    pendingConflicts = [{
+      id: 'conflict-silent-multi',
+      scopeId: 'default',
+      existingItemId: 'existing-c',
+      candidateItemId: 'candidate-c',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Should I use pnpm or npm?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Use pnpm for workspace installs.',
+      candidateStatement: 'Use npm for workspace installs.',
+    }];
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    await session.processMessage('How should I structure my repo?', [], () => {});
+    await session.processMessage('What branch naming should I use?', [], () => {});
+
+    expect(runCalls).toHaveLength(2);
+    const firstUserText = extractText(runCalls[0][runCalls[0].length - 1]);
+    const secondUserText = extractText(runCalls[1][runCalls[1].length - 1]);
+    // Both turns: no soft injection because askOnIrrelevantTurns=false
+    expect(firstUserText).not.toContain('Memory clarification request');
+    expect(secondUserText).not.toContain('Memory clarification request');
+    expect(markAskedCalls).toEqual([]);
+  });
+
+  test('irrelevant conflict is soft-asked on first turn but cooldown prevents re-ask on subsequent turns when askOnIrrelevantTurns is explicitly true', async () => {
+    askOnIrrelevantTurns = true;
     pendingConflicts = [{
       id: 'conflict-cooldown',
       scopeId: 'default',

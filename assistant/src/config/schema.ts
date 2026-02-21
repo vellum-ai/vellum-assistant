@@ -557,7 +557,7 @@ export const MemoryConflictsConfigSchema = z.object({
     .default(0.3),
   askOnIrrelevantTurns: z
     .boolean({ error: 'memory.conflicts.askOnIrrelevantTurns must be a boolean' })
-    .default(true),
+    .default(false),
   conflictableKinds: z
     .array(
       z.enum(VALID_MEMORY_ITEM_KINDS, {
@@ -685,7 +685,7 @@ export const MemoryConfigSchema = z.object({
     reaskCooldownTurns: 3,
     resolverLlmTimeoutMs: 12000,
     relevanceThreshold: 0.3,
-    askOnIrrelevantTurns: true,
+    askOnIrrelevantTurns: false,
     conflictableKinds: ['preference', 'profile', 'project', 'decision', 'todo', 'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style'],
   }),
   profile: MemoryProfileConfigSchema.default({
@@ -1196,7 +1196,7 @@ export const AssistantConfigSchema = z.object({
       reaskCooldownTurns: 3,
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
-      askOnIrrelevantTurns: true,
+      askOnIrrelevantTurns: false,
       conflictableKinds: ['preference', 'profile', 'project', 'decision', 'todo', 'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style'],
     },
     profile: {

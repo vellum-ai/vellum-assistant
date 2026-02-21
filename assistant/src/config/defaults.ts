@@ -117,7 +117,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       reaskCooldownTurns: 3,
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
-      askOnIrrelevantTurns: true,
+      askOnIrrelevantTurns: false,
       conflictableKinds: ['preference', 'profile', 'project', 'decision', 'todo', 'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style'],
     },
     profile: {
