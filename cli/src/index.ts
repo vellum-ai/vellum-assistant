@@ -3,11 +3,13 @@
 import { hatch } from "./commands/hatch";
 import { retire } from "./commands/retire";
 import { sleep } from "./commands/sleep";
+import { wake } from "./commands/wake";
 
 const commands = {
   hatch,
   retire,
   sleep,
+  wake,
 } as const;
 
 type CommandName = keyof typeof commands;
@@ -23,6 +25,7 @@ async function main() {
     console.log("  hatch    Create a new assistant instance");
     console.log("  retire   Delete an assistant instance");
     console.log("  sleep    Stop the daemon process");
+    console.log("  wake     Start the daemon and gateway");
     process.exit(0);
   }
 
