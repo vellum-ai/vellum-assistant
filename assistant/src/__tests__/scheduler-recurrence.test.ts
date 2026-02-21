@@ -156,7 +156,7 @@ describe('scheduler RRULE execution', () => {
     expect(runs.length).toBeGreaterThanOrEqual(1);
   });
 
-  test('ended RRULE (UNTIL in past) is not repeatedly claimed', async () => {
+  test('expired RRULE fires one final due run then is disabled', async () => {
     const endedExpr = buildEndedRrule();
 
     // Insert directly via raw SQL because createSchedule would throw when
@@ -167,7 +167,7 @@ describe('scheduler RRULE execution', () => {
     getRawDb().run(
       `INSERT INTO cron_jobs (id, name, enabled, cron_expression, schedule_syntax, timezone, message, next_run_at, last_run_at, last_status, retry_count, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, 'Ended RRULE', 1, endedExpr, 'rrule', null, 'Should not fire', now - 1000, null, null, 0, 'agent', now, now],
+      [id, 'Ended RRULE', 1, endedExpr, 'rrule', null, 'Final expired run', now - 1000, null, null, 0, 'agent', now, now],
     );
 
     const processedMessages: string[] = [];
@@ -175,16 +175,35 @@ describe('scheduler RRULE execution', () => {
       processedMessages.push(message);
     };
 
-    const scheduler = startScheduler(processMessage, () => {}, () => {});
+    // First tick: the expired schedule should fire its final due run
+    const scheduler1 = startScheduler(processMessage, () => {}, () => {});
     await new Promise(resolve => setTimeout(resolve, 500));
-    scheduler.stop();
+    scheduler1.stop();
 
-    // The ended RRULE should NOT have fired
-    expect(processedMessages).not.toContain('Should not fire');
+    // The message IS delivered once
+    expect(processedMessages).toContain('Final expired run');
 
-    // No runs should have been created
+    // One run record IS created with status 'ok'
     const runs = getScheduleRuns(id);
-    expect(runs.length).toBe(0);
+    expect(runs.length).toBe(1);
+    expect(runs[0].status).toBe('ok');
+
+    // After firing, the schedule is disabled with nextRunAt=0
+    const afterSchedule = getSchedule(id);
+    expect(afterSchedule).not.toBeNull();
+    expect(afterSchedule!.enabled).toBe(false);
+    expect(afterSchedule!.nextRunAt).toBe(0);
+
+    // Second tick: the disabled schedule must NOT fire again
+    processedMessages.length = 0;
+    const scheduler2 = startScheduler(processMessage, () => {}, () => {});
+    await new Promise(resolve => setTimeout(resolve, 500));
+    scheduler2.stop();
+
+    expect(processedMessages).not.toContain('Final expired run');
+    // No additional runs
+    const runsAfter = getScheduleRuns(id);
+    expect(runsAfter.length).toBe(1);
   });
 
   test('existing cron schedule behavior is unchanged', async () => {
