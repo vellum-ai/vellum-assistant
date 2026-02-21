@@ -964,7 +964,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return first
         }
 
-        guard let response, response.found else { return nil }
+        guard let response, response.found != false else { return nil }
         return RemoteIdentityInfo(
             name: response.name,
             role: response.role,

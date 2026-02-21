@@ -784,7 +784,8 @@ public struct IPCIdentityGetRequest: Codable, Sendable {
 public struct IPCIdentityGetResponse: Codable, Sendable {
     public let type: String
     /// Whether an IDENTITY.md file was found. When false, all fields are empty defaults.
-    public let found: Bool
+Optional for backwards compatibility with older daemons that don't send this field.
+    public let found: Bool?
     public let name: String
     public let role: String
     public let personality: String
