@@ -439,9 +439,13 @@ final class ComputerUseSession: ObservableObject {
                         return await buildObservation(executionResult: executionResult, executionError: executionError)
                     } else {
                         log.error("\(browserName) restart failed — continuing with limited AX tree")
+                        // Reactivate the original app so subsequent HID events target the correct window
+                        frontApp.activate()
                     }
                 } else {
                     log.info("User declined \(browserName) restart — continuing with limited AX tree")
+                    // Reactivate the original app so subsequent HID events target the correct window
+                    frontApp.activate()
                 }
             }
             didChromeAccessibilityCheck = true
