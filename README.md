@@ -203,11 +203,11 @@ If a proxied command receives a 401 or 403 despite having the correct credential
 
 Vellum integrates with third-party services via OAuth2. Each integration is exposed as a bundled skill with its own set of tools.
 
-### Messaging (Gmail, Slack)
+### Messaging (Gmail, Slack, Telegram)
 
-The unified messaging layer provides platform-agnostic tools (`messaging_send`, `messaging_read`, `messaging_search`, etc.) that delegate to provider adapters. Gmail and Slack each implement the `MessagingProvider` interface. Platform-specific tools (e.g. `gmail_archive`, `slack_add_reaction`) extend beyond the generic interface where needed.
+The unified messaging layer provides platform-agnostic tools (`messaging_send`, `messaging_read`, `messaging_search`, etc.) that delegate to provider adapters. Gmail and Slack each implement the `MessagingProvider` interface. Telegram is also supported as a messaging provider, though with limited capabilities compared to Slack and Gmail: bots can send messages to known chat IDs but cannot list conversations, retrieve message history, or search messages (Bot API limitations). Bots can only message users or groups that have previously interacted with the bot. Platform-specific tools (e.g. `gmail_archive`, `slack_add_reaction`) extend beyond the generic interface where needed.
 
-Connect via the Settings UI or `integration_connect` IPC message. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens.
+Connect Gmail and Slack via the Settings UI or `integration_connect` IPC message. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens. Telegram uses a bot token (not OAuth) — see the `telegram-setup` skill for setup instructions.
 
 ### Twitter (X)
 

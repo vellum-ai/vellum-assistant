@@ -20,6 +20,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
     runtimeInitialBackoffMs: 500,
+    telegramDeliverAuthBypass: false,
     telegramInitialBackoffMs: 1000,
     telegramMaxRetries: 0,
     telegramTimeoutMs: 15000,

@@ -22,6 +22,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
     runtimeInitialBackoffMs: 500,
+    telegramDeliverAuthBypass: false,
     telegramInitialBackoffMs: 1000,
     telegramMaxRetries: 3,
     telegramTimeoutMs: 15000,
@@ -78,7 +79,7 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
     }) as any;
 
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined }),
+      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -131,7 +132,7 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
     }) as any;
 
     const handler = createTelegramDeliverHandler(
-      makeConfig({ runtimeProxyBearerToken: undefined }),
+      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -222,10 +223,26 @@ describe("/deliver/telegram bearer auth enforcement", () => {
     expect(body.ok).toBe(true);
   });
 
-  test("allows unauthenticated access when no token is configured", async () => {
-    mockTelegramApi();
+  test("returns 503 when no token is configured and bypass is not set", async () => {
     const handler = createTelegramDeliverHandler(
       makeConfig({ runtimeProxyBearerToken: undefined }),
+    );
+    const req = new Request("http://localhost:7830/deliver/telegram", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chatId: "123", text: "hello" }),
+    });
+    const res = await handler(req);
+
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toBe("Service not configured: bearer token required");
+  });
+
+  test("allows unauthenticated access when bypass flag is set and no token configured", async () => {
+    mockTelegramApi();
+    const handler = createTelegramDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -237,6 +254,23 @@ describe("/deliver/telegram bearer auth enforcement", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
+  });
+
+  test("bypass flag is ignored when a bearer token is configured (auth still required)", async () => {
+    const handler = createTelegramDeliverHandler(
+      makeConfig({ telegramDeliverAuthBypass: true }),
+    );
+    const req = new Request("http://localhost:7830/deliver/telegram", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chatId: "123", text: "hello" }),
+    });
+    const res = await handler(req);
+
+    // Token is configured, so missing Authorization header is still rejected
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toBe("Unauthorized");
   });
 
   test("still rejects non-POST methods before auth check", async () => {

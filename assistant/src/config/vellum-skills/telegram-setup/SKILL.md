@@ -97,3 +97,33 @@ Summarize what was done:
 - Routing configuration validated
 
 The gateway automatically detects credentials from the vault, reconciles the Telegram webhook registration, and begins accepting Telegram webhooks shortly. In single-assistant mode, routing is automatically configured — no manual environment variable configuration or webhook registration is needed. If the ingress URL or secret changes later, the gateway will automatically re-register the webhook.
+
+## Bot-Account Limitations
+
+Telegram bot accounts have inherent limitations imposed by the Bot API:
+
+- **No arbitrary messaging**: Bots cannot initiate conversations with users who have not first interacted with the bot (sent `/start` or added it to a group). Messaging arbitrary phone numbers is not possible.
+- **No conversation listing**: The Bot API does not expose a method to enumerate the chats a bot belongs to.
+- **No message history retrieval**: Bots cannot fetch past messages from a chat.
+- **No message search**: No search API is available for bots.
+
+These limitations apply to all Telegram bots regardless of configuration. Future support for MTProto user-account sessions may lift some of these restrictions.
+
+## Automated vs Manual Steps
+
+The following steps are now **automated** by the gateway and CLI:
+
+| Step | Status | Details |
+|------|--------|---------|
+| Webhook registration | Automated | The gateway reconciles the webhook URL on startup and when credentials change |
+| Routing configuration | Automated (single-assistant) | The CLI sets `GATEWAY_UNMAPPED_POLICY=default` and `GATEWAY_DEFAULT_ASSISTANT_ID` automatically |
+| Credential detection | Automated | The gateway watches the credential vault for changes |
+
+The following steps still require **manual** action:
+
+| Step | Details |
+|------|---------|
+| Bot token from @BotFather | User must create a bot and provide the token |
+| Bot command registration | Registered via the setup skill (Step 4 above) |
+| Credential storage | Stored via the setup skill (Step 5 above) |
+| Multi-assistant routing | Requires manual `GATEWAY_ASSISTANT_ROUTING_JSON` configuration |
