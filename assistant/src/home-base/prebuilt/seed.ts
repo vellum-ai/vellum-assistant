@@ -31,7 +31,7 @@ function loadSeedMetadata(): SeedMetadata {
   return seedMetadataJson as SeedMetadata;
 }
 
-function loadPrebuiltHtml(): string | null {
+export function loadPrebuiltHtml(): string | null {
   try {
     return readFileSync(join(getPrebuiltDir(), 'index.html'), 'utf-8');
   } catch {

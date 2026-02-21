@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Container view for the Home Base tab that checks for a custom desktop interface.
-/// When `data/interfaces/vellum-desktop/index.html` exists on the daemon, renders
+/// When `data/interfaces/desktop-app/index.html` exists on the daemon, renders
 /// it in a WebView via `DynamicPageSurfaceView`. Otherwise falls back to the
 /// existing `AppDirectoryView`.
 struct HomeBaseContainerView: View {
@@ -53,7 +53,7 @@ struct HomeBaseContainerView: View {
 
     private func fetchDesktopInterface() {
         fetchTask = Task {
-            let html = await daemonClient.fetchInterfaceFile(path: "vellum-desktop/index.html")
+            let html = await daemonClient.fetchInterfaceFile(path: "desktop-app/index.html")
             guard !Task.isCancelled else { return }
             if let html, !html.isEmpty {
                 viewState = .customInterface(html)
