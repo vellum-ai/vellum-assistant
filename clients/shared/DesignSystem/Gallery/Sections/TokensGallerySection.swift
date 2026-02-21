@@ -77,9 +77,9 @@ struct TokensGallerySection: View {
                         Emerald._950, Emerald._900, Emerald._800, Emerald._700, Emerald._600,
                         Emerald._500, Emerald._400, Emerald._300, Emerald._200, Emerald._100
                     ])
-                    colorScaleRow(name: "Rose", colors: [
-                        Rose._950, Rose._900, Rose._800, Rose._700, Rose._600,
-                        Rose._500, Rose._400, Rose._300, Rose._200, Rose._100
+                    colorScaleRow(name: "Danger", colors: [
+                        Danger._950, Danger._900, Danger._800, Danger._700, Danger._600,
+                        Danger._500, Danger._400, Danger._300, Danger._200, Danger._100
                     ])
                     colorScaleRow(name: "Amber", colors: [
                         Amber._950, Amber._900, Amber._800, Amber._700, Amber._600,

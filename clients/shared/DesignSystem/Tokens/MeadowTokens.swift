@@ -30,8 +30,8 @@ public enum Meadow {
     public static let artPixelSize: CGFloat = 5.0
 
     // Interview palette
-    public static let avatarGradientStart = Sage._600
-    public static let avatarGradientEnd = Sage._400
-    public static let userBubbleGradientStart = Sage._600
-    public static let userBubbleGradientEnd = Sage._400
+    public static let avatarGradientStart = Forest._600
+    public static let avatarGradientEnd = Forest._400
+    public static let userBubbleGradientStart = Forest._600
+    public static let userBubbleGradientEnd = Forest._400
 }

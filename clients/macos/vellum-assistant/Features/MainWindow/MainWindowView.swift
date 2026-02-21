@@ -694,8 +694,10 @@ struct MainWindowView: View {
             .padding(.trailing, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
             .background {
-                if isSelected || isHovered {
-                    VColor.hoverOverlay.opacity(0.08)
+                if isSelected {
+                    adaptiveColor(light: Stone._200, dark: Moss._700)
+                } else if isHovered {
+                    adaptiveColor(light: Stone._100, dark: Moss._800)
                 } else if thread.kind == .private {
                     VColor.accent.opacity(0.04)
                 } else {
@@ -798,79 +800,84 @@ struct MainWindowView: View {
     @ViewBuilder
     var sidebarView: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 0) {
-                    // MARK: New Chat
-                    Spacer().frame(height: VSpacing.md)
-                    SidebarNavRow(icon: "plus.circle", label: "New chat") {
-                        windowState.selection = nil
-                        threadManager.createThread()
-                        withAnimation(.easeInOut(duration: 0.35)) {
-                            sidebarOpen = false
+            // Rounded container inset from sidebar edges
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        Spacer().frame(height: VSpacing.sm)
+
+                        // MARK: Nav Items
+                        SidebarNavRow(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory) {
+                            windowState.togglePanel(.directory)
                         }
-                    }
-
-                    Spacer().frame(height: VSpacing.lg)
-
-                    // MARK: Nav Items
-                    SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: windowState.activePanel == .directory) {
-                        windowState.togglePanel(.directory)
-                    }
-                    SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity) {
-                        windowState.togglePanel(.identity)
-                    }
-                    SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
-                        windowState.togglePanel(.agent)
-                    }
-
-                    // MARK: Chats
-                    SidebarSubheader(title: "Recent Chats")
-
-                    ForEach(displayedThreads) { thread in
-                        threadItem(thread)
-                            .padding(.bottom, 1)
-                            .dropDestination(for: String.self) { items, _ in
-                                guard let droppedId = items.first,
-                                      let sourceUUID = UUID(uuidString: droppedId),
-                                      sourceUUID != thread.id else { return false }
-                                return threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
-                            } isTargeted: { _ in }
-                    }
-
-                    if threadManager.visibleThreads.count > 5 {
-                        Button {
-                            withAnimation(VAnimation.standard) { showAllThreads.toggle() }
-                        } label: {
-                            Text(showAllThreads ? "Show less" : "Show more")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.leading, 20)
-                                .padding(.vertical, VSpacing.xs)
+                        SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity) {
+                            windowState.togglePanel(.identity)
                         }
-                        .buttonStyle(.plain)
+                        SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
+                            windowState.togglePanel(.agent)
+                        }
+
+                        // Divider between nav items and threads
+                        VColor.divider
+                            .frame(height: 1)
+                            .padding(.horizontal, VSpacing.md)
+                            .padding(.vertical, VSpacing.sm)
+
+                        // MARK: Threads
+                        SidebarThreadsHeader(onNewThread: {
+                            windowState.selection = nil
+                            threadManager.createThread()
+                        })
+
+                        ForEach(displayedThreads) { thread in
+                            threadItem(thread)
+                                .padding(.bottom, 1)
+                                .dropDestination(for: String.self) { items, _ in
+                                    guard let droppedId = items.first,
+                                          let sourceUUID = UUID(uuidString: droppedId),
+                                          sourceUUID != thread.id else { return false }
+                                    return threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
+                                } isTargeted: { _ in }
+                        }
+
+                        if threadManager.visibleThreads.count > 5 {
+                            Button {
+                                withAnimation(VAnimation.standard) { showAllThreads.toggle() }
+                            } label: {
+                                Text(showAllThreads ? "Show less" : "Show more")
+                                    .font(VFont.caption)
+                                    .foregroundColor(Forest._600)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.leading, 20)
+                                    .padding(.vertical, VSpacing.xs)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
+                .scrollClipDisabled()
+                .clipped()
+
+                Spacer(minLength: 0)
+
+                // Control Center row
+                ControlCenterRow(
+                    onToggle: {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                            showControlCenterDrawer.toggle()
+                        }
+                    }
+                )
             }
-            .scrollClipDisabled()
-            .clipped()
-
-            Spacer(minLength: 0)
-
-            // Control Center row
-            ControlCenterRow(
-                onToggle: {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                        showControlCenterDrawer.toggle()
-                    }
-                }
+            .padding(VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.xxl)
+                    .fill(adaptiveColor(light: Stone._50, dark: Moss._900))
             )
+            .padding(VSpacing.sm)
         }
         .frame(width: threadDrawerWidth)
-        .background(VColor.backgroundSubtle)
-        .overlay(alignment: .trailing) {
-            VColor.surfaceBorder.frame(width: 1)
-        }
+        .background(VColor.background)
     }
 
     @ViewBuilder
@@ -1085,7 +1092,7 @@ private struct SidebarNavRow: View {
                     .foregroundColor(VColor.textPrimary)
                     .frame(width: 18)
                 Text(label)
-                    .font(VFont.body)
+                    .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
             }
@@ -1105,17 +1112,40 @@ private struct SidebarNavRow: View {
     }
 }
 
-private struct SidebarSubheader: View {
-    let title: String
+private struct SidebarThreadsHeader: View {
+    let onNewThread: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
-        Text(title)
-            .font(VFont.caption)
-            .foregroundColor(VColor.textMuted)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 20)
-            .padding(.trailing, VSpacing.md)
-            .padding(.vertical, 20)
+        HStack {
+            Text("Threads")
+                .font(VFont.headline)
+                .foregroundColor(VColor.textPrimary)
+            Spacer()
+            Button(action: onNewThread) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Forest._700)
+                    .frame(width: 22, height: 22)
+                    .background(Color.clear)
+                    .clipShape(Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(Forest._700, lineWidth: 1.5)
+                    )
+            }
+            .buttonStyle(.plain)
+            .scaleEffect(isHovered ? 1.08 : 1.0)
+            .animation(VAnimation.fast, value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+            .accessibilityLabel("New thread")
+        }
+        .padding(.leading, 20)
+        .padding(.trailing, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
     }
 }
 
@@ -1123,31 +1153,36 @@ private struct ControlCenterRow: View {
     let onToggle: () -> Void
     @State private var isHovered = false
 
+    private let iconColor = adaptiveColor(light: Forest._700, dark: Forest._500)
+    private let textColor = adaptiveColor(light: Forest._800, dark: Forest._400)
+    private let chevronColor = adaptiveColor(light: Forest._700, dark: Forest._500)
+    private let bgColor = adaptiveColor(light: Forest._100, dark: Forest._900)
+
     var body: some View {
         Button(action: onToggle) {
             HStack(spacing: VSpacing.sm) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundColor(iconColor)
                     .frame(width: 18)
                 Text("Control Center")
                     .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
+                    .foregroundColor(textColor)
                 Spacer()
                 Image(systemName: "chevron.up")
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(chevronColor)
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.md)
-            .background(isHovered ? VColor.hoverOverlay.opacity(0.06) : .clear)
-            .contentShape(Rectangle())
+            .background(bgColor.opacity(isHovered ? 0.9 : 0.6))
+            .clipShape(Capsule())
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.bottom, VSpacing.sm)
         .onHover { isHovered = $0 }
-        .overlay(alignment: .top) {
-            VColor.surfaceBorder.frame(height: 1)
-        }
     }
 }
 

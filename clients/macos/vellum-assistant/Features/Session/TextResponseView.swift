@@ -224,7 +224,6 @@ struct TextResponseView: View {
 
     private var assistantAvatar: some View {
         Image(nsImage: appearance.chatAvatarImage)
-            .interpolation(.none)
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(width: 24, height: 24)
@@ -311,7 +310,6 @@ struct ConversationBubble: View {
 
     private var assistantAvatar: some View {
         Image(nsImage: appearance.chatAvatarImage)
-            .interpolation(.none)
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(width: 24, height: 24)

@@ -82,17 +82,17 @@
   --v-emerald-200: #D2F9E8;
   --v-emerald-100: #ECFDF5;
 
-  /* ── Palette: Rose ──────────────────────────────────────────── */
-  --v-rose-950: #620F21;
-  --v-rose-900: #85142F;
-  --v-rose-800: #A8183E;
-  --v-rose-700: #D02050;
-  --v-rose-600: #E84060;
-  --v-rose-500: #F06A86;
-  --v-rose-400: #F99AAE;
-  --v-rose-300: #FCBFC9;
-  --v-rose-200: #FFE1E6;
-  --v-rose-100: #FFF1F3;
+  /* ── Palette: Danger ─────────────────────────────────────────── */
+  --v-danger-950: #620F21;
+  --v-danger-900: #85142F;
+  --v-danger-800: #A8183E;
+  --v-danger-700: #D02050;
+  --v-danger-600: #E84060;
+  --v-danger-500: #F06A86;
+  --v-danger-400: #F99AAE;
+  --v-danger-300: #FCBFC9;
+  --v-danger-200: #FFE1E6;
+  --v-danger-100: #FFF1F3;
 
   /* ── Palette: Amber ─────────────────────────────────────────── */
   --v-amber-950: #5E3207;
@@ -116,7 +116,7 @@
   --v-accent:         var(--v-forest-600);
   --v-accent-hover:   var(--v-forest-700);
   --v-success:        var(--v-emerald-600);
-  --v-danger:         var(--v-rose-600);
+  --v-danger:         var(--v-danger-600);
   --v-warning:        var(--v-amber-600);
 
   /* ── Spacing (4pt grid) ─────────────────────────────────────── */

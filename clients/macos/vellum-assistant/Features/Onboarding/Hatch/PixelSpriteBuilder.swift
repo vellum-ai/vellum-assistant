@@ -152,10 +152,66 @@ enum PixelSpriteBuilder {
 
     // MARK: - NSImage for SwiftUI
 
-    /// Builds an NSImage of the blob pixel art with a custom palette.
+    /// Builds an NSImage of the minimalist avatar face.
+    /// Renders a warm beige/cream circle with two small dark eyes and a small dark mouth.
+    /// The `pixelSize` parameter controls overall scale (higher = larger image).
+    /// The `palette` parameter is accepted for API compatibility but the face uses
+    /// fixed warm-neutral colors that work in both light and dark mode.
     static func buildBlobNSImage(pixelSize: CGFloat, palette: DinoPalette) -> NSImage {
-        let grid = PixelArtData.blob(palette: palette)
-        return buildNSImage(from: grid, pixelSize: pixelSize)
+        // Scale factor: the old blob grid was 26 wide, so size ~ 26 * pixelSize
+        let diameter = 26.0 * pixelSize
+        let size = NSSize(width: diameter, height: diameter)
+        let image = NSImage(size: size)
+        image.lockFocus()
+
+        guard let context = NSGraphicsContext.current?.cgContext else {
+            image.unlockFocus()
+            return image
+        }
+
+        let radius = diameter / 2.0
+
+        // Background circle: warm beige/cream (#F5F5F4 = Stone._100)
+        context.setFillColor(red: 0xF5 / 255.0, green: 0xF5 / 255.0, blue: 0xF4 / 255.0, alpha: 1.0)
+        context.fillEllipse(in: CGRect(x: 0, y: 0, width: diameter, height: diameter))
+
+        // Feature color: dark warm gray (#44403C = Stone._800)
+        let featureR: CGFloat = 0x44 / 255.0
+        let featureG: CGFloat = 0x40 / 255.0
+        let featureB: CGFloat = 0x3C / 255.0
+        context.setFillColor(red: featureR, green: featureG, blue: featureB, alpha: 1.0)
+
+        // Eyes: two small circles, horizontally centered, slightly above vertical center
+        let eyeRadius = diameter * 0.07
+        let eyeY = radius + radius * 0.12  // slightly above center (CG y-up)
+        let eyeSpacing = diameter * 0.22
+        // Left eye
+        context.fillEllipse(in: CGRect(
+            x: radius - eyeSpacing - eyeRadius,
+            y: eyeY - eyeRadius,
+            width: eyeRadius * 2,
+            height: eyeRadius * 2
+        ))
+        // Right eye
+        context.fillEllipse(in: CGRect(
+            x: radius + eyeSpacing - eyeRadius,
+            y: eyeY - eyeRadius,
+            width: eyeRadius * 2,
+            height: eyeRadius * 2
+        ))
+
+        // Mouth: one small circle, centered below eyes
+        let mouthRadius = diameter * 0.05
+        let mouthY = radius - radius * 0.18  // below center (CG y-up)
+        context.fillEllipse(in: CGRect(
+            x: radius - mouthRadius,
+            y: mouthY - mouthRadius,
+            width: mouthRadius * 2,
+            height: mouthRadius * 2
+        ))
+
+        image.unlockFocus()
+        return image
     }
 
     /// Renders any pixel grid into an NSImage.

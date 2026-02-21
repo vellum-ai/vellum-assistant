@@ -24,7 +24,7 @@ struct CapabilitiesModalView: View {
 
                     sectionView(
                         icon: "shield.lefthalf.filled",
-                        iconColor: Rose._500,
+                        iconColor: Danger._500,
                         title: "What I won\u{2019}t do",
                         items: [
                             "Act without asking when something\u{2019}s irreversible",
@@ -36,7 +36,7 @@ struct CapabilitiesModalView: View {
 
                     sectionView(
                         icon: "car.fill",
-                        iconColor: Sage._500,
+                        iconColor: Forest._500,
                         title: "How control works",
                         items: [
                             "You\u{2019}re always in the driver\u{2019}s seat",

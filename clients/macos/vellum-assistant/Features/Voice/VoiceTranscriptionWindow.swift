@@ -16,7 +16,6 @@ struct VoiceTranscriptionView: View {
                     .frame(width: circleSize, height: circleSize)
 
                 Image(nsImage: PixelSpriteBuilder.buildBlobNSImage(pixelSize: dinoPixelSize, palette: appearance.palette))
-                    .interpolation(.none)
             }
 
             Text("Listening")

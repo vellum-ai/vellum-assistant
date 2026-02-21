@@ -25,11 +25,11 @@ private enum SkillCategory: String, CaseIterable {
     var color: Color {
         switch self {
         case .core: return Amber._400
-        case .devTools: return Sage._400
-        case .communication: return Sage._400
+        case .devTools: return Forest._400
+        case .communication: return Forest._400
         case .daily: return Emerald._400
         case .utilities: return Stone._400
-        case .skills: return Rose._400
+        case .skills: return Danger._400
         }
     }
 
@@ -343,7 +343,7 @@ struct ConstellationView: View {
         ZStack {
             // Background glow
             RadialGradient(
-                colors: [Sage._600.opacity(0.06), Color.clear],
+                colors: [Forest._600.opacity(0.06), Color.clear],
                 center: .center,
                 startRadius: 0,
                 endRadius: min(size.width, size.height) * 0.5

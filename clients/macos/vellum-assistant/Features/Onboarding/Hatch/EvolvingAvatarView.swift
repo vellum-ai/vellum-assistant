@@ -59,7 +59,6 @@ struct EvolvingAvatarView: View {
     @ViewBuilder
     private var avatarImage: some View {
         Image(nsImage: blobImage)
-            .interpolation(.none)
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(width: 400, height: 360)

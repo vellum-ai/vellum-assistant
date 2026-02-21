@@ -57,7 +57,7 @@ struct ModelSelectionStepView: View {
                         RoundedRectangle(cornerRadius: VRadius.lg)
                             .fill(adaptiveColor(
                                 light: Stone._900,
-                                dark: Sage._600
+                                dark: Forest._600
                             ))
                     )
             }
@@ -109,9 +109,9 @@ struct ModelSelectionStepView: View {
                 }
                 Spacer()
                 Circle()
-                    .fill(isSelected ? Sage._600 : Color.clear)
+                    .fill(isSelected ? Forest._600 : Color.clear)
                     .overlay(
-                        Circle().stroke(isSelected ? Sage._600 : VColor.surfaceBorder, lineWidth: 1.5)
+                        Circle().stroke(isSelected ? Forest._600 : VColor.surfaceBorder, lineWidth: 1.5)
                     )
                     .overlay(
                         isSelected
@@ -125,10 +125,10 @@ struct ModelSelectionStepView: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(isSelected ? Sage._600.opacity(0.1) : Color.clear)
+                    .fill(isSelected ? Forest._600.opacity(0.1) : Color.clear)
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(isSelected ? Sage._600.opacity(0.5) : VColor.surfaceBorder, lineWidth: 1)
+                            .stroke(isSelected ? Forest._600.opacity(0.5) : VColor.surfaceBorder, lineWidth: 1)
                     )
             )
         }
