@@ -22,7 +22,10 @@ struct ContentView: View {
         if let url = UserDefaults.standard.string(forKey: "runtime_url"), !url.isEmpty {
             return true
         }
-        return UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) != nil
+        if let hostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname), !hostname.isEmpty {
+            return true
+        }
+        return false
     }
 
     var body: some View {
@@ -31,8 +34,12 @@ struct ContentView: View {
                 tabContent
             } else if connectPhase == .failed {
                 connectionFailedView
-            } else {
+            } else if hasSavedSettings {
                 connectingView
+            } else {
+                // No saved settings — show tabs immediately so the user
+                // can navigate to Settings and configure their connection.
+                tabContent
             }
         }
         .task {
