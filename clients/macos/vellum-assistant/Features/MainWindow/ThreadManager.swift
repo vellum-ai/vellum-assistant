@@ -31,7 +31,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 // Without this, socketToSession stays stale after thread switches,
                 // causing ownership checks (e.g. subagent abort) to fail.
                 if let sessionId = chatViewModels[activeThreadId]?.sessionId {
-                    try? daemonClient.send(IPCSessionSwitchRequest(sessionId: sessionId))
+                    do {
+                        try daemonClient.send(IPCSessionSwitchRequest(sessionId: sessionId))
+                    } catch {
+                        log.error("Failed to send session switch request: \(error)")
+                    }
                 }
             } else {
                 lastActiveThreadIdString = nil
@@ -282,7 +286,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func selectThread(id: UUID) {
         guard threads.contains(where: { $0.id == id }) else { return }
         activeThreadId = id
-        updateLastInteracted(threadId: id)
     }
 
     /// Returns true if the thread has at least one user message.
@@ -480,6 +483,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 if let error {
                     log.error("Failed to post voice response notification: \(error.localizedDescription)")
                 }
+            }
+        }
+        viewModel.onUserMessageSent = { [weak self, weak viewModel] in
+            guard let self, let viewModel else { return }
+            if let threadId = self.chatViewModels.first(where: { $0.value === viewModel })?.key {
+                self.updateLastInteracted(threadId: threadId)
             }
         }
         return viewModel

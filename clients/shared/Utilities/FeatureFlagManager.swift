@@ -6,6 +6,7 @@ public enum FeatureFlag: String {
     case demo
     case userHostedEnabled = "user_hosted_enabled"
     case featureFlagEditorEnabled = "feature_flag_editor_enabled"
+    case hatchNewAssistantEnabled = "hatch_new_assistant_enabled"
 }
 
 public final class FeatureFlagManager: @unchecked Sendable {

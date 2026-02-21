@@ -51,7 +51,7 @@ extension MainWindowView {
         case .doctor:
             DoctorPanel(onClose: { windowState.selection = nil })
         case .directory:
-            AppDirectoryView(
+            HomeBaseContainerView(
                 daemonClient: daemonClient,
                 onBack: { windowState.selection = nil },
                 onOpenApp: { surfaceMsg in
@@ -95,6 +95,15 @@ extension MainWindowView {
             IdentityPanel(onClose: { windowState.selection = nil }, onCustomizeAvatar: { windowState.selection = .panel(.avatarCustomization) }, daemonClient: daemonClient)
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(.identity) })
+        case .voiceMode:
+            VoiceModePanel(
+                manager: voiceModeManager,
+                voiceService: voiceModeManager.voiceService,
+                onClose: {
+                    voiceModeManager.deactivate()
+                    windowState.selection = nil
+                }
+            )
         }
     }
 
@@ -208,7 +217,7 @@ extension MainWindowView {
             }
         case .panel(let panelType):
             if panelType == .directory {
-                AppDirectoryView(
+                HomeBaseContainerView(
                     daemonClient: daemonClient,
                     onBack: { windowState.dismissOverlay() },
                     onOpenApp: { surfaceMsg in
@@ -243,6 +252,16 @@ extension MainWindowView {
                             daemonClient: daemonClient,
                             onClose: { windowState.selection = nil; documentManager.closeDocument() }
                         )
+                    }
+                )
+            } else if panelType == .voiceMode {
+                // Voice mode: split view with chat on left, voice panel on right
+                VSplitView(
+                    panelWidth: $sidePanelWidth,
+                    showPanel: true,
+                    main: { chatView },
+                    panel: {
+                        nativePanelView(.voiceMode)
                     }
                 )
             } else {
@@ -489,6 +508,8 @@ struct ActiveChatViewWrapper: View {
             onDismissError: viewModel.dismissError,
             isRetryableError: viewModel.isRetryableError,
             onRetryError: { viewModel.retryLastMessage() },
+            isConnectionError: viewModel.isConnectionError,
+            onOpenDoctor: { windowState.selection = .panel(.doctor) },
             isSecretBlockError: viewModel.isSecretBlockError,
             onSendAnyway: { viewModel.sendAnyway() },
             onAcceptSuggestion: viewModel.acceptSuggestion,
@@ -517,7 +538,6 @@ struct ActiveChatViewWrapper: View {
             onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
             onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision) },
             onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
-            onRegenerate: { viewModel.regenerateLastMessage() },
             sessionError: viewModel.sessionError,
             onRetry: { viewModel.retryAfterSessionError() },
             onDismissSessionError: { viewModel.dismissSessionError() },
@@ -538,8 +558,6 @@ struct ActiveChatViewWrapper: View {
                     )
                 }
             },
-            onDeleteQueuedMessage: { messageId in viewModel.deleteQueuedMessage(messageId: messageId) },
-            onSendDirectQueuedMessage: { messageId in viewModel.sendDirectQueuedMessage(messageId: messageId) },
             mediaEmbedSettings: MediaEmbedResolverSettings(
                 enabled: settingsStore.mediaEmbedsEnabled,
                 enabledSince: settingsStore.mediaEmbedsEnabledSince,

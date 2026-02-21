@@ -156,7 +156,7 @@ export const claudeCodeTool: Tool = {
         return { behavior: 'allow' as const };
       }
 
-      // For tools that need approval, bridge to Velly's confirmation flow
+      // For tools that need approval, bridge to Vellum's confirmation flow
       if (!context.requestConfirmation) {
         log.warn({ toolName }, 'Claude Code tool requires approval but no requestConfirmation callback available');
         return { behavior: 'deny' as const, message: 'Tool approval not available in this context' };

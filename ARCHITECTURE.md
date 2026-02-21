@@ -3525,6 +3525,7 @@ sequenceDiagram
 | `assistant/src/calls/call-state.ts` | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and orchestrator registry |
 | `assistant/src/calls/call-constants.ts` | Config-backed constants: max call duration, user consultation timeout, silence timeout, denied emergency numbers |
 | `assistant/src/calls/voice-provider.ts` | Abstract VoiceProvider interface for provider-agnostic call initiation |
+| `assistant/src/calls/voice-quality.ts` | Voice quality profile resolution: `resolveVoiceQualityProfile()` reads `calls.voice` config and returns effective TTS provider, voice spec, and fallback settings for the active mode |
 | `assistant/src/calls/twilio-config.ts` | Twilio credential and configuration resolution from secure key store and environment |
 | `assistant/src/calls/types.ts` | TypeScript type definitions: CallSession, CallEvent, CallPendingQuestion, CallStatus, CallEventType |
 | `gateway/src/http/routes/twilio-voice-webhook.ts` | Gateway route: validates Twilio signature, forwards voice webhook to runtime |
@@ -3607,6 +3608,13 @@ Signature validation is **fail-closed**: if the Twilio auth token is not configu
 
 All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/telegram`, `/webhooks/oauth/callback`, etc.) are appended automatically.
 
+For **inbound Twilio signature validation** at the gateway, URL reconstruction now supports multiple candidates in order:
+1. `config.ingressPublicBaseUrl` (if configured)
+2. Forwarded public URL headers from the tunnel/proxy (`X-Forwarded-Proto` + `X-Forwarded-Host`, with `X-Original-*`/`Host` fallbacks)
+3. Raw request URL fallback when no public candidates are available
+
+This makes ingress URL updates smoother in local tunnel workflows because Twilio webhooks can continue validating even before a gateway restart.
+
 ### Runtime HTTP Endpoints
 
 | Method | Path | Description |
@@ -3663,6 +3671,25 @@ Call behavior is controlled via the `calls` config block in the assistant config
 | `calls.disclosure.enabled` | boolean | `true` | Whether the AI should disclose it is an AI at the start of the call. |
 | `calls.disclosure.text` | string | *(default disclosure prompt)* | The disclosure instruction included in the system prompt. |
 | `calls.safety.denyCategories` | string[] | `[]` | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting). |
+| `calls.model` | string | *(unset — uses default model)* | Optional override for the LLM model used in call orchestration. |
+| `calls.voice.mode` | enum | `'twilio_standard'` | Voice quality mode. Options: `twilio_standard` (standard Twilio TTS with Google voices), `twilio_elevenlabs_tts` (ElevenLabs voices through Twilio ConversationRelay), `elevenlabs_agent` (full ElevenLabs conversational agent). |
+| `calls.voice.language` | string | `'en-US'` | Language code for TTS and transcription. |
+| `calls.voice.transcriptionProvider` | enum | `'Deepgram'` | Speech-to-text provider (`Deepgram` or `Google`). |
+| `calls.voice.fallbackToStandardOnError` | boolean | `true` | When an ElevenLabs mode is active, automatically fall back to standard Twilio TTS if ElevenLabs fails (missing config, API errors). |
+| `calls.voice.elevenlabs.voiceId` | string | `''` | ElevenLabs voice ID, used by `twilio_elevenlabs_tts` mode. |
+| `calls.voice.elevenlabs.agentId` | string | `''` | ElevenLabs agent ID, used by `elevenlabs_agent` mode. |
+
+### Voice Quality Profile Resolution
+
+Voice and TTS settings are configurable via the `calls.voice` config block — they are not hardcoded. The function `resolveVoiceQualityProfile()` in `voice-quality.ts` reads the current config and resolves it into an effective `VoiceQualityProfile` containing the TTS provider, voice spec string, language, transcription provider, and fallback policy.
+
+The resolution logic works as follows:
+
+- **`twilio_standard`** — Returns a profile using Google TTS with a default Google voice (`Google.en-US-Journey-O`). This is the default when no voice config is changed.
+- **`twilio_elevenlabs_tts`** — Builds an ElevenLabs voice spec string from `voiceId`, `voiceModelId`, and tuning parameters (stability, similarity, style). If `voiceId` is empty and fallback is enabled, silently falls back to the `twilio_standard` profile.
+- **`elevenlabs_agent`** — Requires `agentId` to be set. If `agentId` is empty and fallback is enabled, silently falls back to `twilio_standard`.
+
+When `fallbackToStandardOnError` is `true` (default), any misconfiguration or runtime error in ElevenLabs modes causes a graceful fallback to standard Twilio TTS rather than a call failure. Validation errors are captured in `validationErrors` on the profile for logging.
 
 ---
 

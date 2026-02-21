@@ -26,7 +26,7 @@ function proxyExecute(): Promise<ToolExecutionResult> {
 export const uiShowTool: Tool = {
   name: 'ui_show',
   description:
-    'Show a UI surface to the user. Use display: "inline" (default) to embed in chat, or "panel" for a floating window.\n\n' +
+    'Show structured data or UI to the user. Use for displaying weather, flights, stock prices, quick tables, cards, lists, forms, or any temporary data visualization. Use display: "inline" (default) to embed in chat, or "panel" for a floating window. For long-form writing use the document skill instead; for interactive apps use the app-builder skill instead.\n\n' +
     'Supported surface types:\n' +
     '- card: Informational card with title, subtitle, body text, and optional metadata key-value pairs. ' +
     'Cards support an optional template field for specialized native rendering. ' +
@@ -54,7 +54,14 @@ export const uiShowTool: Tool = {
     'data shape: { prompt: string, acceptedTypes?: string[], maxFiles?: number }\n\n' +
     'Action payload conventions:\n' +
     '- Multi-select tables: use `window.vellum.sendAction(actionId, { selectedIds: [...] })` to send selected row IDs\n' +
-    '- Bulk actions: include `selectedRows` array with full row data for context',
+    '- Bulk actions: include `selectedRows` array with full row data for context\n\n' +
+    'Presenting choices: When the user needs to make a choice or provide structured input, prefer interactive surfaces over plain text. ' +
+    'Use list (2-8 options, single select), form (structured input with typed fields), confirmation (destructive/important actions), or table (data review with selectable rows).\n\n' +
+    'Tool chaining: After gathering data via tools (web search, browser, APIs), synthesize results into a visual output. ' +
+    'Exception: get_weather automatically renders its own surface — do NOT call ui_show or app_create after get_weather, just respond with a brief summary.\n\n' +
+    'Task progress for multi-step workflows: Create a card with template "task_progress" and templateData containing steps. ' +
+    'As each step completes, call ui_update to patch data.templateData (not top-level fields). ' +
+    'Set templateData.status to "completed" or "failed" when done.',
   category: 'ui-surface',
   defaultRiskLevel: RiskLevel.Low,
   executionMode: 'proxy',

@@ -741,6 +741,7 @@ describe('Trust Store', () => {
         'host_file_edit',
         'host_file_read',
         'host_file_write',
+        'memory_search',
         'scaffold_managed_skill',
         'skill_load',
         'ui_dismiss',

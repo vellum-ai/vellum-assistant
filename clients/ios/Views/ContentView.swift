@@ -4,9 +4,17 @@ import VellumAssistantShared
 
 struct ContentView: View {
     @EnvironmentObject var clientProvider: ClientProvider
+    @Bindable var authManager: AuthManager
 
     var body: some View {
         TabView {
+            HomeBaseView()
+                .environmentObject(clientProvider)
+                .id(ObjectIdentifier(clientProvider.client as AnyObject))
+                .tabItem {
+                    Label("Home", systemImage: "house")
+                }
+
             ThreadListView(daemonClient: clientProvider.client)
                 // Force @StateObject teardown + recreation when the client changes.
                 // Without this, IOSThreadStore keeps its original (now-disconnected)
@@ -16,17 +24,27 @@ struct ContentView: View {
                     Label("Chats", systemImage: "message")
                 }
 
-            SettingsView()
+            IdentityView()
+                .environmentObject(clientProvider)
+                .id(ObjectIdentifier(clientProvider.client as AnyObject))
+                .tabItem {
+                    Label("Identity", systemImage: "person.text.rectangle")
+                }
+
+            SettingsView(authManager: authManager)
                 .environmentObject(clientProvider)
                 .tabItem {
                     Label("Settings", systemImage: "gear")
                 }
         }
+        .task {
+            await authManager.checkSession()
+        }
     }
 }
 
 #Preview {
-    ContentView()
+    ContentView(authManager: AuthManager())
         .environmentObject(ClientProvider(client: DaemonClient(config: .default)))
 }
 #endif

@@ -8,31 +8,6 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
 
-/// Writes `~/.vellum/workspace/IDENTITY.md` with the assistant's chosen name so the
-/// daemon's system prompt includes the correct identity.
-func writeVellumIdentityFile(name: String) {
-    let vellumDir = NSHomeDirectory() + "/.vellum/workspace"
-    let identityPath = vellumDir + "/IDENTITY.md"
-    let content = """
-    # IDENTITY
-
-    - **Name:** \(name)
-    - **Role:** Personal AI assistant
-    """
-
-    do {
-        try FileManager.default.createDirectory(
-            atPath: vellumDir,
-            withIntermediateDirectories: true,
-            attributes: nil
-        )
-        try content.write(toFile: identityPath, atomically: true, encoding: .utf8)
-        log.info("Wrote IDENTITY.md for assistant name: \(name)")
-    } catch {
-        log.error("Failed to write IDENTITY.md: \(error.localizedDescription)")
-    }
-}
-
 enum AssistantStatus {
     case idle
     case thinking
@@ -72,6 +47,11 @@ enum InteractionType {
 
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Shared reference — `NSApp.delegate as? AppDelegate` fails under
+    /// SwiftUI's `@NSApplicationDelegateAdaptor` because SwiftUI wraps
+    /// the delegate.  Use `AppDelegate.shared` instead.
+    public static var shared: AppDelegate?
+
     var statusItem: NSStatusItem!
     private var hotKeyMonitor: Any?
     private var escapeMonitor: Any?
@@ -87,6 +67,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public let services = AppServices()
     private let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
+    private let debugStateWriter = DebugStateWriter()
 
     // Forwarding accessors — ownership lives in `services`, these keep
     // existing internal references working without a mass-rename.
@@ -125,6 +106,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     @AppStorage("themePreference") private var themePreference: String = "system"
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.shared = self
+
         if let envPath = FeatureFlagManager.findRepoEnvFile() {
             FeatureFlagManager.shared.loadFromFile(at: envPath)
         }
@@ -171,6 +154,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hasSetupApp = true
 
+        // On first launch (post-onboarding), the lockfile now has the
+        // hatched assistant. Reset hasSetupDaemon so setupDaemonClient()
+        // re-reads the lockfile, configures the correct transport (HTTP
+        // for remote), and wires all callbacks to the right DaemonClient.
+        if isFirstLaunch {
+            hasSetupDaemon = false
+        }
+
         setupDaemonClient()
         setupMenuBar()
         setupFileMenu()
@@ -186,6 +177,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotifications()
         setupAutoUpdate()
         showMainWindow(initialMessage: isFirstLaunch ? "Wake up, my friend" : nil, isFirstLaunch: isFirstLaunch)
+        debugStateWriter.start(appDelegate: self)
 
         if isFirstLaunch {
             ensureDaemonConnected()
@@ -206,12 +198,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Task {
             if !isRemoteTransport {
-                try? await assistantCli.hatch(daemonOnly: true)
+                do {
+                    try await assistantCli.hatch(daemonOnly: true)
+                } catch {
+                    log.error("Failed to hatch assistant in ensureDaemonConnected: \(error)")
+                }
                 assistantCli.startMonitoring()
             }
             // Only connect if setupDaemonClient's connect hasn't already started
             guard !daemonClient.isConnected, !daemonClient.isConnecting else { return }
-            try? await daemonClient.connect()
+            do {
+                try await daemonClient.connect()
+            } catch {
+                log.error("Failed to connect to daemon in ensureDaemonConnected: \(error)")
+            }
             if daemonClient.isConnected {
                 setupAmbientAgent()
                 refreshAppsCache()
@@ -332,72 +332,94 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func performRetire() {
+        Task { await performRetireAsync() }
+    }
+
+    /// Async retire implementation callable from SwiftUI so callers can
+    /// await completion and dismiss their loading UI.
+    ///
+    /// Returns `true` if the retire completed (or the user chose to force-remove),
+    /// `false` if the user cancelled after a failure.
+    @discardableResult
+    func performRetireAsync() async -> Bool {
         let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
         if assistantName == nil {
             log.error("No stored connected assistant ID found — skipping retire")
         }
 
-        Task {
-            if let name = assistantName {
-                try? await assistantCli.retire(name: name)
-            } else {
-                assistantCli.stop()
-            }
-
-            // Check if other assistants remain in the lockfile
-            let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName }
-            if let next = remaining.first {
-                // Auto-switch to the next available assistant
-                settingsWindow?.close()
-                settingsWindow = nil
-                performSwitchAssistant(to: next)
-                return
-            }
-
-            // No assistants left — tear down fully and show onboarding
-            OnboardingState.clearPersistedState()
-
-            mainWindow?.close()
-            mainWindow = nil
-            settingsWindow?.close()
-            settingsWindow = nil
-
-            if let hotKeyMonitor {
-                NSEvent.removeMonitor(hotKeyMonitor)
-                self.hotKeyMonitor = nil
-            }
-            if let escapeMonitor {
-                NSEvent.removeMonitor(escapeMonitor)
-                self.escapeMonitor = nil
-            }
-            voiceInput?.stop()
-            voiceInput = nil
-            ambientAgent.teardown()
-
-            if let observer = windowObserver {
-                NotificationCenter.default.removeObserver(observer)
-                windowObserver = nil
-            }
-            statusIconCancellable?.cancel()
-            statusIconCancellable = nil
-
-            if let item = statusItem {
-                NSStatusBar.system.removeStatusItem(item)
-                statusItem = nil
-            }
-
-            if let mainMenu = NSApp.mainMenu {
-                for title in ["File", "View"] {
-                    let idx = mainMenu.indexOfItem(withTitle: title)
-                    if idx >= 0 { mainMenu.removeItem(at: idx) }
+        if let name = assistantName {
+            do {
+                try await assistantCli.retire(name: name)
+            } catch {
+                log.error("CLI retire failed: \(error.localizedDescription)")
+                let alert = NSAlert()
+                alert.messageText = "Failed to Retire Remote Instance"
+                alert.informativeText = "\(error.localizedDescription)\n\nYou can force-remove the local configuration, but the remote cloud instance may still be running and will need to be deleted manually."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Force Remove")
+                alert.addButton(withTitle: "Cancel")
+                if alert.runModal() != .alertFirstButtonReturn {
+                    return false
                 }
             }
-
-            hasSetupApp = false
-            hasSetupDaemon = false
-            showOnboarding()
+        } else {
+            assistantCli.stop()
         }
+
+        // Check if other assistants remain in the lockfile
+        let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName }
+        if let next = remaining.first {
+            // Auto-switch to the next available assistant
+            settingsWindow?.close()
+            settingsWindow = nil
+            performSwitchAssistant(to: next)
+            return true
+        }
+
+        // No assistants left — tear down fully and show onboarding
+        OnboardingState.clearPersistedState()
+
+        mainWindow?.close()
+        mainWindow = nil
+        settingsWindow?.close()
+        settingsWindow = nil
+
+        if let hotKeyMonitor {
+            NSEvent.removeMonitor(hotKeyMonitor)
+            self.hotKeyMonitor = nil
+        }
+        if let escapeMonitor {
+            NSEvent.removeMonitor(escapeMonitor)
+            self.escapeMonitor = nil
+        }
+        voiceInput?.stop()
+        voiceInput = nil
+        ambientAgent.teardown()
+
+        if let observer = windowObserver {
+            NotificationCenter.default.removeObserver(observer)
+            windowObserver = nil
+        }
+        statusIconCancellable?.cancel()
+        statusIconCancellable = nil
+
+        if let item = statusItem {
+            NSStatusBar.system.removeStatusItem(item)
+            statusItem = nil
+        }
+
+        if let mainMenu = NSApp.mainMenu {
+            for title in ["File", "View"] {
+                let idx = mainMenu.indexOfItem(withTitle: title)
+                if idx >= 0 { mainMenu.removeItem(at: idx) }
+            }
+        }
+
+        hasSetupApp = false
+        hasSetupDaemon = false
+        showOnboarding()
+        return true
     }
 
     /// Applies the user's theme preference to the app appearance.
@@ -597,7 +619,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             Task {
                 // Don't reset an in-progress connection attempt
                 guard !self.daemonClient.isConnected, !self.daemonClient.isConnecting else { return }
-                try? await self.daemonClient.connect()
+                do {
+                    try await self.daemonClient.connect()
+                } catch {
+                    log.error("Failed to reconnect to daemon after restart: \(error)")
+                }
                 if self.daemonClient.isConnected {
                     self.setupAmbientAgent()
                     self.refreshAppsCache()
@@ -619,10 +645,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             if !isRemoteTransport {
                 // Hatch the assistant via CLI (spawns daemon in release builds).
                 // daemonOnly: true prevents creating a new lockfile entry on every launch.
-                try? await assistantCli.hatch(daemonOnly: true)
+                do {
+                    try await assistantCli.hatch(daemonOnly: true)
+                } catch {
+                    log.error("Failed to hatch assistant during daemon setup: \(error)")
+                }
                 assistantCli.startMonitoring()
             }
-            try? await daemonClient.connect()
+            do {
+                try await daemonClient.connect()
+            } catch {
+                log.error("Failed to connect to daemon during setup: \(error)")
+            }
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {
                 setupAmbientAgent()
@@ -700,25 +734,34 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         surfaceManager.onAction = { [weak self] sessionId, surfaceId, actionId, data in
             guard let self else { return }
             let codableData: [String: AnyCodable]? = data?.mapValues { AnyCodable($0) }
-            try? self.daemonClient.sendSurfaceAction(
-                sessionId: sessionId,
-                surfaceId: surfaceId,
-                actionId: actionId,
-                data: codableData
-            )
+            do {
+                try self.daemonClient.sendSurfaceAction(
+                    sessionId: sessionId,
+                    surfaceId: surfaceId,
+                    actionId: actionId,
+                    data: codableData
+                )
+            } catch {
+                log.error("Failed to send surface action \(actionId) for surface \(surfaceId): \(error)")
+            }
         }
 
         // Data request: JS -> Swift -> daemon
         surfaceManager.onDataRequest = { [weak self] surfaceId, callId, method, appId, recordId, data in
+            guard let self else { return }
             let codableData = data?.mapValues { AnyCodable($0) }
-            try? self?.daemonClient.send(AppDataRequestMessage(
-                surfaceId: surfaceId,
-                callId: callId,
-                method: method,
-                appId: appId,
-                recordId: recordId,
-                data: codableData
-            ))
+            do {
+                try self.daemonClient.send(AppDataRequestMessage(
+                    surfaceId: surfaceId,
+                    callId: callId,
+                    method: method,
+                    appId: appId,
+                    recordId: recordId,
+                    data: codableData
+                ))
+            } catch {
+                log.error("Failed to send app data request (method: \(method), appId: \(appId)): \(error)")
+            }
         }
 
         // Data response: daemon -> Swift -> JS
@@ -728,8 +771,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Link open: JS -> Swift -> daemon
         surfaceManager.onLinkOpen = { [weak self] url, metadata in
+            guard let self else { return }
             let codableMetadata = metadata?.mapValues { AnyCodable($0) }
-            try? self?.daemonClient.sendLinkOpenRequest(url: url, metadata: codableMetadata)
+            do {
+                try self.daemonClient.sendLinkOpenRequest(url: url, metadata: codableMetadata)
+            } catch {
+                log.error("Failed to send link open request for \(url): \(error)")
+            }
         }
 
         // Forward layout config from daemon to MainWindowState
@@ -1008,11 +1056,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
-            UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
-            writeVellumIdentityFile(name: state.assistantName)
-
-            self?.writeIdentityFile(name: state.assistantName)
 
             onboarding.close()
             self?.onboardingWindow = nil
@@ -1046,11 +1090,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
-            UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
-            writeVellumIdentityFile(name: state.assistantName)
-
-            self?.writeIdentityFile(name: state.assistantName)
 
             onboarding.close()
             self?.onboardingWindow = nil
@@ -1067,62 +1107,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         onboardingWindow = onboarding
     }
 
-    /// Writes (or updates) `~/.vellum/workspace/IDENTITY.md` with the user-chosen assistant name.
-    ///
-    /// If the file already exists, only the `- **Name:** …` line is replaced so that
-    /// user customizations (extra persona instructions, changed role/tone, etc.) are preserved.
-    /// If the file does not exist, a fresh template is created.
-    private func writeIdentityFile(name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-
-        let vellumDir = NSHomeDirectory() + "/.vellum/workspace"
-        let identityPath = vellumDir + "/IDENTITY.md"
-
-        do {
-            try FileManager.default.createDirectory(
-                atPath: vellumDir,
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-
-            let content: String
-            if FileManager.default.fileExists(atPath: identityPath),
-               let existing = try? String(contentsOfFile: identityPath, encoding: .utf8) {
-                // Replace only the Name line, preserving everything else
-                let namePattern = #"^- \*\*Name:\*\*.*$"#
-                if let regex = try? NSRegularExpression(pattern: namePattern, options: .anchorsMatchLines) {
-                    let fullRange = NSRange(existing.startIndex..., in: existing)
-                    if let match = regex.firstMatch(in: existing, range: fullRange),
-                       let matchRange = Range(match.range, in: existing) {
-                        var updated = existing
-                        updated.replaceSubrange(matchRange, with: "- **Name:** \(trimmed)")
-                        content = updated
-                    } else {
-                        content = existing
-                    }
-                } else {
-                    content = existing
-                }
-            } else {
-                content = """
-                # IDENTITY
-
-                _Customize this file to give your assistant a distinct identity._
-
-                - **Name:** \(trimmed)
-                - **Role:** Personal AI assistant
-                - **Tone:** Direct, concise, and helpful
-                """
-            }
-
-            try content.write(toFile: identityPath, atomically: true, encoding: .utf8)
-            log.info("Wrote IDENTITY.md with name: \(trimmed)")
-        } catch {
-            log.error("Failed to write IDENTITY.md: \(error.localizedDescription)")
-        }
-    }
-
     // MARK: - Main Window
 
     func showMainWindow(initialMessage: String? = nil, isFirstLaunch: Bool = false) {
@@ -1134,6 +1118,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()
         }
+        // Voice mode uses OpenAI Whisper + TTS directly (no VoiceInputManager needed)
         main.threadManager.onInlineConfirmationResponse = { [weak self] requestId, decision in
             guard let self else { return }
             // Resume the notification service continuation with a sentinel so
@@ -1179,6 +1164,34 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] _ in
                 self?.updateMenuBarIcon()
             }
+    }
+
+    // MARK: - About Panel
+
+    public func showAboutPanel() {
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
+
+        #if DEBUG
+        let bundlePath = Bundle.main.bundlePath
+        let creditsString = NSMutableAttributedString()
+
+        let headerAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor.systemOrange
+        ]
+        creditsString.append(NSAttributedString(string: "Local Development Build\n", attributes: headerAttributes))
+
+        let pathAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+        creditsString.append(NSAttributedString(string: bundlePath, attributes: pathAttributes))
+
+        options[.credits] = creditsString
+        #endif
+
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: options)
     }
 
     // MARK: - Settings
@@ -1275,6 +1288,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         surfaceManager.dismissAll()
         toolConfirmationNotificationService.dismissAll()
         secretPromptManager.dismissAll()
+        debugStateWriter.stop()
         assistantCli.stop()
     }
 
@@ -1305,10 +1319,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 createChromeDebugLaunchAgent()
             }
 
-            try? daemonClient.send(BrowserCDPResponseMessage(sessionId: msg.sessionId, success: success))
+            do {
+                try daemonClient.send(BrowserCDPResponseMessage(sessionId: msg.sessionId, success: success))
+            } catch {
+                log.error("Failed to send browser CDP response (open): \(error)")
+            }
         } else {
             // User chose background browser
-            try? daemonClient.send(BrowserCDPResponseMessage(sessionId: msg.sessionId, success: false, declined: true))
+            do {
+                try daemonClient.send(BrowserCDPResponseMessage(sessionId: msg.sessionId, success: false, declined: true))
+            } catch {
+                log.error("Failed to send browser CDP response (background): \(error)")
+            }
         }
     }
 

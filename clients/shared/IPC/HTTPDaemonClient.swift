@@ -14,6 +14,19 @@ struct AssistantEvent: Decodable {
     let message: ServerMessage
 }
 
+// MARK: - Conversations List Response
+
+/// Response shape from `GET /v1/conversations`.
+struct ConversationsListResponse: Decodable {
+    struct Session: Decodable {
+        let id: String
+        let title: String
+        let updatedAt: Int
+        let threadType: String?
+    }
+    let sessions: [Session]
+}
+
 // MARK: - HTTP Transport
 
 /// Internal helper that handles HTTP REST + SSE communication with a remote
@@ -198,8 +211,10 @@ final class HTTPTransport {
                 SessionInfoMessage(sessionId: sessionId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
             )
             onMessage?(info)
-        } else if message is HistoryRequestMessage {
-            Task { await self.fetchHistory() }
+        } else if message is SessionListRequestMessage {
+            Task { await self.fetchSessionList() }
+        } else if let msg = message as? HistoryRequestMessage {
+            Task { await self.fetchHistory(sessionId: msg.sessionId) }
         } else if message is PingMessage {
             // No-op for HTTP transport — SSE keepalive is handled by the connection
         } else {
@@ -230,10 +245,14 @@ final class HTTPTransport {
             guard let http = response as? HTTPURLResponse else { return }
 
             if http.statusCode == 201 || http.statusCode == 200 {
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let runId = json["id"] as? String {
-                    self.activeRunId = runId
-                    log.info("Run created: \(runId)")
+                do {
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let runId = json["id"] as? String {
+                        self.activeRunId = runId
+                        log.info("Run created: \(runId)")
+                    }
+                } catch {
+                    log.error("Failed to deserialize create run response: \(error)")
                 }
             } else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
@@ -314,8 +333,40 @@ final class HTTPTransport {
         }
     }
 
-    private func fetchHistory() async {
-        let urlString = "\(baseURL)/v1/messages?conversationKey=\(conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey)"
+    private func fetchSessionList() async {
+        guard let url = URL(string: "\(baseURL)/v1/conversations") else { return }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                log.error("Fetch session list failed")
+                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [])))
+                return
+            }
+
+            do {
+                let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
+                let sessions = decoded.sessions.map {
+                    IPCSessionListResponseSession(id: $0.id, title: $0.title, updatedAt: $0.updatedAt, threadType: $0.threadType)
+                }
+                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions)))
+            } catch {
+                log.error("Failed to decode session list response: \(error)")
+                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [])))
+            }
+        } catch {
+            log.error("Fetch session list error: \(error.localizedDescription)")
+            onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [])))
+        }
+    }
+
+    private func fetchHistory(sessionId: String) async {
+        let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+        let urlString = "\(baseURL)/v1/messages?conversationId=\(encoded)"
         guard let url = URL(string: urlString) else { return }
 
         var request = URLRequest(url: url)
@@ -331,29 +382,49 @@ final class HTTPTransport {
 
             // The /v1/messages endpoint returns { messages: [...] } which doesn't
             // directly map to a HistoryResponseMessage. We need to construct one.
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let messages = json["messages"] as? [[String: Any]] {
-                // Convert REST messages to IPC history format
-                var historyMessages: [[String: Any]] = []
-                for msg in messages {
-                    historyMessages.append(msg)
-                }
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let messages = json["messages"] as? [[String: Any]] {
+                    let historyPayload: [String: Any] = [
+                        "type": "history_response",
+                        "sessionId": sessionId,
+                        "messages": messages
+                    ]
 
-                // Emit as raw JSON that the history response decoder can handle
-                var historyPayload: [String: Any] = [
-                    "type": "history_response",
-                    "sessionId": conversationKey,
-                    "messages": historyMessages
-                ]
-                _ = historyPayload.removeValue(forKey: "")
-
-                if let historyData = try? JSONSerialization.data(withJSONObject: historyPayload),
-                   let historyResponse = try? decoder.decode(ServerMessage.self, from: historyData) {
+                    let historyData = try JSONSerialization.data(withJSONObject: historyPayload)
+                    let historyResponse = try decoder.decode(ServerMessage.self, from: historyData)
                     onMessage?(historyResponse)
                 }
+            } catch {
+                log.error("Failed to deserialize history response: \(error)")
             }
         } catch {
             log.error("Fetch history error: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Remote Identity
+
+    /// Fetch identity info from the remote daemon's `GET /v1/identity` endpoint.
+    func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
+        guard let url = URL(string: "\(baseURL)/v1/identity") else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            do {
+                return try JSONDecoder().decode(RemoteIdentityInfo.self, from: data)
+            } catch {
+                log.error("Failed to decode remote identity response: \(error)")
+                return nil
+            }
+        } catch {
+            log.error("fetchRemoteIdentity failed: \(error.localizedDescription)")
+            return nil
         }
     }
 

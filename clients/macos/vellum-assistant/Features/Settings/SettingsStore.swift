@@ -1,6 +1,9 @@
 import Combine
 import Foundation
+import os
 import VellumAssistantShared
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SettingsStore")
 
 /// Single source of truth for settings state shared between `SettingsView`
 /// (standalone window) and `SettingsPanel` (main window side panel).
@@ -12,11 +15,15 @@ public final class SettingsStore: ObservableObject {
     @Published var hasBraveKey: Bool
     @Published var hasPerplexityKey: Bool
     @Published var hasImageGenKey: Bool
+    @Published var hasOpenAIKey: Bool
+    @Published var hasElevenLabsKey: Bool
     @Published var hasVercelKey: Bool = false
     @Published var maskedKey: String = ""
     @Published var maskedBraveKey: String = ""
     @Published var maskedPerplexityKey: String = ""
     @Published var maskedImageGenKey: String = ""
+    @Published var maskedOpenAIKey: String = ""
+    @Published var maskedElevenLabsKey: String = ""
 
     // MARK: - Model Selection
 
@@ -77,6 +84,7 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Ingress Config State
 
+    @Published var ingressEnabled: Bool = false
     @Published var ingressPublicBaseUrl: String = ""
     /// Read-only gateway target derived from daemon config (GATEWAY_PORT env var, default 7830).
     @Published var localGatewayTarget: String = "http://127.0.0.1:7830"
@@ -93,6 +101,12 @@ public final class SettingsStore: ObservableObject {
     private weak var daemonClient: DaemonClient?
     private var cancellables = Set<AnyCancellable>()
     private let configPath: String?
+
+    /// Guards against stale IPC `get` responses overwriting an optimistic
+    /// toggle. Set when `setIngressEnabled` fires; cleared once a matching
+    /// response arrives.
+    private var pendingIngressEnabled: Bool?
+    private var pendingIngressUrl: String?
 
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle sessions.
@@ -115,6 +129,12 @@ public final class SettingsStore: ObservableObject {
         let imageGenKey = APIKeyManager.getKey(for: "gemini")
         self.hasImageGenKey = imageGenKey != nil
         self.maskedImageGenKey = Self.maskKey(imageGenKey)
+        let openaiKey = APIKeyManager.getKey(for: "openai")
+        self.hasOpenAIKey = openaiKey != nil
+        self.maskedOpenAIKey = Self.maskKey(openaiKey)
+        let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
+        self.hasElevenLabsKey = elevenLabsKey != nil
+        self.maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
 
         let storedImageGenModel = UserDefaults.standard.string(forKey: "selectedImageGenModel")
         if let storedImageGenModel, Self.availableImageGenModels.contains(storedImageGenModel) {
@@ -186,7 +206,24 @@ public final class SettingsStore: ObservableObject {
             guard let self else { return }
             self.localGatewayTarget = response.localGatewayTarget
             if response.success {
+                if let pending = self.pendingIngressEnabled, response.enabled != pending {
+                    // A set operation is in-flight and this response disagrees
+                    // with the optimistic value — it's a stale get response.
+                    // Skip updating enabled to prevent the toggle from bouncing.
+                    self.ingressPublicBaseUrl = response.publicBaseUrl
+                    return
+                }
+                self.pendingIngressEnabled = nil
+                self.pendingIngressUrl = nil
+                self.ingressEnabled = response.enabled
                 self.ingressPublicBaseUrl = response.publicBaseUrl
+            } else {
+                // On failure, revert optimistic updates so the UI reflects reality
+                if let previousUrl = self.pendingIngressUrl {
+                    self.ingressPublicBaseUrl = previousUrl
+                }
+                self.pendingIngressUrl = nil
+                self.pendingIngressEnabled = nil
             }
         }
 
@@ -208,13 +245,18 @@ public final class SettingsStore: ObservableObject {
         refreshVercelKeyState()
 
         // Fetch current model from daemon
-        try? daemonClient?.sendModelGet()
+        do {
+            try daemonClient?.sendModelGet()
+        } catch {
+            log.error("Failed to send model get request: \(error)")
+        }
 
         // Refresh Twitter integration status on init
         refreshTwitterStatus()
 
-        // Refresh ingress config on init
-        refreshIngressConfig()
+        // Ingress config is refreshed by onAppear in SettingsPanel /
+        // SettingsView, not here, to avoid duplicate get requests whose
+        // stale responses could overwrite an optimistic toggle.
     }
 
     // MARK: - API Key Actions
@@ -275,10 +317,42 @@ public final class SettingsStore: ObservableObject {
         maskedImageGenKey = ""
     }
 
+    func saveOpenAIKey(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        APIKeyManager.setKey(trimmed, for: "openai")
+        hasOpenAIKey = true
+        maskedOpenAIKey = Self.maskKey(trimmed)
+    }
+
+    func clearOpenAIKey() {
+        APIKeyManager.deleteKey(for: "openai")
+        hasOpenAIKey = false
+        maskedOpenAIKey = ""
+    }
+
+    func saveElevenLabsKey(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        APIKeyManager.setKey(trimmed, for: "elevenlabs")
+        hasElevenLabsKey = true
+        maskedElevenLabsKey = Self.maskKey(trimmed)
+    }
+
+    func clearElevenLabsKey() {
+        APIKeyManager.deleteKey(for: "elevenlabs")
+        hasElevenLabsKey = false
+        maskedElevenLabsKey = ""
+    }
+
     func setImageGenModel(_ model: String) {
         selectedImageGenModel = model
         UserDefaults.standard.set(model, forKey: "selectedImageGenModel")
-        try? daemonClient?.sendImageGenModelSet(model: model)
+        do {
+            try daemonClient?.sendImageGenModelSet(model: model)
+        } catch {
+            log.error("Failed to send image gen model set: \(error)")
+        }
     }
 
     func refreshAPIKeyState() {
@@ -297,6 +371,14 @@ public final class SettingsStore: ObservableObject {
         let imageGenKey = APIKeyManager.getKey(for: "gemini")
         hasImageGenKey = imageGenKey != nil
         maskedImageGenKey = Self.maskKey(imageGenKey)
+
+        let openaiKey = APIKeyManager.getKey(for: "openai")
+        hasOpenAIKey = openaiKey != nil
+        maskedOpenAIKey = Self.maskKey(openaiKey)
+
+        let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
+        hasElevenLabsKey = elevenLabsKey != nil
+        maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
     }
 
     /// Shows the first 10 and last 4 characters of a key, e.g. "sk-ant-api...Ab1x".
@@ -316,40 +398,68 @@ public final class SettingsStore: ObservableObject {
     func saveVercelKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        try? daemonClient?.sendVercelApiConfig(action: "set", apiToken: trimmed)
+        do {
+            try daemonClient?.sendVercelApiConfig(action: "set", apiToken: trimmed)
+        } catch {
+            log.error("Failed to send Vercel API config set: \(error)")
+        }
     }
 
     func clearVercelKey() {
-        try? daemonClient?.sendVercelApiConfig(action: "delete")
+        do {
+            try daemonClient?.sendVercelApiConfig(action: "delete")
+        } catch {
+            log.error("Failed to send Vercel API config delete: \(error)")
+        }
     }
 
     func refreshVercelKeyState() {
-        try? daemonClient?.sendVercelApiConfig(action: "get")
+        do {
+            try daemonClient?.sendVercelApiConfig(action: "get")
+        } catch {
+            log.error("Failed to send Vercel API config get: \(error)")
+        }
     }
 
     // MARK: - Twitter Integration Actions
 
     func refreshTwitterStatus() {
-        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "get"))
+        do {
+            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "get"))
+        } catch {
+            log.error("Failed to send Twitter integration config get: \(error)")
+        }
     }
 
     func setTwitterMode(_ mode: String) {
-        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "set_mode", mode: mode))
+        do {
+            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "set_mode", mode: mode))
+        } catch {
+            log.error("Failed to send Twitter set_mode: \(error)")
+        }
     }
 
     func saveTwitterLocalClient(clientId: String, clientSecret: String?) {
         let trimmedId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedSecret = clientSecret?.trimmingCharacters(in: .whitespacesAndNewlines)
-        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(
-            action: "set_local_client",
-            clientId: trimmedId,
-            clientSecret: trimmedSecret
-        ))
+        do {
+            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(
+                action: "set_local_client",
+                clientId: trimmedId,
+                clientSecret: trimmedSecret
+            ))
+        } catch {
+            log.error("Failed to send Twitter set_local_client: \(error)")
+        }
     }
 
     func clearTwitterLocalClient() {
         twitterAuthInProgress = false
-        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "clear_local_client"))
+        do {
+            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "clear_local_client"))
+        } catch {
+            log.error("Failed to send Twitter clear_local_client: \(error)")
+        }
     }
 
     func connectTwitter() {
@@ -368,13 +478,21 @@ public final class SettingsStore: ObservableObject {
 
     func disconnectTwitter() {
         twitterAuthInProgress = false
-        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "disconnect"))
+        do {
+            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "disconnect"))
+        } catch {
+            log.error("Failed to send Twitter disconnect: \(error)")
+        }
     }
 
     // MARK: - Ingress Config Actions
 
     func refreshIngressConfig() {
-        try? daemonClient?.send(IngressConfigRequestMessage(action: "get"))
+        do {
+            try daemonClient?.send(IngressConfigRequestMessage(action: "get"))
+        } catch {
+            log.error("Failed to send ingress config get: \(error)")
+        }
     }
 
     func saveIngressPublicBaseUrl(_ raw: String) {
@@ -383,8 +501,26 @@ public final class SettingsStore: ObservableObject {
         // in SettingsPanel/SettingsView reads the new value instead of reverting
         // the text field to a stale URL. The daemon's success response
         // (handled by onIngressConfigResponse) will confirm or correct.
+        let previous = ingressPublicBaseUrl
         ingressPublicBaseUrl = trimmed
-        try? daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed))
+        pendingIngressUrl = previous
+        do {
+            try daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed, enabled: ingressEnabled))
+        } catch {
+            // IPC send failed — roll back the optimistic update
+            ingressPublicBaseUrl = previous
+            pendingIngressUrl = nil
+        }
+    }
+
+    func setIngressEnabled(_ enabled: Bool) {
+        ingressEnabled = enabled
+        pendingIngressEnabled = enabled
+        do {
+            try daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: ingressPublicBaseUrl, enabled: enabled))
+        } catch {
+            log.error("Failed to send ingress config set (enabled): \(error)")
+        }
     }
 
     // MARK: - Model Actions
@@ -434,7 +570,11 @@ public final class SettingsStore: ObservableObject {
         existingMediaEmbeds["videoAllowlistDomains"] = normalized
         existingUI["mediaEmbeds"] = existingMediaEmbeds
 
-        try? WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
+        do {
+            try WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
+        } catch {
+            log.error("Failed to merge workspace config for video allowlist domains: \(error)")
+        }
     }
 
     /// Writes the current `mediaEmbedsEnabled` and `mediaEmbedsEnabledSince` to
@@ -460,7 +600,11 @@ public final class SettingsStore: ObservableObject {
         }
         existingUI["mediaEmbeds"] = existingMediaEmbeds
 
-        try? WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
+        do {
+            try WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
+        } catch {
+            log.error("Failed to merge workspace config for media embed state: \(error)")
+        }
     }
 
     // MARK: - Media Embed Loading

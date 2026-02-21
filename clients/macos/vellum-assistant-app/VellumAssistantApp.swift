@@ -10,7 +10,10 @@ struct VellumAssistantApp: App {
             SettingsView(store: appDelegate.services.settingsStore, daemonClient: appDelegate.services.daemonClient)
         }
         .commands {
-            CommandGroup(after: .appInfo) {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Vellum") {
+                    appDelegate.showAboutPanel()
+                }
                 Button("Check for Updates...") {
                     appDelegate.updateManager.checkForUpdates()
                 }

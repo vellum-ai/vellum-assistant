@@ -79,6 +79,23 @@ ensure_bun() {
     success "bun installed ($(bun --version))"
 }
 
+install_vellum() {
+    if command -v vellum >/dev/null 2>&1; then
+        info "Updating vellum to latest..."
+        bun install -g vellum@latest
+    else
+        info "Installing vellum globally..."
+        bun install -g vellum@latest
+    fi
+
+    if ! command -v vellum >/dev/null 2>&1; then
+        error "vellum installation failed. Please install manually: bun install -g vellum"
+        exit 1
+    fi
+
+    success "vellum installed ($(vellum --version 2>/dev/null || echo 'unknown'))"
+}
+
 main() {
     printf "\n"
     printf '  %bVellum Installer%b\n' "$BOLD" "$RESET"
@@ -86,13 +103,14 @@ main() {
 
     ensure_git
     ensure_bun
+    install_vellum
 
     info "Running vellum hatch..."
     printf "\n"
     if [ -n "${VELLUM_SSH_USER:-}" ] && [ "$(id -u)" = "0" ]; then
-        su - "$VELLUM_SSH_USER" -c "set -a; [ -f \"\$HOME/.vellum/.env\" ] && . \"\$HOME/.vellum/.env\"; set +a; export PATH=\"$HOME/.bun/bin:\$PATH\"; bunx vellum hatch"
+        su - "$VELLUM_SSH_USER" -c "set -a; [ -f \"\$HOME/.vellum/.env\" ] && . \"\$HOME/.vellum/.env\"; set +a; export PATH=\"$HOME/.bun/bin:\$PATH\"; vellum hatch"
     else
-        bunx vellum hatch
+        vellum hatch
     fi
 }
 

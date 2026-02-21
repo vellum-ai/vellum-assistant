@@ -32,6 +32,20 @@ extension ChatViewModel {
         "command", "file_path", "path", "query", "url", "pattern", "glob"
     ]
 
+    /// Substrings that indicate a tool failed because the OS denied permission.
+    /// This lets the UI reconcile "allowed" confirmations that still fail at
+    /// execution time (for example: user clicked Always Allow, then denied the
+    /// macOS Accessibility prompt).
+    private static let osPermissionDeniedIndicators: [String] = [
+        "accessibility permission not granted",
+        "accessibility permission denied",
+        "screen recording permission denied",
+        "full disk access",
+        "operation not permitted",
+        "permission denied",
+        "not authorized"
+    ]
+
     /// Extract the most relevant tool input value as a full string (no truncation).
     /// Redacts values for sensitive keys to prevent credential leakage into inputSummary.
     func extractToolInput(_ input: [String: AnyCodable]) -> String {
@@ -332,6 +346,39 @@ extension ChatViewModel {
         }
     }
 
+    /// Returns true when a tool error string looks like a macOS/TCC permission denial.
+    private static func isOSPermissionDeniedError(_ result: String) -> Bool {
+        let normalized = result.lowercased()
+        return osPermissionDeniedIndicators.contains { normalized.contains($0) }
+    }
+
+    /// If the user approved a confirmation but execution still failed due OS
+    /// permission denial, update the nearby confirmation so the UI does not
+    /// incorrectly show it as approved.
+    private func downgradeAdjacentApprovedConfirmationForPermissionDeniedError(
+        assistantMessageIndex: Int,
+        toolResult: String,
+        isError: Bool
+    ) {
+        guard isError, Self.isOSPermissionDeniedError(toolResult) else { return }
+
+        var index = assistantMessageIndex + 1
+        while index < messages.count {
+            // Stay within this turn.
+            if messages[index].role == .user { break }
+
+            guard messages[index].confirmation != nil else {
+                index += 1
+                continue
+            }
+
+            if messages[index].confirmation?.state == .approved {
+                messages[index].confirmation?.state = .denied
+            }
+            return
+        }
+    }
+
     public func handleServerMessage(_ message: ServerMessage) {
         switch message {
         case .sessionInfo(let info):
@@ -408,6 +455,9 @@ extension ChatViewModel {
             }
             isThinking = false
             currentAssistantHasText = true
+            if pendingVoiceMessage {
+                onVoiceTextDelta?(delta.text)
+            }
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 if lastContentWasToolCall || messages[index].textSegments.isEmpty {
@@ -666,13 +716,8 @@ extension ChatViewModel {
             // so assistantTextDelta tags the response correctly.
             if let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId),
                let index = messages.firstIndex(where: { $0.id == messageId }) {
-                // Move the dequeued message to the end so it appears after the
-                // agent's response to the previous message, preserving chronological order.
-                var message = messages.remove(at: index)
-                message.status = .processing
-                message.timestamp = Date()
-                messages.append(message)
-                currentTurnUserText = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                messages[index].status = .processing
+                currentTurnUserText = messages[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             // Recompute positions for remaining queued messages
             for i in messages.indices {
@@ -959,6 +1004,11 @@ extension ChatViewModel {
                 // When a claude_code tool completes, mark any remaining in-progress sub-steps
                 // as done. This handles timeouts, crashes, and lost tool_complete events.
                 let toolErrored = msg.isError ?? false
+                downgradeAdjacentApprovedConfirmationForPermissionDeniedError(
+                    assistantMessageIndex: msgIndex,
+                    toolResult: truncatedResult,
+                    isError: toolErrored
+                )
                 for stepIdx in messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.indices {
                     if !messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIdx].isComplete {
                         messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps[stepIdx].isComplete = true

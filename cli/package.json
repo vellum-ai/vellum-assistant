@@ -1,8 +1,14 @@
 {
   "name": "@vellumai/cli",
-  "version": "0.1.8",
+  "version": "0.1.13",
   "description": "CLI tools for vellum-assistant",
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json",
+    "./src/components/DefaultMainScreen": "./src/components/DefaultMainScreen.tsx",
+    "./src/lib/constants": "./src/lib/constants.ts"
+  },
   "bin": {
     "vellum-cli": "./src/index.ts"
   },
@@ -14,7 +20,8 @@
   "license": "MIT",
   "dependencies": {
     "ink": "^6.7.0",
-    "react": "^19.2.4"
+    "react": "^19.2.4",
+    "react-devtools-core": "^6.1.2"
   },
   "devDependencies": {
     "@types/bun": "^1.2.4",

@@ -40,8 +40,6 @@ export type GatewayConfig = {
   /** Canonical public ingress base URL, used for webhook signature reconstruction. */
   ingressPublicBaseUrl: string | undefined;
   unmappedPolicy: "reject" | "default";
-  /** The gateway's own public-facing URL (e.g. http://<external-ip>:7830). */
-  publicUrl?: string;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -136,11 +134,14 @@ export function loadConfig(): GatewayConfig {
   }
   const runtimeProxyRequireAuth = proxyRequireAuthRaw !== "false";
 
+  // Gateway -> runtime auth should use the same daemon-issued token source as
+  // runtime-proxy auth, unless explicitly overridden by env vars.
+  const runtimeTokenFromFile = readHttpTokenFile() || undefined;
   const runtimeBearerToken =
-    process.env.RUNTIME_BEARER_TOKEN || undefined;
+    process.env.RUNTIME_BEARER_TOKEN || runtimeTokenFromFile;
 
   const runtimeProxyBearerToken =
-    process.env.RUNTIME_PROXY_BEARER_TOKEN || readHttpTokenFile() || undefined;
+    process.env.RUNTIME_PROXY_BEARER_TOKEN || runtimeTokenFromFile;
 
   const MAX_TIMEOUT_MS = 2_147_483_647; // 2^31 - 1, max safe setTimeout delay
 
@@ -207,12 +208,6 @@ export function loadConfig(): GatewayConfig {
   }
 
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN || undefined;
-  const publicUrl = process.env.GATEWAY_PUBLIC_URL || undefined;
-
-  // In the default local deployment, the assistant's hatch process sets this
-  // env var from config.ingress.publicBaseUrl when spawning the gateway.
-  // This ensures the gateway reconstructs the same canonical URL that the
-  // assistant used to register Twilio webhooks, preventing signature mismatch.
   const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
 
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
@@ -238,7 +233,7 @@ export function loadConfig(): GatewayConfig {
       runtimeProxyEnabled,
       runtimeProxyRequireAuth,
       hasTwilioAuthToken: !!twilioAuthToken,
-      publicUrl,
+      ingressPublicBaseUrl,
     },
     "Configuration loaded",
   );
@@ -266,7 +261,6 @@ export function loadConfig(): GatewayConfig {
     telegramMaxRetries,
     telegramTimeoutMs,
     telegramWebhookSecret,
-    publicUrl,
     twilioAuthToken,
     ingressPublicBaseUrl,
     unmappedPolicy,

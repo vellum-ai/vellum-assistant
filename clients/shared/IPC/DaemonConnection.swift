@@ -16,8 +16,8 @@ extension DaemonClient {
 
     /// Connect to the daemon. If already connected, disconnects first.
     /// - macOS (socket): Connects to Unix domain socket at `~/.vellum/vellum.sock`
-    /// - macOS (http): Connects to remote assistant via HTTP REST + SSE
-    /// - iOS: Connects to TCP endpoint (hostname from UserDefaults or localhost:8765)
+    /// - HTTP: Connects to remote assistant via HTTP REST + SSE (both platforms)
+    /// - iOS (tcp): Connects to TCP endpoint (hostname from UserDefaults or localhost:8765)
     public func connect() async throws {
         // Disconnect any existing connection without triggering reconnect.
         disconnectInternal(triggerReconnect: false)
@@ -25,18 +25,37 @@ extension DaemonClient {
         isConnecting = true
         shouldReconnect = true
 
-        #if os(macOS)
-        // Check if we should use HTTP transport for a remote assistant.
+        // Check if we should use HTTP transport for a remote assistant (both platforms).
         if case .http(let baseURL, let bearerToken, let conversationKey) = config.transport {
             try await connectHTTP(baseURL: baseURL, bearerToken: bearerToken, conversationKey: conversationKey)
             return
         }
 
-        log.info("Connecting to daemon socket at \(self.config.socketPath, privacy: .public)")
-        let endpoint = NWEndpoint.unix(path: self.config.socketPath)
-        let parameters = NWParameters()
-        parameters.defaultProtocolStack.transportProtocol = NWProtocolTCP.Options()
+        let endpoint: NWEndpoint
+        let parameters: NWParameters
+
+        #if os(macOS)
+        if case .socket(let path) = config.transport {
+            log.info("Connecting to daemon socket at \(path, privacy: .public)")
+            endpoint = NWEndpoint.unix(path: path)
+            parameters = NWParameters()
+            parameters.defaultProtocolStack.transportProtocol = NWProtocolTCP.Options()
+        } else if case .tcp(let h, let p, let tls, _) = config.transport {
+            log.info("Connecting to daemon at \(h):\(p) (tls=\(tls))")
+            endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(h), port: NWEndpoint.Port(integerLiteral: p))
+            parameters = tls ? .tls : .tcp
+        } else {
+            isConnecting = false
+            return
+        }
         #elseif os(iOS)
+        // HTTP transport is already handled above; only TCP should reach here on iOS.
+        guard case .tcp(let configHostname, let configPort, let configTls, _) = config.transport else {
+            log.error("Unexpected transport type on iOS — HTTP should have been handled above")
+            isConnecting = false
+            return
+        }
+
         // Check UserDefaults first to pick up runtime changes, fall back to config
         // This allows reconnects to pick up changed settings while preserving custom configs for tests
         let hostname: String
@@ -45,14 +64,14 @@ extension DaemonClient {
         if let userHostname = UserDefaults.standard.string(forKey: "daemon_hostname"), !userHostname.isEmpty {
             hostname = userHostname
         } else {
-            hostname = self.config.hostname
+            hostname = configHostname
         }
 
         let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
         if rawPort > 0 && rawPort <= 65535 {
             port = UInt16(rawPort)
         } else {
-            port = self.config.port
+            port = configPort
         }
 
         // Also re-read TLS setting from UserDefaults on each connect to match hostname/port behaviour
@@ -60,15 +79,15 @@ extension DaemonClient {
         if UserDefaults.standard.object(forKey: "daemon_tls_enabled") != nil {
             tlsEnabled = UserDefaults.standard.bool(forKey: "daemon_tls_enabled")
         } else {
-            tlsEnabled = self.config.tlsEnabled
+            tlsEnabled = configTls
         }
 
         log.info("Connecting to daemon at \(hostname):\(port) (tls=\(tlsEnabled))")
-        let endpoint = NWEndpoint.hostPort(
+        endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(hostname),
             port: NWEndpoint.Port(integerLiteral: port)
         )
-        let parameters: NWParameters = tlsEnabled ? .tls : .tcp
+        parameters = tlsEnabled ? .tls : .tcp
         #else
         #error("DaemonClient is only supported on macOS and iOS")
         #endif
@@ -184,7 +203,12 @@ extension DaemonClient {
 
     #if os(macOS)
     func authenticate() async throws {
-        guard let token = readSessionToken() else {
+        // Try session-token file first, then fall back to transport's configured authToken
+        let transportToken: String? = {
+            if case .tcp(_, _, _, let t) = config.transport { return t }
+            return nil
+        }()
+        guard let token = readSessionToken() ?? transportToken else {
             throw AuthError.missingToken
         }
 
@@ -264,9 +288,8 @@ extension DaemonClient {
     }
     #endif
 
-    // MARK: - HTTP Transport (macOS only)
+    // MARK: - HTTP Transport
 
-    #if os(macOS)
     /// Connect to a remote assistant via HTTP REST + SSE.
     /// Used when `config.transport` is `.http`.
     func connectHTTP(baseURL: String, bearerToken: String?, conversationKey: String) async throws {
@@ -305,7 +328,6 @@ extension DaemonClient {
             throw error
         }
     }
-    #endif
 
     // MARK: - Disconnect
 
@@ -338,10 +360,8 @@ extension DaemonClient {
         isBlobTransportAvailable = false
         isAuthenticated = false
 
-        #if os(macOS)
         httpTransport?.disconnect()
         httpTransport = nil
-        #endif
 
         if let conn = connection {
             conn.stateUpdateHandler = nil

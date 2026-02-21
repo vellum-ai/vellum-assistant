@@ -131,23 +131,35 @@ final class ComputerUseSession: ObservableObject {
             case .computerUse: "computer_use"
             case .textQA: "text_qa"
             }
-            try? daemonClient.send(CuSessionCreateMessage(
-                sessionId: id,
-                task: task,
-                screenWidth: Int(screenSize.width),
-                screenHeight: Int(screenSize.height),
-                attachments: ipcAttachments,
-                interactionType: interactionTypeString
-            ))
+            do {
+                try daemonClient.send(CuSessionCreateMessage(
+                    sessionId: id,
+                    task: task,
+                    screenWidth: Int(screenSize.width),
+                    screenHeight: Int(screenSize.height),
+                    attachments: ipcAttachments,
+                    interactionType: interactionTypeString
+                ))
+            } catch {
+                log.error("Failed to send session create message: \(error)")
+            }
         }
 
         // 3. Initial perceive + send first observation
         let obs = await buildObservation(executionResult: nil, executionError: nil)
         if let obs {
-            try? daemonClient.send(obs)
+            do {
+                try daemonClient.send(obs)
+            } catch {
+                log.error("Failed to send initial observation: \(error)")
+            }
         } else {
             state = .failed(reason: "No focused window and screen capture failed")
-            try? daemonClient.send(CuSessionAbortMessage(sessionId: id))
+            do {
+                try daemonClient.send(CuSessionAbortMessage(sessionId: id))
+            } catch {
+                log.error("Failed to send session abort message: \(error)")
+            }
             logger.finishSession(result: "failed: no window")
             return
         }
@@ -321,7 +333,11 @@ final class ComputerUseSession: ObservableObject {
             // Send observation with block error so daemon can adapt
             let obs = await buildObservation(executionResult: nil, executionError: "BLOCKED: \(reason)")
             if let obs {
-                try? daemonClient.send(obs)
+                do {
+                    try daemonClient.send(obs)
+                } catch {
+                    log.error("Failed to send blocked observation: \(error)")
+                }
             }
             state = .thinking(step: action.stepNumber + 1, maxSteps: maxSteps)
             return
@@ -362,7 +378,11 @@ final class ComputerUseSession: ObservableObject {
         // PERCEIVE + send next observation
         let obs = await buildObservation(executionResult: executionResult, executionError: executionError)
         if let obs {
-            try? daemonClient.send(obs)
+            do {
+                try daemonClient.send(obs)
+            } catch {
+                log.error("Failed to send observation after action execution: \(error)")
+            }
         }
 
         state = .thinking(step: action.stepNumber + 1, maxSteps: maxSteps)
@@ -739,7 +759,11 @@ final class ComputerUseSession: ObservableObject {
         verifier.resetBlockCount()
         let obs = await buildObservation(executionResult: nil, executionError: message)
         if let obs {
-            try? daemonClient.send(obs)
+            do {
+                try daemonClient.send(obs)
+            } catch {
+                log.error("Failed to send recoverable execution error observation: \(error)")
+            }
         }
         state = .thinking(step: stepNumber + 1, maxSteps: maxSteps)
     }
@@ -898,7 +922,11 @@ final class ComputerUseSession: ObservableObject {
         confirmationContinuation?.resume(returning: false)
         confirmationContinuation = nil
         // Tell the daemon to abort the server-side CU session so it stops burning tokens
-        try? daemonClient.send(CuSessionAbortMessage(sessionId: id))
+        do {
+            try daemonClient.send(CuSessionAbortMessage(sessionId: id))
+        } catch {
+            log.error("Failed to send session abort on cancel: \(error)")
+        }
     }
 
     func approveConfirmation() {

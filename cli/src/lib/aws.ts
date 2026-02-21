@@ -556,11 +556,29 @@ async function getInstanceIdByName(
   }
 }
 
+async function checkAwsCliAvailable(): Promise<boolean> {
+  try {
+    await execOutput("aws", ["--version"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function retireInstance(
   name: string,
   region: string,
   source?: string,
 ): Promise<void> {
+  const awsOk = await checkAwsCliAvailable();
+  if (!awsOk) {
+    throw new Error(
+      `Cannot retire AWS instance '${name}': AWS CLI is not installed or not in PATH. ` +
+        `Please install the AWS CLI and try again, or terminate the instance manually ` +
+        `via the AWS Console (region=${region}).`,
+    );
+  }
+
   const instanceId = await getInstanceIdByName(name, region);
   if (!instanceId) {
     console.warn(

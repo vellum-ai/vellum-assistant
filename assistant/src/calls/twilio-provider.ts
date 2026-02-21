@@ -45,8 +45,13 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
       To: opts.to,
       Url: opts.webhookUrl,
       StatusCallback: opts.statusCallbackUrl,
-      StatusCallbackEvent: 'initiated ringing answered completed',
     });
+    // Twilio expects repeated StatusCallbackEvent params, not a single
+    // space-delimited string.
+    body.append('StatusCallbackEvent', 'initiated');
+    body.append('StatusCallbackEvent', 'ringing');
+    body.append('StatusCallbackEvent', 'answered');
+    body.append('StatusCallbackEvent', 'completed');
 
     const reservedKeys = new Set(['From', 'To', 'Url', 'StatusCallback', 'StatusCallbackEvent']);
     if (opts.customParams) {

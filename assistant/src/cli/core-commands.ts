@@ -555,15 +555,23 @@ export function registerDoctorCommand(program: Command): void {
 
       // 11. WASM files
       const wasmFiles = [
-        'node_modules/web-tree-sitter/web-tree-sitter.wasm',
-        'node_modules/tree-sitter-bash/tree-sitter-bash.wasm',
+        { pkg: 'web-tree-sitter', file: 'web-tree-sitter.wasm' },
+        { pkg: 'tree-sitter-bash', file: 'tree-sitter-bash.wasm' },
       ];
       let wasmOk = true;
       const missingWasm: string[] = [];
       for (const wasm of wasmFiles) {
-        const fullPath = `${import.meta.dirname}/../../${wasm}`;
+        const dir = import.meta.dirname ?? __dirname;
+        let fullPath = `${dir}/../../node_modules/${wasm.pkg}/${wasm.file}`;
+        // In compiled binaries, fall back to Resources/ or next to the binary
+        if (!existsSync(fullPath) && dir.startsWith('/$bunfs/')) {
+          const { dirname: pathDirname, join: pathJoin } = await import('node:path');
+          const execDir = pathDirname(process.execPath);
+          const resourcesPath = pathJoin(execDir, '..', 'Resources', wasm.file);
+          fullPath = existsSync(resourcesPath) ? resourcesPath : pathJoin(execDir, wasm.file);
+        }
         if (!existsSync(fullPath)) {
-          missingWasm.push(wasm);
+          missingWasm.push(wasm.file);
           wasmOk = false;
         } else {
           try {

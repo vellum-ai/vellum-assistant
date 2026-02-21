@@ -12,13 +12,16 @@ import {
   getCallSession,
   updateCallSession,
   recordCallEvent,
+  expirePendingQuestions,
 } from './call-store.js';
 import { CallOrchestrator } from './call-orchestrator.js';
+import { fireCallTranscriptNotifier, fireCallCompletionNotifier } from './call-state.js';
 import {
   extractPromptSpeakerMetadata,
   SpeakerIdentityTracker,
   type PromptSpeakerContext,
 } from './speaker-identification.js';
+import { isTerminalState } from './call-state-machine.js';
 
 const log = getLogger('relay-server');
 
@@ -228,6 +231,44 @@ export class RelayConnection {
     log.info({ callSessionId: this.callSessionId }, 'RelayConnection destroyed');
   }
 
+  /**
+   * Handle transport-level close from the relay websocket.
+   *
+   * Twilio status callbacks are best-effort; if they are delayed or absent,
+   * we still finalize the call lifecycle from the relay close signal.
+   */
+  handleTransportClosed(code?: number, reason?: string): void {
+    const session = getCallSession(this.callSessionId);
+    if (!session) return;
+    if (isTerminalState(session.status)) return;
+
+    const isNormalClose = code === 1000;
+    if (isNormalClose) {
+      updateCallSession(this.callSessionId, {
+        status: 'completed',
+        endedAt: Date.now(),
+      });
+      recordCallEvent(this.callSessionId, 'call_ended', {
+        reason: reason || 'relay_closed',
+        closeCode: code,
+      });
+    } else {
+      const detail = reason || (code ? `relay_closed_${code}` : 'relay_closed_abnormal');
+      updateCallSession(this.callSessionId, {
+        status: 'failed',
+        endedAt: Date.now(),
+        lastError: `Relay websocket closed unexpectedly: ${detail}`,
+      });
+      recordCallEvent(this.callSessionId, 'call_failed', {
+        reason: detail,
+        closeCode: code,
+      });
+    }
+
+    expirePendingQuestions(this.callSessionId);
+    fireCallCompletionNotifier(session.conversationId, this.callSessionId);
+  }
+
   // ── Private handlers ─────────────────────────────────────────────
 
   private async handleSetup(msg: RelaySetupMessage): Promise<void> {
@@ -239,7 +280,16 @@ export class RelayConnection {
     // Store the callSid association on the call session
     const session = getCallSession(this.callSessionId);
     if (session) {
-      updateCallSession(this.callSessionId, { providerCallSid: msg.callSid });
+      const updates: Parameters<typeof updateCallSession>[1] = {
+        providerCallSid: msg.callSid,
+      };
+      if (!isTerminalState(session.status) && session.status !== 'in_progress' && session.status !== 'waiting_on_user') {
+        updates.status = 'in_progress';
+        if (!session.startedAt) {
+          updates.startedAt = Date.now();
+        }
+      }
+      updateCallSession(this.callSessionId, updates);
     }
 
     recordCallEvent(this.callSessionId, 'call_connected', {
@@ -285,6 +335,11 @@ export class RelayConnection {
       speakerConfidence: speaker.speakerConfidence,
       speakerSource: speaker.source,
     });
+
+    const session = getCallSession(this.callSessionId);
+    if (session) {
+      fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'caller', msg.voicePrompt);
+    }
 
     // Route to orchestrator for LLM-driven response
     if (this.orchestrator) {

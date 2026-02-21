@@ -2,6 +2,7 @@
 name: "Telegram Setup"
 description: "Connect a Telegram bot to the Vellum Assistant gateway with automated webhook registration and credential storage"
 user-invocable: true
+includes: ["public-ingress"]
 metadata: {"vellum": {"emoji": "\ud83e\udd16"}}
 ---
 
@@ -10,7 +11,7 @@ You are helping your user connect a Telegram bot to the Vellum Assistant gateway
 ## What You Need
 
 1. **Bot token** from Telegram's @BotFather (the user provides this)
-2. **Gateway webhook URL** — derived from the canonical ingress setting: `${ingress.publicBaseUrl}/webhooks/telegram`. The gateway is the only publicly reachable endpoint; Telegram sends webhooks to the gateway, which validates and forwards them to the assistant runtime internally. If `ingress.publicBaseUrl` is configured (Settings UI > Public Ingress, or `INGRESS_PUBLIC_BASE_URL` env var), use it to auto-derive the webhook URL. If it is not configured, ask the user to set it before proceeding.
+2. **Gateway webhook URL** — derived from the canonical ingress setting: `${ingress.publicBaseUrl}/webhooks/telegram`. The gateway is the only publicly reachable endpoint; Telegram sends webhooks to the gateway, which validates and forwards them to the assistant runtime internally. If `ingress.publicBaseUrl` is not configured, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the URL before continuing.
 
 If the user has already provided the bot token in the conversation, use it directly. Otherwise, ask for it.
 

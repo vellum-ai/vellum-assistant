@@ -506,6 +506,16 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     subagentId: 'sub-001',
     conversationId: 'conv-001',
   },
+  workspace_files_list: {
+    type: 'workspace_files_list',
+  },
+  workspace_file_read: {
+    type: 'workspace_file_read',
+    path: 'IDENTITY.md',
+  },
+  identity_get: {
+    type: 'identity_get',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1141,6 +1151,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   ingress_config_response: {
     type: 'ingress_config_response',
+    enabled: true,
     publicBaseUrl: 'https://example.com',
     localGatewayTarget: 'http://127.0.0.1:7830',
     success: true,
@@ -1449,12 +1460,35 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   subagent_detail_response: {
     type: 'subagent_detail_response',
     subagentId: 'sub-001',
+    objective: 'Search for documentation',
     events: [
       {
-        type: 'assistant_text_delta',
-        content: 'Searching for docs...',
+        type: 'tool_use',
+        content: 'Reading file...',
+        toolName: 'read_file',
+        isError: false,
       },
     ],
+  },
+  workspace_files_list_response: {
+    type: 'workspace_files_list_response',
+    files: [
+      { path: 'IDENTITY.md', name: 'IDENTITY.md', exists: true },
+    ],
+  },
+  workspace_file_read_response: {
+    type: 'workspace_file_read_response',
+    path: 'IDENTITY.md',
+    content: '# My Identity',
+  },
+  identity_get_response: {
+    type: 'identity_get_response',
+    found: true,
+    name: 'Vex',
+    role: 'AI assistant',
+    personality: 'Friendly',
+    emoji: '✨',
+    home: '~/workspace',
   },
 };
 

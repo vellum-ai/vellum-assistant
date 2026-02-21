@@ -30,7 +30,7 @@ struct WakeUpStepView: View {
 
     var body: some View {
         // Title
-        Text("Create your Velly")
+        Text("Create your Vellum")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.textPrimary)
             .opacity(showTitle ? 1 : 0)

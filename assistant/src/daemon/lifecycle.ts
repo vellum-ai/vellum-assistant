@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { cpSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, openSync, closeSync, chmodSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, openSync, closeSync, chmodSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
 import { config as dotenvConfig } from 'dotenv';
 import * as Sentry from '@sentry/node';
 import {
@@ -21,6 +22,7 @@ import { initializeProviders } from '../providers/registry.js';
 import { initializeTools } from '../tools/registry.js';
 import { loadConfig } from '../config/loader.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
+import { loadPrebuiltHtml } from '../home-base/prebuilt/seed.js';
 import { DaemonServer } from './server.js';
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
 import { getLogger, initLogger } from '../util/logger.js';
@@ -271,11 +273,38 @@ export async function runDaemon(): Promise<void> {
 
   log.info('Daemon startup: migrations complete');
 
-  const seedDir = process.env.INTERFACES_SEED_DIR?.trim();
-  if (seedDir && existsSync(seedDir)) {
-    const interfacesDir = getInterfacesDir();
-    cpSync(seedDir, interfacesDir, { recursive: true });
-    log.info({ seedDir, interfacesDir }, 'Seeded initial interface files');
+  // Seed the TUI main-window interface from the CLI package's DefaultMainScreen
+  // component so the remote runtime can serve it without the old INTERFACES_SEED
+  // environment variable.
+  const tuiDir = join(getInterfacesDir(), 'tui');
+  const mainWindowPath = join(tuiDir, 'main-window.tsx');
+  if (!existsSync(mainWindowPath)) {
+    try {
+      const require = createRequire(import.meta.url);
+      const cliPkgPath = require.resolve('@vellumai/cli/package.json');
+      const cliRoot = dirname(cliPkgPath);
+      const source = readFileSync(join(cliRoot, 'src', 'components', 'DefaultMainScreen.tsx'), 'utf-8');
+      mkdirSync(tuiDir, { recursive: true });
+      writeFileSync(mainWindowPath, source);
+      log.info('Seeded tui/main-window.tsx from @vellumai/cli');
+    } catch (err) {
+      log.warn({ err }, 'Could not seed tui/main-window.tsx from CLI package');
+    }
+  }
+
+  // Seed the vellum-desktop interface from the prebuilt Home Base HTML if it
+  // doesn't already exist. This ensures the Home tab renders immediately
+  // on first launch for both local and remote hatches.
+  const desktopIndexPath = join(getInterfacesDir(), 'vellum-desktop', 'index.html');
+  if (!existsSync(desktopIndexPath)) {
+    const prebuiltHtml = loadPrebuiltHtml();
+    if (prebuiltHtml) {
+      mkdirSync(join(getInterfacesDir(), 'vellum-desktop'), { recursive: true });
+      writeFileSync(desktopIndexPath, prebuiltHtml);
+      log.info('Seeded vellum-desktop/index.html from prebuilt Home Base');
+    } else {
+      log.warn('Could not seed vellum-desktop/index.html — prebuilt HTML not found (missing embedded index.html in home-base/prebuilt/)');
+    }
   }
 
   log.info('Daemon startup: installing templates and initializing DB');

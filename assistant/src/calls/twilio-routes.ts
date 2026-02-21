@@ -24,6 +24,10 @@ import { isTerminalState } from './call-state-machine.js';
 import { getTwilioConfig } from './twilio-config.js';
 import { loadConfig } from '../config/loader.js';
 import { getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
+import { fireCallCompletionNotifier } from './call-state.js';
+import { resolveVoiceQualityProfile } from './voice-quality.js';
+import { getElevenLabsConfig } from './elevenlabs-config.js';
+import { ElevenLabsClient } from './elevenlabs-client.js';
 
 const log = getLogger('twilio-routes');
 
@@ -38,17 +42,22 @@ function escapeXml(str: string): string {
     .replace(/'/g, '&apos;');
 }
 
-function generateTwiML(callSessionId: string, relayUrl: string, welcomeGreeting: string): string {
+export function generateTwiML(
+  callSessionId: string,
+  relayUrl: string,
+  welcomeGreeting: string,
+  profile: { language: string; transcriptionProvider: string; ttsProvider: string; voice: string },
+): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
     <ConversationRelay
       url="${escapeXml(relayUrl)}?callSessionId=${escapeXml(callSessionId)}"
       welcomeGreeting="${escapeXml(welcomeGreeting)}"
-      voice="Google.en-US-Journey-O"
-      language="en-US"
-      transcriptionProvider="Deepgram"
-      ttsProvider="Google"
+      voice="${escapeXml(profile.voice)}"
+      language="${escapeXml(profile.language)}"
+      transcriptionProvider="${escapeXml(profile.transcriptionProvider)}"
+      ttsProvider="${escapeXml(profile.ttsProvider)}"
       interruptible="true"
       dtmfDetection="true"
     />
@@ -74,9 +83,12 @@ export function resolveRelayUrl(wssBaseUrl: string, webhookBaseUrl: string): str
  */
 function mapTwilioStatus(twilioStatus: string): CallStatus | null {
   switch (twilioStatus) {
+    case 'initiated':
     case 'queued':
+      return 'initiated';
     case 'ringing':
       return 'ringing';
+    case 'answered':
     case 'in-progress':
       return 'in_progress';
     case 'completed':
@@ -127,6 +139,14 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     log.info({ callSessionId, callSid }, 'Stored CallSid from voice webhook');
   }
 
+  const profile = resolveVoiceQualityProfile(loadConfig());
+
+  log.info({ callSessionId, mode: profile.mode, ttsProvider: profile.ttsProvider, voice: profile.voice }, 'Voice quality profile resolved');
+
+  if (profile.validationErrors.length > 0) {
+    log.warn({ callSessionId, errors: profile.validationErrors }, 'Voice quality profile has validation warnings');
+  }
+
   const twilioConfig = getTwilioConfig();
   let relayUrl: string;
   try {
@@ -137,7 +157,40 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   }
   const welcomeGreeting = process.env.CALL_WELCOME_GREETING ?? 'Hello, how can I help you today?';
 
-  const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting);
+  if (profile.mode === 'elevenlabs_agent') {
+    try {
+      const elevenLabsConfig = getElevenLabsConfig();
+      const client = new ElevenLabsClient({
+        apiBaseUrl: elevenLabsConfig.apiBaseUrl,
+        apiKey: elevenLabsConfig.apiKey,
+        timeoutMs: elevenLabsConfig.registerCallTimeoutMs,
+      });
+
+      const result = await client.registerCall({
+        agent_id: elevenLabsConfig.agentId,
+        from_number: formBody.get('From') || session.fromNumber,
+        to_number: formBody.get('To') || session.toNumber,
+        direction: 'outbound',
+      });
+
+      log.info({ callSessionId }, 'ElevenLabs register-call succeeded');
+      return new Response(result.twiml, {
+        status: 200,
+        headers: { 'Content-Type': 'text/xml' },
+      });
+    } catch (err) {
+      log.error({ err, callSessionId }, 'ElevenLabs register-call failed');
+      if (profile.fallbackToStandardOnError) {
+        log.warn({ callSessionId }, 'Falling back to twilio_standard mode');
+        const standardProfile = resolveVoiceQualityProfile({ ...loadConfig(), calls: { ...loadConfig().calls, voice: { ...loadConfig().calls.voice, mode: 'twilio_standard' } } });
+        const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, standardProfile);
+        return new Response(twiml, { status: 200, headers: { 'Content-Type': 'text/xml' } });
+      }
+      return new Response('ElevenLabs service unavailable', { status: 502 });
+    }
+  }
+
+  const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, profile);
 
   log.info({ callSessionId }, 'Returning ConversationRelay TwiML');
 
@@ -189,6 +242,8 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
   }
 
   try {
+    const wasTerminal = isTerminalState(session.status);
+
     // Build updates
     const updates: Parameters<typeof updateCallSession>[1] = {
       status: mappedStatus,
@@ -218,6 +273,10 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
     // Expire pending questions on terminal status
     if (isTerminal) {
       expirePendingQuestions(session.id);
+
+      if (!wasTerminal) {
+        fireCallCompletionNotifier(session.conversationId, session.id);
+      }
     }
 
     // Mark the claim as permanently processed so it never expires.
@@ -255,4 +314,3 @@ export async function handleConnectAction(_req: Request): Promise<Response> {
     },
   );
 }
-

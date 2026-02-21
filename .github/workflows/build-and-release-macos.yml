@@ -92,6 +92,8 @@ jobs:
             -output ../clients/macos/daemon-bin/vellum-daemon
           rm ../clients/macos/daemon-bin/vellum-daemon-arm64 ../clients/macos/daemon-bin/vellum-daemon-x64
           chmod +x ../clients/macos/daemon-bin/vellum-daemon
+          cp node_modules/web-tree-sitter/web-tree-sitter.wasm ../clients/macos/daemon-bin/
+          cp node_modules/tree-sitter-bash/tree-sitter-bash.wasm ../clients/macos/daemon-bin/
           echo "Daemon universal binary built:"
           ls -lh ../clients/macos/daemon-bin/vellum-daemon
           file ../clients/macos/daemon-bin/vellum-daemon
@@ -101,8 +103,10 @@ jobs:
         run: |
           bun install
           bun build --compile --target=bun-darwin-arm64 src/index.ts \
+            --external react-devtools-core \
             --outfile ../clients/macos/cli-bin/vellum-cli-arm64
           bun build --compile --target=bun-darwin-x64 src/index.ts \
+            --external react-devtools-core \
             --outfile ../clients/macos/cli-bin/vellum-cli-x64
           lipo -create \
             ../clients/macos/cli-bin/vellum-cli-arm64 \

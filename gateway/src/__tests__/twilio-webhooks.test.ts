@@ -33,7 +33,6 @@ const makeConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
   maxAttachmentConcurrency: 3,
   twilioAuthToken: AUTH_TOKEN,
   ingressPublicBaseUrl: undefined,
-  publicUrl: undefined,
   ...overrides,
 });
 
@@ -60,6 +59,7 @@ function buildSignedRequest(
   url: string,
   params: Record<string, string>,
   authToken: string,
+  extraHeaders: Record<string, string> = {},
 ): Request {
   const body = new URLSearchParams(params).toString();
   const signature = computeSignature(url, params, authToken);
@@ -68,6 +68,7 @@ function buildSignedRequest(
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       "X-Twilio-Signature": signature,
+      ...extraHeaders,
     },
     body,
   });
@@ -378,5 +379,45 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
 
     const res = await handler(req);
     expect(res.status).toBe(403);
+  });
+
+  test("accepts signature from forwarded public URL headers when configured URL is stale", async () => {
+    mockFetch(() =>
+      Promise.resolve(
+        new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
+      ),
+    );
+
+    const staleConfiguredBase = "https://stale.example.com";
+    const config = makeConfig({ ingressPublicBaseUrl: staleConfiguredBase });
+    const handler = createTwilioVoiceWebhookHandler(config);
+
+    const localUrl = "http://localhost:7830/webhooks/twilio/voice";
+    const forwardedBase = "https://fresh-tunnel.example.com";
+    const signedPublicUrl = `${forwardedBase}/webhooks/twilio/voice`;
+    const params = { CallSid: "CA123" };
+    const req = buildSignedRequest(
+      signedPublicUrl,
+      params,
+      AUTH_TOKEN,
+      {
+        "X-Forwarded-Proto": "https",
+        "X-Forwarded-Host": "fresh-tunnel.example.com",
+      },
+    );
+
+    // Gateway receives the local URL from the tunnel, but should still
+    // validate against the forwarded public URL headers.
+    const tunneledReq = new Request(localUrl, {
+      method: req.method,
+      headers: req.headers,
+      body: await req.text(),
+    });
+
+    const res = await handler(tunneledReq);
+    expect(res.status).toBe(200);
   });
 });

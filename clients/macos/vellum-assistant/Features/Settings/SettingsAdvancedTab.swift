@@ -16,6 +16,8 @@ struct SettingsAdvancedTab: View {
     @State private var isRetiring: Bool = false
     @State private var lockfileAssistants: [LockfileAssistant] = []
     @State private var selectedAssistantId: String = ""
+    @State private var identity: IdentityInfo?
+    @State private var remoteIdentity: RemoteIdentityInfo?
     #if DEBUG
     @State private var showingEnvVars = false
     @State private var appEnvVars: [(String, String)] = []
@@ -24,12 +26,14 @@ struct SettingsAdvancedTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
+            assistantInfoSection
             computerUsageSection
             privateThreadSection
             archivedThreadsSection
             iosDeviceSection
             switchAssistantSection
             retireAssistantSection
+            hatchNewAssistantSection
 
             #if DEBUG
             developerSection
@@ -40,12 +44,24 @@ struct SettingsAdvancedTab: View {
             sessionToken = (try? String(contentsOfFile: tokenPath, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            identity = IdentityInfo.load()
+
+            if identity == nil, let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }), assistant.isRemote {
+                Task {
+                    remoteIdentity = await daemonClient?.fetchRemoteIdentity()
+                }
+            }
         }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Retire", role: .destructive) {
                 isRetiring = true
-                NSApp.sendAction(#selector(AppDelegate.performRetire), to: nil, from: nil)
+                Task {
+                    let completed = await AppDelegate.shared?.performRetireAsync() ?? false
+                    if !completed {
+                        isRetiring = false
+                    }
+                }
             }
         } message: {
             if lockfileAssistants.count > 1 {
@@ -78,6 +94,76 @@ struct SettingsAdvancedTab: View {
             daemonClient?.onEnvVarsResponse = nil
         }
         #endif
+    }
+
+    // MARK: - Assistant Info
+
+    private var assistantInfoSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Assistant Info")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) {
+                infoRow(label: "Assistant ID", value: assistant.assistantId, mono: true)
+
+                let home = assistant.home
+                homeRow(home: home)
+            }
+
+            // Process status (child view observes @Published changes)
+            if let daemonClient {
+                DaemonStatusRows(daemonClient: daemonClient)
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    private func infoRow(label: String, value: String, mono: Bool = false) -> some View {
+        HStack(alignment: .top) {
+            Text(label)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .frame(width: 100, alignment: .leading)
+
+            Text(value)
+                .font(mono ? VFont.mono : VFont.body)
+                .foregroundColor(VColor.textPrimary)
+                .textSelection(.enabled)
+
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private func homeRow(home: AssistantHome) -> some View {
+        HStack(alignment: .top) {
+            Text("Home")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .frame(width: 100, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text(home.displayLabel)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+
+                ForEach(Array(home.displayDetails.enumerated()), id: \.offset) { _, detail in
+                    HStack(spacing: VSpacing.xs) {
+                        Text(detail.label + ":")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        Text(detail.value)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.textSecondary)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+
+            Spacer()
+        }
     }
 
     // MARK: - Computer Usage
@@ -262,7 +348,7 @@ struct SettingsAdvancedTab: View {
     }
 
     private func switchToAssistant(_ assistant: LockfileAssistant) {
-        (NSApp.delegate as? AppDelegate)?.performSwitchAssistant(to: assistant)
+        AppDelegate.shared?.performSwitchAssistant(to: assistant)
         onClose()
     }
 
@@ -297,6 +383,37 @@ struct SettingsAdvancedTab: View {
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Hatch New Assistant
+
+    @ViewBuilder
+    private var hatchNewAssistantSection: some View {
+        if FeatureFlagManager.shared.isEnabled(.hatchNewAssistantEnabled) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Hatch New Assistant")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                HStack {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Hatch a new assistant")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Text("Starts the initial setup flow to create a new assistant.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    Spacer()
+                    VButton(label: "Hatch...", style: .primary) {
+                        AppDelegate.shared?.replayOnboarding()
+                        onClose()
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+        }
     }
 
     // MARK: - Developer (Debug Only)
@@ -342,4 +459,51 @@ struct SettingsAdvancedTab: View {
         }
     }
     #endif
+}
+
+// MARK: - Daemon Status Rows
+
+/// Extracted child view so SwiftUI observes `DaemonClient`'s `@Published`
+/// properties and re-renders when connection or memory status changes.
+private struct DaemonStatusRows: View {
+    @ObservedObject var daemonClient: DaemonClient
+
+    var body: some View {
+        statusRow(
+            label: "Daemon",
+            isHealthy: daemonClient.isConnected,
+            detail: daemonClient.isConnected
+                ? "Connected" + (daemonClient.daemonVersion.map { " (v\($0))" } ?? "")
+                : "Disconnected"
+        )
+
+        if let memoryStatus = daemonClient.latestMemoryStatus {
+            statusRow(
+                label: "Memory",
+                isHealthy: memoryStatus.enabled && !memoryStatus.degraded,
+                detail: !memoryStatus.enabled ? "Disabled"
+                    : memoryStatus.degraded ? "Degraded\(memoryStatus.reason.map { " — \($0)" } ?? "")"
+                    : "Healthy"
+            )
+        }
+    }
+
+    private func statusRow(label: String, isHealthy: Bool, detail: String) -> some View {
+        HStack(alignment: .center) {
+            Text(label)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .frame(width: 100, alignment: .leading)
+
+            Circle()
+                .fill(isHealthy ? VColor.success : VColor.error)
+                .frame(width: 8, height: 8)
+
+            Text(detail)
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+
+            Spacer()
+        }
+    }
 }

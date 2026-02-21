@@ -26,6 +26,10 @@ import type {
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
 
+// Snapshot the env-provided value at module load time so we can restore it
+// when the user clears a Settings-set override.
+const ORIGINAL_INGRESS_ENV = process.env.INGRESS_PUBLIC_BASE_URL;
+
 export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
   const config = getConfig();
   const configured = Object.keys(config.apiKeys).filter((k) => !!config.apiKeys[k]);
@@ -416,7 +420,8 @@ export function handleIngressConfig(
       const raw = loadRawConfig();
       const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
       const publicBaseUrl = (ingress.publicBaseUrl as string) ?? '';
-      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl, localGatewayTarget, success: true });
+      const enabled = (ingress.enabled as boolean) ?? false;
+      ctx.send(socket, { type: 'ingress_config_response', enabled, publicBaseUrl, localGatewayTarget, success: true });
     } else if (msg.action === 'set') {
       const value = (msg.publicBaseUrl ?? '').trim().replace(/\/+$/, '');
       const raw = loadRawConfig();
@@ -424,10 +429,13 @@ export function handleIngressConfig(
       // Update ingress.publicBaseUrl — this is the single source of truth for
       // the canonical public ingress URL. The gateway receives this value via
       // the INGRESS_PUBLIC_BASE_URL env var at spawn time (see hatch.ts).
-      // A gateway restart is required for the new value to take effect in
-      // inbound Twilio signature validation.
+      // The gateway also validates Twilio signatures against forwarded public
+      // URL headers, so local tunnel updates generally apply without restarts.
       const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
       ingress.publicBaseUrl = value || undefined;
+      if (msg.enabled !== undefined) {
+        ingress.enabled = msg.enabled;
+      }
 
       const wasSuppressed = ctx.suppressConfigReload;
       ctx.setSuppressConfigReload(true);
@@ -443,24 +451,27 @@ export function handleIngressConfig(
       ctx.debounceTimers.set('__suppress_reset__', resetTimer);
 
       // Propagate to the gateway's process environment so it picks up the
-      // new URL on its next config load. For the local-deployment path the
+      // new URL when it is restarted. For the local-deployment path the
       // gateway runs as a child process that inherited the assistant's env,
       // so updating process.env here ensures the value is visible when the
       // gateway is restarted (e.g. by the self-upgrade skill or a manual
       // `pkill -f gateway`).
       if (value) {
         process.env.INGRESS_PUBLIC_BASE_URL = value;
+      } else if (ORIGINAL_INGRESS_ENV !== undefined) {
+        process.env.INGRESS_PUBLIC_BASE_URL = ORIGINAL_INGRESS_ENV;
+      } else {
+        delete process.env.INGRESS_PUBLIC_BASE_URL;
       }
-      // When cleared, do NOT delete the env var — the original env-provided
-      // value (if any) serves as a fallback per the documented precedence model.
 
-      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: value, localGatewayTarget, success: true });
+      const enabled = (ingress.enabled as boolean) ?? false;
+      ctx.send(socket, { type: 'ingress_config_response', enabled, publicBaseUrl: value, localGatewayTarget, success: true });
     } else {
-      ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
+      ctx.send(socket, { type: 'ingress_config_response', enabled: false, publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    ctx.send(socket, { type: 'ingress_config_response', publicBaseUrl: '', localGatewayTarget, success: false, error: message });
+    ctx.send(socket, { type: 'ingress_config_response', enabled: false, publicBaseUrl: '', localGatewayTarget, success: false, error: message });
   }
 }
 

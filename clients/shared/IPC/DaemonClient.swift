@@ -46,8 +46,14 @@ func resolveSessionTokenPath(environment: [String: String]? = nil) -> String {
 /// Read the daemon session token from disk.
 func readSessionToken(environment: [String: String]? = nil) -> String? {
     let tokenPath = resolveSessionTokenPath(environment: environment)
-    guard let data = try? Data(contentsOf: URL(fileURLWithPath: tokenPath)),
-          let token = String(data: data, encoding: .utf8)?
+    let data: Data
+    do {
+        data = try Data(contentsOf: URL(fileURLWithPath: tokenPath))
+    } catch {
+        log.error("Failed to read session token from \(tokenPath): \(error)")
+        return nil
+    }
+    guard let token = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
           !token.isEmpty else {
         return nil
@@ -401,9 +407,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// HTTP transport used when connecting to a remote assistant via gateway.
     /// Non-nil when `config.transport` is `.http`.
-    #if os(macOS)
     var httpTransport: HTTPTransport?
-    #endif
 
     let encoder = JSONEncoder()
     let decoder = JSONDecoder()
@@ -495,7 +499,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return
         }
 
-        #if os(macOS)
         // Route through HTTP transport when active (remote assistants).
         if let httpTransport {
             guard httpTransport.isConnected else {
@@ -504,7 +507,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             try httpTransport.send(message)
             return
         }
-        #endif
 
         guard let conn = connection else {
             log.warning("Cannot send: not connected")
@@ -924,6 +926,124 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Send a link_open_request to the daemon, requesting it open a URL externally.
     public func sendLinkOpenRequest(url: String, metadata: [String: AnyCodable]?) throws {
         try send(LinkOpenRequestMessage(url: url, metadata: metadata))
+    }
+
+    // MARK: - Remote Identity
+
+    /// Fetch identity info from the daemon.
+    /// Uses HTTP transport directly when available, otherwise falls back to IPC.
+    public func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
+        // If HTTP transport is active, use its direct endpoint
+        if let httpTransport {
+            return await httpTransport.fetchRemoteIdentity()
+        }
+
+        // Fall back to IPC-based identity fetch (TCP connections)
+        let stream = subscribe()
+        do {
+            try sendIdentityGet()
+        } catch {
+            return nil
+        }
+
+        // Race the stream against a 10-second timeout so we don't wait forever
+        // if the daemon doesn't support this message.
+        let response: IdentityGetResponseMessage? = await withTaskGroup(of: IdentityGetResponseMessage?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .identityGetResponse(let msg) = message {
+                        return msg
+                    }
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        guard let response, response.found != false else { return nil }
+        return RemoteIdentityInfo(
+            name: response.name,
+            role: response.role,
+            personality: response.personality,
+            emoji: response.emoji,
+            version: response.version,
+            assistantId: response.assistantId,
+            home: response.home,
+            createdAt: response.createdAt,
+            originSystem: response.originSystem
+        )
+    }
+
+    /// Request identity info via IPC.
+    public func sendIdentityGet() throws {
+        try send(IdentityGetRequestMessage())
+    }
+
+    // MARK: - Interface Files
+
+    /// Fetch an interface file from the daemon via HTTP (`GET /v1/interfaces/<path>`).
+    /// Uses `httpTransport` for remote assistants or `httpPort` for local connections.
+    /// Returns the file content as a string, or `nil` if the file does not exist.
+    public func fetchInterfaceFile(path: String) async -> String? {
+        let baseURL: String
+        let bearerToken: String?
+
+        if let httpTransport {
+            baseURL = httpTransport.baseURL
+            bearerToken = httpTransport.bearerToken
+        } else if let port = httpPort {
+            baseURL = "http://localhost:\(port)"
+            // Read local bearer token from disk
+            let tokenBase: String
+            if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !baseDir.isEmpty {
+                tokenBase = baseDir
+            } else {
+                tokenBase = NSHomeDirectory()
+            }
+            let tokenPath = tokenBase + "/.vellum/http-token"
+            do {
+                bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                log.error("Failed to read HTTP bearer token from \(tokenPath): \(error)")
+                bearerToken = nil
+            }
+        } else {
+            return nil
+        }
+
+        guard let url = URL(string: "\(baseURL)/v1/interfaces/\(path)") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        if let token = bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            return String(data: data, encoding: .utf8)
+        } catch {
+            return nil
+        }
+    }
+
+    // MARK: - Workspace Files
+
+    /// Request the list of workspace files from the daemon.
+    public func sendWorkspaceFilesList() throws {
+        try send(WorkspaceFilesListRequestMessage())
+    }
+
+    /// Request the content of a workspace file from the daemon.
+    public func sendWorkspaceFileRead(path: String) throws {
+        try send(WorkspaceFileReadRequestMessage(path: path))
     }
 
     // MARK: - Document Persistence

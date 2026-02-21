@@ -45,6 +45,10 @@ gh pr create --base main --title "<PR title>" --body "$(cat <<'EOF'
 ## Summary
 <1-3 bullet points>
 
+<If $ARGUMENTS is non-empty, include the following section>
+## Original prompt
+$ARGUMENTS
+
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )" --assignee @me

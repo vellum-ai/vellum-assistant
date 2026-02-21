@@ -170,6 +170,9 @@ if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
         DAEMON_BIN_NEEDS_BUILD=true
     elif [ -n "$(find "$ASSISTANT_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/daemon-bin/vellum-daemon" -print -quit 2>/dev/null)" ]; then
         DAEMON_BIN_NEEDS_BUILD=true
+    elif [ "$ASSISTANT_SRC_DIR/package.json" -nt "$SCRIPT_DIR/daemon-bin/vellum-daemon" ] || \
+         [ "$ASSISTANT_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
+        DAEMON_BIN_NEEDS_BUILD=true
     fi
 fi
 if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
@@ -180,6 +183,9 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
       --external electron --external "chromium-bidi/*" \
       --outfile "$SCRIPT_DIR/daemon-bin/vellum-daemon"
     chmod +x "$SCRIPT_DIR/daemon-bin/vellum-daemon"
+    # Copy WASM assets next to daemon binary (not bundled by bun --compile)
+    cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
+    cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
     echo "Daemon binary built: $SCRIPT_DIR/daemon-bin/vellum-daemon"
 fi
 
@@ -197,6 +203,9 @@ if [ -d "$CLI_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     if [ ! -f "$SCRIPT_DIR/cli-bin/vellum-cli" ]; then
         CLI_BIN_NEEDS_BUILD=true
     elif [ -n "$(find "$CLI_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/cli-bin/vellum-cli" -print -quit 2>/dev/null)" ]; then
+        CLI_BIN_NEEDS_BUILD=true
+    elif [ "$CLI_SRC_DIR/package.json" -nt "$SCRIPT_DIR/cli-bin/vellum-cli" ] || \
+         [ "$CLI_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/cli-bin/vellum-cli" ]; then
         CLI_BIN_NEEDS_BUILD=true
     fi
 fi
@@ -233,6 +242,10 @@ if [ "$NEEDS_REBUILD" = true ]; then
         echo "Bundling daemon binary..."
         cp "$DAEMON_BIN" "$MACOS_DIR/vellum-daemon"
         chmod +x "$MACOS_DIR/vellum-daemon"
+        # Bundle WASM assets into Resources (not embedded by bun --compile)
+        for wasm in "$SCRIPT_DIR/daemon-bin/"*.wasm; do
+            [ -f "$wasm" ] && cp "$wasm" "$RESOURCES_DIR/"
+        done
     else
         echo "No daemon binary at $DAEMON_BIN — skipping (dev mode)"
     fi
@@ -329,6 +342,11 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <true/>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

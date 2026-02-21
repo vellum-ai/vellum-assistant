@@ -6,6 +6,8 @@ import {
   HOME_BASE_PREBUILT_DESCRIPTION_PREFIX,
   isPrebuiltHomeBaseApp,
 } from '../prebuilt-home-base-updater.js';
+// Static import so the JSON is bundled into compiled binaries (avoids ENOENT on $bunfs)
+import seedMetadataJson from './seed-metadata.json' with { type: 'json' };
 
 const log = getLogger('home-base-seed');
 
@@ -26,12 +28,16 @@ function getPrebuiltDir(): string {
 }
 
 function loadSeedMetadata(): SeedMetadata {
-  const raw = readFileSync(join(getPrebuiltDir(), 'seed-metadata.json'), 'utf-8');
-  return JSON.parse(raw) as SeedMetadata;
+  return seedMetadataJson as SeedMetadata;
 }
 
-function loadPrebuiltHtml(): string {
-  return readFileSync(join(getPrebuiltDir(), 'index.html'), 'utf-8');
+export function loadPrebuiltHtml(): string | null {
+  try {
+    return readFileSync(join(getPrebuiltDir(), 'index.html'), 'utf-8');
+  } catch {
+    log.warn('Could not load prebuilt index.html (expected in compiled binary)');
+    return null;
+  }
 }
 
 function buildDescription(metadata: SeedMetadata): string {
@@ -80,7 +86,7 @@ export function getPrebuiltHomeBaseTaskPayload(): PrebuiltHomeBaseTaskPayload {
   };
 }
 
-export function ensurePrebuiltHomeBaseSeeded(): { appId: string; created: boolean } {
+export function ensurePrebuiltHomeBaseSeeded(): { appId: string; created: boolean } | null {
   const existing = findSeededHomeBaseApp();
   if (existing) {
     return { appId: existing.id, created: false };
@@ -88,6 +94,11 @@ export function ensurePrebuiltHomeBaseSeeded(): { appId: string; created: boolea
 
   const metadata = loadSeedMetadata();
   const html = loadPrebuiltHtml();
+  if (html === null) {
+    log.warn('Skipping Home Base seed — prebuilt HTML not available');
+    return null;
+  }
+
   const created = createApp({
     name: metadata.appName,
     description: buildDescription(metadata),

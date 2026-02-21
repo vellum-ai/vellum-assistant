@@ -49,29 +49,34 @@ describe('home base bootstrap', () => {
 
   test('creates a durable Home Base link on first bootstrap', () => {
     const result = bootstrapHomeBaseAppLink();
+    expect(result).not.toBeNull();
     const link = getHomeBaseAppLink();
 
-    expect(result.linked).toBe(true);
+    expect(result!.linked).toBe(true);
     expect(link).not.toBeNull();
-    expect(link?.appId).toBe(result.appId);
-    expect(resolveHomeBaseAppId()).toBe(result.appId);
+    expect(link?.appId).toBe(result!.appId);
+    expect(resolveHomeBaseAppId()).toBe(result!.appId);
   });
 
   test('reuses existing link on repeated bootstrap calls', () => {
     const first = bootstrapHomeBaseAppLink();
     const second = bootstrapHomeBaseAppLink();
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
 
-    expect(second.appId).toBe(first.appId);
-    expect(second.created).toBe(false);
+    expect(second!.appId).toBe(first!.appId);
+    expect(second!.created).toBe(false);
   });
 
   test('relinks when stored app id is stale', () => {
     const first = bootstrapHomeBaseAppLink();
-    deleteApp(first.appId);
+    expect(first).not.toBeNull();
+    deleteApp(first!.appId);
 
     const second = bootstrapHomeBaseAppLink();
+    expect(second).not.toBeNull();
 
-    expect(second.appId).not.toBe(first.appId);
-    expect(getHomeBaseAppLink()?.appId).toBe(second.appId);
+    expect(second!.appId).not.toBe(first!.appId);
+    expect(getHomeBaseAppLink()?.appId).toBe(second!.appId);
   });
 });

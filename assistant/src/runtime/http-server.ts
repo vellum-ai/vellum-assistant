@@ -5,11 +5,13 @@
  * `RUNTIME_HTTP_PORT` is set (default: disabled).
  */
 
-import { existsSync, readFileSync, statfsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, statSync, statfsSync } from 'node:fs';
+import { resolve, join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
+import { getWorkspacePromptPath } from '../util/platform.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import { loadConfig } from '../config/loader.js';
 import { getPublicBaseUrl } from '../inbound/public-ingress-urls.js';
@@ -378,6 +380,7 @@ export class RuntimeHttpServer {
           log.info({ callSessionId, code, reason: reason?.toString() }, 'ConversationRelay WebSocket closed');
           if (callSessionId) {
             const connection = activeRelayConnections.get(callSessionId);
+            connection?.handleTransportClosed(code, reason?.toString());
             connection?.destroy();
             activeRelayConnections.delete(callSessionId);
           }
@@ -395,16 +398,9 @@ export class RuntimeHttpServer {
     }
 
     // Startup guard: log gateway-only mode warnings
-    try {
-      const config = loadConfig();
-      if (config.ingress.mode === 'gateway_only') {
-        log.info('Running in gateway-only ingress mode. Direct webhook routes disabled.');
-        if (!isLoopbackHost(this.hostname)) {
-          log.warn('gateway-only mode is enabled but RUNTIME_HTTP_HOST is not bound to loopback. This may expose the runtime to direct public access.');
-        }
-      }
-    } catch {
-      // Config loading may fail during startup — don't block server start
+    log.info('Running in gateway-only ingress mode. Direct webhook routes disabled.');
+    if (!isLoopbackHost(this.hostname)) {
+      log.warn('RUNTIME_HTTP_HOST is not bound to loopback. This may expose the runtime to direct public access.');
     }
 
     log.info({ port: this.actualPort, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
@@ -445,14 +441,13 @@ export class RuntimeHttpServer {
     // WebSocket upgrade for ConversationRelay — before auth check because
     // Twilio WebSocket connections don't use bearer tokens.
     if (path.startsWith('/v1/calls/relay') && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-      // In gateway_only mode, only allow relay connections from private network peers.
+      // Only allow relay connections from private network peers.
       // Primary check: actual peer address (cannot be spoofed) — accepts loopback
       // and RFC 1918/4193 private addresses to support container deployments.
       // Secondary check: Origin header (defense in depth).
-      const config = loadConfig();
-      if (config.ingress.mode === 'gateway_only' && (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req))) {
+      if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
         return Response.json(
-          { error: 'Direct relay access disabled in gateway-only mode', code: 'GATEWAY_ONLY' },
+          { error: 'Direct relay access disabled — only private network peers allowed', code: 'GATEWAY_ONLY' },
           { status: 403 },
         );
       }
@@ -486,11 +481,10 @@ export class RuntimeHttpServer {
     if (resolvedTwilioSubpath && req.method === 'POST') {
       const twilioSubpath = resolvedTwilioSubpath;
 
-      // In gateway_only mode, block direct Twilio webhook routes
-      const ingressConfig = loadConfig();
-      if (ingressConfig.ingress.mode === 'gateway_only' && GATEWAY_ONLY_BLOCKED_SUBPATHS.has(twilioSubpath)) {
+      // Block direct Twilio webhook routes — must go through the gateway
+      if (GATEWAY_ONLY_BLOCKED_SUBPATHS.has(twilioSubpath)) {
         return Response.json(
-          { error: 'Direct webhook access disabled in gateway-only mode. Use the gateway.', code: 'GATEWAY_ONLY' },
+          { error: 'Direct webhook access disabled. Use the gateway.', code: 'GATEWAY_ONLY' },
           { status: 410 },
         );
       }
@@ -617,6 +611,19 @@ export class RuntimeHttpServer {
     try {
       if (endpoint === 'health' && req.method === 'GET') {
         return this.handleHealth();
+      }
+
+      if (endpoint === 'conversations' && req.method === 'GET') {
+        const limit = Number(url.searchParams.get('limit') ?? 50);
+        const conversations = conversationStore.listConversations(limit);
+        return Response.json({
+          sessions: conversations.map((c) => ({
+            id: c.id,
+            title: c.title ?? 'Untitled',
+            updatedAt: c.updatedAt,
+            threadType: c.threadType === 'private' ? 'private' : 'standard',
+          })),
+        });
       }
 
       if (endpoint === 'messages' && req.method === 'GET') {
@@ -768,6 +775,10 @@ export class RuntimeHttpServer {
           body: formBody,
         });
         return await handleConnectAction(fakeReq);
+      }
+
+      if (endpoint === 'identity' && req.method === 'GET') {
+        return this.handleGetIdentity();
       }
 
       if (endpoint === 'events' && req.method === 'GET') {
@@ -923,6 +934,98 @@ export class RuntimeHttpServer {
         break;
       }
     }
+  }
+
+  private handleGetIdentity(): Response {
+    const identityPath = getWorkspacePromptPath('IDENTITY.md');
+    if (!existsSync(identityPath)) {
+      return Response.json({ error: 'IDENTITY.md not found' }, { status: 404 });
+    }
+
+    const content = readFileSync(identityPath, 'utf-8');
+    const fields: Record<string, string> = {};
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      const lower = trimmed.toLowerCase();
+      const extract = (prefix: string): string | null => {
+        if (!lower.startsWith(prefix)) return null;
+        return trimmed.split(':**').pop()?.trim() ?? null;
+      };
+
+      const name = extract('- **name:**');
+      if (name) { fields.name = name; continue; }
+      const role = extract('- **role:**');
+      if (role) { fields.role = role; continue; }
+      const personality = extract('- **personality:**') ?? extract('- **vibe:**');
+      if (personality) { fields.personality = personality; continue; }
+      const emoji = extract('- **emoji:**');
+      if (emoji) { fields.emoji = emoji; continue; }
+      const home = extract('- **home:**');
+      if (home) { fields.home = home; continue; }
+    }
+
+    // Read version from package.json
+    let version: string | undefined;
+    try {
+      const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+      version = pkg.version;
+    } catch {
+      // ignore
+    }
+
+    // Read createdAt from IDENTITY.md file birthtime
+    let createdAt: string | undefined;
+    try {
+      const stats = statSync(identityPath);
+      createdAt = stats.birthtime.toISOString();
+    } catch {
+      // ignore
+    }
+
+    // Read lockfile for assistantId, cloud, and originSystem
+    let assistantId: string | undefined;
+    let cloud: string | undefined;
+    let originSystem: string | undefined;
+    try {
+      const homedir = process.env.HOME ?? process.env.USERPROFILE ?? '';
+      const lockfilePaths = [
+        join(homedir, '.vellum.lock.json'),
+        join(homedir, '.vellum.lockfile.json'),
+      ];
+      for (const lockPath of lockfilePaths) {
+        if (!existsSync(lockPath)) continue;
+        const lockData = JSON.parse(readFileSync(lockPath, 'utf-8'));
+        const assistants = lockData.assistants as Array<Record<string, unknown>> | undefined;
+        if (assistants && assistants.length > 0) {
+          // Use the most recently hatched assistant
+          const sorted = [...assistants].sort((a, b) => {
+            const dateA = new Date(a.hatchedAt as string || 0).getTime();
+            const dateB = new Date(b.hatchedAt as string || 0).getTime();
+            return dateB - dateA;
+          });
+          const latest = sorted[0];
+          assistantId = latest.assistantId as string | undefined;
+          cloud = latest.cloud as string | undefined;
+          originSystem = cloud === 'local' ? 'local' : cloud;
+        }
+        break;
+      }
+    } catch {
+      // ignore — lockfile may not exist
+    }
+
+    return Response.json({
+      name: fields.name ?? '',
+      role: fields.role ?? '',
+      personality: fields.personality ?? '',
+      emoji: fields.emoji ?? '',
+      home: fields.home ?? '',
+      version,
+      assistantId,
+      createdAt,
+      originSystem,
+    });
   }
 
   private handleHealth(): Response {

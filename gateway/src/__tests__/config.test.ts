@@ -220,17 +220,41 @@ describe("config: runtime proxy flags", () => {
 });
 
 describe("config: runtime bearer token", () => {
-  test("runtimeBearerToken is undefined when RUNTIME_BEARER_TOKEN is unset", () => {
-    withEnv({}, () => {
+  test("runtimeBearerToken is undefined when env is unset and http-token file is missing", () => {
+    withEnv({ VELLUM_HTTP_TOKEN_PATH: "/nonexistent/http-token" }, () => {
       const config = loadConfig();
       expect(config.runtimeBearerToken).toBeUndefined();
     });
   });
 
   test("runtimeBearerToken is set from RUNTIME_BEARER_TOKEN env var", () => {
-    withEnv({ RUNTIME_BEARER_TOKEN: "rt-secret" }, () => {
+    withEnv({ RUNTIME_BEARER_TOKEN: "rt-secret", VELLUM_HTTP_TOKEN_PATH: "/nonexistent/http-token" }, () => {
       const config = loadConfig();
       expect(config.runtimeBearerToken).toBe("rt-secret");
     });
+  });
+
+  test("runtimeBearerToken is read from http-token file when env var is unset", () => {
+    withEnv({ VELLUM_HTTP_TOKEN_PATH: "/tmp/test-runtime-http-token" }, () => {
+      writeFileSync("/tmp/test-runtime-http-token", "runtime-file-token\n");
+      const config = loadConfig();
+      expect(config.runtimeBearerToken).toBe("runtime-file-token");
+      unlinkSync("/tmp/test-runtime-http-token");
+    });
+  });
+
+  test("RUNTIME_BEARER_TOKEN env var takes precedence over http-token file", () => {
+    withEnv(
+      {
+        RUNTIME_BEARER_TOKEN: "runtime-env-token",
+        VELLUM_HTTP_TOKEN_PATH: "/tmp/test-runtime-http-token-priority",
+      },
+      () => {
+        writeFileSync("/tmp/test-runtime-http-token-priority", "runtime-file-token");
+        const config = loadConfig();
+        expect(config.runtimeBearerToken).toBe("runtime-env-token");
+        unlinkSync("/tmp/test-runtime-http-token-priority");
+      },
+    );
   });
 });

@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 final class OnboardingWindow {
     private var window: NSWindow?
+    private var closeObserver: NSObjectProtocol?
     let state = OnboardingState()
     let daemonClient: DaemonClientProtocol
     let authManager: AuthManager
@@ -44,7 +45,7 @@ final class OnboardingWindow {
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 620),
-            styleMask: [.titled, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -72,6 +73,24 @@ final class OnboardingWindow {
         // Make the app a regular app so the window gets focus
         NSApp.setActivationPolicy(.regular)
 
+        // Trigger onComplete when the window is closed via the title bar
+        // close button so AppDelegate can clean up and transition the app.
+        closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.onComplete?(self.state)
+                if let observer = self.closeObserver {
+                    NotificationCenter.default.removeObserver(observer)
+                }
+                self.closeObserver = nil
+            }
+        }
+
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -79,6 +98,10 @@ final class OnboardingWindow {
     }
 
     func close() {
+        if let observer = closeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            closeObserver = nil
+        }
         window?.close()
         window = nil
     }

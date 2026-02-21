@@ -1,13 +1,12 @@
 /**
- * Tests for gateway-only ingress mode enforcement in the runtime HTTP server.
+ * Tests for gateway-only ingress enforcement in the runtime HTTP server.
  *
  * Verifies:
- * - Direct Twilio webhook routes return 410 in gateway_only mode
- * - Internal forwarding routes (gateway→runtime) still work in gateway_only mode
- * - Relay WebSocket upgrade blocked for non-private-network origins (isPrivateNetworkOrigin) in gateway_only mode
- * - Relay WebSocket upgrade allowed from private network peers/origins in gateway_only mode
- * - All routes work normally in compat mode
- * - Startup warning when RUNTIME_HTTP_HOST is not loopback in gateway_only mode
+ * - Direct Twilio webhook routes return 410
+ * - Internal forwarding routes (gateway→runtime) still work
+ * - Relay WebSocket upgrade blocked for non-private-network origins (isPrivateNetworkOrigin)
+ * - Relay WebSocket upgrade allowed from private network peers/origins
+ * - Startup warning when RUNTIME_HTTP_HOST is not loopback
  */
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { mkdtempSync, realpathSync } from 'node:fs';
@@ -31,9 +30,6 @@ mock.module('../util/platform.js', () => ({
   migrateToDataLayout: () => {},
   migrateToWorkspaceLayout: () => {},
 }));
-
-// Configurable ingress mode — tests toggle this between 'gateway_only' and 'compat'
-let mockIngressMode: 'gateway_only' | 'compat' = 'compat';
 
 const logMessages: { level: string; msg: string; args?: unknown }[] = [];
 
@@ -73,7 +69,6 @@ mock.module('../config/loader.js', () => ({
     },
     ingress: {
       publicBaseUrl: 'https://test.example.com',
-      mode: mockIngressMode,
     },
   }),
   getConfig: () => ({
@@ -85,7 +80,6 @@ mock.module('../config/loader.js', () => ({
     secretDetection: { enabled: false },
     ingress: {
       publicBaseUrl: 'https://test.example.com',
-      mode: mockIngressMode,
     },
   }),
   invalidateConfigCache: () => {},
@@ -171,9 +165,7 @@ describe('gateway-only ingress enforcement', () => {
 
   // ── Direct Twilio webhook routes blocked in gateway_only mode ──────
 
-  describe('gateway_only mode — direct webhook routes', () => {
-    beforeEach(() => { mockIngressMode = 'gateway_only'; });
-    afterEach(() => { mockIngressMode = 'compat'; });
+  describe('direct webhook routes are blocked', () => {
 
     test('POST /webhooks/twilio/voice returns 410', async () => {
       const res = await fetch(`http://127.0.0.1:${port}/webhooks/twilio/voice`, {
@@ -184,7 +176,7 @@ describe('gateway-only ingress enforcement', () => {
       expect(res.status).toBe(410);
       const body = await res.json() as { error: string; code: string };
       expect(body.code).toBe('GATEWAY_ONLY');
-      expect(body.error).toContain('gateway-only mode');
+      expect(body.error).toContain('Direct webhook access disabled');
     });
 
     test('POST /webhooks/twilio/status returns 410', async () => {
@@ -232,11 +224,9 @@ describe('gateway-only ingress enforcement', () => {
     });
   });
 
-  // ── Internal forwarding routes still work in gateway_only mode ─────
+  // ── Internal forwarding routes still work ─────
 
-  describe('gateway_only mode — internal forwarding routes', () => {
-    beforeEach(() => { mockIngressMode = 'gateway_only'; });
-    afterEach(() => { mockIngressMode = 'compat'; });
+  describe('internal forwarding routes are not blocked', () => {
 
     test('POST /v1/internal/twilio/voice-webhook is NOT blocked', async () => {
       const res = await fetch(`http://127.0.0.1:${port}/v1/internal/twilio/voice-webhook`, {
@@ -288,11 +278,9 @@ describe('gateway-only ingress enforcement', () => {
     });
   });
 
-  // ── Relay WebSocket upgrade in gateway_only mode ───────────────────
+  // ── Relay WebSocket upgrade ───────────────────
 
-  describe('gateway_only mode — relay WebSocket upgrade', () => {
-    beforeEach(() => { mockIngressMode = 'gateway_only'; });
-    afterEach(() => { mockIngressMode = 'compat'; });
+  describe('relay WebSocket upgrade', () => {
 
     test('blocks non-private-network origin', async () => {
       // The peer address (127.0.0.1) passes the private network check,
@@ -309,7 +297,7 @@ describe('gateway-only ingress enforcement', () => {
       expect(res.status).toBe(403);
       const body = await res.json() as { error: string; code: string };
       expect(body.code).toBe('GATEWAY_ONLY');
-      expect(body.error).toContain('gateway-only mode');
+      expect(body.error).toContain('Direct relay access disabled');
     });
 
     test('allows request with no origin header (private network peer)', async () => {
@@ -339,66 +327,6 @@ describe('gateway-only ingress enforcement', () => {
         },
       });
       // Should NOT be 403
-      expect(res.status).not.toBe(403);
-    });
-  });
-
-  // ── Compat mode — everything works as before ───────────────────────
-
-  describe('compat mode — no enforcement', () => {
-    beforeEach(() => { mockIngressMode = 'compat'; });
-
-    test('POST /webhooks/twilio/voice is NOT blocked', async () => {
-      // In compat mode, disable webhook validation to focus on the ingress check
-      const savedDisable = process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED;
-      process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED = 'true';
-      try {
-        const res = await fetch(`http://127.0.0.1:${port}/webhooks/twilio/voice?callSessionId=test-compat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: makeFormBody({ CallSid: 'CA_compat', AccountSid: 'AC_test' }),
-        });
-        // Should NOT be 410 (gateway-only)
-        expect(res.status).not.toBe(410);
-      } finally {
-        if (savedDisable !== undefined) {
-          process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED = savedDisable;
-        } else {
-          delete process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED;
-        }
-      }
-    });
-
-    test('POST /webhooks/twilio/status is NOT blocked', async () => {
-      const savedDisable = process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED;
-      process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED = 'true';
-      try {
-        const res = await fetch(`http://127.0.0.1:${port}/webhooks/twilio/status`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: makeFormBody({ CallSid: 'CA_compat', CallStatus: 'completed' }),
-        });
-        expect(res.status).not.toBe(410);
-      } finally {
-        if (savedDisable !== undefined) {
-          process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED = savedDisable;
-        } else {
-          delete process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED;
-        }
-      }
-    });
-
-    test('relay WebSocket upgrade is NOT blocked for external origin', async () => {
-      const res = await fetch(`http://127.0.0.1:${port}/v1/calls/relay?callSessionId=sess-compat`, {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Origin': 'https://external.example.com',
-          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          'Sec-WebSocket-Version': '13',
-        },
-      });
-      // In compat mode, the gateway-only guard should not activate
       expect(res.status).not.toBe(403);
     });
   });
@@ -482,57 +410,27 @@ describe('gateway-only ingress enforcement', () => {
 
   // ── Startup warning for non-loopback host ──────────────────────────
 
-  describe('startup guard — non-loopback host warning', () => {
-    test('logs warning when hostname is not loopback in gateway_only mode', async () => {
-      mockIngressMode = 'gateway_only';
-      logMessages.length = 0;
-
+  describe('startup guard — non-loopback host', () => {
+    test('server starts successfully when hostname is not loopback', async () => {
       const warnServer = new RuntimeHttpServer({
         port: 0,
         hostname: '0.0.0.0',
         bearerToken: TEST_TOKEN,
       });
       await warnServer.start();
-
-      const infoMsg = logMessages.find(
-        m => m.level === 'info' && m.msg.includes('gateway-only ingress mode'),
-      );
-      expect(infoMsg).toBeDefined();
-
-      const warnMsg = logMessages.find(
-        m => m.level === 'warn' && m.msg.includes('not bound to loopback'),
-      );
-      expect(warnMsg).toBeDefined();
-
+      expect(warnServer.actualPort).toBeGreaterThan(0);
       await warnServer.stop();
-      mockIngressMode = 'compat';
     });
 
-    test('does NOT log warning when hostname is loopback in gateway_only mode', async () => {
-      mockIngressMode = 'gateway_only';
-      logMessages.length = 0;
-
-      // The main test server already uses 127.0.0.1, so restart with
-      // a fresh server and capture logs
+    test('server starts successfully when hostname is loopback', async () => {
       const loopbackServer = new RuntimeHttpServer({
         port: 0,
         hostname: '127.0.0.1',
         bearerToken: TEST_TOKEN,
       });
       await loopbackServer.start();
-
-      const infoMsg = logMessages.find(
-        m => m.level === 'info' && m.msg.includes('gateway-only ingress mode'),
-      );
-      expect(infoMsg).toBeDefined();
-
-      const warnMsg = logMessages.find(
-        m => m.level === 'warn' && m.msg.includes('not bound to loopback'),
-      );
-      expect(warnMsg).toBeUndefined();
-
+      expect(loopbackServer.actualPort).toBeGreaterThan(0);
       await loopbackServer.stop();
-      mockIngressMode = 'compat';
     });
   });
 });

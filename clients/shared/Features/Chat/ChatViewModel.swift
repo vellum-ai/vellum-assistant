@@ -70,6 +70,10 @@ public final class ChatViewModel: ObservableObject {
     public var pendingVoiceMessage: Bool = false
     /// Called when a voice-triggered assistant response completes, with the response text.
     public var onVoiceResponseComplete: ((String) -> Void)?
+    /// Called with each streaming text delta during a voice-triggered response, for real-time TTS.
+    public var onVoiceTextDelta: ((String) -> Void)?
+    /// When true, messages are prefixed with a concise-response instruction for voice conversations.
+    public var isVoiceModeActive: Bool = false
     var pendingUserAttachments: [IPCAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
     private(set) var lastFailedMessageText: String?
@@ -174,6 +178,10 @@ public final class ChatViewModel: ObservableObject {
     /// Used by ThreadManager to auto-title the thread.
     public var onFirstUserMessage: ((String) -> Void)?
 
+    /// Called every time a user message is sent. Used by ThreadManager to
+    /// bump the thread's lastInteractedAt so it rises to the top of the list.
+    public var onUserMessageSent: (() -> Void)?
+
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false
 
@@ -234,22 +242,32 @@ public final class ChatViewModel: ObservableObject {
     // MARK: - Sending
 
     public func sendMessage() {
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = isVoiceModeActive
+            ? "[Voice conversation — keep spoken responses brief (2-3 sentences) but fully complete the task using any tools needed. Do not give up early. When interacting with macOS apps (Messages, Contacts, Calendar, Reminders, Notes, Mail, etc.), always use osascript with AppleScript — never query databases directly or use sqlite3.]\n\n\(rawText)"
+            : rawText
         let hasAttachments = !pendingAttachments.isEmpty
         let hasSkillInvocation = pendingSkillInvocation != nil
         guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
 
         // When "/model" or "/models" is sent, refresh model state so the picker/table has fresh data
         if (text == "/model" || text == "/models") && !hasSkillInvocation {
-            try? daemonClient.send(ModelGetRequestMessage())
+            do {
+                try daemonClient.send(ModelGetRequestMessage())
+            } catch {
+                log.error("Failed to send ModelGetRequest: \(error)")
+            }
         }
 
         // Fire auto-title callback on the first user message (skip slash commands
         // like /model so the thread title isn't set to a command string)
-        if !text.isEmpty, !text.hasPrefix("/"), let callback = onFirstUserMessage {
+        if !rawText.isEmpty, !rawText.hasPrefix("/"), let callback = onFirstUserMessage {
             onFirstUserMessage = nil
-            callback(text)
+            callback(rawText)
         }
+
+        // Notify ThreadManager so the thread rises to the top of the list
+        onUserMessageSent?()
 
         // Block rapid-fire only when bootstrapping with a queued message.
         // When a message-less bootstrap is in flight (e.g. private thread
@@ -265,7 +283,7 @@ public final class ChatViewModel: ObservableObject {
                     IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                 }
                 isThinking = true
-                messages.append(ChatMessage(role: .user, text: text, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments))
+                messages.append(ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments))
                 pendingSkillInvocation = nil
                 inputText = ""
                 suggestion = nil
@@ -279,7 +297,7 @@ public final class ChatViewModel: ObservableObject {
                 secretBlockedAttachments = nil
                 secretBlockedActiveSurfaceId = nil
                 secretBlockedCurrentPage = nil
-                currentTurnUserText = text
+                currentTurnUserText = rawText
                 return
             }
             pendingSkillInvocation = nil
@@ -297,7 +315,7 @@ public final class ChatViewModel: ObservableObject {
         var queuedMessageId: UUID?
         if !isWorkspaceRefinement {
             let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
-            let userMessage = ChatMessage(role: .user, text: text, status: status, skillInvocation: pendingSkillInvocation, attachments: attachments)
+            let userMessage = ChatMessage(role: .user, text: rawText, status: status, skillInvocation: pendingSkillInvocation, attachments: attachments)
             messages.append(userMessage)
             if willBeQueued {
                 pendingMessageIds.append(userMessage.id)
@@ -334,7 +352,7 @@ public final class ChatViewModel: ObservableObject {
         // response correctly (e.g. modelList for "/models") without scanning the
         // whole transcript. For queued messages this is set in messageDequeued.
         if !willBeQueued {
-            currentTurnUserText = text
+            currentTurnUserText = rawText
         }
 
         if sessionId == nil {
@@ -374,7 +392,7 @@ public final class ChatViewModel: ObservableObject {
                     self.bootstrapCorrelationId = nil
                     self.lastFailedMessageText = self.pendingUserMessage
                     self.lastFailedMessageAttachments = self.pendingUserAttachments
-                    self.lastFailedSendError = "Cannot connect to daemon. Please ensure it's running."
+                    self.lastFailedSendError = "Failed to connect to the assistant."
                     self.pendingUserMessage = nil
                     self.pendingUserAttachments = nil
                     self.errorText = self.lastFailedSendError
@@ -421,7 +439,7 @@ public final class ChatViewModel: ObservableObject {
             // retry). A queued retry failing must not clobber the active turn's
             // isSending/isThinking flags or show an error banner over it.
             if queuedMessageId == nil {
-                lastFailedSendError = "Cannot connect to daemon. Please ensure it's running."
+                lastFailedSendError = "Failed to connect to the assistant."
                 errorText = lastFailedSendError
             }
             // Remove the queued message ID to prevent stale FIFO entries
@@ -557,7 +575,11 @@ public final class ChatViewModel: ObservableObject {
         if messageLoopTask == nil {
             startMessageLoop()
         }
-        try? daemonClient.send(ModelSetRequestMessage(model: modelId))
+        do {
+            try daemonClient.send(ModelSetRequestMessage(model: modelId))
+        } catch {
+            log.error("Failed to send ModelSetRequest: \(error)")
+        }
     }
 
     // MARK: - Actions
@@ -570,7 +592,11 @@ public final class ChatViewModel: ObservableObject {
             actionId: actionId,
             data: data
         )
-        try? daemonClient.send(msg)
+        do {
+            try daemonClient.send(msg)
+        } catch {
+            log.error("Failed to send UiSurfaceAction: \(error)")
+        }
     }
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
@@ -758,7 +784,7 @@ public final class ChatViewModel: ObservableObject {
     public func regenerateLastMessage() {
         guard let sessionId, !isSending else { return }
         guard daemonClient.isConnected else {
-            errorText = "Cannot connect to daemon. Please ensure it's running."
+            errorText = "Failed to connect to the assistant."
             return
         }
 
@@ -961,7 +987,12 @@ public final class ChatViewModel: ObservableObject {
     /// validation, confirmation response failures, regenerate errors) from
     /// offering to resend a stale cached message.
     public var isRetryableError: Bool {
-        lastFailedMessageText != nil && lastFailedSendError != nil
+        lastFailedMessageText != nil && lastFailedSendError != nil && !isConnectionError
+    }
+
+    /// Whether the current error is a daemon/assistant connection failure.
+    public var isConnectionError: Bool {
+        lastFailedSendError == "Failed to connect to the assistant."
     }
 
     /// Whether the current error is a secret-ingress block that can be bypassed.
@@ -1222,13 +1253,28 @@ public final class ChatViewModel: ObservableObject {
                     // Use sessionId from the view model (assumes history is for current session)
                     if let sessionId = self.sessionId,
                        let surface = Surface.from(surf, sessionId: sessionId) {
+                        // Reconstruct a UiSurfaceShowMessage so the card remains
+                        // clickable after the app restarts (history restore).
+                        let reconstructedActions: [SurfaceActionData]? = surf.actions?.map { action in
+                            SurfaceActionData(id: action.id, label: action.label, style: action.style)
+                        }
+                        let reconstructedMessage = UiSurfaceShowMessage(
+                            sessionId: sessionId,
+                            surfaceId: surf.surfaceId,
+                            surfaceType: surf.surfaceType,
+                            title: surf.title,
+                            data: AnyCodable(surf.data.mapValues { $0.value }),
+                            actions: reconstructedActions,
+                            display: surf.display,
+                            messageId: item.id
+                        )
                         let inlineSurface = InlineSurfaceData(
                             id: surface.id,
                             surfaceType: surface.type,
                             title: surface.title,
                             data: surface.data,
                             actions: surface.actions,
-                            surfaceMessage: nil  // No IPC message for history surfaces
+                            surfaceMessage: reconstructedMessage
                         )
                         inlineSurfaces.append(inlineSurface)
                     }
@@ -1353,7 +1399,11 @@ public final class ChatViewModel: ObservableObject {
         }
         // Refresh model/provider state so the picker/table has correct data on restart
         if hasModelCommand {
-            try? daemonClient.send(ModelGetRequestMessage())
+            do {
+                try daemonClient.send(ModelGetRequestMessage())
+            } catch {
+                log.error("Failed to send ModelGetRequest: \(error)")
+            }
         }
 
         self.isLoadingHistory = true

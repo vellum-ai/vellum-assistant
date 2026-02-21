@@ -19,6 +19,8 @@ struct ChatView: View {
     let onDismissError: () -> Void
     let isRetryableError: Bool
     let onRetryError: () -> Void
+    let isConnectionError: Bool
+    let onOpenDoctor: () -> Void
     let isSecretBlockError: Bool
     let onSendAnyway: () -> Void
     let onAcceptSuggestion: () -> Void
@@ -35,7 +37,6 @@ struct ChatView: View {
     let onConfirmationDeny: (String) -> Void
     let onAlwaysAllow: (String, String, String, String) -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
-    let onRegenerate: () -> Void
     let sessionError: SessionError?
     let onRetry: () -> Void
     let onDismissSessionError: () -> Void
@@ -43,8 +44,6 @@ struct ChatView: View {
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
-    var onDeleteQueuedMessage: ((UUID) -> Void)?
-    var onSendDirectQueuedMessage: ((UUID) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var isTemporaryChat: Bool = false
     var activeSubagents: [SubagentInfo] = []
@@ -71,7 +70,6 @@ struct ChatView: View {
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
     @State private var isComposerExpanded = false
-    @State private var isQueueExpanded = true
     @State private var identity: IdentityInfo? = IdentityInfo.load()
     @State private var appearance = AvatarAppearanceManager.shared
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
@@ -186,9 +184,7 @@ struct ChatView: View {
         let base: CGFloat = VSpacing.sm + VSpacing.md + topPad + bottomPad + contentHeight + buttonRow
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
         let error: CGFloat = (sessionError == nil && errorText != nil) ? 36 : 0
-        let queueCount = CGFloat(queuedMessages.count)
-        let queue: CGFloat = queueCount > 0 ? (28 + (isQueueExpanded ? queueCount * 24 : 0) + VSpacing.xs) : 0
-        return base + attachments + error + queue
+        return base + attachments + error
     }
 
     private func modelPickerView(for message: ChatMessage) -> some View {
@@ -223,15 +219,11 @@ struct ChatView: View {
                     onSendAnyway: onSendAnyway,
                     isRetryableError: isRetryableError,
                     onRetryError: onRetryError,
+                    isConnectionError: isConnectionError,
+                    onOpenDoctor: onOpenDoctor,
                     onDismissError: onDismissError
                 )
             }
-            ChatQueueSummaryView(
-                queuedMessages: queuedMessages,
-                onDeleteQueuedMessage: onDeleteQueuedMessage,
-                onSendDirectQueuedMessage: onSendDirectQueuedMessage,
-                isExpanded: $isQueueExpanded
-            )
             ComposerView(
                 inputText: $inputText,
                 hasAPIKey: hasAPIKey,
@@ -369,13 +361,13 @@ struct ChatView: View {
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: VSpacing.lg) {
-                    // Filter out queued messages — they're shown above the composer instead
+                LazyVStack(alignment: .leading, spacing: VSpacing.md) {
+                    // Render all chat messages inline except subagent notification placeholders.
                     let displayMessages = messages.filter { msg in
-                        if case .queued = msg.status { return false }
                         if msg.isSubagentNotification { return false }
                         return true
                     }
+                    let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
                     ForEach(Array(displayMessages.enumerated()), id: \.element.id) { index, message in
                         if shouldShowTimestamp(at: index, in: displayMessages) {
                             TimestampDivider(date: message.timestamp)
@@ -386,6 +378,7 @@ struct ChatView: View {
                                 // Show pending confirmations as inline buttons
                                 ToolConfirmationBubble(
                                     confirmation: confirmation,
+                                    isKeyboardActive: confirmation.requestId == activePendingRequestId,
                                     onAllow: { onConfirmationAllow(confirmation.requestId) },
                                     onDeny: { onConfirmationDeny(confirmation.requestId) },
                                     onAlwaysAllow: onAlwaysAllow
@@ -443,20 +436,10 @@ struct ChatView: View {
                                 return conf
                             }()
 
-                            let isLastAssistant = message.role == .assistant
-                                && !message.isStreaming
-                                && (index == displayMessages.count - 1
-                                    || (index == displayMessages.count - 2
-                                        && displayMessages[displayMessages.count - 1].confirmation != nil && displayMessages[displayMessages.count - 1].confirmation?.state != .pending))
-                                && !isSending
-                                && !isThinking
-
                             ChatBubble(
                                 message: message,
                                 hideToolCalls: nextIsPendingConfirmation,
                                 decidedConfirmation: nextDecidedConfirmation,
-                                showRegenerate: isLastAssistant,
-                                onRegenerate: onRegenerate,
                                 onSurfaceAction: onSurfaceAction,
                                 onDismissDocumentWidget: { surfaceId in
                                     onDismissDocumentWidget?(surfaceId)
@@ -591,17 +574,6 @@ struct ChatView: View {
                     }
                 }
             }
-        }
-    }
-
-    // MARK: - Queued Messages (above composer)
-
-    /// Messages waiting in the queue, shown stacked above the input field
-    /// so they don't break chronological order in the chat feed.
-    private var queuedMessages: [ChatMessage] {
-        messages.filter { msg in
-            if case .queued = msg.status { return true }
-            return false
         }
     }
 
@@ -745,6 +717,8 @@ private struct ChatViewPreviewWrapper: View {
                 onDismissError: {},
                 isRetryableError: false,
                 onRetryError: {},
+                isConnectionError: false,
+                onOpenDoctor: {},
                 isSecretBlockError: false,
                 onSendAnyway: {},
                 onAcceptSuggestion: {},
@@ -758,7 +732,6 @@ private struct ChatViewPreviewWrapper: View {
                 onConfirmationDeny: { _ in },
                 onAlwaysAllow: { _, _, _, _ in },
                 onSurfaceAction: { _, _, _ in },
-                onRegenerate: {},
                 sessionError: nil,
                 onRetry: {},
                 onDismissSessionError: {},

@@ -777,6 +777,25 @@ public struct IPCHomeBaseGetResponseHomeBasePreviewMetric: Codable, Sendable {
     public let value: String
 }
 
+public struct IPCIdentityGetRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCIdentityGetResponse: Codable, Sendable {
+    public let type: String
+    /// Whether an IDENTITY.md file was found. When false, all fields are empty defaults. Optional for backwards compat with older daemons.
+    public let found: Bool?
+    public let name: String
+    public let role: String
+    public let personality: String
+    public let emoji: String
+    public let home: String
+    public let version: String?
+    public let assistantId: String?
+    public let createdAt: String?
+    public let originSystem: String?
+}
+
 public struct IPCImageGenModelSetRequest: Codable, Sendable {
     public let type: String
     public let model: String
@@ -786,10 +805,12 @@ public struct IPCIngressConfigRequest: Codable, Sendable {
     public let type: String
     public let action: String
     public let publicBaseUrl: String?
+    public let enabled: Bool?
 }
 
 public struct IPCIngressConfigResponse: Codable, Sendable {
     public let type: String
+    public let enabled: Bool
     public let publicBaseUrl: String
     /// Read-only gateway target computed from GATEWAY_PORT env var (default 7830) + loopback host.
     public let localGatewayTarget: String
@@ -2235,4 +2256,35 @@ public struct IPCWorkItemUpdateResponseItem: Codable, Sendable {
     public let sourceId: String?
     public let createdAt: Int
     public let updatedAt: Int
+}
+
+public struct IPCWorkspaceFileReadRequest: Codable, Sendable {
+    public let type: String
+    /// Relative path within the workspace directory (e.g. "IDENTITY.md").
+    public let path: String
+}
+
+public struct IPCWorkspaceFileReadResponse: Codable, Sendable {
+    public let type: String
+    public let path: String
+    public let content: String?
+    public let error: String?
+}
+
+public struct IPCWorkspaceFilesListRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCWorkspaceFilesListResponse: Codable, Sendable {
+    public let type: String
+    public let files: [IPCWorkspaceFilesListResponseFile]
+}
+
+public struct IPCWorkspaceFilesListResponseFile: Codable, Sendable {
+    /// Relative path within the workspace (e.g. "IDENTITY.md", "skills/my-skill").
+    public let path: String
+    /// Display name (e.g. "IDENTITY.md").
+    public let name: String
+    /// Whether the file/directory exists.
+    public let exists: Bool
 }

@@ -20,14 +20,16 @@ struct SettingsPanel: View {
     @State private var braveKeyText: String = ""
     @State private var perplexityKeyText: String = ""
     @State private var imageGenKeyText: String = ""
+    @State private var openaiKeyText: String = ""
+    @State private var elevenLabsKeyText: String = ""
     @State private var showingTrustRules = false
     @State private var showingReminders = false
     @State private var twitterClientId: String = ""
     @State private var twitterClientSecret: String = ""
     @State private var ingressUrlText: String = ""
     @FocusState private var isIngressUrlFocused: Bool
-    @State private var gatewayReachable: Bool? = nil
     @State private var checkingGateway: Bool = false
+    @State private var gatewayHealthResult: Bool? = nil
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
     @State private var connectingIntegration: String?
     @State private var integrationError: (id: String, message: String)?
@@ -507,6 +509,116 @@ struct SettingsPanel: View {
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
 
+            // OPENAI section (for Voice Mode — Whisper + TTS)
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("OpenAI")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                if store.hasOpenAIKey {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14))
+                        Text(store.maskedOpenAIKey)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        VButton(label: "Clear", style: .danger) {
+                            store.clearOpenAIKey()
+                            openaiKeyText = ""
+                        }
+                    }
+                } else {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Enter OpenAI API Key")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.textMuted)
+                    }
+
+                    SecureField("Your OpenAI API key", text: $openaiKeyText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    Text("Used for Voice Mode (Whisper transcription). Get your key at platform.openai.com/api-keys")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    VButton(label: "Save", style: .primary) {
+                        store.saveOpenAIKey(openaiKeyText)
+                        openaiKeyText = ""
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
+            // ELEVENLABS section (for Voice Mode TTS)
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("ElevenLabs")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                if store.hasElevenLabsKey {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14))
+                        Text(store.maskedElevenLabsKey)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        VButton(label: "Clear", style: .danger) {
+                            store.clearElevenLabsKey()
+                            elevenLabsKeyText = ""
+                        }
+                    }
+                } else {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Enter ElevenLabs API Key")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.textMuted)
+                    }
+
+                    SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    Text("Used for Voice Mode (text-to-speech). Get your key at elevenlabs.io/app/settings/api-keys")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    VButton(label: "Save", style: .primary) {
+                        store.saveElevenLabsKey(elevenLabsKeyText)
+                        elevenLabsKeyText = ""
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
             // INTEGRATIONS section
             if daemonClient != nil {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -533,9 +645,28 @@ struct SettingsPanel: View {
 
             // PUBLIC INGRESS section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Public Ingress")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
+                HStack {
+                    Text("Public Ingress")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { store.ingressEnabled },
+                        set: { store.setIngressEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .disabled(store.ingressPublicBaseUrl.isEmpty && !store.ingressEnabled)
+                }
+
+                HStack(alignment: .top, spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 12))
+                    Text("Setting a public base URL may expose this computer to the public internet. Use with caution.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
 
                 // Public Ingress URL field
                 HStack(spacing: VSpacing.xs) {
@@ -556,19 +687,6 @@ struct SettingsPanel: View {
                         RoundedRectangle(cornerRadius: VRadius.md)
                             .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                     )
-
-                HStack(alignment: .top, spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 12))
-                    Text("Setting a public base URL may expose this computer to the public internet. Use with caution.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                Text("Webhook paths (e.g. /webhooks/twilio/voice) are appended automatically.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
 
                 VButton(label: "Save", style: .primary) {
                     store.saveIngressPublicBaseUrl(ingressUrlText)
@@ -610,6 +728,7 @@ struct SettingsPanel: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Copy gateway address")
+                    .help("Copy address")
 
                     // Check Gateway button
                     Button {
@@ -618,11 +737,6 @@ struct SettingsPanel: View {
                         if checkingGateway {
                             ProgressView()
                                 .controlSize(.small)
-                                .frame(width: 28, height: 28)
-                        } else if let reachable = gatewayReachable {
-                            Image(systemName: reachable ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .font(.system(size: 14))
-                                .foregroundColor(reachable ? VColor.success : VColor.error)
                                 .frame(width: 28, height: 28)
                         } else {
                             Image(systemName: "antenna.radiowaves.left.and.right")
@@ -633,7 +747,21 @@ struct SettingsPanel: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .disabled(checkingGateway)
                     .accessibilityLabel("Check gateway health")
+                    .help("Check gateway health")
+                }
+
+                if let reachable = gatewayHealthResult {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: reachable ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(reachable ? VColor.success : VColor.error)
+                        Text(reachable ? "Gateway is reachable" : "Gateway is not reachable")
+                            .font(VFont.caption)
+                            .foregroundColor(reachable ? VColor.success : VColor.error)
+                    }
+                    .transition(.opacity)
                 }
 
                 Text("Point your tunnel service at this local address.")
@@ -1051,30 +1179,37 @@ struct SettingsPanel: View {
     // MARK: - Gateway Health Check
 
     private func checkGatewayHealth() {
-        gatewayReachable = nil
+        gatewayHealthResult = nil
         checkingGateway = true
 
         Task {
             defer { checkingGateway = false }
 
             guard let url = URL(string: "\(store.localGatewayTarget)/healthz") else {
-                gatewayReachable = false
+                withAnimation(VAnimation.fast) { gatewayHealthResult = false }
                 return
             }
 
             var request = URLRequest(url: url)
             request.timeoutInterval = 3
 
+            let reachable: Bool
             do {
                 let (_, response) = try await URLSession.shared.data(for: request)
                 if let httpResponse = response as? HTTPURLResponse {
-                    gatewayReachable = (200..<300).contains(httpResponse.statusCode)
+                    reachable = (200..<300).contains(httpResponse.statusCode)
                 } else {
-                    gatewayReachable = false
+                    reachable = false
                 }
             } catch {
-                gatewayReachable = false
+                reachable = false
             }
+
+            withAnimation(VAnimation.fast) { gatewayHealthResult = reachable }
+
+            // Auto-dismiss the status message after 4 seconds
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            withAnimation(VAnimation.fast) { gatewayHealthResult = nil }
         }
     }
 

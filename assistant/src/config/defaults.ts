@@ -226,9 +226,27 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     safety: {
       denyCategories: [],
     },
+    voice: {
+      mode: 'twilio_standard' as const,
+      language: 'en-US',
+      transcriptionProvider: 'Deepgram' as const,
+      fallbackToStandardOnError: true,
+      elevenlabs: {
+        voiceId: '',
+        voiceModelId: 'turbo_v2_5',
+        stability: 0.5,
+        similarityBoost: 0.75,
+        style: 0.0,
+        useSpeakerBoost: true,
+        agentId: '',
+        apiBaseUrl: 'https://api.elevenlabs.io',
+        registerCallTimeoutMs: 5000,
+      },
+    },
+    model: undefined,
   },
   ingress: {
+    enabled: false,
     publicBaseUrl: '',
-    mode: 'gateway_only' as const,
   },
 };

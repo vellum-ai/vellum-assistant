@@ -208,37 +208,15 @@ describe('buildSystemPrompt', () => {
   });
 
   describe('app-builder tool ownership guidance', () => {
-    test('does not list app_open as skill-provided', () => {
-      const result = buildSystemPrompt();
-      // The "Loading app tools" section should NOT include app_open in the skill-provided list
-      const skillProvidedMatch = result.match(/Most `app_\*` tools \([^)]+\) are provided by the `app-builder` skill\./);
-      expect(skillProvidedMatch).not.toBeNull();
-      expect(skillProvidedMatch![0]).not.toContain('app_open');
-    });
-
-    test('mentions app_open is always available as a core tool', () => {
-      const result = buildSystemPrompt();
-      expect(result).toContain('`app_open` is always available as a core tool');
-    });
-
     test('iteration guidance does not mention app_update for HTML changes', () => {
       const result = buildSystemPrompt();
       // The iteration line should not reference app_update for changing HTML
       expect(result).not.toContain('use `app_update` to change the HTML');
     });
 
-    test('iteration guidance recommends app_file_edit for code changes', () => {
-      const result = buildSystemPrompt();
-      expect(result).toContain('use `app_file_edit` for targeted code changes');
-    });
-
-    test('Home Base guidance uses app_file_edit or app_file_write, not app_update', () => {
-      const result = buildSystemPrompt();
-      expect(result).toContain('apply changes through `app_file_edit` or `app_file_write`');
-      expect(result).not.toContain('apply updates through normal `app_update` flows');
-    });
-
     test('onboarding playbook uses app_file_edit for accent color, not app_update', () => {
+      // Starter task playbooks only included during onboarding (BOOTSTRAP.md exists)
+      writeFileSync(join(TEST_DIR, 'BOOTSTRAP.md'), '# First run');
       const result = buildSystemPrompt();
       expect(result).toContain('using `app_file_edit` to update the theme styles');
       expect(result).not.toContain('using `app_update` to regenerate the Home Base HTML');

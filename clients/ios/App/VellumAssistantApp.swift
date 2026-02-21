@@ -20,10 +20,10 @@ struct VellumAssistantApp: App {
         WindowGroup {
             Group {
                 if onboardingCompleted {
-                    ContentView()
+                    ContentView(authManager: appDelegate.authManager)
                         .environmentObject(appDelegate.clientProvider)
                 } else {
-                    OnboardingView(isCompleted: $onboardingCompleted)
+                    OnboardingView(isCompleted: $onboardingCompleted, authManager: appDelegate.authManager)
                 }
             }
             .preferredColorScheme(preferredScheme)

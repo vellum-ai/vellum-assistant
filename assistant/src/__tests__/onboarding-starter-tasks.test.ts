@@ -134,14 +134,23 @@ describe('starter task playbook integration with buildSystemPrompt', () => {
     }
   });
 
-  test('buildSystemPrompt includes the starter task playbook section', () => {
+  test('buildSystemPrompt includes the starter task playbook section when BOOTSTRAP.md exists', () => {
     writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'I am Vellum.');
+    writeFileSync(join(TEST_DIR, 'BOOTSTRAP.md'), '# First run');
     const result = buildSystemPrompt();
     expect(result).toContain('## Starter Task Playbooks');
   });
 
+  test('buildSystemPrompt omits starter task playbooks after onboarding is complete', () => {
+    writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'I am Vellum.');
+    // No BOOTSTRAP.md → onboarding complete
+    const result = buildSystemPrompt();
+    expect(result).not.toContain('## Starter Task Playbooks');
+  });
+
   test('starter task playbook appears before channel awareness', () => {
     writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'I am Vellum.');
+    writeFileSync(join(TEST_DIR, 'BOOTSTRAP.md'), '# First run');
     const result = buildSystemPrompt();
     const starterIdx = result.indexOf('## Starter Task Playbooks');
     const channelIdx = result.indexOf('## Channel Awareness & Trust Gating');
@@ -150,8 +159,9 @@ describe('starter task playbook integration with buildSystemPrompt', () => {
     expect(starterIdx).toBeLessThan(channelIdx);
   });
 
-  test('all three kickoff intents present in full system prompt', () => {
+  test('all three kickoff intents present in full system prompt during onboarding', () => {
     writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'I am Vellum.');
+    writeFileSync(join(TEST_DIR, 'BOOTSTRAP.md'), '# First run');
     const result = buildSystemPrompt();
     expect(result).toContain('[STARTER_TASK:make_it_yours]');
     expect(result).toContain('[STARTER_TASK:research_topic]');

@@ -41,13 +41,15 @@ describe('forbidden legacy symbols', () => {
     const repoRoot = resolve(__dirname, '..', '..', '..');
     let matches = '';
     try {
+      // Use git grep so only tracked files are searched. This automatically
+      // excludes untracked local .env files while still scanning committed
+      // environment templates like .env.example.
       matches = execSync(
-        `grep -rn -E "${escapedPattern}"` +
-        ' --include="*.ts" --include="*.tsx" --include="*.js" --include="*.mjs" --include="*.swift"' +
-        ' --include="*.json" --include="*.md" --include="*.yml" --include="*.yaml"' +
-        ' --include="*.sh"' +
-        ' --exclude-dir=node_modules --exclude-dir=__tests__ --exclude-dir=.private' +
-        ' .',
+        `git grep -rn -E "${escapedPattern}" --` +
+        ' "*.ts" "*.tsx" "*.js" "*.mjs" "*.swift"' +
+        ' "*.json" "*.md" "*.yml" "*.yaml"' +
+        ' "*.sh" "*.env" "*.env.*"' +
+        ' ":!node_modules" ":!*/__tests__/*" ":!.private"',
         { cwd: repoRoot, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
       );
     } catch (err: unknown) {

@@ -476,6 +476,7 @@ export interface IngressConfigRequest {
   type: 'ingress_config';
   action: 'get' | 'set';
   publicBaseUrl?: string;
+  enabled?: boolean;
 }
 
 export interface VercelApiConfigRequest {
@@ -875,6 +876,22 @@ export interface WorkItemCancelRequest {
   id: string;
 }
 
+// === Workspace File IPC ─────────────────────────────────────────────────────
+
+export interface WorkspaceFilesListRequest {
+  type: 'workspace_files_list';
+}
+
+export interface WorkspaceFileReadRequest {
+  type: 'workspace_file_read';
+  /** Relative path within the workspace directory (e.g. "IDENTITY.md"). */
+  path: string;
+}
+
+export interface IdentityGetRequest {
+  type: 'identity_get';
+}
+
 export type ClientMessage =
   | AuthMessage
   | UserMessage
@@ -979,7 +996,10 @@ export type ClientMessage =
   | SubagentAbortRequest
   | SubagentStatusRequest
   | SubagentMessageRequest
-  | SubagentDetailRequest;
+  | SubagentDetailRequest
+  | WorkspaceFilesListRequest
+  | WorkspaceFileReadRequest
+  | IdentityGetRequest;
 
 export interface IntegrationListRequest {
   type: 'integration_list';
@@ -1690,6 +1710,7 @@ export interface SlackWebhookConfigResponse {
 
 export interface IngressConfigResponse {
   type: 'ingress_config_response';
+  enabled: boolean;
   publicBaseUrl: string;
   /** Read-only gateway target computed from GATEWAY_PORT env var (default 7830) + loopback host. */
   localGatewayTarget: string;
@@ -2103,6 +2124,42 @@ export interface TaskRunThreadCreated {
   title: string;
 }
 
+// === Workspace File Responses ────────────────────────────────────────────────
+
+export interface WorkspaceFilesListResponse {
+  type: 'workspace_files_list_response';
+  files: Array<{
+    /** Relative path within the workspace (e.g. "IDENTITY.md", "skills/my-skill"). */
+    path: string;
+    /** Display name (e.g. "IDENTITY.md"). */
+    name: string;
+    /** Whether the file/directory exists. */
+    exists: boolean;
+  }>;
+}
+
+export interface WorkspaceFileReadResponse {
+  type: 'workspace_file_read_response';
+  path: string;
+  content: string | null;
+  error?: string;
+}
+
+export interface IdentityGetResponse {
+  type: 'identity_get_response';
+  /** Whether an IDENTITY.md file was found. When false, all fields are empty defaults. Optional for backwards compat with older daemons. */
+  found?: boolean;
+  name: string;
+  role: string;
+  personality: string;
+  emoji: string;
+  home: string;
+  version?: string;
+  assistantId?: string;
+  createdAt?: string;
+  originSystem?: string;
+}
+
 export type ServerMessage =
   | AuthResult
   | UserMessageEcho
@@ -2220,7 +2277,10 @@ export type ServerMessage =
   | SubagentSpawned
   | SubagentStatusChanged
   | SubagentEvent
-  | SubagentDetailResponse;
+  | SubagentDetailResponse
+  | WorkspaceFilesListResponse
+  | WorkspaceFileReadResponse
+  | IdentityGetResponse;
 
 // === Subagent IPC ─────────────────────────────────────────────────────
 

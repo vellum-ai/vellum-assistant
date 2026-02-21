@@ -339,15 +339,27 @@ extension AppDelegate {
         let storedIcon = info["icon"]
         let appIcon = cachedApp?.icon ?? (storedIcon?.isEmpty == false ? storedIcon : nil)
         mainWindow?.appListManager.recordAppOpen(id: appId, name: appName, icon: appIcon)
-        try? daemonClient.sendAppOpen(appId: appId)
+        do {
+            try daemonClient.sendAppOpen(appId: appId)
+        } catch {
+            log.error("Failed to send app open for \(appId): \(error)")
+        }
     }
 
     @objc func toggleSkill(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
         if sender.state == .on {
-            try? daemonClient.disableSkill(name)
+            do {
+                try daemonClient.disableSkill(name)
+            } catch {
+                log.error("Failed to disable skill \(name): \(error)")
+            }
         } else {
-            try? daemonClient.enableSkill(name)
+            do {
+                try daemonClient.enableSkill(name)
+            } catch {
+                log.error("Failed to enable skill \(name): \(error)")
+            }
         }
         refreshSkillsCache()
     }

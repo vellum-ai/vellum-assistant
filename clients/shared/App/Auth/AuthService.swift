@@ -3,146 +3,37 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AuthService")
 
-struct AllauthError: Codable {
-    let code: String
-    let message: String
-    let param: String?
-}
-
-struct AllauthMeta: Codable {
-    let is_authenticated: Bool?
-    let session_token: String?
-    let access_token: String?
-}
-
-struct AllauthUser: Codable {
-    let id: String?
-    let email: String?
-    let username: String?
-    let display: String?
-
-    enum CodingKeys: String, CodingKey {
-        case id, email, username, display
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let intId = try? container.decode(Int.self, forKey: .id) {
-            id = String(intId)
-        } else {
-            id = try container.decodeIfPresent(String.self, forKey: .id)
-        }
-        email = try container.decodeIfPresent(String.self, forKey: .email)
-        username = try container.decodeIfPresent(String.self, forKey: .username)
-        display = try container.decodeIfPresent(String.self, forKey: .display)
-    }
-}
-
-struct AllauthFlow: Codable {
-    let id: String
-    let is_pending: Bool?
-}
-
-struct SessionData: Codable {
-    let user: AllauthUser?
-    let flows: [AllauthFlow]?
-}
-
-struct ProviderConfig: Codable {
-    let id: String
-    let name: String?
-    let client_id: String?
-    let openid_configuration_url: String?
-    let flows: [String]?
-}
-
-struct SocialAccountConfig: Codable {
-    let providers: [ProviderConfig]?
-}
-
-struct AccountConfig: Codable {
-    let is_open_for_signup: Bool?
-    let login_methods: [String]?
-}
-
-struct ConfigData: Codable {
-    let account: AccountConfig?
-    let socialaccount: SocialAccountConfig?
-}
-
-struct OIDCDiscovery: Codable {
-    let authorization_endpoint: String?
-    let token_endpoint: String?
-}
-
-struct OIDCTokenResponse: Codable {
-    let id_token: String?
-    let access_token: String?
-    let error: String?
-    let error_description: String?
-}
-
-struct AllauthResponse<T: Codable>: Codable {
-    let status: Int
-    let data: T?
-    let meta: AllauthMeta?
-    let errors: [AllauthError]?
-}
-
-enum AuthServiceError: LocalizedError {
-    case invalidURL
-    case networkError(Error)
-    case decodingError(Error)
-    case serverError(Int, [AllauthError])
-    case noSessionToken
-    case oidcDiscoveryFailed
-    case oidcTokenExchangeFailed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidURL: return "Invalid URL"
-        case .networkError(let error): return error.localizedDescription
-        case .decodingError(let error): return "Failed to decode response: \(error.localizedDescription)"
-        case .serverError(_, let errors):
-            return errors.first?.message ?? "Server error"
-        case .noSessionToken: return "No session token received"
-        case .oidcDiscoveryFailed: return "Unable to fetch OIDC discovery document"
-        case .oidcTokenExchangeFailed(let msg): return msg
-        }
-    }
-}
-
 @MainActor
-final class AuthService {
-    static let shared = AuthService()
+public final class AuthService {
+    public static let shared = AuthService()
 
     private static let defaultBaseURL: String = {
-        #if DEBUG
+        #if DEBUG && os(macOS)
         return "http://localhost:8000"
         #else
-        return "https://app.vellum.ai"
+        return "https://platform.vellum.ai"
         #endif
     }()
 
-    var baseURL: String {
+    public var baseURL: String {
         UserDefaults.standard.string(forKey: "authServiceBaseURL") ?? Self.defaultBaseURL
     }
 
     private init() {}
 
-    func getConfig() async throws -> AllauthResponse<ConfigData> {
+    public func getConfig() async throws -> AllauthResponse<ConfigData> {
         try await request(path: "config")
     }
 
-    func getSession() async throws -> AllauthResponse<SessionData> {
+    public func getSession() async throws -> AllauthResponse<SessionData> {
         try await request(path: "auth/session")
     }
 
-    func logout() async throws -> AllauthResponse<EmptyData> {
+    public func logout() async throws -> AllauthResponse<EmptyData> {
         try await request(path: "auth/session", method: "DELETE")
     }
 
-    func authenticateWithProviderToken(
+    public func authenticateWithProviderToken(
         provider: String,
         process: String,
         clientId: String,
@@ -161,7 +52,7 @@ final class AuthService {
         return try await request(path: "auth/provider/token", method: "POST", body: body)
     }
 
-    func fetchOIDCDiscovery(url: String) async throws -> OIDCDiscovery {
+    public func fetchOIDCDiscovery(url: String) async throws -> OIDCDiscovery {
         guard let requestURL = URL(string: url) else {
             throw AuthServiceError.invalidURL
         }
@@ -169,7 +60,7 @@ final class AuthService {
         return try JSONDecoder().decode(OIDCDiscovery.self, from: data)
     }
 
-    func exchangeOIDCCode(
+    public func exchangeOIDCCode(
         tokenEndpoint: String,
         clientId: String,
         code: String,
@@ -263,5 +154,3 @@ final class AuthService {
         return decoded
     }
 }
-
-struct EmptyData: Codable {}

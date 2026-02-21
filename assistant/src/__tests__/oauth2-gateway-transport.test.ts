@@ -153,32 +153,13 @@ describe('OAuth2 gateway transport', () => {
       expect(result.tokens.accessToken).toBe('test-access-token');
     });
 
-    test('selects loopback transport when ingress.publicBaseUrl is empty', async () => {
+    test('throws when ingress.publicBaseUrl is not configured', async () => {
       mockPublicBaseUrl = '';
 
-      let capturedAuthUrl = '';
-      const flowPromise = startOAuth2Flow(BASE_OAUTH_CONFIG, {
-        openUrl: (url) => { capturedAuthUrl = url; },
-      });
-
-      // Give the flow a tick
-      await new Promise((r) => setTimeout(r, 10));
-
-      // The auth URL should contain a loopback redirect_uri
-      expect(capturedAuthUrl).toContain('redirect_uri=');
-      expect(capturedAuthUrl).toContain('127.0.0.1');
-
-      // Extract the redirect_uri to send the callback
-      const authUrlParsed = new URL(capturedAuthUrl);
-      const redirectUri = authUrlParsed.searchParams.get('redirect_uri')!;
-      const stateParam = authUrlParsed.searchParams.get('state')!;
-
-      // Simulate the OAuth provider callback to the loopback server
-      const callbackUrl = `${redirectUri}?code=loopback-code&state=${stateParam}`;
-      await fetch(callbackUrl);
-
-      const result = await flowPromise;
-      expect(result.tokens.accessToken).toBe('test-access-token');
+      // Without a public base URL, the flow should reject immediately
+      await expect(
+        startOAuth2Flow(BASE_OAUTH_CONFIG, { openUrl: () => {} }),
+      ).rejects.toThrow('OAuth requires a public ingress URL');
     });
   });
 
@@ -206,8 +187,8 @@ describe('OAuth2 gateway transport', () => {
       expect(result.tokens.accessToken).toBe('test-access-token');
     });
 
-    test('uses loopback transport when explicitly specified', async () => {
-      // Even with publicBaseUrl configured, explicit loopback should work
+    test('ignores loopback transport option and uses gateway', async () => {
+      // Loopback transport was removed — gateway is always used
       mockPublicBaseUrl = 'https://gw.example.com';
 
       let capturedAuthUrl = '';
@@ -219,13 +200,13 @@ describe('OAuth2 gateway transport', () => {
 
       await new Promise((r) => setTimeout(r, 10));
 
-      expect(capturedAuthUrl).toContain('127.0.0.1');
+      // Should use gateway redirect, not loopback
+      expect(capturedAuthUrl).toContain(encodeURIComponent('https://gw.example.com'));
+      expect(capturedAuthUrl).not.toContain('127.0.0.1');
 
-      const authUrlParsed = new URL(capturedAuthUrl);
-      const redirectUri = authUrlParsed.searchParams.get('redirect_uri')!;
-      const stateParam = authUrlParsed.searchParams.get('state')!;
-
-      await fetch(`${redirectUri}?code=loopback-code&state=${stateParam}`);
+      const entries = Array.from(pendingCallbacks.entries());
+      expect(entries.length).toBe(1);
+      entries[0][1].resolve('gateway-code-despite-loopback-option');
 
       const result = await flowPromise;
       expect(result.tokens.accessToken).toBe('test-access-token');

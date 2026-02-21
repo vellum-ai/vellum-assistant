@@ -23,7 +23,7 @@ export interface HomeBaseBootstrapResult {
   created: boolean;
 }
 
-export function bootstrapHomeBaseAppLink(): HomeBaseBootstrapResult {
+export function bootstrapHomeBaseAppLink(): HomeBaseBootstrapResult | null {
   const linked = resolveExistingLink();
   if (linked) {
     return {
@@ -46,6 +46,8 @@ export function bootstrapHomeBaseAppLink(): HomeBaseBootstrapResult {
   }
 
   const seeded = ensurePrebuiltHomeBaseSeeded();
+  if (!seeded) return null;
+
   const next = setHomeBaseAppLink(seeded.appId, 'prebuilt_seed');
   log.info({ appId: next.appId, created: seeded.created }, 'Bootstrapped Home Base app link');
 

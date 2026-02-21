@@ -71,6 +71,13 @@ cd <worktree> && .claude/ship \
 
 Part of plan: <plan filename> (PR <X> of <total>)
 
+<details>
+<summary>Plan: <plan filename></summary>
+
+<contents of .private/plans/<plan file>>
+
+</details>
+
 🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
   --base main \
   --track-unreviewed

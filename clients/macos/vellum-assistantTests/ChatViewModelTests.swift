@@ -201,8 +201,8 @@ final class ChatViewModelTests: XCTestCase {
     func testGenerationCancelledWithoutStreamingMessage() {
         viewModel.isSending = true
         viewModel.isThinking = true
-        viewModel.isCancelling = true
 
+        viewModel.isCancelling = true
         viewModel.handleServerMessage(.generationCancelled(GenerationCancelledMessage(sessionId: nil)))
 
         XCTAssertFalse(viewModel.isSending)
@@ -684,6 +684,29 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[0].status, .processing)
     }
 
+    func testMessageDequeuedKeepsMessagePositionInTranscript() {
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.inputText = "Message A"
+        viewModel.sendMessage()
+        viewModel.inputText = "Message B"
+        viewModel.sendMessage()
+
+        viewModel.handleServerMessage(.messageQueued(MessageQueuedMessage(sessionId: "sess-1", requestId: "req-B", position: 1)))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response to A")))
+        viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
+
+        let indexBeforeDequeue = viewModel.messages.firstIndex(where: { $0.text == "Message B" })
+        viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
+        let indexAfterDequeue = viewModel.messages.firstIndex(where: { $0.text == "Message B" })
+
+        XCTAssertEqual(indexBeforeDequeue, indexAfterDequeue, "Dequeued message should stay in place in the transcript")
+        if let indexAfterDequeue {
+            XCTAssertEqual(viewModel.messages[indexAfterDequeue].status, .processing)
+        } else {
+            XCTFail("Expected dequeued message to remain in transcript")
+        }
+    }
+
     func testMessageDequeuedRestoresSendingAndThinkingState() {
         // Simulate: message A completes, then queued message B is dequeued
         viewModel.sessionId = "sess-1"
@@ -728,7 +751,6 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.generationHandoff(GenerationHandoffMessage(sessionId: "sess-1", requestId: nil, queuedCount: 1)))
 
         // Daemon dequeues B — status becomes .processing
-        // Note: messageDequeued moves the message to the end of the array for chronological ordering
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
         let messageBAfterDequeue = viewModel.messages.first(where: { $0.text == "Message B" })!
         XCTAssertEqual(messageBAfterDequeue.status, .processing, "Message B should be processing after dequeue")
@@ -912,7 +934,7 @@ final class ChatViewModelTests: XCTestCase {
         // Assistant message for A should be finalized
         XCTAssertFalse(viewModel.messages[3].isStreaming, "First assistant message should be finalized")
 
-        // 6. Daemon dequeues B (messageDequeued moves B to the end for chronological ordering)
+        // 6. Daemon dequeues B (status transitions to .processing)
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
         let messageBStatus = viewModel.messages.first(where: { $0.text == "Message B" })!
         XCTAssertEqual(messageBStatus.status, .processing, "Message B should be processing")
@@ -928,7 +950,7 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.messages[4].isStreaming, "Second assistant message should be finalized")
         XCTAssertTrue(viewModel.isSending, "isSending stays true — C is still queued")
 
-        // 8. Daemon dequeues C (messageDequeued moves C to the end for chronological ordering)
+        // 8. Daemon dequeues C (status transitions to .processing)
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-C")))
         let messageCStatus = viewModel.messages.first(where: { $0.text == "Message C" })!
         XCTAssertEqual(messageCStatus.status, .processing, "Message C should be processing")
@@ -1009,7 +1031,6 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.pendingQueuedCount, 2)
 
         // Simulate messageDequeued for B — first queued goes to .processing
-        // (messageDequeued moves B to the end for chronological ordering)
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-B")))
         let messageBStatus = viewModel.messages.first(where: { $0.text == "Message B" })!
         XCTAssertEqual(messageBStatus.status, .processing, "Message B should now be processing")
@@ -1023,7 +1044,6 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isSending, "isSending stays true — C is still queued")
 
         // Simulate messageDequeued for C
-        // (messageDequeued moves C to the end for chronological ordering)
         viewModel.handleServerMessage(.messageDequeued(MessageDequeuedMessage(sessionId: "sess-1", requestId: "req-C")))
         let messageCStatus = viewModel.messages.first(where: { $0.text == "Message C" })!
         XCTAssertEqual(messageCStatus.status, .processing, "Message C should now be processing")
@@ -1952,6 +1972,109 @@ final class ChatViewModelTests: XCTestCase {
         // Should not be tracked in pendingMessageIds since it's sent directly
         XCTAssertEqual(viewModel.pendingMessageIds.count, 0,
                         "Retried message should not be tracked when no other send is in progress")
+    }
+
+    // MARK: - Confirmation State Reconciliation
+
+    func testToolResultPermissionDeniedDowngradesApprovedConfirmation() {
+        viewModel.isSending = true
+
+        // Build an assistant turn with one pending tool call.
+        viewModel.handleServerMessage(
+            .toolUseStart(
+                ToolUseStartMessage(
+                    type: "tool_use_start",
+                    toolName: "computer_use_click",
+                    input: ["x": AnyCodable(100), "y": AnyCodable(200)],
+                    sessionId: nil
+                )
+            )
+        )
+
+        var confirmation = ToolConfirmationData(
+            requestId: "req-accessibility",
+            toolName: "computer_use_click",
+            input: ["x": AnyCodable(100), "y": AnyCodable(200)],
+            riskLevel: "high",
+            diff: nil,
+            allowlistOptions: [],
+            scopeOptions: [],
+            executionTarget: nil,
+            persistentDecisionsAllowed: true
+        )
+        confirmation.state = .approved
+        viewModel.messages.append(ChatMessage(role: .assistant, text: "", confirmation: confirmation))
+
+        viewModel.handleServerMessage(
+            .toolResult(
+                ToolResultMessage(
+                    type: "tool_result",
+                    toolName: "computer_use_click",
+                    result: "Accessibility permission not granted",
+                    isError: true,
+                    diff: nil,
+                    status: nil,
+                    sessionId: nil,
+                    imageData: nil
+                )
+            )
+        )
+
+        XCTAssertEqual(
+            viewModel.messages.last?.confirmation?.state,
+            .denied,
+            "Permission-denied execution errors should not leave confirmation in approved state"
+        )
+    }
+
+    func testToolResultNonPermissionErrorKeepsApprovedConfirmation() {
+        viewModel.isSending = true
+
+        viewModel.handleServerMessage(
+            .toolUseStart(
+                ToolUseStartMessage(
+                    type: "tool_use_start",
+                    toolName: "computer_use_click",
+                    input: ["x": AnyCodable(100), "y": AnyCodable(200)],
+                    sessionId: nil
+                )
+            )
+        )
+
+        var confirmation = ToolConfirmationData(
+            requestId: "req-non-permission",
+            toolName: "computer_use_click",
+            input: ["x": AnyCodable(100), "y": AnyCodable(200)],
+            riskLevel: "high",
+            diff: nil,
+            allowlistOptions: [],
+            scopeOptions: [],
+            executionTarget: nil,
+            persistentDecisionsAllowed: true
+        )
+        confirmation.state = .approved
+        viewModel.messages.append(ChatMessage(role: .assistant, text: "", confirmation: confirmation))
+
+        viewModel.handleServerMessage(
+            .toolResult(
+                ToolResultMessage(
+                    type: "tool_result",
+                    toolName: "computer_use_click",
+                    result: "Action failed: target element disappeared",
+                    isError: true,
+                    diff: nil,
+                    status: nil,
+                    sessionId: nil,
+                    imageData: nil
+                )
+            )
+        )
+
+        XCTAssertEqual(
+            viewModel.messages.last?.confirmation?.state,
+            .approved,
+            "Non-permission failures should preserve the user's approval decision"
+        )
     }
 
     // MARK: - Thinking Indicator During Tool Execution

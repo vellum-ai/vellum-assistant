@@ -8,6 +8,7 @@ public struct SettingsView: View {
     @State private var braveKeyText = ""
     @State private var perplexityKeyText = ""
     @State private var imageGenKeyText = ""
+    @State private var openaiKeyText = ""
     @State private var vercelKeyText = ""
     @State private var twitterClientId = ""
     @State private var twitterClientSecret = ""
@@ -193,6 +194,38 @@ public struct SettingsView: View {
                 }
             }
 
+            Section("OpenAI API Key") {
+                if store.hasOpenAIKey {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 14))
+                        Text(store.maskedOpenAIKey)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Clear") {
+                            store.clearOpenAIKey()
+                            openaiKeyText = ""
+                        }
+                        .tint(.red)
+                    }
+                } else {
+                    SecureField("Enter OpenAI API key", text: $openaiKeyText)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Text("Get your API key at platform.openai.com/api-keys")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Save") {
+                            store.saveOpenAIKey(openaiKeyText)
+                            openaiKeyText = ""
+                        }
+                        .disabled(openaiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+
             Section("Vercel API Key") {
                 if store.hasVercelKey {
                     HStack {
@@ -326,9 +359,11 @@ public struct SettingsView: View {
             }
 
             Section("Public Ingress") {
-                TextField("Public Ingress URL (e.g. https://abc123.ngrok-free.app)", text: $ingressUrlText)
-                    .focused($isIngressUrlFocused)
-                    .textFieldStyle(.roundedBorder)
+                Toggle("Enable Public Ingress", isOn: Binding(
+                    get: { store.ingressEnabled },
+                    set: { store.setIngressEnabled($0) }
+                ))
+                .disabled(store.ingressPublicBaseUrl.isEmpty && !store.ingressEnabled)
 
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -339,9 +374,9 @@ public struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text("Webhook paths (e.g. /webhooks/twilio/voice) are appended automatically.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                TextField("Public Ingress URL (e.g. https://abc123.ngrok-free.app)", text: $ingressUrlText)
+                    .focused($isIngressUrlFocused)
+                    .textFieldStyle(.roundedBorder)
 
                 HStack {
                     Spacer()
@@ -373,6 +408,7 @@ public struct SettingsView: View {
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Copy gateway address")
+                    .help("Copy address")
                 }
 
                 Text("Point your tunnel service at this local address.")

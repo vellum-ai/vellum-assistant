@@ -11,6 +11,7 @@
 		0C99A7C29015A2B760556C56 /* ThreadListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97E0B2314721CE2B9E778D16 /* ThreadListView.swift */; };
 		135F581D6EE960123CCFCEEB /* VellumAssistantShared in Frameworks */ = {isa = PBXBuildFile; productRef = 134BF33544AE5D6EE7EE692C /* VellumAssistantShared */; };
 		18827F7B264DFB838AAA2B54 /* DateFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC1600BF4851A930657A9F04 /* DateFormatting.swift */; };
+		2332D9CD114436614241F846 /* IdentityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6469D4E238ADC7A9CCCD3F0E /* IdentityView.swift */; };
 		31D0C2CC725EE57E9F593A72 /* ChatTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51A38AEC9FF8D2DC8C62800C /* ChatTabView.swift */; };
 		5412498DD7C6C6B4CF7477CE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24A722220881E67C353DFE12 /* AppDelegate.swift */; };
 		5923262CDB1AEBE0C2118808 /* IOSThreadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CFCCFEF68D99FFDAC92204 /* IOSThreadStore.swift */; };
@@ -23,8 +24,10 @@
 		7B4CE559E79D5A61D91725B6 /* ChatViewModelIOSTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF70C2471B1A4D9574FC218B /* ChatViewModelIOSTests.swift */; };
 		7F96B79FD8BD30F7E0833168 /* InlineVideoEmbedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46C6F32737D9EE793FE0CC3F /* InlineVideoEmbedView.swift */; };
 		831E2260278404A3AA07ECCB /* MessageMediaEmbedsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA6DA4FDE9AA57C723CC06AA /* MessageMediaEmbedsView.swift */; };
+		836EA14C137EA48A214A519E /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFA3496A6F3D741B4690BB86 /* LoginView.swift */; };
 		864657EF8C4B63FA518F6174 /* TrustRulesSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 907F415E8AE00310C58BD65D /* TrustRulesSection.swift */; };
 		88E91BC08EF99C6D68C08BF9 /* background.png in Resources */ = {isa = PBXBuildFile; fileRef = DB16B16FAD390171DB879B88 /* background.png */; };
+		94892E15EB458399785C9B2B /* WorkspaceFileSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 505C277A9ED9027CA064DB10 /* WorkspaceFileSheet.swift */; };
 		9E1F06F1B7B31D86F3BE2815 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F67E8033119EC7F1089E8688 /* Assets.xcassets */; };
 		A119B744168CE1EE3B510EB9 /* VellumAssistantShared in Frameworks */ = {isa = PBXBuildFile; productRef = CB40BCA6E5FE59FA29F19979 /* VellumAssistantShared */; };
 		AADDAC2861DD3CB70D50C6AB /* InputBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A1EFD5A3C08E7AD764FB62F /* InputBarView.swift */; };
@@ -33,6 +36,7 @@
 		B61091E975453A5D9A073D5B /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEAAA98AE5EB03645C49AA68 /* OnboardingView.swift */; };
 		BF12CF5ED5910C4B586B2B98 /* AttachmentFlowIOSTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F94E87577A883B761C4F141C /* AttachmentFlowIOSTests.swift */; };
 		C4305A05FD834E67C287D60B /* RemindersSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3483675C469B0B8354AC5D8D /* RemindersSection.swift */; };
+		C5B94F611BD02D1F4F6B4298 /* HomeBaseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E566C15A0B4BC68B2692544F /* HomeBaseView.swift */; };
 		CDA0EECEB230A4965A7161B6 /* ChatContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10E31353C3EFE9A27EF0E654 /* ChatContentView.swift */; };
 		CDE68996EC77DAA45CF933A2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F835A2D424DED22906123993 /* ContentView.swift */; };
 		E82000F70C38CD07957C2F0F /* PermissionRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3099C4A4B1BEA0FFD8F46692 /* PermissionRowView.swift */; };
@@ -50,7 +54,9 @@
 		3483675C469B0B8354AC5D8D /* RemindersSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemindersSection.swift; sourceTree = "<group>"; };
 		43C31D43ED8346DA9D2FC500 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		46C6F32737D9EE793FE0CC3F /* InlineVideoEmbedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineVideoEmbedView.swift; sourceTree = "<group>"; };
+		505C277A9ED9027CA064DB10 /* WorkspaceFileSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFileSheet.swift; sourceTree = "<group>"; };
 		51A38AEC9FF8D2DC8C62800C /* ChatTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTabView.swift; sourceTree = "<group>"; };
+		6469D4E238ADC7A9CCCD3F0E /* IdentityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityView.swift; sourceTree = "<group>"; };
 		736A766CE9C9D8326A1EBDA5 /* VellumAssistantApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VellumAssistantApp.swift; sourceTree = "<group>"; };
 		7A76C5B0E7B697B57063BC75 /* clients */ = {isa = PBXFileReference; lastKnownFileType = folder; name = clients; path = ..; sourceTree = SOURCE_ROOT; };
 		7BFF3D4B4A9D5E1C99AD1ADB /* TitleGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitleGenerator.swift; sourceTree = "<group>"; };
@@ -66,7 +72,9 @@
 		DA6DA4FDE9AA57C723CC06AA /* MessageMediaEmbedsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageMediaEmbedsView.swift; sourceTree = "<group>"; };
 		DB16B16FAD390171DB879B88 /* background.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = background.png; sourceTree = "<group>"; };
 		DDED15E4C12EADF58BD0CA16 /* ChatTranscriptFormatterIOSTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTranscriptFormatterIOSTests.swift; sourceTree = "<group>"; };
+		E566C15A0B4BC68B2692544F /* HomeBaseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeBaseView.swift; sourceTree = "<group>"; };
 		EEAAA98AE5EB03645C49AA68 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		EFA3496A6F3D741B4690BB86 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		F63F4587FF04E8540849A2A8 /* VellumIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VellumIntents.swift; sourceTree = "<group>"; };
 		F67E8033119EC7F1089E8688 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F835A2D424DED22906123993 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -110,12 +118,16 @@
 				10E31353C3EFE9A27EF0E654 /* ChatContentView.swift */,
 				51A38AEC9FF8D2DC8C62800C /* ChatTabView.swift */,
 				F835A2D424DED22906123993 /* ContentView.swift */,
+				E566C15A0B4BC68B2692544F /* HomeBaseView.swift */,
+				6469D4E238ADC7A9CCCD3F0E /* IdentityView.swift */,
 				46C6F32737D9EE793FE0CC3F /* InlineVideoEmbedView.swift */,
 				2A1EFD5A3C08E7AD764FB62F /* InputBarView.swift */,
+				EFA3496A6F3D741B4690BB86 /* LoginView.swift */,
 				DA6DA4FDE9AA57C723CC06AA /* MessageMediaEmbedsView.swift */,
 				EEAAA98AE5EB03645C49AA68 /* OnboardingView.swift */,
 				BA17A2DA662CD75C73E4726C /* SettingsView.swift */,
 				97E0B2314721CE2B9E778D16 /* ThreadListView.swift */,
+				505C277A9ED9027CA064DB10 /* WorkspaceFileSheet.swift */,
 				FB5798D360E6366C80A4D2AF /* Settings */,
 			);
 			path = Views;
@@ -291,10 +303,13 @@
 				0AF1A9F71B5BCD3C5CDB591A /* ConnectionSettingsSection.swift in Sources */,
 				CDE68996EC77DAA45CF933A2 /* ContentView.swift in Sources */,
 				18827F7B264DFB838AAA2B54 /* DateFormatting.swift in Sources */,
+				C5B94F611BD02D1F4F6B4298 /* HomeBaseView.swift in Sources */,
 				5923262CDB1AEBE0C2118808 /* IOSThreadStore.swift in Sources */,
+				2332D9CD114436614241F846 /* IdentityView.swift in Sources */,
 				7F96B79FD8BD30F7E0833168 /* InlineVideoEmbedView.swift in Sources */,
 				AADDAC2861DD3CB70D50C6AB /* InputBarView.swift in Sources */,
 				F6E66C2F942C26A210459312 /* IntegrationsSection.swift in Sources */,
+				836EA14C137EA48A214A519E /* LoginView.swift in Sources */,
 				831E2260278404A3AA07ECCB /* MessageMediaEmbedsView.swift in Sources */,
 				B61091E975453A5D9A073D5B /* OnboardingView.swift in Sources */,
 				E82000F70C38CD07957C2F0F /* PermissionRowView.swift in Sources */,
@@ -308,6 +323,7 @@
 				746CF910BAB551E763470897 /* UserDefaultsKeys.swift in Sources */,
 				6419DA2F54DB6F703BD1DF3B /* VellumAssistantApp.swift in Sources */,
 				764D7E889BD013AFB53EC5B7 /* VellumIntents.swift in Sources */,
+				94892E15EB458399785C9B2B /* WorkspaceFileSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

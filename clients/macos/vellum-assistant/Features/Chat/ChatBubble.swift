@@ -9,9 +9,6 @@ struct ChatBubble: View {
     let hideToolCalls: Bool
     /// Decided confirmation from the next message, rendered as a compact chip at the bottom.
     let decidedConfirmation: ToolConfirmationData?
-    /// Whether to show the regenerate button on this message.
-    let showRegenerate: Bool
-    let onRegenerate: () -> Void
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onDismissDocumentWidget: (String) -> Void
     let dismissedDocumentSurfaceIds: Set<String>
@@ -21,8 +18,6 @@ struct ChatBubble: View {
 
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
-    @State private var isRegenerateHovered = false
-    @State private var isCopyHovered = false
 
     @State private var showCopyConfirmation = false
     @State private var copyConfirmationTimer: DispatchWorkItem?
@@ -33,6 +28,15 @@ struct ChatBubble: View {
     private var isUser: Bool { message.role == .user }
     private var canReportMessage: Bool {
         !isUser && onReportMessage != nil
+    }
+    private var hasCopyableText: Bool {
+        !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    private var hasOverflowActions: Bool {
+        hasCopyableText || canReportMessage
+    }
+    private var showOverflowMenu: Bool {
+        hasOverflowActions && (isHovered || showCopyConfirmation)
     }
 
     /// Composite identity for the `.task` modifier so it re-runs when either
@@ -52,8 +56,33 @@ struct ChatBubble: View {
         } else if message.isError {
             AnyShapeStyle(VColor.error.opacity(0.1))
         } else {
-            AnyShapeStyle(Color.clear)
+            AnyShapeStyle(VColor.surface)
         }
+    }
+
+    @ViewBuilder
+    private var bubbleBorderOverlay: some View {
+        if message.isError {
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
+        } else if !isUser {
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .strokeBorder(VColor.surfaceBorder.opacity(0.85), lineWidth: 0.5)
+        }
+    }
+
+    private func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(bubbleFill)
+            )
+            .overlay {
+                bubbleBorderOverlay
+            }
+            .frame(maxWidth: 520, alignment: isUser ? .trailing : .leading)
     }
 
     private var formattedTimestamp: String {
@@ -95,103 +124,79 @@ struct ChatBubble: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: VSpacing.sm) {
+        // Outer HStack: Spacer pushes the content group to the correct side.
+        HStack(alignment: .top, spacing: 0) {
             if isUser { Spacer(minLength: 0) }
 
-            if !isUser {
-                Image(nsImage: appearance.chatAvatarImage)
-                    .interpolation(.none)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 28, height: 28)
-                    .clipShape(Circle())
-                    .padding(.top, 2)
-            }
-
-            VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
-                if !isUser && hasInterleavedContent {
-                    interleavedContent
-                } else {
-                    if shouldShowBubble {
-                        bubbleContent
-                    }
-
-                    // Inline surfaces render below the bubble as full-width cards
-                    // Skip surfaces that are currently shown in the floating overlay
-                    if !message.inlineSurfaces.isEmpty {
-                        ForEach(message.inlineSurfaces.filter { $0.id != taskProgressOverlay.activeSurfaceId }) { surface in
-                            InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
-                        }
-                    }
-
-                    // Document widget for document_create tool calls
-                    if let documentToolCall = message.toolCalls.first(where: { $0.toolName == "document_create" && $0.isComplete }) {
-                        documentWidget(for: documentToolCall)
-                    }
-                }
-
-                // Media embeds rendered below the text, preserving source order
-                ForEach(mediaEmbedIntents.indices, id: \.self) { idx in
-                    switch mediaEmbedIntents[idx] {
-                    case .image(let url):
-                        InlineImageEmbedView(url: url)
-                    case .video(let provider, let videoID, let embedURL):
-                        InlineVideoEmbedCard(provider: provider, videoID: videoID, embedURL: embedURL)
-                    }
-                }
-
-                // Single unified status area at the bottom of the message:
-                // - In-progress: shows "Running a terminal command ..."
-                // - Complete: shows compact chips ("Ran a terminal command" + "Permission granted")
+            // Inner HStack: avatar/button and bubble are grouped so the button
+            // is always immediately adjacent to the bubble, not the screen edge.
+            HStack(alignment: .top, spacing: VSpacing.sm) {
                 if !isUser {
-                    trailingStatus
+                    Image(nsImage: appearance.chatAvatarImage)
+                        .interpolation(.none)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 28, height: 28)
+                        .clipShape(Circle())
+                        .padding(.top, 2)
                 }
 
-                HStack(spacing: VSpacing.xs) {
-                    if !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        copyButton
-                    }
+                if isUser && hasOverflowActions {
+                    overflowMenuButton
+                        .opacity(showOverflowMenu ? 1 : 0)
+                        .animation(VAnimation.fast, value: showOverflowMenu)
+                }
 
-                    if showRegenerate {
-                        regenerateButton
-                    }
+                VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
+                    if !isUser && hasInterleavedContent {
+                        interleavedContent
+                    } else {
+                        if shouldShowBubble {
+                            bubbleContent
+                        }
 
-                    if canReportMessage {
-                        // Use ZStack + conditional rendering so the NSPopUpButton is only
-                        // in the view hierarchy while hovered — avoiding per-message SF
-                        // Symbol and accessibility-string lookups on every scroll frame
-                        // that cause the scroll crash (see #4809).
-                        ZStack {
-                            Color.clear.frame(width: 24, height: 24)
-                            if isHovered {
-                                Menu {
-                                    if let onReportMessage {
-                                        Button("Export response for diagnostics") {
-                                            onReportMessage(message.daemonMessageId)
-                                        }
-                                    }
-                                } label: {
-                                    Image(systemName: "ellipsis")
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(VColor.textMuted)
-                                        .frame(width: 24, height: 24)
-                                        .contentShape(Rectangle())
-                                }
-                                .menuStyle(.borderlessButton)
-                                .menuIndicator(.hidden)
-                                .tint(VColor.textMuted)
-                                .frame(width: 24, height: 24)
-                                .accessibilityLabel("Message actions")
-                                .transition(.opacity.animation(VAnimation.fast))
+                        // Inline surfaces render below the bubble as full-width cards
+                        // Skip surfaces that are currently shown in the floating overlay
+                        if !message.inlineSurfaces.isEmpty {
+                            ForEach(message.inlineSurfaces.filter { $0.id != taskProgressOverlay.activeSurfaceId }) { surface in
+                                InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
                             }
                         }
+
+                        // Document widget for document_create tool calls
+                        if let documentToolCall = message.toolCalls.first(where: { $0.toolName == "document_create" && $0.isComplete }) {
+                            documentWidget(for: documentToolCall)
+                        }
+                    }
+
+                    // Media embeds rendered below the text, preserving source order
+                    ForEach(mediaEmbedIntents.indices, id: \.self) { idx in
+                        switch mediaEmbedIntents[idx] {
+                        case .image(let url):
+                            InlineImageEmbedView(url: url)
+                        case .video(let provider, let videoID, let embedURL):
+                            InlineVideoEmbedCard(provider: provider, videoID: videoID, embedURL: embedURL)
+                        }
+                    }
+
+                    // Single unified status area at the bottom of the message:
+                    // - In-progress: shows "Running a terminal command ..."
+                    // - Complete: shows compact chips ("Ran a terminal command" + "Permission granted")
+                    if !isUser {
+                        trailingStatus
                     }
                 }
+                // Prevent LazyVStack from compressing the bubble height, which causes the
+                // trailing tool-chip to overlap long text content.
+                .fixedSize(horizontal: false, vertical: true)
+                .contextMenu {}
+
+                if !isUser && hasOverflowActions {
+                    overflowMenuButton
+                        .opacity(showOverflowMenu ? 1 : 0)
+                        .animation(VAnimation.fast, value: showOverflowMenu)
+                }
             }
-            // Prevent LazyVStack from compressing the bubble height, which causes the
-            // trailing tool-chip to overlap long text content.
-            .fixedSize(horizontal: false, vertical: true)
-            .contextMenu {}
 
             if !isUser { Spacer(minLength: 0) }
         }
@@ -218,93 +223,41 @@ struct ChatBubble: View {
         !message.toolCalls.isEmpty && message.toolCalls.allSatisfy { $0.isComplete } && !message.isStreaming
     }
 
-    private var copyButton: some View {
-        Button {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(message.text, forType: .string)
-            copyConfirmationTimer?.cancel()
-            showCopyConfirmation = true
-            let timer = DispatchWorkItem { showCopyConfirmation = false }
-            copyConfirmationTimer = timer
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
+    private func copyMessageText() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(message.text, forType: .string)
+        copyConfirmationTimer?.cancel()
+        showCopyConfirmation = true
+        let timer = DispatchWorkItem { showCopyConfirmation = false }
+        copyConfirmationTimer = timer
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
+    }
+
+    private var overflowMenuButton: some View {
+        Menu {
+            if hasCopyableText {
+                Button("Copy message") {
+                    copyMessageText()
+                }
+            }
+            if let onReportMessage, !isUser {
+                Button("Export response for diagnostics") {
+                    onReportMessage(message.daemonMessageId)
+                }
+            }
         } label: {
-            Image(systemName: showCopyConfirmation ? "checkmark" : "doc.on.doc")
+            Image(systemName: showCopyConfirmation ? "checkmark" : "ellipsis")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(showCopyConfirmation ? VColor.success : VColor.textMuted)
                 .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Copy message")
-        .onHover { hovering in
-            isCopyHovered = hovering
-            if hovering {
-                NSCursor.pointingHand.set()
-            } else {
-                NSCursor.arrow.set()
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if isCopyHovered && !showCopyConfirmation {
-                Text("Copy")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textPrimary)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xs)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .fill(VColor.surface)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
-                    .vShadow(VShadow.sm)
-                    .fixedSize()
-                    .offset(y: 28)
-                    .transition(.opacity)
-                    .allowsHitTesting(false)
-            }
-        }
-        .opacity(isUser ? (isHovered ? 1 : 0) : 1)
-        .allowsHitTesting(isUser ? isHovered : true)
-        .animation(VAnimation.fast, value: isHovered)
-    }
-
-    private var regenerateButton: some View {
-        Button(action: onRegenerate) {
-            Image(systemName: "arrow.trianglehead.counterclockwise")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(VColor.textMuted)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Try again")
-        .onHover { isRegenerateHovered = $0 }
-        .overlay(alignment: .bottom) {
-            if isRegenerateHovered {
-                Text("Try again")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textPrimary)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xs)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .fill(VColor.surface)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
-                    .vShadow(VShadow.sm)
-                    .fixedSize()
-                    .offset(y: 28)
-                    .transition(.opacity)
-                    .allowsHitTesting(false)
-            }
-        }
-        .animation(VAnimation.fast, value: isRegenerateHovered)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .tint(showCopyConfirmation ? VColor.success : VColor.textMuted)
+        .frame(width: 24, height: 24)
+        .accessibilityLabel("Message actions")
+        .animation(VAnimation.fast, value: showCopyConfirmation)
     }
 
     /// Whether the permission was denied, meaning incomplete tools were blocked (not running).
@@ -718,21 +671,23 @@ struct ChatBubble: View {
             }
         })
 
-        if hasRichContent {
-            MarkdownSegmentView(segments: segments)
-        } else {
-            let options = AttributedString.MarkdownParsingOptions(
-                interpretedSyntax: .inlineOnlyPreservingWhitespace
-            )
-            let attributed = (try? AttributedString(markdown: segmentText, options: options))
-                ?? AttributedString(segmentText)
-            Text(attributed)
-                .font(.system(size: 13))
-                .foregroundColor(VColor.textPrimary)
-                .tint(VColor.accent)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 520, alignment: .leading)
+        bubbleChrome {
+            if hasRichContent {
+                MarkdownSegmentView(segments: segments)
+            } else {
+                let options = AttributedString.MarkdownParsingOptions(
+                    interpretedSyntax: .inlineOnlyPreservingWhitespace
+                )
+                let attributed = (try? AttributedString(markdown: segmentText, options: options))
+                    ?? AttributedString(segmentText)
+                Text(attributed)
+                    .font(.system(size: 13))
+                    .foregroundColor(VColor.textPrimary)
+                    .tint(VColor.accent)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 520, alignment: .leading)
+            }
         }
     }
 
@@ -772,178 +727,167 @@ struct ChatBubble: View {
 
     private var bubbleContent: some View {
         let partitioned = partitionedAttachments
-        return VStack(alignment: .leading, spacing: VSpacing.sm) {
-            if let skillInvocation = message.skillInvocation {
-                SkillInvocationChip(data: skillInvocation)
-            }
-
-            if message.isError && hasText {
-                HStack(alignment: .top, spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(VColor.error)
-                        .padding(.top, 1)
-                    Text(message.text)
-                        .font(.system(size: 13))
-                        .foregroundColor(VColor.textPrimary)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+        return bubbleChrome {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                if let skillInvocation = message.skillInvocation {
+                    SkillInvocationChip(data: skillInvocation)
                 }
-            } else if hasText {
-                let segments = Self.cachedSegments(for: message.text)
-                let hasRichContent = segments.contains(where: {
-                    switch $0 {
-                    case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
-                    case .text: return false
-                    }
-                })
-                VStack(alignment: .leading, spacing: hasRichContent ? VSpacing.lg : VSpacing.xs) {
 
-                    if hasRichContent {
-                        ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                            switch segment {
-                            case .text(let text):
-                                let options = AttributedString.MarkdownParsingOptions(
-                                    interpretedSyntax: .inlineOnlyPreservingWhitespace
-                                )
-                                let attributed = (try? AttributedString(markdown: text, options: options))
-                                    ?? AttributedString(text)
-                                Text(attributed)
-                                    .font(.system(size: 13))
-                                    .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                                    .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                                    .textSelection(.enabled)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            case .table(let headers, let rows):
-                                MarkdownTableView(headers: headers, rows: rows)
-                            case .image(let alt, let url):
-                                AnimatedImageView(urlString: url)
-                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                                    .accessibilityLabel(alt.isEmpty ? "Image" : alt)
-                            case .heading(let level, let headingText):
-                                let font: Font = switch level {
-                                case 1: .system(size: 20, weight: .bold)
-                                case 2: .system(size: 17, weight: .semibold)
-                                case 3: .system(size: 14, weight: .semibold)
-                                default: .system(size: 13, weight: .semibold)
-                                }
-                                Text(headingText)
-                                    .font(font)
-                                    .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                                    .textSelection(.enabled)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .padding(.top, level == 1 ? VSpacing.xs : 0)
-
-                            case .codeBlock(let language, let code):
-                                VStack(alignment: .leading, spacing: 0) {
-                                    if let language, !language.isEmpty {
-                                        Text(language)
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textMuted)
-                                            .padding(.horizontal, VSpacing.sm)
-                                            .padding(.top, VSpacing.xs)
-                                    }
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        Text(code)
-                                            .font(VFont.mono)
-                                            .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                                            .textSelection(.enabled)
-                                            .fixedSize(horizontal: true, vertical: true)
-                                            .padding(VSpacing.sm)
-                                    }
-                                }
-                                .background(isUser ? VColor.userBubbleText.opacity(0.1) : VColor.backgroundSubtle)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-
-                            case .horizontalRule:
-                                Rectangle()
-                                    .fill(isUser ? VColor.userBubbleText.opacity(0.3) : VColor.surfaceBorder)
-                                    .frame(height: 1)
-                                    .padding(.vertical, VSpacing.xs)
-
-                            case .list(let items):
-                                VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                                        let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
-                                        let indentLevel = item.indent / 2
-                                        HStack(alignment: .top, spacing: 0) {
-                                            Text(prefix)
-                                                .font(.system(size: 13))
-                                                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
-                                            let options = AttributedString.MarkdownParsingOptions(
-                                                interpretedSyntax: .inlineOnlyPreservingWhitespace
-                                            )
-                                            let attributed = (try? AttributedString(markdown: item.text, options: options))
-                                                ?? AttributedString(item.text)
-                                            Text(attributed)
-                                                .font(.system(size: 13))
-                                                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                                                .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                                                .textSelection(.enabled)
-                                                .fixedSize(horizontal: false, vertical: true)
-                                        }
-                                        .padding(.leading, CGFloat(indentLevel) * 16)
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        Text(markdownText)
+                if message.isError && hasText {
+                    HStack(alignment: .top, spacing: VSpacing.sm) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(VColor.error)
+                            .padding(.top, 1)
+                        Text(message.text)
                             .font(.system(size: 13))
-                            .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                            .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                            .foregroundColor(VColor.textPrimary)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                } else if hasText {
+                    let segments = Self.cachedSegments(for: message.text)
+                    let hasRichContent = segments.contains(where: {
+                        switch $0 {
+                        case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
+                        case .text: return false
+                        }
+                    })
+                    VStack(alignment: .leading, spacing: hasRichContent ? VSpacing.lg : VSpacing.xs) {
+
+                        if hasRichContent {
+                            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                                switch segment {
+                                case .text(let text):
+                                    let options = AttributedString.MarkdownParsingOptions(
+                                        interpretedSyntax: .inlineOnlyPreservingWhitespace
+                                    )
+                                    let attributed = (try? AttributedString(markdown: text, options: options))
+                                        ?? AttributedString(text)
+                                    Text(attributed)
+                                        .font(.system(size: 13))
+                                        .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                        .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                case .table(let headers, let rows):
+                                    MarkdownTableView(headers: headers, rows: rows)
+                                case .image(let alt, let url):
+                                    AnimatedImageView(urlString: url)
+                                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                                        .accessibilityLabel(alt.isEmpty ? "Image" : alt)
+                                case .heading(let level, let headingText):
+                                    let font: Font = switch level {
+                                    case 1: .system(size: 20, weight: .bold)
+                                    case 2: .system(size: 17, weight: .semibold)
+                                    case 3: .system(size: 14, weight: .semibold)
+                                    default: .system(size: 13, weight: .semibold)
+                                    }
+                                    Text(headingText)
+                                        .font(font)
+                                        .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .padding(.top, level == 1 ? VSpacing.xs : 0)
+
+                                case .codeBlock(let language, let code):
+                                    VStack(alignment: .leading, spacing: 0) {
+                                        if let language, !language.isEmpty {
+                                            Text(language)
+                                                .font(.system(size: 11, weight: .medium))
+                                                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textMuted)
+                                                .padding(.horizontal, VSpacing.sm)
+                                                .padding(.top, VSpacing.xs)
+                                        }
+                                        ScrollView(.horizontal, showsIndicators: false) {
+                                            Text(code)
+                                                .font(VFont.mono)
+                                                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                                .textSelection(.enabled)
+                                                .fixedSize(horizontal: true, vertical: true)
+                                                .padding(VSpacing.sm)
+                                        }
+                                    }
+                                    .background(isUser ? VColor.userBubbleText.opacity(0.1) : VColor.backgroundSubtle)
+                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+
+                                case .horizontalRule:
+                                    Rectangle()
+                                        .fill(isUser ? VColor.userBubbleText.opacity(0.3) : VColor.surfaceBorder)
+                                        .frame(height: 1)
+                                        .padding(.vertical, VSpacing.xs)
+
+                                case .list(let items):
+                                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                                            let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
+                                            let indentLevel = item.indent / 2
+                                            HStack(alignment: .top, spacing: 0) {
+                                                Text(prefix)
+                                                    .font(.system(size: 13))
+                                                    .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
+                                                let options = AttributedString.MarkdownParsingOptions(
+                                                    interpretedSyntax: .inlineOnlyPreservingWhitespace
+                                                )
+                                                let attributed = (try? AttributedString(markdown: item.text, options: options))
+                                                    ?? AttributedString(item.text)
+                                                Text(attributed)
+                                                    .font(.system(size: 13))
+                                                    .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                                    .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                                                    .textSelection(.enabled)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                            }
+                                            .padding(.leading, CGFloat(indentLevel) * 16)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Text(markdownText)
+                                .font(.system(size: 13))
+                                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                                .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                } else if !message.attachments.isEmpty {
+                    Text(attachmentSummary)
+                        .font(VFont.caption)
+                        .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
                 }
-            } else if !message.attachments.isEmpty {
-                Text(attachmentSummary)
-                    .font(VFont.caption)
-                    .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
-            }
 
-            if !partitioned.images.isEmpty {
-                attachmentImageGrid(partitioned.images)
-            }
+                if !partitioned.images.isEmpty {
+                    attachmentImageGrid(partitioned.images)
+                }
 
-            if !partitioned.videos.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    ForEach(partitioned.videos) { attachment in
-                        InlineVideoAttachmentView(attachment: attachment, daemonHttpPort: daemonHttpPort)
+                if !partitioned.videos.isEmpty {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        ForEach(partitioned.videos) { attachment in
+                            InlineVideoAttachmentView(attachment: attachment, daemonHttpPort: daemonHttpPort)
+                        }
                     }
                 }
-            }
 
-            if !partitioned.files.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    ForEach(partitioned.files) { attachment in
-                        fileAttachmentChip(attachment)
+                if !partitioned.files.isEmpty {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        ForEach(partitioned.files) { attachment in
+                            fileAttachmentChip(attachment)
+                        }
                     }
                 }
-            }
 
-            // User messages keep tool calls inside the bubble
-            if isUser && !message.toolCalls.isEmpty {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    ForEach(message.toolCalls) { toolCall in
-                        ToolCallChip(toolCall: toolCall)
+                // User messages keep tool calls inside the bubble
+                if isUser && !message.toolCalls.isEmpty {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        ForEach(message.toolCalls) { toolCall in
+                            ToolCallChip(toolCall: toolCall)
+                        }
                     }
                 }
             }
         }
-        .padding(.horizontal, isUser || message.isError ? VSpacing.lg : 0)
-        .padding(.vertical, isUser || message.isError ? VSpacing.md : 0)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(bubbleFill)
-        )
-        .overlay(
-            message.isError
-                ? RoundedRectangle(cornerRadius: VRadius.lg)
-                    .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
-                : nil
-        )
-        .frame(maxWidth: 520, alignment: isUser ? .trailing : .leading)
     }
 
     @ViewBuilder

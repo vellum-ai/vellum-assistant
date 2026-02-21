@@ -306,7 +306,7 @@ describe('Twitter auth handler', () => {
       };
 
       const msg: TwitterAuthStartRequest = { type: 'twitter_auth_start' };
-      const { ctx, sent: _sent } = createTestContext();
+      const { ctx } = createTestContext();
       await handleMessage(msg, {} as net.Socket, ctx);
 
       await new Promise((r) => setTimeout(r, 50));

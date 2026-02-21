@@ -104,6 +104,7 @@ import {
   getCallSession,
   getCallEvents,
 } from '../calls/call-store.js';
+import { registerCallCompletionNotifier, unregisterCallCompletionNotifier } from '../calls/call-state.js';
 import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
 
@@ -196,6 +197,8 @@ describe('relay-server', () => {
     const updated = getCallSession(session.id);
     expect(updated).not.toBeNull();
     expect(updated!.providerCallSid).toBe('CA_relay_setup_123');
+    expect(updated!.status).toBe('in_progress');
+    expect(updated!.startedAt).not.toBeNull();
 
     // Verify event was recorded
     const events = getCallEvents(session.id);
@@ -204,6 +207,58 @@ describe('relay-server', () => {
 
     // Verify orchestrator was created
     expect(relay.getOrchestrator()).not.toBeNull();
+
+    relay.destroy();
+  });
+
+  test('handleTransportClosed: normal close marks call completed and notifies completion', () => {
+    ensureConversation('conv-relay-close-normal');
+    const session = createCallSession({
+      conversationId: 'conv-relay-close-normal',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    const { relay } = createMockWs(session.id);
+    let completionCount = 0;
+    registerCallCompletionNotifier('conv-relay-close-normal', () => {
+      completionCount += 1;
+    });
+
+    relay.handleTransportClosed(1000, 'Closing websocket session');
+
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('completed');
+    expect(updated!.endedAt).not.toBeNull();
+    const endedEvents = getCallEvents(session.id).filter((e) => e.eventType === 'call_ended');
+    expect(endedEvents.length).toBe(1);
+    expect(completionCount).toBe(1);
+
+    unregisterCallCompletionNotifier('conv-relay-close-normal');
+    relay.destroy();
+  });
+
+  test('handleTransportClosed: abnormal close marks call failed', () => {
+    ensureConversation('conv-relay-close-abnormal');
+    const session = createCallSession({
+      conversationId: 'conv-relay-close-abnormal',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    const { relay } = createMockWs(session.id);
+    relay.handleTransportClosed(1006, 'abnormal closure');
+
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('failed');
+    expect(updated!.endedAt).not.toBeNull();
+    expect(updated!.lastError).toContain('abnormal closure');
+    const failEvents = getCallEvents(session.id).filter((e) => e.eventType === 'call_failed');
+    expect(failEvents.length).toBe(1);
 
     relay.destroy();
   });
