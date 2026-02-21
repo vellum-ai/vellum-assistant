@@ -195,6 +195,13 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
         from_number: formBody.get('From') || session.fromNumber,
         to_number: formBody.get('To') || session.toNumber,
         direction: 'outbound',
+        conversation_initiation_client_data: {
+          dynamic_variables: {
+            task: session.task,
+            call_session_id: session.id,
+            conversation_id: session.conversationId,
+          },
+        },
       });
 
       log.info({ callSessionId }, 'ElevenLabs register-call succeeded');

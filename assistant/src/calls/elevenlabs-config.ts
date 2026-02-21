@@ -1,8 +1,5 @@
 import { getConfig } from '../config/loader.js';
 import { getSecureKey } from '../security/secure-keys.js';
-import { getLogger } from '../util/logger.js';
-
-const log = getLogger('elevenlabs-config');
 
 export interface ElevenLabsConfig {
   apiKey: string;
@@ -17,13 +14,18 @@ export function getElevenLabsConfig(): ElevenLabsConfig {
 
   const apiKey = getSecureKey('credential:elevenlabs:api_key') ?? '';
   if (!apiKey) {
-    log.warn('No ElevenLabs API key found in secure key store (credential:elevenlabs:api_key)');
+    throw new Error('ElevenLabs API key is not configured. Set credential:elevenlabs:api_key in the secure key store.');
+  }
+
+  const agentId = voice.elevenlabs.agentId;
+  if (!agentId) {
+    throw new Error('ElevenLabs agent ID is not configured. Set calls.voice.elevenlabs.agentId in config.');
   }
 
   return {
     apiKey,
     apiBaseUrl: voice.elevenlabs.apiBaseUrl,
-    agentId: voice.elevenlabs.agentId,
+    agentId,
     registerCallTimeoutMs: voice.elevenlabs.registerCallTimeoutMs,
   };
 }

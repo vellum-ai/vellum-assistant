@@ -189,6 +189,68 @@ describe('ElevenLabsClient', () => {
       }
     });
 
+    test('valid TwiML with XML declaration passes validation', async () => {
+      const twiml = '<?xml version="1.0"?><Response><Connect><Stream url="wss://el.io/stream"/></Connect></Response>';
+
+      globalThis.fetch = mock(async () =>
+        new Response(twiml, { status: 200 }),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = new ElevenLabsClient(DEFAULT_OPTIONS);
+      const result = await client.registerCall(DEFAULT_REQUEST);
+
+      expect(result.twiml).toBe(twiml);
+    });
+
+    test('valid TwiML with Response tag but no XML declaration passes validation', async () => {
+      const twiml = '<Response><Connect><Stream url="wss://el.io/stream"/></Connect></Response>';
+
+      globalThis.fetch = mock(async () =>
+        new Response(twiml, { status: 200 }),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = new ElevenLabsClient(DEFAULT_OPTIONS);
+      const result = await client.registerCall(DEFAULT_REQUEST);
+
+      expect(result.twiml).toBe(twiml);
+    });
+
+    test('non-XML response throws ELEVENLABS_INVALID_RESPONSE', async () => {
+      globalThis.fetch = mock(async () =>
+        new Response('{"error": "invalid"}', { status: 200 }),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = new ElevenLabsClient(DEFAULT_OPTIONS);
+
+      try {
+        await client.registerCall(DEFAULT_REQUEST);
+        expect(true).toBe(false); // Should not reach here
+      } catch (err) {
+        expect(err).toBeInstanceOf(ElevenLabsError);
+        const elErr = err as ElevenLabsError;
+        expect(elErr.code).toBe('ELEVENLABS_INVALID_RESPONSE');
+        expect(elErr.message).toContain('not valid TwiML/XML');
+      }
+    });
+
+    test('plain text response throws ELEVENLABS_INVALID_RESPONSE', async () => {
+      globalThis.fetch = mock(async () =>
+        new Response('some random text', { status: 200 }),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = new ElevenLabsClient(DEFAULT_OPTIONS);
+
+      try {
+        await client.registerCall(DEFAULT_REQUEST);
+        expect(true).toBe(false); // Should not reach here
+      } catch (err) {
+        expect(err).toBeInstanceOf(ElevenLabsError);
+        const elErr = err as ElevenLabsError;
+        expect(elErr.code).toBe('ELEVENLABS_INVALID_RESPONSE');
+        expect(elErr.message).toContain('not valid TwiML/XML');
+      }
+    });
+
     test('API key is not included in logged data', async () => {
       // The ElevenLabsClient logs agent_id and direction, but should never log the API key.
       // We verify this by checking the request structure, not the log output.
