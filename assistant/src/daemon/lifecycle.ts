@@ -48,7 +48,6 @@ import { installTemplates } from '../hooks/templates.js';
 import { HeartbeatService } from '../workspace/heartbeat-service.js';
 import { AgentHeartbeatService } from '../agent-heartbeat/agent-heartbeat-service.js';
 import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
-import { initAppGit } from '../memory/app-git-service.js';
 import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 
@@ -482,10 +481,6 @@ export async function runDaemon(): Promise<void> {
       log.warn({ err }, 'Audit log rotation failed');
     }
   }
-
-  // Eagerly initialize the app git repo so that the bootstrap "Initial
-  // commit" is created before any app mutations write files.
-  void initAppGit();
 
   // Start workspace heartbeat service. This periodically checks all
   // tracked workspaces for uncommitted changes and auto-commits when
