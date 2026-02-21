@@ -28,7 +28,6 @@ export const SLASH_COMMANDS = ["/clear", "/doctor", "/exit", "/help", "/q", "/qu
 const POLL_INTERVAL_MS = 3000;
 const SEND_TIMEOUT_MS = 5000;
 const RESPONSE_POLL_INTERVAL_MS = 1000;
-const RESPONSE_TIMEOUT_MS = 180000;
 
 interface ListMessagesResponse {
   messages: RuntimeMessage[];
@@ -1515,8 +1514,7 @@ function ChatApp({
 
         h.showSpinner("Working...");
 
-        const startTime = Date.now();
-        while (Date.now() - startTime < RESPONSE_TIMEOUT_MS) {
+        while (true) {
           await new Promise((resolve) => setTimeout(resolve, RESPONSE_POLL_INTERVAL_MS));
 
           if (runId) {
@@ -1609,26 +1607,6 @@ function ChatApp({
           }
         }
 
-        h.setBusy(false);
-        h.hideSpinner();
-        h.showError("Response timed out. The assistant may still be processing.");
-        try {
-          const doctorResult = await callDoctorDaemon(
-            assistantId,
-            project,
-            zone,
-            undefined,
-            undefined,
-            doctorSessionIdRef.current,
-          );
-          if (doctorResult.diagnostics) {
-            h.addStatus(
-              `--- SSH Diagnostics ---\n${doctorResult.diagnostics}\n--- End Diagnostics ---`,
-            );
-          }
-        } catch {
-          // Doctor daemon unreachable; skip diagnostics
-        }
       } catch (error) {
         h.setBusy(false);
         h.hideSpinner();
