@@ -18,13 +18,7 @@ Save this value to report later.
 ## Step 2: Install the latest vellum
 
 ```bash
-bun update -g vellum
-```
-
-If `vellum` was not installed globally via bun, try:
-
-```bash
-npm update -g vellum
+bun install -g vellum@latest
 ```
 
 After updating, verify the new version:
