@@ -26,8 +26,6 @@ import { loadConfig } from '../config/loader.js';
 import { getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
 import { fireCallCompletionNotifier } from './call-state.js';
 import { resolveVoiceQualityProfile, isVoiceProfileValid } from './voice-quality.js';
-import { getElevenLabsConfig } from './elevenlabs-config.js';
-import { ElevenLabsClient } from './elevenlabs-client.js';
 
 const log = getLogger('twilio-routes');
 
@@ -160,7 +158,6 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
 
   // WS-B: Guard elevenlabs_agent until consultation bridge exists.
   // This fires BEFORE any ElevenLabs API calls, blocking the entire mode.
-  let elevenLabsAgentGuarded = false;
   if (profile.mode === 'elevenlabs_agent') {
     if (!profile.fallbackToStandardOnError) {
       const msg = 'elevenlabs_agent mode is restricted: consultation bridging (waiting_on_user) is not yet supported. Set calls.voice.fallbackToStandardOnError=true to fall back to standard mode.';
@@ -168,7 +165,6 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
       return new Response(msg, { status: 501 });
     }
     log.warn({ callSessionId }, 'elevenlabs_agent mode is restricted/experimental — consultation bridging is not yet supported; falling back to standard ConversationRelay TwiML');
-    elevenLabsAgentGuarded = true;
     const standardConfig = loadConfig();
     profile = resolveVoiceQualityProfile({
       ...standardConfig,
@@ -188,46 +184,6 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     relayUrl = resolveRelayUrl(twilioConfig.wssBaseUrl, twilioConfig.webhookBaseUrl);
   }
   const welcomeGreeting = process.env.CALL_WELCOME_GREETING ?? 'Hello, how can I help you today?';
-
-  if (profile.mode === 'elevenlabs_agent' && !elevenLabsAgentGuarded) {
-    try {
-      const elevenLabsConfig = getElevenLabsConfig();
-      const client = new ElevenLabsClient({
-        apiBaseUrl: elevenLabsConfig.apiBaseUrl,
-        apiKey: elevenLabsConfig.apiKey,
-        timeoutMs: elevenLabsConfig.registerCallTimeoutMs,
-      });
-
-      const result = await client.registerCall({
-        agent_id: elevenLabsConfig.agentId,
-        from_number: formBody.get('From') || session.fromNumber,
-        to_number: formBody.get('To') || session.toNumber,
-        direction: 'outbound',
-        conversation_initiation_client_data: {
-          dynamic_variables: {
-            task: session.task,
-            call_session_id: session.id,
-            conversation_id: session.conversationId,
-          },
-        },
-      });
-
-      log.info({ callSessionId }, 'ElevenLabs register-call succeeded');
-      return new Response(result.twiml, {
-        status: 200,
-        headers: { 'Content-Type': 'text/xml' },
-      });
-    } catch (err) {
-      log.error({ err, callSessionId }, 'ElevenLabs register-call failed');
-      if (profile.fallbackToStandardOnError) {
-        log.warn({ callSessionId }, 'Falling back to twilio_standard mode');
-        const standardProfile = resolveVoiceQualityProfile({ ...loadConfig(), calls: { ...loadConfig().calls, voice: { ...loadConfig().calls.voice, mode: 'twilio_standard' } } });
-        const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, standardProfile);
-        return new Response(twiml, { status: 200, headers: { 'Content-Type': 'text/xml' } });
-      }
-      return new Response('ElevenLabs service unavailable', { status: 502 });
-    }
-  }
 
   const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, profile);
 

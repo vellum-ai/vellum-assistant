@@ -94,6 +94,25 @@ mock.module('../calls/twilio-config.js', () => ({
   }),
 }));
 
+// Mock ElevenLabs client — should never be called when guard is active.
+// If any test path reaches register-call, the mock will throw to fail the test.
+const mockRegisterCall = mock(() => { throw new Error('register-call should not be reached while guard is active'); });
+
+mock.module('../calls/elevenlabs-client.js', () => ({
+  ElevenLabsClient: class {
+    registerCall = mockRegisterCall;
+  },
+}));
+
+mock.module('../calls/elevenlabs-config.js', () => ({
+  getElevenLabsConfig: () => ({
+    apiBaseUrl: 'https://api.elevenlabs.io',
+    apiKey: 'test-key',
+    agentId: 'agent-abc',
+    registerCallTimeoutMs: 5000,
+  }),
+}));
+
 // Mock resolveVoiceQualityProfile and isVoiceProfileValid so we can control
 // the profile returned to handleVoiceWebhook per-test.
 import type { VoiceQualityProfile } from '../calls/voice-quality.js';
@@ -186,6 +205,7 @@ describe('handleVoiceWebhook ElevenLabs branches', () => {
     resetTables();
     // Reset mock to default implementation
     mockResolveVoiceQualityProfile.mockReset();
+    mockRegisterCall.mockClear();
     // Reset to standard default profile between tests
     mockProfile = {
       mode: 'twilio_standard',
@@ -317,5 +337,39 @@ describe('handleVoiceWebhook ElevenLabs branches', () => {
     expect(twiml).toContain('<Connect>');
     expect(twiml).toContain('ttsProvider="Google"');
     expect(twiml).toContain('voice="Google.en-US-Journey-O"');
+  });
+
+  // ── Guard prevents register-call attempt ────────────────────────────
+  test('guarded elevenlabs_agent does not attempt ElevenLabs register-call', async () => {
+    // Configure as elevenlabs_agent with fallback (guard will fire)
+    mockResolveVoiceQualityProfile.mockImplementationOnce(() => ({
+      mode: 'elevenlabs_agent' as const,
+      language: 'en-US',
+      transcriptionProvider: 'Deepgram',
+      ttsProvider: 'ElevenLabs',
+      voice: 'voice123-turbo_v2_5-0.5_0.75_0',
+      agentId: 'agent-abc',
+      fallbackToStandardOnError: true,
+      validationErrors: [],
+    }));
+    mockResolveVoiceQualityProfile.mockImplementationOnce(() => ({
+      mode: 'twilio_standard' as const,
+      language: 'en-US',
+      transcriptionProvider: 'Deepgram',
+      ttsProvider: 'Google',
+      voice: 'Google.en-US-Journey-O',
+      fallbackToStandardOnError: true,
+      validationErrors: [],
+    }));
+
+    const session = createTestSession('conv-11labs-5', 'CA_11labs_5');
+    const req = makeVoiceRequest(session.id, { CallSid: 'CA_11labs_5' });
+
+    const res = await handleVoiceWebhook(req);
+
+    expect(res.status).toBe(200);
+    // The ElevenLabs register-call mock was never invoked — the guard
+    // blocked the entire mode before any ElevenLabs API interaction.
+    expect(mockRegisterCall).not.toHaveBeenCalled();
   });
 });

@@ -3675,7 +3675,7 @@ Call behavior is controlled via the `calls` config block in the assistant config
 | `calls.voice.mode` | enum | `'twilio_standard'` | Voice quality mode. Options: `twilio_standard` (standard Twilio TTS with Google voices — fully supported), `twilio_elevenlabs_tts` (ElevenLabs voices through Twilio ConversationRelay — fully supported), `elevenlabs_agent` (full ElevenLabs conversational agent — experimental/restricted, blocked by runtime guard). |
 | `calls.voice.language` | string | `'en-US'` | Language code for TTS and transcription. |
 | `calls.voice.transcriptionProvider` | enum | `'Deepgram'` | Speech-to-text provider (`Deepgram` or `Google`). |
-| `calls.voice.fallbackToStandardOnError` | boolean | `true` | When an ElevenLabs mode is active, automatically fall back to standard Twilio TTS if ElevenLabs fails (missing config, API errors) or is restricted (e.g., `elevenlabs_agent` guard). When `false`, errors return HTTP 500/501/502 instead of falling back. |
+| `calls.voice.fallbackToStandardOnError` | boolean | `true` | When an ElevenLabs mode is active, automatically fall back to standard Twilio TTS if ElevenLabs config is invalid or mode is restricted (e.g., `elevenlabs_agent` guard). When `false`, errors return HTTP 500 (invalid config) or 501 (restricted mode) instead of falling back. |
 | `calls.voice.elevenlabs.voiceId` | string | `''` | ElevenLabs voice ID, used by `twilio_elevenlabs_tts` mode. |
 | `calls.voice.elevenlabs.agentId` | string | `''` | ElevenLabs agent ID, used by `elevenlabs_agent` mode. |
 
@@ -3687,7 +3687,7 @@ The resolution logic works as follows:
 
 - **`twilio_standard`** (fully supported) — Returns a profile using Google TTS with a default Google voice (`Google.en-US-Journey-O`). This is the default when no voice config is changed.
 - **`twilio_elevenlabs_tts`** (fully supported) — Builds an ElevenLabs voice spec string from `voiceId`, `voiceModelId`, and tuning parameters (stability, similarity, style). If `voiceId` is empty and fallback is enabled, silently falls back to the `twilio_standard` profile.
-- **`elevenlabs_agent`** (experimental/restricted) — Requires `agentId` to be set. If `agentId` is empty and fallback is enabled, silently falls back to `twilio_standard`. Even when the profile resolves successfully, a runtime guard in `handleVoiceWebhook` blocks this mode (see below).
+- **`elevenlabs_agent`** (experimental/restricted) — Requires `agentId` to be set. If `agentId` is empty and fallback is enabled, silently falls back to `twilio_standard`. Even when the profile resolves successfully, a runtime guard in `handleVoiceWebhook` blocks this mode before any ElevenLabs API calls are made (see below). No register-call flow is reachable while the guard is active.
 
 When `fallbackToStandardOnError` is `true` (default), any misconfiguration or runtime error in ElevenLabs modes causes a graceful fallback to standard Twilio TTS rather than a call failure. Validation errors are captured in `validationErrors` on the profile for logging.
 
@@ -3699,8 +3699,8 @@ The voice webhook (`twilio-routes.ts`) enforces two sequential guardrails before
 - `fallbackToStandardOnError=true` (default): the profile has already been resolved to `twilio_standard` by the profile resolver; proceeds normally.
 - `fallbackToStandardOnError=false`: returns **HTTP 500** with the validation error details.
 
-**WS-B: `elevenlabs_agent` mode guard** — If the resolved profile mode is `elevenlabs_agent`, a guard fires *before* any ElevenLabs API calls because consultation bridging (`waiting_on_user`) is not yet supported in this mode:
-- `fallbackToStandardOnError=true` (default): logs a warning and falls back to standard ConversationRelay TwiML.
+**WS-B: `elevenlabs_agent` mode guard** — If the resolved profile mode is `elevenlabs_agent`, a guard fires *before* any ElevenLabs API calls because consultation bridging (`waiting_on_user`) is not yet supported in this mode. No ElevenLabs register-call or other API calls are attempted while this guard is active:
+- `fallbackToStandardOnError=true` (default): logs a warning, replaces the profile with `twilio_standard`, and returns standard ConversationRelay TwiML.
 - `fallbackToStandardOnError=false`: returns **HTTP 501** `"elevenlabs_agent mode is restricted: consultation bridging (waiting_on_user) is not yet supported."`.
 
 The guard order ensures invalid configs are caught first (WS-A), then mode-level restrictions are enforced (WS-B). For `twilio_standard` and `twilio_elevenlabs_tts` modes, both guards pass and the webhook proceeds to return ConversationRelay TwiML.
