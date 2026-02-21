@@ -4,6 +4,7 @@ import VellumAssistantShared
 
 struct ContentView: View {
     @EnvironmentObject var clientProvider: ClientProvider
+    @Bindable var authManager: AuthManager
 
     var body: some View {
         TabView {
@@ -30,17 +31,20 @@ struct ContentView: View {
                     Label("Identity", systemImage: "person.text.rectangle")
                 }
 
-            SettingsView()
+            SettingsView(authManager: authManager)
                 .environmentObject(clientProvider)
                 .tabItem {
                     Label("Settings", systemImage: "gear")
                 }
         }
+        .task {
+            await authManager.checkSession()
+        }
     }
 }
 
 #Preview {
-    ContentView()
+    ContentView(authManager: AuthManager())
         .environmentObject(ClientProvider(client: DaemonClient(config: .default)))
 }
 #endif

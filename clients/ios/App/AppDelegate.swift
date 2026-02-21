@@ -21,6 +21,7 @@ final class ClientProvider: ObservableObject {
 @MainActor
 class AppDelegate: NSObject, UIApplicationDelegate {
     let clientProvider: ClientProvider
+    let authManager = AuthManager()
 
     override init() {
         self.clientProvider = ClientProvider(client: DaemonClient(config: .fromUserDefaults()))

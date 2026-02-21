@@ -4,26 +4,41 @@ import VellumAssistantShared
 
 struct OnboardingView: View {
     @Binding var isCompleted: Bool
+    @Bindable var authManager: AuthManager
     @State private var currentStep = 0
 
-    // Steps: Welcome(0) → Daemon(1) → Permissions(2) → Ready(3)
+    // Steps: Welcome(0) → ChoosePath(1) → Login(2)/DaemonSetup(3) → Permissions(4) → Ready(5)
 
     var body: some View {
         TabView(selection: $currentStep) {
             WelcomeStep(onContinue: { currentStep = 1 })
                 .tag(0)
 
-            DaemonSetupStep(onContinue: { currentStep = 2 })
-                .tag(1)
+            ChoosePathStep(
+                onLoginWithVellum: { currentStep = 2 },
+                onConnectToMac: { currentStep = 3 }
+            )
+            .tag(1)
 
-            PermissionsStep(onContinue: { currentStep = 3 })
+            LoginView(authManager: authManager)
                 .tag(2)
 
-            ReadyStep(isCompleted: $isCompleted)
+            DaemonSetupStep(onContinue: { currentStep = 4 })
                 .tag(3)
+
+            PermissionsStep(onContinue: { currentStep = 5 })
+                .tag(4)
+
+            ReadyStep(isCompleted: $isCompleted)
+                .tag(5)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .animation(.easeInOut, value: currentStep)
+        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+            if isAuthenticated {
+                currentStep = 4
+            }
+        }
     }
 }
 
@@ -59,6 +74,76 @@ struct WelcomeStep: View {
     }
 }
 
+// MARK: - ChoosePathStep
+
+struct ChoosePathStep: View {
+    var onLoginWithVellum: () -> Void
+    var onConnectToMac: () -> Void
+
+    var body: some View {
+        VStack(spacing: VSpacing.xl) {
+            Spacer()
+
+            Text("How would you like to connect?")
+                .font(VFont.title)
+                .foregroundColor(VColor.textPrimary)
+                .multilineTextAlignment(.center)
+
+            VStack(spacing: VSpacing.lg) {
+                Button(action: onLoginWithVellum) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Log in with Vellum")
+                                .font(VFont.bodyBold)
+                                .foregroundColor(VColor.textPrimary)
+                            Text("Connect to your cloud assistant")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: "cloud")
+                            .foregroundColor(VColor.accent)
+                    }
+                    .padding(VSpacing.lg)
+                    .background(VColor.surface)
+                    .cornerRadius(VRadius.md)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+                }
+
+                Button(action: onConnectToMac) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Connect to Mac")
+                                .font(VFont.bodyBold)
+                                .foregroundColor(VColor.textPrimary)
+                            Text("Use your Mac's local daemon")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: "desktopcomputer")
+                            .foregroundColor(VColor.accent)
+                    }
+                    .padding(VSpacing.lg)
+                    .background(VColor.surface)
+                    .cornerRadius(VRadius.md)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+                }
+            }
+            .padding(.horizontal, VSpacing.xl)
+
+            Spacer()
+        }
+        .padding(VSpacing.xl)
+    }
+}
+
 // MARK: - DaemonSetupStep
 
 struct DaemonSetupStep: View {
@@ -72,9 +157,6 @@ struct DaemonSetupStep: View {
     var body: some View {
         VStack(spacing: VSpacing.xl) {
             Spacer()
-
-            Text("🔌")
-                .font(VFont.onboardingEmoji)
 
             Text("Connect to Mac")
                 .font(VFont.title)
@@ -101,7 +183,7 @@ struct DaemonSetupStep: View {
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
 
-                Text("Find the token at ~/.vellum/session-token on your Mac, or in Mac app → Settings → Daemon.")
+                Text("Find the token at ~/.vellum/session-token on your Mac, or in Mac app Settings.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .multilineTextAlignment(.center)
@@ -118,7 +200,6 @@ struct DaemonSetupStep: View {
                 UserDefaults.standard.set(portInt, forKey: UserDefaultsKeys.daemonPort)
                 if sessionToken.isEmpty {
                     _ = APIKeyManager.shared.deleteAPIKey(provider: "daemon-token")
-                    // Also clear legacy UserDefaults key so migration can't resurrect it
                     UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.legacyDaemonToken)
                 } else {
                     _ = APIKeyManager.shared.setAPIKey(sessionToken, provider: "daemon-token")
@@ -159,9 +240,6 @@ struct PermissionsStep: View {
         VStack(spacing: VSpacing.xl) {
             Spacer()
 
-            Text("🎤")
-                .font(VFont.onboardingEmoji)
-
             Text("Permissions")
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
@@ -198,9 +276,6 @@ struct ReadyStep: View {
         VStack(spacing: VSpacing.xl) {
             Spacer()
 
-            Text("🎉")
-                .font(VFont.onboardingEmoji)
-
             Text("You're All Set!")
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
@@ -222,6 +297,6 @@ struct ReadyStep: View {
 }
 
 #Preview {
-    OnboardingView(isCompleted: .constant(false))
+    OnboardingView(isCompleted: .constant(false), authManager: AuthManager())
 }
 #endif
