@@ -1031,7 +1031,10 @@ export async function startLocalDaemon(): Promise<void> {
 
     const child = spawn("bun", ["run", assistantIndex, "daemon", "start"], {
       stdio: "inherit",
-      env: { ...process.env },
+      env: {
+        ...process.env,
+        RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
+      },
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -1059,6 +1062,7 @@ export async function startGateway(): Promise<string> {
     ...process.env as Record<string, string>,
     GATEWAY_RUNTIME_PROXY_ENABLED: "true",
     GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
+    RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
   };
   const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl();
   const ingressPublicBaseUrl =
