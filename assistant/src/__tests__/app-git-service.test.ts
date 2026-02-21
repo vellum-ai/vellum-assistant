@@ -68,8 +68,6 @@ describe('App Git Service', () => {
       htmlDefinition: '<h1>Hello</h1>',
     });
 
-    // Wait for fire-and-forget commit
-    await commitAppChange.__proto__; // noop — the real wait is below
     // Give the fire-and-forget commit time to complete
     await new Promise(resolve => setTimeout(resolve, 500));
 
