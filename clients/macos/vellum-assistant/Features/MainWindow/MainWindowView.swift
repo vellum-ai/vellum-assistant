@@ -435,21 +435,24 @@ struct MainWindowView: View {
                         let sidebarInset = sidebarVisible && sidebarPushesContent
                             ? threadDrawerWidth + VSpacing.xs : 0
 
-                        chatContentView(geometry: geometry)
-                            .padding(.leading, sidebarInset)
-
-                        // Sidebar drawer
-                        if sidebarVisible {
-                            // Click-outside-to-dismiss scrim (overlay mode only)
-                            if !sidebarPushesContent {
-                                Color.clear
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
+                        if sidebarVisible && !sidebarPushesContent {
+                            chatContentView(geometry: geometry)
+                                .padding(.leading, sidebarInset)
+                                .contentShape(Rectangle())
+                                .highPriorityGesture(
+                                    TapGesture().onEnded {
                                         withAnimation(.easeInOut(duration: 0.35)) {
                                             sidebarOpen = false
                                         }
                                     }
-                            }
+                                )
+                        } else {
+                            chatContentView(geometry: geometry)
+                                .padding(.leading, sidebarInset)
+                        }
+
+                        // Sidebar drawer
+                        if sidebarVisible {
                             HStack(spacing: 0) {
                                 sidebarView
                                 drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
