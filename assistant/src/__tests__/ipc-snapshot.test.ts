@@ -506,6 +506,13 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     subagentId: 'sub-001',
     conversationId: 'conv-001',
   },
+  workspace_files_list: {
+    type: 'workspace_files_list',
+  },
+  workspace_file_read: {
+    type: 'workspace_file_read',
+    path: 'IDENTITY.md',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1459,6 +1466,17 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
         isError: false,
       },
     ],
+  },
+  workspace_files_list_response: {
+    type: 'workspace_files_list_response',
+    files: [
+      { path: 'IDENTITY.md', name: 'IDENTITY.md', exists: true },
+    ],
+  },
+  workspace_file_read_response: {
+    type: 'workspace_file_read_response',
+    path: 'IDENTITY.md',
+    content: '# My Identity',
   },
 };
 

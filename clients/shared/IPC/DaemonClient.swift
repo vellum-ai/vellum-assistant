@@ -958,6 +958,18 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
     #endif
 
+    // MARK: - Workspace Files
+
+    /// Request the list of workspace files from the daemon.
+    public func sendWorkspaceFilesList() throws {
+        try send(WorkspaceFilesListRequestMessage())
+    }
+
+    /// Request the content of a workspace file from the daemon.
+    public func sendWorkspaceFileRead(path: String) throws {
+        try send(WorkspaceFileReadRequestMessage(path: path))
+    }
+
     // MARK: - Document Persistence
 
     public func sendDocumentSave(surfaceId: String, conversationId: String, title: String, content: String, wordCount: Int) throws {

@@ -2238,3 +2238,34 @@ public struct IPCWorkItemUpdateResponseItem: Codable, Sendable {
     public let createdAt: Int
     public let updatedAt: Int
 }
+
+public struct IPCWorkspaceFileReadRequest: Codable, Sendable {
+    public let type: String
+    /// Relative path within the workspace directory (e.g. "IDENTITY.md").
+    public let path: String
+}
+
+public struct IPCWorkspaceFileReadResponse: Codable, Sendable {
+    public let type: String
+    public let path: String
+    public let content: String?
+    public let error: String?
+}
+
+public struct IPCWorkspaceFilesListRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCWorkspaceFilesListResponse: Codable, Sendable {
+    public let type: String
+    public let files: [IPCWorkspaceFilesListResponseFile]
+}
+
+public struct IPCWorkspaceFilesListResponseFile: Codable, Sendable {
+    /// Relative path within the workspace (e.g. "IDENTITY.md", "skills/my-skill").
+    public let path: String
+    /// Display name (e.g. "IDENTITY.md").
+    public let name: String
+    /// Whether the file/directory exists.
+    public let exists: Bool
+}

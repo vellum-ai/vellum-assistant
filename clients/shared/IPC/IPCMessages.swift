@@ -981,6 +981,39 @@ public typealias SkillsListResponseMessage = IPCSkillsListResponse
 /// Backed by generated `IPCSkillDetailResponse`.
 public typealias SkillDetailResponseMessage = IPCSkillDetailResponse
 
+// MARK: - Workspace Files
+
+/// Request to list workspace files.
+public typealias WorkspaceFilesListRequestMessage = IPCWorkspaceFilesListRequest
+
+extension IPCWorkspaceFilesListRequest {
+    public init() {
+        self.init(type: "workspace_files_list")
+    }
+}
+
+/// Request to read a workspace file's content.
+public typealias WorkspaceFileReadRequestMessage = IPCWorkspaceFileReadRequest
+
+extension IPCWorkspaceFileReadRequest {
+    public init(path: String) {
+        self.init(type: "workspace_file_read", path: path)
+    }
+}
+
+/// Response containing the list of workspace files.
+public typealias WorkspaceFilesListResponseMessage = IPCWorkspaceFilesListResponse
+
+/// Individual workspace file entry.
+public typealias WorkspaceFileInfo = IPCWorkspaceFilesListResponseFile
+
+extension IPCWorkspaceFilesListResponseFile: Identifiable {
+    public var id: String { path }
+}
+
+/// Response containing a workspace file's content.
+public typealias WorkspaceFileReadResponseMessage = IPCWorkspaceFileReadResponse
+
 /// Push event: skill state changed.
 /// Backed by generated `IPCSkillStateChanged`.
 public typealias SkillStateChangedMessage = IPCSkillStateChanged
@@ -1952,6 +1985,8 @@ public enum ServerMessage: Decodable, Sendable {
     case subagentStatusChanged(IPCSubagentStatusChanged)
     indirect case subagentEvent(SubagentEventMessage)
     case subagentDetailResponse(IPCSubagentDetailResponse)
+    case workspaceFilesListResponse(WorkspaceFilesListResponseMessage)
+    case workspaceFileReadResponse(WorkspaceFileReadResponseMessage)
     case pong
     case unknown(String)
 
@@ -2273,6 +2308,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "subagent_detail_response":
             let message = try IPCSubagentDetailResponse(from: decoder)
             self = .subagentDetailResponse(message)
+        case "workspace_files_list_response":
+            let message = try WorkspaceFilesListResponseMessage(from: decoder)
+            self = .workspaceFilesListResponse(message)
+        case "workspace_file_read_response":
+            let message = try WorkspaceFileReadResponseMessage(from: decoder)
+            self = .workspaceFileReadResponse(message)
         case "pong":
             self = .pong
         default:
