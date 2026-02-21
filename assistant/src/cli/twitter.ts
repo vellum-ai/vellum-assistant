@@ -13,7 +13,6 @@ import {
   clearSession,
 } from '../twitter/session.js';
 import {
-  postTweet,
   getUserByScreenName,
   getUserTweets,
   getTweetDetail,
@@ -27,6 +26,7 @@ import {
   getUserMedia,
   SessionExpiredError,
 } from '../twitter/client.js';
+import { routedPostTweet } from '../twitter/router.js';
 import { getSocketPath, readSessionToken } from '../util/platform.js';
 import {
   serialize,
@@ -270,11 +270,12 @@ export function registerTwitterCommand(program: Command): void {
     .argument('<text>', 'Tweet text')
     .action(async (text: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
-        const result = await postTweet(text);
+        const { result, pathUsed } = await routedPostTweet(text);
         return {
           tweetId: result.tweetId,
           text: result.text,
           url: result.url,
+          pathUsed,
         };
       });
     });
@@ -294,12 +295,13 @@ export function registerTwitterCommand(program: Command): void {
           throw new Error(`Could not extract tweet ID from: ${tweetUrl}`);
         }
         const inReplyToTweetId = idMatch[1];
-        const result = await postTweet(text, { inReplyToTweetId });
+        const { result, pathUsed } = await routedPostTweet(text, { inReplyToTweetId });
         return {
           tweetId: result.tweetId,
           text: result.text,
           url: result.url,
           inReplyToTweetId,
+          pathUsed,
         };
       });
     });
