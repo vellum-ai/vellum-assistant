@@ -876,6 +876,18 @@ export interface WorkItemCancelRequest {
   id: string;
 }
 
+// === Workspace File IPC ─────────────────────────────────────────────────────
+
+export interface WorkspaceFilesListRequest {
+  type: 'workspace_files_list';
+}
+
+export interface WorkspaceFileReadRequest {
+  type: 'workspace_file_read';
+  /** Relative path within the workspace directory (e.g. "IDENTITY.md"). */
+  path: string;
+}
+
 export type ClientMessage =
   | AuthMessage
   | UserMessage
@@ -980,7 +992,9 @@ export type ClientMessage =
   | SubagentAbortRequest
   | SubagentStatusRequest
   | SubagentMessageRequest
-  | SubagentDetailRequest;
+  | SubagentDetailRequest
+  | WorkspaceFilesListRequest
+  | WorkspaceFileReadRequest;
 
 export interface IntegrationListRequest {
   type: 'integration_list';
@@ -2105,6 +2119,27 @@ export interface TaskRunThreadCreated {
   title: string;
 }
 
+// === Workspace File Responses ────────────────────────────────────────────────
+
+export interface WorkspaceFilesListResponse {
+  type: 'workspace_files_list_response';
+  files: Array<{
+    /** Relative path within the workspace (e.g. "IDENTITY.md", "skills/my-skill"). */
+    path: string;
+    /** Display name (e.g. "IDENTITY.md"). */
+    name: string;
+    /** Whether the file/directory exists. */
+    exists: boolean;
+  }>;
+}
+
+export interface WorkspaceFileReadResponse {
+  type: 'workspace_file_read_response';
+  path: string;
+  content: string | null;
+  error?: string;
+}
+
 export type ServerMessage =
   | AuthResult
   | UserMessageEcho
@@ -2222,7 +2257,9 @@ export type ServerMessage =
   | SubagentSpawned
   | SubagentStatusChanged
   | SubagentEvent
-  | SubagentDetailResponse;
+  | SubagentDetailResponse
+  | WorkspaceFilesListResponse
+  | WorkspaceFileReadResponse;
 
 // === Subagent IPC ─────────────────────────────────────────────────────
 

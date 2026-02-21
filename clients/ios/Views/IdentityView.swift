@@ -7,13 +7,50 @@ import VellumAssistantShared
 @MainActor @Observable
 final class IdentityViewModel {
     var identity: RemoteIdentityInfo?
+    var skills: [SkillInfo] = []
+    var workspaceFiles: [WorkspaceFileInfo] = []
     var isLoading = false
 
-    func fetchIdentity(client: any DaemonClientProtocol) async {
+    func fetchAll(client: any DaemonClientProtocol) async {
         guard let daemonClient = client as? DaemonClient else { return }
         isLoading = true
-        identity = await daemonClient.fetchRemoteIdentity()
+        async let identityResult = daemonClient.fetchRemoteIdentity()
+        identity = await identityResult
         isLoading = false
+
+        // Fetch skills and workspace files via IPC (fire-and-forget subscribe)
+        await fetchSkills(daemonClient: daemonClient)
+        await fetchWorkspaceFiles(daemonClient: daemonClient)
+    }
+
+    private func fetchSkills(daemonClient: DaemonClient) async {
+        let stream = daemonClient.subscribe()
+        do {
+            try daemonClient.send(SkillsListRequestMessage())
+        } catch {
+            return
+        }
+        for await message in stream {
+            if case .skillsListResponse(let response) = message {
+                skills = response.skills.filter { $0.state == "enabled" }
+                return
+            }
+        }
+    }
+
+    private func fetchWorkspaceFiles(daemonClient: DaemonClient) async {
+        let stream = daemonClient.subscribe()
+        do {
+            try daemonClient.sendWorkspaceFilesList()
+        } catch {
+            return
+        }
+        for await message in stream {
+            if case .workspaceFilesListResponse(let response) = message {
+                workspaceFiles = response.files.filter { $0.exists }
+                return
+            }
+        }
     }
 }
 
@@ -22,6 +59,7 @@ final class IdentityViewModel {
 struct IdentityView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @State private var viewModel = IdentityViewModel()
+    @State private var viewingFile: WorkspaceFileInfo?
 
     var body: some View {
         NavigationStack {
@@ -40,15 +78,21 @@ struct IdentityView: View {
         }
         .task {
             if clientProvider.isConnected {
-                await viewModel.fetchIdentity(client: clientProvider.client)
+                await viewModel.fetchAll(client: clientProvider.client)
             }
         }
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected {
                 Task {
-                    await viewModel.fetchIdentity(client: clientProvider.client)
+                    await viewModel.fetchAll(client: clientProvider.client)
                 }
             }
+        }
+        .sheet(item: $viewingFile) { file in
+            WorkspaceFileSheet(
+                file: file,
+                client: clientProvider.client as? DaemonClient
+            )
         }
     }
 
@@ -59,12 +103,20 @@ struct IdentityView: View {
             VStack(spacing: VSpacing.lg) {
                 avatarSection(identity)
                 idCard(identity)
+
+                if !viewModel.skills.isEmpty {
+                    skillsSection
+                }
+
+                if !viewModel.workspaceFiles.isEmpty {
+                    workspaceFilesSection
+                }
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.top, VSpacing.md)
         }
         .refreshable {
-            await viewModel.fetchIdentity(client: clientProvider.client)
+            await viewModel.fetchAll(client: clientProvider.client)
         }
     }
 
@@ -92,41 +144,17 @@ struct IdentityView: View {
         .accessibilityLabel("Avatar: \(identity.name), \(identity.role)")
     }
 
+    // MARK: - ID Card
+
     private func idCard(_ identity: RemoteIdentityInfo) -> some View {
-        VStack(spacing: 0) {
-            cardHeader
+        let rows = buildCardRows(identity)
+
+        return VStack(spacing: 0) {
+            sectionHeader(icon: "person.text.rectangle", title: "ID Card")
 
             VStack(spacing: 0) {
-                if let assistantId = identity.assistantId, !assistantId.isEmpty {
-                    idCardRow(label: "Assistant ID", value: assistantId)
-                }
-
-                if !identity.name.isEmpty {
-                    idCardRow(label: "Name", value: identity.name)
-                }
-
-                if !identity.role.isEmpty {
-                    idCardRow(label: "Role", value: identity.role)
-                }
-
-                if !identity.personality.isEmpty {
-                    idCardRow(label: "Personality", value: identity.personality)
-                }
-
-                if let version = identity.version, !version.isEmpty {
-                    idCardRow(label: "Version", value: version)
-                }
-
-                if let createdAt = identity.createdAt, !createdAt.isEmpty {
-                    idCardRow(label: "Created", value: formatDate(createdAt))
-                }
-
-                if let originSystem = identity.originSystem, !originSystem.isEmpty {
-                    idCardRow(label: "Origin", value: originSystem.capitalized)
-                }
-
-                if let home = identity.home, !home.isEmpty {
-                    idCardRow(label: "Home", value: home, isLast: true)
+                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                    idCardRow(label: row.label, value: row.value, isLast: index == rows.count - 1)
                 }
             }
         }
@@ -140,12 +168,170 @@ struct IdentityView: View {
         .accessibilityLabel("Identity card")
     }
 
-    private var cardHeader: some View {
+    private struct CardRow {
+        let label: String
+        let value: String
+    }
+
+    private func buildCardRows(_ identity: RemoteIdentityInfo) -> [CardRow] {
+        var rows: [CardRow] = []
+        if let assistantId = identity.assistantId, !assistantId.isEmpty {
+            rows.append(CardRow(label: "Assistant ID", value: assistantId))
+        }
+        if !identity.name.isEmpty {
+            rows.append(CardRow(label: "Name", value: identity.name))
+        }
+        if !identity.role.isEmpty {
+            rows.append(CardRow(label: "Role", value: identity.role))
+        }
+        if !identity.personality.isEmpty {
+            rows.append(CardRow(label: "Personality", value: identity.personality))
+        }
+        if let version = identity.version, !version.isEmpty {
+            rows.append(CardRow(label: "Version", value: version))
+        }
+        if let createdAt = identity.createdAt, !createdAt.isEmpty {
+            rows.append(CardRow(label: "Created", value: formatDate(createdAt)))
+        }
+        if let originSystem = identity.originSystem, !originSystem.isEmpty {
+            rows.append(CardRow(label: "Origin", value: originSystem.capitalized))
+        }
+        if let home = identity.home, !home.isEmpty {
+            rows.append(CardRow(label: "Home", value: home))
+        }
+        return rows
+    }
+
+    // MARK: - Skills Section
+
+    private var skillsSection: some View {
+        VStack(spacing: 0) {
+            sectionHeader(icon: "star.fill", title: "Skills")
+
+            VStack(spacing: 0) {
+                ForEach(Array(viewModel.skills.enumerated()), id: \.element.id) { index, skill in
+                    skillRow(skill, isLast: index == viewModel.skills.count - 1)
+                }
+            }
+        }
+        .background(VColor.surface)
+        .cornerRadius(VRadius.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Skills list")
+    }
+
+    private func skillRow(_ skill: SkillInfo, isLast: Bool) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: VSpacing.sm) {
+                Text(skill.emoji ?? "")
+                    .font(.system(size: 20))
+                    .frame(width: 28)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(skill.name)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+
+                    if !skill.description.isEmpty {
+                        Text(skill.description)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer()
+
+                if skill.degraded {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.caption)
+                        .accessibilityLabel("Degraded")
+                }
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+
+            if !isLast {
+                Divider()
+                    .padding(.leading, VSpacing.lg + 28 + VSpacing.sm)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Skill: \(skill.name), enabled\(skill.degraded ? ", degraded" : "")")
+    }
+
+    // MARK: - Workspace Files Section
+
+    private var workspaceFilesSection: some View {
+        VStack(spacing: 0) {
+            sectionHeader(icon: "doc.text.fill", title: "Workspace Files")
+
+            VStack(spacing: 0) {
+                ForEach(Array(viewModel.workspaceFiles.enumerated()), id: \.element.id) { index, file in
+                    workspaceFileRow(file, isLast: index == viewModel.workspaceFiles.count - 1)
+                }
+            }
+        }
+        .background(VColor.surface)
+        .cornerRadius(VRadius.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Workspace files")
+    }
+
+    private func workspaceFileRow(_ file: WorkspaceFileInfo, isLast: Bool) -> some View {
+        VStack(spacing: 0) {
+            Button {
+                viewingFile = file
+            } label: {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: file.name.hasSuffix("/") ? "folder.fill" : "doc.text")
+                        .foregroundColor(VColor.accent)
+                        .frame(width: 24)
+                        .accessibilityHidden(true)
+
+                    Text(file.name)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .foregroundColor(VColor.textMuted)
+                        .font(.caption)
+                        .accessibilityHidden(true)
+                }
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.sm)
+            }
+
+            if !isLast {
+                Divider()
+                    .padding(.leading, VSpacing.lg + 24 + VSpacing.sm)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(file.name)
+        .accessibilityHint("Opens file viewer")
+    }
+
+    // MARK: - Shared Section Header
+
+    private func sectionHeader(icon: String, title: String) -> some View {
         HStack {
-            Image(systemName: "person.text.rectangle")
+            Image(systemName: icon)
                 .foregroundColor(VColor.accent)
                 .accessibilityHidden(true)
-            Text("ID Card")
+            Text(title)
                 .font(VFont.headline)
                 .foregroundColor(VColor.textPrimary)
             Spacer()
