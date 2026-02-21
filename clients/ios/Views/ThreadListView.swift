@@ -7,7 +7,7 @@ import VellumAssistantShared
 
 struct ThreadListView: View {
     @StateObject private var store: IOSThreadStore
-    @State private var selectedThreadId: UUID?
+    @State private var navigationPath: [UUID] = []
     @State private var searchText: String = ""
     @State private var renamingThreadId: UUID?
     @State private var renameText: String = ""
@@ -36,17 +36,32 @@ struct ThreadListView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationStack(path: $navigationPath) {
             threadList
-        } detail: {
-            detailView
+                .navigationDestination(for: UUID.self) { threadId in
+                    if let thread = store.threads.first(where: { $0.id == threadId }) {
+                        ThreadChatView(
+                            viewModel: store.viewModel(for: threadId),
+                            threadTitle: thread.title
+                        )
+                        .onAppear {
+                            store.loadHistoryIfNeeded(for: threadId)
+                            store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
+                        }
+                        .onOpenURL { _ in
+                            DispatchQueue.main.async {
+                                store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
+                            }
+                        }
+                    }
+                }
         }
     }
 
-    // MARK: - Sidebar
+    // MARK: - Thread List
 
     private var threadList: some View {
-        List(selection: $selectedThreadId) {
+        List {
             ForEach(filteredActiveThreads) { thread in
                 NavigationLink(value: thread.id) {
                     threadRow(thread)
@@ -54,17 +69,11 @@ struct ThreadListView: View {
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) {
                         store.deleteThread(thread)
-                        if selectedThreadId == thread.id {
-                            selectedThreadId = activeThreads.first?.id
-                        }
                     } label: {
                         Label("Delete", systemImage: "trash")
                     }
                     Button {
                         store.archiveThread(thread)
-                        if selectedThreadId == thread.id {
-                            selectedThreadId = activeThreads.first?.id
-                        }
                     } label: {
                         Label("Archive", systemImage: "archivebox")
                     }
@@ -90,11 +99,7 @@ struct ThreadListView: View {
                             }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
-                                    let wasSelected = selectedThreadId == thread.id
                                     store.deleteThread(thread)
-                                    if wasSelected {
-                                        selectedThreadId = activeThreads.first?.id
-                                    }
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
@@ -115,16 +120,11 @@ struct ThreadListView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
-                    store.newThread()
-                    selectedThreadId = store.threads.last?.id
+                    let thread = store.newThread()
+                    navigationPath = [thread.id]
                 } label: {
                     Image(systemName: "square.and.pencil")
                 }
-            }
-        }
-        .onAppear {
-            if selectedThreadId == nil {
-                selectedThreadId = activeThreads.first?.id
             }
         }
         .alert("Rename Chat", isPresented: Binding(
@@ -170,31 +170,6 @@ struct ThreadListView: View {
 
     private func relativeDate(_ date: Date) -> String {
         DateFormatting.relativeTimestamp(date)
-    }
-
-    // MARK: - Detail
-
-    @ViewBuilder
-    private var detailView: some View {
-        if let selectedId = selectedThreadId,
-           let thread = store.threads.first(where: { $0.id == selectedId }) {
-            ThreadChatView(
-                viewModel: store.viewModel(for: selectedId),
-                threadTitle: thread.title
-            )
-                .onAppear {
-                    store.loadHistoryIfNeeded(for: selectedId)
-                    store.viewModel(for: selectedId).consumeDeepLinkIfNeeded()
-                }
-                .onOpenURL { _ in
-                    DispatchQueue.main.async {
-                        store.viewModel(for: selectedId).consumeDeepLinkIfNeeded()
-                    }
-                }
-        } else {
-            Text("Select a chat")
-                .foregroundStyle(.secondary)
-        }
     }
 }
 
