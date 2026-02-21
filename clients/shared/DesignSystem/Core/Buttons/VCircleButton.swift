@@ -66,7 +66,7 @@ private struct VCircleButtonStyle: ButtonStyle {
         HStack(spacing: 12) {
             VCircleButton(icon: "phone.fill", label: "Phone") {}
             VCircleButton(icon: "phone.fill", label: "Phone", fillColor: Emerald._600.opacity(0.5)) {}
-            VCircleButton(icon: "plus", label: "Add", fillColor: Sage._500, size: 28, iconSize: 12) {}
+            VCircleButton(icon: "plus", label: "Add", fillColor: Forest._500, size: 28, iconSize: 12) {}
         }
         .padding()
     }

@@ -117,7 +117,7 @@ struct TraceTimelineView: View {
                 } else if groupStatus == .handedOff {
                     Text("Handed off")
                         .font(VFont.small)
-                        .foregroundColor(Sage._400)
+                        .foregroundColor(Forest._400)
                 } else if groupStatus == .error {
                     Text("Error")
                         .font(VFont.small)
@@ -150,7 +150,7 @@ struct TraceTimelineView: View {
         case .active: return Emerald._400
         case .completed: return Emerald._400
         case .cancelled: return Amber._500
-        case .handedOff: return Sage._400
+        case .handedOff: return Forest._400
         case .error: return Rose._500
         }
     }

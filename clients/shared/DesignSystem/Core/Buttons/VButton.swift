@@ -117,7 +117,7 @@ private struct VButtonStyle: ButtonStyle {
     private var shadowColor: Color {
         switch style {
         case .primary:
-            return isHovered ? Sage._600 : Sage._800
+            return isHovered ? Forest._600 : Forest._800
         case .danger:
             return isHovered ? Color(hex: 0xA53817) : Color(hex: 0x8A2F13)
         case .ghost:
@@ -128,9 +128,9 @@ private struct VButtonStyle: ButtonStyle {
     private func backgroundColor(isPressed: Bool) -> Color {
         switch style {
         case .primary:
-            if isPressed { return Sage._400 }
-            if isHovered { return Sage._500 }
-            return Sage._600
+            if isPressed { return Forest._400 }
+            if isHovered { return Forest._500 }
+            return Forest._600
         case .danger:
             if isPressed { return Color(hex: 0xE0745A) }
             if isHovered { return Color(hex: 0xD4582F) }

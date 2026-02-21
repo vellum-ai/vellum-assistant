@@ -1189,7 +1189,7 @@ struct ChatBubble: View {
             let length = trimmed.distance(from: slashMatch.lowerBound, to: slashMatch.upperBound)
             let attrStart = parsed.index(parsed.startIndex, offsetByCharacters: offset)
             let attrEnd = parsed.index(attrStart, offsetByCharacters: length)
-            parsed[attrStart..<attrEnd].foregroundColor = adaptiveColor(light: Sage._500, dark: Sage._300)
+            parsed[attrStart..<attrEnd].foregroundColor = adaptiveColor(light: Forest._500, dark: Forest._300)
         }
 
         // Store in cache (with size limit to prevent unbounded growth)
