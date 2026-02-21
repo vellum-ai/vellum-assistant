@@ -7,6 +7,10 @@ public struct RemoteIdentityInfo: Decodable {
     public let personality: String
     public let emoji: String
     public let version: String?
+    public let assistantId: String?
+    public let home: String?
+    public let createdAt: String?
+    public let originSystem: String?
 }
 
 public struct DaemonConfig {

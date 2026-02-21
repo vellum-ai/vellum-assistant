@@ -16,6 +16,13 @@ struct ContentView: View {
                     Label("Chats", systemImage: "message")
                 }
 
+            IdentityView()
+                .environmentObject(clientProvider)
+                .id(ObjectIdentifier(clientProvider.client as AnyObject))
+                .tabItem {
+                    Label("Identity", systemImage: "person.text.rectangle")
+                }
+
             SettingsView()
                 .environmentObject(clientProvider)
                 .tabItem {
