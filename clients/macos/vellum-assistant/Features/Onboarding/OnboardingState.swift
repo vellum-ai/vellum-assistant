@@ -74,8 +74,14 @@ final class OnboardingState {
         !speechGranted || !accessibilityGranted || !screenGranted
     }
 
+    /// When true, the hosting mode selector (Local/GCP/AWS/Custom) is always
+    /// shown regardless of the `userHostedEnabled` feature flag. Set by
+    /// `replayOnboarding` so that "Hatch New Assistant" always offers the
+    /// full infrastructure choice.
+    var forceShowHostingMode: Bool = false
+
     var userHostedEnabled: Bool {
-        FeatureFlagManager.shared.isEnabled(.userHostedEnabled)
+        forceShowHostingMode || FeatureFlagManager.shared.isEnabled(.userHostedEnabled)
     }
 
     /// Continuous crack progress (0.0–1.0) derived from step and permission state.

@@ -1028,6 +1028,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         OnboardingState.clearPersistedState()
 
         let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
+        // Always show the hosting mode selector (Local/GCP/AWS/Custom) when
+        // hatching a new assistant, regardless of the userHostedEnabled flag.
+        onboarding.state.forceShowHostingMode = true
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
@@ -1041,6 +1044,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
             // Clear any stale panel state so the user lands on chat, not settings
             UserDefaults.standard.removeObject(forKey: "lastActivePanel")
+
+            // Reconnect the daemon to the newly hatched assistant
+            self?.hasSetupDaemon = false
+            self?.setupDaemonClient()
 
             self?.showMainWindow()
         }
