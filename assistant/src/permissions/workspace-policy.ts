@@ -95,11 +95,13 @@ export function isWorkspaceScopedInvocation(
   if (HOST_TOOLS.has(toolName)) return false;
 
   if (PATH_SCOPED_TOOLS.has(toolName)) {
-    const filePath = typeof toolInput.file_path === 'string'
+    const rawPath = typeof toolInput.file_path === 'string'
       ? toolInput.file_path
       : typeof toolInput.path === 'string'
         ? toolInput.path
         : '';
+    // Resolve relative paths against workspaceRoot (not process.cwd())
+    const filePath = rawPath !== '' && !rawPath.startsWith('/') ? resolve(workspaceRoot, rawPath) : rawPath;
     return filePath !== '' && isPathWithinWorkspaceRoot(filePath, workspaceRoot);
   }
 
