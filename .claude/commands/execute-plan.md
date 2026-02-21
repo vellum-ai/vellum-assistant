@@ -59,13 +59,9 @@ Create a branch from the plan (or derive one from the PR title), then ship:
   --pull-base
 ```
 
-#### 3d. Human Attention Comment
+#### 3d. Human Attention Comment (optional)
 
-Leave a comment on the PR highlighting where human review attention is most needed (see "Human Attention Comments on PRs" in AGENTS.md for format and guidelines):
-
-```bash
-gh pr comment <number> --body "<attention comment>"
-```
+If the PR contains areas that genuinely warrant focused human review, leave a comment highlighting them (see "Human Attention Comments on PRs" in AGENTS.md). Skip this for routine, low-risk changes.
 
 #### 3e. Report progress
 

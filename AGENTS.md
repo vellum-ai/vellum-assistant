@@ -97,9 +97,19 @@ When reviewing PRs (applies to all reviewers — Codex, Devin, and humans), flag
 
 ## Human Attention Comments on PRs
 
-After creating every PR, leave a single comment that highlights where human review attention is most needed. This helps humans quickly triage whether a PR warrants deep review.
+After creating a PR, consider whether it contains anything that genuinely warrants focused human review. If it does, leave a single comment highlighting where attention is most needed. This helps humans quickly triage PRs.
 
-**When:** Every PR — including PRs created by spawned agents.
+**This is not mandatory.** Skip the comment entirely for routine, low-risk PRs that follow existing patterns — don't add noise. Only comment when you believe a human should look closely at specific parts of the diff.
+
+**When to comment:**
+- Architectural decisions or new patterns that set precedent
+- Security-sensitive changes (auth, permissions, secrets, input validation)
+- Complex business logic with subtle edge cases
+- Changes that touch critical paths (data pipelines, payment flows, etc.)
+- Deletions or removals of existing functionality
+- Areas where you are least confident in the implementation
+
+**When to skip:** Routine changes — renaming, formatting, boilerplate, straightforward additions that follow existing patterns exactly, or changes you are fully confident in.
 
 **How:** `gh pr comment <number> --body "<comment>"`
 
@@ -108,34 +118,10 @@ After creating every PR, leave a single comment that highlights where human revi
 ```
 ## 👀 Where to focus your review
 
-<1-5 bullet points, ordered by importance, each pointing to a specific area>
-
 - **<file_path or area>**: <why this needs attention — e.g., "New architectural pattern that sets precedent", "Security-sensitive change to auth flow", "Complex logic with subtle edge cases">
 - ...
 
-**Risk level:** <Low | Medium | High> — <one-sentence explanation of overall risk>
-```
-
-**What to highlight (in priority order):**
-- Architectural decisions or new patterns that set precedent
-- Security-sensitive changes (auth, permissions, secrets, input validation)
-- Complex business logic with subtle edge cases
-- Changes that touch critical paths (data pipelines, payment flows, etc.)
-- Deletions or removals of existing functionality
-- Areas where you are least confident in the implementation
-
-**What NOT to highlight:**
-- Routine changes (renaming, formatting, boilerplate)
-- Straightforward additions that follow existing patterns exactly
-- Changes you are fully confident in
-
-If the entire PR is routine and low-risk, still leave the comment but say so:
-```
-## 👀 Where to focus your review
-
-This PR is straightforward — no areas require special attention.
-
-**Risk level:** Low — follows existing patterns with no architectural or security implications.
+**Risk level:** <Medium | High> — <one-sentence explanation of overall risk>
 ```
 
 ## Tooling Direction

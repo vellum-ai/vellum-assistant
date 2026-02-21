@@ -51,13 +51,9 @@ $ARGUMENTS
   --pull-base
 ```
 
-### 4. Human Attention Comment
+### 4. Human Attention Comment (optional)
 
-Leave a comment on the PR highlighting where human review attention is most needed (see "Human Attention Comments on PRs" in AGENTS.md for format and guidelines):
-
-```bash
-gh pr comment <number> --body "<attention comment>"
-```
+If the PR contains areas that genuinely warrant focused human review, leave a comment highlighting them (see "Human Attention Comments on PRs" in AGENTS.md). Skip this step for routine, low-risk changes.
 
 ### 5. Report
 

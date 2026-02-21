@@ -56,13 +56,9 @@ EOF
 
 Note the PR number and URL.
 
-## Phase 1.5: Human Attention Comment
+## Phase 1.5: Human Attention Comment (optional)
 
-Leave a comment on the PR highlighting where human review attention is most needed (see "Human Attention Comments on PRs" in AGENTS.md for format and guidelines):
-
-```bash
-gh pr comment <number> --body "<attention comment>"
-```
+If the PR contains areas that genuinely warrant focused human review, leave a comment highlighting them (see "Human Attention Comments on PRs" in AGENTS.md). Skip this for routine, low-risk changes.
 
 ## Phase 2: Wait for reviews
 
