@@ -2464,7 +2464,7 @@ sequenceDiagram
 
 ### Twitter Integration Architecture
 
-Twitter uses a standalone OAuth2 flow separate from the unified messaging layer. The OAuth2 flow handles identity verification only (confirming the user's Twitter account). Posting is done exclusively via Chrome DevTools Protocol (CDP).
+Twitter uses a standalone OAuth2 flow separate from the unified messaging layer. It supports a dual-path operation architecture: an **OAuth path** that calls X API v2 directly for posting and replying, and a **Browser path** that uses Chrome DevTools Protocol (CDP) for all operations including read-only ones. A strategy router (`router.ts`) selects the appropriate path based on user preference and capability.
 
 #### Twitter OAuth2 Flow
 
@@ -2502,6 +2502,35 @@ sequenceDiagram
     IPC->>UI: show connected state
 ```
 
+#### Dual-Path Operation Architecture
+
+The strategy router (`router.ts`) determines whether to use the OAuth or browser path for each operation. The preferred strategy is read from the `twitterOperationStrategy` config field (default: `auto`).
+
+```mermaid
+flowchart TD
+    CLI["vellum x post / reply"] --> Router["Strategy Router (router.ts)"]
+    Router --> StratCheck{Preferred strategy?}
+
+    StratCheck -->|oauth| OAuthOnly["OAuth Client (oauth-client.ts)"]
+    OAuthOnly --> XAPI["X API v2 POST /tweets"]
+
+    StratCheck -->|browser| BrowserOnly["Browser Client (client.ts)"]
+    BrowserOnly --> CDP["Chrome CDP GraphQL mutation"]
+
+    StratCheck -->|auto| AutoCheck{"OAuth available &\noperation supported?"}
+    AutoCheck -->|yes| TryOAuth["Try OAuth Client"]
+    TryOAuth -->|success| XAPI
+    TryOAuth -->|failure| Fallback["Fallback to Browser Client"]
+    Fallback --> CDP
+    AutoCheck -->|no| BrowserOnly
+```
+
+- **`auto`** (default): Checks `oauthIsAvailable()` (access token stored) and `oauthSupportsOperation()` (currently `post` and `reply`). If both pass, tries OAuth first. On OAuth failure, falls back to browser. If OAuth is not available or the operation is unsupported, uses browser directly.
+- **`oauth`**: Uses OAuth exclusively. Fails with an actionable error if credentials are not configured.
+- **`browser`**: Uses CDP exclusively. Fails with an actionable error if the browser session has expired.
+
+The strategy is persisted in the Vellum config file as `twitterOperationStrategy` and can be changed via `vellum x strategy set <oauth|browser|auto>`.
+
 #### Twitter OAuth2 Specifics
 
 | Aspect | Detail |
@@ -2531,17 +2560,31 @@ When the OAuth2 flow completes, the handler stores credential metadata at `integ
 }
 ```
 
-#### Twitter CDP Posting Path
+#### Twitter Operation Paths
 
-The `vellum x post` CLI command is the sole posting mechanism. It connects to Chrome via CDP (`localhost:9222`), finds an authenticated x.com tab, and executes a `CreateTweet` GraphQL mutation through the browser's session cookies. It does not use OAuth2 tokens for posting. Session management is handled by Ride Shotgun recordings (`vellum x refresh`).
+**OAuth path** (`oauth-client.ts`): The `oauthPostTweet` function calls X API v2 (`POST https://api.x.com/2/tweets`) with a Bearer token obtained via `withValidToken('integration:twitter', ...)`. The token manager handles automatic refresh if the stored token is expired. Supports `post` and `reply` (by including `reply.in_reply_to_tweet_id` in the request body). All other operations (timeline, search, etc.) throw `UnsupportedOAuthOperationError` and are not available via this path.
+
+**Browser path** (`client.ts`): Connects to Chrome via CDP (`localhost:9222`), finds an authenticated x.com tab, and executes GraphQL mutations/queries through the browser's session cookies. Supports all operations including read-only ones (timeline, search, home, notifications, bookmarks, likes, followers, following, media). Session management is handled by Ride Shotgun recordings (`vellum x refresh`).
 
 #### Available Twitter Tools
 
-| Tool | Mechanism | Description |
-|------|-----------|-------------|
-| `twitter_post` | CDP | Post a tweet. Available via the `X` bundled skill (`vellum x post`). |
+| Tool / Command | Mechanism | Description |
+|----------------|-----------|-------------|
+| `vellum x post` | Strategy router (OAuth or CDP) | Post a tweet. Uses the configured strategy (`auto` by default). |
+| `vellum x reply` | Strategy router (OAuth or CDP) | Reply to a tweet. Uses the configured strategy (`auto` by default). |
+| `vellum x timeline` | CDP | Fetch a user's recent tweets. Browser path only. |
+| `vellum x search` | CDP | Search tweets. Browser path only. |
+| `vellum x home` | CDP | Fetch home timeline. Browser path only. |
+| `vellum x notifications` | CDP | Fetch notifications. Browser path only. |
+| `vellum x bookmarks` | CDP | Fetch bookmarks. Browser path only. |
+| `vellum x likes` | CDP | Fetch a user's liked tweets. Browser path only. |
+| `vellum x followers` | CDP | Fetch a user's followers. Browser path only. |
+| `vellum x following` | CDP | Fetch who a user follows. Browser path only. |
+| `vellum x media` | CDP | Fetch a user's media tweets. Browser path only. |
+| `vellum x strategy` | Config | Get or set the operation strategy (`oauth`, `browser`, `auto`). |
+| `vellum x status` | IPC + local | Check browser session, OAuth connection, and strategy status. |
 
-Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`) are requested during the auth flow for identity verification. Posting is handled exclusively via CDP, not through the OAuth2 tokens.
+Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`) are requested during the auth flow. The `post` and `reply` operations use these tokens when the OAuth path is selected. Read operations require the browser path.
 
 ### Key Design Decisions
 
@@ -2550,7 +2593,8 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | PKCE by default, optional client_secret | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh |
 | Gateway callback transport | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments. |
 | Unified `MessagingProvider` interface | All platforms implement the same contract; generic tools work immediately for new providers |
-| Twitter outside unified messaging | Twitter is a broadcast platform (post-only), not a conversation platform — it doesn't fit the `MessagingProvider` contract |
+| Twitter outside unified messaging | Twitter is a broadcast/read platform, not a conversation platform — it doesn't fit the `MessagingProvider` contract |
+| Dual-path Twitter strategy | OAuth is more reliable for posting (no browser session dependency) but only supports post/reply. Browser path supports all operations. `auto` strategy gives the best of both: OAuth when possible, browser as fallback. User can override via `vellum x strategy set`. |
 | Provider auto-selection | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX |
 | Token expiry in credential metadata | Reuses existing `CredentialMetadata` store; `expiresAt` field enables proactive refresh with 5min buffer |
 | Confidence scores on medium-risk tools | LLM self-reports confidence (0-1); enables future trust calibration without blocking execution |
@@ -2575,9 +2619,11 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | `assistant/src/watcher/providers/slack.ts` | Slack watcher for DMs, mentions, thread replies |
 | `assistant/src/watcher/providers/gmail.ts` | Gmail watcher using History API |
 | `assistant/src/daemon/handlers/twitter-auth.ts` | Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`) |
-| `assistant/src/twitter/client.ts` | Twitter CDP client: GraphQL mutations via Chrome DevTools Protocol |
+| `assistant/src/twitter/client.ts` | Twitter CDP client: GraphQL mutations/queries via Chrome DevTools Protocol |
+| `assistant/src/twitter/oauth-client.ts` | OAuth-backed Twitter client: X API v2 post/reply via stored tokens using `withValidToken()` |
+| `assistant/src/twitter/router.ts` | Strategy router: selects OAuth or browser path based on `twitterOperationStrategy` config |
 | `assistant/src/twitter/session.ts` | Twitter browser session persistence (cookie import/export) |
-| `assistant/src/cli/twitter.ts` | `vellum x` CLI command group (post, refresh, status, login, logout) |
+| `assistant/src/cli/twitter.ts` | `vellum x` CLI command group (post, reply, strategy, refresh, status, login, logout, and read operations) |
 | `assistant/src/config/bundled-skills/twitter/SKILL.md` | X (Twitter) bundled skill instructions |
 
 ---
