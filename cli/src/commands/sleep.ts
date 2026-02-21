@@ -1,63 +1,35 @@
-import { existsSync, readFileSync, unlinkSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
+import { loadAllAssistants } from "../lib/assistant-config";
+import { stopProcessByPidFile } from "../lib/process";
+
 export async function sleep(): Promise<void> {
+  const assistants = loadAllAssistants();
+  const hasLocal = assistants.some((a) => a.cloud === "local");
+  if (!hasLocal) {
+    console.error("Error: No local assistant found in lock file. Run 'vellum hatch local' first.");
+    process.exit(1);
+  }
+
   const vellumDir = join(homedir(), ".vellum");
-  const pidFile = join(vellumDir, "vellum.pid");
+  const daemonPidFile = join(vellumDir, "vellum.pid");
   const socketFile = join(vellumDir, "vellum.sock");
+  const gatewayPidFile = join(vellumDir, "gateway.pid");
 
-  if (!existsSync(pidFile)) {
-    console.log("No daemon PID file found — nothing to stop.");
-    process.exit(0);
+  // Stop daemon
+  const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon", [socketFile]);
+  if (!daemonStopped) {
+    console.log("Daemon is not running.");
+  } else {
+    console.log("Daemon stopped.");
   }
 
-  const pidStr = readFileSync(pidFile, "utf-8").trim();
-  const pid = parseInt(pidStr, 10);
-
-  if (isNaN(pid)) {
-    console.log("Invalid PID file contents — cleaning up.");
-    try { unlinkSync(pidFile); } catch {}
-    try { unlinkSync(socketFile); } catch {}
-    process.exit(0);
+  // Stop gateway
+  const gatewayStopped = await stopProcessByPidFile(gatewayPidFile, "gateway");
+  if (!gatewayStopped) {
+    console.log("Gateway is not running.");
+  } else {
+    console.log("Gateway stopped.");
   }
-
-  // Check if process is alive
-  try {
-    process.kill(pid, 0);
-  } catch {
-    console.log(`Daemon process ${pid} is not running — cleaning up stale files.`);
-    try { unlinkSync(pidFile); } catch {}
-    try { unlinkSync(socketFile); } catch {}
-    process.exit(0);
-  }
-
-  console.log(`Stopping daemon (pid ${pid})...`);
-  process.kill(pid, "SIGTERM");
-
-  // Wait up to 2s for graceful exit
-  const deadline = Date.now() + 2000;
-  while (Date.now() < deadline) {
-    try {
-      process.kill(pid, 0);
-      await new Promise((r) => setTimeout(r, 100));
-    } catch {
-      break; // Process exited
-    }
-  }
-
-  // Force kill if still alive
-  try {
-    process.kill(pid, 0);
-    console.log("Daemon did not exit after SIGTERM, sending SIGKILL...");
-    process.kill(pid, "SIGKILL");
-  } catch {
-    // Already dead
-  }
-
-  // Clean up PID and socket files
-  try { unlinkSync(pidFile); } catch {}
-  try { unlinkSync(socketFile); } catch {}
-
-  console.log("Daemon stopped.");
 }
