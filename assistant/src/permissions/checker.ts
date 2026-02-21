@@ -626,11 +626,5 @@ export function generateScopeOptions(workingDir: string, toolName?: string): Sco
   // Everywhere
   options.push({ label: 'everywhere', scope: 'everywhere' });
 
-  if (!toolName?.startsWith('host_')) {
-    return options;
-  }
-
-  const everywhere = options.find((option) => option.scope === 'everywhere');
-  const scoped = options.filter((option) => option.scope !== 'everywhere');
-  return everywhere ? [everywhere, ...scoped] : options;
+  return options;
 }
