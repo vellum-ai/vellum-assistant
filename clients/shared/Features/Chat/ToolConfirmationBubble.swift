@@ -38,7 +38,7 @@ public struct ToolConfirmationBubble: View {
     }
 
     private var needsScopeChoice: Bool {
-        confirmation.scopeOptions.count > 1
+        !confirmation.scopeOptions.isEmpty
     }
 
     private var isDecided: Bool {
