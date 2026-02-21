@@ -1,6 +1,6 @@
 import * as net from 'node:net';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { getWorkspaceDir } from '../../util/platform.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
 import type { WorkspaceFileReadRequest } from '../ipc-protocol.js';
@@ -27,8 +27,10 @@ function handleWorkspaceFileRead(
   const requested = msg.path;
 
   // Prevent path traversal — reject paths that escape the workspace root.
-  const resolved = join(base, requested);
-  if (!resolved.startsWith(base)) {
+  // Use resolve() to canonicalize and check with trailing separator to prevent
+  // sibling directory prefix matches (e.g. "../workspace-evil/secret").
+  const resolved = resolve(base, requested);
+  if (!resolved.startsWith(base + sep) && resolved !== base) {
     log.warn({ path: requested }, 'Workspace file read blocked: path traversal attempt');
     ctx.send(socket, {
       type: 'workspace_file_read_response',
