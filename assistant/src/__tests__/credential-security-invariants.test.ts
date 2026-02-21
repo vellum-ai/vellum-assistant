@@ -189,6 +189,7 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'calls/twilio-provider.ts',       // call infrastructure credential lookup
       'runtime/http-server.ts',         // HTTP server credential lookup
       'daemon/handlers/twitter-auth.ts', // Twitter OAuth token storage
+      'messaging/providers/telegram-bot/adapter.ts', // Telegram bot token lookup for connectivity check
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
