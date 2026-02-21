@@ -657,6 +657,54 @@ describe('schedule_list with RRULE set', () => {
   });
 });
 
+// ── EXRULE support in schedule tools ──────────────────────────────────
+
+describe('schedule_create with RRULE + EXRULE', () => {
+  beforeEach(() => {
+    getRawDb().run('DELETE FROM cron_runs');
+    getRawDb().run('DELETE FROM cron_jobs');
+  });
+
+  test('creates a schedule with RRULE + EXRULE', async () => {
+    const expression = [
+      'DTSTART:20990101T090000Z',
+      'RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0;BYSECOND=0',
+      'EXRULE:FREQ=WEEKLY;BYDAY=SA,SU;BYHOUR=9;BYMINUTE=0;BYSECOND=0',
+    ].join('\n');
+
+    const result = await executeScheduleCreate({
+      name: 'Weekday-only via EXRULE',
+      syntax: 'rrule',
+      expression,
+      message: 'EXRULE test',
+    }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Schedule created successfully');
+    expect(result.content).toContain('Syntax: rrule');
+  });
+
+  test('list output shows [RRULE set] label for EXRULE expression', async () => {
+    const expression = [
+      'DTSTART:20990101T090000Z',
+      'RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0;BYSECOND=0',
+      'EXRULE:FREQ=WEEKLY;BYDAY=SA,SU;BYHOUR=9;BYMINUTE=0;BYSECOND=0',
+    ].join('\n');
+
+    await executeScheduleCreate({
+      name: 'EXRULE Set Schedule',
+      syntax: 'rrule',
+      expression,
+      message: 'EXRULE set test',
+    }, ctx);
+
+    const result = await executeScheduleList({}, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('[RRULE set]');
+  });
+});
+
 // ── schedule_delete ─────────────────────────────────────────────────
 
 describe('schedule_delete tool', () => {
