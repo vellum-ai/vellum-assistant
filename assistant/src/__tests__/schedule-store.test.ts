@@ -435,8 +435,12 @@ describe('claimDueSchedules', () => {
   });
 
   test('claims exhausted RRULE schedule and disables it', () => {
-    // COUNT=1 means only one occurrence — the DTSTART itself
-    const rrule = 'DTSTART:20250101T000000Z\nRRULE:FREQ=DAILY;COUNT=1';
+    // COUNT=1 means only one occurrence — the DTSTART itself.
+    // Use a far-future DTSTART so createSchedule succeeds (it validates that at
+    // least one run exists from now). We then force next_run_at into the past
+    // via SQL to simulate the schedule becoming due after its only occurrence.
+    const futureYear = new Date().getFullYear() + 5;
+    const rrule = `DTSTART:${futureYear}0101T000000Z\nRRULE:FREQ=DAILY;COUNT=1`;
     const job = createSchedule({
       name: 'Finite RRULE',
       cronExpression: rrule,
