@@ -82,7 +82,7 @@ describe("reconcileTelegramWebhook", () => {
     expect((calls[1].body as any).allowed_updates).toEqual(["message", "edited_message"]);
   });
 
-  test("does not call setWebhook when URL already matches", async () => {
+  test("always calls setWebhook even when URL already matches (secret may have rotated)", async () => {
     const calls: string[] = [];
 
     globalThis.fetch = mock(async (input: string | URL | Request) => {
@@ -105,33 +105,36 @@ describe("reconcileTelegramWebhook", () => {
     const config = makeConfig();
     await reconcileTelegramWebhook(config);
 
-    expect(calls).toEqual(["getWebhookInfo"]);
+    expect(calls).toEqual(["getWebhookInfo", "setWebhook"]);
   });
 
-  test("calls setWebhook when secret may have changed (forceUpdate)", async () => {
-    const calls: string[] = [];
+  test("normalizes trailing slash on ingress base URL", async () => {
+    const calls: { method: string; body: unknown }[] = [];
 
     globalThis.fetch = mock(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
-        calls.push("getWebhookInfo");
+        calls.push({ method: "getWebhookInfo", body: null });
         return makeTelegramResponse({
-          url: "https://example.ngrok.io/webhooks/telegram",
+          url: "",
           has_custom_certificate: false,
           pending_update_count: 0,
         });
       }
       if (url.includes("/setWebhook")) {
-        calls.push("setWebhook");
+        const req = typeof input === "object" && "json" in input ? input : null;
+        const body = req ? await (req as Request).json() : null;
+        calls.push({ method: "setWebhook", body });
         return makeTelegramResponse(true);
       }
       return new Response("Not found", { status: 404 });
     }) as any;
 
-    const config = makeConfig();
-    await reconcileTelegramWebhook(config, { forceUpdate: true });
+    const config = makeConfig({ ingressPublicBaseUrl: "https://example.ngrok.io/" });
+    await reconcileTelegramWebhook(config);
 
-    expect(calls).toEqual(["getWebhookInfo", "setWebhook"]);
+    expect(calls).toHaveLength(2);
+    expect((calls[1].body as any).url).toBe("https://example.ngrok.io/webhooks/telegram");
   });
 
   test("skips reconciliation when bot token is not configured", async () => {
