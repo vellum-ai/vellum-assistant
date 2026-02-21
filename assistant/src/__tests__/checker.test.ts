@@ -967,6 +967,19 @@ describe('Permission Checker', () => {
       expect(options[0].description).toContain('compound');
     });
 
+    test('compound command via pipeline yields exact-only allowlist option', async () => {
+      const options = await generateAllowlistOptions('bash', { command: 'git log | grep fix' });
+      expect(options).toHaveLength(1);
+      expect(options[0].description).toContain('compound');
+      expect(options[0].pattern).toBe('git log | grep fix');
+    });
+
+    test('compound command via && yields exact-only allowlist option', async () => {
+      const options = await generateAllowlistOptions('bash', { command: 'git add . && git push' });
+      expect(options).toHaveLength(1);
+      expect(options[0].description).toContain('compound');
+    });
+
     test('shell allowlist for single-word command produces action key', async () => {
       const options = await generateAllowlistOptions('bash', { command: 'ls -la' });
       expect(options[0].label).toBe('ls -la');

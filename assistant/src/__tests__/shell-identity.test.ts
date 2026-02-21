@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll } from 'bun:test';
-import { analyzeShellCommand, deriveShellActionKeys, buildShellCommandCandidates } from '../permissions/shell-identity.js';
+import { analyzeShellCommand, deriveShellActionKeys, buildShellCommandCandidates, buildShellAllowlistOptions } from '../permissions/shell-identity.js';
 import { parse } from '../tools/terminal/parser.js';
 
 describe('analyzeShellCommand', () => {
@@ -175,5 +175,35 @@ describe('buildShellCommandCandidates', () => {
     // so it should be deduped to just once
     const gitStatusCount = candidates.filter(c => c === 'git status').length;
     expect(gitStatusCount).toBe(1);
+  });
+});
+
+describe('buildShellAllowlistOptions — complex command restrictions', () => {
+  test('chain with && offers exact only', async () => {
+    const options = await buildShellAllowlistOptions('gh pr view 123 && rm -rf /');
+    expect(options).toHaveLength(1);
+    expect(options[0].pattern).toBe('gh pr view 123 && rm -rf /');
+    expect(options[0].description).toContain('compound');
+  });
+
+  test('pipeline offers exact only', async () => {
+    const options = await buildShellAllowlistOptions('cat file.txt | grep error | wc -l');
+    expect(options).toHaveLength(1);
+    expect(options[0].pattern).toBe('cat file.txt | grep error | wc -l');
+    expect(options[0].description).toContain('compound');
+  });
+
+  test('setup-prefix + single-action still gets action-key options', async () => {
+    const options = await buildShellAllowlistOptions('cd /repo && npm install express');
+    expect(options.length).toBeGreaterThan(1);
+    expect(options.some(o => o.pattern.startsWith('action:'))).toBe(true);
+  });
+
+  test('simple single command gets action-key options', async () => {
+    const options = await buildShellAllowlistOptions('npm install express');
+    expect(options.length).toBeGreaterThan(1);
+    expect(options[0].pattern).toBe('npm install express');
+    expect(options.some(o => o.pattern === 'action:npm install')).toBe(true);
+    expect(options.some(o => o.pattern === 'action:npm')).toBe(true);
   });
 });
