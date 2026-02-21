@@ -8,10 +8,10 @@ public final class AuthService {
     public static let shared = AuthService()
 
     private static let defaultBaseURL: String = {
-        #if DEBUG
+        #if DEBUG && os(macOS)
         return "http://localhost:8000"
         #else
-        return "https://app.vellum.ai"
+        return "https://platform.vellum.ai"
         #endif
     }()
 
