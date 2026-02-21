@@ -145,7 +145,7 @@ async function getRemoteProcessesCustom(
   ]);
 }
 
-async function getLocalProcesses(): Promise<TableRow[]> {
+function getLocalProcesses(): TableRow[] {
   const rows: TableRow[] = [];
   const vellumDir = join(homedir(), ".vellum");
 
@@ -179,21 +179,19 @@ async function getLocalProcesses(): Promise<TableRow[]> {
     rows.push({ name: "qdrant", status: withStatusEmoji("not running"), info: "no PID file" });
   }
 
-  // Check gateway via ps
-  try {
-    const output = await execOutput("ps", ["ax", "-o", "pid=,command="]);
-    const gatewayLines = output
-      .split("\n")
-      .filter((l) => /gateway\/src\/index\.ts/.test(l) && !l.includes("grep"));
-    if (gatewayLines.length > 0) {
-      const trimmed = gatewayLines[0].trim();
-      const pid = trimmed.split(/\s+/)[0];
-      rows.push({ name: "gateway", status: withStatusEmoji("running"), info: `PID ${pid} | port 7830` });
-    } else {
-      rows.push({ name: "gateway", status: withStatusEmoji("not running"), info: "" });
+  // Check gateway PID
+  const gatewayPidFile = join(vellumDir, "gateway.pid");
+  if (existsSync(gatewayPidFile)) {
+    const pid = readFileSync(gatewayPidFile, "utf-8").trim();
+    let status = "running";
+    try {
+      process.kill(parseInt(pid, 10), 0);
+    } catch {
+      status = "not running";
     }
-  } catch {
-    rows.push({ name: "gateway", status: withStatusEmoji("unknown"), info: "" });
+    rows.push({ name: "gateway", status: withStatusEmoji(status), info: `PID ${pid} | port 7830` });
+  } else {
+    rows.push({ name: "gateway", status: withStatusEmoji("not running"), info: "no PID file" });
   }
 
   return rows;
@@ -205,7 +203,7 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
   console.log(`Processes for ${entry.assistantId} (${cloud}):\n`);
 
   if (cloud === "local") {
-    const rows = await getLocalProcesses();
+    const rows = getLocalProcesses();
     printTable(rows);
     return;
   }
