@@ -834,34 +834,34 @@ struct MainWindowView: View {
     @ViewBuilder
     var sidebarView: some View {
         VStack(spacing: 0) {
+            // MARK: New Chat
+            Spacer().frame(height: VSpacing.md)
+            SidebarNavRow(icon: "plus.circle", label: "New chat") {
+                windowState.selection = nil
+                threadManager.createThread()
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    sidebarOpen = false
+                }
+            }
+
+            Spacer().frame(height: VSpacing.lg)
+
+            // MARK: Nav Items
+            SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: windowState.activePanel == .directory) {
+                windowState.togglePanel(.directory)
+            }
+            SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity) {
+                windowState.togglePanel(.identity)
+            }
+            SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
+                windowState.togglePanel(.agent)
+            }
+
+            // MARK: Chats
+            SidebarSubheader(title: "Recent Chats")
+
             ScrollView {
                 VStack(spacing: 0) {
-                    // MARK: New Chat
-                    Spacer().frame(height: VSpacing.md)
-                    SidebarNavRow(icon: "plus.circle", label: "New chat") {
-                        windowState.selection = nil
-                        threadManager.createThread()
-                        withAnimation(.easeInOut(duration: 0.35)) {
-                            sidebarOpen = false
-                        }
-                    }
-
-                    Spacer().frame(height: VSpacing.lg)
-
-                    // MARK: Nav Items
-                    SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: windowState.activePanel == .directory) {
-                        windowState.togglePanel(.directory)
-                    }
-                    SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity) {
-                        windowState.togglePanel(.identity)
-                    }
-                    SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
-                        windowState.togglePanel(.agent)
-                    }
-
-                    // MARK: Chats
-                    SidebarSubheader(title: "Recent Chats")
-
                     ForEach(displayedThreads) { thread in
                         threadItem(thread)
                             .padding(.bottom, 1)
