@@ -96,6 +96,7 @@ mock.module('../config/loader.js', () => ({
         reaskCooldownTurns: 3,
         resolverLlmTimeoutMs: 250,
         relevanceThreshold: 0.2,
+        askOnIrrelevantTurns: true,
       },
     },
   }),
@@ -325,7 +326,7 @@ describe('Session conflict soft gate', () => {
     expect(events.some((event) => event.type === 'message_complete')).toBe(true);
   });
 
-  test('irrelevant unresolved conflict does not inject side-question into normal answer flow', async () => {
+  test('irrelevant unresolved conflict injects soft clarification when askOnIrrelevantTurns is true (default)', async () => {
     pendingConflicts = [{
       id: 'conflict-irrelevant',
       scopeId: 'default',
@@ -348,14 +349,16 @@ describe('Session conflict soft gate', () => {
     const events: ServerMessage[] = [];
     await session.processMessage('How do I set up pre-commit hooks?', [], (event) => events.push(event));
 
+    // Agent loop still runs (soft ask, not a hard block)
     expect(runCalls).toHaveLength(1);
     const injectedUser = runCalls[0][runCalls[0].length - 1];
     expect(injectedUser.role).toBe('user');
     const injectedText = extractText(injectedUser);
-    expect(injectedText).not.toContain('Memory clarification request');
-    expect(injectedText).not.toContain('Should I assume Postgres or MySQL?');
+    // With askOnIrrelevantTurns=true, the irrelevant conflict is soft-injected
+    expect(injectedText).toContain('Memory clarification request');
+    expect(injectedText).toContain('Should I assume Postgres or MySQL?');
     expect(resolverCallCount).toBe(0);
-    expect(markAskedCalls).toEqual([]);
+    expect(markAskedCalls).toEqual(['conflict-irrelevant']);
     expect(events.some((event) => event.type === 'message_complete')).toBe(true);
   });
 
@@ -523,7 +526,7 @@ describe('Session conflict soft gate', () => {
     expect(runCalls).toHaveLength(1);
   });
 
-  test('irrelevant conflicts remain silent across subsequent turns', async () => {
+  test('irrelevant conflict is soft-asked on first turn but cooldown prevents re-ask on subsequent turns', async () => {
     pendingConflicts = [{
       id: 'conflict-cooldown',
       scopeId: 'default',
@@ -550,9 +553,11 @@ describe('Session conflict soft gate', () => {
     expect(runCalls).toHaveLength(2);
     const firstUserText = extractText(runCalls[0][runCalls[0].length - 1]);
     const secondUserText = extractText(runCalls[1][runCalls[1].length - 1]);
-    expect(firstUserText).not.toContain('Memory clarification request');
+    // First turn: askOnIrrelevantTurns=true causes soft injection
+    expect(firstUserText).toContain('Memory clarification request');
+    // Second turn: cooldown prevents re-asking
     expect(secondUserText).not.toContain('Memory clarification request');
-    expect(markAskedCalls).toEqual([]);
+    expect(markAskedCalls).toEqual(['conflict-cooldown']);
   });
 
   test('passes session scopeId through to conflict store queries', async () => {
@@ -696,5 +701,118 @@ describe('looksLikeClarificationReply', () => {
   test('rejects messages with no cue words', () => {
     expect(looksLikeClarificationReply('hello world')).toBe(false);
     expect(looksLikeClarificationReply('sounds good')).toBe(false);
+  });
+});
+
+describe('ConflictGate askOnIrrelevantTurns knob', () => {
+  const { ConflictGate } = require('../daemon/session-conflict-gate.js') as typeof import('../daemon/session-conflict-gate.js');
+
+  const baseConfig = {
+    enabled: true,
+    gateMode: 'soft' as const,
+    relevanceThreshold: 0.2,
+    reaskCooldownTurns: 3,
+    resolverLlmTimeoutMs: 250,
+  };
+
+  beforeEach(() => {
+    markAskedCalls = [];
+    pendingConflicts = [];
+    resolverCallCount = 0;
+    resolverResult = {
+      resolution: 'still_unclear',
+      strategy: 'heuristic',
+      resolvedStatement: null,
+      explanation: 'Need user clarification.',
+    };
+  });
+
+  test('with askOnIrrelevantTurns=false, irrelevant conflict is not asked', async () => {
+    pendingConflicts = [{
+      id: 'conflict-irrel-false',
+      scopeId: 'default',
+      existingItemId: 'existing-irrel',
+      candidateItemId: 'candidate-irrel',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Should I assume Postgres or MySQL?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Use Postgres as the default database.',
+      candidateStatement: 'Use MySQL as the default database.',
+    }];
+
+    const gate = new ConflictGate();
+    const result = await gate.evaluate(
+      'How do I set up pre-commit hooks?',
+      { ...baseConfig, askOnIrrelevantTurns: false },
+    );
+
+    expect(result).toBeNull();
+    expect(markAskedCalls).toEqual([]);
+  });
+
+  test('with askOnIrrelevantTurns=true, irrelevant conflict is asked as non-relevant', async () => {
+    pendingConflicts = [{
+      id: 'conflict-irrel-true',
+      scopeId: 'default',
+      existingItemId: 'existing-irrel2',
+      candidateItemId: 'candidate-irrel2',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Should I assume Postgres or MySQL?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Use Postgres as the default database.',
+      candidateStatement: 'Use MySQL as the default database.',
+    }];
+
+    const gate = new ConflictGate();
+    const result = await gate.evaluate(
+      'How do I set up pre-commit hooks?',
+      { ...baseConfig, askOnIrrelevantTurns: true },
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.relevant).toBe(false);
+    expect(result!.question).toContain('Postgres or MySQL');
+    expect(markAskedCalls).toEqual(['conflict-irrel-true']);
+  });
+
+  test('relevant conflict is asked regardless of askOnIrrelevantTurns value', async () => {
+    pendingConflicts = [{
+      id: 'conflict-rel-knob',
+      scopeId: 'default',
+      existingItemId: 'existing-rel',
+      candidateItemId: 'candidate-rel',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Do you want React or Vue for frontend work?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Use React for frontend work.',
+      candidateStatement: 'Use Vue for frontend work.',
+    }];
+
+    // Test with askOnIrrelevantTurns=false — relevant conflicts should still be asked
+    const gate = new ConflictGate();
+    const result = await gate.evaluate(
+      'Should I use React or Vue here?',
+      { ...baseConfig, askOnIrrelevantTurns: false },
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.relevant).toBe(true);
+    expect(result!.question).toContain('React or Vue');
+    expect(markAskedCalls).toEqual(['conflict-rel-knob']);
   });
 });

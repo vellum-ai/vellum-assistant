@@ -35,6 +35,7 @@ export class ConflictGate {
       relevanceThreshold: number;
       reaskCooldownTurns: number;
       resolverLlmTimeoutMs: number;
+      askOnIrrelevantTurns: boolean;
     },
     scopeId = 'default',
   ): Promise<ConflictGateDecision | null> {
@@ -66,16 +67,24 @@ export class ConflictGate {
       conflict,
       relevance: computeConflictRelevance(userMessage, conflict),
     }));
+    // Try relevant conflicts first
     const askable = scored
       .filter((entry) => entry.relevance >= threshold)
       .find((entry) => this.shouldAsk(entry.conflict.id, cooldownTurns));
-    if (!askable) return null;
 
-    this.lastAskedTurn.set(askable.conflict.id, this.turnCounter);
-    markConflictAsked(askable.conflict.id);
+    // If no relevant conflict to ask and askOnIrrelevantTurns is enabled, try irrelevant ones
+    const candidateToAsk = askable
+      ?? (conflictConfig.askOnIrrelevantTurns
+        ? scored.find((entry) => entry.relevance < threshold && this.shouldAsk(entry.conflict.id, cooldownTurns))
+        : undefined);
+
+    if (!candidateToAsk) return null;
+
+    this.lastAskedTurn.set(candidateToAsk.conflict.id, this.turnCounter);
+    markConflictAsked(candidateToAsk.conflict.id);
     return {
-      question: askable.conflict.clarificationQuestion ?? buildFallbackConflictQuestion(askable.conflict),
-      relevant: true,
+      question: candidateToAsk.conflict.clarificationQuestion ?? buildFallbackConflictQuestion(candidateToAsk.conflict),
+      relevant: candidateToAsk.relevance >= threshold,
     };
   }
 
