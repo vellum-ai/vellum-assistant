@@ -38,6 +38,15 @@ export interface MessagingProvider {
   getThreadReplies?(token: string, conversationId: string, threadId: string, options?: HistoryOptions): Promise<Message[]>;
   markRead?(token: string, conversationId: string, messageId?: string): Promise<void>;
 
+  /**
+   * Override the default credential check used by getConnectedProviders().
+   * When present, the registry calls this instead of looking for
+   * credential:${credentialService}:access_token. Useful for providers
+   * that don't use OAuth (e.g. Telegram bot tokens stored under a
+   * non-standard key).
+   */
+  isConnected?(): boolean;
+
   /** Platform-specific capabilities for tool routing (e.g. 'reactions', 'threads', 'labels'). */
   capabilities: Set<string>;
 }
