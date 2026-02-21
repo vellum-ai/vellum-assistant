@@ -1005,11 +1005,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                !baseDir.isEmpty {
                 tokenBase = baseDir
             } else {
-                #if os(macOS)
                 tokenBase = NSHomeDirectory()
-                #else
-                tokenBase = FileManager.default.homeDirectoryForCurrentUser.path
-                #endif
             }
             let tokenPath = tokenBase + "/.vellum/http-token"
             do {
