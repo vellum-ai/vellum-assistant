@@ -140,6 +140,7 @@ describe('AssistantConfigSchema', () => {
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
       askOnIrrelevantTurns: true,
+      conflictableKinds: ['preference', 'profile', 'project', 'decision', 'todo', 'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style'],
     });
   });
 
@@ -153,6 +154,20 @@ describe('AssistantConfigSchema', () => {
   test('rejects invalid memory.conflicts.askOnIrrelevantTurns', () => {
     const result = AssistantConfigSchema.safeParse({
       memory: { conflicts: { askOnIrrelevantTurns: 123 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects invalid memory.conflicts.conflictableKinds entry', () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { conflicts: { conflictableKinds: ['invalid_kind'] } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects empty memory.conflicts.conflictableKinds', () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { conflicts: { conflictableKinds: [] } },
     });
     expect(result.success).toBe(false);
   });

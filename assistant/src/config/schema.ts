@@ -12,6 +12,10 @@ const VALID_CALL_PROVIDERS = ['twilio'] as const;
 const VALID_CALL_VOICE_MODES = ['twilio_standard', 'twilio_elevenlabs_tts', 'elevenlabs_agent'] as const;
 export const VALID_CALLER_IDENTITY_MODES = ['assistant_number', 'user_number'] as const;
 const VALID_CALL_TRANSCRIPTION_PROVIDERS = ['Deepgram', 'Google'] as const;
+const VALID_MEMORY_ITEM_KINDS = [
+  'preference', 'profile', 'project', 'decision', 'todo',
+  'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style',
+] as const;
 
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
@@ -554,6 +558,14 @@ export const MemoryConflictsConfigSchema = z.object({
   askOnIrrelevantTurns: z
     .boolean({ error: 'memory.conflicts.askOnIrrelevantTurns must be a boolean' })
     .default(true),
+  conflictableKinds: z
+    .array(
+      z.enum(VALID_MEMORY_ITEM_KINDS, {
+        error: `memory.conflicts.conflictableKinds entries must be one of: ${VALID_MEMORY_ITEM_KINDS.join(', ')}`,
+      }),
+    )
+    .nonempty({ message: 'memory.conflicts.conflictableKinds must not be empty' })
+    .default([...VALID_MEMORY_ITEM_KINDS]),
 });
 
 export const MemoryProfileConfigSchema = z.object({
@@ -674,6 +686,7 @@ export const MemoryConfigSchema = z.object({
     resolverLlmTimeoutMs: 12000,
     relevanceThreshold: 0.3,
     askOnIrrelevantTurns: true,
+    conflictableKinds: ['preference', 'profile', 'project', 'decision', 'todo', 'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style'],
   }),
   profile: MemoryProfileConfigSchema.default({
     enabled: true,
@@ -1184,6 +1197,7 @@ export const AssistantConfigSchema = z.object({
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
       askOnIrrelevantTurns: true,
+      conflictableKinds: ['preference', 'profile', 'project', 'decision', 'todo', 'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style'],
     },
     profile: {
       enabled: true,
