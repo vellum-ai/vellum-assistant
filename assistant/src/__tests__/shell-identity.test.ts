@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll } from 'bun:test';
-import { analyzeShellCommand } from '../permissions/shell-identity.js';
+import { analyzeShellCommand, deriveShellActionKeys } from '../permissions/shell-identity.js';
 import { parse } from '../tools/terminal/parser.js';
 
 describe('analyzeShellCommand', () => {
@@ -45,5 +45,87 @@ describe('analyzeShellCommand', () => {
     const result = await analyzeShellCommand('ls | grep foo');
     expect(result.segments).toHaveLength(2);
     expect(result.operators).toContain('|');
+  });
+});
+
+describe('deriveShellActionKeys', () => {
+  test('cd repo && gh pr view 5525 --json ... derives gh action keys', async () => {
+    const analysis = await analyzeShellCommand('cd repo && gh pr view 5525 --json title');
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(true);
+    expect(result.keys).toEqual([
+      { key: 'action:gh pr view', depth: 3 },
+      { key: 'action:gh pr', depth: 2 },
+      { key: 'action:gh', depth: 1 },
+    ]);
+  });
+
+  test('flags and paths are excluded from key growth', async () => {
+    const analysis = await analyzeShellCommand('git log --oneline -n 10 ./src');
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(true);
+    expect(result.keys).toEqual([
+      { key: 'action:git log', depth: 2 },
+      { key: 'action:git', depth: 1 },
+    ]);
+  });
+
+  test('pipelines are marked non-simple', async () => {
+    const analysis = await analyzeShellCommand('git log | grep fix');
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(false);
+    expect(result.keys).toHaveLength(0);
+  });
+
+  test('complex chains with multiple actions are non-simple', async () => {
+    const analysis = await analyzeShellCommand('git add . && git commit -m "fix"');
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(false);
+    expect(result.keys).toHaveLength(0);
+  });
+
+  test('empty/invalid commands return no action keys', async () => {
+    const analysis = await analyzeShellCommand('');
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(false);
+    expect(result.keys).toHaveLength(0);
+  });
+
+  test('single program command produces single key', async () => {
+    const analysis = await analyzeShellCommand('ls -la');
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(true);
+    expect(result.keys).toEqual([
+      { key: 'action:ls', depth: 1 },
+    ]);
+  });
+
+  test('setup-prefix handling identifies primary action', async () => {
+    const analysis = await analyzeShellCommand('export PATH="/usr/bin:$PATH" && npm install');
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(true);
+    expect(result.keys).toEqual([
+      { key: 'action:npm install', depth: 2 },
+      { key: 'action:npm', depth: 1 },
+    ]);
+  });
+
+  test('numeric arguments are excluded from keys', async () => {
+    const analysis = await analyzeShellCommand('gh pr view 5525');
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(true);
+    expect(result.keys).toEqual([
+      { key: 'action:gh pr view', depth: 3 },
+      { key: 'action:gh pr', depth: 2 },
+      { key: 'action:gh', depth: 1 },
+    ]);
   });
 });
