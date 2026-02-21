@@ -138,7 +138,14 @@ export async function resolveCallerIdentity(
 
   // Verify the user number is eligible as a caller ID with Twilio
   const provider = new TwilioConversationRelayProvider();
-  const eligibility = await provider.checkCallerIdEligibility(userNumber);
+  let eligibility: { eligible: boolean; reason?: string };
+  try {
+    eligibility = await provider.checkCallerIdEligibility(userNumber);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ mode, source: numberSource, userNumber, err }, 'Caller ID eligibility check encountered an API error');
+    return { ok: false, error: msg };
+  }
   if (!eligibility.eligible) {
     log.warn({ mode, source: numberSource, userNumber, reason: eligibility.reason }, 'Caller ID eligibility check failed');
     return { ok: false, error: eligibility.reason! };

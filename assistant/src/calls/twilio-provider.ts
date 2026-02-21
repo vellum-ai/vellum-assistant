@@ -145,6 +145,9 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
     const { accountSid, authToken } = this.getCredentials();
     const encodedNumber = encodeURIComponent(phoneNumber);
 
+    let incomingOk = false;
+    let outgoingOk = false;
+
     // Check incoming phone numbers (owned by this account)
     const incomingRes = await fetch(
       `${this.baseUrl(accountSid)}/IncomingPhoneNumbers.json?PhoneNumber=${encodedNumber}`,
@@ -157,6 +160,7 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
     );
 
     if (incomingRes.ok) {
+      incomingOk = true;
       const incomingData = (await incomingRes.json()) as {
         incoming_phone_numbers: unknown[];
       };
@@ -183,6 +187,7 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
     );
 
     if (outgoingRes.ok) {
+      outgoingOk = true;
       const outgoingData = (await outgoingRes.json()) as {
         outgoing_caller_ids: unknown[];
       };
@@ -194,6 +199,14 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
       log.warn(
         { status: outgoingRes.status, phoneNumber },
         'Failed to query OutgoingCallerIds',
+      );
+    }
+
+    // If neither API call succeeded, the eligibility check is inconclusive —
+    // propagate as an error rather than returning a false negative.
+    if (!incomingOk && !outgoingOk) {
+      throw new Error(
+        `Unable to verify caller ID eligibility for ${phoneNumber}: both Twilio API calls failed (IncomingPhoneNumbers: ${incomingRes.status}, OutgoingCallerIds: ${outgoingRes.status}). This may indicate a network issue, auth error, or Twilio outage.`,
       );
     }
 
