@@ -83,7 +83,15 @@ Part of plan: <plan filename> (PR <X> of <total>)
   --track-unreviewed
 ```
 
-### 5. Save state
+### 5. Human Attention Comment
+
+Leave a comment on the PR highlighting where human review attention is most needed (see "Human Attention Comments on PRs" in AGENTS.md for format and guidelines):
+
+```bash
+gh pr comment <number> --body "<attention comment>"
+```
+
+### 6. Save state
 
 ```bash
 mkdir -p .private/safe-plan-state
@@ -102,7 +110,7 @@ Write `.private/safe-plan-state/<plan-slug>.md` with this format:
 - **Worktree**: <absolute path to worktree>
 ```
 
-### 6. Notify the user and stop
+### 7. Notify the user and stop
 
 Tell the user:
 

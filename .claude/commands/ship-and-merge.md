@@ -56,6 +56,14 @@ EOF
 
 Note the PR number and URL.
 
+## Phase 1.5: Human Attention Comment
+
+Leave a comment on the PR highlighting where human review attention is most needed (see "Human Attention Comments on PRs" in AGENTS.md for format and guidelines):
+
+```bash
+gh pr comment <number> --body "<attention comment>"
+```
+
 ## Phase 2: Wait for reviews
 
 Poll for reviews every 60 seconds using `.claude/check-pr-reviews <number>`. Stop polling once both `codex.status` and `devin.status` are no longer `pending`.

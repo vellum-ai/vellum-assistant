@@ -51,6 +51,14 @@ $ARGUMENTS
   --pull-base
 ```
 
-### 4. Report
+### 4. Human Attention Comment
+
+Leave a comment on the PR highlighting where human review attention is most needed (see "Human Attention Comments on PRs" in AGENTS.md for format and guidelines):
+
+```bash
+gh pr comment <number> --body "<attention comment>"
+```
+
+### 5. Report
 
 Output the PR link (printed by `.claude/ship`) and a summary of what was shipped. End your message with "Mainlined."

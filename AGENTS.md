@@ -95,6 +95,49 @@ When reviewing PRs (applies to all reviewers — Codex, Devin, and humans), flag
 - **Duplicate capability:** The PR adds functionality that already exists in a general form elsewhere in the codebase. Suggest reusing the existing implementation.
 - **Missing parameterization:** Inputs, outputs, or behaviors are hardcoded when they should be configurable or context-driven.
 
+## Human Attention Comments on PRs
+
+After creating every PR, leave a single comment that highlights where human review attention is most needed. This helps humans quickly triage whether a PR warrants deep review.
+
+**When:** Every PR — including PRs created by spawned agents.
+
+**How:** `gh pr comment <number> --body "<comment>"`
+
+**Comment format:**
+
+```
+## 👀 Where to focus your review
+
+<1-5 bullet points, ordered by importance, each pointing to a specific area>
+
+- **<file_path or area>**: <why this needs attention — e.g., "New architectural pattern that sets precedent", "Security-sensitive change to auth flow", "Complex logic with subtle edge cases">
+- ...
+
+**Risk level:** <Low | Medium | High> — <one-sentence explanation of overall risk>
+```
+
+**What to highlight (in priority order):**
+- Architectural decisions or new patterns that set precedent
+- Security-sensitive changes (auth, permissions, secrets, input validation)
+- Complex business logic with subtle edge cases
+- Changes that touch critical paths (data pipelines, payment flows, etc.)
+- Deletions or removals of existing functionality
+- Areas where you are least confident in the implementation
+
+**What NOT to highlight:**
+- Routine changes (renaming, formatting, boilerplate)
+- Straightforward additions that follow existing patterns exactly
+- Changes you are fully confident in
+
+If the entire PR is routine and low-risk, still leave the comment but say so:
+```
+## 👀 Where to focus your review
+
+This PR is straightforward — no areas require special attention.
+
+**Risk level:** Low — follows existing patterns with no architectural or security implications.
+```
+
 ## Tooling Direction
 
 Do not add new tool registrations using the `class ____Tool implements Tool {` pattern.

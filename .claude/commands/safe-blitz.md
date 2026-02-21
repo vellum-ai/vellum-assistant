@@ -203,7 +203,9 @@ ALL work happens here. Do NOT touch the main repo.
 2. Do NOT run tests, type-checking (tsc), or linting unless the task specifically requires it (e.g., "fix the type errors", "make the tests pass").
 3. cd back to worktree root, then ship (.claude/ship MUST run from the repo root, not assistant/):
    cd <worktree> && .claude/ship --commit-msg "<message>" --title "<title>" --body "<summary>" --base <feature-branch-name> --merge --assignee @me
-4. Send a message to "lead" with:
+4. Leave a Human Attention Comment on the PR highlighting where human review attention is most needed (see "Human Attention Comments on PRs" in AGENTS.md for format and guidelines):
+   gh pr comment <number> --body "<attention comment>"
+5. Send a message to "lead" with:
    - The PR link (printed by .claude/ship)
    - A summary of what you changed and why
    - Which files were modified
@@ -291,13 +293,19 @@ EOF
 )" --assignee @me
 ```
 
-3. Get the project board URL:
+3. Leave a Human Attention Comment on the final PR (see "Human Attention Comments on PRs" in AGENTS.md):
+
+```bash
+gh pr comment <number> --body "<attention comment covering the full feature>"
+```
+
+4. Get the project board URL:
 
 ```bash
 gh project view "$GH_PROJECT_NUMBER" --owner "$GH_PROJECT_OWNER" --format json | jq -r '.url'
 ```
 
-4. Print a final summary:
+5. Print a final summary:
 
 ```
 ## Safe Blitz Complete
