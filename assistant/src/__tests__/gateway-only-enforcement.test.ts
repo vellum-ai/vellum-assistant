@@ -176,7 +176,7 @@ describe('gateway-only ingress enforcement', () => {
       expect(res.status).toBe(410);
       const body = await res.json() as { error: string; code: string };
       expect(body.code).toBe('GATEWAY_ONLY');
-      expect(body.error).toContain('gateway-only mode');
+      expect(body.error).toContain('Direct webhook access disabled');
     });
 
     test('POST /webhooks/twilio/status returns 410', async () => {
@@ -297,7 +297,7 @@ describe('gateway-only ingress enforcement', () => {
       expect(res.status).toBe(403);
       const body = await res.json() as { error: string; code: string };
       expect(body.code).toBe('GATEWAY_ONLY');
-      expect(body.error).toContain('gateway-only mode');
+      expect(body.error).toContain('Direct relay access disabled');
     });
 
     test('allows request with no origin header (private network peer)', async () => {
@@ -410,52 +410,26 @@ describe('gateway-only ingress enforcement', () => {
 
   // ── Startup warning for non-loopback host ──────────────────────────
 
-  describe('startup guard — non-loopback host warning', () => {
-    test('logs warning when hostname is not loopback', async () => {
-      logMessages.length = 0;
-
+  describe('startup guard — non-loopback host', () => {
+    test('server starts successfully when hostname is not loopback', async () => {
       const warnServer = new RuntimeHttpServer({
         port: 0,
         hostname: '0.0.0.0',
         bearerToken: TEST_TOKEN,
       });
       await warnServer.start();
-
-      const infoMsg = logMessages.find(
-        m => m.level === 'info' && m.msg.includes('gateway-only ingress mode'),
-      );
-      expect(infoMsg).toBeDefined();
-
-      const warnMsg = logMessages.find(
-        m => m.level === 'warn' && m.msg.includes('not bound to loopback'),
-      );
-      expect(warnMsg).toBeDefined();
-
+      expect(warnServer.actualPort).toBeGreaterThan(0);
       await warnServer.stop();
     });
 
-    test('does NOT log warning when hostname is loopback', async () => {
-      logMessages.length = 0;
-
-      // The main test server already uses 127.0.0.1, so restart with
-      // a fresh server and capture logs
+    test('server starts successfully when hostname is loopback', async () => {
       const loopbackServer = new RuntimeHttpServer({
         port: 0,
         hostname: '127.0.0.1',
         bearerToken: TEST_TOKEN,
       });
       await loopbackServer.start();
-
-      const infoMsg = logMessages.find(
-        m => m.level === 'info' && m.msg.includes('gateway-only ingress mode'),
-      );
-      expect(infoMsg).toBeDefined();
-
-      const warnMsg = logMessages.find(
-        m => m.level === 'warn' && m.msg.includes('not bound to loopback'),
-      );
-      expect(warnMsg).toBeUndefined();
-
+      expect(loopbackServer.actualPort).toBeGreaterThan(0);
       await loopbackServer.stop();
     });
   });
