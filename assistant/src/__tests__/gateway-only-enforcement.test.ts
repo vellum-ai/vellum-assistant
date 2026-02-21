@@ -8,8 +8,8 @@
  * - Relay WebSocket upgrade allowed from private network peers/origins
  * - Startup warning when RUNTIME_HTTP_HOST is not loopback
  */
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 

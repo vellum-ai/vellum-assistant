@@ -585,7 +585,7 @@ describe('ingress-dependent setup skills declare public-ingress', () => {
   const VELLUM_SKILLS_DIR = join(import.meta.dir, '..', 'config', 'vellum-skills');
 
   function readVellumSkillIncludes(skillId: string): string[] | undefined {
-    const content = require('node:fs').readFileSync(join(VELLUM_SKILLS_DIR, skillId, 'SKILL.md'), 'utf-8');
+    const content = readFileSync(join(VELLUM_SKILLS_DIR, skillId, 'SKILL.md'), 'utf-8');
     const match = content.match(FRONTMATTER_REGEX);
     if (!match) return undefined;
     for (const line of match[1].split(/\r?\n/)) {
