@@ -1021,7 +1021,7 @@ function ChatApp({
     : secretInput
       ? 5
       : spinnerText
-        ? 2
+        ? 4
         : 3;
   const availableRows = Math.max(3, terminalRows - headerHeight - bottomHeight);
 
