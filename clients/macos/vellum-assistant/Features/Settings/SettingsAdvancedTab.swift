@@ -57,7 +57,7 @@ struct SettingsAdvancedTab: View {
             Button("Retire", role: .destructive) {
                 isRetiring = true
                 Task {
-                    let completed = await (NSApp.delegate as? AppDelegate)?.performRetireAsync() ?? false
+                    let completed = await AppDelegate.shared?.performRetireAsync() ?? false
                     if !completed {
                         isRetiring = false
                     }
@@ -343,7 +343,7 @@ struct SettingsAdvancedTab: View {
     }
 
     private func switchToAssistant(_ assistant: LockfileAssistant) {
-        (NSApp.delegate as? AppDelegate)?.performSwitchAssistant(to: assistant)
+        AppDelegate.shared?.performSwitchAssistant(to: assistant)
         onClose()
     }
 
@@ -401,7 +401,7 @@ struct SettingsAdvancedTab: View {
                     }
                     Spacer()
                     VButton(label: "Hatch...", style: .primary) {
-                        (NSApp.delegate as? AppDelegate)?.replayOnboarding()
+                        AppDelegate.shared?.replayOnboarding()
                         onClose()
                     }
                 }
