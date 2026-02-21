@@ -50,6 +50,8 @@ export interface ResolveConflictInput {
 export interface PendingConflictDetail extends MemoryItemConflict {
   existingStatement: string;
   candidateStatement: string;
+  existingKind: string;
+  candidateKind: string;
 }
 
 export type ConflictResolutionAction = 'keep_existing' | 'keep_candidate' | 'merge';
@@ -170,7 +172,9 @@ export function listPendingConflictDetails(scopeId: string, limit = 100): Pendin
       c.created_at,
       c.updated_at,
       existing_item.statement AS existing_statement,
-      candidate_item.statement AS candidate_statement
+      candidate_item.statement AS candidate_statement,
+      existing_item.kind AS existing_kind,
+      candidate_item.kind AS candidate_kind
     FROM memory_item_conflicts c
     INNER JOIN memory_items existing_item ON existing_item.id = c.existing_item_id
     INNER JOIN memory_items candidate_item ON candidate_item.id = c.candidate_item_id
@@ -193,6 +197,8 @@ export function listPendingConflictDetails(scopeId: string, limit = 100): Pendin
     updated_at: number;
     existing_statement: string;
     candidate_statement: string;
+    existing_kind: string;
+    candidate_kind: string;
   }>;
 
   return rows.map((row) => ({
@@ -210,6 +216,8 @@ export function listPendingConflictDetails(scopeId: string, limit = 100): Pendin
     updatedAt: row.updated_at,
     existingStatement: row.existing_statement,
     candidateStatement: row.candidate_statement,
+    existingKind: row.existing_kind,
+    candidateKind: row.candidate_kind,
   }));
 }
 
