@@ -74,26 +74,35 @@ export const telegramBotMessagingProvider: MessagingProvider = {
       };
     }
 
-    const resp = await telegram.getMe(botToken);
-    if (!resp.ok || !resp.result) {
+    try {
+      const resp = await telegram.getMe(botToken);
+      if (!resp.ok || !resp.result) {
+        return {
+          connected: false,
+          user: 'unknown',
+          platform: 'telegram',
+          metadata: { error: resp.description ?? 'getMe failed' },
+        };
+      }
+
+      return {
+        connected: true,
+        user: resp.result.username ?? resp.result.first_name,
+        platform: 'telegram',
+        metadata: {
+          botId: resp.result.id,
+          botUsername: resp.result.username,
+          botName: resp.result.first_name,
+        },
+      };
+    } catch (e) {
       return {
         connected: false,
         user: 'unknown',
         platform: 'telegram',
-        metadata: { error: resp.description ?? 'getMe failed' },
+        metadata: { error: e instanceof Error ? e.message : 'getMe failed' },
       };
     }
-
-    return {
-      connected: true,
-      user: resp.result.username ?? resp.result.first_name,
-      platform: 'telegram',
-      metadata: {
-        botId: resp.result.id,
-        botUsername: resp.result.username,
-        botName: resp.result.first_name,
-      },
-    };
   },
 
   async sendMessage(_token: string, conversationId: string, text: string, _options?: SendOptions): Promise<SendResult> {
