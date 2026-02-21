@@ -133,6 +133,24 @@ describe('isWorkspaceScopedInvocation', () => {
         isWorkspaceScopedInvocation('file_write', { file_path: 123 }, workspaceRoot),
       ).toBe(false);
     });
+
+    test('resolves relative path inside workspace against workspaceRoot', () => {
+      expect(
+        isWorkspaceScopedInvocation('file_read', { path: 'src/index.ts' }, workspaceRoot),
+      ).toBe(true);
+    });
+
+    test('resolves relative path with ../ that escapes workspace as outside', () => {
+      expect(
+        isWorkspaceScopedInvocation('file_read', { file_path: '../outside/secret.txt' }, workspaceRoot),
+      ).toBe(false);
+    });
+
+    test('absolute path inside workspace still works', () => {
+      expect(
+        isWorkspaceScopedInvocation('file_edit', { file_path: join(workspaceRoot, 'src', 'main.ts') }, workspaceRoot),
+      ).toBe(true);
+    });
   });
 
   // ── Bash ───────────────────────────────────────────────────────────
