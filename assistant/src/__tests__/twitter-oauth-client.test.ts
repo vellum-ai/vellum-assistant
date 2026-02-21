@@ -98,7 +98,7 @@ describe('Twitter OAuth client', () => {
 
       // Verify the request was made correctly
       expect(fn).toHaveBeenCalledTimes(1);
-      const [url, opts] = fn.mock.calls[0] as [string, RequestInit];
+      const [url, opts] = fn.mock.calls[0] as unknown as [string, RequestInit];
       expect(url).toBe('https://api.x.com/2/tweets');
       expect(opts.method).toBe('POST');
       expect((opts.headers as Record<string, string>)['Authorization']).toBe('Bearer fake-oauth-token');
@@ -121,7 +121,7 @@ describe('Twitter OAuth client', () => {
       expect(result.tweetId).toBe('67890');
       expect(result.text).toBe('My reply');
 
-      const [, opts] = fn.mock.calls[0] as [string, RequestInit];
+      const [, opts] = fn.mock.calls[0] as unknown as [string, RequestInit];
       const body = JSON.parse(opts.body as string);
       expect(body.text).toBe('My reply');
       expect(body.reply).toEqual({ in_reply_to_tweet_id: '11111' });
