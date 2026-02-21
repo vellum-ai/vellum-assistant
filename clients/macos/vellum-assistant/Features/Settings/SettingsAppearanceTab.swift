@@ -24,9 +24,7 @@ struct SettingsAppearanceTab: View {
                         get: { themePreference },
                         set: { newValue in
                             themePreference = newValue
-                            if let delegate = NSApp.delegate as? AppDelegate {
-                                delegate.applyThemePreference()
-                            }
+                            AppDelegate.shared?.applyThemePreference()
                         }
                     )) {
                         Text("System").tag("system")

@@ -47,6 +47,11 @@ enum InteractionType {
 
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Shared reference — `NSApp.delegate as? AppDelegate` fails under
+    /// SwiftUI's `@NSApplicationDelegateAdaptor` because SwiftUI wraps
+    /// the delegate.  Use `AppDelegate.shared` instead.
+    public static var shared: AppDelegate?
+
     var statusItem: NSStatusItem!
     private var hotKeyMonitor: Any?
     private var escapeMonitor: Any?
@@ -100,6 +105,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     @AppStorage("themePreference") private var themePreference: String = "system"
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.shared = self
+
         if let envPath = FeatureFlagManager.findRepoEnvFile() {
             FeatureFlagManager.shared.loadFromFile(at: envPath)
         }
