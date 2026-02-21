@@ -319,14 +319,18 @@ describe('scheduler RRULE execution', () => {
   });
 
   test('EXRULE schedule skips excluded occurrence and advances to next valid date', async () => {
-    // RRULE: every minute from an hour ago
-    // EXRULE: every 2nd minute from the same start
-    // The scheduler should fire on the non-excluded minutes and advance
-    // nextRunAt past any excluded occurrences.
+    // RRULE: every minute from a known dtstart
+    // EXRULE: every 2nd minute from the same dtstart
+    // EXRULE excludes minutes 0, 2, 4, 6, ... from dtstart, leaving only
+    // odd-offset minutes (1, 3, 5, ...). The nextRunAt MUST land on an
+    // odd-minute offset — this would fail if EXRULE were silently ignored.
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
     const pastDate = new Date(now.getTime() - 3_600_000);
-    const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}${pad(pastDate.getUTCSeconds())}Z`;
+    // Zero out seconds so minute-offset arithmetic is clean
+    pastDate.setUTCSeconds(0);
+    pastDate.setUTCMilliseconds(0);
+    const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}00Z`;
 
     const expression = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1\nEXRULE:FREQ=MINUTELY;INTERVAL=2`;
 
@@ -352,11 +356,18 @@ describe('scheduler RRULE execution', () => {
     // The schedule should have fired
     expect(processedMessages).toContain('EXRULE scheduler fire');
 
-    // nextRunAt should have advanced past the current time
     const after = getSchedule(schedule.id);
     expect(after).not.toBeNull();
     expect(after!.lastRunAt).not.toBeNull();
+    // nextRunAt must be in the future
     expect(after!.nextRunAt).toBeGreaterThan(Date.now() - 5000);
+
+    // Deterministic EXRULE assertion: nextRunAt must fall on an odd-minute
+    // offset from dtstart. If EXRULE were a no-op, the scheduler would
+    // happily land on even offsets too, so this catches regressions.
+    const dtstartMs = pastDate.getTime();
+    const minuteOffset = Math.round((after!.nextRunAt - dtstartMs) / 60_000);
+    expect(minuteOffset % 2).toBe(1);
   });
 
   test('RRULE schedule advances nextRunAt after firing', async () => {
