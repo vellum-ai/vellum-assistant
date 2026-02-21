@@ -21,6 +21,7 @@ import { initializeProviders } from '../providers/registry.js';
 import { initializeTools } from '../tools/registry.js';
 import { loadConfig } from '../config/loader.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
+import { loadPrebuiltHtml } from '../home-base/prebuilt/seed.js';
 import { DaemonServer } from './server.js';
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
 import { getLogger, initLogger } from '../util/logger.js';
@@ -276,6 +277,21 @@ export async function runDaemon(): Promise<void> {
     const interfacesDir = getInterfacesDir();
     cpSync(seedDir, interfacesDir, { recursive: true });
     log.info({ seedDir, interfacesDir }, 'Seeded initial interface files');
+  }
+
+  // Seed the vellum-desktop interface from the prebuilt Home Base HTML if it
+  // doesn't already exist. This ensures the Home tab renders immediately
+  // on first launch for both local and remote hatches.
+  const desktopIndexPath = join(getInterfacesDir(), 'vellum-desktop', 'index.html');
+  if (!existsSync(desktopIndexPath)) {
+    const prebuiltHtml = loadPrebuiltHtml();
+    if (prebuiltHtml) {
+      mkdirSync(join(getInterfacesDir(), 'vellum-desktop'), { recursive: true });
+      writeFileSync(desktopIndexPath, prebuiltHtml);
+      log.info('Seeded vellum-desktop/index.html from prebuilt Home Base');
+    } else {
+      log.warn('Could not seed vellum-desktop/index.html — prebuilt HTML not found (missing embedded index.html in home-base/prebuilt/)');
+    }
   }
 
   log.info('Daemon startup: installing templates and initializing DB');
