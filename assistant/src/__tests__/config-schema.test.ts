@@ -944,6 +944,7 @@ describe('resolveVoiceQualityProfile', () => {
     expect(profile.mode).toBe('elevenlabs_agent');
     expect(profile.ttsProvider).toBe('ElevenLabs');
     expect(profile.voice).toBe('v1-turbo_v2_5-0.5_0.75_0');
+    expect(profile.agentId).toBe('agent-123');
     expect(profile.validationErrors).toEqual([]);
   });
 

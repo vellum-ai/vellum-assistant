@@ -6,6 +6,7 @@ export interface VoiceQualityProfile {
   transcriptionProvider: string;
   ttsProvider: string;
   voice: string;
+  agentId?: string;
   fallbackToStandardOnError: boolean;
   validationErrors: string[];
 }
@@ -81,6 +82,7 @@ export function resolveVoiceQualityProfile(config?: ReturnType<typeof loadConfig
       transcriptionProvider: voice.transcriptionProvider,
       ttsProvider: 'ElevenLabs',
       voice: buildElevenLabsVoiceSpec(voice.elevenlabs),
+      agentId: voice.elevenlabs.agentId,
       fallbackToStandardOnError: voice.fallbackToStandardOnError,
       validationErrors: errors,
     };
