@@ -61,8 +61,8 @@ export async function sendTelegramAttachments(
     }
 
     try {
-      // Prefer the assistant-less download path; fall back to the legacy
-      // assistant-scoped path when assistantId is available.
+      // Use the legacy assistant-scoped download path when assistantId is
+      // available; fall back to the assistant-less endpoint otherwise.
       const payload = assistantId
         ? await downloadAttachment(config, assistantId, meta.id)
         : await downloadAttachmentById(config, meta.id);
