@@ -339,7 +339,7 @@ struct ComposerView: View {
                     MicrophoneButton(
                         isRecording: isRecording,
                         iconSize: composerActionIconSize,
-                        action: onMicrophoneToggle
+                        action: { onMicrophoneToggle(); focusedComposerAction = nil }
                     )
                         .buttonStyle(ComposerActionButtonStyle(
                             isHovered: isMicrophoneHovered,
