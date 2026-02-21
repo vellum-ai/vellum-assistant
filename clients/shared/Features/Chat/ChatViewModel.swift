@@ -385,7 +385,7 @@ public final class ChatViewModel: ObservableObject {
                     self.bootstrapCorrelationId = nil
                     self.lastFailedMessageText = self.pendingUserMessage
                     self.lastFailedMessageAttachments = self.pendingUserAttachments
-                    self.lastFailedSendError = "Cannot connect to daemon. Please ensure it's running."
+                    self.lastFailedSendError = "Failed to connect to the assistant."
                     self.pendingUserMessage = nil
                     self.pendingUserAttachments = nil
                     self.errorText = self.lastFailedSendError
@@ -432,7 +432,7 @@ public final class ChatViewModel: ObservableObject {
             // retry). A queued retry failing must not clobber the active turn's
             // isSending/isThinking flags or show an error banner over it.
             if queuedMessageId == nil {
-                lastFailedSendError = "Cannot connect to daemon. Please ensure it's running."
+                lastFailedSendError = "Failed to connect to the assistant."
                 errorText = lastFailedSendError
             }
             // Remove the queued message ID to prevent stale FIFO entries
@@ -777,7 +777,7 @@ public final class ChatViewModel: ObservableObject {
     public func regenerateLastMessage() {
         guard let sessionId, !isSending else { return }
         guard daemonClient.isConnected else {
-            errorText = "Cannot connect to daemon. Please ensure it's running."
+            errorText = "Failed to connect to the assistant."
             return
         }
 
@@ -980,7 +980,12 @@ public final class ChatViewModel: ObservableObject {
     /// validation, confirmation response failures, regenerate errors) from
     /// offering to resend a stale cached message.
     public var isRetryableError: Bool {
-        lastFailedMessageText != nil && lastFailedSendError != nil
+        lastFailedMessageText != nil && lastFailedSendError != nil && !isConnectionError
+    }
+
+    /// Whether the current error is a daemon/assistant connection failure.
+    public var isConnectionError: Bool {
+        lastFailedSendError == "Failed to connect to the assistant."
     }
 
     /// Whether the current error is a secret-ingress block that can be bypassed.
