@@ -1763,8 +1763,8 @@ public typealias VercelApiConfigResponseMessage = IPCVercelApiConfigResponse
 public typealias TwitterIntegrationConfigRequestMessage = IPCTwitterIntegrationConfigRequest
 
 extension IPCTwitterIntegrationConfigRequest {
-    public init(action: String, mode: String? = nil, clientId: String? = nil, clientSecret: String? = nil) {
-        self.init(type: "twitter_integration_config", action: action, mode: mode, clientId: clientId, clientSecret: clientSecret)
+    public init(action: String, mode: String? = nil, clientId: String? = nil, clientSecret: String? = nil, strategy: String? = nil) {
+        self.init(type: "twitter_integration_config", action: action, mode: mode, clientId: clientId, clientSecret: clientSecret, strategy: strategy)
     }
 }
 
