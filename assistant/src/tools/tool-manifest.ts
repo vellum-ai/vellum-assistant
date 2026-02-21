@@ -35,6 +35,7 @@ export async function loadEagerModules(): Promise<void> {
   await import('./calls/call-start.js');
   await import('./calls/call-status.js');
   await import('./calls/call-end.js');
+  await import('./system/version.js');
 }
 
 // Tool names registered by the eager modules above.  Listed explicitly so
@@ -57,6 +58,7 @@ export const eagerModuleToolNames: string[] = [
   'call_start',
   'call_status',
   'call_end',
+  'version',
 ];
 
 // ── Explicit tool instances ─────────────────────────────────────────
