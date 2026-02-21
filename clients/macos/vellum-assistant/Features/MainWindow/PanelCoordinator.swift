@@ -572,6 +572,7 @@ struct ActiveChatViewWrapper: View {
                 windowState.selectedSubagentId = subagentId
             },
             daemonHttpPort: daemonClient.httpPort,
+            isHistoryLoaded: viewModel.isHistoryLoaded,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
             onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) }
         )

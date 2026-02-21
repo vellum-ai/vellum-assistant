@@ -113,6 +113,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         let thread = ThreadModel()
         let viewModel = makeViewModel()
+        viewModel.isHistoryLoaded = true  // No session yet — nothing to load
         let threadId = thread.id
         viewModel.onFirstUserMessage = { [weak self] text in
             self?.updateThreadTitle(id: threadId, title: "Untitled")
@@ -130,6 +131,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func createPrivateThread() {
         let thread = ThreadModel(kind: .private)
         let viewModel = makeViewModel()
+        viewModel.isHistoryLoaded = true  // No session yet — nothing to load
         let threadId = thread.id
         viewModel.onFirstUserMessage = { [weak self] text in
             self?.updateThreadTitle(id: threadId, title: "Untitled")
