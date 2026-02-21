@@ -43,26 +43,13 @@ export default () => ({ secret: randomUUID() });
 
 Save this value for the next steps.
 
-### Step 3: Register the Webhook
+### Step 3: Webhook Registration (Automatic)
 
-Use `evaluate_typescript_code` to register the webhook with Telegram:
+Manual webhook registration is no longer required. The gateway automatically reconciles the Telegram webhook on startup and whenever credentials change. It compares the current webhook URL against `${INGRESS_PUBLIC_BASE_URL}/webhooks/telegram` and updates it if needed, including the webhook secret and allowed updates.
 
-```typescript
-export default async (input: { token: string; url: string; secret: string }) => {
-  const res = await fetch(`https://api.telegram.org/bot${input.token}/setWebhook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      url: input.url,
-      secret_token: input.secret,
-      allowed_updates: ['message', 'edited_message'],
-    }),
-  });
-  return res.json();
-};
-```
+If the ingress URL or webhook secret changes (e.g., tunnel restart, secret rotation), the gateway will detect the drift and re-register the webhook automatically.
 
-Verify the response has `ok: true`.
+You can skip directly to storing credentials.
 
 ### Step 4: Register Bot Commands
 
@@ -95,8 +82,8 @@ Use `credential_store` twice to securely save the credentials:
 
 Summarize what was done:
 - Bot verified: @username (ID: nnn)
-- Webhook registered at the provided URL
+- Webhook registration: handled automatically by the gateway
 - Bot commands registered: /new
 - Credentials stored securely in the vault
 
-The gateway automatically detects credentials from the vault and will begin accepting Telegram webhooks shortly. No manual environment variable configuration is needed.
+The gateway automatically detects credentials from the vault, reconciles the Telegram webhook registration, and begins accepting Telegram webhooks shortly. No manual environment variable configuration or webhook registration is needed. If the ingress URL or secret changes later, the gateway will automatically re-register the webhook.
