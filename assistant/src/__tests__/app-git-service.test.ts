@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -62,7 +62,7 @@ describe('App Git Service', () => {
   });
 
   test('createApp produces a commit', async () => {
-    const app = createApp({
+    createApp({
       name: 'Test App',
       schemaJson: '{}',
       htmlDefinition: '<h1>Hello</h1>',
@@ -161,8 +161,6 @@ describe('App Git Service', () => {
   });
 
   test('commitAppChange swallows errors gracefully', async () => {
-    // Point to a non-existent directory to force an error
-    const origGetAppsDir = getAppsDir;
     _resetAppGitState();
 
     // This should not throw
