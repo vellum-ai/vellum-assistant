@@ -502,8 +502,8 @@ function sendDaemonMessage(
           continue;
         }
 
-        // Skip auth_result echoes and daemon_status broadcasts
-        if (m.type === 'auth_result' || m.type === 'daemon_status' || m.type === 'pong') {
+        // Skip auth_result echoes, daemon_status broadcasts, and session_info
+        if (m.type === 'auth_result' || m.type === 'daemon_status' || m.type === 'pong' || m.type === 'session_info') {
           continue;
         }
 
