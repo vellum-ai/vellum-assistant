@@ -1,6 +1,6 @@
 ---
 name: "Self Upgrade"
-description: "Upgrade velly to the latest version, restart the daemon, and restart the gateway"
+description: "Upgrade vellum to the latest version, restart the daemon, and restart the gateway"
 user-invocable: true
 metadata: {"vellum": {"emoji": "⬆️"}}
 ---
@@ -15,16 +15,16 @@ vellum --version
 
 Save this value to report later.
 
-## Step 2: Install the latest velly
+## Step 2: Install the latest vellum
 
 ```bash
-bun update -g velly
+bun update -g vellum
 ```
 
-If `velly` was not installed globally via bun, try:
+If `vellum` was not installed globally via bun, try:
 
 ```bash
-npm update -g velly
+npm update -g vellum
 ```
 
 After updating, verify the new version:
@@ -68,7 +68,7 @@ vellum daemon status
 ## After Upgrade
 
 Report back to the user with:
-- The previous and new velly version
+- The previous and new vellum version
 - Daemon status (running, PID)
 - Gateway status (restarted or not found)
 - Any errors encountered during the process
