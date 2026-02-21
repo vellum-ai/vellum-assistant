@@ -4078,6 +4078,49 @@ describe('workspace mode — auto-allow workspace-scoped operations', () => {
     expect(result.matchedRule?.id).toBe('default:allow-bash-global');
   });
 
+  // ── bash sandbox gate — workspace auto-allow depends on sandbox being enabled ──
+
+  test('bash with sandbox disabled in workspace mode → falls through to risk-based policy (not auto-allowed)', async () => {
+    const origSandbox = testConfig.sandbox.enabled;
+    testConfig.sandbox.enabled = false;
+    try {
+      const result = await check('bash', { command: 'echo hello' }, workspaceDir);
+      // Should NOT be auto-allowed via workspace mode
+      expect(result.reason).not.toContain('Workspace mode');
+      // With sandbox disabled, no default bash allow rule either, so it falls through to risk-based policy
+      expect(result.decision).toBe('allow');
+      expect(result.reason).toContain('Low risk');
+    } finally {
+      testConfig.sandbox.enabled = origSandbox;
+    }
+  });
+
+  test('bash with sandbox enabled in workspace mode → auto-allowed via default rule', async () => {
+    const origSandbox = testConfig.sandbox.enabled;
+    testConfig.sandbox.enabled = true;
+    try {
+      const result = await check('bash', { command: 'echo hello' }, workspaceDir);
+      expect(result.decision).toBe('allow');
+      // With sandbox enabled, the default bash allow rule matches before workspace mode
+      expect(result.matchedRule?.id).toBe('default:allow-bash-global');
+    } finally {
+      testConfig.sandbox.enabled = origSandbox;
+    }
+  });
+
+  test('bash with sandbox disabled in workspace mode — medium risk command → prompt (not auto-allowed)', async () => {
+    const origSandbox = testConfig.sandbox.enabled;
+    testConfig.sandbox.enabled = false;
+    try {
+      // An unknown program is medium risk; without sandbox, workspace auto-allow is blocked
+      const result = await check('bash', { command: 'some-unknown-program --flag' }, workspaceDir);
+      expect(result.reason).not.toContain('Workspace mode');
+      expect(result.decision).toBe('prompt');
+    } finally {
+      testConfig.sandbox.enabled = origSandbox;
+    }
+  });
+
   // ── proxied bash — prompt takes precedence over workspace mode ──
 
   test('bash with network_mode=proxied → prompt (proxied check before workspace mode)', async () => {

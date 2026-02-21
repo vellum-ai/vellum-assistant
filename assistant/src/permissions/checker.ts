@@ -423,7 +423,11 @@ export async function check(
   // Workspace mode: auto-allow workspace-scoped operations that don't have
   // an explicit rule. Non-workspace operations fall through to risk-based policy.
   if (permissionsMode === 'workspace' && !matchedRule) {
-    if (isWorkspaceScopedInvocation(toolName, input, workingDir)) {
+    // When sandbox is disabled, bash runs on the host — don't auto-allow
+    const sandboxEnabled = getConfig().sandbox.enabled;
+    if (toolName === 'bash' && !sandboxEnabled) {
+      // Fall through to risk-based policy below
+    } else if (isWorkspaceScopedInvocation(toolName, input, workingDir)) {
       return { decision: 'allow', reason: 'Workspace mode: workspace-scoped operation auto-allowed' };
     }
   }
