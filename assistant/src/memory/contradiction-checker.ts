@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
-import { isConflictKindEligible } from './conflict-policy.js';
+import { isConflictKindEligible, isStatementConflictEligible } from './conflict-policy.js';
 import { createOrUpdatePendingConflict } from './conflict-store.js';
 import { getDb } from './db.js';
 import { enqueueMemoryJob } from './jobs-store.js';
@@ -67,7 +67,19 @@ export async function checkContradictions(newItemId: string): Promise<void> {
     return;
   }
 
+  // Skip if the new item's statement is transient/non-durable
+  if (!isStatementConflictEligible(newItem.kind, newItem.statement)) {
+    log.debug({ newItemId, kind: newItem.kind }, 'Skipping contradiction check — statement is transient or non-durable');
+    return;
+  }
+
   for (const existing of candidates) {
+    // Skip candidate if its statement is transient/non-durable
+    if (!isStatementConflictEligible(existing.kind, existing.statement)) {
+      log.debug({ existingId: existing.id }, 'Skipping candidate — statement is transient or non-durable');
+      continue;
+    }
+
     try {
       const result = await classifyRelationship(apiKey, existing, newItem);
       await handleRelationship(result, existing, newItem);

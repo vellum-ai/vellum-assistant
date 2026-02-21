@@ -270,4 +270,45 @@ describe('checkContradictions', () => {
     const conflicts = db.select().from(memoryItemConflicts).all();
     expect(conflicts).toHaveLength(0);
   });
+
+  test('skips classification when candidate statement contains PR-tracking content', async () => {
+    nextRelationship = 'ambiguous_contradiction';
+
+    insertMemoryItem({
+      id: 'item-existing-pr-tracking',
+      statement: 'Track PR #5526 for review.',
+    });
+    insertMemoryItem({
+      id: 'item-candidate-pr-tracking',
+      statement: 'Track PR #5525 for review.',
+    });
+
+    await checkContradictions('item-candidate-pr-tracking');
+
+    expect(classifyCallCount).toBe(0);
+    const db = getDb();
+    const conflicts = db.select().from(memoryItemConflicts).all();
+    expect(conflicts).toHaveLength(0);
+  });
+
+  test('durable preference contradiction still runs normal flow', async () => {
+    nextRelationship = 'ambiguous_contradiction';
+    nextExplanation = 'Both are valid preferences that conflict.';
+
+    insertMemoryItem({
+      id: 'item-existing-durable',
+      statement: 'User prefers React for frontend work.',
+    });
+    insertMemoryItem({
+      id: 'item-candidate-durable',
+      statement: 'User prefers Vue for frontend work.',
+    });
+
+    await checkContradictions('item-candidate-durable');
+
+    expect(classifyCallCount).toBe(1);
+    const db = getDb();
+    const conflicts = db.select().from(memoryItemConflicts).all();
+    expect(conflicts).toHaveLength(1);
+  });
 });
