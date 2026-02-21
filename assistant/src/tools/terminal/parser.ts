@@ -1,5 +1,5 @@
-import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { getLogger } from '../../util/logger.js';
 import { IntegrityError } from '../../util/errors.js';
@@ -75,11 +75,31 @@ function verifyWasmChecksum(filePath: string, label: string): void {
 let parserInstance: Parser | null = null;
 let initPromise: Promise<void> | null = null;
 
+/**
+ * Locate a WASM file from a dependency package.
+ *
+ * In development / `bunx` the file lives under `node_modules/` relative
+ * to the source tree.  In compiled Bun binaries `import.meta.dirname`
+ * points into the virtual `/$bunfs/` filesystem where binary assets
+ * don't exist — fall back to:
+ *   1. `../Resources/<file>` (macOS .app bundle layout)
+ *   2. Next to the compiled binary (process.execPath)
+ * This matches the pattern used by docker.ts for Dockerfile.sandbox.
+ */
 function findWasmPath(pkg: string, file: string): string {
-  return join(
-    import.meta.dirname ?? __dirname,
-    '..', '..', '..', 'node_modules', pkg, file,
-  );
+  const dir = import.meta.dirname ?? __dirname;
+  const sourcePath = join(dir, '..', '..', '..', 'node_modules', pkg, file);
+
+  if (!existsSync(sourcePath) && dir.startsWith('/$bunfs/')) {
+    const execDir = dirname(process.execPath);
+    // macOS .app bundle: binary is in Contents/MacOS/, resources in Contents/Resources/
+    const resourcesPath = join(execDir, '..', 'Resources', file);
+    if (existsSync(resourcesPath)) return resourcesPath;
+    // Fallback: next to the binary itself (non-app-bundle deployments)
+    return join(execDir, file);
+  }
+
+  return sourcePath;
 }
 
 async function ensureParser(): Promise<Parser> {
@@ -93,7 +113,9 @@ async function ensureParser(): Promise<Parser> {
       verifyWasmChecksum(treeSitterWasm, 'web-tree-sitter.wasm');
       verifyWasmChecksum(bashWasmPath, 'tree-sitter-bash.wasm');
 
-      await Parser.init();
+      await Parser.init({
+        locateFile: () => treeSitterWasm,
+      });
 
       const Bash = await Language.load(bashWasmPath);
       const parser = new Parser();
