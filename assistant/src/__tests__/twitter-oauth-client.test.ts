@@ -57,11 +57,11 @@ import {
 // --- Global fetch mock ---
 
 const originalFetch = globalThis.fetch;
-let fetchMock: ReturnType<typeof mock> | null = null;
+let _fetchMock: ReturnType<typeof mock> | null = null;
 
 beforeEach(() => {
   secureKeyStore = {};
-  fetchMock = null;
+  _fetchMock = null;
 });
 
 afterEach(() => {
@@ -78,7 +78,7 @@ function mockFetch(response: { ok: boolean; status: number; json?: unknown; text
     }),
   );
   globalThis.fetch = fn as unknown as typeof fetch;
-  fetchMock = fn;
+  _fetchMock = fn;
   return fn;
 }
 
