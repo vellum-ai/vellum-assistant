@@ -432,7 +432,7 @@ The `message` field is the unchanged IPC `ServerMessage` payload — the same ty
 |---|---|
 | `assistant_text_delta` | Incremental text token from the model |
 | `assistant_thinking_delta` | Incremental thinking/reasoning token |
-| `tool_use` | Tool invocation starting |
+| `tool_use_start` | Tool invocation starting |
 | `tool_input_delta` | Streaming tool input chunk |
 | `tool_output_chunk` | Streaming tool output chunk |
 | `tool_result` | Tool execution result |

@@ -3806,7 +3806,7 @@ Keep-alive heartbeats (every 30 s by default):
 | `assistant/src/runtime/assistant-event.ts` | `AssistantEvent` type, `buildAssistantEvent()` factory, SSE framing helpers |
 | `assistant/src/runtime/assistant-event-hub.ts` | `AssistantEventHub` class and process-level singleton |
 | `assistant/src/runtime/routes/events-routes.ts` | `handleSubscribeAssistantEvents()` — SSE route handler |
-| `assistant/src/daemon/session-notifiers.ts` | IPC send paths that publish to the hub |
+| `assistant/src/daemon/server.ts` | IPC send/broadcast paths that publish to the hub (`send` → `publishAssistantEvent`) |
 
 ---
 
