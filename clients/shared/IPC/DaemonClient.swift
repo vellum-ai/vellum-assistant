@@ -401,9 +401,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// HTTP transport used when connecting to a remote assistant via gateway.
     /// Non-nil when `config.transport` is `.http`.
-    #if os(macOS)
     var httpTransport: HTTPTransport?
-    #endif
 
     let encoder = JSONEncoder()
     let decoder = JSONDecoder()
@@ -495,7 +493,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return
         }
 
-        #if os(macOS)
         // Route through HTTP transport when active (remote assistants).
         if let httpTransport {
             guard httpTransport.isConnected else {
@@ -504,7 +501,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             try httpTransport.send(message)
             return
         }
-        #endif
 
         guard let conn = connection else {
             log.warning("Cannot send: not connected")
@@ -928,15 +924,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Remote Identity
 
-    /// Fetch identity info from the daemon's `GET /v1/identity` endpoint.
-    #if os(macOS)
+    /// Fetch identity info from the daemon.
+    /// Uses HTTP transport directly when available, otherwise falls back to IPC.
     public func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
-        return await httpTransport?.fetchRemoteIdentity()
-    }
-    #elseif os(iOS)
-    /// On iOS, fetches identity via IPC instead of HTTP to avoid bearer token
-    /// authentication issues.
-    public func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
+        // If HTTP transport is active, use its direct endpoint
+        if let httpTransport {
+            return await httpTransport.fetchRemoteIdentity()
+        }
+
+        // Fall back to IPC-based identity fetch (TCP connections)
         let stream = subscribe()
         do {
             try sendIdentityGet()
@@ -977,7 +973,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             originSystem: response.originSystem
         )
     }
-    #endif
 
     /// Request identity info via IPC.
     public func sendIdentityGet() throws {
