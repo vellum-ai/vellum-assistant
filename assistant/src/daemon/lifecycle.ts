@@ -279,16 +279,18 @@ export async function runDaemon(): Promise<void> {
     log.info({ seedDir, interfacesDir }, 'Seeded initial interface files');
   }
 
-  // Seed the desktop-app interface from the prebuilt Home Base HTML if it
+  // Seed the vellum-desktop interface from the prebuilt Home Base HTML if it
   // doesn't already exist. This ensures the Home tab renders immediately
   // on first launch for both local and remote hatches.
-  const desktopAppIndexPath = join(getInterfacesDir(), 'desktop-app', 'index.html');
-  if (!existsSync(desktopAppIndexPath)) {
+  const desktopIndexPath = join(getInterfacesDir(), 'vellum-desktop', 'index.html');
+  if (!existsSync(desktopIndexPath)) {
     const prebuiltHtml = loadPrebuiltHtml();
     if (prebuiltHtml) {
-      mkdirSync(join(getInterfacesDir(), 'desktop-app'), { recursive: true });
-      writeFileSync(desktopAppIndexPath, prebuiltHtml);
-      log.info('Seeded desktop-app/index.html from prebuilt Home Base');
+      mkdirSync(join(getInterfacesDir(), 'vellum-desktop'), { recursive: true });
+      writeFileSync(desktopIndexPath, prebuiltHtml);
+      log.info('Seeded vellum-desktop/index.html from prebuilt Home Base');
+    } else {
+      log.warn('Could not seed vellum-desktop/index.html — prebuilt HTML not found (missing embedded index.html in home-base/prebuilt/)');
     }
   }
 
