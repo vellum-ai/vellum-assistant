@@ -2147,6 +2147,8 @@ export interface WorkspaceFileReadResponse {
 
 export interface IdentityGetResponse {
   type: 'identity_get_response';
+  /** Whether an IDENTITY.md file was found. When false, all fields are empty defaults. */
+  found: boolean;
   name: string;
   role: string;
   personality: string;
