@@ -216,20 +216,6 @@ function notifyQuerySeen(queryName: string) {
   }
 }
 
-function _waitForQuery(queryName: string, timeoutMs = 15000): Promise<boolean> {
-  if (seenQueries.has(queryName)) return Promise.resolve(true);
-  return new Promise(resolve => {
-    const timer = setTimeout(() => {
-      queryWaiters.delete(queryName);
-      resolve(false);
-    }, timeoutMs);
-    queryWaiters.set(queryName, () => {
-      clearTimeout(timer);
-      resolve(true);
-    });
-  });
-}
-
 function waitForAnyQuery(queryNames: string[], timeoutMs = 15000): Promise<boolean> {
   if (queryNames.some(q => seenQueries.has(q))) return Promise.resolve(true);
   return new Promise(resolve => {
@@ -251,7 +237,6 @@ function waitForAnyQuery(queryNames: string[], timeoutMs = 15000): Promise<boole
 
 // We'll keep a reference to one client that's on an x.com tab for navigation
 let navigationClient: CDPClient | null = null;
-let _navigationWsUrl: string | null = null;
 
 for (const page of pages) {
   const client = new CDPClient();
@@ -261,7 +246,6 @@ for (const page of pages) {
   // Track which client is on an x.com tab for navigation
   if (page.url.includes('x.com') || page.url.includes('twitter.com')) {
     navigationClient = client;
-    _navigationWsUrl =page.webSocketDebuggerUrl;
   }
 
   client.on('Network.requestWillBeSent', (params) => {
@@ -347,7 +331,6 @@ for (const page of pages) {
 if (!navigationClient && pages.length > 0) {
   navigationClient = new CDPClient();
   await navigationClient.connect(pages[0].webSocketDebuggerUrl);
-  _navigationWsUrl =pages[0].webSocketDebuggerUrl;
 }
 
 // ─── CDP navigation helpers ──────────────────────────────────────────────────
