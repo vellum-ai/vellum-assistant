@@ -31,6 +31,19 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+const mockCallsConfig = {
+  enabled: true,
+  provider: 'twilio',
+  maxDurationSeconds: 3600,
+  userConsultTimeoutSeconds: 120,
+  disclosure: { enabled: false, text: '' },
+  safety: { denyCategories: [] },
+  callerIdentity: {
+    defaultMode: 'assistant_number' as const,
+    allowPerCallOverride: true,
+  },
+};
+
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
     model: 'test',
@@ -39,13 +52,19 @@ mock.module('../config/loader.js', () => ({
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
     secretDetection: { enabled: false },
-    calls: {
+    calls: mockCallsConfig,
+  }),
+  loadConfig: () => ({
+    model: 'test',
+    provider: 'test',
+    apiKeys: {},
+    memory: { enabled: false },
+    rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+    secretDetection: { enabled: false },
+    calls: mockCallsConfig,
+    ingress: {
       enabled: true,
-      provider: 'twilio',
-      maxDurationSeconds: 3600,
-      userConsultTimeoutSeconds: 120,
-      disclosure: { enabled: false, text: '' },
-      safety: { denyCategories: [] },
+      publicBaseUrl: 'https://test.example.com',
     },
   }),
 }));
@@ -237,6 +256,63 @@ describe('runtime call routes — HTTP layer', () => {
     expect(res.status).toBe(400);
     const body = await res.json() as { error: string };
     expect(body.error).toContain('Invalid JSON');
+
+    await stopServer();
+  });
+
+  test('POST /v1/calls/start with callerIdentityMode user_number is accepted', async () => {
+    await startServer();
+    ensureConversation('conv-start-identity-1');
+
+    const res = await fetch(callsUrl('/start'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: JSON.stringify({
+        phoneNumber: '+15559998888',
+        task: 'Book a table for two',
+        conversationId: 'conv-start-identity-1',
+        callerIdentityMode: 'user_number',
+      }),
+    });
+
+    // user_number mode requires a configured user phone number;
+    // since we haven't set one, this should return a 400 explaining why
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain('user_number');
+
+    await stopServer();
+  });
+
+  test('POST /v1/calls/start without callerIdentityMode defaults to assistant_number', async () => {
+    await startServer();
+    ensureConversation('conv-start-identity-2');
+
+    const res = await fetch(callsUrl('/start'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: JSON.stringify({
+        phoneNumber: '+15559998888',
+        task: 'Book a table for two',
+        conversationId: 'conv-start-identity-2',
+      }),
+    });
+
+    expect(res.status).toBe(201);
+
+    const body = await res.json() as {
+      callSessionId: string;
+      callSid: string;
+      status: string;
+      toNumber: string;
+      fromNumber: string;
+      callerIdentityMode: string;
+    };
+
+    expect(body.callSessionId).toBeDefined();
+    expect(body.callSid).toBe('CA_mock_sid_123');
+    expect(body.fromNumber).toBe('+15550001111');
+    expect(body.callerIdentityMode).toBe('assistant_number');
 
     await stopServer();
   });

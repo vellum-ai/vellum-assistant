@@ -36,6 +36,7 @@ export interface StartCallResult {
   ok: true;
   session: CallSession;
   callSid: string;
+  callerIdentityMode: 'assistant_number' | 'user_number';
 }
 
 export interface CallError {
@@ -193,6 +194,7 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
       ok: true,
       session: { ...session, providerCallSid: callSid },
       callSid,
+      callerIdentityMode: identityResult.mode,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
