@@ -711,7 +711,8 @@ public struct ToolConfirmationBubble: View {
                     // Pattern selection step
                     ForEach(Array(confirmation.allowlistOptions.enumerated()), id: \.element.pattern) { index, option in
                         AlwaysAllowRow(
-                            label: option.description,
+                            title: option.label,
+                            subtitle: option.description,
                             isKeyboardSelected: popoverKeyboardModel?.mode == .patterns && popoverKeyboardModel?.selectedIndex == index
                         ) {
                             if option.pattern.isEmpty {
@@ -824,7 +825,8 @@ public struct ToolConfirmationBubble: View {
 // MARK: - Always Allow Row
 
 private struct AlwaysAllowRow: View {
-    let label: String
+    let title: String
+    let subtitle: String
     var isKeyboardSelected: Bool = false
     let action: () -> Void
 
@@ -832,21 +834,28 @@ private struct AlwaysAllowRow: View {
 
     var body: some View {
         Button(action: action) {
-            Text(label)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, VSpacing.sm)
-                .padding(.horizontal, VSpacing.sm)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(isHovered || isKeyboardSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(isKeyboardSelected ? VColor.accent : .clear, lineWidth: 2)
-                )
-                .contentShape(Rectangle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(VFont.monoSmall)
+                    .foregroundColor(VColor.textPrimary)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, VSpacing.sm)
+            .padding(.horizontal, VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(isHovered || isKeyboardSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .stroke(isKeyboardSelected ? VColor.accent : .clear, lineWidth: 2)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         #if os(macOS)
