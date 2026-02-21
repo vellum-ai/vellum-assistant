@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { client } from "./commands/client";
 import { hatch } from "./commands/hatch";
 import { ps } from "./commands/ps";
 import { retire } from "./commands/retire";
@@ -7,6 +8,7 @@ import { sleep } from "./commands/sleep";
 import { wake } from "./commands/wake";
 
 const commands = {
+  client,
   hatch,
   ps,
   retire,
@@ -24,6 +26,7 @@ async function main() {
     console.log("Usage: vellum-cli <command> [options]");
     console.log("");
     console.log("Commands:");
+    console.log("  client   Connect to a hatched assistant");
     console.log("  hatch    Create a new assistant instance");
     console.log("  ps       List assistants (or processes for a specific assistant)");
     console.log("  retire   Delete an assistant instance");

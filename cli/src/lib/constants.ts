@@ -1,5 +1,6 @@
+export const DOCTOR_PORT = 7829;
 export const FIREWALL_TAG = "vellum-assistant";
-export const GATEWAY_PORT = 7830;
+export const GATEWAY_PORT = process.env.GATEWAY_PORT ? Number(process.env.GATEWAY_PORT) : 7830;
 export const VALID_REMOTE_HOSTS = ["local", "gcp", "aws", "custom"] as const;
 export type RemoteHost = (typeof VALID_REMOTE_HOSTS)[number];
 export const VALID_SPECIES = ["openclaw", "vellum"] as const;
