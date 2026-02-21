@@ -790,7 +790,7 @@ struct DynamicWorkspaceWrapper: View {
                             .foregroundColor(VColor.error)
                             .padding(.horizontal, VSpacing.md)
                             .padding(.vertical, VSpacing.xs)
-                            .background(Rose._900.opacity(0.8))
+                            .background(Danger._900.opacity(0.8))
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                             .padding(.trailing, VSpacing.xl)
                     }

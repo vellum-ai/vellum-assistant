@@ -717,7 +717,7 @@ struct AgentPanelContent: View {
         if isError, let msg = errorMessage {
             Text(msg)
                 .font(VFont.caption)
-                .foregroundColor(Rose._500)
+                .foregroundColor(Danger._500)
         }
     }
 

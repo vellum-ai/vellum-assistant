@@ -74,7 +74,7 @@ struct TraceRowView: View {
     private var statusColor: Color {
         switch event.status {
         case "error":
-            return Rose._500
+            return Danger._500
         case "warning":
             return Amber._500
         case "success":

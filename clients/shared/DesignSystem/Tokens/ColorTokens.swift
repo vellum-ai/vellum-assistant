@@ -91,7 +91,7 @@ public enum Indigo {
     public static let _100 = Color(hex: 0xEEEEFF)
 }
 
-public enum Rose {
+public enum Danger {
     public static let _950 = Color(hex: 0x620F21)
     public static let _900 = Color(hex: 0x85142F)
     public static let _800 = Color(hex: 0xA8183E)
@@ -193,7 +193,7 @@ public enum VColor {
 
     // Status
     public static let success = adaptiveColor(light: Emerald._700, dark: Emerald._600)
-    public static let error = adaptiveColor(light: Rose._700, dark: Rose._600)
+    public static let error = adaptiveColor(light: Danger._700, dark: Danger._600)
     public static let warning = adaptiveColor(light: Amber._700, dark: Amber._600)
 
     // Chat
