@@ -1203,6 +1203,34 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
     }
 
+    // MARK: - About Panel
+
+    public func showAboutPanel() {
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
+
+        #if DEBUG
+        let bundlePath = Bundle.main.bundlePath
+        let creditsString = NSMutableAttributedString()
+
+        let headerAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor.systemOrange
+        ]
+        creditsString.append(NSAttributedString(string: "Local Development Build\n", attributes: headerAttributes))
+
+        let pathAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+        creditsString.append(NSAttributedString(string: bundlePath, attributes: pathAttributes))
+
+        options[.credits] = creditsString
+        #endif
+
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: options)
+    }
+
     // MARK: - Settings
 
     /// Explicit settings window entrypoint for NSApp.sendAction("showSettingsWindow:")
