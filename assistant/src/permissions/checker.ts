@@ -9,6 +9,7 @@ import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
 import { normalizeFilePath, isSkillSourcePath } from '../skills/path-classifier.js';
+import { isWorkspaceScopedInvocation } from './workspace-policy.js';
 
 // Low-risk shell programs that are read-only / informational
 const LOW_RISK_PROGRAMS = new Set([
@@ -401,6 +402,14 @@ export async function check(
   const permissionsMode = getConfig().permissions.mode;
   if (permissionsMode === 'strict' && !matchedRule) {
     return { decision: 'prompt', reason: `Strict mode: no matching rule, requires approval` };
+  }
+
+  // Workspace mode: auto-allow workspace-scoped operations that don't have
+  // an explicit rule. Non-workspace operations fall through to risk-based policy.
+  if (permissionsMode === 'workspace' && !matchedRule) {
+    if (isWorkspaceScopedInvocation(toolName, input, workingDir)) {
+      return { decision: 'allow', reason: 'Workspace mode: workspace-scoped operation auto-allowed' };
+    }
   }
 
   // Auto-allow low-risk bundled skill tools even without explicit trust rules.

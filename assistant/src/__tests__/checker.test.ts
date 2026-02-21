@@ -2,7 +2,7 @@
 // bun test src/__tests__/checker.test.ts src/__tests__/trust-store.test.ts src/__tests__/session-skill-tools.test.ts src/__tests__/skill-script-runner-host.test.ts
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, test, expect, beforeAll, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, beforeAll, beforeEach, afterEach, mock } from 'bun:test';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -3956,5 +3956,124 @@ describe('scope matching behavior', () => {
     if (result.matchedRule) {
       expect(result.matchedRule.scope).not.toBe(projectDir);
     }
+  });
+});
+
+// ── workspace mode ──────────────────────────────────────────────────────
+
+describe('workspace mode — auto-allow workspace-scoped operations', () => {
+  const workspaceDir = '/home/user/my-project';
+
+  beforeEach(() => {
+    clearCache();
+    testConfig.permissions = { mode: 'workspace' };
+    testConfig.skills = { load: { extraDirs: [] } };
+    try { rmSync(join(checkerTestDir, 'protected', 'trust.json')); } catch { /* may not exist */ }
+  });
+
+  afterEach(() => {
+    testConfig.permissions = { mode: 'legacy' };
+  });
+
+  // ── workspace-scoped file operations auto-allow ──────────────────
+
+  test('file_read within workspace → allow (workspace-scoped)', async () => {
+    const result = await check('file_read', { file_path: '/home/user/my-project/src/index.ts' }, workspaceDir);
+    expect(result.decision).toBe('allow');
+    expect(result.reason).toContain('Workspace mode');
+  });
+
+  test('file_write within workspace → allow (workspace-scoped)', async () => {
+    const result = await check('file_write', { file_path: '/home/user/my-project/src/index.ts' }, workspaceDir);
+    expect(result.decision).toBe('allow');
+    expect(result.reason).toContain('Workspace mode');
+  });
+
+  test('file_edit within workspace → allow (workspace-scoped)', async () => {
+    const result = await check('file_edit', { file_path: '/home/user/my-project/src/index.ts' }, workspaceDir);
+    expect(result.decision).toBe('allow');
+    expect(result.reason).toContain('Workspace mode');
+  });
+
+  // ── file operations outside workspace follow risk-based fallback ──
+
+  test('file_read outside workspace → allow (Low risk fallback)', async () => {
+    const result = await check('file_read', { file_path: '/etc/hosts' }, workspaceDir);
+    expect(result.decision).toBe('allow');
+    expect(result.reason).toContain('Low risk');
+  });
+
+  test('file_write outside workspace → prompt (Medium risk fallback)', async () => {
+    const result = await check('file_write', { file_path: '/tmp/outside.txt' }, workspaceDir);
+    expect(result.decision).toBe('prompt');
+    expect(result.reason).toContain('risk');
+  });
+
+  // ── bash (sandbox) — default rule matches, workspace mode not reached ──
+
+  test('bash in workspace with sandbox (non-proxied) → allow via default rule', async () => {
+    const result = await check('bash', { command: 'ls -la' }, workspaceDir);
+    expect(result.decision).toBe('allow');
+    // Allowed via the default sandbox bash rule, not workspace mode
+    expect(result.matchedRule?.id).toBe('default:allow-bash-global');
+  });
+
+  // ── proxied bash — prompt takes precedence over workspace mode ──
+
+  test('bash with network_mode=proxied → prompt (proxied check before workspace mode)', async () => {
+    const result = await check('bash', { command: 'curl https://api.example.com', network_mode: 'proxied' }, workspaceDir);
+    expect(result.decision).toBe('prompt');
+    expect(result.reason).toContain('Proxied');
+  });
+
+  // ── host tools — default ask rules prompt ──
+
+  test('host_file_read → prompt (default ask rule matches)', async () => {
+    const result = await check('host_file_read', { file_path: '/home/user/my-project/file.txt' }, workspaceDir);
+    expect(result.decision).toBe('prompt');
+    expect(result.reason).toContain('ask rule');
+  });
+
+  test('host_bash → prompt (default ask rule matches)', async () => {
+    const result = await check('host_bash', { command: 'ls' }, workspaceDir);
+    expect(result.decision).toBe('prompt');
+    expect(result.reason).toContain('ask rule');
+  });
+
+  // ── explicit rules still take precedence in workspace mode ──
+
+  test('explicit deny rule still blocks in workspace mode', async () => {
+    addRule('file_read', `file_read:${workspaceDir}/**`, workspaceDir, 'deny');
+    const result = await check('file_read', { file_path: '/home/user/my-project/secret.env' }, workspaceDir);
+    expect(result.decision).toBe('deny');
+    expect(result.reason).toContain('deny rule');
+  });
+
+  test('explicit ask rule still prompts in workspace mode', async () => {
+    addRule('file_read', `file_read:${workspaceDir}/**`, workspaceDir, 'ask');
+    const result = await check('file_read', { file_path: '/home/user/my-project/src/index.ts' }, workspaceDir);
+    expect(result.decision).toBe('prompt');
+    expect(result.reason).toContain('ask rule');
+  });
+
+  test('explicit allow rule works in workspace mode', async () => {
+    addRule('file_write', `file_write:/tmp/**`, 'everywhere', 'allow');
+    const result = await check('file_write', { file_path: '/tmp/output.txt' }, workspaceDir);
+    expect(result.decision).toBe('allow');
+    expect(result.reason).toContain('Matched trust rule');
+  });
+
+  // ── network tools follow risk-based fallback (not workspace-scoped) ──
+
+  test('web_fetch → allow (Low risk, not workspace-scoped but Low risk fallback)', async () => {
+    const result = await check('web_fetch', { url: 'https://example.com' }, workspaceDir);
+    expect(result.decision).toBe('allow');
+    expect(result.reason).toContain('Low risk');
+  });
+
+  test('network_request → prompt (Medium risk, not workspace-scoped)', async () => {
+    const result = await check('network_request', { url: 'https://api.example.com/data' }, workspaceDir);
+    expect(result.decision).toBe('prompt');
+    expect(result.reason).toContain('risk');
   });
 });
