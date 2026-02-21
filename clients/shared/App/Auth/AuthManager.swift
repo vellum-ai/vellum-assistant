@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 import AuthenticationServices
 import CryptoKit
 import Foundation
@@ -6,7 +10,7 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AuthManager")
 
-enum AuthState {
+public enum AuthState {
     case loading
     case unauthenticated
     case authenticated(AllauthUser)
@@ -14,26 +18,28 @@ enum AuthState {
 
 @Observable
 @MainActor
-final class AuthManager {
-    var state: AuthState = .loading
-    var isSubmitting = false
-    var errorMessage: String?
+public final class AuthManager {
+    public var state: AuthState = .loading
+    public var isSubmitting = false
+    public var errorMessage: String?
 
     private let authService = AuthService.shared
     private static let callbackScheme = "vellum-assistant"
     private var webAuthSession: ASWebAuthenticationSession?
 
-    var isAuthenticated: Bool {
+    public init() {}
+
+    public var isAuthenticated: Bool {
         if case .authenticated = state { return true }
         return false
     }
 
-    var currentUser: AllauthUser? {
+    public var currentUser: AllauthUser? {
         if case .authenticated(let user) = state { return user }
         return nil
     }
 
-    func checkSession() async {
+    public func checkSession() async {
         state = .loading
         errorMessage = nil
 
@@ -55,7 +61,7 @@ final class AuthManager {
         }
     }
 
-    func startWorkOSLogin() async {
+    public func startWorkOSLogin() async {
         isSubmitting = true
         errorMessage = nil
 
@@ -136,7 +142,7 @@ final class AuthManager {
         isSubmitting = false
     }
 
-    func logout() async {
+    public func logout() async {
         do {
             _ = try await authService.logout()
         } catch {
@@ -189,12 +195,19 @@ final class WebAuthPresentationContext: NSObject, ASWebAuthenticationPresentatio
     static let shared = WebAuthPresentationContext()
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        #if os(macOS)
         NSApp.keyWindow ?? NSApp.windows.first ?? ASPresentationAnchor()
+        #elseif os(iOS)
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first(where: { $0.isKeyWindow }) ?? ASPresentationAnchor()
+        #endif
     }
 }
 
 extension Data {
-    func base64URLEncodedString() -> String {
+    public func base64URLEncodedString() -> String {
         base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")

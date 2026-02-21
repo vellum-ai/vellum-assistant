@@ -37,7 +37,8 @@ let package = Package(
                 .enableUpcomingFeature("BareSlashRegexLiterals")
             ],
             linkerSettings: [
-                .linkedFramework("Network")  // Required for DaemonClient (NWConnection)
+                .linkedFramework("Network"),  // Required for DaemonClient (NWConnection)
+                .linkedFramework("AuthenticationServices"),  // Required for shared AuthManager (ASWebAuthenticationSession)
             ]
         ),
         // VellumAssistantLib: macOS-only target (links AppKit, ScreenCaptureKit, etc.)
