@@ -384,7 +384,7 @@ The runtime HTTP server exposes a Server-Sent Events (SSE) endpoint that streams
 GET /v1/events?conversationKey=<key>
 ```
 
-**Auth**: Bearer token (same rules as other runtime HTTP endpoints). The token is read from the `RUNTIME_PROXY_BEARER_TOKEN` environment variable; if unset, the daemon generates a random token and writes it to `~/.vellum/http-token`. Pass it as `Authorization: Bearer <token>` on the client.
+**Auth**: Bearer token (same rules as other runtime HTTP endpoints). The token is read from the `RUNTIME_PROXY_BEARER_TOKEN` environment variable; if unset, the daemon generates a random token and writes it to `~/.vellum/http-token` (or `${BASE_DATA_DIR}/.vellum/http-token` when the `BASE_DATA_DIR` env var is configured). Pass it as `Authorization: Bearer <token>` on the client.
 
 **Query params**:
 

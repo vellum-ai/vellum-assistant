@@ -3731,7 +3731,7 @@ The assistant-events system provides a single, shared publish path that fans out
 graph TB
     subgraph "Event Sources"
         direction TB
-        IPC_DAEMON["Daemon IPC send paths<br/>(session_notifiers.ts)"]
+        IPC_DAEMON["Daemon IPC send paths<br/>(daemon/server.ts)"]
         HTTP_RUN["HTTP Run path<br/>(run-orchestrator.ts)"]
     end
 
