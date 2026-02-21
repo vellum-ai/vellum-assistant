@@ -322,8 +322,8 @@ describe('scheduler RRULE execution', () => {
     expect(after).not.toBeNull();
     // nextRunAt must have moved forward from the forced-due value
     expect(after!.nextRunAt).toBeGreaterThan(forcedDueAt);
-    // It should be at or near the original computed value (within a few seconds tolerance)
-    expect(Math.abs(after!.nextRunAt - originalNextRunAt)).toBeLessThan(5000);
+    // After claiming, MINUTELY recurrence advances nextRunAt by ~60s, so allow up to 65s tolerance
+    expect(Math.abs(after!.nextRunAt - originalNextRunAt)).toBeLessThan(65000);
     expect(after!.lastRunAt).not.toBeNull();
   });
 });
