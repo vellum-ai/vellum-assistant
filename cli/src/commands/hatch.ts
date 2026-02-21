@@ -42,6 +42,12 @@ const DEFAULT_SPECIES: Species = "vellum";
 
 const SPINNER_FRAMES= ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+const IS_DESKTOP = !!process.env.VELLUM_DESKTOP_APP;
+
+function desktopLog(msg: string): void {
+  process.stdout.write(msg + "\n");
+}
+
 function buildTimestampRedirect(): string {
   return `exec > >(while IFS= read -r line; do printf '[%s] %s\\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$line"; done > /var/log/startup-script.log) 2>&1`;
 }
@@ -215,6 +221,10 @@ export async function watchHatching(
   startTime: number,
   species: Species,
 ): Promise<WatchHatchingResult> {
+  if (IS_DESKTOP) {
+    return watchHatchingDesktop(pollFn, instanceName, startTime, species);
+  }
+
   let spinnerIdx = 0;
   let lastLogLine: string | null = null;
   let linesDrawn = 0;
@@ -316,6 +326,70 @@ export async function watchHatching(
       console.log(`   ⚠️  Detaching. Instance is still running.`);
       console.log(`   Monitor with: vel logs ${instanceName}`);
       console.log("");
+      process.exit(0);
+    });
+  });
+}
+
+function watchHatchingDesktop(
+  pollFn: () => Promise<PollResult>,
+  instanceName: string,
+  startTime: number,
+  species: Species,
+): Promise<WatchHatchingResult> {
+  return new Promise<WatchHatchingResult>((resolve) => {
+    let prevLogLine: string | null = null;
+    let lastErrorContent = "";
+    let pollInFlight = false;
+    let nextPollAt = Date.now() + 15000;
+
+    desktopLog("Waiting for instance to start...");
+
+    const interval = setInterval(async () => {
+      const elapsed = Date.now() - startTime;
+
+      if (elapsed >= HATCH_TIMEOUT_MS[species]) {
+        clearInterval(interval);
+        desktopLog(`Timed out after ${formatElapsed(elapsed)}. Instance is still running.`);
+        desktopLog(`Monitor with: vel logs ${instanceName}`);
+        resolve({ success: true, errorContent: lastErrorContent });
+        return;
+      }
+
+      if (Date.now() < nextPollAt || pollInFlight) return;
+
+      pollInFlight = true;
+      try {
+        const result = await pollFn();
+
+        if (result.lastLine && result.lastLine !== prevLogLine) {
+          prevLogLine = result.lastLine;
+          desktopLog(result.lastLine);
+        }
+
+        if (result.errorContent) {
+          lastErrorContent = result.errorContent;
+        }
+
+        if (result.done) {
+          clearInterval(interval);
+          if (result.failed) {
+            desktopLog("Startup script failed");
+          } else {
+            desktopLog("Your assistant has hatched!");
+          }
+          resolve({ success: !result.failed, errorContent: lastErrorContent });
+        }
+      } finally {
+        pollInFlight = false;
+        nextPollAt = Date.now() + 5000;
+      }
+    }, 5000);
+
+    process.on("SIGINT", () => {
+      clearInterval(interval);
+      desktopLog("Detaching. Instance is still running.");
+      desktopLog(`Monitor with: vel logs ${instanceName}`);
       process.exit(0);
     });
   });
