@@ -60,7 +60,7 @@ export function normalizeScheduleSyntax(input: {
 
   // Legacy cron_expression fallback
   if (input.legacyCronExpression) {
-    return { syntax: 'cron', expression: input.legacyCronExpression };
+    return { syntax: input.syntax ?? 'cron', expression: input.legacyCronExpression };
   }
 
   return null;

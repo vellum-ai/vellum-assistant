@@ -56,6 +56,14 @@ describe('normalizeScheduleSyntax', () => {
     expect(result).toEqual({ syntax: 'cron', expression: '0 9 * * *' });
   });
 
+  test('honors explicit syntax hint in legacyCronExpression fallback', () => {
+    const result = normalizeScheduleSyntax({
+      syntax: 'rrule',
+      legacyCronExpression: '0 9 * * *',
+    });
+    expect(result).toEqual({ syntax: 'rrule', expression: '0 9 * * *' });
+  });
+
   test('returns null when nothing is provided', () => {
     expect(normalizeScheduleSyntax({})).toBeNull();
   });
