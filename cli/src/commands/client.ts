@@ -1,7 +1,6 @@
 import { ANSI, renderChatApp } from "../components/DefaultMainScreen";
 import { findAssistantByName, loadLatestAssistant } from "../lib/assistant-config";
 import { GATEWAY_PORT, type Species } from "../lib/constants";
-import { ensureAnthropicKey } from "../lib/secrets";
 
 const FALLBACK_RUNTIME_URL = `http://127.0.0.1:${GATEWAY_PORT}`;
 const FALLBACK_ASSISTANT_ID = "default";
@@ -93,8 +92,6 @@ ${ANSI.bold}EXAMPLES:${ANSI.reset}
 
 export async function client(): Promise<void> {
   const { runtimeUrl, assistantId, species, bearerToken, project, zone } = parseArgs();
-
-  await ensureAnthropicKey();
 
   process.stdout.write("\x1b[2J\x1b[H");
 
