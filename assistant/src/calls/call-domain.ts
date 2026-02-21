@@ -22,7 +22,9 @@ import { TwilioConversationRelayProvider } from './twilio-provider.js';
 import { getTwilioConfig } from './twilio-config.js';
 import { getTwilioVoiceWebhookUrl, getTwilioStatusCallbackUrl } from '../inbound/public-ingress-urls.js';
 import { loadConfig } from '../config/loader.js';
+import { getSecureKey } from '../security/secure-keys.js';
 import type { CallSession } from './types.js';
+import type { AssistantConfig } from '../config/types.js';
 
 const log = getLogger('call-domain');
 
@@ -47,6 +49,7 @@ export type StartCallInput = {
   task: string;
   context?: string;
   conversationId: string;
+  callerIdentityMode?: 'assistant_number' | 'user_number';
 };
 
 export type CancelCallInput = {
@@ -59,13 +62,68 @@ export type AnswerCallInput = {
   answer: string;
 };
 
+// ── Caller identity resolution ───────────────────────────────────────
+
+export type CallerIdentityResult =
+  | { ok: true; mode: 'assistant_number' | 'user_number'; fromNumber: string }
+  | { ok: false; error: string };
+
+/**
+ * Resolve which phone number to use as the caller ID for an outbound call.
+ *
+ * - If `requestedMode` is provided and per-call overrides are allowed, use it.
+ * - If `requestedMode` is provided but overrides are disabled, return an error.
+ * - Otherwise fall through to the configured default mode.
+ *
+ * For `assistant_number`: uses the Twilio phone number from `getTwilioConfig()`.
+ * For `user_number`: uses `config.calls.callerIdentity.userNumber` or the
+ * secure key `credential:twilio:user_phone_number`.
+ */
+export function resolveCallerIdentity(
+  config: AssistantConfig,
+  requestedMode?: 'assistant_number' | 'user_number',
+): CallerIdentityResult {
+  const identityConfig = config.calls.callerIdentity;
+  let mode: 'assistant_number' | 'user_number';
+
+  if (requestedMode != null) {
+    if (!identityConfig.allowPerCallOverride) {
+      return { ok: false, error: 'Per-call caller identity override is disabled in configuration' };
+    }
+    mode = requestedMode;
+  } else {
+    mode = identityConfig.defaultMode;
+  }
+
+  if (mode === 'assistant_number') {
+    const twilioConfig = getTwilioConfig();
+    return { ok: true, mode, fromNumber: twilioConfig.phoneNumber };
+  }
+
+  // user_number mode: resolve from config or secure key
+  const userNumber =
+    identityConfig.userNumber ||
+    process.env.TWILIO_USER_PHONE_NUMBER ||
+    getSecureKey('credential:twilio:user_phone_number') ||
+    '';
+
+  if (!userNumber) {
+    return {
+      ok: false,
+      error: 'user_number mode requires a user phone number. Set calls.callerIdentity.userNumber in config or store credential:twilio:user_phone_number via the credential_store tool.',
+    };
+  }
+
+  return { ok: true, mode, fromNumber: userNumber };
+}
+
 // ── Domain operations ────────────────────────────────────────────────
 
 /**
  * Initiate a new outbound call.
  */
 export async function startCall(input: StartCallInput): Promise<StartCallResult | CallError> {
-  const { phoneNumber, task, context: callContext, conversationId } = input;
+  const { phoneNumber, task, context: callContext, conversationId, callerIdentityMode } = input;
 
   if (!phoneNumber || typeof phoneNumber !== 'string') {
     return { ok: false, error: 'phone_number is required and must be a string', status: 400 };
@@ -90,23 +148,29 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
   let sessionId: string | null = null;
 
   try {
-    const twilioConfig = getTwilioConfig();
     const ingressConfig = loadConfig();
     const provider = new TwilioConversationRelayProvider();
+
+    // Resolve which phone number to use as caller ID
+    const identityResult = resolveCallerIdentity(ingressConfig, callerIdentityMode);
+    if (!identityResult.ok) {
+      return { ok: false, error: identityResult.error, status: 400 };
+    }
+    const fromNumber = identityResult.fromNumber;
 
     const session = createCallSession({
       conversationId,
       provider: 'twilio',
-      fromNumber: twilioConfig.phoneNumber,
+      fromNumber,
       toNumber: phoneNumber,
       task: callContext ? `${task}\n\nContext: ${callContext}` : task,
     });
     sessionId = session.id;
 
-    log.info({ callSessionId: session.id, to: phoneNumber, task }, 'Initiating outbound call');
+    log.info({ callSessionId: session.id, to: phoneNumber, from: fromNumber, task }, 'Initiating outbound call');
 
     const { callSid } = await provider.initiateCall({
-      from: twilioConfig.phoneNumber,
+      from: fromNumber,
       to: phoneNumber,
       webhookUrl: getTwilioVoiceWebhookUrl(ingressConfig, session.id),
       statusCallbackUrl: getTwilioStatusCallbackUrl(ingressConfig),
