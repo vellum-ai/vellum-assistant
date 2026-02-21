@@ -494,10 +494,11 @@ export interface VercelApiConfigResponse {
 
 export interface TwitterIntegrationConfigRequest {
   type: 'twitter_integration_config';
-  action: 'get' | 'set_mode' | 'set_local_client' | 'clear_local_client' | 'disconnect';
+  action: 'get' | 'set_mode' | 'set_local_client' | 'clear_local_client' | 'disconnect' | 'get_strategy' | 'set_strategy';
   mode?: 'local_byo' | 'managed';
   clientId?: string;
   clientSecret?: string;
+  strategy?: string;
 }
 
 export interface TwitterIntegrationConfigResponse {
@@ -508,6 +509,7 @@ export interface TwitterIntegrationConfigResponse {
   localClientConfigured: boolean;
   connected: boolean;
   accountInfo?: string;
+  strategy?: 'oauth' | 'browser' | 'auto';
   error?: string;
 }
 

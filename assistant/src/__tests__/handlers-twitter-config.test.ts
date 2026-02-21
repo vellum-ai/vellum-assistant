@@ -715,4 +715,138 @@ describe('Twitter integration config handler', () => {
     expect(responseStr).not.toContain('secret-client-secret-xyz789');
     expect(responseStr).not.toContain('secret-access-token-def456');
   });
+
+  // --- Strategy tests ---
+
+  test('get_strategy returns auto by default', () => {
+    const msg: TwitterIntegrationConfigRequest = {
+      type: 'twitter_integration_config',
+      action: 'get_strategy',
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleMessage(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; strategy: string };
+    expect(res.type).toBe('twitter_integration_config_response');
+    expect(res.success).toBe(true);
+    expect(res.strategy).toBe('auto');
+  });
+
+  test('set_strategy persists and can be read back', () => {
+    // Set strategy to oauth
+    const setMsg: TwitterIntegrationConfigRequest = {
+      type: 'twitter_integration_config',
+      action: 'set_strategy',
+      strategy: 'oauth',
+    };
+    const { ctx: ctx1, sent: sent1 } = createTestContext();
+    handleMessage(setMsg, {} as net.Socket, ctx1);
+
+    expect(sent1).toHaveLength(1);
+    const setRes = sent1[0] as { type: string; success: boolean; strategy: string };
+    expect(setRes.success).toBe(true);
+    expect(setRes.strategy).toBe('oauth');
+
+    // Read it back with get_strategy
+    const getMsg: TwitterIntegrationConfigRequest = {
+      type: 'twitter_integration_config',
+      action: 'get_strategy',
+    };
+    const { ctx: ctx2, sent: sent2 } = createTestContext();
+    handleMessage(getMsg, {} as net.Socket, ctx2);
+
+    expect(sent2).toHaveLength(1);
+    const getRes = sent2[0] as { type: string; success: boolean; strategy: string };
+    expect(getRes.success).toBe(true);
+    expect(getRes.strategy).toBe('oauth');
+
+    // Verify persistence via saveRawConfig
+    expect(saveRawConfigCalls.length).toBeGreaterThan(0);
+    const lastSaved = saveRawConfigCalls[saveRawConfigCalls.length - 1]!;
+    expect(lastSaved.twitterOperationStrategy).toBe('oauth');
+  });
+
+  test('set_strategy with invalid value returns error', () => {
+    const msg: TwitterIntegrationConfigRequest = {
+      type: 'twitter_integration_config',
+      action: 'set_strategy',
+      strategy: 'invalid_value',
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleMessage(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.type).toBe('twitter_integration_config_response');
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Invalid strategy value');
+    expect(res.error).toContain('invalid_value');
+  });
+
+  test('set_strategy without value returns error', () => {
+    const msg = {
+      type: 'twitter_integration_config',
+      action: 'set_strategy',
+    } as unknown as TwitterIntegrationConfigRequest;
+
+    const { ctx, sent } = createTestContext();
+    handleMessage(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Invalid strategy value');
+  });
+
+  test('get action includes strategy field', () => {
+    // Set a specific strategy first
+    rawConfigStore = { twitterOperationStrategy: 'browser' };
+
+    const msg: TwitterIntegrationConfigRequest = {
+      type: 'twitter_integration_config',
+      action: 'get',
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleMessage(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; strategy: string; mode: string };
+    expect(res.type).toBe('twitter_integration_config_response');
+    expect(res.success).toBe(true);
+    expect(res.strategy).toBe('browser');
+  });
+
+  test('get action returns auto strategy by default', () => {
+    const msg: TwitterIntegrationConfigRequest = {
+      type: 'twitter_integration_config',
+      action: 'get',
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleMessage(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; strategy: string };
+    expect(res.strategy).toBe('auto');
+  });
+
+  test('set_strategy cycles through all valid values', () => {
+    for (const value of ['oauth', 'browser', 'auto'] as const) {
+      const msg: TwitterIntegrationConfigRequest = {
+        type: 'twitter_integration_config',
+        action: 'set_strategy',
+        strategy: value,
+      };
+      const { ctx, sent } = createTestContext();
+      handleMessage(msg, {} as net.Socket, ctx);
+      expect(sent).toHaveLength(1);
+      const res = sent[0] as { type: string; success: boolean; strategy: string };
+      expect(res.success).toBe(true);
+      expect(res.strategy).toBe(value);
+    }
+  });
 });
