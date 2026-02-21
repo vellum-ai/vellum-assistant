@@ -75,6 +75,14 @@ export class ElevenLabsClient {
         );
       }
 
+      const lower = body.toLowerCase();
+      if (!lower.includes('<?xml') && !lower.includes('<response')) {
+        throw new ElevenLabsError(
+          'ELEVENLABS_INVALID_RESPONSE',
+          'Register-call response is not valid TwiML/XML',
+        );
+      }
+
       return { twiml: body };
     } catch (err) {
       if (err instanceof ElevenLabsError) throw err;
