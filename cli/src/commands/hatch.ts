@@ -9,25 +9,23 @@ import { saveAssistantEntry } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { hatchAws } from "../lib/aws";
 import {
-  FIREWALL_TAG,
   GATEWAY_PORT,
   SPECIES_CONFIG,
   VALID_REMOTE_HOSTS,
   VALID_SPECIES,
 } from "../lib/constants";
 import type { RemoteHost, Species } from "../lib/constants";
-import type { FirewallRuleSpec } from "../lib/gcp";
-import { activateServiceAccount, fetchAndDisplayStartupLogs, getActiveProject, instanceExists, syncFirewallRules } from "../lib/gcp";
+import { hatchGcp } from "../lib/gcp";
+import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import { buildInterfacesSeed } from "../lib/interfaces-seed";
 import { startLocalDaemon, startGateway } from "../lib/local";
 import { generateRandomSuffix } from "../lib/random-name";
-import { exec, execOutput } from "../lib/step-runner";
+import { exec } from "../lib/step-runner";
+
+export type { PollResult, WatchHatchingResult } from "../lib/gcp";
 
 const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
-const MACHINE_TYPE = "e2-standard-4"; // 4 vCPUs, 16 GB memory
 
-// Resolve the install script path. In source tree, use the file directly.
-// In compiled binary ($bunfs), the file may not be available.
 async function resolveInstallScriptPath(): Promise<string | null> {
   const sourcePath = join(import.meta.dir, "..", "adapters", "install.sh");
   if (existsSync(sourcePath)) {
@@ -42,28 +40,7 @@ const HATCH_TIMEOUT_MS: Record<Species, number> = {
 };
 const DEFAULT_SPECIES: Species = "vellum";
 
-const DESIRED_FIREWALL_RULES: FirewallRuleSpec[] = [
-  {
-    name: "allow-vellum-assistant-gateway",
-    direction: "INGRESS",
-    action: "ALLOW",
-    rules: `tcp:${GATEWAY_PORT}`,
-    sourceRanges: "0.0.0.0/0",
-    targetTags: FIREWALL_TAG,
-    description: `Allow gateway ingress on port ${GATEWAY_PORT} for vellum-assistant instances`,
-  },
-  {
-    name: "allow-vellum-assistant-egress",
-    direction: "EGRESS",
-    action: "ALLOW",
-    rules: "all",
-    destinationRanges: "0.0.0.0/0",
-    targetTags: FIREWALL_TAG,
-    description: "Allow all egress traffic for vellum-assistant instances",
-  },
-];
-
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER_FRAMES= ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 function buildTimestampRedirect(): string {
   return `exec > >(while IFS= read -r line; do printf '[%s] %s\\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$line"; done > /var/log/startup-script.log) 2>&1`;
@@ -213,58 +190,6 @@ function parseArgs(): HatchArgs {
   return { species, detached, name, remote, daemonOnly };
 }
 
-export interface PollResult {
-  lastLine: string | null;
-  done: boolean;
-  failed: boolean;
-  errorContent: string;
-}
-
-async function pollInstance(
-  instanceName: string,
-  project: string,
-  zone: string,
-  account?: string,
-): Promise<PollResult> {
-  try {
-    const remoteCmd =
-      "L=$(tail -1 /var/log/startup-script.log 2>/dev/null || true); " +
-      "S=$(systemctl is-active google-startup-scripts.service 2>/dev/null || true); " +
-      "E=$(cat /var/log/startup-error 2>/dev/null || true); " +
-      'printf "%s\\n===HATCH_SEP===\\n%s\\n===HATCH_ERR===\\n%s" "$L" "$S" "$E"';
-    const args = [
-      "compute",
-      "ssh",
-      instanceName,
-      `--project=${project}`,
-      `--zone=${zone}`,
-      "--quiet",
-      "--ssh-flag=-o StrictHostKeyChecking=no",
-      "--ssh-flag=-o UserKnownHostsFile=/dev/null",
-      "--ssh-flag=-o ConnectTimeout=10",
-      "--ssh-flag=-o LogLevel=ERROR",
-      `--command=${remoteCmd}`,
-    ];
-    if (account) args.push(`--account=${account}`);
-    const output = await execOutput("gcloud", args);
-    const sepIdx = output.indexOf("===HATCH_SEP===");
-    if (sepIdx === -1) {
-      return { lastLine: output.trim() || null, done: false, failed: false, errorContent: "" };
-    }
-    const errIdx = output.indexOf("===HATCH_ERR===");
-    const lastLine = output.substring(0, sepIdx).trim() || null;
-    const statusEnd = errIdx === -1 ? undefined : errIdx;
-    const status = output.substring(sepIdx + "===HATCH_SEP===".length, statusEnd).trim();
-    const errorContent =
-      errIdx === -1 ? "" : output.substring(errIdx + "===HATCH_ERR===".length).trim();
-    const done = lastLine !== null && status !== "active" && status !== "activating";
-    const failed = errorContent.length > 0 || status === "failed";
-    return { lastLine, done, failed, errorContent };
-  } catch {
-    return { lastLine: null, done: false, failed: false, errorContent: "" };
-  }
-}
-
 function formatElapsed(ms: number): string {
   const secs = Math.floor(ms / 1000);
   const m = Math.floor(secs / 60);
@@ -282,77 +207,6 @@ function getPhaseIcon(hasLogs: boolean, elapsedMs: number, species: Species): st
     return elapsedMs < 30000 ? "🥚" : "🪺";
   }
   return elapsedMs < 120000 ? "🐣" : SPECIES_CONFIG[species].hatchedEmoji;
-}
-
-async function checkCurlFailure(
-  instanceName: string,
-  project: string,
-  zone: string,
-  account?: string,
-): Promise<boolean> {
-  try {
-    const args = [
-      "compute",
-      "ssh",
-      instanceName,
-      `--project=${project}`,
-      `--zone=${zone}`,
-      "--quiet",
-      "--ssh-flag=-o StrictHostKeyChecking=no",
-      "--ssh-flag=-o UserKnownHostsFile=/dev/null",
-      "--ssh-flag=-o ConnectTimeout=10",
-      "--ssh-flag=-o LogLevel=ERROR",
-      `--command=test -s ${INSTALL_SCRIPT_REMOTE_PATH} && echo EXISTS || echo MISSING`,
-    ];
-    if (account) args.push(`--account=${account}`);
-    const output = await execOutput("gcloud", args);
-    return output.trim() === "MISSING";
-  } catch {
-    return false;
-  }
-}
-
-async function recoverFromCurlFailure(
-  instanceName: string,
-  project: string,
-  zone: string,
-  sshUser: string,
-  account?: string,
-): Promise<void> {
-  const installScriptPath = await resolveInstallScriptPath();
-  if (!installScriptPath) {
-    console.warn("⚠️  Skipping install script upload (not available in compiled binary)");
-    return;
-  }
-
-  const scpArgs = [
-    "compute",
-    "scp",
-    installScriptPath,
-    `${instanceName}:${INSTALL_SCRIPT_REMOTE_PATH}`,
-    `--zone=${zone}`,
-    `--project=${project}`,
-  ];
-  if (account) scpArgs.push(`--account=${account}`);
-  console.log("📋 Uploading install script to instance...");
-  await exec("gcloud", scpArgs);
-
-  const sshArgs = [
-    "compute",
-    "ssh",
-    `${sshUser}@${instanceName}`,
-    `--zone=${zone}`,
-    `--project=${project}`,
-    `--command=source ${INSTALL_SCRIPT_REMOTE_PATH}`,
-  ];
-  if (account) sshArgs.push(`--account=${account}`);
-  console.log("🔧 Running install script on instance...");
-  await exec("gcloud", sshArgs);
-}
-
-export interface WatchHatchingResult {
-  success: boolean;
-  errorContent: string;
 }
 
 export async function watchHatching(
@@ -465,203 +319,6 @@ export async function watchHatching(
       process.exit(0);
     });
   });
-}
-
-
-async function hatchGcp(
-  species: Species,
-  detached: boolean,
-  name: string | null,
-): Promise<void> {
-  const startTime = Date.now();
-  const account = process.env.GCP_ACCOUNT_EMAIL;
-  const cleanupServiceAccount = await activateServiceAccount();
-
-  try {
-    const project = process.env.GCP_PROJECT ?? (await getActiveProject());
-    let instanceName: string;
-
-    if (name) {
-      instanceName = name;
-    } else {
-      const suffix = generateRandomSuffix();
-      instanceName = `${species}-${suffix}`;
-    }
-
-    console.log(`🥚 Creating new assistant: ${instanceName}`);
-    console.log(`   Species: ${species}`);
-    console.log(`   Cloud: GCP`);
-    console.log(`   Project: ${project}`);
-    const zone = process.env.GCP_DEFAULT_ZONE;
-    if (!zone) {
-      console.error("Error: GCP_DEFAULT_ZONE environment variable is not set.");
-      process.exit(1);
-    }
-
-    console.log(`   Zone: ${zone}`);
-    console.log(`   Machine type: ${MACHINE_TYPE}`);
-    console.log("");
-
-    if (name) {
-      if (await instanceExists(name, project, zone, account)) {
-        console.error(
-          `Error: Instance name '${name}' is already taken. Please choose a different name.`,
-        );
-        process.exit(1);
-      }
-    } else {
-      while (await instanceExists(instanceName, project, zone, account)) {
-        console.log(`⚠️  Instance name ${instanceName} already exists, generating a new name...`);
-        const suffix = generateRandomSuffix();
-        instanceName = `${species}-${suffix}`;
-      }
-    }
-
-    const sshUser = userInfo().username;
-    const bearerToken = randomBytes(32).toString("hex");
-    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
-    if (!anthropicApiKey) {
-      console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
-      process.exit(1);
-    }
-    const startupScript = await buildStartupScript(
-      species,
-      bearerToken,
-      sshUser,
-      anthropicApiKey,
-      instanceName,
-      "gcp",
-    );
-    const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
-    writeFileSync(startupScriptPath, startupScript);
-
-    console.log("🔨 Creating instance with startup script...");
-    try {
-      const createArgs = [
-        "compute",
-        "instances",
-        "create",
-        instanceName,
-        `--project=${project}`,
-        `--zone=${zone}`,
-        `--machine-type=${MACHINE_TYPE}`,
-        "--image-family=debian-11",
-        "--image-project=debian-cloud",
-        "--boot-disk-size=50GB",
-        "--boot-disk-type=pd-standard",
-        `--metadata-from-file=startup-script=${startupScriptPath}`,
-        `--labels=species=${species},vellum-assistant=true`,
-        "--tags=vellum-assistant",
-        "--no-service-account",
-        "--no-scopes",
-      ];
-      if (account) createArgs.push(`--account=${account}`);
-      await exec("gcloud", createArgs);
-    } finally {
-      try {
-        unlinkSync(startupScriptPath);
-      } catch {}
-    }
-
-    console.log("🔒 Syncing firewall rules...");
-    await syncFirewallRules(DESIRED_FIREWALL_RULES, project, FIREWALL_TAG, account);
-
-    console.log(`✅ Instance ${instanceName} created successfully\n`);
-
-    let externalIp: string | null = null;
-    try {
-      const describeArgs = [
-        "compute",
-        "instances",
-        "describe",
-        instanceName,
-        `--project=${project}`,
-        `--zone=${zone}`,
-        "--format=get(networkInterfaces[0].accessConfigs[0].natIP)",
-      ];
-      if (account) describeArgs.push(`--account=${account}`);
-      const ipOutput = await execOutput("gcloud", describeArgs);
-      externalIp = ipOutput.trim() || null;
-    } catch {
-      console.log("⚠️  Could not retrieve external IP yet (instance may still be starting)");
-    }
-
-    const runtimeUrl = externalIp
-      ? `http://${externalIp}:${GATEWAY_PORT}`
-      : `http://${instanceName}:${GATEWAY_PORT}`;
-    const gcpEntry: AssistantEntry = {
-      assistantId: instanceName,
-      runtimeUrl,
-      bearerToken,
-      cloud: "gcp",
-      project,
-      zone,
-      species,
-      sshUser,
-      hatchedAt: new Date().toISOString(),
-    };
-    saveAssistantEntry(gcpEntry);
-
-    if (detached) {
-      console.log("🚀 Startup script is running on the instance...");
-      console.log("");
-      console.log("✅ Assistant is hatching!\n");
-      console.log("Instance details:");
-      console.log(`  Name: ${instanceName}`);
-      console.log(`  Project: ${project}`);
-      console.log(`  Zone: ${zone}`);
-      if (externalIp) {
-        console.log(`  External IP: ${externalIp}`);
-      }
-      console.log("");
-    } else {
-      console.log("   Press Ctrl+C to detach (instance will keep running)");
-      console.log("");
-
-      const result = await watchHatching(
-        () => pollInstance(instanceName, project, zone, account),
-        instanceName,
-        startTime,
-        species,
-      );
-
-      if (!result.success) {
-        console.log("");
-        if (result.errorContent) {
-          console.log("📋 Startup error:");
-          console.log(`   ${result.errorContent}`);
-          console.log("");
-        }
-
-        await fetchAndDisplayStartupLogs(instanceName, project, zone, account);
-
-        if (
-          species === "vellum" &&
-          (await checkCurlFailure(instanceName, project, zone, account))
-        ) {
-          const installScriptUrl = `${process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai"}/install.sh`;
-          console.log(`🔄 Detected install script curl failure for ${installScriptUrl}, attempting recovery...`);
-          await recoverFromCurlFailure(instanceName, project, zone, sshUser, account);
-          console.log("✅ Recovery successful!");
-        } else {
-          process.exit(1);
-        }
-      }
-
-      console.log("Instance details:");
-      console.log(`  Name: ${instanceName}`);
-      console.log(`  Project: ${project}`);
-      console.log(`  Zone: ${zone}`);
-      if (externalIp) {
-        console.log(`  External IP: ${externalIp}`);
-      }
-    }
-  } catch (error) {
-    console.error("❌ Error:", error instanceof Error ? error.message : error);
-    process.exit(1);
-  } finally {
-    cleanupServiceAccount?.();
-  }
 }
 
 function buildSshArgs(host: string): string[] {
@@ -850,7 +507,7 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "gcp") {
-    await hatchGcp(species, detached, name);
+    await hatchGcp(species, detached, name, buildStartupScript, watchHatching);
     return;
   }
 

@@ -1,8 +1,14 @@
 import { spawn } from "child_process";
-import { mkdtempSync, rmSync } from "fs";
-import { tmpdir } from "os";
+import { randomBytes } from "crypto";
+import { existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "fs";
+import { tmpdir, userInfo } from "os";
 import { join } from "path";
 
+import { saveAssistantEntry } from "./assistant-config";
+import type { AssistantEntry } from "./assistant-config";
+import { FIREWALL_TAG, GATEWAY_PORT } from "./constants";
+import type { Species } from "./constants";
+import { generateRandomSuffix } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 
 export async function activateServiceAccount(): Promise<(() => void) | null> {
@@ -342,6 +348,372 @@ async function checkGcloudAvailable(): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+export interface PollResult {
+  lastLine: string | null;
+  done: boolean;
+  failed: boolean;
+  errorContent: string;
+}
+
+export interface WatchHatchingResult {
+  success: boolean;
+  errorContent: string;
+}
+
+const INSTALL_SCRIPT_REMOTE_PATH = "/tmp/vellum-install.sh";
+const MACHINE_TYPE = "e2-standard-4"; // 4 vCPUs, 16 GB memory
+
+const DESIRED_FIREWALL_RULES: FirewallRuleSpec[] = [
+  {
+    name: "allow-vellum-assistant-gateway",
+    direction: "INGRESS",
+    action: "ALLOW",
+    rules: `tcp:${GATEWAY_PORT}`,
+    sourceRanges: "0.0.0.0/0",
+    targetTags: FIREWALL_TAG,
+    description: `Allow gateway ingress on port ${GATEWAY_PORT} for vellum-assistant instances`,
+  },
+  {
+    name: "allow-vellum-assistant-egress",
+    direction: "EGRESS",
+    action: "ALLOW",
+    rules: "all",
+    destinationRanges: "0.0.0.0/0",
+    targetTags: FIREWALL_TAG,
+    description: "Allow all egress traffic for vellum-assistant instances",
+  },
+];
+
+async function resolveInstallScriptPath(): Promise<string | null> {
+  const sourcePath = join(import.meta.dir, "..", "adapters", "install.sh");
+  if (existsSync(sourcePath)) {
+    return sourcePath;
+  }
+  console.warn("\u26a0\ufe0f  Install script not found at", sourcePath, "(expected in compiled binary)");
+  return null;
+}
+
+async function pollInstance(
+  instanceName: string,
+  project: string,
+  zone: string,
+  account?: string,
+): Promise<PollResult> {
+  try {
+    const remoteCmd =
+      "L=$(tail -1 /var/log/startup-script.log 2>/dev/null || true); " +
+      "S=$(systemctl is-active google-startup-scripts.service 2>/dev/null || true); " +
+      "E=$(cat /var/log/startup-error 2>/dev/null || true); " +
+      'printf "%s\\n===HATCH_SEP===\\n%s\\n===HATCH_ERR===\\n%s" "$L" "$S" "$E"';
+    const args = [
+      "compute",
+      "ssh",
+      instanceName,
+      `--project=${project}`,
+      `--zone=${zone}`,
+      "--quiet",
+      "--ssh-flag=-o StrictHostKeyChecking=no",
+      "--ssh-flag=-o UserKnownHostsFile=/dev/null",
+      "--ssh-flag=-o ConnectTimeout=10",
+      "--ssh-flag=-o LogLevel=ERROR",
+      `--command=${remoteCmd}`,
+    ];
+    if (account) args.push(`--account=${account}`);
+    const output = await execOutput("gcloud", args);
+    const sepIdx = output.indexOf("===HATCH_SEP===");
+    if (sepIdx === -1) {
+      return { lastLine: output.trim() || null, done: false, failed: false, errorContent: "" };
+    }
+    const errIdx = output.indexOf("===HATCH_ERR===");
+    const lastLine = output.substring(0, sepIdx).trim() || null;
+    const statusEnd = errIdx === -1 ? undefined : errIdx;
+    const status = output.substring(sepIdx + "===HATCH_SEP===".length, statusEnd).trim();
+    const errorContent =
+      errIdx === -1 ? "" : output.substring(errIdx + "===HATCH_ERR===".length).trim();
+    const done = lastLine !== null && status !== "active" && status !== "activating";
+    const failed = errorContent.length > 0 || status === "failed";
+    return { lastLine, done, failed, errorContent };
+  } catch {
+    return { lastLine: null, done: false, failed: false, errorContent: "" };
+  }
+}
+
+async function checkCurlFailure(
+  instanceName: string,
+  project: string,
+  zone: string,
+  account?: string,
+): Promise<boolean> {
+  try {
+    const args = [
+      "compute",
+      "ssh",
+      instanceName,
+      `--project=${project}`,
+      `--zone=${zone}`,
+      "--quiet",
+      "--ssh-flag=-o StrictHostKeyChecking=no",
+      "--ssh-flag=-o UserKnownHostsFile=/dev/null",
+      "--ssh-flag=-o ConnectTimeout=10",
+      "--ssh-flag=-o LogLevel=ERROR",
+      `--command=test -s ${INSTALL_SCRIPT_REMOTE_PATH} && echo EXISTS || echo MISSING`,
+    ];
+    if (account) args.push(`--account=${account}`);
+    const output = await execOutput("gcloud", args);
+    return output.trim() === "MISSING";
+  } catch {
+    return false;
+  }
+}
+
+async function recoverFromCurlFailure(
+  instanceName: string,
+  project: string,
+  zone: string,
+  sshUser: string,
+  account?: string,
+): Promise<void> {
+  const installScriptPath = await resolveInstallScriptPath();
+  if (!installScriptPath) {
+    console.warn("\u26a0\ufe0f  Skipping install script upload (not available in compiled binary)");
+    return;
+  }
+
+  const scpArgs = [
+    "compute",
+    "scp",
+    installScriptPath,
+    `${instanceName}:${INSTALL_SCRIPT_REMOTE_PATH}`,
+    `--zone=${zone}`,
+    `--project=${project}`,
+  ];
+  if (account) scpArgs.push(`--account=${account}`);
+  console.log("\ud83d\udccb Uploading install script to instance...");
+  await exec("gcloud", scpArgs);
+
+  const sshArgs = [
+    "compute",
+    "ssh",
+    `${sshUser}@${instanceName}`,
+    `--zone=${zone}`,
+    `--project=${project}`,
+    `--command=source ${INSTALL_SCRIPT_REMOTE_PATH}`,
+  ];
+  if (account) sshArgs.push(`--account=${account}`);
+  console.log("\ud83d\udd27 Running install script on instance...");
+  await exec("gcloud", sshArgs);
+}
+
+export async function hatchGcp(
+  species: Species,
+  detached: boolean,
+  name: string | null,
+  buildStartupScript: (
+    species: Species,
+    bearerToken: string,
+    sshUser: string,
+    anthropicApiKey: string,
+    instanceName: string,
+    cloud: "gcp",
+  ) => Promise<string>,
+  watchHatching: (
+    pollFn: () => Promise<PollResult>,
+    instanceName: string,
+    startTime: number,
+    species: Species,
+  ) => Promise<WatchHatchingResult>,
+): Promise<void> {
+  const startTime = Date.now();
+  const account = process.env.GCP_ACCOUNT_EMAIL;
+  const cleanupServiceAccount = await activateServiceAccount();
+
+  try {
+    const project = process.env.GCP_PROJECT ?? (await getActiveProject());
+    let instanceName: string;
+
+    if (name) {
+      instanceName = name;
+    } else {
+      const suffix = generateRandomSuffix();
+      instanceName = `${species}-${suffix}`;
+    }
+
+    console.log(`\ud83e\udd5a Creating new assistant: ${instanceName}`);
+    console.log(`   Species: ${species}`);
+    console.log(`   Cloud: GCP`);
+    console.log(`   Project: ${project}`);
+    const zone = process.env.GCP_DEFAULT_ZONE;
+    if (!zone) {
+      console.error("Error: GCP_DEFAULT_ZONE environment variable is not set.");
+      process.exit(1);
+    }
+
+    console.log(`   Zone: ${zone}`);
+    console.log(`   Machine type: ${MACHINE_TYPE}`);
+    console.log("");
+
+    if (name) {
+      if (await instanceExists(name, project, zone, account)) {
+        console.error(
+          `Error: Instance name '${name}' is already taken. Please choose a different name.`,
+        );
+        process.exit(1);
+      }
+    } else {
+      while (await instanceExists(instanceName, project, zone, account)) {
+        console.log(`\u26a0\ufe0f  Instance name ${instanceName} already exists, generating a new name...`);
+        const suffix = generateRandomSuffix();
+        instanceName = `${species}-${suffix}`;
+      }
+    }
+
+    const sshUser = userInfo().username;
+    const bearerToken = randomBytes(32).toString("hex");
+    const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+    if (!anthropicApiKey) {
+      console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
+      process.exit(1);
+    }
+    const startupScript = await buildStartupScript(
+      species,
+      bearerToken,
+      sshUser,
+      anthropicApiKey,
+      instanceName,
+      "gcp",
+    );
+    const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
+    writeFileSync(startupScriptPath, startupScript);
+
+    console.log("\ud83d\udd28 Creating instance with startup script...");
+    try {
+      const createArgs = [
+        "compute",
+        "instances",
+        "create",
+        instanceName,
+        `--project=${project}`,
+        `--zone=${zone}`,
+        `--machine-type=${MACHINE_TYPE}`,
+        "--image-family=debian-11",
+        "--image-project=debian-cloud",
+        "--boot-disk-size=50GB",
+        "--boot-disk-type=pd-standard",
+        `--metadata-from-file=startup-script=${startupScriptPath}`,
+        `--labels=species=${species},vellum-assistant=true`,
+        "--tags=vellum-assistant",
+        "--no-service-account",
+        "--no-scopes",
+      ];
+      if (account) createArgs.push(`--account=${account}`);
+      await exec("gcloud", createArgs);
+    } finally {
+      try {
+        unlinkSync(startupScriptPath);
+      } catch {}
+    }
+
+    console.log("\ud83d\udd12 Syncing firewall rules...");
+    await syncFirewallRules(DESIRED_FIREWALL_RULES, project, FIREWALL_TAG, account);
+
+    console.log(`\u2705 Instance ${instanceName} created successfully\n`);
+
+    let externalIp: string | null = null;
+    try {
+      const describeArgs = [
+        "compute",
+        "instances",
+        "describe",
+        instanceName,
+        `--project=${project}`,
+        `--zone=${zone}`,
+        "--format=get(networkInterfaces[0].accessConfigs[0].natIP)",
+      ];
+      if (account) describeArgs.push(`--account=${account}`);
+      const ipOutput = await execOutput("gcloud", describeArgs);
+      externalIp = ipOutput.trim() || null;
+    } catch {
+      console.log("\u26a0\ufe0f  Could not retrieve external IP yet (instance may still be starting)");
+    }
+
+    const runtimeUrl = externalIp
+      ? `http://${externalIp}:${GATEWAY_PORT}`
+      : `http://${instanceName}:${GATEWAY_PORT}`;
+    const gcpEntry: AssistantEntry = {
+      assistantId: instanceName,
+      runtimeUrl,
+      bearerToken,
+      cloud: "gcp",
+      project,
+      zone,
+      species,
+      sshUser,
+      hatchedAt: new Date().toISOString(),
+    };
+    saveAssistantEntry(gcpEntry);
+
+    if (detached) {
+      console.log("\ud83d\ude80 Startup script is running on the instance...");
+      console.log("");
+      console.log("\u2705 Assistant is hatching!\n");
+      console.log("Instance details:");
+      console.log(`  Name: ${instanceName}`);
+      console.log(`  Project: ${project}`);
+      console.log(`  Zone: ${zone}`);
+      if (externalIp) {
+        console.log(`  External IP: ${externalIp}`);
+      }
+      console.log("");
+    } else {
+      console.log("   Press Ctrl+C to detach (instance will keep running)");
+      console.log("");
+
+      const result = await watchHatching(
+        () => pollInstance(instanceName, project, zone, account),
+        instanceName,
+        startTime,
+        species,
+      );
+
+      if (!result.success) {
+        console.log("");
+        if (result.errorContent) {
+          console.log("\ud83d\udccb Startup error:");
+          console.log(`   ${result.errorContent}`);
+          console.log("");
+        }
+
+        await fetchAndDisplayStartupLogs(instanceName, project, zone, account);
+
+        if (
+          species === "vellum" &&
+          (await checkCurlFailure(instanceName, project, zone, account))
+        ) {
+          const installScriptUrl = `${process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai"}/install.sh`;
+          console.log(`\ud83d\udd04 Detected install script curl failure for ${installScriptUrl}, attempting recovery...`);
+          await recoverFromCurlFailure(instanceName, project, zone, sshUser, account);
+          console.log("\u2705 Recovery successful!");
+        } else {
+          process.exit(1);
+        }
+      }
+
+      console.log("Instance details:");
+      console.log(`  Name: ${instanceName}`);
+      console.log(`  Project: ${project}`);
+      console.log(`  Zone: ${zone}`);
+      if (externalIp) {
+        console.log(`  External IP: ${externalIp}`);
+      }
+    }
+  } catch (error) {
+    console.error("\u274c Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  } finally {
+    cleanupServiceAccount?.();
   }
 }
 
