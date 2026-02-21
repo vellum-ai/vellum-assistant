@@ -140,6 +140,14 @@ export async function resolveCallerIdentity(
     };
   }
 
+  if (!E164_REGEX.test(userNumber)) {
+    log.warn({ mode, source: numberSource, userNumber }, 'User phone number is not in E.164 format');
+    return {
+      ok: false,
+      error: `User phone number "${userNumber}" is not in E.164 format (must start with + followed by digits, e.g. +14155551234). Check calls.callerIdentity.userNumber in config or credential:twilio:user_phone_number.`,
+    };
+  }
+
   // Verify the user number is eligible as a caller ID with Twilio
   const provider = new TwilioConversationRelayProvider();
   let eligibility: { eligible: boolean; reason?: string };
