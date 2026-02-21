@@ -119,3 +119,39 @@ export function deriveShellActionKeys(analysis: ShellIdentityAnalysis): ActionKe
 
   return { keys, isSimpleAction: true, primarySegment };
 }
+
+/**
+ * Build an ordered list of command candidates for trust-rule matching.
+ *
+ * Candidate ordering:
+ *   1. Raw command (backward compatibility — existing rules match as before)
+ *   2. Canonical primary command (if simple action) — the full primary segment text
+ *   3. Action keys from narrowest to broadest (if simple action)
+ *
+ * Complex commands (pipelines, multi-action chains) only return the raw candidate.
+ */
+export async function buildShellCommandCandidates(command: string): Promise<string[]> {
+  const trimmed = command.trim();
+  if (!trimmed) return [trimmed];
+
+  const analysis = await analyzeShellCommand(trimmed);
+  const actionResult = deriveShellActionKeys(analysis);
+
+  const candidates: string[] = [trimmed];
+
+  if (actionResult.isSimpleAction && actionResult.primarySegment) {
+    // Add canonical primary command text (the actual segment, not the full command with setup prefixes)
+    const canonical = actionResult.primarySegment.command;
+    if (canonical !== trimmed) {
+      candidates.push(canonical);
+    }
+
+    // Add action keys
+    for (const actionKey of actionResult.keys) {
+      candidates.push(actionKey.key);
+    }
+  }
+
+  // Deduplicate while preserving order
+  return [...new Set(candidates)];
+}
