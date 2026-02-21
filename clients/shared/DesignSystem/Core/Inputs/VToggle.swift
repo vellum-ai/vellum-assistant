@@ -44,7 +44,7 @@ public struct VToggle: View {
         ZStack(alignment: isOn ? .trailing : .leading) {
             // Track background
             RoundedRectangle(cornerRadius: VRadius.sm + 2)
-                .fill(isOn ? Emerald._500 : VColor.toggleOff)
+                .fill(isOn ? Forest._600 : VColor.toggleOff)
                 .frame(width: trackWidth, height: trackHeight)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm + 2)
