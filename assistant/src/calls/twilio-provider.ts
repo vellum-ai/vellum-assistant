@@ -202,11 +202,15 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
       );
     }
 
-    // If neither API call succeeded, the eligibility check is inconclusive —
+    // If any API call failed, the eligibility check is inconclusive —
     // propagate as an error rather than returning a false negative.
-    if (!incomingOk && !outgoingOk) {
+    if (!incomingOk || !outgoingOk) {
+      const failedEndpoints = [
+        ...(!incomingOk ? [`IncomingPhoneNumbers: ${incomingRes.status}`] : []),
+        ...(!outgoingOk ? [`OutgoingCallerIds: ${outgoingRes.status}`] : []),
+      ].join(', ');
       throw new Error(
-        `Unable to verify caller ID eligibility for ${phoneNumber}: both Twilio API calls failed (IncomingPhoneNumbers: ${incomingRes.status}, OutgoingCallerIds: ${outgoingRes.status}). This may indicate a network issue, auth error, or Twilio outage.`,
+        `Unable to verify caller ID eligibility for ${phoneNumber}: Twilio API error (${failedEndpoints}). The number may be eligible but could not be confirmed. Please check your Twilio credentials and try again.`,
       );
     }
 

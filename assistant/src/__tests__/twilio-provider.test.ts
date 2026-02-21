@@ -282,7 +282,7 @@ describe('TwilioConversationRelayProvider', () => {
       );
     });
 
-    test('returns ineligible (not throws) when only one API call fails but the other succeeds with no match', async () => {
+    test('throws when only one API call fails but the other succeeds with no match', async () => {
       const provider = new TwilioConversationRelayProvider();
 
       globalThis.fetch = (async (url: RequestInfo | URL): Promise<Response> => {
@@ -299,9 +299,9 @@ describe('TwilioConversationRelayProvider', () => {
         return new Response('Not found', { status: 404 });
       }) as typeof fetch;
 
-      const result = await provider.checkCallerIdEligibility('+15550001111');
-      expect(result.eligible).toBe(false);
-      expect(result.reason).toContain('not owned by or verified');
+      await expect(provider.checkCallerIdEligibility('+15550001111')).rejects.toThrow(
+        'Unable to verify caller ID eligibility',
+      );
     });
 
     test('passes correct phone number as query parameter', async () => {
