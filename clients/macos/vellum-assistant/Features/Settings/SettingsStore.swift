@@ -1,6 +1,9 @@
 import Combine
 import Foundation
+import os
 import VellumAssistantShared
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SettingsStore")
 
 /// Single source of truth for settings state shared between `SettingsView`
 /// (standalone window) and `SettingsPanel` (main window side panel).
@@ -242,7 +245,11 @@ public final class SettingsStore: ObservableObject {
         refreshVercelKeyState()
 
         // Fetch current model from daemon
-        try? daemonClient?.sendModelGet()
+        do {
+            try daemonClient?.sendModelGet()
+        } catch {
+            log.error("Failed to send model get request: \(error)")
+        }
 
         // Refresh Twitter integration status on init
         refreshTwitterStatus()
@@ -341,7 +348,11 @@ public final class SettingsStore: ObservableObject {
     func setImageGenModel(_ model: String) {
         selectedImageGenModel = model
         UserDefaults.standard.set(model, forKey: "selectedImageGenModel")
-        try? daemonClient?.sendImageGenModelSet(model: model)
+        do {
+            try daemonClient?.sendImageGenModelSet(model: model)
+        } catch {
+            log.error("Failed to send image gen model set: \(error)")
+        }
     }
 
     func refreshAPIKeyState() {
@@ -387,40 +398,68 @@ public final class SettingsStore: ObservableObject {
     func saveVercelKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        try? daemonClient?.sendVercelApiConfig(action: "set", apiToken: trimmed)
+        do {
+            try daemonClient?.sendVercelApiConfig(action: "set", apiToken: trimmed)
+        } catch {
+            log.error("Failed to send Vercel API config set: \(error)")
+        }
     }
 
     func clearVercelKey() {
-        try? daemonClient?.sendVercelApiConfig(action: "delete")
+        do {
+            try daemonClient?.sendVercelApiConfig(action: "delete")
+        } catch {
+            log.error("Failed to send Vercel API config delete: \(error)")
+        }
     }
 
     func refreshVercelKeyState() {
-        try? daemonClient?.sendVercelApiConfig(action: "get")
+        do {
+            try daemonClient?.sendVercelApiConfig(action: "get")
+        } catch {
+            log.error("Failed to send Vercel API config get: \(error)")
+        }
     }
 
     // MARK: - Twitter Integration Actions
 
     func refreshTwitterStatus() {
-        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "get"))
+        do {
+            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "get"))
+        } catch {
+            log.error("Failed to send Twitter integration config get: \(error)")
+        }
     }
 
     func setTwitterMode(_ mode: String) {
-        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "set_mode", mode: mode))
+        do {
+            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "set_mode", mode: mode))
+        } catch {
+            log.error("Failed to send Twitter set_mode: \(error)")
+        }
     }
 
     func saveTwitterLocalClient(clientId: String, clientSecret: String?) {
         let trimmedId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedSecret = clientSecret?.trimmingCharacters(in: .whitespacesAndNewlines)
-        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(
-            action: "set_local_client",
-            clientId: trimmedId,
-            clientSecret: trimmedSecret
-        ))
+        do {
+            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(
+                action: "set_local_client",
+                clientId: trimmedId,
+                clientSecret: trimmedSecret
+            ))
+        } catch {
+            log.error("Failed to send Twitter set_local_client: \(error)")
+        }
     }
 
     func clearTwitterLocalClient() {
         twitterAuthInProgress = false
-        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "clear_local_client"))
+        do {
+            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "clear_local_client"))
+        } catch {
+            log.error("Failed to send Twitter clear_local_client: \(error)")
+        }
     }
 
     func connectTwitter() {
@@ -439,13 +478,21 @@ public final class SettingsStore: ObservableObject {
 
     func disconnectTwitter() {
         twitterAuthInProgress = false
-        try? daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "disconnect"))
+        do {
+            try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "disconnect"))
+        } catch {
+            log.error("Failed to send Twitter disconnect: \(error)")
+        }
     }
 
     // MARK: - Ingress Config Actions
 
     func refreshIngressConfig() {
-        try? daemonClient?.send(IngressConfigRequestMessage(action: "get"))
+        do {
+            try daemonClient?.send(IngressConfigRequestMessage(action: "get"))
+        } catch {
+            log.error("Failed to send ingress config get: \(error)")
+        }
     }
 
     func saveIngressPublicBaseUrl(_ raw: String) {
@@ -469,7 +516,11 @@ public final class SettingsStore: ObservableObject {
     func setIngressEnabled(_ enabled: Bool) {
         ingressEnabled = enabled
         pendingIngressEnabled = enabled
-        try? daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: ingressPublicBaseUrl, enabled: enabled))
+        do {
+            try daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: ingressPublicBaseUrl, enabled: enabled))
+        } catch {
+            log.error("Failed to send ingress config set (enabled): \(error)")
+        }
     }
 
     // MARK: - Model Actions
@@ -519,7 +570,11 @@ public final class SettingsStore: ObservableObject {
         existingMediaEmbeds["videoAllowlistDomains"] = normalized
         existingUI["mediaEmbeds"] = existingMediaEmbeds
 
-        try? WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
+        do {
+            try WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
+        } catch {
+            log.error("Failed to merge workspace config for video allowlist domains: \(error)")
+        }
     }
 
     /// Writes the current `mediaEmbedsEnabled` and `mediaEmbedsEnabledSince` to
@@ -545,7 +600,11 @@ public final class SettingsStore: ObservableObject {
         }
         existingUI["mediaEmbeds"] = existingMediaEmbeds
 
-        try? WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
+        do {
+            try WorkspaceConfigIO.merge(["ui": existingUI], into: configPath)
+        } catch {
+            log.error("Failed to merge workspace config for media embed state: \(error)")
+        }
     }
 
     // MARK: - Media Embed Loading

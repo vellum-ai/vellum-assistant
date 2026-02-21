@@ -196,12 +196,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Task {
             if !isRemoteTransport {
-                try? await assistantCli.hatch(daemonOnly: true)
+                do {
+                    try await assistantCli.hatch(daemonOnly: true)
+                } catch {
+                    log.error("Failed to hatch assistant in ensureDaemonConnected: \(error)")
+                }
                 assistantCli.startMonitoring()
             }
             // Only connect if setupDaemonClient's connect hasn't already started
             guard !daemonClient.isConnected, !daemonClient.isConnecting else { return }
-            try? await daemonClient.connect()
+            do {
+                try await daemonClient.connect()
+            } catch {
+                log.error("Failed to connect to daemon in ensureDaemonConnected: \(error)")
+            }
             if daemonClient.isConnected {
                 setupAmbientAgent()
                 refreshAppsCache()
@@ -609,7 +617,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             Task {
                 // Don't reset an in-progress connection attempt
                 guard !self.daemonClient.isConnected, !self.daemonClient.isConnecting else { return }
-                try? await self.daemonClient.connect()
+                do {
+                    try await self.daemonClient.connect()
+                } catch {
+                    log.error("Failed to reconnect to daemon after restart: \(error)")
+                }
                 if self.daemonClient.isConnected {
                     self.setupAmbientAgent()
                     self.refreshAppsCache()
@@ -631,10 +643,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             if !isRemoteTransport {
                 // Hatch the assistant via CLI (spawns daemon in release builds).
                 // daemonOnly: true prevents creating a new lockfile entry on every launch.
-                try? await assistantCli.hatch(daemonOnly: true)
+                do {
+                    try await assistantCli.hatch(daemonOnly: true)
+                } catch {
+                    log.error("Failed to hatch assistant during daemon setup: \(error)")
+                }
                 assistantCli.startMonitoring()
             }
-            try? await daemonClient.connect()
+            do {
+                try await daemonClient.connect()
+            } catch {
+                log.error("Failed to connect to daemon during setup: \(error)")
+            }
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {
                 setupAmbientAgent()
@@ -712,25 +732,34 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         surfaceManager.onAction = { [weak self] sessionId, surfaceId, actionId, data in
             guard let self else { return }
             let codableData: [String: AnyCodable]? = data?.mapValues { AnyCodable($0) }
-            try? self.daemonClient.sendSurfaceAction(
-                sessionId: sessionId,
-                surfaceId: surfaceId,
-                actionId: actionId,
-                data: codableData
-            )
+            do {
+                try self.daemonClient.sendSurfaceAction(
+                    sessionId: sessionId,
+                    surfaceId: surfaceId,
+                    actionId: actionId,
+                    data: codableData
+                )
+            } catch {
+                log.error("Failed to send surface action \(actionId) for surface \(surfaceId): \(error)")
+            }
         }
 
         // Data request: JS -> Swift -> daemon
         surfaceManager.onDataRequest = { [weak self] surfaceId, callId, method, appId, recordId, data in
+            guard let self else { return }
             let codableData = data?.mapValues { AnyCodable($0) }
-            try? self?.daemonClient.send(AppDataRequestMessage(
-                surfaceId: surfaceId,
-                callId: callId,
-                method: method,
-                appId: appId,
-                recordId: recordId,
-                data: codableData
-            ))
+            do {
+                try self.daemonClient.send(AppDataRequestMessage(
+                    surfaceId: surfaceId,
+                    callId: callId,
+                    method: method,
+                    appId: appId,
+                    recordId: recordId,
+                    data: codableData
+                ))
+            } catch {
+                log.error("Failed to send app data request (method: \(method), appId: \(appId)): \(error)")
+            }
         }
 
         // Data response: daemon -> Swift -> JS
@@ -740,8 +769,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Link open: JS -> Swift -> daemon
         surfaceManager.onLinkOpen = { [weak self] url, metadata in
+            guard let self else { return }
             let codableMetadata = metadata?.mapValues { AnyCodable($0) }
-            try? self?.daemonClient.sendLinkOpenRequest(url: url, metadata: codableMetadata)
+            do {
+                try self.daemonClient.sendLinkOpenRequest(url: url, metadata: codableMetadata)
+            } catch {
+                log.error("Failed to send link open request for \(url): \(error)")
+            }
         }
 
         // Forward layout config from daemon to MainWindowState
@@ -1282,10 +1316,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 createChromeDebugLaunchAgent()
             }
 
-            try? daemonClient.send(BrowserCDPResponseMessage(sessionId: msg.sessionId, success: success))
+            do {
+                try daemonClient.send(BrowserCDPResponseMessage(sessionId: msg.sessionId, success: success))
+            } catch {
+                log.error("Failed to send browser CDP response (open): \(error)")
+            }
         } else {
             // User chose background browser
-            try? daemonClient.send(BrowserCDPResponseMessage(sessionId: msg.sessionId, success: false, declined: true))
+            do {
+                try daemonClient.send(BrowserCDPResponseMessage(sessionId: msg.sessionId, success: false, declined: true))
+            } catch {
+                log.error("Failed to send browser CDP response (background): \(error)")
+            }
         }
     }
 

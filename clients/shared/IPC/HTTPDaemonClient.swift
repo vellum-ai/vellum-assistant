@@ -245,10 +245,14 @@ final class HTTPTransport {
             guard let http = response as? HTTPURLResponse else { return }
 
             if http.statusCode == 201 || http.statusCode == 200 {
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let runId = json["id"] as? String {
-                    self.activeRunId = runId
-                    log.info("Run created: \(runId)")
+                do {
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let runId = json["id"] as? String {
+                        self.activeRunId = runId
+                        log.info("Run created: \(runId)")
+                    }
+                } catch {
+                    log.error("Failed to deserialize create run response: \(error)")
                 }
             } else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
@@ -344,12 +348,14 @@ final class HTTPTransport {
                 return
             }
 
-            if let decoded = try? decoder.decode(ConversationsListResponse.self, from: data) {
+            do {
+                let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
                 let sessions = decoded.sessions.map {
                     IPCSessionListResponseSession(id: $0.id, title: $0.title, updatedAt: $0.updatedAt, threadType: $0.threadType)
                 }
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions)))
-            } else {
+            } catch {
+                log.error("Failed to decode session list response: \(error)")
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [])))
             }
         } catch {
@@ -375,26 +381,29 @@ final class HTTPTransport {
 
             // The /v1/messages endpoint returns { messages: [...] } which doesn't
             // directly map to a HistoryResponseMessage. We need to construct one.
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let messages = json["messages"] as? [[String: Any]] {
-                // Convert REST messages to IPC history format
-                var historyMessages: [[String: Any]] = []
-                for msg in messages {
-                    historyMessages.append(msg)
-                }
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let messages = json["messages"] as? [[String: Any]] {
+                    // Convert REST messages to IPC history format
+                    var historyMessages: [[String: Any]] = []
+                    for msg in messages {
+                        historyMessages.append(msg)
+                    }
 
-                // Emit as raw JSON that the history response decoder can handle
-                var historyPayload: [String: Any] = [
-                    "type": "history_response",
-                    "sessionId": conversationKey,
-                    "messages": historyMessages
-                ]
-                _ = historyPayload.removeValue(forKey: "")
+                    // Emit as raw JSON that the history response decoder can handle
+                    var historyPayload: [String: Any] = [
+                        "type": "history_response",
+                        "sessionId": conversationKey,
+                        "messages": historyMessages
+                    ]
+                    _ = historyPayload.removeValue(forKey: "")
 
-                if let historyData = try? JSONSerialization.data(withJSONObject: historyPayload),
-                   let historyResponse = try? decoder.decode(ServerMessage.self, from: historyData) {
+                    let historyData = try JSONSerialization.data(withJSONObject: historyPayload)
+                    let historyResponse = try decoder.decode(ServerMessage.self, from: historyData)
                     onMessage?(historyResponse)
                 }
+            } catch {
+                log.error("Failed to deserialize history response: \(error)")
             }
         } catch {
             log.error("Fetch history error: \(error.localizedDescription)")
@@ -414,7 +423,12 @@ final class HTTPTransport {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-            return try? JSONDecoder().decode(RemoteIdentityInfo.self, from: data)
+            do {
+                return try JSONDecoder().decode(RemoteIdentityInfo.self, from: data)
+            } catch {
+                log.error("Failed to decode remote identity response: \(error)")
+                return nil
+            }
         } catch {
             log.error("fetchRemoteIdentity failed: \(error.localizedDescription)")
             return nil

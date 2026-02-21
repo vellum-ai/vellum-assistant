@@ -46,8 +46,14 @@ func resolveSessionTokenPath(environment: [String: String]? = nil) -> String {
 /// Read the daemon session token from disk.
 func readSessionToken(environment: [String: String]? = nil) -> String? {
     let tokenPath = resolveSessionTokenPath(environment: environment)
-    guard let data = try? Data(contentsOf: URL(fileURLWithPath: tokenPath)),
-          let token = String(data: data, encoding: .utf8)?
+    let data: Data
+    do {
+        data = try Data(contentsOf: URL(fileURLWithPath: tokenPath))
+    } catch {
+        log.error("Failed to read session token from \(tokenPath): \(error)")
+        return nil
+    }
+    guard let token = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
           !token.isEmpty else {
         return nil
@@ -1006,7 +1012,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 #endif
             }
             let tokenPath = tokenBase + "/.vellum/http-token"
-            bearerToken = (try? String(contentsOfFile: tokenPath, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+            do {
+                bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                log.error("Failed to read HTTP bearer token from \(tokenPath): \(error)")
+                bearerToken = nil
+            }
         } else {
             return nil
         }

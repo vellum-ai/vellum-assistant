@@ -248,7 +248,11 @@ public final class ChatViewModel: ObservableObject {
 
         // When "/model" or "/models" is sent, refresh model state so the picker/table has fresh data
         if (text == "/model" || text == "/models") && !hasSkillInvocation {
-            try? daemonClient.send(ModelGetRequestMessage())
+            do {
+                try daemonClient.send(ModelGetRequestMessage())
+            } catch {
+                log.error("Failed to send ModelGetRequest: \(error)")
+            }
         }
 
         // Fire auto-title callback on the first user message (skip slash commands
@@ -564,7 +568,11 @@ public final class ChatViewModel: ObservableObject {
         if messageLoopTask == nil {
             startMessageLoop()
         }
-        try? daemonClient.send(ModelSetRequestMessage(model: modelId))
+        do {
+            try daemonClient.send(ModelSetRequestMessage(model: modelId))
+        } catch {
+            log.error("Failed to send ModelSetRequest: \(error)")
+        }
     }
 
     // MARK: - Actions
@@ -577,7 +585,11 @@ public final class ChatViewModel: ObservableObject {
             actionId: actionId,
             data: data
         )
-        try? daemonClient.send(msg)
+        do {
+            try daemonClient.send(msg)
+        } catch {
+            log.error("Failed to send UiSurfaceAction: \(error)")
+        }
     }
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
@@ -1375,7 +1387,11 @@ public final class ChatViewModel: ObservableObject {
         }
         // Refresh model/provider state so the picker/table has correct data on restart
         if hasModelCommand {
-            try? daemonClient.send(ModelGetRequestMessage())
+            do {
+                try daemonClient.send(ModelGetRequestMessage())
+            } catch {
+                log.error("Failed to send ModelGetRequest: \(error)")
+            }
         }
 
         self.isLoadingHistory = true

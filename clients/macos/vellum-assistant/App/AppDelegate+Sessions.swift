@@ -33,7 +33,11 @@ extension AppDelegate {
         Task { @MainActor in
             guard await waitForAccessibilityPermission() else {
                 log.error("Accessibility permission denied — cannot start computer use session \(routed.sessionId)")
-                try? daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
+                do {
+                    try daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
+                } catch {
+                    log.error("Failed to send CU session abort for escalation \(routed.sessionId): \(error)")
+                }
                 self.mainWindow?.windowState.showToast(
                     message: "Computer control requires Accessibility permission. Grant it in System Settings → Privacy & Security → Accessibility.",
                     style: .error
@@ -132,13 +136,17 @@ extension AppDelegate {
                     extractedText: $0.extractedText
                 )
             }
-            try? self.daemonClient.send(TaskSubmitMessage(
-                task: effectiveTask,
-                screenWidth: Int(screenBounds.width),
-                screenHeight: Int(screenBounds.height),
-                attachments: ipcAttachments,
-                source: submission.source
-            ))
+            do {
+                try self.daemonClient.send(TaskSubmitMessage(
+                    task: effectiveTask,
+                    screenWidth: Int(screenBounds.width),
+                    screenHeight: Int(screenBounds.height),
+                    attachments: ipcAttachments,
+                    source: submission.source
+                ))
+            } catch {
+                log.error("Failed to send task submit message: \(error)")
+            }
 
             // 3. Wait for task_routed response (or error)
             var routedMessage: TaskRoutedMessage?
@@ -169,7 +177,11 @@ extension AppDelegate {
             case "computer_use":
                 guard await self.waitForAccessibilityPermission() else {
                     log.error("Accessibility permission denied — cannot start computer use session \(routed.sessionId)")
-                    try? self.daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
+                    do {
+                        try self.daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
+                    } catch {
+                        log.error("Failed to send CU session abort for \(routed.sessionId): \(error)")
+                    }
                     return
                 }
                 let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")

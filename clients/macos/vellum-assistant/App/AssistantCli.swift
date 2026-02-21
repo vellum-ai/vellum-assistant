@@ -342,10 +342,15 @@ final class AssistantCli {
                 try config.gcpServiceAccountKey.write(to: tmpKeyPath, atomically: true, encoding: .utf8)
                 env["GOOGLE_APPLICATION_CREDENTIALS"] = tmpKeyPath.path
 
-                if let data = config.gcpServiceAccountKey.data(using: .utf8),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let email = json["client_email"] as? String {
-                    env["GCP_ACCOUNT_EMAIL"] = email
+                if let data = config.gcpServiceAccountKey.data(using: .utf8) {
+                    do {
+                        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let email = json["client_email"] as? String {
+                            env["GCP_ACCOUNT_EMAIL"] = email
+                        }
+                    } catch {
+                        log.error("Failed to parse GCP service account key JSON: \(error)")
+                    }
                 }
             }
         } else if config.remote == "aws" {
@@ -419,8 +424,14 @@ final class AssistantCli {
 
     /// Returns `true` if the daemon process is alive based on the PID file.
     private func isDaemonAlive() -> Bool {
-        guard let pidData = try? Data(contentsOf: pidFileURL),
-              let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let pidData: Data
+        do {
+            pidData = try Data(contentsOf: pidFileURL)
+        } catch {
+            log.error("Failed to read PID file at \(self.pidFileURL.path): \(error)")
+            return false
+        }
+        guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               let pid = pid_t(pidString) else {
             return false
         }
@@ -466,8 +477,14 @@ final class AssistantCli {
 
     /// Kill the daemon directly via PID file — fallback when CLI binary is unavailable.
     private func killViaPIDFile() {
-        guard let pidData = try? Data(contentsOf: pidFileURL),
-              let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let pidData: Data
+        do {
+            pidData = try Data(contentsOf: pidFileURL)
+        } catch {
+            log.error("Failed to read PID file at \(self.pidFileURL.path): \(error)")
+            return
+        }
+        guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               let pid = pid_t(pidString),
               kill(pid, 0) == 0 else {
             return
@@ -485,7 +502,11 @@ final class AssistantCli {
             kill(pid, SIGKILL)
         }
 
-        try? FileManager.default.removeItem(at: pidFileURL)
+        do {
+            try FileManager.default.removeItem(at: pidFileURL)
+        } catch {
+            log.error("Failed to remove PID file at \(self.pidFileURL.path): \(error)")
+        }
     }
 
     /// Run a CLI command and return (stdout, stderr, exit code).

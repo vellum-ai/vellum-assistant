@@ -150,16 +150,24 @@ extension DaemonClient {
         #elseif os(iOS)
         case .signBundlePayload(let msg):
             log.warning("Received sign_bundle_payload request on iOS — signing not supported")
-            try? send(SignBundlePayloadResponseMessage(
-                requestId: msg.requestId,
-                error: "Signing operations are not available on iOS"
-            ))
+            do {
+                try send(SignBundlePayloadResponseMessage(
+                    requestId: msg.requestId,
+                    error: "Signing operations are not available on iOS"
+                ))
+            } catch {
+                log.error("Failed to send SignBundlePayloadResponse: \(error)")
+            }
         case .getSigningIdentity(let msg):
             log.warning("Received get_signing_identity request on iOS — signing not supported")
-            try? send(GetSigningIdentityResponseMessage(
-                requestId: msg.requestId,
-                error: "Signing operations are not available on iOS"
-            ))
+            do {
+                try send(GetSigningIdentityResponseMessage(
+                    requestId: msg.requestId,
+                    error: "Signing operations are not available on iOS"
+                ))
+            } catch {
+                log.error("Failed to send GetSigningIdentityResponse: \(error)")
+            }
         #else
         case .signBundlePayload, .getSigningIdentity:
             log.error("Signing operations are not supported on this platform")
@@ -253,10 +261,14 @@ extension DaemonClient {
             ))
         } catch {
             log.error("Failed to sign bundle payload: \(error.localizedDescription)")
-            try? send(SignBundlePayloadResponseMessage(
-                requestId: msg.requestId,
-                error: error.localizedDescription
-            ))
+            do {
+                try send(SignBundlePayloadResponseMessage(
+                    requestId: msg.requestId,
+                    error: error.localizedDescription
+                ))
+            } catch {
+                log.error("Failed to send SignBundlePayloadResponse: \(error)")
+            }
         }
     }
 
@@ -273,10 +285,14 @@ extension DaemonClient {
             ))
         } catch {
             log.error("Failed to get signing identity: \(error.localizedDescription)")
-            try? send(GetSigningIdentityResponseMessage(
-                requestId: msg.requestId,
-                error: error.localizedDescription
-            ))
+            do {
+                try send(GetSigningIdentityResponseMessage(
+                    requestId: msg.requestId,
+                    error: error.localizedDescription
+                ))
+            } catch {
+                log.error("Failed to send GetSigningIdentityResponse: \(error)")
+            }
         }
     }
     #endif

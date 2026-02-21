@@ -52,11 +52,15 @@ public final class IpcBlobStore: Sendable {
 
     /// Ensure the blob directory exists.
     public func ensureDirectory() {
-        try? FileManager.default.createDirectory(
-            atPath: blobDirPath,
-            withIntermediateDirectories: true,
-            attributes: nil
-        )
+        do {
+            try FileManager.default.createDirectory(
+                atPath: blobDirPath,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+        } catch {
+            log.error("Failed to create blob directory at \(self.blobDirPath): \(error)")
+        }
     }
 
     /// Write data atomically to a blob file and return a ref describing the blob.
@@ -85,7 +89,11 @@ public final class IpcBlobStore: Sendable {
             )
         } catch {
             log.error("Failed to write blob \(id): \(error.localizedDescription)")
-            try? FileManager.default.removeItem(atPath: tempPath)
+            do {
+                try FileManager.default.removeItem(atPath: tempPath)
+            } catch {
+                log.error("Failed to clean up temp blob file at \(tempPath): \(error)")
+            }
             return nil
         }
     }

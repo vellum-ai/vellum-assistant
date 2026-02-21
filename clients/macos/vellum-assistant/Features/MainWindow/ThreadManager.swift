@@ -31,7 +31,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 // Without this, socketToSession stays stale after thread switches,
                 // causing ownership checks (e.g. subagent abort) to fail.
                 if let sessionId = chatViewModels[activeThreadId]?.sessionId {
-                    try? daemonClient.send(IPCSessionSwitchRequest(sessionId: sessionId))
+                    do {
+                        try daemonClient.send(IPCSessionSwitchRequest(sessionId: sessionId))
+                    } catch {
+                        log.error("Failed to send session switch request: \(error)")
+                    }
                 }
             } else {
                 lastActiveThreadIdString = nil
