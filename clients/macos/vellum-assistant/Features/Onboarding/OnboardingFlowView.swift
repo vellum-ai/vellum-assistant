@@ -10,6 +10,10 @@ struct OnboardingFlowView: View {
     var onOpenSettings: () -> Void
 
     @State private var isAdvancingFromWakeUp = false
+    /// Records whether the user was already authenticated when the flow appeared.
+    /// Prevents the onChange handler from immediately completing the flow when
+    /// replaying onboarding (e.g. "Hatch New Assistant") for an already-logged-in user.
+    @State private var wasAuthenticatedOnAppear = false
 
     private var maxOnboardingStep: Int {
         state.userHostedEnabled ? 2 : 1
@@ -114,8 +118,15 @@ struct OnboardingFlowView: View {
                 onComplete()
             }
         }
+        .onAppear {
+            wasAuthenticatedOnAppear = authManager.isAuthenticated
+        }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
-            if isAuthenticated {
+            // Only complete when a login happens DURING this onboarding session
+            // (isAuthenticated transitions false → true). If the user was already
+            // authenticated before entering the flow (e.g. "Hatch New Assistant"
+            // from settings), don't auto-complete.
+            if isAuthenticated && !wasAuthenticatedOnAppear {
                 onComplete()
             }
         }
