@@ -33,6 +33,8 @@ interface SubscriberEntry {
   filter: AssistantEventFilter;
   callback: AssistantEventCallback;
   active: boolean;
+  /** Called by the hub when this entry is evicted to make room for a new subscriber. */
+  onEvict?: () => void;
 }
 
 /**
@@ -42,18 +44,48 @@ interface SubscriberEntry {
  * events that match their `assistantId` (and optionally `sessionId`).
  *
  * The hub is intentionally simple: synchronous fanout, no buffering, no
- * backpressure. Slow-consumer protection is added in PR 7.
+ * backpressure. Slow-consumer protection lives in the SSE route (PR 7).
  */
 export class AssistantEventHub {
   private readonly subscribers = new Set<SubscriberEntry>();
+  private readonly maxSubscribers: number;
+
+  constructor(options?: { maxSubscribers?: number }) {
+    this.maxSubscribers = options?.maxSubscribers ?? Infinity;
+  }
 
   /**
    * Register a subscriber that will be called for each matching event.
    *
+   * When the subscriber cap (`maxSubscribers`) has been reached, the **oldest**
+   * subscriber is evicted to make room: its `onEvict` callback is invoked (so
+   * it can close its SSE stream) and its entry is removed from the hub.
+   *
+   * The only case that throws is when `maxSubscribers` is 0 — there is nothing
+   * to evict and no room to add.
+   *
+   * @param options.onEvict  Called if this subscriber is later evicted by a newer one.
    * @returns A subscription handle. Call `dispose()` to unsubscribe.
    */
-  subscribe(filter: AssistantEventFilter, callback: AssistantEventCallback): AssistantEventSubscription {
-    const entry: SubscriberEntry = { filter, callback, active: true };
+  subscribe(
+    filter: AssistantEventFilter,
+    callback: AssistantEventCallback,
+    options?: { onEvict?: () => void },
+  ): AssistantEventSubscription {
+    if (this.subscribers.size >= this.maxSubscribers) {
+      // Evict the oldest subscriber (Sets maintain insertion order).
+      const [oldest] = this.subscribers;
+      if (!oldest) {
+        // maxSubscribers is 0 — nothing to evict, nothing to add.
+        throw new RangeError(
+          `AssistantEventHub: subscriber cap reached (${this.maxSubscribers})`,
+        );
+      }
+      oldest.active = false;
+      this.subscribers.delete(oldest);
+      try { oldest.onEvict?.(); } catch { /* ignore eviction callback errors */ }
+    }
+    const entry: SubscriberEntry = { filter, callback, active: true, onEvict: options?.onEvict };
     this.subscribers.add(entry);
 
     return {
@@ -108,6 +140,11 @@ export class AssistantEventHub {
   subscriberCount(): number {
     return this.subscribers.size;
   }
+
+  /** Returns true if the hub can accept a subscriber without evicting anyone. */
+  hasCapacity(): boolean {
+    return this.subscribers.size < this.maxSubscribers;
+  }
 }
 
 // ── Process-level singleton ───────────────────────────────────────────────────
@@ -117,4 +154,4 @@ export class AssistantEventHub {
  *
  * Import and use this in daemon send paths (PR 3) and the SSE route (PR 5).
  */
-export const assistantEventHub = new AssistantEventHub();
+export const assistantEventHub = new AssistantEventHub({ maxSubscribers: 100 });
