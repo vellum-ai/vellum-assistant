@@ -539,12 +539,7 @@ function buildConfigSection(): string {
     '**LOOKS.md** — update when:',
     '- They ask you to change your appearance, colors, or outfit',
     '- You want to refresh your look',
-    '- Available body/cheek colors: violet, emerald, rose, amber, indigo, slate, cyan, blue, green, red, orange, pink',
-    '- Available hats: none, top_hat, crown, cap, beanie, wizard_hat, cowboy_hat',
-    '- Available shirts: none, tshirt, suit, hoodie, tank_top, sweater',
-    '- Available accessories: none, sunglasses, monocle, bowtie, necklace, scarf, cape',
-    '- Available held items: none, sword, staff, shield, balloon',
-    '- Available outfit colors: red, blue, yellow, purple, orange, pink, cyan, brown, black, white, gold, silver',
+    '- Available options are listed in LOOKS.md itself',
     '',
     'When updating, read the file first, then make a targeted edit. Include all useful information, but don\'t bloat the files over time',
   ].join('\n');
