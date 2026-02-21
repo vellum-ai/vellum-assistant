@@ -46,11 +46,10 @@ public enum VFont {
         guard let uiFont = UIFont(name: name, size: size) else {
             return Font.custom(name, size: size)
         }
-        // iOS uses different key names: featureIdentifier = type, typeIdentifier = selector
         let descriptor = uiFont.fontDescriptor.addingAttributes([
             .featureSettings: [[
-                UIFontDescriptor.FeatureKey.featureIdentifier: kStylisticAlternativesType,
-                UIFontDescriptor.FeatureKey.typeIdentifier: kStylisticAltFiveOnSelector,
+                UIFontDescriptor.FeatureKey.type: kStylisticAlternativesType,
+                UIFontDescriptor.FeatureKey.selector: kStylisticAltFiveOnSelector,
             ]]
         ])
         return Font(UIFont(descriptor: descriptor, size: size))
