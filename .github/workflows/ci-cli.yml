@@ -34,5 +34,5 @@ jobs:
 
       - name: Compile check
         run: |
-          bun build --compile src/index.ts --outfile /tmp/vellum-cli-compile-check
+          bun build --compile src/index.ts --external react-devtools-core --outfile /tmp/vellum-cli-compile-check
           rm -f /tmp/vellum-cli-compile-check
