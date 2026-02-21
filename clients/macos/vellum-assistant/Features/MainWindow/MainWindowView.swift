@@ -695,9 +695,9 @@ struct MainWindowView: View {
             .padding(.vertical, VSpacing.sm)
             .background {
                 if isSelected {
-                    adaptiveColor(light: Stone._200, dark: Moss._700)
+                    adaptiveColor(light: Forest._100.opacity(0.6), dark: Moss._700)
                 } else if isHovered {
-                    adaptiveColor(light: Stone._100, dark: Moss._800)
+                    adaptiveColor(light: Stone._200, dark: Moss._800)
                 } else if thread.kind == .private {
                     VColor.accent.opacity(0.04)
                 } else {
@@ -831,7 +831,7 @@ struct MainWindowView: View {
 
                         ForEach(displayedThreads) { thread in
                             threadItem(thread)
-                                .padding(.bottom, 1)
+                                .padding(.bottom, VSpacing.xxs)
                                 .dropDestination(for: String.self) { items, _ in
                                     guard let droppedId = items.first,
                                           let sourceUUID = UUID(uuidString: droppedId),
@@ -858,7 +858,7 @@ struct MainWindowView: View {
                 .scrollClipDisabled()
                 .clipped()
 
-                Spacer(minLength: 0)
+                Spacer(minLength: VSpacing.sm)
 
                 // Control Center row
                 ControlCenterRow(
@@ -872,12 +872,12 @@ struct MainWindowView: View {
             .padding(VSpacing.sm)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.xxl)
-                    .fill(adaptiveColor(light: Stone._50, dark: Moss._900))
+                    .fill(adaptiveColor(light: Moss._50, dark: Moss._800))
             )
             .padding(VSpacing.sm)
         }
         .frame(width: threadDrawerWidth)
-        .background(VColor.background)
+        .background(adaptiveColor(light: Stone._200, dark: Moss._950))
     }
 
     @ViewBuilder
@@ -1175,7 +1175,7 @@ private struct ControlCenterRow: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.md)
-            .background(bgColor.opacity(isHovered ? 0.9 : 0.6))
+            .background(bgColor.opacity(isHovered ? 1.0 : 0.85))
             .clipShape(Capsule())
             .contentShape(Capsule())
         }
