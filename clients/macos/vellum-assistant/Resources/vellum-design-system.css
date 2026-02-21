@@ -1756,7 +1756,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   line-height: 1.4;
 }
 
-/* Gradient Text — forest→sage text fill */
+/* Gradient Text — forest gradient text fill */
 .v-gradient-text {
   background: linear-gradient(135deg, var(--v-forest-500) 0%, var(--v-forest-300) 100%);
   -webkit-background-clip: text;
