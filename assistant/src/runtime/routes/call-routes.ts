@@ -13,7 +13,7 @@ import { getConfig } from '../../config/loader.js';
 /**
  * POST /v1/calls/start
  *
- * Body: { phoneNumber: string; task: string; context?: string; conversationId: string }
+ * Body: { phoneNumber: string; task: string; context?: string; conversationId: string; callerIdentityMode?: 'assistant_number' | 'user_number' }
  */
 export async function handleStartCall(req: Request): Promise<Response> {
   if (!getConfig().calls.enabled) {
@@ -28,6 +28,7 @@ export async function handleStartCall(req: Request): Promise<Response> {
     task?: string;
     context?: string;
     conversationId?: string;
+    callerIdentityMode?: 'assistant_number' | 'user_number';
   };
   try {
     body = await req.json() as typeof body;
@@ -44,6 +45,7 @@ export async function handleStartCall(req: Request): Promise<Response> {
     task: body.task ?? '',
     context: body.context,
     conversationId: body.conversationId,
+    callerIdentityMode: body.callerIdentityMode,
   });
 
   if (!result.ok) {
@@ -56,6 +58,7 @@ export async function handleStartCall(req: Request): Promise<Response> {
     status: result.session.status,
     toNumber: result.session.toNumber,
     fromNumber: result.session.fromNumber,
+    callerIdentityMode: result.callerIdentityMode,
   }, { status: 201 });
 }
 
