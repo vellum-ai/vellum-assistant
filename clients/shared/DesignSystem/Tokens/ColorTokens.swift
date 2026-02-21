@@ -51,19 +51,6 @@ public enum Emerald {
     public static let _100 = Color(hex: 0xECFDF5)
 }
 
-public enum Sage {
-    public static let _950 = Color(hex: 0x1A2316)
-    public static let _900 = Color(hex: 0x2A3825)
-    public static let _800 = Color(hex: 0x3D4F36)
-    public static let _700 = Color(hex: 0x516748)
-    public static let _600 = Color(hex: 0x657D5B)
-    public static let _500 = Color(hex: 0x7A8B6F)
-    public static let _400 = Color(hex: 0x98A88F)
-    public static let _300 = Color(hex: 0xB5C3AE)
-    public static let _200 = Color(hex: 0xD4DFD0)
-    public static let _100 = Color(hex: 0xEDF2EB)
-}
-
 public enum Danger {
     public static let _950 = Color(hex: 0x620F21)
     public static let _900 = Color(hex: 0x85142F)
@@ -181,4 +168,7 @@ public enum VColor {
     public static let hoverOverlay = adaptiveColor(light: Color(hex: 0x000000), dark: Moss._200)
     public static let toggleOff = adaptiveColor(light: Stone._300, dark: Moss._700)
     public static let toggleBorder = adaptiveColor(light: Stone._400, dark: Moss._600)
+
+    // Slash command highlight — green tint for /command tokens in composer and chat
+    public static let slashCommand = adaptiveColor(light: Forest._500, dark: Forest._300)
 }
