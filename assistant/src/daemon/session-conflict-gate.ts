@@ -9,6 +9,7 @@ import {
   applyConflictResolution,
   listPendingConflictDetails,
   markConflictAsked,
+  resolveConflict,
 } from '../memory/conflict-store.js';
 import type { PendingConflictDetail } from '../memory/conflict-store.js';
 import { resolveConflictClarification } from '../memory/clarification-resolver.js';
@@ -17,6 +18,7 @@ import {
   looksLikeClarificationReply,
   shouldAttemptConflictResolution,
 } from '../memory/conflict-intent.js';
+import { isConflictKindPairEligible, isStatementConflictEligible } from '../memory/conflict-policy.js';
 
 export interface ConflictGateDecision {
   question: string;
@@ -36,6 +38,7 @@ export class ConflictGate {
       reaskCooldownTurns: number;
       resolverLlmTimeoutMs: number;
       askOnIrrelevantTurns: boolean;
+      conflictableKinds: readonly string[];
     },
     scopeId = 'default',
   ): Promise<ConflictGateDecision | null> {
@@ -45,6 +48,17 @@ export class ConflictGate {
     const threshold = conflictConfig.relevanceThreshold;
     const cooldownTurns = Math.max(1, conflictConfig.reaskCooldownTurns);
     const pendingBeforeResolve = listPendingConflictDetails(scopeId, 50);
+
+    // Dismiss non-actionable conflicts (kind or statement policy)
+    for (const conflict of pendingBeforeResolve) {
+      if (!this.isConflictActionable(conflict, conflictConfig.conflictableKinds)) {
+        resolveConflict(conflict.id, {
+          status: 'dismissed',
+          resolutionNote: 'Dismissed by conflict policy (transient/non-durable).',
+        });
+      }
+    }
+
     const clarificationReply = looksLikeClarificationReply(userMessage);
     const candidatesBeforeResolve = pendingBeforeResolve.filter((conflict) => {
       const relevance = computeConflictRelevance(userMessage, conflict);
@@ -123,6 +137,22 @@ export class ConflictGate {
     const lastAsked = this.lastAskedTurn.get(conflictId);
     if (lastAsked === undefined) return false;
     return this.turnCounter - lastAsked <= cooldownTurns;
+  }
+
+  private isConflictActionable(
+    conflict: PendingConflictDetail,
+    conflictableKinds: readonly string[],
+  ): boolean {
+    if (!isConflictKindPairEligible(conflict.existingKind, conflict.candidateKind, { conflictableKinds })) {
+      return false;
+    }
+    if (!isStatementConflictEligible(conflict.existingKind, conflict.existingStatement)) {
+      return false;
+    }
+    if (!isStatementConflictEligible(conflict.candidateKind, conflict.candidateStatement)) {
+      return false;
+    }
+    return true;
   }
 }
 

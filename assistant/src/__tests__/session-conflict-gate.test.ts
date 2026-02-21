@@ -9,6 +9,7 @@ let markAskedCalls: string[] = [];
 let conflictScopeCalls: string[] = [];
 let memoryEnabled = true;
 let askOnIrrelevantTurns = false;
+let resolveConflictCalls: Array<{ id: string; input: { status: string; resolutionNote?: string | null } }> = [];
 let pendingConflicts: Array<{
   id: string;
   scopeId: string;
@@ -24,6 +25,8 @@ let pendingConflicts: Array<{
   updatedAt: number;
   existingStatement: string;
   candidateStatement: string;
+  existingKind: string;
+  candidateKind: string;
 }> = [];
 
 let resolverResult: {
@@ -98,6 +101,7 @@ mock.module('../config/loader.js', () => ({
         resolverLlmTimeoutMs: 250,
         relevanceThreshold: 0.2,
         askOnIrrelevantTurns,
+        conflictableKinds: ['preference', 'profile', 'constraint', 'instruction', 'style'],
       },
     },
   }),
@@ -214,6 +218,10 @@ mock.module('../memory/conflict-store.js', () => ({
     return true;
   },
   applyConflictResolution: () => true,
+  resolveConflict: (id: string, input: { status: string; resolutionNote?: string | null }) => {
+    resolveConflictCalls.push({ id, input });
+    return null;
+  },
 }));
 
 mock.module('../memory/clarification-resolver.js', () => ({
@@ -281,6 +289,7 @@ describe('Session conflict soft gate', () => {
     resolverCallCount = 0;
     markAskedCalls = [];
     conflictScopeCalls = [];
+    resolveConflictCalls = [];
     memoryEnabled = true;
     askOnIrrelevantTurns = false;
     pendingConflicts = [];
@@ -309,6 +318,8 @@ describe('Session conflict soft gate', () => {
       updatedAt: 1,
       existingStatement: 'Use React for frontend work.',
       candidateStatement: 'Use Vue for frontend work.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
     }];
 
     const session = makeSession();
@@ -344,6 +355,8 @@ describe('Session conflict soft gate', () => {
       updatedAt: 1,
       existingStatement: 'Use Postgres as the default database.',
       candidateStatement: 'Use MySQL as the default database.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
     }];
     const session = makeSession();
     await session.loadFromDb();
@@ -379,6 +392,8 @@ describe('Session conflict soft gate', () => {
       updatedAt: 1,
       existingStatement: 'Use Postgres as the default database.',
       candidateStatement: 'Use MySQL as the default database.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
     }];
     const session = makeSession();
     await session.loadFromDb();
@@ -415,6 +430,8 @@ describe('Session conflict soft gate', () => {
       updatedAt: 1,
       existingStatement: 'Use Postgres as the default database.',
       candidateStatement: 'Use MySQL as the default database.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
     }];
 
     const session = makeSession();
@@ -456,6 +473,8 @@ describe('Session conflict soft gate', () => {
       updatedAt: 1,
       existingStatement: 'Use Postgres as the default database.',
       candidateStatement: 'Use MySQL as the default database.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
     }];
 
     const session = makeSession();
@@ -496,6 +515,8 @@ describe('Session conflict soft gate', () => {
       updatedAt: 1,
       existingStatement: 'Use Postgres as the default database.',
       candidateStatement: 'Use MySQL as the default database.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
     }];
 
     const session = makeSession();
@@ -538,6 +559,8 @@ describe('Session conflict soft gate', () => {
       updatedAt: 1,
       existingStatement: 'Use Postgres as the default database.',
       candidateStatement: 'Use MySQL as the default database.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
     }];
 
     const session = makeSession();
@@ -579,6 +602,8 @@ describe('Session conflict soft gate', () => {
       updatedAt: 1,
       existingStatement: 'Use pnpm for workspace installs.',
       candidateStatement: 'Use npm for workspace installs.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
     }];
 
     const session = makeSession();
@@ -613,6 +638,8 @@ describe('Session conflict soft gate', () => {
       updatedAt: 1,
       existingStatement: 'Use pnpm for workspace installs.',
       candidateStatement: 'Use npm for workspace installs.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
     }];
 
     const session = makeSession();
@@ -647,6 +674,8 @@ describe('Session conflict soft gate', () => {
       updatedAt: 1,
       existingStatement: 'Use tabs for indentation.',
       candidateStatement: 'Use spaces for indentation.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
     }];
 
     const session = makeSession({
@@ -694,6 +723,8 @@ describe('Session conflict soft gate', () => {
       updatedAt: 1,
       existingStatement: 'Use React for frontend work.',
       candidateStatement: 'Use Vue for frontend work.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
     }];
 
     const session = makeSession();
@@ -706,6 +737,78 @@ describe('Session conflict soft gate', () => {
     expect(runCalls).toHaveLength(1);
     expect(resolverCallCount).toBe(0);
     expect(markAskedCalls).toEqual([]);
+  });
+
+  test('pending transient conflict is dismissed and not asked', async () => {
+    pendingConflicts = [{
+      id: 'conflict-transient',
+      scopeId: 'default',
+      existingItemId: 'existing-transient',
+      candidateItemId: 'candidate-transient',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Which PR should we track?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Track PR #5526 for review.',
+      candidateStatement: 'Track PR #5525 for review.',
+      existingKind: 'instruction',
+      candidateKind: 'instruction',
+    }];
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events: ServerMessage[] = [];
+    await session.processMessage('Check latest PRs', [], (event) => events.push(event));
+
+    // Should run normal agent loop, no clarification asked
+    expect(runCalls).toHaveLength(1);
+    expect(markAskedCalls).toEqual([]);
+    // The conflict should have been dismissed
+    expect(resolveConflictCalls).toEqual([{
+      id: 'conflict-transient',
+      input: {
+        status: 'dismissed',
+        resolutionNote: 'Dismissed by conflict policy (transient/non-durable).',
+      },
+    }]);
+  });
+
+  test('pending durable preference conflict still follows normal flow', async () => {
+    pendingConflicts = [{
+      id: 'conflict-durable',
+      scopeId: 'default',
+      existingItemId: 'existing-durable',
+      candidateItemId: 'candidate-durable',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Do you want React or Vue?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Use React for frontend work.',
+      candidateStatement: 'Use Vue for frontend work.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
+    }];
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events: ServerMessage[] = [];
+    await session.processMessage('Should I use React or Vue?', [], (event) => events.push(event));
+
+    // Should ask clarification for relevant durable conflict
+    expect(runCalls).toHaveLength(0);
+    expect(markAskedCalls).toEqual(['conflict-durable']);
+    // No dismissal should have happened
+    expect(resolveConflictCalls).toEqual([]);
   });
 });
 
@@ -784,11 +887,13 @@ describe('ConflictGate askOnIrrelevantTurns knob', () => {
     relevanceThreshold: 0.2,
     reaskCooldownTurns: 3,
     resolverLlmTimeoutMs: 250,
+    conflictableKinds: ['preference', 'profile', 'constraint', 'instruction', 'style'] as readonly string[],
   };
 
   beforeEach(() => {
     markAskedCalls = [];
     pendingConflicts = [];
+    resolveConflictCalls = [];
     resolverCallCount = 0;
     resolverResult = {
       resolution: 'still_unclear',
@@ -814,6 +919,8 @@ describe('ConflictGate askOnIrrelevantTurns knob', () => {
       updatedAt: 1,
       existingStatement: 'Use Postgres as the default database.',
       candidateStatement: 'Use MySQL as the default database.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
     }];
 
     const gate = new ConflictGate();
@@ -842,6 +949,8 @@ describe('ConflictGate askOnIrrelevantTurns knob', () => {
       updatedAt: 1,
       existingStatement: 'Use Postgres as the default database.',
       candidateStatement: 'Use MySQL as the default database.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
     }];
 
     const gate = new ConflictGate();
@@ -872,6 +981,8 @@ describe('ConflictGate askOnIrrelevantTurns knob', () => {
       updatedAt: 1,
       existingStatement: 'Use React for frontend work.',
       candidateStatement: 'Use Vue for frontend work.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
     }];
 
     // Test with askOnIrrelevantTurns=false — relevant conflicts should still be asked
