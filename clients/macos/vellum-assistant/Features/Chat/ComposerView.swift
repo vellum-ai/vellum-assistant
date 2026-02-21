@@ -799,7 +799,7 @@ private final class ComposerNativeTextView: NSTextView {
         if let match = text.range(of: #"^/\w+"#, options: .regularExpression) {
             let nsRange = NSRange(match, in: text)
             layoutManager.addTemporaryAttributes(
-                [.foregroundColor: NSColor(Sage._500)],
+                [.foregroundColor: NSColor(Forest._500)],
                 forCharacterRange: nsRange
             )
         }
