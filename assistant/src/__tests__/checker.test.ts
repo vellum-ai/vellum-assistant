@@ -31,9 +31,9 @@ mock.module('../util/logger.js', () => ({
 }));
 
 // Mutable config object so tests can switch permissions.mode between
-// 'legacy' and 'strict' without re-registering the mock.
+// 'legacy', 'strict', and 'workspace' without re-registering the mock.
 const testConfig: Record<string, any> = {
-  permissions: { mode: 'legacy' as 'legacy' | 'strict' },
+  permissions: { mode: 'legacy' as 'legacy' | 'strict' | 'workspace' },
   skills: { load: { extraDirs: [] as string[] } },
   sandbox: { enabled: true },
 };

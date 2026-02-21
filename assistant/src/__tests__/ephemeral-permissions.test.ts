@@ -28,7 +28,7 @@ mock.module('../util/logger.js', () => ({
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const testConfig: Record<string, any> = {
-  permissions: { mode: 'legacy' as 'legacy' | 'strict' },
+  permissions: { mode: 'legacy' as 'legacy' | 'strict' | 'workspace' },
   skills: { load: { extraDirs: [] as string[] } },
   sandbox: { enabled: false },
 };

@@ -493,6 +493,13 @@ describe('AssistantConfigSchema', () => {
     expect(result.permissions.mode).toBe('legacy');
   });
 
+  test('accepts explicit permissions.mode workspace', () => {
+    const result = AssistantConfigSchema.parse({
+      permissions: { mode: 'workspace' },
+    });
+    expect(result.permissions.mode).toBe('workspace');
+  });
+
   test('rejects invalid permissions.mode', () => {
     const result = AssistantConfigSchema.safeParse({
       permissions: { mode: 'permissive' },
