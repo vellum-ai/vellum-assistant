@@ -548,6 +548,8 @@ export const callSessions = sqliteTable('call_sessions', {
   toNumber: text('to_number').notNull(),
   task: text('task'),
   status: text('status').notNull().default('initiated'),
+  callerIdentityMode: text('caller_identity_mode'),
+  callerIdentitySource: text('caller_identity_source'),
   startedAt: integer('started_at'),
   endedAt: integer('ended_at'),
   lastError: text('last_error'),
