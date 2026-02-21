@@ -225,6 +225,16 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 100,
   };
 
+  // memory_search is a read-only tool — always allow without prompting.
+  const memorySearchRule: DefaultRuleTemplate = {
+    id: 'default:allow-memory_search-global',
+    tool: 'memory_search',
+    pattern: 'memory_search:*',
+    scope: 'everywhere',
+    decision: 'allow',
+    priority: 100,
+  };
+
   return [
     ...hostFileRules,
     hostShellRule,
@@ -239,5 +249,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     ...browserToolRules,
     ...uiSurfaceRules,
     viewImageRule,
+    memorySearchRule,
   ];
 }
