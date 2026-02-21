@@ -34,5 +34,7 @@ export type {
   CallsConfig,
   CallsDisclosureConfig,
   CallsSafetyConfig,
+  CallsVoiceConfig,
+  CallsElevenLabsConfig,
   IngressConfig,
 } from './schema.js';
