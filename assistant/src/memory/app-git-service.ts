@@ -229,7 +229,11 @@ export async function getAppFileAtVersion(
  * Restore an app's files to a previous version.
  *
  * Checks out the app's files at `commitHash`, then creates a new commit
- * recording the restore action.
+ * recording the restore action. Both operations run under the git mutex
+ * to prevent concurrent commits from interfering.
+ *
+ * Uses --no-overlay so files added after the target commit are removed,
+ * giving a true restore rather than a merge.
  */
 export async function restoreAppVersion(appId: string, commitHash: string): Promise<void> {
   validateAppId(appId);
@@ -238,33 +242,37 @@ export async function restoreAppVersion(appId: string, commitHash: string): Prom
   const appsDir = getAppsDir();
   const gitService = getWorkspaceGitService(appsDir);
 
-  // Ensure initialized
-  await gitService.ensureInitialized();
+  await gitService.runWithMutex(async (exec) => {
+    // Checkout the app's files at the target commit.
+    // --no-overlay removes files that don't exist at the target commit.
+    await exec([
+      'checkout',
+      commitHash,
+      '--no-overlay',
+      '--',
+      `${appId}.json`,
+      `${appId}/`,
+    ]);
 
-  // Checkout the app's files at the target commit
-  await gitService.runReadOnlyGit([
-    'checkout',
-    commitHash,
-    '--',
-    `${appId}.json`,
-    `${appId}/`,
-  ]);
-
-  // Read the app name for the commit message
-  let appName = appId;
-  const jsonPath = join(appsDir, `${appId}.json`);
-  if (existsSync(jsonPath)) {
-    try {
-      const raw = readFileSync(jsonPath, 'utf-8');
-      const app = JSON.parse(raw);
-      if (app.name) appName = app.name;
-    } catch {
-      // fall back to id
+    // Read the app name for the commit message
+    let appName = appId;
+    const jsonPath = join(appsDir, `${appId}.json`);
+    if (existsSync(jsonPath)) {
+      try {
+        const raw = readFileSync(jsonPath, 'utf-8');
+        const app = JSON.parse(raw);
+        if (app.name) appName = app.name;
+      } catch {
+        // fall back to id
+      }
     }
-  }
 
-  const shortHash = commitHash.substring(0, 7);
-  await gitService.commitChanges(`Restore app: ${appName} to ${shortHash}`);
+    const shortHash = commitHash.substring(0, 7);
+
+    // Stage and commit atomically within the same mutex lock
+    await exec(['add', '-A']);
+    await exec(['commit', '-m', `Restore app: ${appName} to ${shortHash}`]);
+  });
 }
 
 // ---------------------------------------------------------------------------

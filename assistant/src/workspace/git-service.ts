@@ -744,6 +744,18 @@ export class WorkspaceGitService {
   }
 
   /**
+   * Run a sequence of git commands atomically under the workspace mutex.
+   * Use this for write operations that need serialization with other
+   * git mutations (e.g. checkout + commit).
+   */
+  async runWithMutex(fn: (exec: (args: string[]) => Promise<{ stdout: string; stderr: string }>) => Promise<void>): Promise<void> {
+    await this.ensureInitialized();
+    await this.mutex.withLock(async () => {
+      await fn((args) => this.execGit(args));
+    });
+  }
+
+  /**
    * Get the commit hash of the current HEAD.
    * This is a lightweight read-only operation that does not require the mutex.
    */
