@@ -152,7 +152,11 @@ final class AssistantCli {
                 "VELLUM_DESKTOP_APP": "1",
             ]
             for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR", "VELLUM_DEBUG",
-                        "SENTRY_DSN", "TMPDIR", "USER", "LANG"] {
+                        "SENTRY_DSN", "TMPDIR", "USER", "LANG",
+                        "CLOUDSDK_CONFIG", "GOOGLE_APPLICATION_CREDENTIALS",
+                        "GCP_ACCOUNT_EMAIL",
+                        "AWS_PROFILE", "AWS_DEFAULT_REGION",
+                        "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"] {
                 if let val = fullEnv[key] { env[key] = val }
             }
             proc.environment = env

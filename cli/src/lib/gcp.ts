@@ -277,8 +277,12 @@ export async function instanceExists(
     if (account) args.push(`--account=${account}`);
     await execOutput("gcloud", args);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message.toLowerCase() : "";
+    if (msg.includes("was not found") || msg.includes("could not fetch resource")) {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -732,7 +736,17 @@ export async function retireInstance(
     );
   }
 
-  const exists = await instanceExists(name, project, zone);
+  let exists: boolean;
+  try {
+    exists = await instanceExists(name, project, zone);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Cannot verify GCP instance '${name}': gcloud authentication failed.\n` +
+        `Ensure you are authenticated with 'gcloud auth login' or provide valid credentials.\n\n` +
+        `Details: ${detail}`,
+    );
+  }
   if (!exists) {
     console.warn(
       `\u26a0\ufe0f  Instance ${name} not found in GCP (project=${project}, zone=${zone}).`,
