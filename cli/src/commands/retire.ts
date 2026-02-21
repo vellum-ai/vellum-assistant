@@ -108,8 +108,16 @@ function parseSource(): string | undefined {
   return undefined;
 }
 
+function debug(msg: string): void {
+  console.error(`[retire-debug] ${msg}`);
+}
+
 export async function retire(): Promise<void> {
   const name = process.argv[3];
+  debug(`argv: ${JSON.stringify(process.argv)}`);
+  debug(`HOME=${process.env.HOME}, VELLUM_DESKTOP_APP=${process.env.VELLUM_DESKTOP_APP}`);
+  debug(`PATH=${process.env.PATH}`);
+  debug(`CLOUDSDK_CONFIG=${process.env.CLOUDSDK_CONFIG}, GOOGLE_APPLICATION_CREDENTIALS=${process.env.GOOGLE_APPLICATION_CREDENTIALS}, GCP_ACCOUNT_EMAIL=${process.env.GCP_ACCOUNT_EMAIL}`);
 
   if (!name) {
     console.error("Error: Instance name is required.");
@@ -117,15 +125,19 @@ export async function retire(): Promise<void> {
     process.exit(1);
   }
 
+  debug(`Looking up assistant entry for name='${name}' in lockfile at ${join(homedir(), ".vellum.lock.json")}`);
   const entry = findAssistantByName(name);
   if (!entry) {
+    debug(`No entry found in lockfile for '${name}'`);
     console.error(`No assistant found with name '${name}'.`);
     console.error("Run 'vellum-cli hatch' first, or check the instance name.");
     process.exit(1);
   }
+  debug(`Found entry: ${JSON.stringify(entry)}`);
 
   const source = parseSource();
   const cloud = resolveCloud(entry);
+  debug(`Resolved cloud='${cloud}', source='${source}'`);
 
   if (cloud === "gcp") {
     const project = entry.project;
@@ -134,7 +146,9 @@ export async function retire(): Promise<void> {
       console.error("Error: GCP project and zone not found in assistant config.");
       process.exit(1);
     }
+    debug(`Calling retireGcpInstance(name='${name}', project='${project}', zone='${zone}', source='${source}')`);
     await retireGcpInstance(name, project, zone, source);
+    debug(`retireGcpInstance completed successfully`);
   } else if (cloud === "aws") {
     const region = entry.region;
     if (!region) {
@@ -152,5 +166,6 @@ export async function retire(): Promise<void> {
   }
 
   removeAssistantEntry(name);
+  debug(`Removed '${name}' from lockfile, exiting 0`);
   console.log(`Removed ${name} from config.`);
 }

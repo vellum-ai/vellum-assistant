@@ -326,6 +326,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     @discardableResult
     func performRetireAsync() async -> Bool {
         let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        log.info("[retire-debug] performRetireAsync called, assistantName=\(assistantName ?? "nil")")
 
         if assistantName == nil {
             log.error("No stored connected assistant ID found — skipping retire")
@@ -333,8 +334,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let name = assistantName {
             do {
+                log.info("[retire-debug] Calling assistantCli.retire(name: \(name))")
                 try await assistantCli.retire(name: name)
+                log.info("[retire-debug] assistantCli.retire completed without error")
             } catch {
+                log.error("[retire-debug] CLI retire threw: \(error)")
                 log.error("CLI retire failed: \(error.localizedDescription)")
                 let alert = NSAlert()
                 alert.messageText = "Failed to Retire Remote Instance"

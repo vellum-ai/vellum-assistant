@@ -275,13 +275,18 @@ export async function instanceExists(
       "--format=get(name)",
     ];
     if (account) args.push(`--account=${account}`);
-    await execOutput("gcloud", args);
+    console.error(`[retire-debug] instanceExists: running gcloud ${args.join(" ")}`);
+    const output = await execOutput("gcloud", args);
+    console.error(`[retire-debug] instanceExists: gcloud succeeded, output='${output}' → returning true`);
     return true;
   } catch (error) {
     const msg = error instanceof Error ? error.message.toLowerCase() : "";
+    console.error(`[retire-debug] instanceExists: gcloud failed, error='${error instanceof Error ? error.message : String(error)}'`);
     if (msg.includes("was not found") || msg.includes("could not fetch resource")) {
+      console.error(`[retire-debug] instanceExists: matched not-found pattern → returning false`);
       return false;
     }
+    console.error(`[retire-debug] instanceExists: NOT a not-found error → re-throwing`);
     throw error;
   }
 }
@@ -727,7 +732,11 @@ export async function retireInstance(
   zone: string,
   source?: string,
 ): Promise<void> {
+  console.error(`[retire-debug] retireInstance: starting for name='${name}', project='${project}', zone='${zone}'`);
+
+  console.error(`[retire-debug] retireInstance: checking gcloud availability`);
   const gcloudOk = await checkGcloudAvailable();
+  console.error(`[retire-debug] retireInstance: gcloudOk=${gcloudOk}`);
   if (!gcloudOk) {
     throw new Error(
       `Cannot retire GCP instance '${name}': gcloud CLI is not installed or not in PATH. ` +
@@ -736,21 +745,25 @@ export async function retireInstance(
     );
   }
 
+  console.error(`[retire-debug] retireInstance: calling instanceExists`);
   let exists: boolean;
   try {
     exists = await instanceExists(name, project, zone);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
+    console.error(`[retire-debug] retireInstance: instanceExists threw: ${detail}`);
     throw new Error(
       `Cannot verify GCP instance '${name}': gcloud authentication failed.\n` +
         `Ensure you are authenticated with 'gcloud auth login' or provide valid credentials.\n\n` +
         `Details: ${detail}`,
     );
   }
+  console.error(`[retire-debug] retireInstance: instanceExists returned ${exists}`);
   if (!exists) {
     console.warn(
       `\u26a0\ufe0f  Instance ${name} not found in GCP (project=${project}, zone=${zone}).`,
     );
+    console.error(`[retire-debug] retireInstance: instance not found, returning (exit 0 — THIS IS THE BUG PATH if instance actually exists)`);
     return;
   }
 
@@ -771,31 +784,35 @@ export async function retireInstance(
   }
 
   console.log(`\u{1F5D1}\ufe0f  Deleting GCP instance ${name}\n`);
+  console.error(`[retire-debug] retireInstance: spawning gcloud compute instances delete ${name} --project=${project} --zone=${zone} --quiet`);
 
-  const child = spawn(
-    "gcloud",
-    [
-      "compute",
-      "instances",
-      "delete",
-      name,
-      `--project=${project}`,
-      `--zone=${zone}`,
-      "--quiet",
-    ],
-    { stdio: "inherit" },
-  );
+  const deleteArgs = [
+    "compute",
+    "instances",
+    "delete",
+    name,
+    `--project=${project}`,
+    `--zone=${zone}`,
+    "--quiet",
+  ];
+
+  const child = spawn("gcloud", deleteArgs, { stdio: "inherit" });
 
   await new Promise<void>((resolve, reject) => {
     child.on("close", (code) => {
+      console.error(`[retire-debug] retireInstance: gcloud delete exited with code ${code}`);
       if (code === 0) {
         resolve();
       } else {
         reject(new Error(`gcloud instance delete exited with code ${code}`));
       }
     });
-    child.on("error", reject);
+    child.on("error", (err) => {
+      console.error(`[retire-debug] retireInstance: gcloud delete spawn error: ${err.message}`);
+      reject(err);
+    });
   });
 
+  console.error(`[retire-debug] retireInstance: delete completed successfully`);
   console.log(`\u2705 Instance ${name} deleted.`);
 }

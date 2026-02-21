@@ -159,6 +159,7 @@ final class AssistantCli {
                         "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"] {
                 if let val = fullEnv[key] { env[key] = val }
             }
+            log.info("[retire-debug] CLI env: HOME=\(env["HOME"] ?? "nil"), PATH=\(env["PATH"]?.prefix(100) ?? "nil")..., CLOUDSDK_CONFIG=\(env["CLOUDSDK_CONFIG"] ?? "nil"), GOOGLE_APPLICATION_CREDENTIALS=\(env["GOOGLE_APPLICATION_CREDENTIALS"] ?? "nil"), GCP_ACCOUNT_EMAIL=\(env["GCP_ACCOUNT_EMAIL"] ?? "nil"), BASE_DATA_DIR=\(env["BASE_DATA_DIR"] ?? "nil")")
             proc.environment = env
 
             var resumed = false
@@ -206,6 +207,9 @@ final class AssistantCli {
                 }
             }
         }
+
+        // Always log stderr for debugging, regardless of exit code
+        log.info("[retire-debug] CLI exit code: \(status), stderr:\n\(stderr)")
 
         if status != 0 {
             log.error("CLI retire failed with exit code \(status): \(stderr)")
