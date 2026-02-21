@@ -11,8 +11,21 @@ export interface ScheduleSpec {
 const SUPPORTED_RRULE_PREFIXES = ['DTSTART', 'RRULE:', 'RDATE', 'EXDATE', 'EXRULE'];
 
 function normalizeRruleExpression(expression: string): string {
-  // Handle escaped newlines from JSON transport
-  return expression.replace(/\\n/g, '\n').trim();
+  // Handle escaped newlines from JSON transport, then uppercase property name
+  // prefixes (before the colon) on each line so rrulestr() receives the
+  // canonical uppercase form regardless of what the caller provided. We only
+  // uppercase up to the first colon to preserve case-sensitive parameter
+  // values such as timezone names in DTSTART;TZID=America/New_York:...
+  return expression
+    .replace(/\\n/g, '\n')
+    .trim()
+    .split(/\r?\n/)
+    .map(line => {
+      const colonIdx = line.indexOf(':');
+      if (colonIdx === -1) return line;
+      return line.slice(0, colonIdx).toUpperCase() + line.slice(colonIdx);
+    })
+    .join('\n');
 }
 
 function parseRruleLines(expression: string): string[] {
