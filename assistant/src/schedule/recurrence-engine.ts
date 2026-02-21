@@ -129,6 +129,14 @@ export function computeNextRunAt(spec: ScheduleSpec, nowMs?: number): number {
       : rrulestr(normalized, { tzid });
     const next = parsed.after(new Date(now));
     if (!next) {
+      // When after() (exclusive) returns null the rule may still have a
+      // terminal occurrence that lands exactly on `now` — e.g. COUNT=1 or the
+      // final UNTIL instance.  Treat that as "due right now" so claimDueSchedules
+      // doesn't silently skip the last run.
+      const exactMatch = parsed.before(new Date(now), true);
+      if (exactMatch && exactMatch.getTime() === now) {
+        return now;
+      }
       throw new Error(`RRULE expression has no upcoming runs after ${new Date(now).toISOString()}`);
     }
     return next.getTime();
