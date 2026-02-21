@@ -1168,11 +1168,28 @@ describe('Permission Checker', () => {
       expect(options[1].label).toBe('/var/data/*');
     });
 
-    test('host tools prioritize everywhere scope first', () => {
+    test('host tools use project → parent → everywhere ordering (same as non-host)', () => {
       const options = generateScopeOptions('/var/data/app', 'host_file_read');
-      expect(options[0]).toEqual({ label: 'everywhere', scope: 'everywhere' });
-      expect(options[1].scope).toBe('/var/data/app');
-      expect(options[2].scope).toBe('/var/data');
+      expect(options[0].scope).toBe('/var/data/app');
+      expect(options[1].scope).toBe('/var/data');
+      expect(options[2]).toEqual({ label: 'everywhere', scope: 'everywhere' });
+    });
+
+    test('scope options are always project → parent → everywhere regardless of tool', () => {
+      const workingDir = join(homedir(), 'projects', 'myapp');
+
+      // Non-host tool
+      const nonHostOpts = generateScopeOptions(workingDir, 'bash');
+      expect(nonHostOpts[0].scope).toBe(workingDir);
+      expect(nonHostOpts[nonHostOpts.length - 1].scope).toBe('everywhere');
+
+      // Host tool — same order now
+      const hostOpts = generateScopeOptions(workingDir, 'host_bash');
+      expect(hostOpts[0].scope).toBe(workingDir);
+      expect(hostOpts[hostOpts.length - 1].scope).toBe('everywhere');
+
+      // Same ordering for both
+      expect(nonHostOpts.map(o => o.scope)).toEqual(hostOpts.map(o => o.scope));
     });
   });
 
