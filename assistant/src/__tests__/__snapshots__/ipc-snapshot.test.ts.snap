@@ -830,6 +830,12 @@ exports[`IPC message snapshots ClientMessage types identity_get serializes to ex
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types desktop_interface_get serializes to expected JSON 1`] = `
+{
+  "type": "desktop_interface_get",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -2312,5 +2318,12 @@ exports[`IPC message snapshots ServerMessage types identity_get_response seriali
   "personality": "Friendly",
   "role": "AI assistant",
   "type": "identity_get_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types desktop_interface_get_response serializes to expected JSON 1`] = `
+{
+  "html": "<h1>Hello</h1>",
+  "type": "desktop_interface_get_response",
 }
 `;

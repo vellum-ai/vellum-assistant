@@ -426,6 +426,15 @@ public struct IPCDeleteQueuedMessage: Codable, Sendable {
     public let requestId: String
 }
 
+public struct IPCDesktopInterfaceGetRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCDesktopInterfaceGetResponse: Codable, Sendable {
+    public let type: String
+    public let html: String?
+}
+
 public struct IPCDiagnosticsExportRequest: Codable, Sendable {
     public let type: String
     public let conversationId: String

@@ -892,6 +892,15 @@ export interface IdentityGetRequest {
   type: 'identity_get';
 }
 
+export interface DesktopInterfaceGetRequest {
+  type: 'desktop_interface_get';
+}
+
+export interface DesktopInterfaceGetResponse {
+  type: 'desktop_interface_get_response';
+  html: string | null;
+}
+
 export type ClientMessage =
   | AuthMessage
   | UserMessage
@@ -999,7 +1008,8 @@ export type ClientMessage =
   | SubagentDetailRequest
   | WorkspaceFilesListRequest
   | WorkspaceFileReadRequest
-  | IdentityGetRequest;
+  | IdentityGetRequest
+  | DesktopInterfaceGetRequest;
 
 export interface IntegrationListRequest {
   type: 'integration_list';
@@ -2280,7 +2290,8 @@ export type ServerMessage =
   | SubagentDetailResponse
   | WorkspaceFilesListResponse
   | WorkspaceFileReadResponse
-  | IdentityGetResponse;
+  | IdentityGetResponse
+  | DesktopInterfaceGetResponse;
 
 // === Subagent IPC ─────────────────────────────────────────────────────
 

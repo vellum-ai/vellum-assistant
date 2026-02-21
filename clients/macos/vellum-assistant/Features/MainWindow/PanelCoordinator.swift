@@ -51,7 +51,7 @@ extension MainWindowView {
         case .doctor:
             DoctorPanel(onClose: { windowState.selection = nil })
         case .directory:
-            AppDirectoryView(
+            HomeBaseContainerView(
                 daemonClient: daemonClient,
                 onBack: { windowState.selection = nil },
                 onOpenApp: { surfaceMsg in
@@ -217,7 +217,7 @@ extension MainWindowView {
             }
         case .panel(let panelType):
             if panelType == .directory {
-                AppDirectoryView(
+                HomeBaseContainerView(
                     daemonClient: daemonClient,
                     onBack: { windowState.dismissOverlay() },
                     onOpenApp: { surfaceMsg in

@@ -203,6 +203,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `home_base_get_response` message.
     public var onHomeBaseGetResponse: ((HomeBaseGetResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `desktop_interface_get_response` message.
+    public var onDesktopInterfaceGetResponse: ((DesktopInterfaceGetResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `shared_apps_list_response` message.
     public var onSharedAppsListResponse: ((SharedAppsListResponseMessage) -> Void)?
 
@@ -815,6 +818,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Request Home Base metadata from the daemon.
     public func sendHomeBaseGet(ensureLinked: Bool = true) throws {
         try send(HomeBaseGetRequestMessage(ensureLinked: ensureLinked))
+    }
+
+    /// Request the desktop interface HTML from the daemon.
+    public func sendDesktopInterfaceGet() throws {
+        try send(DesktopInterfaceGetRequestMessage())
     }
 
     /// Request bundling an app for sharing.
