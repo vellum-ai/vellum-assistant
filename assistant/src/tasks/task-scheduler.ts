@@ -1,7 +1,8 @@
 import { createSchedule } from '../schedule/schedule-store.js';
 
 /**
- * Create a recurrence schedule that runs a task on a cron or RRULE expression.
+ * Create a cron schedule that runs a task on a recurring cron expression.
+ * RRULE syntax is supported at the store layer but this helper currently defaults to cron.
  * The scheduler detects the `run_task:<taskId>` message format
  * and delegates to runTask() instead of processMessage().
  */
