@@ -24,6 +24,7 @@ import { getTwilioVoiceWebhookUrl, getTwilioStatusCallbackUrl } from '../inbound
 import { loadConfig } from '../config/loader.js';
 import { getSecureKey } from '../security/secure-keys.js';
 import type { CallSession } from './types.js';
+import { VALID_CALLER_IDENTITY_MODES } from '../config/schema.js';
 import type { AssistantConfig } from '../config/types.js';
 
 const log = getLogger('call-domain');
@@ -93,6 +94,9 @@ export async function resolveCallerIdentity(
   let source: CallerIdentitySource;
 
   if (requestedMode != null) {
+    if (!(VALID_CALLER_IDENTITY_MODES as readonly string[]).includes(requestedMode)) {
+      return { ok: false, error: `Invalid callerIdentityMode: "${requestedMode}". Must be one of: ${VALID_CALLER_IDENTITY_MODES.join(', ')}` };
+    }
     if (!identityConfig.allowPerCallOverride) {
       log.warn({ requestedMode }, 'Caller identity override rejected — per-call override is disabled in configuration');
       return { ok: false, error: 'Per-call caller identity override is disabled in configuration' };

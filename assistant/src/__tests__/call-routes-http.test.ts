@@ -317,6 +317,31 @@ describe('runtime call routes — HTTP layer', () => {
     await stopServer();
   });
 
+  test('POST /v1/calls/start returns 400 for invalid callerIdentityMode', async () => {
+    await startServer();
+    ensureConversation('conv-start-identity-bogus');
+
+    const res = await fetch(callsUrl('/start'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: JSON.stringify({
+        phoneNumber: '+15559998888',
+        task: 'Book a table for two',
+        conversationId: 'conv-start-identity-bogus',
+        callerIdentityMode: 'bogus',
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain('Invalid callerIdentityMode');
+    expect(body.error).toContain('bogus');
+    expect(body.error).toContain('assistant_number');
+    expect(body.error).toContain('user_number');
+
+    await stopServer();
+  });
+
   // ── GET /v1/calls/:id ───────────────────────────────────────────────
 
   test('GET /v1/calls/:id returns call status', async () => {
