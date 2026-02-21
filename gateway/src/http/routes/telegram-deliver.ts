@@ -51,7 +51,7 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
         await sendTelegramReply(config, chatId, text);
       }
 
-      if (attachments && attachments.length > 0 && assistantId) {
+      if (attachments && attachments.length > 0) {
         await sendTelegramAttachments(config, chatId, assistantId, attachments);
       }
     } catch (err) {

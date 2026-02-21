@@ -1,6 +1,6 @@
 import type { GatewayConfig } from "../config.js";
 import { getLogger } from "../logger.js";
-import { downloadAttachment, type RuntimeAttachmentMeta } from "../runtime/client.js";
+import { downloadAttachment, downloadAttachmentById, type RuntimeAttachmentMeta } from "../runtime/client.js";
 import { callTelegramApi, callTelegramApiMultipart } from "./api.js";
 
 const log = getLogger("telegram-send");
@@ -48,7 +48,7 @@ export async function sendTelegramReply(
 export async function sendTelegramAttachments(
   config: GatewayConfig,
   chatId: string,
-  assistantId: string,
+  assistantId: string | undefined,
   attachments: RuntimeAttachmentMeta[],
 ): Promise<void> {
   const failures: string[] = [];
@@ -61,7 +61,11 @@ export async function sendTelegramAttachments(
     }
 
     try {
-      const payload = await downloadAttachment(config, assistantId, meta.id);
+      // Prefer the assistant-less download path; fall back to the legacy
+      // assistant-scoped path when assistantId is available.
+      const payload = assistantId
+        ? await downloadAttachment(config, assistantId, meta.id)
+        : await downloadAttachmentById(config, meta.id);
       const buffer = Buffer.from(payload.data, "base64");
       const blob = new Blob([buffer], { type: meta.mimeType });
 
