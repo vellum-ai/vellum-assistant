@@ -4,7 +4,7 @@ import { join } from "path";
 
 import { loadAllAssistants } from "../lib/assistant-config";
 import { isProcessAlive } from "../lib/process";
-import { startLocalDaemon, startGateway } from "./hatch";
+import { startLocalDaemon, startGateway } from "../lib/local";
 
 export async function wake(): Promise<void> {
   const assistants = loadAllAssistants();
