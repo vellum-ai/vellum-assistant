@@ -190,7 +190,7 @@ export class CallOrchestrator {
     try {
       this.state = 'speaking';
 
-      const callModel = getConfig().calls.model ?? 'claude-sonnet-4-20250514';
+      const callModel = getConfig().calls.model?.trim() || 'claude-sonnet-4-20250514';
 
       const stream = client.messages.stream(
         {

@@ -483,4 +483,30 @@ describe('call-orchestrator', () => {
     await orchestrator.handleCallerUtterance('Hello');
     orchestrator.destroy();
   });
+
+  test('treats empty string calls.model as unset and falls back to default', async () => {
+    mockCallModel = '';
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { model: string };
+      expect(firstArg.model).toBe('claude-sonnet-4-20250514');
+      return createMockStream(['Fallback model response.']);
+    });
+
+    const { orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('Hello');
+    orchestrator.destroy();
+  });
+
+  test('treats whitespace-only calls.model as unset and falls back to default', async () => {
+    mockCallModel = '   ';
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { model: string };
+      expect(firstArg.model).toBe('claude-sonnet-4-20250514');
+      return createMockStream(['Fallback model response.']);
+    });
+
+    const { orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('Hello');
+    orchestrator.destroy();
+  });
 });
