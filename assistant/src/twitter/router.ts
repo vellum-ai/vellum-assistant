@@ -57,7 +57,7 @@ export async function routedPostTweet(
       return { result, pathUsed: 'browser' };
     } catch (err) {
       if (err instanceof SessionExpiredError) {
-        throw Object.assign(new Error(`Browser session expired. Refresh with \`vellum x refresh\`, or switch to OAuth: \`vellum x strategy set oauth\`.`), {
+        throw Object.assign(err, {
           pathUsed: 'browser' as const,
           suggestAlternative: 'oauth' as const,
         });
@@ -82,7 +82,7 @@ export async function routedPostTweet(
     return { result, pathUsed: 'browser' };
   } catch (err) {
     if (err instanceof SessionExpiredError && oauthIsAvailable()) {
-      throw Object.assign(new Error(`Browser session expired and OAuth was already tried. Refresh browser session with \`vellum x refresh\` or check OAuth credentials.`), {
+      throw Object.assign(err, {
         pathUsed: 'auto' as const,
       });
     }
