@@ -72,6 +72,8 @@ jobs:
             -output ../clients/macos/daemon-bin/vellum-daemon
           rm ../clients/macos/daemon-bin/vellum-daemon-arm64 ../clients/macos/daemon-bin/vellum-daemon-x64
           chmod +x ../clients/macos/daemon-bin/vellum-daemon
+          cp node_modules/web-tree-sitter/web-tree-sitter.wasm ../clients/macos/daemon-bin/
+          cp node_modules/tree-sitter-bash/tree-sitter-bash.wasm ../clients/macos/daemon-bin/
           echo "Daemon universal binary built:"
           ls -lh ../clients/macos/daemon-bin/vellum-daemon
           file ../clients/macos/daemon-bin/vellum-daemon

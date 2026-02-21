@@ -180,6 +180,9 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
       --external electron --external "chromium-bidi/*" \
       --outfile "$SCRIPT_DIR/daemon-bin/vellum-daemon"
     chmod +x "$SCRIPT_DIR/daemon-bin/vellum-daemon"
+    # Copy WASM assets next to daemon binary (not bundled by bun --compile)
+    cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
+    cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
     echo "Daemon binary built: $SCRIPT_DIR/daemon-bin/vellum-daemon"
 fi
 
@@ -233,6 +236,10 @@ if [ "$NEEDS_REBUILD" = true ]; then
         echo "Bundling daemon binary..."
         cp "$DAEMON_BIN" "$MACOS_DIR/vellum-daemon"
         chmod +x "$MACOS_DIR/vellum-daemon"
+        # Bundle WASM assets into Resources (not embedded by bun --compile)
+        for wasm in "$SCRIPT_DIR/daemon-bin/"*.wasm; do
+            [ -f "$wasm" ] && cp "$wasm" "$RESOURCES_DIR/"
+        done
     else
         echo "No daemon binary at $DAEMON_BIN — skipping (dev mode)"
     fi
