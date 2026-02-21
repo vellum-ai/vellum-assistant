@@ -8,7 +8,7 @@
  * - Unknown status and malformed payload handling
  * - Handler-level idempotency concurrency (concurrent duplicates, failure-retry)
  */
-import { describe, test, expect, beforeEach, afterAll, mock, spyOn } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, afterAll, mock, spyOn } from 'bun:test';
 import { createHmac } from 'node:crypto';
 import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -211,6 +211,13 @@ describe('twilio webhook routes', () => {
     mockWssBaseUrl = 'wss://test.example.com';
     mockWebhookBaseUrl = 'https://test.example.com';
     delete process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED;
+  });
+
+  // Deterministic teardown: always stop the server after each test so a
+  // failed assertion between startServer/stopServer doesn't leave the
+  // port bound, causing EADDRINUSE flakes in subsequent tests.
+  afterEach(async () => {
+    await stopServer();
   });
 
   afterAll(() => {
