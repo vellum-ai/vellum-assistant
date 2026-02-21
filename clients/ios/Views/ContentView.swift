@@ -7,6 +7,13 @@ struct ContentView: View {
 
     var body: some View {
         TabView {
+            HomeBaseView()
+                .environmentObject(clientProvider)
+                .id(ObjectIdentifier(clientProvider.client as AnyObject))
+                .tabItem {
+                    Label("Home", systemImage: "house")
+                }
+
             ThreadListView(daemonClient: clientProvider.client)
                 // Force @StateObject teardown + recreation when the client changes.
                 // Without this, IOSThreadStore keeps its original (now-disconnected)
