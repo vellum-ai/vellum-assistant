@@ -26,7 +26,7 @@ function proxyExecute(): Promise<ToolExecutionResult> {
 export const uiShowTool: Tool = {
   name: 'ui_show',
   description:
-    'Show a UI surface to the user. Use display: "inline" (default) to embed in chat, or "panel" for a floating window.\n\n' +
+    'Show structured data or UI to the user. Use for displaying weather, flights, stock prices, quick tables, cards, lists, forms, or any temporary data visualization. Use display: "inline" (default) to embed in chat, or "panel" for a floating window. For long-form writing use the document skill instead; for interactive apps use the app-builder skill instead.\n\n' +
     'Supported surface types:\n' +
     '- card: Informational card with title, subtitle, body text, and optional metadata key-value pairs. ' +
     'Cards support an optional template field for specialized native rendering. ' +

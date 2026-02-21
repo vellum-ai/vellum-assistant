@@ -159,13 +159,10 @@ describe('Task/Schedule/Reminder routing section in system prompt', () => {
     expect(prompt).toContain('"Remind me at 5pm to buy groceries" → reminder_create');
   });
 
-  test('routing section appears after tool routing by content type', () => {
+  test('routing section is present in the system prompt', () => {
     const prompt = buildSystemPrompt();
-    const contentTypeIdx = prompt.indexOf('## Tool Routing by Content Type');
     const taskRoutingIdx = prompt.indexOf('## Tool Routing: Tasks vs Schedules vs Reminders');
-    // Both must be present
-    expect(contentTypeIdx).toBeGreaterThanOrEqual(0);
-    expect(taskRoutingIdx).toBeGreaterThan(contentTypeIdx);
+    expect(taskRoutingIdx).toBeGreaterThanOrEqual(0);
   });
 });
 
