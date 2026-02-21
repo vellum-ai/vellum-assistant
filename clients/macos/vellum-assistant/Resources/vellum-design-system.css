@@ -58,18 +58,6 @@
   --v-forest-200: #B5E1BC;
   --v-forest-100: #E2F4E5;
 
-  /* ── Palette: Sage ───────────────────────────────────────── */
-  --v-sage-950: #1A2316;
-  --v-sage-900: #2A3825;
-  --v-sage-800: #3D4F36;
-  --v-sage-700: #516748;
-  --v-sage-600: #657D5B;
-  --v-sage-500: #7A8B6F;
-  --v-sage-400: #98A88F;
-  --v-sage-300: #B5C3AE;
-  --v-sage-200: #D4DFD0;
-  --v-sage-100: #EDF2EB;
-
   /* ── Palette: Emerald ───────────────────────────────────────── */
   --v-emerald-950: #073D2E;
   --v-emerald-900: #0A5843;
@@ -1557,7 +1545,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 /* Hero — top-of-page banner with gradient background */
 .v-hero {
   position: relative;
-  background: linear-gradient(135deg, var(--v-forest-950) 0%, var(--v-sage-950) 100%);
+  background: linear-gradient(135deg, var(--v-forest-950) 0%, var(--v-forest-900) 100%);
   border-radius: var(--v-radius-xl);
   padding: var(--v-spacing-xxxl) var(--v-spacing-xl);
   text-align: center;
@@ -1654,7 +1642,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   top: var(--v-spacing-lg);
   bottom: var(--v-spacing-lg);
   width: 3px;
-  background: linear-gradient(180deg, var(--v-forest-600) 0%, var(--v-sage-600) 100%);
+  background: linear-gradient(180deg, var(--v-forest-600) 0%, var(--v-forest-400) 100%);
   border-radius: var(--v-radius-pill);
 }
 .v-pullquote-text {
@@ -1770,7 +1758,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 
 /* Gradient Text — forest→sage text fill */
 .v-gradient-text {
-  background: linear-gradient(135deg, var(--v-forest-500) 0%, var(--v-sage-500) 100%);
+  background: linear-gradient(135deg, var(--v-forest-500) 0%, var(--v-forest-300) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
