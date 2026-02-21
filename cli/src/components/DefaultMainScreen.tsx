@@ -1021,8 +1021,8 @@ function ChatApp({
     : secretInput
       ? 5
       : spinnerText
-        ? 2
-        : 1;
+        ? 4
+        : 3;
   const availableRows = Math.max(3, terminalRows - headerHeight - bottomHeight);
 
   const addMessage = useCallback((msg: RuntimeMessage) => {
@@ -1852,9 +1852,11 @@ function ChatApp({
       ) : null}
 
       {!selection && !secretInput ? (
-        <Box>
-          <Text color="green" bold>
-            you{">"}
+        <Box flexDirection="column">
+          <Text dimColor>{"\u2500".repeat(terminalColumns)}</Text>
+          <Box paddingLeft={1}>
+            <Text color="green" bold>
+              you{">"}
             {" "}
           </Text>
           <TextInput
@@ -1863,6 +1865,8 @@ function ChatApp({
             onSubmit={handleSubmit}
             focus={inputFocused}
           />
+          </Box>
+          <Text dimColor>{"\u2500".repeat(terminalColumns)}</Text>
         </Box>
       ) : null}
     </Box>
