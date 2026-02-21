@@ -36,7 +36,7 @@ mock.module('../util/logger.js', () => ({
 }));
 
 // Track registerPendingCallback calls
-let pendingCallbacks: Map<string, { resolve: (code: string) => void; reject: (error: Error) => void }> = new Map();
+const pendingCallbacks: Map<string, { resolve: (code: string) => void; reject: (error: Error) => void }> = new Map();
 
 mock.module('../security/oauth-callback-registry.js', () => ({
   registerPendingCallback: (state: string, resolve: (code: string) => void, reject: (error: Error) => void) => {

@@ -103,7 +103,7 @@ async function exchangeCodeForTokens(
 
   if (!tokenResp.ok) {
     const rawBody = await tokenResp.text().catch(() => '');
-    let safeDetail: Record<string, unknown> = {};
+    const safeDetail: Record<string, unknown> = {};
     let errorCode = '';
     try {
       const parsed = JSON.parse(rawBody) as Record<string, unknown>;
@@ -149,9 +149,9 @@ async function runGatewayFlow(
   codeChallenge: string,
   state: string,
 ): Promise<OAuth2FlowResult> {
-  const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
-  const { getOAuthCallbackUrl } = require('../inbound/public-ingress-urls.js') as typeof import('../inbound/public-ingress-urls.js');
-  const { registerPendingCallback } = require('./oauth-callback-registry.js') as typeof import('./oauth-callback-registry.js');
+  const { loadConfig } = await import('../config/loader.js');
+  const { getOAuthCallbackUrl } = await import('../inbound/public-ingress-urls.js');
+  const { registerPendingCallback } = await import('./oauth-callback-registry.js');
 
   const appConfig = loadConfig();
   const redirectUri = getOAuthCallbackUrl(appConfig);
@@ -193,7 +193,7 @@ async function runGatewayFlow(
 export async function startOAuth2Flow(
   config: OAuth2Config,
   callbacks: OAuth2FlowCallbacks,
-  options?: OAuth2FlowOptions,
+  _options?: OAuth2FlowOptions,
 ): Promise<OAuth2FlowResult> {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
@@ -202,8 +202,8 @@ export async function startOAuth2Flow(
   // Always enforce gateway transport and require a public ingress URL
   let hasPublicUrl = false;
   try {
-    const { loadConfig } = require('../config/loader.js') as typeof import('../config/loader.js');
-    const { getPublicBaseUrl } = require('../inbound/public-ingress-urls.js') as typeof import('../inbound/public-ingress-urls.js');
+    const { loadConfig } = await import('../config/loader.js');
+    const { getPublicBaseUrl } = await import('../inbound/public-ingress-urls.js');
     getPublicBaseUrl(loadConfig());
     hasPublicUrl = true;
   } catch {
@@ -248,7 +248,7 @@ export async function refreshOAuth2Token(
 
   if (!resp.ok) {
     const rawBody = await resp.text().catch(() => '');
-    let safeDetail: Record<string, unknown> = {};
+    const safeDetail: Record<string, unknown> = {};
     let errorCode = '';
     try {
       const parsed = JSON.parse(rawBody) as Record<string, unknown>;
