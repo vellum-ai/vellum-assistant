@@ -530,6 +530,13 @@ exports[`IPC message snapshots ClientMessage types slack_webhook_config serializ
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types ingress_config serializes to expected JSON 1`] = `
+{
+  "action": "get",
+  "type": "ingress_config",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types vercel_api_config serializes to expected JSON 1`] = `
 {
   "action": "get",
@@ -793,6 +800,33 @@ exports[`IPC message snapshots ClientMessage types subagent_message serializes t
   "content": "Hello subagent",
   "subagentId": "sub-001",
   "type": "subagent_message",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types subagent_detail_request serializes to expected JSON 1`] = `
+{
+  "conversationId": "conv-001",
+  "subagentId": "sub-001",
+  "type": "subagent_detail_request",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types workspace_files_list serializes to expected JSON 1`] = `
+{
+  "type": "workspace_files_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types workspace_file_read serializes to expected JSON 1`] = `
+{
+  "path": "IDENTITY.md",
+  "type": "workspace_file_read",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types identity_get serializes to expected JSON 1`] = `
+{
+  "type": "identity_get",
 }
 `;
 
@@ -1448,6 +1482,14 @@ exports[`IPC message snapshots ServerMessage types watcher_escalation serializes
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types agent_heartbeat_alert serializes to expected JSON 1`] = `
+{
+  "body": "No activity detected in the last 60 minutes.",
+  "title": "Agent heartbeat stalled",
+  "type": "agent_heartbeat_alert",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types watch_started serializes to expected JSON 1`] = `
 {
   "durationSeconds": 300,
@@ -1767,6 +1809,16 @@ exports[`IPC message snapshots ServerMessage types slack_webhook_config_response
   "success": true,
   "type": "slack_webhook_config_response",
   "webhookUrl": "https://hooks.slack.com/services/T00/B00/xxx",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types ingress_config_response serializes to expected JSON 1`] = `
+{
+  "enabled": true,
+  "localGatewayTarget": "http://127.0.0.1:7830",
+  "publicBaseUrl": "https://example.com",
+  "success": true,
+  "type": "ingress_config_response",
 }
 `;
 
@@ -2175,6 +2227,15 @@ exports[`IPC message snapshots ServerMessage types open_tasks_window serializes 
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types task_run_thread_created serializes to expected JSON 1`] = `
+{
+  "conversationId": "conv-task-run-001",
+  "title": "Process report",
+  "type": "task_run_thread_created",
+  "workItemId": "wi-001",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types subagent_spawned serializes to expected JSON 1`] = `
 {
   "label": "Research Agent",
@@ -2202,67 +2263,6 @@ exports[`IPC message snapshots ServerMessage types subagent_event serializes to 
   },
   "subagentId": "sub-001",
   "type": "subagent_event",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types ingress_config serializes to expected JSON 1`] = `
-{
-  "action": "get",
-  "type": "ingress_config",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types subagent_detail_request serializes to expected JSON 1`] = `
-{
-  "conversationId": "conv-001",
-  "subagentId": "sub-001",
-  "type": "subagent_detail_request",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types workspace_files_list serializes to expected JSON 1`] = `
-{
-  "type": "workspace_files_list",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types workspace_file_read serializes to expected JSON 1`] = `
-{
-  "path": "IDENTITY.md",
-  "type": "workspace_file_read",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types identity_get serializes to expected JSON 1`] = `
-{
-  "type": "identity_get",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types agent_heartbeat_alert serializes to expected JSON 1`] = `
-{
-  "body": "No activity detected in the last 60 minutes.",
-  "title": "Agent heartbeat stalled",
-  "type": "agent_heartbeat_alert",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types ingress_config_response serializes to expected JSON 1`] = `
-{
-  "enabled": true,
-  "localGatewayTarget": "http://127.0.0.1:7830",
-  "publicBaseUrl": "https://example.com",
-  "success": true,
-  "type": "ingress_config_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types task_run_thread_created serializes to expected JSON 1`] = `
-{
-  "conversationId": "conv-task-run-001",
-  "title": "Process report",
-  "type": "task_run_thread_created",
-  "workItemId": "wi-001",
 }
 `;
 
@@ -2306,6 +2306,7 @@ exports[`IPC message snapshots ServerMessage types workspace_file_read_response 
 exports[`IPC message snapshots ServerMessage types identity_get_response serializes to expected JSON 1`] = `
 {
   "emoji": "✨",
+  "found": true,
   "home": "~/workspace",
   "name": "Vex",
   "personality": "Friendly",

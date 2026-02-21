@@ -1483,6 +1483,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   identity_get_response: {
     type: 'identity_get_response',
+    found: true,
     name: 'Vex',
     role: 'AI assistant',
     personality: 'Friendly',

@@ -11,6 +11,7 @@ function handleIdentityGet(socket: net.Socket, ctx: HandlerContext): void {
   if (!existsSync(identityPath)) {
     ctx.send(socket, {
       type: 'identity_get_response',
+      found: false,
       name: '',
       role: '',
       personality: '',
@@ -96,6 +97,7 @@ function handleIdentityGet(socket: net.Socket, ctx: HandlerContext): void {
 
     ctx.send(socket, {
       type: 'identity_get_response',
+      found: true,
       name: fields.name ?? '',
       role: fields.role ?? '',
       personality: fields.personality ?? '',
@@ -110,6 +112,7 @@ function handleIdentityGet(socket: net.Socket, ctx: HandlerContext): void {
     log.error({ err }, 'Failed to read identity');
     ctx.send(socket, {
       type: 'identity_get_response',
+      found: false,
       name: '',
       role: '',
       personality: '',
