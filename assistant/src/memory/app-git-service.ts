@@ -48,7 +48,25 @@ function ensureAppGitignoreRules(appsDir: string): void {
   }
 }
 
-let gitignoreEnsured = false;
+/**
+ * Eagerly initialize the app git repo so that the "Initial commit" is
+ * created before any app files are written. Without this, the first
+ * mutation's files get absorbed into WorkspaceGitService's bootstrap
+ * commit and the "Create app: ..." commit ends up empty.
+ *
+ * Safe to call multiple times — ensureInitialized() is idempotent.
+ * Fire-and-forget: errors are logged but never thrown.
+ */
+export async function initAppGit(): Promise<void> {
+  try {
+    const appsDir = getAppsDir();
+    ensureAppGitignoreRules(appsDir);
+    const gitService = getWorkspaceGitService(appsDir);
+    await gitService.ensureInitialized();
+  } catch (err) {
+    log.error({ err }, 'Failed to initialize app git repo');
+  }
+}
 
 /**
  * Commit app changes to the apps git repository.
@@ -61,11 +79,9 @@ export async function commitAppChange(message: string): Promise<void> {
   try {
     const appsDir = getAppsDir();
 
-    // Ensure .gitignore rules on first call
-    if (!gitignoreEnsured) {
-      ensureAppGitignoreRules(appsDir);
-      gitignoreEnsured = true;
-    }
+    // Re-check .gitignore rules every call in case the apps dir was
+    // recreated while the process was running.
+    ensureAppGitignoreRules(appsDir);
 
     const gitService = getWorkspaceGitService(appsDir);
     await gitService.commitChanges(message);
@@ -75,8 +91,8 @@ export async function commitAppChange(message: string): Promise<void> {
 }
 
 /**
- * @internal Test-only: reset the gitignore-ensured flag.
+ * @internal Test-only: reset module state.
  */
 export function _resetAppGitState(): void {
-  gitignoreEnsured = false;
+  // no-op — kept for test API compatibility
 }
