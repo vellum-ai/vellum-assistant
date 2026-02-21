@@ -10,7 +10,12 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                AccountSection(authManager: authManager)
+                // Account section hidden until platform.vellum.ai is deployed.
+                // Only show if the user is already authenticated (e.g. from a
+                // previous session) so they can see their info and log out.
+                if authManager.isAuthenticated {
+                    AccountSection(authManager: authManager)
+                }
                 DaemonConnectionSection()
                 IntegrationsSection()
                 TrustRulesSection()

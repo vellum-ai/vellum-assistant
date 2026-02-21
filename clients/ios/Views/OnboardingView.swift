@@ -7,41 +7,26 @@ struct OnboardingView: View {
     @Bindable var authManager: AuthManager
     @State private var currentStep = 0
 
-    // Steps: Welcome(0) → ChoosePath(1) → Login(2)/DaemonSetup(3) → Permissions(4) → Ready(5)
+    // Steps: Welcome(0) → DaemonSetup(1) → Permissions(2) → Ready(3)
+    // Note: Cloud login path (ChoosePath/LoginView) is disabled until
+    // platform.vellum.ai is deployed. Re-enable when the platform is live.
 
     var body: some View {
         TabView(selection: $currentStep) {
             WelcomeStep(onContinue: { currentStep = 1 })
                 .tag(0)
 
-            ChoosePathStep(
-                onLoginWithVellum: { currentStep = 2 },
-                onConnectToMac: { currentStep = 3 }
-            )
-            .tag(1)
+            DaemonSetupStep(onContinue: { currentStep = 2 })
+                .tag(1)
 
-            LoginView(authManager: authManager)
+            PermissionsStep(onContinue: { currentStep = 3 })
                 .tag(2)
 
-            DaemonSetupStep(onContinue: { currentStep = 4 })
-                .tag(3)
-
-            PermissionsStep(onContinue: { currentStep = 5 })
-                .tag(4)
-
             ReadyStep(isCompleted: $isCompleted)
-                .tag(5)
+                .tag(3)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .animation(.easeInOut, value: currentStep)
-        .task {
-            await authManager.checkSession()
-        }
-        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
-            if isAuthenticated {
-                currentStep = 4
-            }
-        }
     }
 }
 
