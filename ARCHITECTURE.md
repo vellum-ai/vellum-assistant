@@ -1886,7 +1886,7 @@ graph TB
     NO_MATCH -->|"workspace mode (default)"| WS_CHECK{"Workspace-scoped<br/>invocation?"}
     WS_CHECK -->|"yes"| AUTO_WS["decision: allow<br/>Workspace-scoped auto-allow"]
     WS_CHECK -->|"no"| RISK_FALLBACK_WS{"Risk level?"}
-    RISK_FALLBACK_WS -->|"Low"| PROMPT_WS_LOW["decision: prompt"]
+    RISK_FALLBACK_WS -->|"Low"| AUTO_WS_LOW["decision: allow<br/>Low risk auto-allow"]
     RISK_FALLBACK_WS -->|"Medium"| PROMPT_WS_MED["decision: prompt"]
     RISK_FALLBACK_WS -->|"High"| PROMPT_WS_HIGH["decision: prompt"]
     NO_MATCH -->|"legacy mode"| RISK_FALLBACK{"Risk level?"}
@@ -1902,7 +1902,7 @@ The `permissions.mode` config option (`workspace`, `strict`, or `legacy`) contro
 | Behavior | Workspace mode (default) | Strict mode | Legacy mode (deprecated) |
 |---|---|---|---|
 | Workspace-scoped ops with no matching rule | Auto-allowed | Prompted | Auto-allowed (low risk) |
-| Non-workspace low-risk tools with no matching rule | Prompted | Prompted | Auto-allowed |
+| Non-workspace low-risk tools with no matching rule | Auto-allowed | Prompted | Auto-allowed |
 | Medium-risk tools with no matching rule | Prompted | Prompted | Prompted |
 | High-risk tools with no matching rule | Prompted | Prompted | Prompted |
 | `skill_load` with no matching rule | Prompted | Prompted | Auto-allowed (low risk) |
