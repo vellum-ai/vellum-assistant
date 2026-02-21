@@ -11,6 +11,8 @@ export interface CallSession {
   toNumber: string;
   task: string | null;
   status: CallStatus;
+  callerIdentityMode: string | null;
+  callerIdentitySource: string | null;
   startedAt: number | null;
   endedAt: number | null;
   lastError: string | null;

@@ -65,8 +65,10 @@ export type AnswerCallInput = {
 
 // ── Caller identity resolution ───────────────────────────────────────
 
+export type CallerIdentitySource = 'per_call_override' | 'config_default' | 'twilio_config' | 'user_config' | 'secure_key' | 'env_var';
+
 export type CallerIdentityResult =
-  | { ok: true; mode: 'assistant_number' | 'user_number'; fromNumber: string }
+  | { ok: true; mode: 'assistant_number' | 'user_number'; fromNumber: string; source: CallerIdentitySource }
   | { ok: false; error: string };
 
 /**
@@ -88,29 +90,46 @@ export async function resolveCallerIdentity(
 ): Promise<CallerIdentityResult> {
   const identityConfig = config.calls.callerIdentity;
   let mode: 'assistant_number' | 'user_number';
+  let source: CallerIdentitySource;
 
   if (requestedMode != null) {
     if (!identityConfig.allowPerCallOverride) {
+      log.warn({ requestedMode }, 'Caller identity override rejected — per-call override is disabled in configuration');
       return { ok: false, error: 'Per-call caller identity override is disabled in configuration' };
     }
     mode = requestedMode;
+    source = 'per_call_override';
   } else {
     mode = identityConfig.defaultMode;
+    source = 'config_default';
   }
 
   if (mode === 'assistant_number') {
     const twilioConfig = getTwilioConfig();
-    return { ok: true, mode, fromNumber: twilioConfig.phoneNumber };
+    log.info({ mode, source, fromNumber: twilioConfig.phoneNumber }, 'Resolved caller identity');
+    return { ok: true, mode, fromNumber: twilioConfig.phoneNumber, source };
   }
 
-  // user_number mode: resolve from config or secure key
-  const userNumber =
-    identityConfig.userNumber ||
-    process.env.TWILIO_USER_PHONE_NUMBER ||
-    getSecureKey('credential:twilio:user_phone_number') ||
-    '';
+  // user_number mode: resolve from config or secure key, tracking where the number came from
+  let userNumber = '';
+  let numberSource: CallerIdentitySource = source;
+
+  if (identityConfig.userNumber) {
+    userNumber = identityConfig.userNumber;
+    numberSource = source === 'per_call_override' ? source : 'user_config';
+  } else if (process.env.TWILIO_USER_PHONE_NUMBER) {
+    userNumber = process.env.TWILIO_USER_PHONE_NUMBER;
+    numberSource = source === 'per_call_override' ? source : 'env_var';
+  } else {
+    const secureKeyValue = getSecureKey('credential:twilio:user_phone_number');
+    if (secureKeyValue) {
+      userNumber = secureKeyValue;
+      numberSource = source === 'per_call_override' ? source : 'secure_key';
+    }
+  }
 
   if (!userNumber) {
+    log.warn({ mode, source }, 'Caller identity resolution failed — no user phone number configured');
     return {
       ok: false,
       error: 'user_number mode requires a user phone number. Set calls.callerIdentity.userNumber in config or store credential:twilio:user_phone_number via the credential_store tool.',
@@ -121,10 +140,12 @@ export async function resolveCallerIdentity(
   const provider = new TwilioConversationRelayProvider();
   const eligibility = await provider.checkCallerIdEligibility(userNumber);
   if (!eligibility.eligible) {
+    log.warn({ mode, source: numberSource, userNumber, reason: eligibility.reason }, 'Caller ID eligibility check failed');
     return { ok: false, error: eligibility.reason! };
   }
 
-  return { ok: true, mode, fromNumber: userNumber };
+  log.info({ mode, source: numberSource, fromNumber: userNumber }, 'Resolved caller identity');
+  return { ok: true, mode, fromNumber: userNumber, source: numberSource };
 }
 
 // ── Domain operations ────────────────────────────────────────────────
@@ -174,6 +195,8 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
       fromNumber,
       toNumber: phoneNumber,
       task: callContext ? `${task}\n\nContext: ${callContext}` : task,
+      callerIdentityMode: identityResult.mode,
+      callerIdentitySource: identityResult.source,
     });
     sessionId = session.id;
 
