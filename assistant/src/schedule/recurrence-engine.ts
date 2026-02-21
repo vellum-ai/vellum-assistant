@@ -12,18 +12,21 @@ const SUPPORTED_RRULE_PREFIXES = ['DTSTART', 'RRULE:', 'RDATE', 'EXDATE', 'EXRUL
 
 function normalizeRruleExpression(expression: string): string {
   // Handle escaped newlines from JSON transport, then uppercase property name
-  // prefixes (before the colon) on each line so rrulestr() receives the
-  // canonical uppercase form regardless of what the caller provided. We only
-  // uppercase up to the first colon to preserve case-sensitive parameter
-  // values such as timezone names in DTSTART;TZID=America/New_York:...
+  // prefixes (before the first ';' or ':') on each line so rrulestr() receives
+  // the canonical uppercase form regardless of what the caller provided. We
+  // stop at the earliest delimiter to preserve case-sensitive parameter values
+  // such as timezone names in DTSTART;TZID=America/New_York:...
   return expression
     .replace(/\\n/g, '\n')
     .trim()
     .split(/\r?\n/)
     .map(line => {
       const colonIdx = line.indexOf(':');
-      if (colonIdx === -1) return line;
-      return line.slice(0, colonIdx).toUpperCase() + line.slice(colonIdx);
+      const semiIdx = line.indexOf(';');
+      if (colonIdx === -1 && semiIdx === -1) return line;
+      // Uppercase only the property name (before the first ';' or ':')
+      const nameEnd = semiIdx !== -1 && (colonIdx === -1 || semiIdx < colonIdx) ? semiIdx : colonIdx;
+      return line.slice(0, nameEnd).toUpperCase() + line.slice(nameEnd);
     })
     .join('\n');
 }

@@ -59,6 +59,15 @@ describe('recurrence engine — rrule', () => {
     expect(() => computeNextRunAt({ syntax: 'rrule', expression: 'RRULE:FREQ=DAILY' })).toThrow(/DTSTART/);
   });
 
+  test('preserves TZID parameter values when normalizing lowercase prefixes', () => {
+    // TZID contains case-sensitive timezone names (e.g. America/New_York)
+    // that must not be uppercased during prefix normalization.
+    const expr = 'dtstart;TZID=America/New_York:20990601T090000\nrrule:FREQ=DAILY';
+    expect(isValidScheduleExpression({ syntax: 'rrule', expression: expr })).toBe(true);
+    const next = computeNextRunAt({ syntax: 'rrule', expression: expr });
+    expect(next).toBeGreaterThan(Date.now());
+  });
+
   test('computes next run for RRULE with EXDATE set construct', () => {
     const expr = 'DTSTART:20990101T090000Z\nRRULE:FREQ=DAILY\nEXDATE:20990101T090000Z';
     const next = computeNextRunAt({ syntax: 'rrule', expression: expr });
