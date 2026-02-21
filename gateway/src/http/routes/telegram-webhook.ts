@@ -29,10 +29,43 @@ export function buildTelegramTransportMetadata(): { hints: string[]; uxBrief: st
 // Rate limiter for routing rejection notices — at most one reply per chat
 // within the cooldown window to avoid spamming the user.
 const REJECTION_NOTICE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_REJECTION_CACHE_SIZE = 10_000;
+const SWEEP_INTERVAL = 100; // sweep every N calls
 const rejectionNoticeTimestamps = new Map<string, number>();
+let rejectionCallCount = 0;
+
+/**
+ * Evict expired entries from the rejection notice cache. If the map still
+ * exceeds MAX_REJECTION_CACHE_SIZE after removing stale entries, drop the
+ * oldest entries until it fits.
+ */
+function sweepRejectionCache(now: number): void {
+  for (const [key, ts] of rejectionNoticeTimestamps) {
+    if (now - ts >= REJECTION_NOTICE_COOLDOWN_MS) {
+      rejectionNoticeTimestamps.delete(key);
+    }
+  }
+
+  if (rejectionNoticeTimestamps.size > MAX_REJECTION_CACHE_SIZE) {
+    // Sort by timestamp ascending and drop the oldest entries
+    const sorted = [...rejectionNoticeTimestamps.entries()].sort((a, b) => a[1] - b[1]);
+    const toRemove = sorted.length - MAX_REJECTION_CACHE_SIZE;
+    for (let i = 0; i < toRemove; i++) {
+      rejectionNoticeTimestamps.delete(sorted[i][0]);
+    }
+  }
+}
 
 function shouldSendRejectionNotice(chatId: string): boolean {
   const now = Date.now();
+
+  // Periodically sweep expired entries to bound memory growth
+  rejectionCallCount++;
+  if (rejectionCallCount >= SWEEP_INTERVAL) {
+    rejectionCallCount = 0;
+    sweepRejectionCache(now);
+  }
+
   const lastSent = rejectionNoticeTimestamps.get(chatId);
   if (lastSent !== undefined && now - lastSent < REJECTION_NOTICE_COOLDOWN_MS) {
     return false;
