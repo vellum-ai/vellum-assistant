@@ -108,8 +108,10 @@ let mockProfile: VoiceQualityProfile = {
   validationErrors: [],
 };
 
+const mockResolveVoiceQualityProfile = mock(() => mockProfile);
+
 mock.module('../calls/voice-quality.js', () => ({
-  resolveVoiceQualityProfile: () => mockProfile,
+  resolveVoiceQualityProfile: mockResolveVoiceQualityProfile,
   isVoiceProfileValid: (profile: VoiceQualityProfile) => profile.validationErrors.length === 0,
 }));
 
@@ -182,6 +184,8 @@ function makeVoiceRequest(sessionId: string, params: Record<string, string>): Re
 describe('handleVoiceWebhook ElevenLabs branches', () => {
   beforeEach(() => {
     resetTables();
+    // Reset mock to default implementation
+    mockResolveVoiceQualityProfile.mockReset();
     // Reset to standard default profile between tests
     mockProfile = {
       mode: 'twilio_standard',
@@ -192,6 +196,7 @@ describe('handleVoiceWebhook ElevenLabs branches', () => {
       fallbackToStandardOnError: true,
       validationErrors: [],
     };
+    mockResolveVoiceQualityProfile.mockImplementation(() => mockProfile);
   });
 
   afterAll(() => {
@@ -274,8 +279,9 @@ describe('handleVoiceWebhook ElevenLabs branches', () => {
 
   // ── WS-B: elevenlabs_agent with fallback true => standard TwiML ────
   test('elevenlabs_agent with fallback enabled returns standard TwiML', async () => {
-    mockProfile = {
-      mode: 'elevenlabs_agent',
+    // First call returns the elevenlabs_agent profile (triggers the guard)
+    mockResolveVoiceQualityProfile.mockImplementationOnce(() => ({
+      mode: 'elevenlabs_agent' as const,
       language: 'en-US',
       transcriptionProvider: 'Deepgram',
       ttsProvider: 'ElevenLabs',
@@ -283,7 +289,17 @@ describe('handleVoiceWebhook ElevenLabs branches', () => {
       agentId: 'agent-abc',
       fallbackToStandardOnError: true,
       validationErrors: [],
-    };
+    }));
+    // Second call returns the standard profile (used for TwiML generation)
+    mockResolveVoiceQualityProfile.mockImplementationOnce(() => ({
+      mode: 'twilio_standard' as const,
+      language: 'en-US',
+      transcriptionProvider: 'Deepgram',
+      ttsProvider: 'Google',
+      voice: 'Google.en-US-Journey-O',
+      fallbackToStandardOnError: true,
+      validationErrors: [],
+    }));
 
     const session = createTestSession('conv-11labs-4', 'CA_11labs_4');
     const req = makeVoiceRequest(session.id, { CallSid: 'CA_11labs_4' });
@@ -293,15 +309,13 @@ describe('handleVoiceWebhook ElevenLabs branches', () => {
     expect(res.status).toBe(200);
     const twiml = await res.text();
     // When elevenlabs_agent is guarded with fallback enabled, the handler
-    // sets elevenLabsAgentGuarded=true and falls through to standard TwiML
-    // generation, which uses the profile's ttsProvider/voice. But since
-    // the profile has mode=elevenlabs_agent with guard set, it skips the
-    // ElevenLabs register-call path and generates standard TwiML using
-    // whatever profile values exist.
+    // replaces the profile with a standard twilio_standard profile and
+    // generates TwiML with Google TTS instead of ElevenLabs.
     expect(twiml).toContain('<ConversationRelay');
-    // The TwiML should be generated (not an ElevenLabs register-call response)
     expect(twiml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
     expect(twiml).toContain('<Response>');
     expect(twiml).toContain('<Connect>');
+    expect(twiml).toContain('ttsProvider="Google"');
+    expect(twiml).toContain('voice="Google.en-US-Journey-O"');
   });
 });
