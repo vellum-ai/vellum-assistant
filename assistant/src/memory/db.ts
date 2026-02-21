@@ -592,6 +592,42 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_scope_id ON memory_items(scope_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_summaries_scope_id ON memory_summaries(scope_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversation_keys_key ON conversation_keys(conversation_key)`);
+  // Deduplicate before creating unique index — existing DBs may have duplicate content_hash values.
+  // Re-point message_attachments to the survivor (MIN rowid per content_hash), then delete dupes.
+  {
+    const raw = (database as unknown as { $client: Database }).$client;
+    raw.exec(/*sql*/ `
+      UPDATE message_attachments
+      SET attachment_id = (
+        SELECT a_survivor.id
+        FROM attachments a_survivor
+        WHERE a_survivor.content_hash = (
+          SELECT a_dup.content_hash FROM attachments a_dup
+          WHERE a_dup.id = message_attachments.attachment_id
+        )
+        ORDER BY a_survivor.rowid
+        LIMIT 1
+      )
+      WHERE attachment_id IN (
+        SELECT id FROM attachments
+        WHERE content_hash IS NOT NULL
+          AND rowid NOT IN (
+            SELECT MIN(rowid) FROM attachments
+            WHERE content_hash IS NOT NULL
+            GROUP BY content_hash
+          )
+      )
+    `);
+    raw.exec(/*sql*/ `
+      DELETE FROM attachments
+      WHERE content_hash IS NOT NULL
+        AND rowid NOT IN (
+          SELECT MIN(rowid) FROM attachments
+          WHERE content_hash IS NOT NULL
+          GROUP BY content_hash
+        )
+    `);
+  }
   database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_content_dedup ON attachments(content_hash) WHERE content_hash IS NOT NULL`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_attachments_message_id ON message_attachments(message_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_message_attachments_attachment_id ON message_attachments(attachment_id)`);
