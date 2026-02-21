@@ -2,9 +2,18 @@ import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
+import { loadAllAssistants } from "../lib/assistant-config";
+import { isProcessAlive } from "../lib/process";
 import { startLocalDaemon, startGateway } from "./hatch";
 
 export async function wake(): Promise<void> {
+  const assistants = loadAllAssistants();
+  const hasLocal = assistants.some((a) => a.cloud === "local");
+  if (!hasLocal) {
+    console.error("Error: No local assistant found in lock file. Run 'vellum hatch local' first.");
+    process.exit(1);
+  }
+
   const vellumDir = join(homedir(), ".vellum");
   const pidFile = join(vellumDir, "vellum.pid");
 
@@ -30,7 +39,13 @@ export async function wake(): Promise<void> {
 
   // Start gateway (non-desktop only)
   if (!process.env.VELLUM_DESKTOP_APP) {
-    await startGateway();
+    const gatewayPidFile = join(vellumDir, "gateway.pid");
+    const { alive, pid } = isProcessAlive(gatewayPidFile);
+    if (alive) {
+      console.log(`Gateway already running (pid ${pid}).`);
+    } else {
+      await startGateway();
+    }
   }
 
   console.log("✅ Wake complete.");

@@ -1080,6 +1080,12 @@ export async function startGateway(): Promise<string> {
     env: gatewayEnv,
   });
   gateway.unref();
+
+  if (gateway.pid) {
+    const vellumDir = join(homedir(), ".vellum");
+    writeFileSync(join(vellumDir, "gateway.pid"), String(gateway.pid), "utf-8");
+  }
+
   console.log("✅ Gateway started\n");
   return publicUrl || `http://localhost:${GATEWAY_PORT}`;
 }
