@@ -11,6 +11,11 @@ export interface ClassifiedSessionError {
   debugDetails?: string;
 }
 
+/**
+ * Prefix for inline assistant warning messages emitted for user-facing errors.
+ */
+export const SESSION_WARNING_PREFIX = '⚠️ ';
+
 // Network-level error patterns (connection refused, timeout, DNS, reset)
 const NETWORK_PATTERNS = [
   /ECONNREFUSED/i,
@@ -287,4 +292,13 @@ export function buildSessionErrorMessage(
     retryable: classified.retryable,
     debugDetails: classified.debugDetails,
   };
+}
+
+/**
+ * Convert a user-facing error message to a warning-style assistant response.
+ */
+export function toWarningAssistantMessage(message: string): string {
+  const trimmed = message.trim();
+  if (trimmed.startsWith(SESSION_WARNING_PREFIX)) return trimmed;
+  return `${SESSION_WARNING_PREFIX}${trimmed}`;
 }

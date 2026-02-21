@@ -18,7 +18,7 @@ import type { PermissionPrompter } from '../permissions/prompter.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import type { TraceEmitter } from './trace-emitter.js';
-import { classifySessionError, isUserCancellation, isContextTooLarge, buildSessionErrorMessage } from './session-error.js';
+import { classifySessionError, isUserCancellation, isContextTooLarge, toWarningAssistantMessage } from './session-error.js';
 import type { ToolProfiler } from '../events/tool-profiling-listener.js';
 import type { ContextWindowManager } from '../context/window-manager.js';
 import { getHookManager } from '../hooks/manager.js';
@@ -420,8 +420,7 @@ export async function runAgentLoopImpl(
             contextTooLargeDetected = true;
           } else {
             const classified = classifySessionError(event.error, { phase: 'agent_loop' });
-            onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
-            providerErrorUserMessage = classified.userMessage;
+            providerErrorUserMessage = toWarningAssistantMessage(classified.userMessage);
           }
           break;
         case 'message_complete': {
@@ -672,13 +671,13 @@ export async function runAgentLoopImpl(
           new Error('context_length_exceeded'),
           { phase: 'agent_loop' },
         );
-        onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
+        providerErrorUserMessage = toWarningAssistantMessage(classified.userMessage);
       }
     }
 
     if (deferredOrderingError) {
       const classified = classifySessionError(new Error(deferredOrderingError), { phase: 'agent_loop' });
-      onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
+      providerErrorUserMessage = toWarningAssistantMessage(classified.userMessage);
     }
 
     // Reconcile synthesized cancellation tool_results
@@ -830,9 +829,24 @@ export async function runAgentLoopImpl(
         status: 'error',
         attributes: { errorClass, message: truncate(message, 500, '') },
       });
-      onEvent({ type: 'error', message: `Failed to process message: ${message}` });
       const classified = classifySessionError(err, errorCtx);
-      onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
+      const warningMessage = toWarningAssistantMessage(classified.userMessage);
+      const assistantMsg = createAssistantMessage(warningMessage);
+      conversationStore.addMessage(
+        ctx.conversationId,
+        'assistant',
+        JSON.stringify(assistantMsg.content),
+      );
+      ctx.messages.push(assistantMsg);
+      onEvent({
+        type: 'assistant_text_delta',
+        text: warningMessage,
+        sessionId: ctx.conversationId,
+      });
+      onEvent({
+        type: 'message_complete',
+        sessionId: ctx.conversationId,
+      });
       void getHookManager().trigger('on-error', {
         error: err instanceof Error ? err.name : 'Error',
         message,
