@@ -150,7 +150,8 @@ describe('Twitter strategy router', () => {
         expect(true).toBe(false); // should not reach
       } catch (err) {
         const e = err as Error & { pathUsed: string };
-        expect(e.message).toContain('Browser session expired and OAuth was already tried');
+        expect(e).toBeInstanceOf(MockSessionExpiredError);
+        expect(e.message).toBe('Browser session expired');
         expect(e.pathUsed).toBe('auto');
       }
     });
@@ -197,7 +198,7 @@ describe('Twitter strategy router', () => {
       expect(result.tweetId).toBe('666');
     });
 
-    test('provides OAuth hint on SessionExpiredError', async () => {
+    test('preserves SessionExpiredError type with router metadata', async () => {
       mockStrategy = 'browser';
       mockBrowserPostError = new MockSessionExpiredError('Session expired');
 
@@ -206,9 +207,8 @@ describe('Twitter strategy router', () => {
         expect(true).toBe(false); // should not reach
       } catch (err) {
         const e = err as Error & { pathUsed: string; suggestAlternative: string };
-        expect(e.message).toContain('Browser session expired');
-        expect(e.message).toContain('vellum x refresh');
-        expect(e.message).toContain('vellum x strategy set oauth');
+        expect(e).toBeInstanceOf(MockSessionExpiredError);
+        expect(e.message).toBe('Session expired');
         expect(e.pathUsed).toBe('browser');
         expect(e.suggestAlternative).toBe('oauth');
       }
