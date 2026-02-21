@@ -76,13 +76,15 @@ export type CallerIdentityResult =
  * - Otherwise fall through to the configured default mode.
  *
  * For `assistant_number`: uses the Twilio phone number from `getTwilioConfig()`.
+ *   No eligibility check is performed — this is a fast path.
  * For `user_number`: uses `config.calls.callerIdentity.userNumber` or the
- * secure key `credential:twilio:user_phone_number`.
+ *   secure key `credential:twilio:user_phone_number`, then validates that the
+ *   number is usable as an outbound caller ID via the Twilio API.
  */
-export function resolveCallerIdentity(
+export async function resolveCallerIdentity(
   config: AssistantConfig,
   requestedMode?: 'assistant_number' | 'user_number',
-): CallerIdentityResult {
+): Promise<CallerIdentityResult> {
   const identityConfig = config.calls.callerIdentity;
   let mode: 'assistant_number' | 'user_number';
 
@@ -112,6 +114,13 @@ export function resolveCallerIdentity(
       ok: false,
       error: 'user_number mode requires a user phone number. Set calls.callerIdentity.userNumber in config or store credential:twilio:user_phone_number via the credential_store tool.',
     };
+  }
+
+  // Verify the user number is eligible as a caller ID with Twilio
+  const provider = new TwilioConversationRelayProvider();
+  const eligibility = await provider.checkCallerIdEligibility(userNumber);
+  if (!eligibility.eligible) {
+    return { ok: false, error: eligibility.reason! };
   }
 
   return { ok: true, mode, fromNumber: userNumber };
@@ -152,7 +161,7 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
     const provider = new TwilioConversationRelayProvider();
 
     // Resolve which phone number to use as caller ID
-    const identityResult = resolveCallerIdentity(ingressConfig, callerIdentityMode);
+    const identityResult = await resolveCallerIdentity(ingressConfig, callerIdentityMode);
     if (!identityResult.ok) {
       return { ok: false, error: identityResult.error, status: 400 };
     }

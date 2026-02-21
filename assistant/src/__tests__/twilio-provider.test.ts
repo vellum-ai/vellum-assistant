@@ -1,8 +1,8 @@
 /**
- * Tests for TwilioConversationRelayProvider — signature validation and
- * fail-closed auth token behavior.
+ * Tests for TwilioConversationRelayProvider — signature validation,
+ * fail-closed auth token behavior, and caller ID eligibility checks.
  */
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { createHmac } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -174,6 +174,115 @@ describe('TwilioConversationRelayProvider', () => {
       } finally {
         globalThis.fetch = originalFetch;
       }
+    });
+  });
+
+  describe('checkCallerIdEligibility', () => {
+    let originalFetch: typeof globalThis.fetch;
+
+    beforeEach(() => {
+      originalFetch = globalThis.fetch;
+    });
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    test('returns eligible when number is found in IncomingPhoneNumbers', async () => {
+      const provider = new TwilioConversationRelayProvider();
+
+      globalThis.fetch = (async (url: RequestInfo | URL): Promise<Response> => {
+        const urlStr = String(url);
+        if (urlStr.includes('/IncomingPhoneNumbers.json')) {
+          return new Response(
+            JSON.stringify({
+              incoming_phone_numbers: [{ sid: 'PN_test', phone_number: '+15550001111' }],
+            }),
+            { status: 200 },
+          );
+        }
+        // Should not reach OutgoingCallerIds since IncomingPhoneNumbers matched
+        return new Response(JSON.stringify({ outgoing_caller_ids: [] }), { status: 200 });
+      }) as typeof fetch;
+
+      const result = await provider.checkCallerIdEligibility('+15550001111');
+      expect(result.eligible).toBe(true);
+      expect(result.reason).toBeUndefined();
+    });
+
+    test('returns eligible when number is found in OutgoingCallerIds', async () => {
+      const provider = new TwilioConversationRelayProvider();
+
+      globalThis.fetch = (async (url: RequestInfo | URL): Promise<Response> => {
+        const urlStr = String(url);
+        if (urlStr.includes('/IncomingPhoneNumbers.json')) {
+          return new Response(
+            JSON.stringify({ incoming_phone_numbers: [] }),
+            { status: 200 },
+          );
+        }
+        if (urlStr.includes('/OutgoingCallerIds.json')) {
+          return new Response(
+            JSON.stringify({
+              outgoing_caller_ids: [{ sid: 'PNverified', phone_number: '+15550001111' }],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response('Not found', { status: 404 });
+      }) as typeof fetch;
+
+      const result = await provider.checkCallerIdEligibility('+15550001111');
+      expect(result.eligible).toBe(true);
+      expect(result.reason).toBeUndefined();
+    });
+
+    test('returns ineligible when number is not found in either endpoint', async () => {
+      const provider = new TwilioConversationRelayProvider();
+
+      globalThis.fetch = (async (url: RequestInfo | URL): Promise<Response> => {
+        const urlStr = String(url);
+        if (urlStr.includes('/IncomingPhoneNumbers.json')) {
+          return new Response(
+            JSON.stringify({ incoming_phone_numbers: [] }),
+            { status: 200 },
+          );
+        }
+        if (urlStr.includes('/OutgoingCallerIds.json')) {
+          return new Response(
+            JSON.stringify({ outgoing_caller_ids: [] }),
+            { status: 200 },
+          );
+        }
+        return new Response('Not found', { status: 404 });
+      }) as typeof fetch;
+
+      const result = await provider.checkCallerIdEligibility('+15559999999');
+      expect(result.eligible).toBe(false);
+      expect(result.reason).toContain('not owned by or verified');
+      expect(result.reason).toContain('Twilio Console');
+    });
+
+    test('passes correct phone number as query parameter', async () => {
+      const provider = new TwilioConversationRelayProvider();
+      const capturedUrls: string[] = [];
+
+      globalThis.fetch = (async (url: RequestInfo | URL): Promise<Response> => {
+        capturedUrls.push(String(url));
+        const urlStr = String(url);
+        if (urlStr.includes('/IncomingPhoneNumbers.json')) {
+          return new Response(
+            JSON.stringify({ incoming_phone_numbers: [{ sid: 'PN1' }] }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ outgoing_caller_ids: [] }), { status: 200 });
+      }) as typeof fetch;
+
+      await provider.checkCallerIdEligibility('+15550001111');
+
+      expect(capturedUrls[0]).toContain('PhoneNumber=%2B15550001111');
+      expect(capturedUrls[0]).toContain('/IncomingPhoneNumbers.json');
     });
   });
 });
