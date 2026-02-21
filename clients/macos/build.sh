@@ -207,7 +207,7 @@ if [ "$CLI_BIN_NEEDS_BUILD" = true ]; then
     echo "Building CLI binary from source..."
     mkdir -p "$SCRIPT_DIR/cli-bin"
     (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
-    bun build --compile "$CLI_SRC_DIR/src/index.ts" --external react-devtools-core --outfile "$SCRIPT_DIR/cli-bin/vellum-cli"
+    bun build --compile "$CLI_SRC_DIR/src/index.ts" --outfile "$SCRIPT_DIR/cli-bin/vellum-cli"
     chmod +x "$SCRIPT_DIR/cli-bin/vellum-cli"
     echo "CLI binary built: $SCRIPT_DIR/cli-bin/vellum-cli"
 fi
