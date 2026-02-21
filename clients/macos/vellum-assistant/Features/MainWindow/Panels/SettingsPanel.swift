@@ -20,6 +20,8 @@ struct SettingsPanel: View {
     @State private var braveKeyText: String = ""
     @State private var perplexityKeyText: String = ""
     @State private var imageGenKeyText: String = ""
+    @State private var openaiKeyText: String = ""
+    @State private var elevenLabsKeyText: String = ""
     @State private var showingTrustRules = false
     @State private var showingReminders = false
     @State private var twitterClientId: String = ""
@@ -501,6 +503,116 @@ struct SettingsPanel: View {
                     VButton(label: "Save", style: .primary) {
                         store.saveImageGenKey(imageGenKeyText)
                         imageGenKeyText = ""
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
+            // OPENAI section (for Voice Mode — Whisper + TTS)
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("OpenAI")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                if store.hasOpenAIKey {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14))
+                        Text(store.maskedOpenAIKey)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        VButton(label: "Clear", style: .danger) {
+                            store.clearOpenAIKey()
+                            openaiKeyText = ""
+                        }
+                    }
+                } else {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Enter OpenAI API Key")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.textMuted)
+                    }
+
+                    SecureField("Your OpenAI API key", text: $openaiKeyText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    Text("Used for Voice Mode (Whisper transcription). Get your key at platform.openai.com/api-keys")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    VButton(label: "Save", style: .primary) {
+                        store.saveOpenAIKey(openaiKeyText)
+                        openaiKeyText = ""
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
+            // ELEVENLABS section (for Voice Mode TTS)
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("ElevenLabs")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                if store.hasElevenLabsKey {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14))
+                        Text(store.maskedElevenLabsKey)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        VButton(label: "Clear", style: .danger) {
+                            store.clearElevenLabsKey()
+                            elevenLabsKeyText = ""
+                        }
+                    }
+                } else {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Enter ElevenLabs API Key")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.textMuted)
+                    }
+
+                    SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    Text("Used for Voice Mode (text-to-speech). Get your key at elevenlabs.io/app/settings/api-keys")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    VButton(label: "Save", style: .primary) {
+                        store.saveElevenLabsKey(elevenLabsKeyText)
+                        elevenLabsKeyText = ""
                     }
                 }
             }

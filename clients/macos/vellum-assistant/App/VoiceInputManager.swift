@@ -36,6 +36,9 @@ final class VoiceInputManager {
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
 
+    /// Exposes the audio engine for amplitude tracking in voice mode.
+    var exposedAudioEngine: AVAudioEngine { audioEngine }
+
     func start() {
         setupFnKeyMonitors()
     }
@@ -67,6 +70,30 @@ final class VoiceInputManager {
         } else {
             beginRecording()
         }
+    }
+
+    // MARK: - Continuous Recording (Voice Mode)
+
+    /// Start recording without requiring a key hold. Used by voice mode for hands-free operation.
+    func startContinuousRecording() {
+        guard !isRecording else { return }
+        beginRecording()
+    }
+
+    /// Stop continuous recording. Unlike `stopRecording()`, this does NOT cancel
+    /// the recognition task — it stops audio input and calls `endAudio()` so the
+    /// recognizer produces an `isFinal` result via the callback, which then
+    /// triggers `onTranscription` and cleans up.
+    func stopContinuousRecording() {
+        guard isRecording else { return }
+        log.info("Stopping continuous recording — waiting for final transcription")
+
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+
+        // Signal end of audio — the recognizer will process remaining audio
+        // and fire the callback with isFinal = true.
+        recognitionRequest?.endAudio()
     }
 
     // MARK: - Fn Key Detection
@@ -259,8 +286,10 @@ final class VoiceInputManager {
         onRecordingStateChanged?(false)
         log.info("Voice recording stopped")
 
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if audioEngine.isRunning {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest?.endAudio()

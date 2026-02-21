@@ -139,6 +139,7 @@ final class MainWindow {
     let documentManager = DocumentManager()
     let avatarEvolutionState: AvatarEvolutionState?
     var onMicrophoneToggle: (() -> Void)?
+    let voiceModeManager = VoiceModeManager()
 
     // Forwarding accessors — keeps existing references working while
     // ownership lives in the `services` container.
@@ -263,7 +264,7 @@ final class MainWindow {
             return
         }
 
-        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, documentManager: documentManager, avatarEvolutionState: avatarEvolutionState, onMicrophoneToggle: onMicrophoneToggle ?? {})
+        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, documentManager: documentManager, avatarEvolutionState: avatarEvolutionState, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
