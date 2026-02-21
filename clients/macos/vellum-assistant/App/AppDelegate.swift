@@ -146,6 +146,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hasSetupApp = true
 
+        // On first launch (post-onboarding), the lockfile now has the
+        // hatched assistant. Reset hasSetupDaemon so setupDaemonClient()
+        // re-reads the lockfile, configures the correct transport (HTTP
+        // for remote), and wires all callbacks to the right DaemonClient.
+        if isFirstLaunch {
+            hasSetupDaemon = false
+        }
+
         setupDaemonClient()
         setupMenuBar()
         setupFileMenu()
