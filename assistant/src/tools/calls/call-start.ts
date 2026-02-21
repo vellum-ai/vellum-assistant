@@ -24,6 +24,11 @@ const definition: ToolDefinition = {
         type: 'string',
         description: 'Additional context for the conversation',
       },
+      caller_identity_mode: {
+        type: 'string',
+        enum: ['assistant_number', 'user_number'],
+        description: 'Which phone number to use as the caller ID. assistant_number uses the AI assistant\'s Twilio number; user_number uses the user\'s verified personal number.',
+      },
     },
     required: ['phone_number', 'task'],
   },
@@ -49,6 +54,7 @@ class CallStartTool implements Tool {
       task: input.task as string,
       context: input.context as string | undefined,
       conversationId: context.conversationId,
+      callerIdentityMode: input.caller_identity_mode as 'assistant_number' | 'user_number' | undefined,
     });
 
     if (!result.ok) {
@@ -61,6 +67,8 @@ class CallStartTool implements Tool {
         `  Call Session ID: ${result.session.id}`,
         `  Call SID: ${result.callSid}`,
         `  To: ${result.session.toNumber}`,
+        `  From: ${result.session.fromNumber}`,
+        `  Caller Identity Mode: ${result.callerIdentityMode}`,
         `  Status: initiated`,
         '',
         'The AI voice assistant is now placing the call. Use call_status to check progress.',

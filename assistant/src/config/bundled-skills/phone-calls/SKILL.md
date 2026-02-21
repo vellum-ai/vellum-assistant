@@ -27,7 +27,7 @@ Three voice quality modes are available:
 
 You can keep using Twilio only — no changes needed. Enabling ElevenLabs can improve naturalness and quality.
 
-The user's assistant gets its own personal phone number through Twilio.
+The user's assistant gets its own personal phone number through Twilio. By default, all outbound calls are placed from this assistant number. Optionally, users can call from their own phone number if it's authorized with the Twilio account — this is called "caller identity mode" and can be configured as a default or selected per-call.
 
 ## Step 1: Check Current Configuration
 
@@ -147,6 +147,44 @@ Suggest a test call to the user's own phone: **"Want to do a quick test call to 
 
 If they agree, ask for their personal phone number and place a test call with a simple task like "Introduce yourself and confirm the call system is working."
 
+## Caller Identity
+
+By default, calls are placed from the assistant's Twilio phone number (the one stored as `credential:twilio:phone_number`). This is the number that appears on the recipient's caller ID.
+
+### User-number mode
+
+If the user wants calls to appear as coming from their own phone number instead, they can enable **user-number mode**. The user's phone number must be either owned by or verified with the same Twilio account.
+
+**To configure a user phone number:**
+
+```
+credential_store action=set service=credential:twilio:user_phone_number value=+14155559999
+```
+
+**To set user-number mode as the default:**
+
+```bash
+vellum config set calls.callerIdentity.defaultMode user_number
+```
+
+**To use it for a single call** (without changing the default), pass `caller_identity_mode: 'user_number'` when calling `call_start` — see the Making Calls section for examples.
+
+### Configuration reference
+
+| Setting | Description | Default |
+|---|---|---|
+| `calls.callerIdentity.defaultMode` | Which number to use as caller ID: `assistant_number` or `user_number` | `assistant_number` |
+| `calls.callerIdentity.allowPerCallOverride` | Whether per-call mode selection is allowed | `true` |
+| `calls.callerIdentity.userNumber` | Optional E.164 phone number for user-number mode (alternative to storing via `credential_store`) | *(empty)* |
+
+### Reverting to assistant number
+
+To switch back to the default:
+
+```bash
+vellum config set calls.callerIdentity.defaultMode assistant_number
+```
+
 ## Optional: Higher Quality Voice with ElevenLabs
 
 ElevenLabs integration is entirely optional. The standard Twilio-only setup works unchanged — this section is only relevant if you want to improve voice quality.
@@ -237,6 +275,22 @@ call_start phone_number="+18005551234" task="Check if they have a specific produ
 ```
 call_start phone_number="+12125551234" task="Confirm the dentist appointment scheduled for next Tuesday at 2pm" context="The appointment is under the name Jane Doe, DOB 03/15/1990."
 ```
+
+### Caller identity in calls
+
+By default, calls use the configured default caller identity mode (see `calls.callerIdentity.defaultMode` — defaults to `assistant_number`). Only specify `caller_identity_mode` when you need to override the configured default for a specific call.
+
+**Default call (assistant number):**
+```
+call_start phone_number="+14155551234" task="Check store hours for today"
+```
+
+**Call from the user's own number:**
+```
+call_start phone_number="+14155551234" task="Check store hours for today" caller_identity_mode="user_number"
+```
+
+**Decision rule:** Use the configured default mode (`calls.callerIdentity.defaultMode`) unless the user explicitly requests a different mode for this call. When the configured default is `assistant_number`, the assistant's Twilio number is used. When configured as `user_number`, the user's verified number is used.
 
 ### Phone number format
 
@@ -359,6 +413,9 @@ All call-related settings can be managed via `vellum config`:
 | `calls.disclosure.enabled` | Whether the AI announces itself at call start | `true` |
 | `calls.disclosure.text` | The disclosure message spoken at call start | `"I should let you know that I'm an AI assistant calling on behalf of my user."` |
 | `calls.model` | Override LLM model for call orchestration | *(uses default model)* |
+| `calls.callerIdentity.defaultMode` | Default caller ID mode: `assistant_number` or `user_number` | `assistant_number` |
+| `calls.callerIdentity.allowPerCallOverride` | Allow per-call caller identity selection | `true` |
+| `calls.callerIdentity.userNumber` | E.164 phone number for user-number mode | *(empty)* |
 | `calls.voice.mode` | Voice quality mode (`twilio_standard`, `twilio_elevenlabs_tts`, `elevenlabs_agent`) | `twilio_standard` |
 | `calls.voice.language` | Language code for TTS and transcription | `en-US` |
 | `calls.voice.transcriptionProvider` | Speech-to-text provider (`Deepgram`, `Google`) | `Deepgram` |
@@ -402,6 +459,15 @@ Run the **public-ingress** skill to set up ngrok and configure `ingress.publicBa
 ### Call connects but no audio / one-way audio
 - The ConversationRelay WebSocket may not be connecting. Check that `ingress.publicBaseUrl` is correct and the tunnel is active
 - Verify the gateway is running on `http://127.0.0.1:${GATEWAY_PORT:-7830}`
+
+### "Number not eligible for caller identity"
+The user's phone number is not owned by or verified with the Twilio account. The number must be either purchased through Twilio or added as a verified caller ID at https://console.twilio.com/us1/develop/phone-numbers/manage/verified.
+
+### "Per-call caller identity override is disabled"
+The setting `calls.callerIdentity.allowPerCallOverride` is set to `false`, so per-call `caller_identity_mode` selection is not allowed. Either change the default mode with `vellum config set calls.callerIdentity.defaultMode user_number`, or re-enable overrides with `vellum config set calls.callerIdentity.allowPerCallOverride true`.
+
+### Caller identity call fails on trial account
+Twilio trial accounts can only place calls to verified numbers, regardless of caller identity mode. The user's phone number must also be verified with Twilio. Upgrade to a paid account or verify both the source and destination numbers.
 
 ### "This phone number is not allowed to be called"
 Emergency numbers (911, 112, 999, 000, 110, 119) are permanently blocked for safety.

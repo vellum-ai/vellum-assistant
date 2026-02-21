@@ -790,6 +790,10 @@ export function initializeDb(): void {
   // Add claim ownership token to prevent cross-handler claim interference
   try { database.run(/*sql*/ `ALTER TABLE processed_callbacks ADD COLUMN claim_id TEXT`); } catch { /* already exists */ }
 
+  // Caller identity persistence for auditability
+  try { database.run(/*sql*/ `ALTER TABLE call_sessions ADD COLUMN caller_identity_mode TEXT`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE call_sessions ADD COLUMN caller_identity_source TEXT`); } catch { /* already exists */ }
+
   // Unique constraint: at most one non-null provider_call_sid per (provider, provider_call_sid).
   // On upgraded databases that pre-date this constraint, duplicate rows may exist; deduplicate
   // them first to avoid a UNIQUE constraint failure that would prevent startup.
