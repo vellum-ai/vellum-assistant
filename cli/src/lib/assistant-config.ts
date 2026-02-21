@@ -89,6 +89,10 @@ export function removeAssistantEntry(assistantId: string): void {
   writeAssistants(entries.filter((e) => e.assistantId !== assistantId));
 }
 
+export function loadAllAssistants(): AssistantEntry[] {
+  return readAssistants();
+}
+
 export function saveAssistantEntry(entry: AssistantEntry): void {
   const entries = readAssistants();
   entries.unshift(entry);

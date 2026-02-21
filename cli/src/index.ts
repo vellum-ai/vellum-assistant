@@ -1,11 +1,13 @@
 #!/usr/bin/env bun
 
 import { hatch } from "./commands/hatch";
+import { ps } from "./commands/ps";
 import { retire } from "./commands/retire";
 import { sleep } from "./commands/sleep";
 
 const commands = {
   hatch,
+  ps,
   retire,
   sleep,
 } as const;
@@ -21,6 +23,7 @@ async function main() {
     console.log("");
     console.log("Commands:");
     console.log("  hatch    Create a new assistant instance");
+    console.log("  ps       List assistants and their health status");
     console.log("  retire   Delete an assistant instance");
     console.log("  sleep    Stop the daemon process");
     process.exit(0);
