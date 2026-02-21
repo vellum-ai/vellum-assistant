@@ -67,12 +67,14 @@ export async function routedPostTweet(
   }
 
   // auto strategy: try OAuth first if available and supported, fallback to browser
+  let oauthError: Error | undefined;
   if (oauthIsAvailable() && oauthSupportsOperation(operation)) {
     try {
       const result = await oauthPostTweet(text, opts);
       return { result: { tweetId: result.tweetId, text: result.text, url: result.url ?? `https://x.com/i/status/${result.tweetId}` }, pathUsed: 'oauth' };
-    } catch {
-      // OAuth failed, fall through to browser
+    } catch (err) {
+      oauthError = err instanceof Error ? err : new Error(String(err));
+      // Fall through to browser
     }
   }
 
@@ -81,9 +83,17 @@ export async function routedPostTweet(
     const result = await browserPostTweet(text, opts);
     return { result, pathUsed: 'browser' };
   } catch (err) {
-    if (err instanceof SessionExpiredError && oauthIsAvailable()) {
+    if (err instanceof SessionExpiredError) {
       throw Object.assign(err, {
         pathUsed: 'auto' as const,
+        oauthError: oauthError?.message,
+      });
+    }
+    if (oauthError) {
+      const browserError = err instanceof Error ? err : new Error(String(err));
+      throw Object.assign(browserError, {
+        pathUsed: 'auto' as const,
+        oauthError: oauthError.message,
       });
     }
     throw err;

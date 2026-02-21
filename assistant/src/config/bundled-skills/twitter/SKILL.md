@@ -121,7 +121,7 @@ Like `post`, the `reply` command routes through the strategy router and returns 
 
 ## Reading
 
-Read-only operations currently only work via the browser path. When the strategy is set to `auto` or `browser`, these work as expected. When the strategy is set to `oauth`, these operations will fail because OAuth does not yet support them — suggest switching to `auto` or `browser` if this happens.
+Read-only operations always use the browser path directly, regardless of the strategy setting. They work the same whether the strategy is `oauth`, `browser`, or `auto` — the strategy only affects `post` and `reply` commands.
 
 ### User timeline
 ```bash

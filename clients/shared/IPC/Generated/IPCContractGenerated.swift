@@ -1739,6 +1739,7 @@ public struct IPCTwitterIntegrationConfigRequest: Codable, Sendable {
     public let mode: String?
     public let clientId: String?
     public let clientSecret: String?
+    public let strategy: String?
 }
 
 public struct IPCTwitterIntegrationConfigResponse: Codable, Sendable {
@@ -1749,6 +1750,7 @@ public struct IPCTwitterIntegrationConfigResponse: Codable, Sendable {
     public let localClientConfigured: Bool
     public let connected: Bool
     public let accountInfo: String?
+    public let strategy: String?
     public let error: String?
 }
 
