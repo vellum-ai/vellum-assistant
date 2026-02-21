@@ -3118,7 +3118,7 @@ Bounded recurrence is supported via `COUNT` (e.g., `RRULE:FREQ=DAILY;COUNT=30`) 
 
 ### Syntax Detection
 
-The `detectScheduleSyntax()` function auto-detects which syntax an expression uses by checking for RRULE markers (`RRULE:`, `DTSTART`, `FREQ=`). When creating or updating a schedule, the caller can explicitly specify `syntax: 'cron' | 'rrule'`, or the system infers it from the expression string via `resolveScheduleSpec()`.
+The `detectScheduleSyntax()` function auto-detects which syntax an expression uses by checking for RRULE markers (`RRULE:`, `DTSTART`, `FREQ=`). When creating or updating a schedule, the caller can explicitly specify `syntax: 'cron' | 'rrule'`, or the system infers it from the expression string via `normalizeScheduleSyntax()`.
 
 ### Legacy Compatibility
 
@@ -3128,7 +3128,7 @@ The database column is named `cron_expression` and the Drizzle table is `cronJob
 
 | File | Responsibility |
 |------|---------------|
-| `assistant/src/schedule/recurrence-types.ts` | `ScheduleSyntax` type, `detectScheduleSyntax()`, `resolveScheduleSpec()` |
+| `assistant/src/schedule/recurrence-types.ts` | `ScheduleSyntax` type, `detectScheduleSyntax()`, `normalizeScheduleSyntax()` |
 | `assistant/src/schedule/recurrence-engine.ts` | Validation (`isValidScheduleExpression`), next-run computation, RRULE set detection |
 | `assistant/src/schedule/schedule-store.ts` | CRUD operations, claim-based polling, legacy `cronExpression` field support |
 | `assistant/src/schedule/scheduler.ts` | 15-second tick loop, fires due schedules and reminders |
