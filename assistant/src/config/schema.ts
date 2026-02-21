@@ -550,6 +550,9 @@ export const MemoryConflictsConfigSchema = z.object({
     .min(0, 'memory.conflicts.relevanceThreshold must be >= 0')
     .max(1, 'memory.conflicts.relevanceThreshold must be <= 1')
     .default(0.3),
+  askOnIrrelevantTurns: z
+    .boolean({ error: 'memory.conflicts.askOnIrrelevantTurns must be a boolean' })
+    .default(true),
 });
 
 export const MemoryProfileConfigSchema = z.object({
@@ -669,6 +672,7 @@ export const MemoryConfigSchema = z.object({
     reaskCooldownTurns: 3,
     resolverLlmTimeoutMs: 12000,
     relevanceThreshold: 0.3,
+    askOnIrrelevantTurns: true,
   }),
   profile: MemoryProfileConfigSchema.default({
     enabled: true,
@@ -1160,6 +1164,7 @@ export const AssistantConfigSchema = z.object({
       reaskCooldownTurns: 3,
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
+      askOnIrrelevantTurns: true,
     },
     profile: {
       enabled: true,

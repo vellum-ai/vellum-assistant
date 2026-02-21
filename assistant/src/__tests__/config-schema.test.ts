@@ -139,12 +139,20 @@ describe('AssistantConfigSchema', () => {
       reaskCooldownTurns: 3,
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
+      askOnIrrelevantTurns: true,
     });
   });
 
   test('rejects invalid memory.conflicts.relevanceThreshold', () => {
     const result = AssistantConfigSchema.safeParse({
       memory: { conflicts: { relevanceThreshold: 2 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects invalid memory.conflicts.askOnIrrelevantTurns', () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { conflicts: { askOnIrrelevantTurns: 123 } },
     });
     expect(result.success).toBe(false);
   });
