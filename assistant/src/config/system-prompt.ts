@@ -108,7 +108,6 @@ export function buildSystemPrompt(): string {
     );
   }
   parts.push(buildConfigSection());
-  parts.push(buildToolRoutingSection());
   parts.push(buildTaskScheduleReminderRoutingSection());
   parts.push(buildAttachmentSection());
   parts.push(buildDynamicUiSection());
@@ -126,72 +125,6 @@ export function buildSystemPrompt(): string {
   parts.push(buildPostToolResponseSection());
 
   return appendSkillsCatalog(parts.join('\n\n'));
-}
-
-function buildToolRoutingSection(): string {
-  return [
-    '## Tool Routing by Content Type',
-    '',
-    'Choose the right tool based on what the user is asking for:',
-    '',
-    '### Writing Text Content → `document_create` + multiple `document_update` calls',
-    '',
-    'Use when the user wants to **write or compose** long-form text:',
-    '- Blog posts, articles, essays',
-    '- Reports, documentation, guides',
-    '- Any long-form writing (500+ words)',
-    '',
-    '**CRITICAL ACTION REQUIRED:**',
-    '1. User says "write a blog post" → You MUST call `document_create` tool IMMEDIATELY',
-    '2. Do NOT just say "I\'ll create a document" - actually call the tool!',
-    '3. After creating the document, call `document_update` MULTIPLE times to stream content in chunks',
-    '- Content that benefits from editing and markdown formatting',
-    '',
-    '**Key indicators:** User says "write", "draft", "compose", "create a blog/article/essay"',
-    '**Workflow:** Call `document_create` with title, then stream content using `document_update`',
-    '**Output:** Opens the Documents tab with built-in rich text editor',
-    '',
-    '### Building Interactive Apps → `app_create`',
-    '',
-    'Use when the user wants to **build or create** an interactive application:',
-    '- Dashboards, calculators, tools, utilities',
-    '- Games, trackers, timers, counters',
-    '- Data visualizations with user interaction',
-    '- Forms, CRUD apps, admin panels',
-    '- Presentational sites (portfolios, landing pages, resumes)',
-    '',
-    '**Key indicators:** User says "build", "create", "make an app/dashboard/calculator"',
-    '**Workflow:** Call `app_create` with HTML/CSS/JS and schema',
-    '**Output:** Opens a dynamic_page surface with full interactivity',
-    '',
-    '### Showing Structured Data → `ui_show`',
-    '',
-    'Use when the user wants to **display or visualize** existing data:',
-    '- Weather forecasts, flight results, stock prices',
-    '- Quick tables, cards, lists from API/tool data',
-    '- Temporary displays (no persistence needed)',
-    '',
-    '**Key indicators:** User says "show", "display", "what\'s the weather/stock price"',
-    '**Workflow:** Gather data via tools, then call `ui_show` with formatted HTML',
-    '**Output:** Shows a temporary dynamic page in chat context',
-    '',
-    '### Decision Framework',
-    '',
-    '**Ask yourself:**',
-    '1. Is this primarily **text composition**? → `document_create`',
-    '2. Is this an **interactive app** with state/logic? → `app_create`',
-    '3. Is this **displaying data** from tools/APIs? → `ui_show`',
-    '',
-    '**Examples:**',
-    '- "Write a blog post about AI" → `document_create` (text composition)',
-    '- "Build a todo list app" → `app_create` (interactive, stateful)',
-    '- "Show me the weather in NYC" → `ui_show` (data display)',
-    '- "Create a markdown editor" → `app_create` (interactive tool)',
-    '- "Draft an essay on philosophy" → `document_create` (text composition)',
-    '- "Make a countdown timer" → `app_create` (interactive, dynamic)',
-    '',
-    '**All three tools are equally important — use the right one for the task.**',
-  ].join('\n');
 }
 
 function buildTaskScheduleReminderRoutingSection(): string {

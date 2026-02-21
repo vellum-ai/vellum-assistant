@@ -1,6 +1,6 @@
 ---
 name: "Document"
-description: "Document creation and editing for UI surfaces"
+description: "Write, draft, or compose long-form text (blog posts, articles, essays, reports, guides). Use when the user says write, draft, compose, or create a blog/article/essay."
 metadata: {"vellum": {"emoji": "📄"}}
 ---
 
