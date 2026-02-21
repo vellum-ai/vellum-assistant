@@ -264,7 +264,7 @@ call_start phone_number="+12125551234" task="Confirm the dentist appointment sch
 
 ### Caller identity in calls
 
-By default, calls use the assistant's Twilio number — no extra parameters needed. Only use `caller_identity_mode` when the user explicitly asks to call from their own number.
+By default, calls use the configured default caller identity mode (see `calls.callerIdentity.defaultMode` — defaults to `assistant_number`). Only specify `caller_identity_mode` when you need to override the configured default for a specific call.
 
 **Default call (assistant number):**
 ```
@@ -276,7 +276,7 @@ call_start phone_number="+14155551234" task="Check store hours for today"
 call_start phone_number="+14155551234" task="Check store hours for today" caller_identity_mode="user_number"
 ```
 
-**Decision rule:** Default to the assistant number unless the user explicitly asks to call from their own number.
+**Decision rule:** Use the configured default mode (`calls.callerIdentity.defaultMode`) unless the user explicitly requests a different mode for this call. When the configured default is `assistant_number`, the assistant's Twilio number is used. When configured as `user_number`, the user's verified number is used.
 
 ### Phone number format
 
