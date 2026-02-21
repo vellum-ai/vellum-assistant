@@ -410,63 +410,8 @@ function buildAccessPreferenceSection(): string {
     'If yes to any of these, use that path instead of the browser.',
     ...(isMacOS() ? [
       '',
-      '### macOS App Automation',
-      '',
-      'When interacting with native macOS apps or performing system-level actions, prefer **osascript**',
-      'via host_bash over browser automation or computer-use.',
-      '',
-      'The following apps support AppleScript and should be automated via osascript:',
-      '',
-      '**Communication:** Messages, Mail, Microsoft Outlook, FaceTime',
-      '**Contacts & Calendar:** Contacts, Calendar, Reminders',
-      '**Notes & Writing:** Notes, TextEdit, Pages, BBEdit, CotEditor',
-      '**Files & Finder:** Finder, Path Finder',
-      '**Browsers:** Safari, Google Chrome',
-      '**Music & Media:** Music (iTunes), Spotify, VLC, Podcasts, TV',
-      '**Productivity:** OmniFocus, Things 3, OmniOutliner, OmniPlan, OmniGraffle',
-      '**Office:** Microsoft Word, Microsoft Excel, Numbers, Keynote',
-      '**Developer tools:** Xcode, Terminal, iTerm2, Script Editor',
-      '**System:** Finder, System Events (UI scripting for any app), System Settings',
-      '**Automation:** Keyboard Maestro, Alfred, Automator',
-      '**Creative:** Adobe Photoshop, Final Cut Pro',
-      '',
-      'For any other app, try osascript first — check scriptability with:',
-      '```bash',
-      'osascript -e \'tell application "AppName" to get name\'',
-      '```',
-      '',
-      'Common examples:',
-      '```bash',
-      '# Send an iMessage',
-      'osascript -e \'tell application "Messages" to send "Hello!" to buddy "user@example.com"\'',
-      '',
-      '# Look up a contact',
-      'osascript -e \'tell application "Contacts" to get {name, phones} of every person whose name contains "Marina"\'',
-      '',
-      '# Read upcoming calendar events',
-      'osascript -e \'tell application "Calendar" to get summary of every event of calendar "Home" whose start date > (current date)\'',
-      '',
-      '# Create a reminder',
-      'osascript -e \'tell application "Reminders" to make new reminder with properties {name:"Buy milk", due date:((current date) + 1 * hours)}\'',
-      '',
-      '# Send an email',
-      'osascript -e \'tell application "Mail" to send (make new outgoing message with properties {subject:"Hi", content:"Hello", visible:true})\'',
-      '',
-      '# Create a note',
-      'osascript -e \'tell application "Notes" to make new note at folder "Notes" with properties {body:"My note"}\'',
-      '',
-      '# Open a URL in Safari',
-      'osascript -e \'tell application "Safari" to open location "https://example.com"\'',
-      '',
-      '# Play/pause Music',
-      'osascript -e \'tell application "Music" to playpause\'',
-      '',
-      '# Display a system notification',
-      'osascript -e \'display notification "Done!" with title "Vellum"\'',
-      '```',
-      '',
-      'osascript (AppleScript/JXA) has direct, reliable access to macOS app APIs and system events.',
-      'Use it whenever the task involves a native macOS app or system-level interaction.',
+      'On macOS, also consider the `macos-automation` skill for interacting with native apps',
+      '(Messages, Contacts, Calendar, Mail, Reminders, Music, Finder, etc.) via osascript.',
     ] : []),
   ].join('\n');
 }
@@ -702,8 +647,13 @@ function escapeXml(str: string): string {
 }
 
 function formatSkillsCatalog(skills: SkillSummary[]): string {
-  // Filter out skills with disableModelInvocation
-  const visible = skills.filter(s => !s.disableModelInvocation);
+  // Filter out skills with disableModelInvocation or unsupported OS
+  const visible = skills.filter(s => {
+    if (s.disableModelInvocation) return false;
+    const os = s.metadata?.os;
+    if (os && os.length > 0 && !os.includes(process.platform)) return false;
+    return true;
+  });
   if (visible.length === 0) return '';
 
   const lines = ['<available_skills>'];
