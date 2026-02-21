@@ -1861,7 +1861,7 @@ graph TB
 
 ## Permission and Trust Security Model
 
-The permission system controls which tool actions the agent can execute without explicit user approval. It supports two operating modes, principal-aware trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
+The permission system controls which tool actions the agent can execute without explicit user approval. It supports three operating modes (`workspace`, `strict`, and `legacy`), principal-aware trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
 
 ### Permission Evaluation Flow
 
@@ -1883,30 +1883,41 @@ graph TB
 
     NO_MATCH -->|"tool.origin === 'skill'"| PROMPT_SKILL["decision: prompt<br/>Skill tools always ask"]
     NO_MATCH -->|"strict mode"| PROMPT_STRICT["decision: prompt<br/>No implicit auto-allow"]
-    NO_MATCH -->|"legacy mode (non-default)"| RISK_FALLBACK{"Risk level?"}
+    NO_MATCH -->|"workspace mode (default)"| WS_CHECK{"Workspace-scoped<br/>invocation?"}
+    WS_CHECK -->|"yes"| AUTO_WS["decision: allow<br/>Workspace-scoped auto-allow"]
+    WS_CHECK -->|"no"| RISK_FALLBACK_WS{"Risk level?"}
+    RISK_FALLBACK_WS -->|"Low"| PROMPT_WS_LOW["decision: prompt"]
+    RISK_FALLBACK_WS -->|"Medium"| PROMPT_WS_MED["decision: prompt"]
+    RISK_FALLBACK_WS -->|"High"| PROMPT_WS_HIGH["decision: prompt"]
+    NO_MATCH -->|"legacy mode"| RISK_FALLBACK{"Risk level?"}
     RISK_FALLBACK -->|"Low"| AUTO_LOW["decision: allow<br/>Low risk auto-allow"]
     RISK_FALLBACK -->|"Medium"| PROMPT_MED["decision: prompt"]
     RISK_FALLBACK -->|"High"| PROMPT_HIGH2["decision: prompt"]
 ```
 
-### Strict Mode vs Legacy Mode
+### Permission Modes: Workspace, Strict, and Legacy
 
-The `permissions.mode` config option (`legacy` or `strict`) controls the default behavior when no trust rule matches a tool invocation.
+The `permissions.mode` config option (`workspace`, `strict`, or `legacy`) controls the default behavior when no trust rule matches a tool invocation. The default is `workspace`.
 
-| Behavior | Legacy mode | Strict mode (default) |
-|---|---|---|
-| Low-risk tools with no matching rule | Auto-allowed | Prompted |
-| Medium-risk tools with no matching rule | Prompted | Prompted |
-| High-risk tools with no matching rule | Prompted | Prompted |
-| `skill_load` with no matching rule | Auto-allowed (low risk) | Prompted (explicit rule required) |
-| `skill_load` with system default rule | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
-| `browser_*` skill tools with system default rules | Auto-allowed (priority 100 allow rules) | Auto-allowed (priority 100 allow rules) |
-| Skill-origin tools with no matching rule | Prompted | Prompted |
-| Allow rules for non-high-risk tools | Auto-allowed | Auto-allowed |
-| Allow rules with `allowHighRisk: true` | Auto-allowed (even high risk) | Auto-allowed (even high risk) |
-| Deny rules | Blocked | Blocked |
+| Behavior | Workspace mode (default) | Strict mode | Legacy mode |
+|---|---|---|---|
+| Workspace-scoped ops with no matching rule | Auto-allowed | Prompted | Auto-allowed (low risk) |
+| Non-workspace low-risk tools with no matching rule | Prompted | Prompted | Auto-allowed |
+| Medium-risk tools with no matching rule | Prompted | Prompted | Prompted |
+| High-risk tools with no matching rule | Prompted | Prompted | Prompted |
+| `skill_load` with no matching rule | Prompted | Prompted | Auto-allowed (low risk) |
+| `skill_load` with system default rule | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
+| `browser_*` skill tools with system default rules | Auto-allowed (priority 100 allow rules) | Auto-allowed (priority 100 allow rules) | Auto-allowed (priority 100 allow rules) |
+| Skill-origin tools with no matching rule | Prompted | Prompted | Prompted |
+| Allow rules for non-high-risk tools | Auto-allowed | Auto-allowed | Auto-allowed |
+| Allow rules with `allowHighRisk: true` | Auto-allowed (even high risk) | Auto-allowed (even high risk) | Auto-allowed (even high risk) |
+| Deny rules | Blocked | Blocked | Blocked |
 
-Strict mode is designed for security-conscious deployments where every tool action must have an explicit matching rule in the trust store. It eliminates implicit auto-allow for any risk level, ensuring the user has consciously approved each class of tool usage.
+**Workspace mode** (default) auto-allows operations scoped to the workspace (file reads/writes/edits within the workspace directory, sandboxed bash) without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow.
+
+**Strict mode** is designed for security-conscious deployments where every tool action must have an explicit matching rule in the trust store. It eliminates implicit auto-allow for any risk level, ensuring the user has consciously approved each class of tool usage.
+
+**Legacy mode** auto-allows all low-risk tools regardless of scope. It is deprecated and will be removed in a future release.
 
 ### Trust Rules (v3 Schema)
 
@@ -2048,7 +2059,7 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 | `assistant/src/permissions/defaults.ts` | Default rule templates (system ask rules for host tools, CU, etc.) |
 | `assistant/src/skills/version-hash.ts` | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files |
 | `assistant/src/skills/path-classifier.ts` | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection |
-| `assistant/src/config/schema.ts` | `PermissionsConfigSchema` — `permissions.mode` (`legacy` / `strict`) |
+| `assistant/src/config/schema.ts` | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict` / `legacy`) |
 | `assistant/src/tools/executor.ts` | `ToolExecutor` — orchestrates risk classification, permission check, and execution |
 
 ---

@@ -161,7 +161,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     blockIngress: true,
   },
   permissions: {
-    mode: 'strict',
+    mode: 'workspace',
   },
   auditLog: {
     retentionDays: 0,

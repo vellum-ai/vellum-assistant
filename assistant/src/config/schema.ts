@@ -137,7 +137,7 @@ export const PermissionsConfigSchema = z.object({
     .enum(VALID_PERMISSIONS_MODES, {
       error: `permissions.mode must be one of: ${VALID_PERMISSIONS_MODES.join(', ')}`,
     })
-    .default('strict'),
+    .default('workspace'),
 });
 
 export const AuditLogConfigSchema = z.object({
@@ -1242,7 +1242,7 @@ export const AssistantConfigSchema = z.object({
     blockIngress: true,
   }),
   permissions: PermissionsConfigSchema.default({
-    mode: 'strict',
+    mode: 'workspace',
   }),
   auditLog: AuditLogConfigSchema.default({
     retentionDays: 0,

@@ -497,9 +497,9 @@ describe('AssistantConfigSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  test('defaults permissions.mode to strict', () => {
+  test('defaults permissions.mode to workspace', () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.permissions).toEqual({ mode: 'strict' });
+    expect(result.permissions).toEqual({ mode: 'workspace' });
   });
 
   test('accepts explicit permissions.mode strict', () => {
@@ -1293,10 +1293,10 @@ describe('loadConfig with schema validation', () => {
     expect(config.auditLog.retentionDays).toBe(0);
   });
 
-  test('defaults permissions.mode to strict when not specified', () => {
+  test('defaults permissions.mode to workspace when not specified', () => {
     writeConfig({});
     const config = loadConfig();
-    expect(config.permissions).toEqual({ mode: 'strict' });
+    expect(config.permissions).toEqual({ mode: 'workspace' });
   });
 
   test('loads explicit permissions.mode strict', () => {
@@ -1308,7 +1308,7 @@ describe('loadConfig with schema validation', () => {
   test('falls back for invalid permissions.mode', () => {
     writeConfig({ permissions: { mode: 'yolo' } });
     const config = loadConfig();
-    expect(config.permissions.mode).toBe('strict');
+    expect(config.permissions.mode).toBe('workspace');
   });
 
   test('does not mutate default apiKeys when fallback config is overridden by env keys', () => {
