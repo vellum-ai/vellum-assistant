@@ -24,9 +24,16 @@ mock.module('../util/platform.js', () => ({
   ensureDataDir: () => {},
 }));
 
+// Capture logger.warn() calls so tests can assert on deprecation warnings.
+const loggerWarnCalls: string[] = [];
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: () => () => {},
+    get: (_target: Record<string, unknown>, prop: string) => {
+      if (prop === 'warn') {
+        return (...args: unknown[]) => { loggerWarnCalls.push(String(args[0])); };
+      }
+      return () => {};
+    },
   }),
 }));
 
@@ -49,7 +56,7 @@ mock.module('../config/loader.js', () => ({
   setNestedValue: () => {},
 }));
 
-import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
+import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions, _resetLegacyDeprecationWarning } from '../permissions/checker.js';
 import { RiskLevel, type PolicyContext } from '../permissions/types.js';
 import { addRule, clearCache, findHighestPriorityRule } from '../permissions/trust-store.js';
 import { getDefaultRuleTemplates } from '../permissions/defaults.js';
@@ -125,6 +132,9 @@ describe('Permission Checker', () => {
     // Reset permissions mode to legacy so existing tests are not affected
     testConfig.permissions = { mode: 'legacy' };
     testConfig.skills = { load: { extraDirs: [] } };
+    // Reset the one-time legacy deprecation warning flag and captured log calls
+    _resetLegacyDeprecationWarning();
+    loggerWarnCalls.length = 0;
     try { rmSync(join(checkerTestDir, 'protected', 'trust.json')); } catch { /* may not exist */ }
     try { rmSync(join(checkerTestDir, 'skills'), { recursive: true, force: true }); } catch { /* may not exist */ }
     try { rmSync(join(checkerTestDir, 'workspace', 'skills'), { recursive: true, force: true }); } catch { /* may not exist */ }
@@ -4090,6 +4100,63 @@ describe('workspace mode — auto-allow workspace-scoped operations', () => {
 
   test('network_request → prompt (Medium risk, not workspace-scoped)', async () => {
     const result = await check('network_request', { url: 'https://api.example.com/data' }, workspaceDir);
+    expect(result.decision).toBe('prompt');
+    expect(result.reason).toContain('risk');
+  });
+});
+
+// ── legacy mode deprecation warning ─────────────────────────────────────
+
+describe('legacy mode — deprecation warning', () => {
+  beforeEach(() => {
+    clearCache();
+    _resetLegacyDeprecationWarning();
+    loggerWarnCalls.length = 0;
+    testConfig.permissions = { mode: 'legacy' };
+    testConfig.skills = { load: { extraDirs: [] } };
+    try { rmSync(join(checkerTestDir, 'protected', 'trust.json')); } catch { /* may not exist */ }
+  });
+
+  afterEach(() => {
+    testConfig.permissions = { mode: 'legacy' };
+  });
+
+  test('emits deprecation warning on first check() call in legacy mode', async () => {
+    await check('file_read', { file_path: '/tmp/test.txt' }, '/tmp');
+    expect(loggerWarnCalls.some(m => m.includes('deprecated'))).toBe(true);
+    expect(loggerWarnCalls.some(m => m.includes('legacy'))).toBe(true);
+  });
+
+  test('deprecation warning fires only once per process', async () => {
+    await check('file_read', { file_path: '/tmp/a.txt' }, '/tmp');
+    const firstCount = loggerWarnCalls.filter(m => m.includes('deprecated')).length;
+    expect(firstCount).toBe(1);
+
+    await check('file_read', { file_path: '/tmp/b.txt' }, '/tmp');
+    const secondCount = loggerWarnCalls.filter(m => m.includes('deprecated')).length;
+    expect(secondCount).toBe(1);
+  });
+
+  test('no deprecation warning in workspace mode', async () => {
+    testConfig.permissions = { mode: 'workspace' };
+    await check('file_read', { file_path: '/tmp/test.txt' }, '/tmp');
+    expect(loggerWarnCalls.some(m => m.includes('deprecated'))).toBe(false);
+  });
+
+  test('no deprecation warning in strict mode', async () => {
+    testConfig.permissions = { mode: 'strict' };
+    await check('file_read', { file_path: '/tmp/test.txt' }, '/tmp');
+    expect(loggerWarnCalls.some(m => m.includes('deprecated'))).toBe(false);
+  });
+
+  test('legacy mode still produces correct decisions (low risk auto-allowed)', async () => {
+    const result = await check('file_read', { file_path: '/tmp/test.txt' }, '/tmp');
+    expect(result.decision).toBe('allow');
+    expect(result.reason).toContain('Low risk');
+  });
+
+  test('legacy mode still prompts for medium risk', async () => {
+    const result = await check('file_write', { file_path: '/tmp/test.txt' }, '/tmp');
     expect(result.decision).toBe('prompt');
     expect(result.reason).toContain('risk');
   });

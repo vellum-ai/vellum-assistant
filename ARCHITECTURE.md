@@ -1899,7 +1899,7 @@ graph TB
 
 The `permissions.mode` config option (`workspace`, `strict`, or `legacy`) controls the default behavior when no trust rule matches a tool invocation. The default is `workspace`.
 
-| Behavior | Workspace mode (default) | Strict mode | Legacy mode |
+| Behavior | Workspace mode (default) | Strict mode | Legacy mode (deprecated) |
 |---|---|---|---|
 | Workspace-scoped ops with no matching rule | Auto-allowed | Prompted | Auto-allowed (low risk) |
 | Non-workspace low-risk tools with no matching rule | Prompted | Prompted | Auto-allowed |
@@ -1917,7 +1917,7 @@ The `permissions.mode` config option (`workspace`, `strict`, or `legacy`) contro
 
 **Strict mode** is designed for security-conscious deployments where every tool action must have an explicit matching rule in the trust store. It eliminates implicit auto-allow for any risk level, ensuring the user has consciously approved each class of tool usage.
 
-**Legacy mode** auto-allows all low-risk tools regardless of scope. It is deprecated and will be removed in a future release.
+**Legacy mode** (deprecated) auto-allows all low-risk tools regardless of scope. It is deprecated and will be removed in a future release. A one-time runtime warning is emitted when legacy mode is active. Users should migrate to `workspace` (default) or `strict`.
 
 ### Trust Rules (v3 Schema)
 

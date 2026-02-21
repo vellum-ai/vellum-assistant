@@ -5,11 +5,20 @@ import { resolveSkillSelector } from '../config/skills.js';
 import { computeSkillVersionHash } from '../skills/version-hash.js';
 import { getTool } from '../tools/registry.js';
 import { getConfig } from '../config/loader.js';
+import { getLogger } from '../util/logger.js';
 import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
 import { normalizeFilePath, isSkillSourcePath } from '../skills/path-classifier.js';
 import { isWorkspaceScopedInvocation } from './workspace-policy.js';
+
+// Ensures the legacy mode deprecation warning fires at most once per process.
+let _legacyDeprecationWarned = false;
+
+/** @internal — exposed only for tests to reset the one-time warning flag. */
+export function _resetLegacyDeprecationWarning(): void {
+  _legacyDeprecationWarned = false;
+}
 
 // Low-risk shell programs that are read-only / informational
 const LOW_RISK_PROGRAMS = new Set([
@@ -400,6 +409,12 @@ export async function check(
   // agent new capabilities, so in strict mode users must approve each
   // skill load via an exact-version or wildcard trust rule.
   const permissionsMode = getConfig().permissions.mode;
+
+  if (permissionsMode === 'legacy' && !_legacyDeprecationWarned) {
+    _legacyDeprecationWarned = true;
+    getLogger().warn('Permissions mode "legacy" is deprecated and will be removed in a future release. Switch to "workspace" (default) or "strict".');
+  }
+
   if (permissionsMode === 'strict' && !matchedRule) {
     return { decision: 'prompt', reason: `Strict mode: no matching rule, requires approval` };
   }

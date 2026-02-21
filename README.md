@@ -310,7 +310,7 @@ The assistant uses a permission system to control which tool actions the agent c
 |---|---|---|
 | `workspace` | Yes | Workspace-scoped operations (file reads/writes/edits within workspace, sandboxed bash) are auto-allowed without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow. |
 | `strict` | No | Every tool invocation without an explicit matching trust rule prompts the user. No implicit auto-allow for any risk level. |
-| `legacy` | No | Low-risk tools auto-allowed, medium/high prompted. Deprecated in a future release. |
+| `legacy` (deprecated) | No | Low-risk tools auto-allowed, medium/high prompted. **Deprecated — will be removed in a future release.** |
 
 To switch modes:
 
@@ -324,6 +324,8 @@ vellum config set permissions.mode '"strict"'
 # Legacy — low-risk tools auto-allowed, medium/high prompted (deprecated)
 vellum config set permissions.mode '"legacy"'
 ```
+
+> **Note:** Legacy mode is deprecated. If your config uses `permissions.mode: "legacy"`, switch to `workspace` or `strict`. A runtime warning is emitted on first use.
 
 Existing users with `permissions.mode: "strict"` or `permissions.mode: "legacy"` explicitly in their config will continue to use those modes unchanged.
 
