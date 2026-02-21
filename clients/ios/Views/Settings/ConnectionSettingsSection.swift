@@ -99,6 +99,12 @@ struct DaemonConnectionSection: View {
                 } else {
                     _ = APIKeyManager.shared.setAPIKey(sessionToken, provider: "daemon-token")
                 }
+                // Reconnect with the new settings. DaemonClient.connect() re-reads
+                // hostname/port/token from UserDefaults on iOS, so the saved values
+                // above are picked up automatically.
+                Task {
+                    try? await clientProvider.client.connect()
+                }
                 alertMessage = "Daemon connection settings updated"
                 showingAlert = true
             }

@@ -94,13 +94,15 @@ class IOSThreadStore: ObservableObject {
             self?.handleSubagentDetailResponse(response)
         }
 
-        // Fetch session list once connected
-        daemon.$isConnected
-            .removeDuplicates()
-            .filter { $0 }
-            .first()
-            .sink { [weak self] _ in
-                guard self != nil else { return }
+        // Fetch session list once connected. Try immediately if already connected,
+        // otherwise wait for the daemonDidReconnect notification.
+        if daemon.isConnected {
+            try? daemon.sendSessionList()
+        }
+
+        NotificationCenter.default.publisher(for: .daemonDidReconnect)
+            .sink { [weak self, weak daemon] _ in
+                guard let daemon, self != nil else { return }
                 try? daemon.sendSessionList()
             }
             .store(in: &cancellables)

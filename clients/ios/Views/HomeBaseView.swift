@@ -73,16 +73,10 @@ struct HomeBaseView: View {
             }
             .navigationTitle("Home")
         }
-        .task {
-            if clientProvider.isConnected {
+        .task(id: clientProvider.isConnected) {
+            guard clientProvider.isConnected else { return }
+            if viewModel.response == nil {
                 await viewModel.fetch(client: clientProvider.client)
-            }
-        }
-        .onChange(of: clientProvider.isConnected) { _, connected in
-            if connected {
-                Task {
-                    await viewModel.fetch(client: clientProvider.client)
-                }
             }
         }
     }
