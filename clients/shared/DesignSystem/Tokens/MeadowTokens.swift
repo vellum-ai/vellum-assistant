@@ -5,11 +5,11 @@ public enum Meadow {
     // Panel
     public static let panelBackground = adaptiveColor(
         light: Color.white.opacity(0.85),
-        dark: Slate._900.opacity(0.75)
+        dark: Moss._900.opacity(0.75)
     )
     public static let panelBorder = adaptiveColor(
         light: Stone._200.opacity(0.6),
-        dark: Slate._700.opacity(0.4)
+        dark: Moss._700.opacity(0.4)
     )
 
     // Egg glow

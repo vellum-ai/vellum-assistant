@@ -12,7 +12,7 @@ public struct SubagentStatusChip: View {
         switch subagent.status {
         case .completed: return Emerald._500
         case .failed, .aborted: return Danger._500
-        default: return Violet._500
+        default: return Forest._500
         }
     }
 

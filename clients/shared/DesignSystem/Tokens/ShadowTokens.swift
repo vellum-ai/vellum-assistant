@@ -23,7 +23,7 @@ public enum VShadow {
     /// Amber glow effect for brand elements (orb, highlights)
     public static let glow = Definition(color: Amber._500.opacity(0.3), radius: 12, x: 0, y: 0)
 
-    /// Violet glow for accent elements (focused inputs, active buttons)
+    /// Forest glow for accent elements (focused inputs, active buttons)
     public static let accentGlow = Definition(color: Forest._500.opacity(0.3), radius: 8, x: 0, y: 0)
 }
 

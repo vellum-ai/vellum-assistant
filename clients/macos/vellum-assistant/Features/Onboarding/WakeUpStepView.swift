@@ -144,7 +144,7 @@ struct WakeUpStepView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(
             RoundedRectangle(cornerRadius: VRadius.xl)
-                .fill(adaptiveColor(light: Stone._300.opacity(0.3), dark: Slate._800.opacity(0.4)))
+                .fill(adaptiveColor(light: Stone._300.opacity(0.3), dark: Moss._800.opacity(0.4)))
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.xl)
