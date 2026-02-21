@@ -17,6 +17,10 @@ const VALID_MEMORY_ITEM_KINDS = [
   'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style',
 ] as const;
 
+const DEFAULT_CONFLICTABLE_KINDS = [
+  'preference', 'profile', 'constraint', 'instruction', 'style',
+] as const;
+
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
     .number({ error: 'timeouts.shellMaxTimeoutSec must be a number' })
@@ -565,7 +569,7 @@ export const MemoryConflictsConfigSchema = z.object({
       }),
     )
     .nonempty({ message: 'memory.conflicts.conflictableKinds must not be empty' })
-    .default([...VALID_MEMORY_ITEM_KINDS]),
+    .default([...DEFAULT_CONFLICTABLE_KINDS]),
 });
 
 export const MemoryProfileConfigSchema = z.object({
@@ -686,7 +690,7 @@ export const MemoryConfigSchema = z.object({
     resolverLlmTimeoutMs: 12000,
     relevanceThreshold: 0.3,
     askOnIrrelevantTurns: false,
-    conflictableKinds: ['preference', 'profile', 'project', 'decision', 'todo', 'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style'],
+    conflictableKinds: ['preference', 'profile', 'constraint', 'instruction', 'style'],
   }),
   profile: MemoryProfileConfigSchema.default({
     enabled: true,
@@ -1197,7 +1201,7 @@ export const AssistantConfigSchema = z.object({
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
       askOnIrrelevantTurns: false,
-      conflictableKinds: ['preference', 'profile', 'project', 'decision', 'todo', 'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style'],
+      conflictableKinds: ['preference', 'profile', 'constraint', 'instruction', 'style'],
     },
     profile: {
       enabled: true,

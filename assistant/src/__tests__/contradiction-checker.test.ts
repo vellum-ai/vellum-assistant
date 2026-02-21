@@ -52,8 +52,7 @@ mock.module('../util/logger.js', () => ({
 }));
 
 let mockConflictableKinds: string[] = [
-  'preference', 'profile', 'project', 'decision', 'todo',
-  'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style',
+  'preference', 'profile', 'constraint', 'instruction', 'style',
 ];
 
 mock.module('../config/loader.js', () => ({
@@ -78,8 +77,7 @@ beforeAll(() => {
 beforeEach(() => {
   classifyCallCount = 0;
   mockConflictableKinds = [
-    'preference', 'profile', 'project', 'decision', 'todo',
-    'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style',
+    'preference', 'profile', 'constraint', 'instruction', 'style',
   ];
   const db = getDb();
   db.run('DELETE FROM memory_item_conflicts');
@@ -226,6 +224,29 @@ describe('checkContradictions', () => {
 
     expect(classifyCallCount).toBe(0);
     expect(candidate?.status).toBe('active');
+    expect(conflicts).toHaveLength(0);
+  });
+
+  test('project kind ambiguous contradiction does not generate pending conflict with default config', async () => {
+    nextRelationship = 'ambiguous_contradiction';
+    nextExplanation = 'Project items may conflict but are not durable.';
+
+    insertMemoryItem({
+      id: 'item-existing-project',
+      statement: 'The backend uses Node.js.',
+      kind: 'project',
+    });
+    insertMemoryItem({
+      id: 'item-candidate-project',
+      statement: 'The backend uses Deno.',
+      kind: 'project',
+    });
+
+    await checkContradictions('item-candidate-project');
+
+    expect(classifyCallCount).toBe(0);
+    const db = getDb();
+    const conflicts = db.select().from(memoryItemConflicts).all();
     expect(conflicts).toHaveLength(0);
   });
 
