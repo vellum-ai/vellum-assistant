@@ -118,7 +118,13 @@ public struct DaemonConfig {
         // Check for a stored runtime URL — if present, use HTTP transport
         if let runtimeUrl = UserDefaults.standard.string(forKey: "runtime_url"), !runtimeUrl.isEmpty {
             let bearerToken = APIKeyManager.shared.getAPIKey(provider: "runtime-bearer-token")
-            let conversationKey = UserDefaults.standard.string(forKey: "conversation_key") ?? UUID().uuidString
+            let conversationKey: String
+            if let stored = UserDefaults.standard.string(forKey: "conversation_key"), !stored.isEmpty {
+                conversationKey = stored
+            } else {
+                conversationKey = UUID().uuidString
+                UserDefaults.standard.set(conversationKey, forKey: "conversation_key")
+            }
             return DaemonConfig(transport: .http(baseURL: runtimeUrl, bearerToken: bearerToken, conversationKey: conversationKey))
         }
 

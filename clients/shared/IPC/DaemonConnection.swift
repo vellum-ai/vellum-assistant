@@ -203,7 +203,12 @@ extension DaemonClient {
 
     #if os(macOS)
     func authenticate() async throws {
-        guard let token = readSessionToken() else {
+        // Try session-token file first, then fall back to transport's configured authToken
+        let transportToken: String? = {
+            if case .tcp(_, _, _, let t) = config.transport { return t }
+            return nil
+        }()
+        guard let token = readSessionToken() ?? transportToken else {
             throw AuthError.missingToken
         }
 

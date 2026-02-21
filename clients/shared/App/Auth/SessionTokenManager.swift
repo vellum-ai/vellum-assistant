@@ -6,8 +6,10 @@ public extension Notification.Name {
 
 /// Cross-platform session token storage using Keychain via APIKeyManager.
 /// Replaces the macOS-only `/usr/bin/security` CLI approach.
+/// Uses provider "session-token" to match the old keychain account name
+/// so existing macOS users' stored sessions are preserved after upgrade.
 public enum SessionTokenManager {
-    private static let provider = "platform-session-token"
+    private static let provider = "session-token"
 
     public static func getToken() -> String? {
         APIKeyManager.shared.getAPIKey(provider: provider)
