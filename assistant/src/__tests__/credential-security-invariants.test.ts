@@ -189,6 +189,9 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'calls/twilio-provider.ts',       // call infrastructure credential lookup
       'runtime/http-server.ts',         // HTTP server credential lookup
       'daemon/handlers/twitter-auth.ts', // Twitter OAuth token storage
+      'twitter/oauth-client.ts',         // Twitter OAuth API client (reads access token for API calls)
+      'calls/elevenlabs-config.ts',      // ElevenLabs credential lookup
+      'cli/config-commands.ts',          // CLI config management
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
