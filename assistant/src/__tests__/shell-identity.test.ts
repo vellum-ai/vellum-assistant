@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll } from 'bun:test';
-import { analyzeShellCommand, deriveShellActionKeys } from '../permissions/shell-identity.js';
+import { analyzeShellCommand, deriveShellActionKeys, buildShellCommandCandidates } from '../permissions/shell-identity.js';
 import { parse } from '../tools/terminal/parser.js';
 
 describe('analyzeShellCommand', () => {
@@ -127,5 +127,53 @@ describe('deriveShellActionKeys', () => {
       { key: 'action:gh pr', depth: 2 },
       { key: 'action:gh', depth: 1 },
     ]);
+  });
+});
+
+describe('buildShellCommandCandidates', () => {
+  test('raw candidate is always present', async () => {
+    const candidates = await buildShellCommandCandidates('ls -la');
+    expect(candidates[0]).toBe('ls -la');
+  });
+
+  test('simple action adds canonical and action candidates', async () => {
+    const candidates = await buildShellCommandCandidates('cd repo && gh pr view 5525 --json title');
+    expect(candidates[0]).toBe('cd repo && gh pr view 5525 --json title');
+    // Should include the canonical primary command
+    expect(candidates).toContain('gh pr view 5525 --json title');
+    // Should include action keys
+    expect(candidates).toContain('action:gh pr view');
+    expect(candidates).toContain('action:gh pr');
+    expect(candidates).toContain('action:gh');
+  });
+
+  test('complex command returns raw-only', async () => {
+    const candidates = await buildShellCommandCandidates('git add . && git commit -m "fix"');
+    expect(candidates).toEqual(['git add . && git commit -m "fix"']);
+  });
+
+  test('pipeline returns raw-only', async () => {
+    const candidates = await buildShellCommandCandidates('git log | grep fix');
+    expect(candidates).toEqual(['git log | grep fix']);
+  });
+
+  test('candidate order is stable', async () => {
+    const c1 = await buildShellCommandCandidates('npm install express');
+    const c2 = await buildShellCommandCandidates('npm install express');
+    expect(c1).toEqual(c2);
+  });
+
+  test('empty command returns raw', async () => {
+    const candidates = await buildShellCommandCandidates('');
+    expect(candidates).toEqual(['']);
+  });
+
+  test('deduplication preserves order', async () => {
+    // Single command — raw and canonical are the same
+    const candidates = await buildShellCommandCandidates('git status');
+    // raw is 'git status', canonical would also be 'git status' (same segment)
+    // so it should be deduped to just once
+    const gitStatusCount = candidates.filter(c => c === 'git status').length;
+    expect(gitStatusCount).toBe(1);
   });
 });
