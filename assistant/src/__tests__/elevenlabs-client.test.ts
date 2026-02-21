@@ -29,7 +29,6 @@ const DEFAULT_REQUEST: ElevenLabsRegisterCallRequest = {
   direction: 'outbound',
 };
 
-let fetchMock: ReturnType<typeof mock>;
 let originalFetch: typeof globalThis.fetch;
 
 beforeEach(() => {
