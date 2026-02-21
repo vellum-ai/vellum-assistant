@@ -139,7 +139,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     log.info({ callSessionId, callSid }, 'Stored CallSid from voice webhook');
   }
 
-  const profile = resolveVoiceQualityProfile(loadConfig());
+  let profile = resolveVoiceQualityProfile(loadConfig());
 
   log.info({ callSessionId, mode: profile.mode, ttsProvider: profile.ttsProvider, voice: profile.voice }, 'Voice quality profile resolved');
 
@@ -169,6 +169,14 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     }
     log.warn({ callSessionId }, 'elevenlabs_agent mode is restricted/experimental — consultation bridging is not yet supported; falling back to standard ConversationRelay TwiML');
     elevenLabsAgentGuarded = true;
+    const standardConfig = loadConfig();
+    profile = resolveVoiceQualityProfile({
+      ...standardConfig,
+      calls: {
+        ...standardConfig.calls,
+        voice: { ...standardConfig.calls.voice, mode: 'twilio_standard' },
+      },
+    });
   }
 
   const twilioConfig = getTwilioConfig();
