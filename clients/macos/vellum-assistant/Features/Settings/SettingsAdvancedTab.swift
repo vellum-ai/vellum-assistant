@@ -30,6 +30,7 @@ struct SettingsAdvancedTab: View {
             iosDeviceSection
             switchAssistantSection
             retireAssistantSection
+            hatchNewAssistantSection
 
             #if DEBUG
             developerSection
@@ -302,6 +303,37 @@ struct SettingsAdvancedTab: View {
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Hatch New Assistant
+
+    @ViewBuilder
+    private var hatchNewAssistantSection: some View {
+        if FeatureFlagManager.shared.isEnabled(.hatchNewAssistantEnabled) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Hatch New Assistant")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                HStack {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Hatch a new assistant")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Text("Starts the initial setup flow to create a new assistant.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    Spacer()
+                    VButton(label: "Hatch...", style: .primary) {
+                        (NSApp.delegate as? AppDelegate)?.replayOnboarding()
+                        onClose()
+                    }
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+        }
     }
 
     // MARK: - Developer (Debug Only)
