@@ -384,7 +384,7 @@ The runtime HTTP server exposes a Server-Sent Events (SSE) endpoint that streams
 GET /v1/events?conversationKey=<key>
 ```
 
-**Auth**: Bearer token (same rules as other runtime HTTP endpoints). Set via `RUNTIME_HTTP_AUTH_TOKEN` on the server and pass as `Authorization: Bearer <token>` on the client.
+**Auth**: Bearer token (same rules as other runtime HTTP endpoints). The token is read from the `RUNTIME_PROXY_BEARER_TOKEN` environment variable; if unset, the daemon generates a random token and writes it to `~/.vellum/http-token`. Pass it as `Authorization: Bearer <token>` on the client.
 
 **Query params**:
 
@@ -449,16 +449,35 @@ The `message` field is the unchanged IPC `ServerMessage` payload — the same ty
 
 ### Example (JavaScript)
 
+The standard browser `EventSource` API does not support custom request headers, so authenticated connections require `fetch()` with manual SSE stream parsing:
+
 ```js
-const events = new EventSource(
+const TOKEN = '<token>'; // read from ~/.vellum/http-token or RUNTIME_PROXY_BEARER_TOKEN
+const res = await fetch(
   'http://localhost:3001/v1/events?conversationKey=my-conversation',
-  { headers: { Authorization: 'Bearer <token>' } },
+  { headers: { Authorization: `Bearer ${TOKEN}` } },
 );
 
-events.addEventListener('assistant_event', (e) => {
-  const event = JSON.parse(e.data);
-  console.log(event.message.type, event.message);
-});
+const reader = res.body.getReader();
+const decoder = new TextDecoder();
+let buf = '';
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  buf += decoder.decode(value, { stream: true });
+
+  // SSE frames are separated by a blank line (\n\n).
+  const frames = buf.split('\n\n');
+  buf = frames.pop() ?? ''; // keep the incomplete trailing chunk
+
+  for (const frame of frames) {
+    const dataLine = frame.split('\n').find((l) => l.startsWith('data: '));
+    if (!dataLine) continue;
+    const event = JSON.parse(dataLine.slice(6));
+    console.log(event.message.type, event.message);
+  }
+}
 ```
 
 ## Inline Media Embeds

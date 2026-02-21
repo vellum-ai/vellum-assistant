@@ -3776,17 +3776,17 @@ Every event published through the hub is wrapped in an `AssistantEvent` (defined
 ### SSE Frame Format
 
 ```
-event: assistant_event\r\n
-id: <uuid>\r\n
-data: <JSON-serialised AssistantEvent>\r\n
-\r\n
+event: assistant_event\n
+id: <uuid>\n
+data: <JSON-serialised AssistantEvent>\n
+\n
 ```
 
 Keep-alive heartbeats (every 30 s by default):
 
 ```
-: heartbeat\r\n
-\r\n
+: heartbeat\n
+\n
 ```
 
 ### Subscription Lifecycle
