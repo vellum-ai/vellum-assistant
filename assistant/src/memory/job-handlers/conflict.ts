@@ -6,9 +6,10 @@ import {
   looksLikeClarificationReply,
   shouldAttemptConflictResolution,
 } from '../conflict-intent.js';
+import { isConflictKindPairEligible, isStatementConflictEligible } from '../conflict-policy.js';
 import { getDb } from '../db.js';
 import { resolveConflictClarification } from '../clarification-resolver.js';
-import { applyConflictResolution, listPendingConflictDetails } from '../conflict-store.js';
+import { applyConflictResolution, listPendingConflictDetails, resolveConflict } from '../conflict-store.js';
 import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
 import { asPositiveMs, asString } from '../job-utils.js';
 import { extractTextFromStoredMessageContent } from '../message-content.js';
@@ -43,7 +44,26 @@ export async function resolvePendingConflictsForMessageJob(job: MemoryJob, confi
   if (!clarificationReply) return;
 
   const pending = listPendingConflictDetails(scopeId, 25);
-  const eligible = pending.filter((conflict) => conflict.createdAt <= message.createdAt);
+
+  // Dismiss non-actionable conflicts (kind or statement policy)
+  const conflictableKinds = config.memory.conflicts.conflictableKinds;
+  for (const conflict of pending) {
+    const kindEligible = isConflictKindPairEligible(
+      conflict.existingKind, conflict.candidateKind, { conflictableKinds },
+    );
+    if (!kindEligible
+      || !isStatementConflictEligible(conflict.existingKind, conflict.existingStatement)
+      || !isStatementConflictEligible(conflict.candidateKind, conflict.candidateStatement)) {
+      resolveConflict(conflict.id, {
+        status: 'dismissed',
+        resolutionNote: 'Dismissed by conflict policy (transient/non-durable).',
+      });
+    }
+  }
+
+  // Re-fetch after dismissal
+  const actionablePending = listPendingConflictDetails(scopeId, 25);
+  const eligible = actionablePending.filter((conflict) => conflict.createdAt <= message.createdAt);
   if (eligible.length === 0) return;
   const candidates = eligible.filter((conflict) => {
     const askedAt = conflict.lastAskedAt;
