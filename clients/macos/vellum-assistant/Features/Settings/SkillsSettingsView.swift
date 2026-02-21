@@ -303,21 +303,17 @@ struct SkillsSettingsView: View {
         .onAppear {
             viewModel.loadSkills()
         }
-        .alert("Delete Skill", isPresented: Binding(
-            get: { skillToDelete != nil },
-            set: { if !$0 { skillToDelete = nil } }
-        )) {
-            Button("Cancel", role: .cancel) { skillToDelete = nil }
-            Button("Delete", role: .destructive) {
-                if let skill = skillToDelete {
+        .sheet(item: $skillToDelete) { skill in
+            SkillDeleteConfirmView(
+                skillName: skill.name,
+                onDelete: {
                     viewModel.uninstallSkill(id: skill.id)
                     skillToDelete = nil
+                },
+                onCancel: {
+                    skillToDelete = nil
                 }
-            }
-        } message: {
-            if let skill = skillToDelete {
-                Text("Are you sure you want to delete \"\(skill.name)\"? This will remove it from ~/.vellum/workspace/skills/.")
-            }
+            )
         }
         .sheet(item: $inspectingSkill) { skill in
             SkillInspectSheet(
