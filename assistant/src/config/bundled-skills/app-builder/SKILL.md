@@ -1347,6 +1347,45 @@ Every app should include: search/filter, toast notifications for all CRUD operat
 - If the page loads with no data, show a designed empty state (`.v-empty-state`) — never a blank screen.
 - For forms, show validation errors inline next to the relevant field, not as an alert.
 
+## Actionable UI
+
+When the user wants to triage, manage, or bulk-act on a collection of items (emails, files, notifications, tasks, subscriptions, contacts), generate an interactive UI that lets them review, select, and act on items directly.
+
+### Pattern
+1. **Fetch data** — use the relevant tools to gather the items
+2. **Generate interactive UI** — render a `dynamic_page` with selectable items and action buttons
+3. **User selects + clicks action** — the UI sends a `surfaceAction` with an action ID and selected item IDs
+4. **Execute tools** — parse the action, call the appropriate tools
+5. **Update UI** — use `ui_update` to remove processed items and show feedback via `widgets.toast()`
+
+### HTML structure
+Choose the best layout for the data: grouped cards with checkboxes, data tables with selectable rows, kanban columns, stacked list items with inline actions, or any creative layout. The key constraint: items must be selectable and action buttons must call `sendAction` with the selected item IDs.
+
+### CSS building blocks
+- `.v-action-bar` — sticky bar at top, auto-hidden when nothing selected. Contains `.v-action-bar-count` and `.v-action-bar-buttons`
+- `.v-action-progress` — inline progress bar for bulk operations
+- `.v-group-header` / `.v-group-body` — collapsible grouped sections
+- `.v-row-removing` — fade-out + slide animation for processed items
+
+### Action data conventions
+- Use semantic action IDs: `archive`, `unsubscribe`, `delete`, `move`, `mark_read`
+- Always include selected item IDs: `sendAction("archive", { ids: ["msg_1", "msg_2"] })`
+
+### Processing flow
+1. Parse the `surfaceAction` to get the action ID and data
+2. Use `vellum.confirm(title, message)` for destructive actions before executing
+3. Call the relevant tools with the item IDs
+4. Use `ui_update` to remove processed items and update counts
+5. Show `widgets.toast()` for feedback
+
+### Error handling
+- Handle partial failures: remove successful items, toast count, keep failed items selectable for retry
+
+### Surface lifecycle
+- Use `ui_show` with `display: "panel"` to keep the surface open alongside chat
+- Use `widgets.groupedSelect()` for grouped multi-select with action bar
+- Use `widgets.removeItems()` to animate processed items out
+
 ## Home Base
 
 Home Base starts from a prebuilt scaffold. When updating Home Base, preserve required task-lane anchors and apply changes through `app_file_edit` or `app_file_write`.
