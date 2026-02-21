@@ -11,6 +11,7 @@ import { homedir } from 'node:os';
 import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
 import { normalizeFilePath, isSkillSourcePath } from '../skills/path-classifier.js';
 import { isWorkspaceScopedInvocation } from './workspace-policy.js';
+import { buildShellCommandCandidates } from './shell-identity.js';
 
 // Ensures the legacy mode deprecation warning fires at most once per process.
 let _legacyDeprecationWarned = false;
@@ -153,9 +154,9 @@ function escapeMinimatchLiteral(value: string): string {
   return value.replace(/([\\*?[\]{}()!+@|])/g, '\\$1');
 }
 
-function buildCommandCandidates(toolName: string, input: Record<string, unknown>, workingDir: string): string[] {
+async function buildCommandCandidates(toolName: string, input: Record<string, unknown>, workingDir: string): Promise<string[]> {
   if (toolName === 'bash' || toolName === 'host_bash') {
-    return [getStringField(input, 'command')];
+    return buildShellCommandCandidates(getStringField(input, 'command'));
   }
 
   if (toolName === 'skill_load') {
@@ -354,7 +355,7 @@ export async function check(
   const risk = await classifyRisk(toolName, input, workingDir);
 
   // Build command string candidates for rule matching
-  const commandCandidates = buildCommandCandidates(toolName, input, workingDir);
+  const commandCandidates = await buildCommandCandidates(toolName, input, workingDir);
 
   // Find the highest-priority matching rule across all candidates
   const matchedRule = findHighestPriorityRule(toolName, commandCandidates, workingDir, policyContext);

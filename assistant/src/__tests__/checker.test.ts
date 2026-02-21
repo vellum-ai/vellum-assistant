@@ -4161,3 +4161,38 @@ describe('legacy mode — deprecation warning', () => {
     expect(result.reason).toContain('risk');
   });
 });
+
+describe('shell command candidates wiring (PR 04)', () => {
+  test('existing raw shell rule still matches', async () => {
+    clearCache();
+    addRule('bash', 'git status', 'everywhere');
+    const result = await check('bash', { command: 'git status' }, '/tmp');
+    expect(result.decision).toBe('allow');
+    expect(result.matchedRule).toBeDefined();
+  });
+
+  test('action key rule matches simple shell command', async () => {
+    clearCache();
+    addRule('bash', 'action:gh pr view', 'everywhere');
+    const result = await check('bash', { command: 'gh pr view 5525 --json title' }, '/tmp');
+    expect(result.decision).toBe('allow');
+    expect(result.matchedRule).toBeDefined();
+  });
+
+  test('action key rule does not match complex chain with additional action', async () => {
+    // Disable sandbox so the default allow-bash-global rule is not emitted;
+    // otherwise the catch-all "**" pattern auto-allows every bash command.
+    testConfig.sandbox.enabled = false;
+    clearCache();
+    try {
+      addRule('bash', 'action:gh pr view', 'everywhere');
+      // Multi-action chain should NOT match because it's not a simple action
+      const result = await check('bash', { command: 'gh pr view 123 && rm -rf /' }, '/tmp');
+      // Should still prompt because the action key candidate isn't generated for complex chains
+      expect(result.decision).toBe('prompt');
+    } finally {
+      testConfig.sandbox.enabled = true;
+      clearCache();
+    }
+  });
+});
