@@ -898,14 +898,7 @@ async function discoverPublicUrl(): Promise<string | undefined> {
   return undefined;
 }
 
-async function hatchLocal(species: Species, name: string | null, daemonOnly: boolean = false): Promise<void> {
-  const instanceName =
-    name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
-
-  console.log(`🥚 Hatching local assistant: ${instanceName}`);
-  console.log(`   Species: ${species}`);
-  console.log("");
-
+export async function startLocalDaemon(): Promise<void> {
   if (process.env.VELLUM_DESKTOP_APP) {
     // When running inside the desktop app, the CLI owns the daemon lifecycle.
     // Find the vellum-daemon binary adjacent to the CLI binary.
@@ -1052,6 +1045,54 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
       child.on("error", reject);
     });
   }
+}
+
+export async function startGateway(): Promise<string> {
+  const publicUrl = await discoverPublicUrl();
+  if (publicUrl) {
+    console.log(`   Public URL: ${publicUrl}`);
+  }
+
+  console.log("🌐 Starting gateway...");
+  const gatewayDir = resolveGatewayDir();
+  const gatewayEnv: Record<string, string> = {
+    ...process.env as Record<string, string>,
+    GATEWAY_RUNTIME_PROXY_ENABLED: "true",
+    GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
+  };
+  const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl();
+  const ingressPublicBaseUrl =
+    workspaceIngressPublicBaseUrl
+    ?? normalizeIngressUrl(process.env.INGRESS_PUBLIC_BASE_URL);
+  if (ingressPublicBaseUrl) {
+    gatewayEnv.INGRESS_PUBLIC_BASE_URL = ingressPublicBaseUrl;
+    console.log(`   Ingress URL: ${ingressPublicBaseUrl}`);
+    if (!workspaceIngressPublicBaseUrl) {
+      console.log("   (using INGRESS_PUBLIC_BASE_URL env fallback)");
+    }
+  }
+  if (publicUrl) gatewayEnv.GATEWAY_PUBLIC_URL = publicUrl;
+
+  const gateway = spawn("bun", ["run", "src/index.ts"], {
+    cwd: gatewayDir,
+    detached: true,
+    stdio: "ignore",
+    env: gatewayEnv,
+  });
+  gateway.unref();
+  console.log("✅ Gateway started\n");
+  return publicUrl || `http://localhost:${GATEWAY_PORT}`;
+}
+
+async function hatchLocal(species: Species, name: string | null, daemonOnly: boolean = false): Promise<void> {
+  const instanceName =
+    name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
+
+  console.log(`🥚 Hatching local assistant: ${instanceName}`);
+  console.log(`   Species: ${species}`);
+  console.log("");
+
+  await startLocalDaemon();
 
   // The desktop app communicates with the daemon directly via Unix socket,
   // so the HTTP gateway is only needed for non-desktop (CLI) usage.
@@ -1061,40 +1102,7 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
     // No gateway needed — the macOS app uses DaemonClient over the Unix socket.
     runtimeUrl = "local";
   } else {
-    const publicUrl = await discoverPublicUrl();
-    if (publicUrl) {
-      console.log(`   Public URL: ${publicUrl}`);
-    }
-
-    console.log("🌐 Starting gateway...");
-    const gatewayDir = resolveGatewayDir();
-    const gatewayEnv: Record<string, string> = {
-      ...process.env as Record<string, string>,
-      GATEWAY_RUNTIME_PROXY_ENABLED: "true",
-      GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
-    };
-    const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl();
-    const ingressPublicBaseUrl =
-      workspaceIngressPublicBaseUrl
-      ?? normalizeIngressUrl(process.env.INGRESS_PUBLIC_BASE_URL);
-    if (ingressPublicBaseUrl) {
-      gatewayEnv.INGRESS_PUBLIC_BASE_URL = ingressPublicBaseUrl;
-      console.log(`   Ingress URL: ${ingressPublicBaseUrl}`);
-      if (!workspaceIngressPublicBaseUrl) {
-        console.log("   (using INGRESS_PUBLIC_BASE_URL env fallback)");
-      }
-    }
-    if (publicUrl) gatewayEnv.GATEWAY_PUBLIC_URL = publicUrl;
-
-    const gateway = spawn("bun", ["run", "src/index.ts"], {
-      cwd: gatewayDir,
-      detached: true,
-      stdio: "ignore",
-      env: gatewayEnv,
-    });
-    gateway.unref();
-    console.log("✅ Gateway started\n");
-    runtimeUrl = publicUrl || `http://localhost:${GATEWAY_PORT}`;
+    runtimeUrl = await startGateway();
   }
 
   const baseDataDir = join(process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? userInfo().homedir), ".vellum");

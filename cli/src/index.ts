@@ -4,12 +4,14 @@ import { hatch } from "./commands/hatch";
 import { ps } from "./commands/ps";
 import { retire } from "./commands/retire";
 import { sleep } from "./commands/sleep";
+import { wake } from "./commands/wake";
 
 const commands = {
   hatch,
   ps,
   retire,
   sleep,
+  wake,
 } as const;
 
 type CommandName = keyof typeof commands;
@@ -26,6 +28,7 @@ async function main() {
     console.log("  ps       List assistants and their health status");
     console.log("  retire   Delete an assistant instance");
     console.log("  sleep    Stop the daemon process");
+    console.log("  wake     Start the daemon and gateway");
     process.exit(0);
   }
 
