@@ -34,6 +34,11 @@ public final class AuthManager {
         return false
     }
 
+    public var isLoading: Bool {
+        if case .loading = state { return true }
+        return false
+    }
+
     public var currentUser: AllauthUser? {
         if case .authenticated(let user) = state { return user }
         return nil

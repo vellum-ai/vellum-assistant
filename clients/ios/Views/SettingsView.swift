@@ -47,7 +47,13 @@ struct AccountSection: View {
 
     var body: some View {
         Section("Account") {
-            if let user = authManager.currentUser {
+            if authManager.isLoading {
+                HStack {
+                    Text("Checking session...")
+                    Spacer()
+                    ProgressView()
+                }
+            } else if let user = authManager.currentUser {
                 if let email = user.email {
                     LabeledContent("Email", value: email)
                 }
