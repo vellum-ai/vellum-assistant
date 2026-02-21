@@ -5,13 +5,13 @@
  * `RUNTIME_HTTP_PORT` is set (default: disabled).
  */
 
-import { existsSync, readFileSync, statfsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, statfsSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
-import { getWorkspacePromptPath } from '../util/platform.js';
+import { getWorkspacePromptPath, getRootDir } from '../util/platform.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import { loadConfig } from '../config/loader.js';
 import { getPublicBaseUrl } from '../inbound/public-ingress-urls.js';
@@ -961,6 +961,47 @@ export class RuntimeHttpServer {
       // ignore
     }
 
+    // Read createdAt from IDENTITY.md file birthtime
+    let createdAt: string | undefined;
+    try {
+      const stats = statSync(identityPath);
+      createdAt = stats.birthtime.toISOString();
+    } catch {
+      // ignore
+    }
+
+    // Read lockfile for assistantId, cloud, and originSystem
+    let assistantId: string | undefined;
+    let cloud: string | undefined;
+    let originSystem: string | undefined;
+    try {
+      const homedir = process.env.HOME ?? process.env.USERPROFILE ?? '';
+      const lockfilePaths = [
+        join(homedir, '.vellum.lock.json'),
+        join(homedir, '.vellum.lockfile.json'),
+      ];
+      for (const lockPath of lockfilePaths) {
+        if (!existsSync(lockPath)) continue;
+        const lockData = JSON.parse(readFileSync(lockPath, 'utf-8'));
+        const assistants = lockData.assistants as Array<Record<string, unknown>> | undefined;
+        if (assistants && assistants.length > 0) {
+          // Use the most recently hatched assistant
+          const sorted = [...assistants].sort((a, b) => {
+            const dateA = new Date(a.hatchedAt as string || 0).getTime();
+            const dateB = new Date(b.hatchedAt as string || 0).getTime();
+            return dateB - dateA;
+          });
+          const latest = sorted[0];
+          assistantId = latest.assistantId as string | undefined;
+          cloud = latest.cloud as string | undefined;
+          originSystem = cloud === 'local' ? 'local' : cloud;
+        }
+        break;
+      }
+    } catch {
+      // ignore — lockfile may not exist
+    }
+
     return Response.json({
       name: fields.name ?? '',
       role: fields.role ?? '',
@@ -968,6 +1009,9 @@ export class RuntimeHttpServer {
       emoji: fields.emoji ?? '',
       home: fields.home ?? '',
       version,
+      assistantId,
+      createdAt,
+      originSystem,
     });
   }
 

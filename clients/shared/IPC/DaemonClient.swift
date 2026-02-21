@@ -928,10 +928,33 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Remote Identity
 
-    /// Fetch identity info from the remote daemon. Returns nil for local (socket) transports.
+    /// Fetch identity info from the daemon's `GET /v1/identity` endpoint.
     #if os(macOS)
     public func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
         return await httpTransport?.fetchRemoteIdentity()
+    }
+    #elseif os(iOS)
+    /// On iOS, constructs the HTTP URL from the daemon config hostname and the
+    /// runtime HTTP port (received via `daemon_status` IPC message).
+    public func fetchRemoteIdentity() async -> RemoteIdentityInfo? {
+        guard let httpPort else { return nil }
+        let scheme = config.tlsEnabled ? "https" : "http"
+        let urlString = "\(scheme)://\(config.hostname):\(httpPort)/v1/identity"
+        guard let url = URL(string: urlString) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        if let token = config.authToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            return try? JSONDecoder().decode(RemoteIdentityInfo.self, from: data)
+        } catch {
+            return nil
+        }
     }
     #endif
 
