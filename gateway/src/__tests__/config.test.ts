@@ -29,6 +29,7 @@ function withEnv(overrides: Record<string, string | undefined>, fn: () => void) 
     "GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES",
     "GATEWAY_MAX_ATTACHMENT_BYTES",
     "GATEWAY_MAX_ATTACHMENT_CONCURRENCY",
+    "GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS",
     "VELLUM_HTTP_TOKEN_PATH",
   ];
 

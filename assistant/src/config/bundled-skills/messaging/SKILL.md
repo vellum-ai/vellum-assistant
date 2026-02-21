@@ -47,7 +47,7 @@ The telegram-setup skill handles: verifying the bot token from @BotFather, gener
 
 ## Capabilities
 
-### Universal (all platforms)
+### Universal (Slack, Gmail)
 - **Auth Test**: Verify connection and show account info
 - **List Conversations**: Show channels, inboxes, DMs with unread counts
 - **Read Messages**: Read message history from a conversation
@@ -55,6 +55,21 @@ The telegram-setup skill handles: verifying the bot token from @BotFather, gener
 - **Send**: Send a message (high risk — requires user approval)
 - **Reply**: Reply in a thread (medium risk)
 - **Mark Read**: Mark conversation as read
+
+### Telegram
+Telegram is supported as a messaging provider with limited capabilities compared to Slack and Gmail due to Bot API constraints:
+
+- **Send**: Send a message to a known chat ID (high risk — requires user approval)
+- **Auth Test**: Verify bot token and show bot info
+
+**Not available** (Bot API limitations):
+- List conversations — the Bot API does not expose a method to enumerate chats a bot belongs to
+- Read message history — bots cannot retrieve past messages from a chat
+- Search messages — no search API is available for bots
+
+**Bot-account limits:**
+- The bot can only message users or groups that have previously interacted with it (sent `/start` or been added to a group). Bots cannot initiate conversations with arbitrary phone numbers.
+- Future support for MTProto user-account sessions may lift some of these restrictions.
 
 ### Slack-specific
 - **Add Reaction**: Add an emoji reaction to a message

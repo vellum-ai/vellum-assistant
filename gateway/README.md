@@ -47,6 +47,7 @@ bun run dev
 | `GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES` | No | `1048576` | Max inbound webhook payload size (rejects with 413) |
 | `GATEWAY_MAX_ATTACHMENT_BYTES` | No | `20971520` | Max single attachment size (oversized are skipped) |
 | `GATEWAY_MAX_ATTACHMENT_CONCURRENCY` | No | `3` | Max concurrent attachment download/upload operations |
+| `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS` | No | `false` | Dev-only: skip bearer auth on `/deliver/telegram` when no token is configured |
 
 ## Routing
 
@@ -67,12 +68,27 @@ v1 uses deterministic settings-based routing (no database):
 
 ## Setting up the Telegram webhook
 
-After deploying the gateway, register the webhook with Telegram using the `setWebhook` API method. Pass:
+Webhook registration is now handled automatically by the gateway. On startup, the gateway reconciles the Telegram webhook by comparing the current registration against `${INGRESS_PUBLIC_BASE_URL}/webhooks/telegram`. If the URL, secret, or allowed updates differ, the gateway re-registers the webhook automatically. This also runs whenever credentials change (e.g., tunnel restart, secret rotation).
+
+For manual setup (or reference), register the webhook with Telegram using the `setWebhook` API method. Pass:
 - `url` — your gateway URL, e.g. `https://your-host/webhooks/telegram`
 - The verify value matching your `TELEGRAM_WEBHOOK_SECRET` env var
 - `allowed_updates` — `["message", "edited_message"]`
 
 See the [Telegram Bot API docs](https://core.telegram.org/bots/api#setwebhook) for the full API reference.
+
+## Telegram Deliver Endpoint Security
+
+The `/deliver/telegram` endpoint requires bearer auth by default (fail-closed). The security behavior is:
+
+| Condition | Result |
+|-----------|--------|
+| Bearer token configured + valid `Authorization` header | Request allowed |
+| Bearer token configured + missing/invalid `Authorization` header | 401 Unauthorized |
+| No bearer token configured + `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS=true` | Request allowed (dev-only) |
+| No bearer token configured + bypass not set | 503 Service Not Configured |
+
+This ensures that misconfiguration cannot expose an unauthenticated public message-send surface. In production, always configure `RUNTIME_PROXY_BEARER_TOKEN`. The `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS` flag is intended for local development only.
 
 ## Public Ingress Routes
 

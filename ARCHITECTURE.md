@@ -3432,6 +3432,43 @@ All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-
 | `getOAuthCallbackUrl()` | `${base}/webhooks/oauth/callback` |
 | `getTelegramWebhookUrl()` | `${base}/webhooks/telegram` |
 
+### Telegram Messaging Flow
+
+Telegram messages follow three paths through the system:
+
+```
+Inbound (user → assistant):
+  Telegram → Gateway POST /webhooks/telegram → verify secret → normalize → route
+    → Runtime POST /v1/assistants/:id/channels/inbound
+
+Outbound reply (assistant → user, triggered by inbound):
+  Runtime callback → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage/sendPhoto/sendDocument
+
+Outbound proactive (assistant → user, initiated by messaging provider):
+  Runtime messaging provider → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage
+```
+
+The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-closed). If no bearer token is configured and the dev-only bypass flag (`GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS`) is not set, the endpoint returns 503 rather than allowing unauthenticated access.
+
+### Webhook Reconciliation
+
+On startup, the gateway automatically reconciles the Telegram webhook registration:
+
+1. Reads `INGRESS_PUBLIC_BASE_URL` and Telegram credentials (bot token, webhook secret)
+2. Calls `getWebhookInfo` to check the current registration
+3. Compares the URL, secret, and allowed updates against the expected values
+4. If any differ, calls `setWebhook` to update the registration
+
+This also runs when the credential watcher detects changes to Telegram credentials. Manual webhook registration is no longer required.
+
+### Routing Auto-Configuration
+
+In single-assistant mode (the default local deployment), routing is automatically configured by the CLI:
+- `GATEWAY_UNMAPPED_POLICY=default` is set so all inbound messages are forwarded
+- `GATEWAY_DEFAULT_ASSISTANT_ID` is set to the current assistant's ID
+
+In multi-assistant mode, the operator must configure `GATEWAY_ASSISTANT_ROUTING_JSON` to map specific chat/user IDs to assistant IDs.
+
 ---
 
 ## Outgoing AI Phone Calls — Twilio ConversationRelay
