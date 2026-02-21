@@ -120,15 +120,15 @@ export async function resolveCallerIdentity(
 
   if (identityConfig.userNumber) {
     userNumber = identityConfig.userNumber;
-    numberSource = source === 'per_call_override' ? source : 'user_config';
+    numberSource = 'user_config';
   } else if (process.env.TWILIO_USER_PHONE_NUMBER) {
     userNumber = process.env.TWILIO_USER_PHONE_NUMBER;
-    numberSource = source === 'per_call_override' ? source : 'env_var';
+    numberSource = 'env_var';
   } else {
     const secureKeyValue = getSecureKey('credential:twilio:user_phone_number');
     if (secureKeyValue) {
       userNumber = secureKeyValue;
-      numberSource = source === 'per_call_override' ? source : 'secure_key';
+      numberSource = 'secure_key';
     }
   }
 
