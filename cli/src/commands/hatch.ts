@@ -566,6 +566,8 @@ async function hatchGcp(
         `--metadata-from-file=startup-script=${startupScriptPath}`,
         `--labels=species=${species},vellum-assistant=true`,
         "--tags=vellum-assistant",
+        "--no-service-account",
+        "--no-scopes",
       ];
       if (account) createArgs.push(`--account=${account}`);
       await exec("gcloud", createArgs);
