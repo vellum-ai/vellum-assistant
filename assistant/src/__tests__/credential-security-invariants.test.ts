@@ -186,8 +186,10 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'tools/network/script-proxy/session-manager.ts', // proxy credential injection at runtime
       'messaging/registry.ts',          // checks stored credentials for connected providers
       'calls/call-domain.ts',            // caller identity resolution (user phone number lookup)
+      'calls/elevenlabs-config.ts',     // ElevenLabs voice quality API key lookup
       'calls/twilio-config.ts',         // call infrastructure credential lookup
       'calls/twilio-provider.ts',       // call infrastructure credential lookup
+      'cli/config-commands.ts',         // CLI credential management commands
       'runtime/http-server.ts',         // HTTP server credential lookup
       'daemon/handlers/twitter-auth.ts', // Twitter OAuth token storage
       'messaging/providers/telegram-bot/adapter.ts', // Telegram bot token lookup for connectivity check
