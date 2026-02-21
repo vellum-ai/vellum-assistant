@@ -3721,6 +3721,95 @@ flowchart TD
 
 ---
 
+## Assistant Events — SSE Transport Layer
+
+The assistant-events system provides a single, shared publish path that fans out to both the Unix socket IPC layer (native clients) and an HTTP SSE endpoint (web/remote clients). There is no separate message schema for SSE — the `ServerMessage` payload is wrapped in an `AssistantEvent` envelope and serialised as JSON.
+
+### Data Flow
+
+```mermaid
+graph TB
+    subgraph "Event Sources"
+        direction TB
+        IPC_DAEMON["Daemon IPC send paths<br/>(session_notifiers.ts)"]
+        HTTP_RUN["HTTP Run path<br/>(run-orchestrator.ts)"]
+    end
+
+    subgraph "Event Bus"
+        HUB["AssistantEventHub<br/>(assistant-event-hub.ts)<br/>──────────────────────<br/>maxSubscribers: 100<br/>FIFO eviction on overflow<br/>Synchronous fan-out"]
+    end
+
+    subgraph "Transports"
+        SSE_ROUTE["SSE Route<br/>GET /v1/events?conversationKey=...<br/>(events-routes.ts)<br/>──────────────────────<br/>ReadableStream + CountQueuingStrategy(16)<br/>Heartbeat every 30 s<br/>Slow-consumer shed"]
+        SOCK["Unix Socket<br/>(daemon/session-surfaces.ts)"]
+    end
+
+    subgraph "Clients"
+        MACOS["macOS App<br/>(DaemonClient / ServerMessage)"]
+        IOS["iOS App<br/>(DaemonClient / ServerMessage)"]
+        WEB["Web / Remote clients<br/>(EventSource / fetch)"]
+    end
+
+    IPC_DAEMON -->|"buildAssistantEvent()"| HUB
+    HTTP_RUN -->|"buildAssistantEvent()"| HUB
+    IPC_DAEMON --> SOCK
+
+    HUB -->|"subscriber callback"| SSE_ROUTE
+
+    SOCK --> MACOS
+    SOCK --> IOS
+    SSE_ROUTE --> WEB
+```
+
+### AssistantEvent Envelope
+
+Every event published through the hub is wrapped in an `AssistantEvent` (defined in `runtime/assistant-event.ts`):
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` (UUID) | Globally unique event identifier |
+| `assistantId` | `string` | Logical assistant identifier (`"self"` for HTTP runs) |
+| `sessionId` | `string?` | Resolved conversation ID when available |
+| `emittedAt` | `string` (ISO-8601) | Server-side timestamp |
+| `message` | `ServerMessage` | Unchanged IPC outbound message — no schema fork |
+
+### SSE Frame Format
+
+```
+event: assistant_event\r\n
+id: <uuid>\r\n
+data: <JSON-serialised AssistantEvent>\r\n
+\r\n
+```
+
+Keep-alive heartbeats (every 30 s by default):
+
+```
+: heartbeat\r\n
+\r\n
+```
+
+### Subscription Lifecycle
+
+| Event | Action |
+|---|---|
+| `GET /v1/events` received | Hub subscribes eagerly before `ReadableStream` is created |
+| Client disconnects / aborts | `req.signal` abort listener disposes subscription and closes stream |
+| Client cancels reader | `ReadableStream.cancel()` disposes subscription and closes stream |
+| New connection pushes over cap (100) | Oldest subscriber evicted (FIFO); its `onEvict` callback closes its stream |
+| Client buffer full (16 queued frames) | `desiredSize <= 0` guard sheds the subscriber immediately |
+
+### Key Source Files
+
+| File | Role |
+|---|---|
+| `assistant/src/runtime/assistant-event.ts` | `AssistantEvent` type, `buildAssistantEvent()` factory, SSE framing helpers |
+| `assistant/src/runtime/assistant-event-hub.ts` | `AssistantEventHub` class and process-level singleton |
+| `assistant/src/runtime/routes/events-routes.ts` | `handleSubscribeAssistantEvents()` — SSE route handler |
+| `assistant/src/daemon/session-notifiers.ts` | IPC send paths that publish to the hub |
+
+---
+
 ## Storage Summary
 
 | What | Where | Format | ORM/Driver | Retention |

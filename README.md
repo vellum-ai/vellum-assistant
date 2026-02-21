@@ -374,6 +374,93 @@ The assistant creates attachments from two sources:
 
 Limits: up to 5 attachments per turn, 20 MB each.
 
+## Assistant Events SSE Stream
+
+The runtime HTTP server exposes a Server-Sent Events (SSE) endpoint that streams real-time assistant events for a specific conversation. This provides a transport-agnostic alternative to the Unix socket IPC for HTTP clients (web apps, remote integrations, etc.).
+
+### Endpoint
+
+```
+GET /v1/events?conversationKey=<key>
+```
+
+**Auth**: Bearer token (same rules as other runtime HTTP endpoints). Set via `RUNTIME_HTTP_AUTH_TOKEN` on the server and pass as `Authorization: Bearer <token>` on the client.
+
+**Query params**:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `conversationKey` | Yes | Stable, client-chosen key that maps to a conversation. Same key used for `POST /v1/assistants/:id/runs`. |
+
+**Response**: `200 OK` with `Content-Type: text/event-stream`. Each frame is a standard SSE event:
+
+```
+event: assistant_event
+id: <uuid>
+data: {"id":"...","assistantId":"self","sessionId":"conv_xxx","emittedAt":"2026-02-21T12:00:00.000Z","message":{...}}
+
+```
+
+Keep-alive heartbeat comments are emitted every 30 seconds to prevent proxy timeouts:
+
+```
+: heartbeat
+
+```
+
+### Event Payload
+
+Each `data` field is a JSON-serialized `AssistantEvent`:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "assistantId": "self",
+  "sessionId": "conv_abc123",
+  "emittedAt": "2026-02-21T12:00:00.000Z",
+  "message": {
+    "type": "assistant_text_delta",
+    "sessionId": "conv_abc123",
+    "text": "Working on it..."
+  }
+}
+```
+
+The `message` field is the unchanged IPC `ServerMessage` payload — the same types sent over the Unix socket to native clients. All delta semantics are preserved:
+
+| Message type | Description |
+|---|---|
+| `assistant_text_delta` | Incremental text token from the model |
+| `assistant_thinking_delta` | Incremental thinking/reasoning token |
+| `tool_use` | Tool invocation starting |
+| `tool_input_delta` | Streaming tool input chunk |
+| `tool_output_chunk` | Streaming tool output chunk |
+| `tool_result` | Tool execution result |
+| `message_complete` | Turn complete; full message + attachments included |
+| `confirmation_request` | User approval needed before an action executes |
+| `generation_handoff` | Model handed off to a sub-agent |
+| `generation_cancelled` | Run was cancelled |
+
+### Connection Management
+
+- **Capacity**: Up to 100 concurrent SSE connections are maintained. When the cap is reached the **oldest** connection is evicted (stream closed) to make room for the new one.
+- **Slow consumers**: If a client's receive buffer fills (16 events queued, unread), the connection is closed.
+- **Disconnect cleanup**: Closing the browser tab, cancelling the reader, or aborting the request all dispose the subscription deterministically.
+
+### Example (JavaScript)
+
+```js
+const events = new EventSource(
+  'http://localhost:3001/v1/events?conversationKey=my-conversation',
+  { headers: { Authorization: 'Bearer <token>' } },
+);
+
+events.addEventListener('assistant_event', (e) => {
+  const event = JSON.parse(e.data);
+  console.log(event.message.type, event.message);
+});
+```
+
 ## Inline Media Embeds
 
 The desktop app automatically renders inline previews for images and video URLs that appear in chat messages. Instead of showing a bare link, recognized URLs are replaced with an embedded preview directly in the conversation.
