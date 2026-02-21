@@ -8,31 +8,6 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
 
-/// Writes `~/.vellum/workspace/IDENTITY.md` with the assistant's chosen name so the
-/// daemon's system prompt includes the correct identity.
-func writeVellumIdentityFile(name: String) {
-    let vellumDir = NSHomeDirectory() + "/.vellum/workspace"
-    let identityPath = vellumDir + "/IDENTITY.md"
-    let content = """
-    # IDENTITY
-
-    - **Name:** \(name)
-    - **Role:** Personal AI assistant
-    """
-
-    do {
-        try FileManager.default.createDirectory(
-            atPath: vellumDir,
-            withIntermediateDirectories: true,
-            attributes: nil
-        )
-        try content.write(toFile: identityPath, atomically: true, encoding: .utf8)
-        log.info("Wrote IDENTITY.md for assistant name: \(name)")
-    } catch {
-        log.error("Failed to write IDENTITY.md: \(error.localizedDescription)")
-    }
-}
-
 enum AssistantStatus {
     case idle
     case thinking
@@ -1030,11 +1005,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
-            UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
-            writeVellumIdentityFile(name: state.assistantName)
-
-            self?.writeIdentityFile(name: state.assistantName)
 
             onboarding.close()
             self?.onboardingWindow = nil
@@ -1068,11 +1039,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
-            UserDefaults.standard.set(state.assistantName, forKey: "assistantName")
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
-            writeVellumIdentityFile(name: state.assistantName)
-
-            self?.writeIdentityFile(name: state.assistantName)
 
             onboarding.close()
             self?.onboardingWindow = nil
@@ -1087,62 +1054,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         onboarding.show()
         onboardingWindow = onboarding
-    }
-
-    /// Writes (or updates) `~/.vellum/workspace/IDENTITY.md` with the user-chosen assistant name.
-    ///
-    /// If the file already exists, only the `- **Name:** …` line is replaced so that
-    /// user customizations (extra persona instructions, changed role/tone, etc.) are preserved.
-    /// If the file does not exist, a fresh template is created.
-    private func writeIdentityFile(name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-
-        let vellumDir = NSHomeDirectory() + "/.vellum/workspace"
-        let identityPath = vellumDir + "/IDENTITY.md"
-
-        do {
-            try FileManager.default.createDirectory(
-                atPath: vellumDir,
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-
-            let content: String
-            if FileManager.default.fileExists(atPath: identityPath),
-               let existing = try? String(contentsOfFile: identityPath, encoding: .utf8) {
-                // Replace only the Name line, preserving everything else
-                let namePattern = #"^- \*\*Name:\*\*.*$"#
-                if let regex = try? NSRegularExpression(pattern: namePattern, options: .anchorsMatchLines) {
-                    let fullRange = NSRange(existing.startIndex..., in: existing)
-                    if let match = regex.firstMatch(in: existing, range: fullRange),
-                       let matchRange = Range(match.range, in: existing) {
-                        var updated = existing
-                        updated.replaceSubrange(matchRange, with: "- **Name:** \(trimmed)")
-                        content = updated
-                    } else {
-                        content = existing
-                    }
-                } else {
-                    content = existing
-                }
-            } else {
-                content = """
-                # IDENTITY
-
-                _Customize this file to give your assistant a distinct identity._
-
-                - **Name:** \(trimmed)
-                - **Role:** Personal AI assistant
-                - **Tone:** Direct, concise, and helpful
-                """
-            }
-
-            try content.write(toFile: identityPath, atomically: true, encoding: .utf8)
-            log.info("Wrote IDENTITY.md with name: \(trimmed)")
-        } catch {
-            log.error("Failed to write IDENTITY.md: \(error.localizedDescription)")
-        }
     }
 
     // MARK: - Main Window
