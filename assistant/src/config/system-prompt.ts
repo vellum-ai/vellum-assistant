@@ -110,7 +110,9 @@ export function buildSystemPrompt(): string {
   parts.push(buildConfigSection());
   parts.push(buildTaskScheduleReminderRoutingSection());
   parts.push(buildAttachmentSection());
-  parts.push(buildStarterTaskPlaybookSection());
+  if (!isOnboardingComplete()) {
+    parts.push(buildStarterTaskPlaybookSection());
+  }
   parts.push(buildToolPermissionSection());
   parts.push(buildSystemPermissionSection());
   parts.push(buildChannelAwarenessSection());
