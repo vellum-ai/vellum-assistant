@@ -495,14 +495,10 @@ public struct ToolConfirmationBubble: View {
                         itemCount: confirmation.scopeOptions.count
                     )
                 } else {
+                    // No scope options available — fall back to one-time allow
                     showAlwaysAllowMenu = false
                     popoverKeyboardModel = nil
-                    let scope = confirmation.scopeOptions.first?.scope ?? ""
-                    if !scope.isEmpty {
-                        onAlwaysAllow(confirmation.requestId, option.pattern, scope, alwaysAllowDecision)
-                    } else {
-                        onAllow()
-                    }
+                    onAllow()
                 }
             }
         } else if showScopePickerMenu {
@@ -597,12 +593,8 @@ public struct ToolConfirmationBubble: View {
                 itemCount: confirmation.scopeOptions.count
             )
         } else {
-            let scope = confirmation.scopeOptions.first?.scope ?? ""
-            if !scope.isEmpty {
-                onAlwaysAllow(confirmation.requestId, pattern, scope, alwaysAllowDecision)
-            } else {
-                onAllow()
-            }
+            // No scope options — fall back to one-time allow
+            onAllow()
         }
     }
 
@@ -726,14 +718,10 @@ public struct ToolConfirmationBubble: View {
                                     itemCount: confirmation.scopeOptions.count
                                 )
                             } else {
+                                // No scope options available — fall back to one-time allow
                                 showAlwaysAllowMenu = false
                                 popoverKeyboardModel = nil
-                                let scope = confirmation.scopeOptions.first?.scope ?? ""
-                                if !scope.isEmpty {
-                                    onAlwaysAllow(confirmation.requestId, option.pattern, scope, alwaysAllowDecision)
-                                } else {
-                                    onAllow()
-                                }
+                                onAllow()
                             }
                         }
 
