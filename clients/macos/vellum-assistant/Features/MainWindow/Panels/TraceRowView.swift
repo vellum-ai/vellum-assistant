@@ -80,7 +80,7 @@ struct TraceRowView: View {
         case "success":
             return Emerald._400
         default:
-            return Slate._400
+            return Moss._400
         }
     }
 

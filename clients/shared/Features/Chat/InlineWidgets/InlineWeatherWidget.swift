@@ -195,17 +195,17 @@ public struct InlineWeatherWidget: View {
         VStack(alignment: .leading, spacing: 0) {
             heroSection
             if !data.hourly.isEmpty {
-                Divider().background(Slate._700.opacity(0.3))
+                Divider().background(Moss._700.opacity(0.3))
                 hourlySection
             }
-            Divider().background(Slate._700.opacity(0.3))
+            Divider().background(Moss._700.opacity(0.3))
             dailyForecastHeader
-            Divider().background(Slate._700.opacity(0.3))
+            Divider().background(Moss._700.opacity(0.3))
 
             ForEach(Array(data.forecast.enumerated()), id: \.element.id) { index, item in
                 forecastRow(item, isFirst: index == 0)
                 if index < data.forecast.count - 1 {
-                    Divider().background(Slate._700.opacity(0.3))
+                    Divider().background(Moss._700.opacity(0.3))
                 }
             }
         }
@@ -312,7 +312,7 @@ public struct InlineWeatherWidget: View {
             }
             .padding(.vertical, VSpacing.sm)
 
-            Divider().background(Slate._700.opacity(0.3))
+            Divider().background(Moss._700.opacity(0.3))
 
             // Scrollable hourly row
             ScrollView(.horizontal, showsIndicators: false) {
@@ -419,7 +419,7 @@ public struct InlineWeatherWidget: View {
             ZStack(alignment: .leading) {
                 // Background track
                 Capsule()
-                    .fill(Slate._700.opacity(0.3))
+                    .fill(Moss._700.opacity(0.3))
                     .frame(height: 4)
 
                 // Filled portion with gradient

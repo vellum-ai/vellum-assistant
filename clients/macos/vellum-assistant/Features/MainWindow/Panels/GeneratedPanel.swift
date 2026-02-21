@@ -120,7 +120,7 @@ struct GeneratedPanel: View {
                     }
                 }
                 .padding(VSpacing.md)
-                .background(Slate._800)
+                .background(Moss._800)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
@@ -344,7 +344,7 @@ struct GeneratedPanel: View {
             }
         }
         .padding(VSpacing.lg)
-        .background(isHovered ? Slate._800 : Slate._900)
+        .background(isHovered ? Moss._800 : Moss._900)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
