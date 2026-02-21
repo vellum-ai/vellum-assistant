@@ -58,9 +58,13 @@ export const telegramBotMessagingProvider: MessagingProvider = {
    * credential:telegram:access_token, but the Telegram bot token is
    * stored as credential:telegram:bot_token. This method lets the
    * registry detect that Telegram credentials exist.
+   *
+   * Both bot_token and webhook_secret are required — the gateway's
+   * /deliver/telegram endpoint rejects requests without the webhook
+   * secret, so partial credentials would cause every send to fail.
    */
   isConnected(): boolean {
-    return getBotToken() !== undefined;
+    return getBotToken() !== undefined && !!getSecureKey('credential:telegram:webhook_secret');
   },
 
   async testConnection(_token: string): Promise<ConnectionInfo> {
