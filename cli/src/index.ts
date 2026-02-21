@@ -23,7 +23,7 @@ async function main() {
     console.log("");
     console.log("Commands:");
     console.log("  hatch    Create a new assistant instance");
-    console.log("  ps       List assistants and their health status");
+    console.log("  ps       List assistants (or processes for a specific assistant)");
     console.log("  retire   Delete an assistant instance");
     console.log("  sleep    Stop the daemon process");
     process.exit(0);
