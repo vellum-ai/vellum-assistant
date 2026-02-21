@@ -50,6 +50,7 @@ struct ChatView: View {
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
     var daemonHttpPort: Int?
+    var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
 
@@ -75,7 +76,7 @@ struct ChatView: View {
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
 
     private var isEmptyState: Bool {
-        messages.isEmpty
+        messages.isEmpty && isHistoryLoaded
     }
 
     private let composerMinHeight: CGFloat = 34
@@ -84,7 +85,16 @@ struct ChatView: View {
         ZStack {
             VStack(spacing: 0) {
                 apiKeyBanner
-                if isEmptyState {
+                if messages.isEmpty && !isHistoryLoaded {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .controlSize(.small)
+                        Spacer()
+                    }
+                    Spacer()
+                } else if isEmptyState {
                     if isTemporaryChat {
                         ChatTemporaryChatEmptyStateView(
                             inputText: $inputText,

@@ -1,15 +1,19 @@
 /**
  * Integration tests for Twilio webhook route handlers.
  *
+ * Tests handler-level behavior by calling route handlers directly (not via HTTP
+ * server). Gateway-only blocking of direct webhook routes is covered in the
+ * dedicated `gateway-only-enforcement.test.ts` suite.
+ *
  * Tests:
- * - Gateway-only blocking of direct webhook routes (signature validation
- *   is now handled at the gateway, not the runtime)
  * - Duplicate callback replay (idempotency)
  * - Unknown status and malformed payload handling
+ * - Status mapping and completion notifications
+ * - resolveRelayUrl unit behavior
+ * - Voice webhook TwiML relay URL generation
  * - Handler-level idempotency concurrency (concurrent duplicates, failure-retry)
  */
 import { describe, test, expect, beforeEach, afterAll, mock, spyOn } from 'bun:test';
-import { createHmac } from 'node:crypto';
 import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -46,57 +50,19 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-// Configurable mock auth token — tests can switch between configured/unconfigured
-let mockAuthToken: string | undefined = 'test-auth-token-for-webhooks';
-
 mock.module('../security/secure-keys.js', () => ({
-  getSecureKey: (account: string) => {
-    if (account === 'credential:twilio:auth_token') return mockAuthToken;
-    return undefined;
-  },
+  getSecureKey: () => undefined,
 }));
 
-// Use the real TwilioConversationRelayProvider (not mocked) for signature validation
-// but mock the instance methods that hit Twilio API
-mock.module('../calls/twilio-provider.js', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { createHmac: createHmacNode } = require('node:crypto');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { timingSafeEqual: timingSafeEqualNode } = require('node:crypto');
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { getSecureKey } = require('../security/secure-keys.js');
-
-  return {
-    TwilioConversationRelayProvider: class {
-      readonly name = 'twilio';
-
-      static getAuthToken(): string | null {
-        return getSecureKey('credential:twilio:auth_token') ?? null;
-      }
-
-      static verifyWebhookSignature(
-        url: string,
-        params: Record<string, string>,
-        signature: string,
-        authToken: string,
-      ): boolean {
-        const sortedKeys = Object.keys(params).sort();
-        let data = url;
-        for (const key of sortedKeys) {
-          data += key + params[key];
-        }
-        const computed = createHmacNode('sha1', authToken).update(data).digest('base64');
-        const a = Buffer.from(computed);
-        const b = Buffer.from(signature);
-        if (a.length !== b.length) return false;
-        return timingSafeEqualNode(a, b);
-      }
-
-      async initiateCall() { return { callSid: 'CA_mock_test' }; }
-      async endCall() { return; }
-    },
-  };
-});
+mock.module('../calls/twilio-provider.js', () => ({
+  TwilioConversationRelayProvider: class {
+    readonly name = 'twilio';
+    static getAuthToken(): string | null { return null; }
+    static verifyWebhookSignature(): boolean { return true; }
+    async initiateCall() { return { callSid: 'CA_mock_test' }; }
+    async endCall() { return; }
+  },
+}));
 
 // Configurable mock Twilio config — tests can override wssBaseUrl
 let mockWssBaseUrl: string = 'wss://test.example.com';
@@ -114,7 +80,6 @@ mock.module('../calls/twilio-config.js', () => ({
 
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { conversations } from '../memory/schema.js';
-import { RuntimeHttpServer } from '../runtime/http-server.js';
 import * as callStore from '../calls/call-store.js';
 import {
   createCallSession,
@@ -128,9 +93,6 @@ import { registerCallCompletionNotifier, unregisterCallCompletionNotifier } from
 initializeDb();
 
 // ── Helpers ────────────────────────────────────────────────────────────
-
-const TEST_TOKEN = 'test-bearer-token-twilio-routes';
-const AUTH_TOKEN = 'test-auth-token-for-webhooks';
 
 let ensuredConvIds = new Set<string>();
 
@@ -155,19 +117,6 @@ function resetTables() {
   db.run('DELETE FROM call_sessions');
   db.run('DELETE FROM conversations');
   ensuredConvIds = new Set();
-}
-
-function computeSignature(
-  url: string,
-  params: Record<string, string>,
-  authToken: string,
-): string {
-  const sortedKeys = Object.keys(params).sort();
-  let data = url;
-  for (const key of sortedKeys) {
-    data += key + params[key];
-  }
-  return createHmac('sha1', authToken).update(data).digest('base64');
 }
 
 function createTestSession(convId: string, callSid: string) {
@@ -202,209 +151,15 @@ function makeVoiceRequest(sessionId: string, params: Record<string, string>): Re
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe('twilio webhook routes', () => {
-  let server: RuntimeHttpServer;
-  let port: number;
-
   beforeEach(() => {
     resetTables();
-    mockAuthToken = AUTH_TOKEN;
     mockWssBaseUrl = 'wss://test.example.com';
     mockWebhookBaseUrl = 'https://test.example.com';
-    delete process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED;
   });
 
   afterAll(() => {
     resetDb();
     try { rmSync(testDir, { recursive: true, force: true }); } catch { /* best effort */ }
-  });
-
-  async function startServer(): Promise<void> {
-    server = new RuntimeHttpServer({ port: 0, bearerToken: TEST_TOKEN });
-    await server.start();
-    port = server.actualPort;
-  }
-
-  async function stopServer(): Promise<void> {
-    await server?.stop();
-  }
-
-  function statusUrl(): string {
-    return `http://127.0.0.1:${port}/v1/calls/twilio/status`;
-  }
-
-  function buildFormBody(params: Record<string, string>): string {
-    return new URLSearchParams(params).toString();
-  }
-
-  function signedRequest(
-    url: string,
-    params: Record<string, string>,
-  ): { body: string; headers: Record<string, string> } {
-    const body = buildFormBody(params);
-    const sig = computeSignature(url, params, AUTH_TOKEN);
-    return {
-      body,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'X-Twilio-Signature': sig,
-      },
-    };
-  }
-
-  // ── Gateway-only blocking tests ───────────────────────────────────
-  // Direct Twilio webhook routes are blocked in gateway-only mode.
-  // Signature validation is now handled at the gateway level, not the runtime.
-
-  describe('gateway-only blocking of direct webhook routes', () => {
-    test('direct status callback returns 410', async () => {
-      await startServer();
-      const url = statusUrl();
-      const params = { CallSid: 'CA_sig_valid', CallStatus: 'completed' };
-      const { body, headers } = signedRequest(url, params);
-
-      const res = await fetch(url, { method: 'POST', headers, body });
-      expect(res.status).toBe(410);
-
-      await stopServer();
-    });
-
-    test('direct status callback without signature returns 410', async () => {
-      await startServer();
-      const url = statusUrl();
-      const params = { CallSid: 'CA_no_sig', CallStatus: 'completed' };
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: buildFormBody(params),
-      });
-
-      expect(res.status).toBe(410);
-
-      await stopServer();
-    });
-
-    test('direct status callback with invalid signature returns 410', async () => {
-      await startServer();
-      const url = statusUrl();
-      const params = { CallSid: 'CA_bad_sig', CallStatus: 'completed' };
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'X-Twilio-Signature': 'totally-wrong-signature',
-        },
-        body: buildFormBody(params),
-      });
-
-      expect(res.status).toBe(410);
-
-      await stopServer();
-    });
-
-    test('direct status callback with wrong token signature returns 410', async () => {
-      await startServer();
-      const url = statusUrl();
-      const params = { CallSid: 'CA_wrong_token', CallStatus: 'completed' };
-      computeSignature(url, params, 'wrong-auth-token');
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'X-Twilio-Signature': computeSignature(url, params, 'wrong-auth-token'),
-        },
-        body: buildFormBody(params),
-      });
-
-      expect(res.status).toBe(410);
-
-      await stopServer();
-    });
-  });
-
-  // ── Fail-closed behavior ──────────────────────────────────────────
-
-  describe('fail-closed when auth token missing', () => {
-    test('direct route returns 410 regardless of auth token config', async () => {
-      mockAuthToken = undefined;
-      await startServer();
-
-      const url = statusUrl();
-      const params = { CallSid: 'CA_no_token', CallStatus: 'completed' };
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: buildFormBody(params),
-      });
-
-      expect(res.status).toBe(410);
-
-      await stopServer();
-    });
-  });
-
-  // ── TWILIO_WEBHOOK_VALIDATION_DISABLED bypass ─────────────────────
-
-  describe('validation disabled env flag', () => {
-    test('direct route returns 410 even when validation disabled', async () => {
-      process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED = 'true';
-      mockAuthToken = undefined;
-      await startServer();
-
-      const url = statusUrl();
-      const params = { CallSid: 'CA_bypass', CallStatus: 'completed' };
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: buildFormBody(params),
-      });
-
-      expect(res.status).toBe(410);
-
-      await stopServer();
-    });
-
-    test('direct route returns 410 when env var is non-true value', async () => {
-      process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED = '1';
-      mockAuthToken = undefined;
-      await startServer();
-
-      const url = statusUrl();
-      const params = { CallSid: 'CA_no_bypass', CallStatus: 'completed' };
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: buildFormBody(params),
-      });
-
-      expect(res.status).toBe(410);
-
-      await stopServer();
-    });
-
-    test('direct route returns 410 when env var is empty string', async () => {
-      process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED = '';
-      mockAuthToken = undefined;
-      await startServer();
-
-      const url = statusUrl();
-      const params = { CallSid: 'CA_empty_env', CallStatus: 'completed' };
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: buildFormBody(params),
-      });
-
-      expect(res.status).toBe(410);
-
-      await stopServer();
-    });
   });
 
   // ── Callback idempotency / replay tests ───────────────────────────

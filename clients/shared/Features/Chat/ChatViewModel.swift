@@ -178,6 +178,10 @@ public final class ChatViewModel: ObservableObject {
     /// Used by ThreadManager to auto-title the thread.
     public var onFirstUserMessage: ((String) -> Void)?
 
+    /// Called every time a user message is sent. Used by ThreadManager to
+    /// bump the thread's lastInteractedAt so it rises to the top of the list.
+    public var onUserMessageSent: (() -> Void)?
+
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false
 
@@ -261,6 +265,9 @@ public final class ChatViewModel: ObservableObject {
             onFirstUserMessage = nil
             callback(rawText)
         }
+
+        // Notify ThreadManager so the thread rises to the top of the list
+        onUserMessageSent?()
 
         // Block rapid-fire only when bootstrapping with a queued message.
         // When a message-less bootstrap is in flight (e.g. private thread

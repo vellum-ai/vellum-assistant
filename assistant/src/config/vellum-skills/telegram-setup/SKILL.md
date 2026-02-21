@@ -43,26 +43,13 @@ export default () => ({ secret: randomUUID() });
 
 Save this value for the next steps.
 
-### Step 3: Register the Webhook
+### Step 3: Webhook Registration (Automatic)
 
-Use `evaluate_typescript_code` to register the webhook with Telegram:
+Manual webhook registration is no longer required. The gateway automatically reconciles the Telegram webhook on startup and whenever credentials change. It compares the current webhook URL against `${INGRESS_PUBLIC_BASE_URL}/webhooks/telegram` and updates it if needed, including the webhook secret and allowed updates.
 
-```typescript
-export default async (input: { token: string; url: string; secret: string }) => {
-  const res = await fetch(`https://api.telegram.org/bot${input.token}/setWebhook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      url: input.url,
-      secret_token: input.secret,
-      allowed_updates: ['message', 'edited_message'],
-    }),
-  });
-  return res.json();
-};
-```
+If the ingress URL or webhook secret changes (e.g., tunnel restart, secret rotation), the gateway will detect the drift and re-register the webhook automatically.
 
-Verify the response has `ok: true`.
+You can skip directly to storing credentials.
 
 ### Step 4: Register Bot Commands
 
@@ -91,12 +78,52 @@ Use `credential_store` twice to securely save the credentials:
 2. **Store the webhook secret:**
    - action: `store`, service: `telegram`, field: `webhook_secret`, value: the generated secret
 
-### Step 6: Report Success
+### Step 6: Validate Routing Configuration
+
+Verify that the gateway routing is configured to deliver inbound messages to the assistant:
+
+- In **single-assistant mode** (the default local deployment), routing is automatically configured. The CLI sets `GATEWAY_UNMAPPED_POLICY=default` and `GATEWAY_DEFAULT_ASSISTANT_ID` to the current assistant's ID when starting the gateway, so no manual routing configuration is needed.
+- In **multi-assistant mode**, the operator must set `GATEWAY_ASSISTANT_ROUTING_JSON` to map specific chat IDs or user IDs to assistant IDs, or configure a default assistant via `GATEWAY_DEFAULT_ASSISTANT_ID` with `GATEWAY_UNMAPPED_POLICY=default`.
+
+If routing is misconfigured, inbound Telegram messages will be rejected and the gateway will send a visible notice to the chat explaining the issue (rate-limited to once per 5 minutes per chat).
+
+### Step 7: Report Success
 
 Summarize what was done:
 - Bot verified: @username (ID: nnn)
-- Webhook registered at the provided URL
+- Webhook registration: handled automatically by the gateway
 - Bot commands registered: /new
 - Credentials stored securely in the vault
+- Routing configuration validated
 
-The gateway automatically detects credentials from the vault and will begin accepting Telegram webhooks shortly. No manual environment variable configuration is needed.
+The gateway automatically detects credentials from the vault, reconciles the Telegram webhook registration, and begins accepting Telegram webhooks shortly. In single-assistant mode, routing is automatically configured — no manual environment variable configuration or webhook registration is needed. If the ingress URL or secret changes later, the gateway will automatically re-register the webhook.
+
+## Bot-Account Limitations
+
+Telegram bot accounts have inherent limitations imposed by the Bot API:
+
+- **No arbitrary messaging**: Bots cannot initiate conversations with users who have not first interacted with the bot (sent `/start` or added it to a group). Messaging arbitrary phone numbers is not possible.
+- **No conversation listing**: The Bot API does not expose a method to enumerate the chats a bot belongs to.
+- **No message history retrieval**: Bots cannot fetch past messages from a chat.
+- **No message search**: No search API is available for bots.
+
+These limitations apply to all Telegram bots regardless of configuration. Future support for MTProto user-account sessions may lift some of these restrictions.
+
+## Automated vs Manual Steps
+
+The following steps are now **automated** by the gateway and CLI:
+
+| Step | Status | Details |
+|------|--------|---------|
+| Webhook registration | Automated | The gateway reconciles the webhook URL on startup and when credentials change |
+| Routing configuration | Automated (single-assistant) | The CLI sets `GATEWAY_UNMAPPED_POLICY=default` and `GATEWAY_DEFAULT_ASSISTANT_ID` automatically |
+| Credential detection | Automated | The gateway watches the credential vault for changes |
+
+The following steps still require **manual** action:
+
+| Step | Details |
+|------|---------|
+| Bot token from @BotFather | User must create a bot and provide the token |
+| Bot command registration | Registered via the setup skill (Step 4 above) |
+| Credential storage | Stored via the setup skill (Step 5 above) |
+| Multi-assistant routing | Requires manual `GATEWAY_ASSISTANT_ROUTING_JSON` configuration |

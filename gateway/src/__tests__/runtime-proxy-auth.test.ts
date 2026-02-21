@@ -22,6 +22,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
     runtimeInitialBackoffMs: 500,
+    telegramDeliverAuthBypass: false,
     telegramInitialBackoffMs: 1000,
     telegramMaxRetries: 3,
     telegramTimeoutMs: 15000,
@@ -31,7 +32,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     maxAttachmentConcurrency: 3,
     twilioAuthToken: undefined,
     ingressPublicBaseUrl: undefined,
-    publicUrl: undefined,
     ...overrides,
   };
 }

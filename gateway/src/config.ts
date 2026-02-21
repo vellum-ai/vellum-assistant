@@ -31,6 +31,11 @@ export type GatewayConfig = {
   shutdownDrainMs: number;
   telegramApiBaseUrl: string;
   telegramBotToken: string | undefined;
+  /**
+   * When true, the /deliver/telegram endpoint allows unauthenticated access
+   * even when no bearer token is configured. Intended for local development only.
+   */
+  telegramDeliverAuthBypass: boolean;
   telegramInitialBackoffMs: number;
   telegramMaxRetries: number;
   telegramTimeoutMs: number;
@@ -40,8 +45,6 @@ export type GatewayConfig = {
   /** Canonical public ingress base URL, used for webhook signature reconstruction. */
   ingressPublicBaseUrl: string | undefined;
   unmappedPolicy: "reject" | "default";
-  /** The gateway's own public-facing URL (e.g. http://<external-ip>:7830). */
-  publicUrl?: string;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -173,6 +176,18 @@ export function loadConfig(): GatewayConfig {
     throw new Error("GATEWAY_RUNTIME_INITIAL_BACKOFF_MS must be a positive number");
   }
 
+  const telegramDeliverAuthBypassRaw = process.env.GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS;
+  if (
+    telegramDeliverAuthBypassRaw !== undefined &&
+    telegramDeliverAuthBypassRaw !== "true" &&
+    telegramDeliverAuthBypassRaw !== "false"
+  ) {
+    throw new Error(
+      `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS must be "true" or "false", got "${telegramDeliverAuthBypassRaw}"`,
+    );
+  }
+  const telegramDeliverAuthBypass = telegramDeliverAuthBypassRaw === "true";
+
   const telegramTimeoutMs = Number(process.env.GATEWAY_TELEGRAM_TIMEOUT_MS || "15000");
   if (!Number.isFinite(telegramTimeoutMs) || telegramTimeoutMs <= 0) {
     throw new Error("GATEWAY_TELEGRAM_TIMEOUT_MS must be a positive number");
@@ -210,12 +225,6 @@ export function loadConfig(): GatewayConfig {
   }
 
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN || undefined;
-  const publicUrl = process.env.GATEWAY_PUBLIC_URL || undefined;
-
-  // In the default local deployment, the assistant's hatch process sets this
-  // env var from config.ingress.publicBaseUrl when spawning the gateway.
-  // This ensures the gateway reconstructs the same canonical URL that the
-  // assistant used to register Twilio webhooks, preventing signature mismatch.
   const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
 
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
@@ -240,8 +249,9 @@ export function loadConfig(): GatewayConfig {
       port,
       runtimeProxyEnabled,
       runtimeProxyRequireAuth,
+      telegramDeliverAuthBypass,
       hasTwilioAuthToken: !!twilioAuthToken,
-      publicUrl,
+      ingressPublicBaseUrl,
     },
     "Configuration loaded",
   );
@@ -265,11 +275,11 @@ export function loadConfig(): GatewayConfig {
     shutdownDrainMs,
     telegramApiBaseUrl,
     telegramBotToken,
+    telegramDeliverAuthBypass,
     telegramInitialBackoffMs,
     telegramMaxRetries,
     telegramTimeoutMs,
     telegramWebhookSecret,
-    publicUrl,
     twilioAuthToken,
     ingressPublicBaseUrl,
     unmappedPolicy,

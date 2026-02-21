@@ -110,7 +110,11 @@ Part of plan: <plan filename> (PR <X> of <total>)
   --track-unreviewed
 ```
 
-### 9. Save state
+### 9. Human Attention Comment (optional)
+
+If the PR contains areas that genuinely warrant focused human review, leave a comment highlighting them (see "Human Attention Comments on PRs" in AGENTS.md). Skip this for routine, low-risk changes.
+
+### 10. Save state
 
 Update `.private/safe-plan-state/<plan-slug>.md` with the new PR info:
 
@@ -125,7 +129,7 @@ Update `.private/safe-plan-state/<plan-slug>.md` with the new PR info:
 - **Worktree**: <absolute path to worktree>
 ```
 
-### 10. Notify the user and stop
+### 11. Notify the user and stop
 
 Tell the user:
 

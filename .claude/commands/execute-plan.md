@@ -59,7 +59,11 @@ Create a branch from the plan (or derive one from the PR title), then ship:
   --pull-base
 ```
 
-#### 3d. Report progress
+#### 3d. Human Attention Comment (optional)
+
+If the PR contains areas that genuinely warrant focused human review, leave a comment highlighting them (see "Human Attention Comments on PRs" in AGENTS.md). Skip this for routine, low-risk changes.
+
+#### 3e. Report progress
 
 After each PR is mainlined, tell the user:
 - Which PR was completed (e.g. "PR 3 of 8 done").

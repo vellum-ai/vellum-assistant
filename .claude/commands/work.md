@@ -28,6 +28,7 @@ If you need to break it down into multiple PRs:
 If you can implement it in a single PR:
 
 - Create a PR for it (output a link to the PR)
+- If the PR warrants focused human review, leave a Human Attention Comment (see "Human Attention Comments on PRs" in AGENTS.md). Skip for routine changes.
 - Append the link to only this new PR to .private/UNREVIEWED_PRS.md
 - CRITICAL: Merge it immediately with `gh pr merge <N> --squash` and switch back to the main branch
 - If this task was addressing feedback on a previous PR (either "Address the feedback on <PR URL>" or a sub-task with "(feedback from <PR URL>)"), leave a paper trail on the original PR:

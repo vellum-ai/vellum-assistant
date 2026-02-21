@@ -46,19 +46,26 @@ export function handleListMessages(
   url: URL,
   interfacesDir: string | null,
 ): Response {
+  const conversationId = url.searchParams.get('conversationId');
   const conversationKey = url.searchParams.get('conversationKey');
-  if (!conversationKey) {
+
+  let resolvedConversationId: string | undefined;
+  if (conversationId) {
+    resolvedConversationId = conversationId;
+  } else if (conversationKey) {
+    const mapping = getConversationByKey(conversationKey);
+    resolvedConversationId = mapping?.conversationId;
+  } else {
     return Response.json(
-      { error: 'conversationKey query parameter is required' },
+      { error: 'conversationKey or conversationId query parameter is required' },
       { status: 400 },
     );
   }
 
-  const mapping = getConversationByKey(conversationKey);
-  if (!mapping) {
+  if (!resolvedConversationId) {
     return Response.json({ messages: [] });
   }
-  const rawMessages = conversationStore.getMessages(mapping.conversationId);
+  const rawMessages = conversationStore.getMessages(resolvedConversationId);
 
   // Parse content blocks and extract text + tool calls
   const parsed = rawMessages.map((msg) => {

@@ -342,6 +342,11 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <true/>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

@@ -689,7 +689,7 @@ export function buildSchema(): Record<string, unknown> {
           properties: {
             chatId: { type: "string", description: "Telegram chat ID to deliver the message to" },
             text: { type: "string", description: "Text content to send", minLength: 1 },
-            assistantId: { type: "string", description: "Assistant ID (required when sending attachments)" },
+            assistantId: { type: "string", description: "Assistant ID (optional — attachments are downloaded via the assistant-less endpoint when omitted)" },
             attachments: {
               type: "array",
               description: "Attachments to deliver (images sent via sendPhoto, others via sendDocument)",

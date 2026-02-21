@@ -113,6 +113,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         let thread = ThreadModel()
         let viewModel = makeViewModel()
+        viewModel.isHistoryLoaded = true  // No session yet — nothing to load
         let threadId = thread.id
         viewModel.onFirstUserMessage = { [weak self] text in
             self?.updateThreadTitle(id: threadId, title: "Untitled")
@@ -130,6 +131,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func createPrivateThread() {
         let thread = ThreadModel(kind: .private)
         let viewModel = makeViewModel()
+        viewModel.isHistoryLoaded = true  // No session yet — nothing to load
         let threadId = thread.id
         viewModel.onFirstUserMessage = { [weak self] text in
             self?.updateThreadTitle(id: threadId, title: "Untitled")
@@ -286,7 +288,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func selectThread(id: UUID) {
         guard threads.contains(where: { $0.id == id }) else { return }
         activeThreadId = id
-        updateLastInteracted(threadId: id)
     }
 
     /// Returns true if the thread has at least one user message.
@@ -484,6 +485,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 if let error {
                     log.error("Failed to post voice response notification: \(error.localizedDescription)")
                 }
+            }
+        }
+        viewModel.onUserMessageSent = { [weak self, weak viewModel] in
+            guard let self, let viewModel else { return }
+            if let threadId = self.chatViewModels.first(where: { $0.value === viewModel })?.key {
+                self.updateLastInteracted(threadId: threadId)
             }
         }
         return viewModel
