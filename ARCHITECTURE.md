@@ -3164,7 +3164,7 @@ Bounded recurrence is supported via `COUNT` (e.g., `RRULE:FREQ=DAILY;COUNT=30`) 
 
 ### Syntax Detection
 
-The `detectScheduleSyntax()` function auto-detects which syntax an expression uses by checking for RRULE markers (`RRULE:`, `DTSTART`, `FREQ=`). When creating or updating a schedule, the caller can explicitly specify `syntax: 'cron' | 'rrule'`, or the system infers it from the expression string via `resolveScheduleSpec()`.
+The `detectScheduleSyntax()` function auto-detects which syntax an expression uses by checking for RRULE markers (`RRULE:`, `DTSTART`, `FREQ=`). When creating or updating a schedule, the caller can explicitly specify `syntax: 'cron' | 'rrule'`, or the system infers it from the expression string via `normalizeScheduleSyntax()`.
 
 ### Legacy Compatibility
 
@@ -3174,7 +3174,7 @@ The database column is named `cron_expression` and the Drizzle table is `cronJob
 
 | File | Responsibility |
 |------|---------------|
-| `assistant/src/schedule/recurrence-types.ts` | `ScheduleSyntax` type, `detectScheduleSyntax()`, `resolveScheduleSpec()` |
+| `assistant/src/schedule/recurrence-types.ts` | `ScheduleSyntax` type, `detectScheduleSyntax()`, `normalizeScheduleSyntax()` |
 | `assistant/src/schedule/recurrence-engine.ts` | Validation (`isValidScheduleExpression`), next-run computation, RRULE set detection |
 | `assistant/src/schedule/schedule-store.ts` | CRUD operations, claim-based polling, legacy `cronExpression` field support |
 | `assistant/src/schedule/scheduler.ts` | 15-second tick loop, fires due schedules and reminders |
@@ -3478,6 +3478,43 @@ All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-
 | `getOAuthCallbackUrl()` | `${base}/webhooks/oauth/callback` |
 | `getTelegramWebhookUrl()` | `${base}/webhooks/telegram` |
 
+### Telegram Messaging Flow
+
+Telegram messages follow three paths through the system:
+
+```
+Inbound (user → assistant):
+  Telegram → Gateway POST /webhooks/telegram → verify secret → normalize → route
+    → Runtime POST /v1/assistants/:id/channels/inbound
+
+Outbound reply (assistant → user, triggered by inbound):
+  Runtime callback → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage/sendPhoto/sendDocument
+
+Outbound proactive (assistant → user, initiated by messaging provider):
+  Runtime messaging provider → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage
+```
+
+The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-closed). If no bearer token is configured and the dev-only bypass flag (`GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS`) is not set, the endpoint returns 503 rather than allowing unauthenticated access.
+
+### Webhook Reconciliation
+
+On startup, the gateway automatically reconciles the Telegram webhook registration:
+
+1. Reads `INGRESS_PUBLIC_BASE_URL` and Telegram credentials (bot token, webhook secret)
+2. Calls `getWebhookInfo` to check the current registration
+3. Compares the URL, secret, and allowed updates against the expected values
+4. If any differ, calls `setWebhook` to update the registration
+
+This also runs when the credential watcher detects changes to Telegram credentials. Manual webhook registration is no longer required.
+
+### Routing Auto-Configuration
+
+In single-assistant mode (the default local deployment), routing is automatically configured by the CLI:
+- `GATEWAY_UNMAPPED_POLICY=default` is set so all inbound messages are forwarded
+- `GATEWAY_DEFAULT_ASSISTANT_ID` is set to the current assistant's ID
+
+In multi-assistant mode, the operator must configure `GATEWAY_ASSISTANT_ROUTING_JSON` to map specific chat/user IDs to assistant IDs.
+
 ---
 
 ## Outgoing AI Phone Calls — Twilio ConversationRelay
@@ -3721,7 +3758,7 @@ Call behavior is controlled via the `calls` config block in the assistant config
 | `calls.voice.mode` | enum | `'twilio_standard'` | Voice quality mode. Options: `twilio_standard` (standard Twilio TTS with Google voices — fully supported), `twilio_elevenlabs_tts` (ElevenLabs voices through Twilio ConversationRelay — fully supported), `elevenlabs_agent` (full ElevenLabs conversational agent — experimental/restricted, blocked by runtime guard). |
 | `calls.voice.language` | string | `'en-US'` | Language code for TTS and transcription. |
 | `calls.voice.transcriptionProvider` | enum | `'Deepgram'` | Speech-to-text provider (`Deepgram` or `Google`). |
-| `calls.voice.fallbackToStandardOnError` | boolean | `true` | When an ElevenLabs mode is active, automatically fall back to standard Twilio TTS if ElevenLabs fails (missing config, API errors) or is restricted (e.g., `elevenlabs_agent` guard). When `false`, errors return HTTP 500/501/502 instead of falling back. |
+| `calls.voice.fallbackToStandardOnError` | boolean | `true` | When an ElevenLabs mode is active, automatically fall back to standard Twilio TTS if ElevenLabs config is invalid or mode is restricted (e.g., `elevenlabs_agent` guard). When `false`, errors return HTTP 500 (invalid config) or 501 (restricted mode) instead of falling back. |
 | `calls.voice.elevenlabs.voiceId` | string | `''` | ElevenLabs voice ID, used by `twilio_elevenlabs_tts` mode. |
 | `calls.voice.elevenlabs.agentId` | string | `''` | ElevenLabs agent ID, used by `elevenlabs_agent` mode. |
 
@@ -3733,7 +3770,7 @@ The resolution logic works as follows:
 
 - **`twilio_standard`** (fully supported) — Returns a profile using Google TTS with a default Google voice (`Google.en-US-Journey-O`). This is the default when no voice config is changed.
 - **`twilio_elevenlabs_tts`** (fully supported) — Builds an ElevenLabs voice spec string from `voiceId`, `voiceModelId`, and tuning parameters (stability, similarity, style). If `voiceId` is empty and fallback is enabled, silently falls back to the `twilio_standard` profile.
-- **`elevenlabs_agent`** (experimental/restricted) — Requires `agentId` to be set. If `agentId` is empty and fallback is enabled, silently falls back to `twilio_standard`. Even when the profile resolves successfully, a runtime guard in `handleVoiceWebhook` blocks this mode (see below).
+- **`elevenlabs_agent`** (experimental/restricted) — Requires `agentId` to be set. If `agentId` is empty and fallback is enabled, silently falls back to `twilio_standard`. Even when the profile resolves successfully, a runtime guard in `handleVoiceWebhook` blocks this mode before any ElevenLabs API calls are made (see below). No register-call flow is reachable while the guard is active.
 
 When `fallbackToStandardOnError` is `true` (default), any misconfiguration or runtime error in ElevenLabs modes causes a graceful fallback to standard Twilio TTS rather than a call failure. Validation errors are captured in `validationErrors` on the profile for logging.
 
@@ -3745,8 +3782,8 @@ The voice webhook (`twilio-routes.ts`) enforces two sequential guardrails before
 - `fallbackToStandardOnError=true` (default): the profile has already been resolved to `twilio_standard` by the profile resolver; proceeds normally.
 - `fallbackToStandardOnError=false`: returns **HTTP 500** with the validation error details.
 
-**WS-B: `elevenlabs_agent` mode guard** — If the resolved profile mode is `elevenlabs_agent`, a guard fires *before* any ElevenLabs API calls because consultation bridging (`waiting_on_user`) is not yet supported in this mode:
-- `fallbackToStandardOnError=true` (default): logs a warning and falls back to standard ConversationRelay TwiML.
+**WS-B: `elevenlabs_agent` mode guard** — If the resolved profile mode is `elevenlabs_agent`, a guard fires *before* any ElevenLabs API calls because consultation bridging (`waiting_on_user`) is not yet supported in this mode. No ElevenLabs register-call or other API calls are attempted while this guard is active:
+- `fallbackToStandardOnError=true` (default): logs a warning, replaces the profile with `twilio_standard`, and returns standard ConversationRelay TwiML.
 - `fallbackToStandardOnError=false`: returns **HTTP 501** `"elevenlabs_agent mode is restricted: consultation bridging (waiting_on_user) is not yet supported."`.
 
 The guard order ensures invalid configs are caught first (WS-A), then mode-level restrictions are enforced (WS-B). For `twilio_standard` and `twilio_elevenlabs_tts` modes, both guards pass and the webhook proceeds to return ConversationRelay TwiML.
@@ -3764,6 +3801,95 @@ flowchart TD
     F --> H
     I --> H
 ```
+
+---
+
+## Assistant Events — SSE Transport Layer
+
+The assistant-events system provides a single, shared publish path that fans out to both the Unix socket IPC layer (native clients) and an HTTP SSE endpoint (web/remote clients). There is no separate message schema for SSE — the `ServerMessage` payload is wrapped in an `AssistantEvent` envelope and serialised as JSON.
+
+### Data Flow
+
+```mermaid
+graph TB
+    subgraph "Event Sources"
+        direction TB
+        IPC_DAEMON["Daemon IPC send paths<br/>(daemon/server.ts)"]
+        HTTP_RUN["HTTP Run path<br/>(run-orchestrator.ts)"]
+    end
+
+    subgraph "Event Bus"
+        HUB["AssistantEventHub<br/>(assistant-event-hub.ts)<br/>──────────────────────<br/>maxSubscribers: 100<br/>FIFO eviction on overflow<br/>Synchronous fan-out"]
+    end
+
+    subgraph "Transports"
+        SSE_ROUTE["SSE Route<br/>GET /v1/events?conversationKey=...<br/>(events-routes.ts)<br/>──────────────────────<br/>ReadableStream + CountQueuingStrategy(16)<br/>Heartbeat every 30 s<br/>Slow-consumer shed"]
+        SOCK["Unix Socket<br/>(daemon/session-surfaces.ts)"]
+    end
+
+    subgraph "Clients"
+        MACOS["macOS App<br/>(DaemonClient / ServerMessage)"]
+        IOS["iOS App<br/>(DaemonClient / ServerMessage)"]
+        WEB["Web / Remote clients<br/>(EventSource / fetch)"]
+    end
+
+    IPC_DAEMON -->|"buildAssistantEvent()"| HUB
+    HTTP_RUN -->|"buildAssistantEvent()"| HUB
+    IPC_DAEMON --> SOCK
+
+    HUB -->|"subscriber callback"| SSE_ROUTE
+
+    SOCK --> MACOS
+    SOCK --> IOS
+    SSE_ROUTE --> WEB
+```
+
+### AssistantEvent Envelope
+
+Every event published through the hub is wrapped in an `AssistantEvent` (defined in `runtime/assistant-event.ts`):
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` (UUID) | Globally unique event identifier |
+| `assistantId` | `string` | Logical assistant identifier (`"self"` for HTTP runs) |
+| `sessionId` | `string?` | Resolved conversation ID when available |
+| `emittedAt` | `string` (ISO-8601) | Server-side timestamp |
+| `message` | `ServerMessage` | Unchanged IPC outbound message — no schema fork |
+
+### SSE Frame Format
+
+```
+event: assistant_event\n
+id: <uuid>\n
+data: <JSON-serialised AssistantEvent>\n
+\n
+```
+
+Keep-alive heartbeats (every 30 s by default):
+
+```
+: heartbeat\n
+\n
+```
+
+### Subscription Lifecycle
+
+| Event | Action |
+|---|---|
+| `GET /v1/events` received | Hub subscribes eagerly before `ReadableStream` is created |
+| Client disconnects / aborts | `req.signal` abort listener disposes subscription and closes stream |
+| Client cancels reader | `ReadableStream.cancel()` disposes subscription and closes stream |
+| New connection pushes over cap (100) | Oldest subscriber evicted (FIFO); its `onEvict` callback closes its stream |
+| Client buffer full (16 queued frames) | `desiredSize <= 0` guard sheds the subscriber immediately |
+
+### Key Source Files
+
+| File | Role |
+|---|---|
+| `assistant/src/runtime/assistant-event.ts` | `AssistantEvent` type, `buildAssistantEvent()` factory, SSE framing helpers |
+| `assistant/src/runtime/assistant-event-hub.ts` | `AssistantEventHub` class and process-level singleton |
+| `assistant/src/runtime/routes/events-routes.ts` | `handleSubscribeAssistantEvents()` — SSE route handler |
+| `assistant/src/daemon/server.ts` | IPC send/broadcast paths that publish to the hub (`send` → `publishAssistantEvent`) |
 
 ---
 

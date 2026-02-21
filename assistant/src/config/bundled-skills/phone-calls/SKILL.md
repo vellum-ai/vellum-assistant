@@ -197,13 +197,8 @@ By default, `calls.voice.fallbackToStandardOnError` is `true`. This setting cont
 
 #### `elevenlabs_agent` mode guard (consultation bridging unsupported)
 
-- **`true` (default):** The `elevenlabs_agent` mode is silently downgraded to standard ConversationRelay TwiML with a warning log. The call proceeds normally with standard Twilio TTS.
-- **`false`:** The voice webhook returns **HTTP 501** with the message: `"elevenlabs_agent mode is restricted: consultation bridging (waiting_on_user) is not yet supported."`.
-
-#### ElevenLabs API errors (register-call failure)
-
-- **`true` (default):** Falls back to `twilio_standard` mode and proceeds with the call.
-- **`false`:** Returns **HTTP 502** `"ElevenLabs service unavailable"`.
+- **`true` (default):** The `elevenlabs_agent` mode is silently downgraded to standard ConversationRelay TwiML with a warning log. The call proceeds normally with standard Twilio TTS. No ElevenLabs API calls are made.
+- **`false`:** The voice webhook returns **HTTP 501** with the message: `"elevenlabs_agent mode is restricted: consultation bridging (waiting_on_user) is not yet supported."`. No ElevenLabs API calls are made.
 
 You can disable fallback if you want strict ElevenLabs-only behavior:
 

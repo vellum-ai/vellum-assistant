@@ -216,7 +216,12 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
         expression: row.cronExpression,
         timezone: row.timezone,
       });
-    } catch {
+    } catch (err) {
+      // Only treat "no upcoming runs" as exhaustion — rethrow other failures
+      // (e.g. invalid RRULE lines, unsupported syntax) so they surface instead
+      // of silently disabling a schedule that has a configuration bug.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes('no upcoming runs')) throw err;
       // Finite schedule with no future runs — still claim the current due
       // run but disable the schedule so it doesn't fire again.
       newNextRunAt = null;

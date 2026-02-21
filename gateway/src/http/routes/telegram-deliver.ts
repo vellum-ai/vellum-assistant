@@ -12,9 +12,19 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    // Require bearer auth when a token is configured, preventing unauthenticated
-    // public access to the delivery endpoint.
-    if (config.runtimeProxyBearerToken) {
+    // Fail-closed auth: when no bearer token is configured and the explicit
+    // dev-only bypass flag is not set, refuse to serve requests (503) rather
+    // than silently allowing unauthenticated access.
+    if (!config.runtimeProxyBearerToken) {
+      if (config.telegramDeliverAuthBypass) {
+        // Dev-only bypass — skip auth entirely.
+      } else {
+        return Response.json(
+          { error: "Service not configured: bearer token required" },
+          { status: 503 },
+        );
+      }
+    } else {
       const authResult = validateBearerToken(
         req.headers.get("authorization"),
         config.runtimeProxyBearerToken,
@@ -51,7 +61,7 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
         await sendTelegramReply(config, chatId, text);
       }
 
-      if (attachments && attachments.length > 0 && assistantId) {
+      if (attachments && attachments.length > 0) {
         await sendTelegramAttachments(config, chatId, assistantId, attachments);
       }
     } catch (err) {

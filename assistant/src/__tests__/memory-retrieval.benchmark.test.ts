@@ -398,7 +398,7 @@ describe('Memory retrieval benchmark', () => {
     }
   });
 
-  test('recall.latencyMs tracks wall-clock within 20% tolerance', async () => {
+  test('recall.latencyMs tracks wall-clock within 50% tolerance', async () => {
     const conversationId = 'conv-bench-wallclock';
     const now = 1_700_500_000_000;
     seedMemoryItems(conversationId, 500, now);

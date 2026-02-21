@@ -95,6 +95,35 @@ When reviewing PRs (applies to all reviewers — Codex, Devin, and humans), flag
 - **Duplicate capability:** The PR adds functionality that already exists in a general form elsewhere in the codebase. Suggest reusing the existing implementation.
 - **Missing parameterization:** Inputs, outputs, or behaviors are hardcoded when they should be configurable or context-driven.
 
+## Human Attention Comments on PRs
+
+After creating a PR, consider whether it contains anything that genuinely warrants focused human review. If it does, leave a single comment highlighting where attention is most needed. This helps humans quickly triage PRs.
+
+**This is not mandatory.** Skip the comment entirely for routine, low-risk PRs that follow existing patterns — don't add noise. Only comment when you believe a human should look closely at specific parts of the diff.
+
+**When to comment:**
+- Architectural decisions or new patterns that set precedent
+- Security-sensitive changes (auth, permissions, secrets, input validation)
+- Complex business logic with subtle edge cases
+- Changes that touch critical paths (data pipelines, payment flows, etc.)
+- Deletions or removals of existing functionality
+- Areas where you are least confident in the implementation
+
+**When to skip:** Routine changes — renaming, formatting, boilerplate, straightforward additions that follow existing patterns exactly, or changes you are fully confident in.
+
+**How:** `gh pr comment <number> --body "<comment>"`
+
+**Comment format:**
+
+```
+## 👀 Where to focus your review
+
+- **<file_path or area>**: <why this needs attention — e.g., "New architectural pattern that sets precedent", "Security-sensitive change to auth flow", "Complex logic with subtle edge cases">
+- ...
+
+**Risk level:** <Medium | High> — <one-sentence explanation of overall risk>
+```
+
 ## Tooling Direction
 
 Do not add new tool registrations using the `class ____Tool implements Tool {` pattern.

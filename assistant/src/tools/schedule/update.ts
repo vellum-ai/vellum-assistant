@@ -1,6 +1,6 @@
 import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { updateSchedule, formatLocalDate, describeCronExpression } from '../../schedule/schedule-store.js';
-import { normalizeScheduleSyntax, type ScheduleSyntax } from '../../schedule/recurrence-types.js';
+import { normalizeScheduleSyntax, detectScheduleSyntax, type ScheduleSyntax } from '../../schedule/recurrence-types.js';
 import { validateRruleSetLines } from '../../schedule/recurrence-engine.js';
 
 export async function executeScheduleUpdate(
@@ -31,8 +31,15 @@ export async function executeScheduleUpdate(
       updates.expression = resolved.expression;
     } else if (input.expression !== undefined) {
       updates.expression = input.expression;
+      const detected = detectScheduleSyntax(input.expression as string);
+      if (detected) updates.syntax = detected;
     } else if (input.cron_expression !== undefined) {
       updates.cronExpression = input.cron_expression;
+    }
+    // When only syntax is provided (no expression), normalizeScheduleSyntax returns null
+    // but we still need to persist the explicit syntax value.
+    if (input.syntax !== undefined && updates.syntax === undefined) {
+      updates.syntax = input.syntax;
     }
   }
 

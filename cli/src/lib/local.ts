@@ -4,7 +4,8 @@ import { createRequire } from "module";
 import { homedir } from "os";
 import { dirname, join } from "path";
 
-import { GATEWAY_PORT } from "../lib/constants";
+import { loadAllAssistants, loadLatestAssistant } from "./assistant-config.js";
+import { GATEWAY_PORT } from "./constants.js";
 
 const _require = createRequire(import.meta.url);
 
@@ -286,12 +287,32 @@ export async function startGateway(): Promise<string> {
 
   console.log("🌐 Starting gateway...");
   const gatewayDir = resolveGatewayDir();
+  // Only auto-configure default routing when the workspace has exactly one
+  // assistant.  In multi-assistant deployments, falling back to "default"
+  // would silently deliver unmapped Telegram chats to whichever assistant was
+  // most recently hatched — keep the "reject" policy instead.
+  const assistants = loadAllAssistants();
+  const isSingleAssistant = assistants.length === 1;
+
   const gatewayEnv: Record<string, string> = {
     ...process.env as Record<string, string>,
     GATEWAY_RUNTIME_PROXY_ENABLED: "true",
     GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
   };
+
+  if (process.env.GATEWAY_UNMAPPED_POLICY) {
+    gatewayEnv.GATEWAY_UNMAPPED_POLICY = process.env.GATEWAY_UNMAPPED_POLICY;
+  } else if (isSingleAssistant) {
+    gatewayEnv.GATEWAY_UNMAPPED_POLICY = "default";
+  }
+
+  if (process.env.GATEWAY_DEFAULT_ASSISTANT_ID) {
+    gatewayEnv.GATEWAY_DEFAULT_ASSISTANT_ID = process.env.GATEWAY_DEFAULT_ASSISTANT_ID;
+  } else if (isSingleAssistant) {
+    gatewayEnv.GATEWAY_DEFAULT_ASSISTANT_ID =
+      assistants[0].assistantId || loadLatestAssistant()?.assistantId || "default";
+  }
   const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl();
   const ingressPublicBaseUrl =
     workspaceIngressPublicBaseUrl

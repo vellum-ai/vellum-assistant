@@ -31,6 +31,11 @@ export type GatewayConfig = {
   shutdownDrainMs: number;
   telegramApiBaseUrl: string;
   telegramBotToken: string | undefined;
+  /**
+   * When true, the /deliver/telegram endpoint allows unauthenticated access
+   * even when no bearer token is configured. Intended for local development only.
+   */
+  telegramDeliverAuthBypass: boolean;
   telegramInitialBackoffMs: number;
   telegramMaxRetries: number;
   telegramTimeoutMs: number;
@@ -171,6 +176,18 @@ export function loadConfig(): GatewayConfig {
     throw new Error("GATEWAY_RUNTIME_INITIAL_BACKOFF_MS must be a positive number");
   }
 
+  const telegramDeliverAuthBypassRaw = process.env.GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS;
+  if (
+    telegramDeliverAuthBypassRaw !== undefined &&
+    telegramDeliverAuthBypassRaw !== "true" &&
+    telegramDeliverAuthBypassRaw !== "false"
+  ) {
+    throw new Error(
+      `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS must be "true" or "false", got "${telegramDeliverAuthBypassRaw}"`,
+    );
+  }
+  const telegramDeliverAuthBypass = telegramDeliverAuthBypassRaw === "true";
+
   const telegramTimeoutMs = Number(process.env.GATEWAY_TELEGRAM_TIMEOUT_MS || "15000");
   if (!Number.isFinite(telegramTimeoutMs) || telegramTimeoutMs <= 0) {
     throw new Error("GATEWAY_TELEGRAM_TIMEOUT_MS must be a positive number");
@@ -232,6 +249,7 @@ export function loadConfig(): GatewayConfig {
       port,
       runtimeProxyEnabled,
       runtimeProxyRequireAuth,
+      telegramDeliverAuthBypass,
       hasTwilioAuthToken: !!twilioAuthToken,
       ingressPublicBaseUrl,
     },
@@ -257,6 +275,7 @@ export function loadConfig(): GatewayConfig {
     shutdownDrainMs,
     telegramApiBaseUrl,
     telegramBotToken,
+    telegramDeliverAuthBypass,
     telegramInitialBackoffMs,
     telegramMaxRetries,
     telegramTimeoutMs,

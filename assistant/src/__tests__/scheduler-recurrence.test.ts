@@ -299,6 +299,47 @@ describe('scheduler RRULE execution', () => {
     expect(runs[0].status).toBe('ok');
   });
 
+  test('EXRULE schedule skips excluded occurrence and advances to next valid date', async () => {
+    // RRULE: every minute from an hour ago
+    // EXRULE: every 2nd minute from the same start
+    // The scheduler should fire on the non-excluded minutes and advance
+    // nextRunAt past any excluded occurrences.
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const pastDate = new Date(now.getTime() - 3_600_000);
+    const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}${pad(pastDate.getUTCSeconds())}Z`;
+
+    const expression = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1\nEXRULE:FREQ=MINUTELY;INTERVAL=2`;
+
+    const schedule = createSchedule({
+      name: 'EXRULE scheduler test',
+      cronExpression: expression,
+      message: 'EXRULE scheduler fire',
+      syntax: 'rrule',
+      expression,
+    });
+
+    forceScheduleDue(schedule.id);
+
+    const processedMessages: string[] = [];
+    const processMessage = async (_conversationId: string, message: string) => {
+      processedMessages.push(message);
+    };
+
+    const scheduler = startScheduler(processMessage, () => {}, () => {});
+    await new Promise(resolve => setTimeout(resolve, 500));
+    scheduler.stop();
+
+    // The schedule should have fired
+    expect(processedMessages).toContain('EXRULE scheduler fire');
+
+    // nextRunAt should have advanced past the current time
+    const after = getSchedule(schedule.id);
+    expect(after).not.toBeNull();
+    expect(after!.lastRunAt).not.toBeNull();
+    expect(after!.nextRunAt).toBeGreaterThan(Date.now() - 5000);
+  });
+
   test('RRULE schedule advances nextRunAt after firing', async () => {
     const rruleExpr = buildEveryMinuteRrule();
     const schedule = createSchedule({
@@ -322,8 +363,8 @@ describe('scheduler RRULE execution', () => {
     expect(after).not.toBeNull();
     // nextRunAt must have moved forward from the forced-due value
     expect(after!.nextRunAt).toBeGreaterThan(forcedDueAt);
-    // It should be at or near the original computed value (within a few seconds tolerance)
-    expect(Math.abs(after!.nextRunAt - originalNextRunAt)).toBeLessThan(5000);
+    // After claiming, MINUTELY recurrence advances nextRunAt by ~60s, so allow up to 65s tolerance
+    expect(Math.abs(after!.nextRunAt - originalNextRunAt)).toBeLessThan(65000);
     expect(after!.lastRunAt).not.toBeNull();
   });
 });

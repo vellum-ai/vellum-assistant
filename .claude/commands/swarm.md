@@ -70,7 +70,8 @@ ALL work happens here. Do NOT touch the main repo.
 2. Do NOT run tests, type-checking (tsc), or linting unless the task specifically requires it (e.g., "fix the type errors", "make the tests pass").
 3. cd back to worktree root, then ship (.claude/ship MUST run from the repo root, not assistant/):
    cd <worktree> && .claude/ship --commit-msg "<message>" --title "<title>" --body "<summary>" --base main --merge --assignee @me
-4. Send a message to "lead" with:
+4. If the PR warrants focused human review, leave a Human Attention Comment (see "Human Attention Comments on PRs" in AGENTS.md). Skip for routine changes.
+5. Send a message to "lead" with:
    - The PR link (printed by .claude/ship)
    - A summary of what you changed and why
    - Which files were modified

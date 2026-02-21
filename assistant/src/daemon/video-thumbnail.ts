@@ -35,11 +35,13 @@ export async function generateVideoThumbnail(dataBase64: string): Promise<string
       outputPath,
     ], { stderr: 'pipe' });
 
-    // Race against a 10s timeout to avoid hanging on slow/stuck ffmpeg
+    // Race against a 10s timeout to avoid hanging on slow/stuck ffmpeg.
+    // The timer handle is cleared via finally() so it doesn't leak when ffmpeg exits normally.
+    let timer: ReturnType<typeof setTimeout>;
     const exitCode = await Promise.race([
-      proc.exited,
+      proc.exited.finally(() => clearTimeout(timer)),
       new Promise<never>((_, reject) =>
-        setTimeout(() => { proc.kill(); reject(new Error('ffmpeg timed out')); }, 10_000)
+        timer = setTimeout(() => { proc.kill(); reject(new Error('ffmpeg timed out')); }, 10_000)
       ),
     ]);
 

@@ -203,11 +203,11 @@ If a proxied command receives a 401 or 403 despite having the correct credential
 
 Vellum integrates with third-party services via OAuth2. Each integration is exposed as a bundled skill with its own set of tools.
 
-### Messaging (Gmail, Slack)
+### Messaging (Gmail, Slack, Telegram)
 
-The unified messaging layer provides platform-agnostic tools (`messaging_send`, `messaging_read`, `messaging_search`, etc.) that delegate to provider adapters. Gmail and Slack each implement the `MessagingProvider` interface. Platform-specific tools (e.g. `gmail_archive`, `slack_add_reaction`) extend beyond the generic interface where needed.
+The unified messaging layer provides platform-agnostic tools (`messaging_send`, `messaging_read`, `messaging_search`, etc.) that delegate to provider adapters. Gmail and Slack each implement the `MessagingProvider` interface. Telegram is also supported as a messaging provider, though with limited capabilities compared to Slack and Gmail: bots can send messages to known chat IDs but cannot list conversations, retrieve message history, or search messages (Bot API limitations). Bots can only message users or groups that have previously interacted with the bot. Platform-specific tools (e.g. `gmail_archive`, `slack_add_reaction`) extend beyond the generic interface where needed.
 
-Connect via the Settings UI or `integration_connect` IPC message. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens.
+Connect Gmail and Slack via the Settings UI or `integration_connect` IPC message. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens. Telegram uses a bot token (not OAuth) — see the `telegram-setup` skill for setup instructions.
 
 ### Twitter (X)
 
@@ -377,6 +377,112 @@ The assistant creates attachments from two sources:
 2. **Tool output**: Image and file content blocks from tool results are automatically converted into attachments.
 
 Limits: up to 5 attachments per turn, 20 MB each.
+
+## Assistant Events SSE Stream
+
+The runtime HTTP server exposes a Server-Sent Events (SSE) endpoint that streams real-time assistant events for a specific conversation. This provides a transport-agnostic alternative to the Unix socket IPC for HTTP clients (web apps, remote integrations, etc.).
+
+### Endpoint
+
+```
+GET /v1/events?conversationKey=<key>
+```
+
+**Auth**: Bearer token (same rules as other runtime HTTP endpoints). The token is read from the `RUNTIME_PROXY_BEARER_TOKEN` environment variable; if unset, the daemon generates a random token and writes it to `~/.vellum/http-token` (or `${BASE_DATA_DIR}/.vellum/http-token` when the `BASE_DATA_DIR` env var is configured). Pass it as `Authorization: Bearer <token>` on the client.
+
+**Query params**:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `conversationKey` | Yes | Stable, client-chosen key that maps to a conversation. Same key used for `POST /v1/assistants/:id/runs`. |
+
+**Response**: `200 OK` with `Content-Type: text/event-stream`. Each frame is a standard SSE event:
+
+```
+event: assistant_event
+id: <uuid>
+data: {"id":"...","assistantId":"self","sessionId":"conv_xxx","emittedAt":"2026-02-21T12:00:00.000Z","message":{...}}
+
+```
+
+Keep-alive heartbeat comments are emitted every 30 seconds to prevent proxy timeouts:
+
+```
+: heartbeat
+
+```
+
+### Event Payload
+
+Each `data` field is a JSON-serialized `AssistantEvent`:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "assistantId": "self",
+  "sessionId": "conv_abc123",
+  "emittedAt": "2026-02-21T12:00:00.000Z",
+  "message": {
+    "type": "assistant_text_delta",
+    "sessionId": "conv_abc123",
+    "text": "Working on it..."
+  }
+}
+```
+
+The `message` field is the unchanged IPC `ServerMessage` payload — the same types sent over the Unix socket to native clients. All delta semantics are preserved:
+
+| Message type | Description |
+|---|---|
+| `assistant_text_delta` | Incremental text token from the model |
+| `assistant_thinking_delta` | Incremental thinking/reasoning token |
+| `tool_use_start` | Tool invocation starting |
+| `tool_input_delta` | Streaming tool input chunk |
+| `tool_output_chunk` | Streaming tool output chunk |
+| `tool_result` | Tool execution result |
+| `message_complete` | Turn complete; full message + attachments included |
+| `confirmation_request` | User approval needed before an action executes |
+| `generation_handoff` | Model handed off to a sub-agent |
+| `generation_cancelled` | Run was cancelled |
+
+### Connection Management
+
+- **Capacity**: Up to 100 concurrent SSE connections are maintained. When the cap is reached the **oldest** connection is evicted (stream closed) to make room for the new one.
+- **Slow consumers**: If a client's receive buffer fills (16 events queued, unread), the connection is closed.
+- **Disconnect cleanup**: Closing the browser tab, cancelling the reader, or aborting the request all dispose the subscription deterministically.
+
+### Example (JavaScript)
+
+The standard browser `EventSource` API does not support custom request headers, so authenticated connections require `fetch()` with manual SSE stream parsing:
+
+```js
+const TOKEN = '<token>'; // read from ~/.vellum/http-token or RUNTIME_PROXY_BEARER_TOKEN
+const res = await fetch(
+  'http://localhost:3001/v1/events?conversationKey=my-conversation',
+  { headers: { Authorization: `Bearer ${TOKEN}` } },
+);
+
+const reader = res.body.getReader();
+const decoder = new TextDecoder();
+let buf = '';
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  buf += decoder.decode(value, { stream: true });
+
+  // SSE frames are separated by a blank line (\n\n).
+  const frames = buf.split('\n\n');
+  buf = frames.pop() ?? ''; // keep the incomplete trailing chunk
+
+  for (const frame of frames) {
+    const dataLine = frame.split('\n').find((l) => l.startsWith('data: '));
+    if (!dataLine) continue;
+    const event = JSON.parse(dataLine.slice(6));
+    console.log(event.message.type, event.message);
+  }
+}
+```
 
 ## Inline Media Embeds
 

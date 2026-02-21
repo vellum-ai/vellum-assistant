@@ -211,10 +211,12 @@ describe('Skill projection benchmark', () => {
     // Warm the cache
     const warmResult = projectSkillTools(history, { cache, previouslyActiveSkillIds: prevActive });
 
-    // Snapshot cache object references after warm-up
+    // Snapshot cache object references and cardinality after warm-up
     const derivedAfterWarm = cache.derived!;
     const entriesAfterWarm = cache.derived!.entries;
+    const entriesCountAfterWarm = cache.derived!.entries.length;
     const seenIdsAfterWarm = cache.derived!.seenIds;
+    const seenIdsSizeAfterWarm = cache.derived!.seenIds.size;
 
     // Second call with identical history — should hit cache fast path
     let cachedResult: ReturnType<typeof projectSkillTools> | undefined;
@@ -233,6 +235,9 @@ describe('Skill projection benchmark', () => {
     expect(cache.derived).toBe(derivedAfterWarm);
     expect(cache.derived!.entries).toBe(entriesAfterWarm);
     expect(cache.derived!.seenIds).toBe(seenIdsAfterWarm);
+    // Assert cardinality unchanged — catches in-place mutation (e.g., appended duplicates)
+    expect(cache.derived!.entries.length).toBe(entriesCountAfterWarm);
+    expect(cache.derived!.seenIds.size).toBe(seenIdsSizeAfterWarm);
 
     // Assert tool definitions are identical between warm and cached calls
     expect(cachedResult!.toolDefinitions.length).toBe(warmResult.toolDefinitions.length);
@@ -256,7 +261,9 @@ describe('Skill projection benchmark', () => {
     expect(cache.derived).toBeDefined();
     const snapshotDerived = cache.derived!;
     const snapshotEntries = cache.derived!.entries;
+    const snapshotEntriesCount = cache.derived!.entries.length;
     const snapshotSeenIds = cache.derived!.seenIds;
+    const snapshotSeenIdsSize = cache.derived!.seenIds.size;
 
     // Run multiple subsequent calls with unchanged history
     for (let i = 0; i < 5; i++) {
@@ -266,6 +273,9 @@ describe('Skill projection benchmark', () => {
       expect(cache.derived).toBe(snapshotDerived);
       expect(cache.derived!.entries).toBe(snapshotEntries);
       expect(cache.derived!.seenIds).toBe(snapshotSeenIds);
+      // Cardinality must be unchanged — guards against in-place mutation (e.g., growing entries while reusing same object)
+      expect(cache.derived!.entries.length).toBe(snapshotEntriesCount);
+      expect(cache.derived!.seenIds.size).toBe(snapshotSeenIdsSize);
 
       // Tool definitions must match the first call exactly
       expect(result.toolDefinitions.length).toBe(firstResult.toolDefinitions.length);

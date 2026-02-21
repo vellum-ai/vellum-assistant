@@ -23,6 +23,7 @@ export function getMessagingProvider(id: string): MessagingProvider {
 /** Return all registered providers that have stored credentials. */
 export function getConnectedProviders(): MessagingProvider[] {
   return Array.from(providers.values()).filter((p) => {
+    if (p.isConnected) return p.isConnected();
     const token = getSecureKey(`credential:${p.credentialService}:access_token`);
     return token !== undefined;
   });

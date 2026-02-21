@@ -192,6 +192,7 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'twitter/oauth-client.ts',         // Twitter OAuth API client (reads access token for API calls)
       'calls/elevenlabs-config.ts',      // ElevenLabs credential lookup
       'cli/config-commands.ts',          // CLI config management
+      'messaging/providers/telegram-bot/adapter.ts', // Telegram bot token lookup for connectivity check
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

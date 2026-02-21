@@ -51,7 +51,11 @@ $ARGUMENTS
   --track-unreviewed
 ```
 
-### 4. Notify the user and stop
+### 4. Human Attention Comment (optional)
+
+If the PR contains areas that genuinely warrant focused human review, leave a comment highlighting them (see "Human Attention Comments on PRs" in AGENTS.md). Skip this step for routine, low-risk changes.
+
+### 5. Notify the user and stop
 
 Tell the user:
 

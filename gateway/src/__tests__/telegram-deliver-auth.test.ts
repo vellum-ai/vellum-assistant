@@ -22,6 +22,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
     runtimeInitialBackoffMs: 500,
+    telegramDeliverAuthBypass: false,
     telegramInitialBackoffMs: 1000,
     telegramMaxRetries: 3,
     telegramTimeoutMs: 15000,
@@ -49,6 +50,112 @@ function mockTelegramApi() {
     });
   }) as any;
 }
+
+describe("/deliver/telegram attachment delivery without assistantId", () => {
+  test("delivers attachments without assistantId using assistant-less download path", async () => {
+    const calls: string[] = [];
+    globalThis.fetch = mock(async (url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      calls.push(urlStr);
+      // Runtime attachment download (assistant-less path)
+      if (urlStr.includes("/v1/attachments/att-1")) {
+        return new Response(
+          JSON.stringify({
+            id: "att-1",
+            filename: "photo.png",
+            mimeType: "image/png",
+            sizeBytes: 100,
+            kind: "generated_image",
+            data: "iVBORw0KGgo=",
+          }),
+        );
+      }
+      // Telegram API calls
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const handler = createTelegramDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
+    );
+    const req = new Request("http://localhost:7830/deliver/telegram", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chatId: "123",
+        attachments: [
+          { id: "att-1", filename: "photo.png", mimeType: "image/png", sizeBytes: 100, kind: "generated_image" },
+        ],
+      }),
+    });
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Should have downloaded via /v1/attachments/att-1 (no assistantId in URL)
+    const downloadCall = calls.find((u) => u.includes("/attachments/att-1"));
+    expect(downloadCall).toBeDefined();
+    expect(downloadCall).not.toContain("/assistants/");
+
+    // Should have sent the photo via Telegram
+    const telegramCall = calls.find((u) => u.includes("sendPhoto"));
+    expect(telegramCall).toBeDefined();
+  });
+
+  test("delivers attachments with assistantId using legacy download path", async () => {
+    const calls: string[] = [];
+    globalThis.fetch = mock(async (url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      calls.push(urlStr);
+      // Runtime attachment download (legacy path)
+      if (urlStr.includes("/attachments/att-2")) {
+        return new Response(
+          JSON.stringify({
+            id: "att-2",
+            filename: "doc.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 200,
+            kind: "filesystem",
+            data: "JVBER",
+          }),
+        );
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const handler = createTelegramDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
+    );
+    const req = new Request("http://localhost:7830/deliver/telegram", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chatId: "456",
+        assistantId: "my-assistant",
+        attachments: [
+          { id: "att-2", filename: "doc.pdf", mimeType: "application/pdf", sizeBytes: 200, kind: "filesystem" },
+        ],
+      }),
+    });
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Should have downloaded via legacy /v1/assistants/my-assistant/attachments/att-2
+    const downloadCall = calls.find((u) => u.includes("/attachments/att-2"));
+    expect(downloadCall).toBeDefined();
+    expect(downloadCall).toContain("/assistants/my-assistant/");
+  });
+});
 
 describe("/deliver/telegram bearer auth enforcement", () => {
   test("rejects request without Authorization header with 401", async () => {
@@ -115,10 +222,26 @@ describe("/deliver/telegram bearer auth enforcement", () => {
     expect(body.ok).toBe(true);
   });
 
-  test("allows unauthenticated access when no token is configured", async () => {
-    mockTelegramApi();
+  test("returns 503 when no token is configured and bypass is not set", async () => {
     const handler = createTelegramDeliverHandler(
       makeConfig({ runtimeProxyBearerToken: undefined }),
+    );
+    const req = new Request("http://localhost:7830/deliver/telegram", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chatId: "123", text: "hello" }),
+    });
+    const res = await handler(req);
+
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toBe("Service not configured: bearer token required");
+  });
+
+  test("allows unauthenticated access when bypass flag is set and no token configured", async () => {
+    mockTelegramApi();
+    const handler = createTelegramDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -130,6 +253,23 @@ describe("/deliver/telegram bearer auth enforcement", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
+  });
+
+  test("bypass flag is ignored when a bearer token is configured (auth still required)", async () => {
+    const handler = createTelegramDeliverHandler(
+      makeConfig({ telegramDeliverAuthBypass: true }),
+    );
+    const req = new Request("http://localhost:7830/deliver/telegram", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chatId: "123", text: "hello" }),
+    });
+    const res = await handler(req);
+
+    // Token is configured, so missing Authorization header is still rejected
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toBe("Unauthorized");
   });
 
   test("still rejects non-POST methods before auth check", async () => {

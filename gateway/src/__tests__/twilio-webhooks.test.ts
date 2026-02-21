@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, afterEach, beforeEach } from "bun:test";
+import { describe, test, expect, mock, afterEach } from "bun:test";
 import { createHmac } from "node:crypto";
 import type { GatewayConfig } from "../config.js";
 import { createTwilioVoiceWebhookHandler } from "../http/routes/twilio-voice-webhook.js";
@@ -24,6 +24,7 @@ const makeConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
   runtimeTimeoutMs: 30000,
   runtimeMaxRetries: 2,
   runtimeInitialBackoffMs: 500,
+  telegramDeliverAuthBypass: false,
   telegramInitialBackoffMs: 1000,
   telegramMaxRetries: 3,
   telegramTimeoutMs: 15000,
