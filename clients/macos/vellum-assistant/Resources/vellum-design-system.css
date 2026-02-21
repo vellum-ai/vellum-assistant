@@ -103,8 +103,8 @@
   --v-text-muted:     #AEAEB2;
   --v-accent:         var(--v-forest-600);
   --v-accent-hover:   var(--v-forest-700);
-  --v-user-bubble:    var(--v-forest-100);
-  --v-user-bubble-text: var(--v-stone-900);
+  --v-user-bubble:    var(--v-forest-800);
+  --v-user-bubble-text: #ffffff;
   --v-success:        var(--v-emerald-600);
   --v-danger:         var(--v-danger-600);
   --v-warning:        var(--v-amber-600);
@@ -163,7 +163,7 @@
     --v-text-muted:     var(--v-moss-500);
 
     --v-user-bubble:    var(--v-forest-900);
-    --v-user-bubble-text: var(--v-moss-100);
+    --v-user-bubble-text: var(--v-moss-50);
 
     --v-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
     --v-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.4);
