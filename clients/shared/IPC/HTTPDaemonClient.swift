@@ -213,8 +213,8 @@ final class HTTPTransport {
             onMessage?(info)
         } else if message is SessionListRequestMessage {
             Task { await self.fetchSessionList() }
-        } else if message is HistoryRequestMessage {
-            Task { await self.fetchHistory() }
+        } else if let msg = message as? HistoryRequestMessage {
+            Task { await self.fetchHistory(sessionId: msg.sessionId) }
         } else if message is PingMessage {
             // No-op for HTTP transport — SSE keepalive is handled by the connection
         } else {
@@ -364,8 +364,9 @@ final class HTTPTransport {
         }
     }
 
-    private func fetchHistory() async {
-        let urlString = "\(baseURL)/v1/messages?conversationKey=\(conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey)"
+    private func fetchHistory(sessionId: String) async {
+        let encoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+        let urlString = "\(baseURL)/v1/messages?conversationId=\(encoded)"
         guard let url = URL(string: urlString) else { return }
 
         var request = URLRequest(url: url)
@@ -384,19 +385,11 @@ final class HTTPTransport {
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let messages = json["messages"] as? [[String: Any]] {
-                    // Convert REST messages to IPC history format
-                    var historyMessages: [[String: Any]] = []
-                    for msg in messages {
-                        historyMessages.append(msg)
-                    }
-
-                    // Emit as raw JSON that the history response decoder can handle
-                    var historyPayload: [String: Any] = [
+                    let historyPayload: [String: Any] = [
                         "type": "history_response",
-                        "sessionId": conversationKey,
-                        "messages": historyMessages
+                        "sessionId": sessionId,
+                        "messages": messages
                     ]
-                    _ = historyPayload.removeValue(forKey: "")
 
                     let historyData = try JSONSerialization.data(withJSONObject: historyPayload)
                     let historyResponse = try decoder.decode(ServerMessage.self, from: historyData)
