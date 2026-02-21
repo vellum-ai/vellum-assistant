@@ -234,7 +234,7 @@ extension AppDelegate {
             daemonClient: daemonClient,
             maxSteps: 1
         )
-        session.state = .failed(reason: "Cannot connect to daemon. Please ensure the daemon is running.")
+        session.state = .failed(reason: "Failed to connect to the assistant.")
         currentSession = session
         let overlay = SessionOverlayWindow(session: session)
         overlay.show()

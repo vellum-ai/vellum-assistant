@@ -508,6 +508,8 @@ struct ActiveChatViewWrapper: View {
             onDismissError: viewModel.dismissError,
             isRetryableError: viewModel.isRetryableError,
             onRetryError: { viewModel.retryLastMessage() },
+            isConnectionError: viewModel.isConnectionError,
+            onOpenDoctor: { windowState.selection = .panel(.doctor) },
             isSecretBlockError: viewModel.isSecretBlockError,
             onSendAnyway: { viewModel.sendAnyway() },
             onAcceptSuggestion: viewModel.acceptSuggestion,
