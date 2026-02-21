@@ -110,8 +110,8 @@ export async function resolveCallerIdentity(
 
   if (mode === 'assistant_number') {
     const twilioConfig = getTwilioConfig();
-    log.info({ mode, source, fromNumber: twilioConfig.phoneNumber }, 'Resolved caller identity');
-    return { ok: true, mode, fromNumber: twilioConfig.phoneNumber, source };
+    log.info({ mode, source: 'twilio_config', fromNumber: twilioConfig.phoneNumber }, 'Resolved caller identity');
+    return { ok: true, mode, fromNumber: twilioConfig.phoneNumber, source: 'twilio_config' };
   }
 
   // user_number mode: resolve from config or secure key, tracking where the number came from
