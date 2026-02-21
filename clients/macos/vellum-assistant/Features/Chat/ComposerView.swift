@@ -284,7 +284,7 @@ struct ComposerView: View {
                 }
                 .accessibilityLabel("Stop generation")
             } else {
-                Button(action: onAttach) {
+                Button(action: { onAttach(); focusedComposerAction = nil }) {
                     Image(systemName: "paperclip")
                         .font(.system(size: composerActionIconSize, weight: .regular))
                         .foregroundColor(VColor.textSecondary.opacity(0.82))
