@@ -71,98 +71,63 @@ const scheduleToolsJson = JSON.parse(
 const scheduleCreateDef = scheduleToolsJson.tools.find((t: { name: string }) => t.name === 'schedule_create');
 
 // =====================================================================
-// 1. System prompt: buildTaskScheduleReminderRoutingSection
+// 1. Tasks SKILL.md: routing section (moved from system prompt)
 // =====================================================================
 
-describe('Task/Schedule/Reminder routing section in system prompt', () => {
-  beforeEach(() => {
-    mkdirSync(TEST_DIR, { recursive: true });
-  });
+const tasksSkillMd = readFileSync(
+  join(import.meta.dirname, '../config/bundled-skills/tasks/SKILL.md'),
+  'utf-8',
+);
 
-  afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
-  });
-
-  test('system prompt includes the routing section heading', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('## Tool Routing: Tasks vs Schedules vs Reminders');
+describe('Task/Schedule/Reminder routing section in tasks SKILL.md', () => {
+  test('SKILL.md includes the routing section heading', () => {
+    expect(tasksSkillMd).toContain('## Tool Routing: Tasks vs Schedules vs Reminders');
   });
 
   test('routing section explains all three subsystems', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('### Task Queue (task_list_add / task_list_show / task_list_update / task_list_remove)');
-    expect(prompt).toContain('### Schedules (schedule_create / schedule_list / schedule_update / schedule_delete)');
-    expect(prompt).toContain('### Reminders (reminder_create / reminder_list / reminder_cancel)');
+    expect(tasksSkillMd).toContain('### Task Queue (task_list_add / task_list_show / task_list_update / task_list_remove)');
+    expect(tasksSkillMd).toContain('### Schedules (schedule_create / schedule_list / schedule_update / schedule_delete)');
+    expect(tasksSkillMd).toContain('### Reminders (reminder_create / reminder_list / reminder_cancel)');
   });
 
   test('routing section contains key routing phrases for task queue', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('"Add to my tasks"');
-    expect(prompt).toContain('"add to my queue"');
-    expect(prompt).toContain('"put this on my task list"');
-  });
-
-  test('routing section explains ad-hoc work item creation', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('ad-hoc work items');
-    expect(prompt).toContain('just a `title`');
-    expect(prompt).toContain('no existing task template is needed');
-  });
-
-  test('routing section clarifies schedules are for recurring automation only', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('recurring automated jobs');
-    expect(prompt).toContain('recurrence schedule (cron or RRULE)');
-    expect(prompt).toContain('ONLY when the user explicitly wants');
-  });
-
-  test('routing section documents supported RRULE set constructs', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('#### RRULE Set Constructs');
-    expect(prompt).toContain('**RDATE**');
-    expect(prompt).toContain('**EXDATE**');
-    expect(prompt).toContain('**EXRULE**');
-    expect(prompt).toContain('multiple RRULE lines form a union');
-  });
-
-  test('routing section documents bounded recurrence patterns', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('Bounded recurrence');
-    expect(prompt).toContain('COUNT or UNTIL');
-  });
-
-  test('routing section states exclusion precedence', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('Exclusions (EXDATE, EXRULE) take precedence over inclusions (RRULE, RDATE)');
-  });
-
-  test('routing section clarifies reminders are for time-triggered notifications', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('one-time time-triggered notifications');
-    expect(prompt).toContain('"remind me at 3pm"');
+    expect(tasksSkillMd).toContain('"Add to my tasks"');
+    expect(tasksSkillMd).toContain('"add to my queue"');
+    expect(tasksSkillMd).toContain('"put this on my task list"');
   });
 
   test('routing section includes common mistakes to avoid', () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain('### Common mistakes to avoid');
-    // The key mis-routing guard: "add this to my tasks" should go to task_list_add
-    expect(prompt).toContain('"Add this to my tasks" → task_list_add (NOT schedule_create or reminder_create)');
+    expect(tasksSkillMd).toContain('### Common mistakes to avoid');
+    expect(tasksSkillMd).toContain('task_list_add (NOT schedule_create or reminder_create)');
+  });
+
+  test('routing section documents RRULE set constructs', () => {
+    expect(tasksSkillMd).toContain('#### RRULE Set Constructs');
+    expect(tasksSkillMd).toContain('**RDATE**');
+    expect(tasksSkillMd).toContain('**EXDATE**');
+    expect(tasksSkillMd).toContain('**EXRULE**');
   });
 
   test('routing section distinguishes timed vs untimed "remind me"', () => {
-    const prompt = buildSystemPrompt();
-    // Without a time → task queue
-    expect(prompt).toContain('"Remind me to buy groceries" without a time → task_list_add');
-    // With a time → reminder
-    expect(prompt).toContain('"Remind me at 5pm to buy groceries" → reminder_create');
+    expect(tasksSkillMd).toContain('"Remind me to buy groceries" without a time');
+    expect(tasksSkillMd).toContain('"Remind me at 5pm to buy groceries" → reminder_create');
   });
 
-  test('routing section is present in the system prompt', () => {
-    const prompt = buildSystemPrompt();
-    const taskRoutingIdx = prompt.indexOf('## Tool Routing: Tasks vs Schedules vs Reminders');
-    expect(taskRoutingIdx).toBeGreaterThanOrEqual(0);
+  test('routing section documents entity type routing', () => {
+    expect(tasksSkillMd).toContain('### Entity type routing: work items vs task templates');
+    expect(tasksSkillMd).toContain('Do NOT pass a work item ID to a task template tool');
+  });
+
+  test('system prompt does NOT include routing section (moved to skill)', () => {
+    mkdirSync(TEST_DIR, { recursive: true });
+    try {
+      const prompt = buildSystemPrompt();
+      expect(prompt).not.toContain('## Tool Routing: Tasks vs Schedules vs Reminders');
+    } finally {
+      if (existsSync(TEST_DIR)) {
+        rmSync(TEST_DIR, { recursive: true, force: true });
+      }
+    }
   });
 });
 
