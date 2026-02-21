@@ -111,23 +111,9 @@ struct SettingsAdvancedTab: View {
                 homeRow(home: home)
             }
 
-            // Process status
-            statusRow(
-                label: "Daemon",
-                isHealthy: daemonClient?.isConnected == true,
-                detail: daemonClient?.isConnected == true
-                    ? "Connected" + (daemonClient?.daemonVersion.map { " (v\($0))" } ?? "")
-                    : "Disconnected"
-            )
-
-            if let memoryStatus = daemonClient?.latestMemoryStatus {
-                statusRow(
-                    label: "Memory",
-                    isHealthy: memoryStatus.enabled && !memoryStatus.degraded,
-                    detail: !memoryStatus.enabled ? "Disabled"
-                        : memoryStatus.degraded ? "Degraded\(memoryStatus.reason.map { " — \($0)" } ?? "")"
-                        : "Healthy"
-                )
+            // Process status (child view observes @Published changes)
+            if let daemonClient {
+                DaemonStatusRows(daemonClient: daemonClient)
             }
         }
         .padding(VSpacing.lg)
@@ -175,25 +161,6 @@ struct SettingsAdvancedTab: View {
                     }
                 }
             }
-
-            Spacer()
-        }
-    }
-
-    private func statusRow(label: String, isHealthy: Bool, detail: String) -> some View {
-        HStack(alignment: .center) {
-            Text(label)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .frame(width: 100, alignment: .leading)
-
-            Circle()
-                .fill(isHealthy ? VColor.success : VColor.error)
-                .frame(width: 8, height: 8)
-
-            Text(detail)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
 
             Spacer()
         }
@@ -492,4 +459,51 @@ struct SettingsAdvancedTab: View {
         }
     }
     #endif
+}
+
+// MARK: - Daemon Status Rows
+
+/// Extracted child view so SwiftUI observes `DaemonClient`'s `@Published`
+/// properties and re-renders when connection or memory status changes.
+private struct DaemonStatusRows: View {
+    @ObservedObject var daemonClient: DaemonClient
+
+    var body: some View {
+        statusRow(
+            label: "Daemon",
+            isHealthy: daemonClient.isConnected,
+            detail: daemonClient.isConnected
+                ? "Connected" + (daemonClient.daemonVersion.map { " (v\($0))" } ?? "")
+                : "Disconnected"
+        )
+
+        if let memoryStatus = daemonClient.latestMemoryStatus {
+            statusRow(
+                label: "Memory",
+                isHealthy: memoryStatus.enabled && !memoryStatus.degraded,
+                detail: !memoryStatus.enabled ? "Disabled"
+                    : memoryStatus.degraded ? "Degraded\(memoryStatus.reason.map { " — \($0)" } ?? "")"
+                    : "Healthy"
+            )
+        }
+    }
+
+    private func statusRow(label: String, isHealthy: Bool, detail: String) -> some View {
+        HStack(alignment: .center) {
+            Text(label)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .frame(width: 100, alignment: .leading)
+
+            Circle()
+                .fill(isHealthy ? VColor.success : VColor.error)
+                .frame(width: 8, height: 8)
+
+            Text(detail)
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+
+            Spacer()
+        }
+    }
 }
