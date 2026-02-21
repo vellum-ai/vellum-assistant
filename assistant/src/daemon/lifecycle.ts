@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { cpSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, openSync, closeSync, chmodSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, openSync, closeSync, chmodSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { config as dotenvConfig } from 'dotenv';
 import * as Sentry from '@sentry/node';
@@ -271,13 +271,6 @@ export async function runDaemon(): Promise<void> {
   ensureDataDir();
 
   log.info('Daemon startup: migrations complete');
-
-  const seedDir = process.env.INTERFACES_SEED_DIR?.trim();
-  if (seedDir && existsSync(seedDir)) {
-    const interfacesDir = getInterfacesDir();
-    cpSync(seedDir, interfacesDir, { recursive: true });
-    log.info({ seedDir, interfacesDir }, 'Seeded initial interface files');
-  }
 
   // Seed the vellum-desktop interface from the prebuilt Home Base HTML if it
   // doesn't already exist. This ensures the Home tab renders immediately
