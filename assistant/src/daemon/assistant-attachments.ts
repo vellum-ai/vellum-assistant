@@ -322,7 +322,7 @@ export function drainDirectiveDisplayBuffer(buffer: string): DirectiveDisplayDra
       const nextChar = buffer[end + 2];
       if (emitText.endsWith('\r\n') && nextChar === '\r') {
         emitText = emitText.slice(0, -2); // trim full \r\n
-      } else if (emitText.endsWith('\n') && nextChar === '\n') {
+      } else if (emitText.endsWith('\n') && (nextChar === '\n' || nextChar === '\r')) {
         emitText = emitText.slice(0, -1); // trim \n
       }
     }
