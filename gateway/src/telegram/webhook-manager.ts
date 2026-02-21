@@ -17,16 +17,13 @@ const ALLOWED_UPDATES = ["message", "edited_message"];
  * Reconciles the Telegram webhook registration against the expected state
  * derived from the gateway's ingress URL and current webhook secret.
  *
- * If the currently registered webhook URL differs from the expected URL,
- * or if the secret may have changed (we always re-set when the URL matches
- * but we can't verify the secret from getWebhookInfo), the webhook is
- * re-registered via setWebhook.
- *
- * This is safe to call repeatedly; Telegram treats setWebhook as idempotent.
+ * Always calls setWebhook because Telegram does not expose the current
+ * secret_token via getWebhookInfo — a secret rotation with an unchanged URL
+ * would be invisible to us, causing all deliveries to fail with 401.
+ * setWebhook is idempotent, so calling it unconditionally is safe.
  */
 export async function reconcileTelegramWebhook(
   config: GatewayConfig,
-  options?: { forceUpdate?: boolean },
 ): Promise<void> {
   if (!config.telegramBotToken || !config.telegramWebhookSecret) {
     log.debug("Skipping webhook reconciliation: Telegram credentials not configured");
@@ -38,31 +35,20 @@ export async function reconcileTelegramWebhook(
     return;
   }
 
-  const expectedUrl = `${config.ingressPublicBaseUrl}/webhooks/telegram`;
+  // Strip trailing slashes to avoid double-slash in the path
+  // (e.g. "https://example.com/" + "/webhooks/telegram" => "https://example.com//webhooks/telegram")
+  const baseUrl = config.ingressPublicBaseUrl.replace(/\/+$/, "");
+  const expectedUrl = `${baseUrl}/webhooks/telegram`;
 
   const info = await callTelegramApi<WebhookInfo>(config, "getWebhookInfo", {});
-
-  const urlMatches = info.url === expectedUrl;
-
-  // Telegram does not expose the current secret_token via getWebhookInfo,
-  // so we cannot compare it directly. When credentials are refreshed
-  // (forceUpdate), we always re-set to ensure the secret is current.
-  if (urlMatches && !options?.forceUpdate) {
-    log.info(
-      { currentUrl: info.url, expectedUrl },
-      "Telegram webhook URL matches expected state, no update needed",
-    );
-    return;
-  }
 
   log.info(
     {
       currentUrl: info.url || "(none)",
       expectedUrl,
-      forceUpdate: !!options?.forceUpdate,
-      urlMatches,
+      urlMatches: info.url === expectedUrl,
     },
-    "Telegram webhook state differs from expected, updating",
+    "Reconciling Telegram webhook",
   );
 
   await callTelegramApi(config, "setWebhook", {

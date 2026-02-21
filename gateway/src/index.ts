@@ -143,7 +143,7 @@ function main() {
       config.telegramWebhookSecret = credentials.webhookSecret;
       log.info("Telegram credentials loaded from credential vault");
       registerTelegramCommands();
-      reconcileTelegramWebhook(config, { forceUpdate: true }).catch((err) => {
+      reconcileTelegramWebhook(config).catch((err) => {
         log.error({ err }, "Failed to reconcile Telegram webhook after credential change");
       });
     } else {
