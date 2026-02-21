@@ -203,9 +203,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `home_base_get_response` message.
     public var onHomeBaseGetResponse: ((HomeBaseGetResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `desktop_interface_get_response` message.
-    public var onDesktopInterfaceGetResponse: ((DesktopInterfaceGetResponseMessage) -> Void)?
-
     /// Called when the daemon sends a `shared_apps_list_response` message.
     public var onSharedAppsListResponse: ((SharedAppsListResponseMessage) -> Void)?
 
@@ -820,11 +817,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(HomeBaseGetRequestMessage(ensureLinked: ensureLinked))
     }
 
-    /// Request the desktop interface HTML from the daemon.
-    public func sendDesktopInterfaceGet() throws {
-        try send(DesktopInterfaceGetRequestMessage())
-    }
-
     /// Request bundling an app for sharing.
     public func sendBundleApp(appId: String) throws {
         try send(BundleAppRequestMessage(appId: appId))
@@ -985,6 +977,54 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Request identity info via IPC.
     public func sendIdentityGet() throws {
         try send(IdentityGetRequestMessage())
+    }
+
+    // MARK: - Interface Files
+
+    /// Fetch an interface file from the daemon via HTTP (`GET /v1/interfaces/<path>`).
+    /// Uses `httpTransport` for remote assistants or `httpPort` for local connections.
+    /// Returns the file content as a string, or `nil` if the file does not exist.
+    public func fetchInterfaceFile(path: String) async -> String? {
+        let baseURL: String
+        let bearerToken: String?
+
+        if let httpTransport {
+            baseURL = httpTransport.baseURL
+            bearerToken = httpTransport.bearerToken
+        } else if let port = httpPort {
+            baseURL = "http://localhost:\(port)"
+            // Read local bearer token from disk
+            let tokenBase: String
+            if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !baseDir.isEmpty {
+                tokenBase = baseDir
+            } else {
+                #if os(macOS)
+                tokenBase = NSHomeDirectory()
+                #else
+                tokenBase = FileManager.default.homeDirectoryForCurrentUser.path
+                #endif
+            }
+            let tokenPath = tokenBase + "/.vellum/http-token"
+            bearerToken = (try? String(contentsOfFile: tokenPath, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            return nil
+        }
+
+        guard let url = URL(string: "\(baseURL)/v1/interfaces/\(path)") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        if let token = bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            return String(data: data, encoding: .utf8)
+        } catch {
+            return nil
+        }
     }
 
     // MARK: - Workspace Files

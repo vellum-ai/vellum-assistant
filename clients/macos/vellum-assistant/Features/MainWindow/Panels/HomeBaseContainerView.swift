@@ -19,6 +19,7 @@ struct HomeBaseContainerView: View {
     }
 
     @State private var viewState: ViewState = .loading
+    @State private var fetchTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -45,20 +46,20 @@ struct HomeBaseContainerView: View {
         .onAppear {
             fetchDesktopInterface()
         }
+        .onDisappear {
+            fetchTask?.cancel()
+        }
     }
 
     private func fetchDesktopInterface() {
-        daemonClient.onDesktopInterfaceGetResponse = { response in
-            if let html = response.html, !html.isEmpty {
+        fetchTask = Task {
+            let html = await daemonClient.fetchInterfaceFile(path: "vellum-desktop/index.html")
+            guard !Task.isCancelled else { return }
+            if let html, !html.isEmpty {
                 viewState = .customInterface(html)
             } else {
                 viewState = .fallback
             }
-        }
-        do {
-            try daemonClient.sendDesktopInterfaceGet()
-        } catch {
-            viewState = .fallback
         }
     }
 }

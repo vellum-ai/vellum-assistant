@@ -95,8 +95,6 @@ extension DaemonClient {
             onAppsListResponse?(msg)
         case .homeBaseGetResponse(let msg):
             onHomeBaseGetResponse?(msg)
-        case .desktopInterfaceGetResponse(let msg):
-            onDesktopInterfaceGetResponse?(msg)
         case .appUpdatePreviewResponse:
             break // Fire-and-forget; no callback needed
         case .appPreviewResponse(let msg):

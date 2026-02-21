@@ -516,9 +516,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   identity_get: {
     type: 'identity_get',
   },
-  desktop_interface_get: {
-    type: 'desktop_interface_get',
-  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1492,10 +1489,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     personality: 'Friendly',
     emoji: '✨',
     home: '~/workspace',
-  },
-  desktop_interface_get_response: {
-    type: 'desktop_interface_get_response',
-    html: '<h1>Hello</h1>',
   },
 };
 

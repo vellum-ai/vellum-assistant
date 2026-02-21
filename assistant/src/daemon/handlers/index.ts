@@ -22,7 +22,6 @@ import { signingHandlers } from './signing.js';
 import { twitterAuthHandlers } from './twitter-auth.js';
 import { workspaceFileHandlers } from './workspace-files.js';
 import { identityHandlers } from './identity.js';
-import { desktopInterfaceHandlers } from './desktop-interface.js';
 
 // Re-export types and utilities for backwards compatibility
 export type {
@@ -107,7 +106,6 @@ const handlers = {
   ...twitterAuthHandlers,
   ...workspaceFileHandlers,
   ...identityHandlers,
-  ...desktopInterfaceHandlers,
   ...inlineHandlers,
 } satisfies DispatchMap;
 

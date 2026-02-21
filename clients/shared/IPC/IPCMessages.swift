@@ -442,16 +442,6 @@ extension IPCHomeBaseGetRequest {
     }
 }
 
-/// Sent to request the desktop interface HTML from the daemon.
-/// Backed by generated `IPCDesktopInterfaceGetRequest`.
-public typealias DesktopInterfaceGetRequestMessage = IPCDesktopInterfaceGetRequest
-
-extension IPCDesktopInterfaceGetRequest {
-    public init() {
-        self.init(type: "desktop_interface_get")
-    }
-}
-
 /// Sent to request the list of shared/received apps.
 /// Backed by generated `IPCSharedAppsListRequest`.
 public typealias SharedAppsListRequestMessage = IPCSharedAppsListRequest
@@ -1258,10 +1248,6 @@ public typealias AppsListResponseMessage = IPCAppsListResponse
 /// Backed by generated `IPCHomeBaseGetResponse`.
 public typealias HomeBaseGetResponseMessage = IPCHomeBaseGetResponse
 
-/// Desktop interface HTML returned by the daemon.
-/// Backed by generated `IPCDesktopInterfaceGetResponse`.
-public typealias DesktopInterfaceGetResponseMessage = IPCDesktopInterfaceGetResponse
-
 /// A single shared app item returned from the daemon.
 /// Backed by generated `IPCSharedAppsListResponseApp`.
 public typealias SharedAppItem = IPCSharedAppsListResponseApp
@@ -1959,7 +1945,6 @@ public enum ServerMessage: Decodable, Sendable {
     case schedulesListResponse(SchedulesListResponseMessage)
     case appsListResponse(AppsListResponseMessage)
     case homeBaseGetResponse(HomeBaseGetResponseMessage)
-    case desktopInterfaceGetResponse(DesktopInterfaceGetResponseMessage)
     case appUpdatePreviewResponse(AppUpdatePreviewResponseMessage)
     case appPreviewResponse(AppPreviewResponseMessage)
     case sharedAppsListResponse(SharedAppsListResponseMessage)
@@ -2192,9 +2177,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "home_base_get_response":
             let message = try HomeBaseGetResponseMessage(from: decoder)
             self = .homeBaseGetResponse(message)
-        case "desktop_interface_get_response":
-            let message = try DesktopInterfaceGetResponseMessage(from: decoder)
-            self = .desktopInterfaceGetResponse(message)
         case "app_update_preview_response":
             let message = try AppUpdatePreviewResponseMessage(from: decoder)
             self = .appUpdatePreviewResponse(message)
