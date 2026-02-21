@@ -185,6 +185,7 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'email/providers/index.ts',      // email provider API key lookup
       'tools/network/script-proxy/session-manager.ts', // proxy credential injection at runtime
       'messaging/registry.ts',          // checks stored credentials for connected providers
+      'calls/call-domain.ts',            // caller identity resolution (user phone number lookup)
       'calls/twilio-config.ts',         // call infrastructure credential lookup
       'calls/twilio-provider.ts',       // call infrastructure credential lookup
       'runtime/http-server.ts',         // HTTP server credential lookup
