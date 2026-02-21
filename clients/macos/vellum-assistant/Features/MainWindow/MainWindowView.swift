@@ -20,7 +20,6 @@ struct MainWindowView: View {
     @State private var isHoveredApp: String?
     @State private var requestedHomeBaseAtLaunch = false
     @State private var threadPendingDeletion: UUID?
-    @State private var showAllThreads: Bool = false
     @State private var showAllApps: Bool = false
     @State private var showControlCenterDrawer: Bool = false
     @AppStorage("isAppChatOpen") private var isAppChatOpen: Bool = false
@@ -824,8 +823,7 @@ struct MainWindowView: View {
     }
 
     private var displayedThreads: [ThreadModel] {
-        let visible = threadManager.visibleThreads
-        return showAllThreads ? visible : Array(visible.prefix(5))
+        threadManager.visibleThreads
     }
 
     private var displayedApps: [AppListManager.AppItem] {
@@ -873,20 +871,6 @@ struct MainWindowView: View {
                                       sourceUUID != thread.id else { return false }
                                 return threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
                             } isTargeted: { _ in }
-                    }
-
-                    if threadManager.visibleThreads.count > 5 {
-                        Button {
-                            withAnimation(VAnimation.standard) { showAllThreads.toggle() }
-                        } label: {
-                            Text(showAllThreads ? "Show less" : "Show more")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.leading, 20)
-                                .padding(.vertical, VSpacing.xs)
-                        }
-                        .buttonStyle(.plain)
                     }
                 }
             }
