@@ -1346,3 +1346,20 @@ Every app should include: search/filter, toast notifications for all CRUD operat
 - Never let a failed data operation silently pass — always show a toast or inline error message.
 - If the page loads with no data, show a designed empty state (`.v-empty-state`) — never a blank screen.
 - For forms, show validation errors inline next to the relevant field, not as an alert.
+
+## Home Base
+
+Home Base starts from a prebuilt scaffold. When updating Home Base, preserve required task-lane anchors and apply changes through `app_file_edit` or `app_file_write`.
+
+Home Base buttons send prefilled natural-language prompts through `vellum.sendAction`. Treat these as normal user messages, not as direct execution commands.
+- For appearance changes: keep customization color-first, ask for explicit confirmation before applying a full-dashboard update.
+- For optional capability setup tasks (voice/computer control/ambient): keep them user-initiated and request permissions only when required for the chosen path.
+- If a prompt is underspecified, ask one brief follow-up and continue.
+
+## External Links
+
+When building apps with linkable items (search results, product cards, bookings), use `vellum.openLink(url, metadata)` to make them clickable. Construct deep-link URLs when possible (airline booking pages, product pages, hotel reservations). Include `metadata.provider` and `metadata.type` for context: `vellum.openLink("https://delta.com/book?flight=DL123", {provider: "delta", type: "booking"})`.
+
+## Branding
+
+A "Built on Vellum" badge is auto-injected into every dynamic page and app at the bottom-right corner. Do NOT add your own "Built on Vellum" or "Powered by Vellum" text — the badge is handled automatically by the rendering layer.
