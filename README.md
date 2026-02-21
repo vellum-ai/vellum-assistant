@@ -338,6 +338,23 @@ User approval decisions are persisted as trust rules in `~/.vellum/protected/tru
 - **Execution target binding**: Rules can be scoped to `sandbox` or `host` execution contexts.
 - **High-risk override**: Rules with `allowHighRisk: true` auto-allow even high-risk tool invocations.
 
+### Shell command allowlist options
+
+When you approve a shell command (`host_bash` or `bash`), the permission prompt offers parser-derived allowlist options based on the command's structure. The shell parser extracts "action keys" — hierarchical identifiers that represent the command family — instead of using whitespace-split patterns.
+
+For example, `cd /repo && gh pr view 5525 --json title` generates these allowlist options:
+
+- `gh pr view 5525 --json title` — this exact command
+- `gh pr view *` — any `gh pr view` command (trust rule pattern: `action:gh pr view`)
+- `gh pr *` — any `gh pr` command (trust rule pattern: `action:gh pr`)
+- `gh *` — any `gh` command (trust rule pattern: `action:gh`)
+
+Setup prefixes (`cd`, `export`, `pushd`, etc.) are stripped before deriving action keys, so the allowlist options focus on the actual action being performed.
+
+**Compound commands** (with `&&`, `||`, `|`) that contain multiple non-prefix actions only offer an exact-command option — no broad action-family patterns. This prevents a complex pipeline from being over-generalized into a permissive rule.
+
+**Scope ordering**: When persisting a rule, scope options are always ordered from narrowest to broadest: project > parent directories > everywhere. The macOS app shows an explicit scope picker (two-step flow: select pattern, then select scope) so users always see where the rule will apply.
+
 ### Version-bound skill approvals
 
 When you approve a skill-originated action, the trust rule can record the skill's version hash. If the skill's source files change, the hash changes and the old rule no longer matches — you are re-prompted. This prevents modified skills from silently inheriting previous approvals.
