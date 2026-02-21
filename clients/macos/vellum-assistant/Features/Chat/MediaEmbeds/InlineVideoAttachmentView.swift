@@ -298,7 +298,11 @@ struct InlineVideoAttachmentView: View {
                         .appendingPathComponent(UUID().uuidString)
                         .appendingPathExtension(destURL.pathExtension)
                     try FileManager.default.copyItem(at: sourceURL, to: tempURL)
-                    _ = try FileManager.default.replaceItemAt(destURL, withItemAt: tempURL)
+                    if FileManager.default.fileExists(atPath: destURL.path) {
+                        _ = try FileManager.default.replaceItemAt(destURL, withItemAt: tempURL)
+                    } else {
+                        try FileManager.default.moveItem(at: tempURL, to: destURL)
+                    }
                 } catch {
                     print("Failed to save video: \(error)")
                 }
