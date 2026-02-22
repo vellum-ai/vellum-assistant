@@ -606,3 +606,57 @@ export const externalConversationBindings = sqliteTable('external_conversation_b
   lastInboundAt: integer('last_inbound_at'),
   lastOutboundAt: integer('last_outbound_at'),
 });
+
+// ── Channel Guardian Bindings ────────────────────────────────────────
+// UNIQUE (assistant_id, channel) WHERE status = 'active' enforced via index in db.ts
+
+export const channelGuardianBindings = sqliteTable('channel_guardian_bindings', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull(),
+  channel: text('channel').notNull(),
+  guardianExternalUserId: text('guardian_external_user_id').notNull(),
+  guardianDeliveryChatId: text('guardian_delivery_chat_id').notNull(),
+  status: text('status').notNull().default('active'),
+  verifiedAt: integer('verified_at').notNull(),
+  verifiedVia: text('verified_via').notNull().default('challenge'),
+  metadataJson: text('metadata_json'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+// ── Channel Guardian Verification Challenges ─────────────────────────
+
+export const channelGuardianVerificationChallenges = sqliteTable('channel_guardian_verification_challenges', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull(),
+  channel: text('channel').notNull(),
+  challengeHash: text('challenge_hash').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+  status: text('status').notNull().default('pending'),
+  createdBySessionId: text('created_by_session_id'),
+  consumedByExternalUserId: text('consumed_by_external_user_id'),
+  consumedByChatId: text('consumed_by_chat_id'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+// ── Channel Guardian Approval Requests ───────────────────────────────
+
+export const channelGuardianApprovalRequests = sqliteTable('channel_guardian_approval_requests', {
+  id: text('id').primaryKey(),
+  runId: text('run_id').notNull(),
+  conversationId: text('conversation_id').notNull(),
+  channel: text('channel').notNull(),
+  requesterExternalUserId: text('requester_external_user_id').notNull(),
+  requesterChatId: text('requester_chat_id').notNull(),
+  guardianExternalUserId: text('guardian_external_user_id').notNull(),
+  guardianChatId: text('guardian_chat_id').notNull(),
+  toolName: text('tool_name').notNull(),
+  riskLevel: text('risk_level'),
+  reason: text('reason'),
+  status: text('status').notNull().default('pending'),
+  decidedByExternalUserId: text('decided_by_external_user_id'),
+  expiresAt: integer('expires_at').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});

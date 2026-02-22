@@ -926,6 +926,72 @@ export function initializeDb(): void {
 
   migrateExtConvBindingsChannelChatUnique(database);
 
+  // ── Channel Guardian ───────────────────────────────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS channel_guardian_bindings (
+      id TEXT PRIMARY KEY,
+      assistant_id TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      guardian_external_user_id TEXT NOT NULL,
+      guardian_delivery_chat_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      verified_at INTEGER NOT NULL,
+      verified_via TEXT NOT NULL DEFAULT 'challenge',
+      metadata_json TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_guardian_bindings_active
+    ON channel_guardian_bindings(assistant_id, channel)
+    WHERE status = 'active'
+  `);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS channel_guardian_verification_challenges (
+      id TEXT PRIMARY KEY,
+      assistant_id TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      challenge_hash TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_by_session_id TEXT,
+      consumed_by_external_user_id TEXT,
+      consumed_by_chat_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_challenges_lookup ON channel_guardian_verification_challenges(assistant_id, channel, challenge_hash, status)`);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS channel_guardian_approval_requests (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      requester_external_user_id TEXT NOT NULL,
+      requester_chat_id TEXT NOT NULL,
+      guardian_external_user_id TEXT NOT NULL,
+      guardian_chat_id TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      risk_level TEXT,
+      reason TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      decided_by_external_user_id TEXT,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_approval_run ON channel_guardian_approval_requests(run_id, status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_approval_status ON channel_guardian_approval_requests(status)`);
+
   migrateMemoryFtsBackfill(database);
 }
 
