@@ -55,6 +55,13 @@ struct ChatView: View {
     var onDismissDocumentWidget: ((String) -> Void)?
     /// Label for the synced external channel (e.g. "Telegram"). Nil for local-only threads.
     var syncedChannelLabel: String?
+    /// When non-nil, indicates a sync conflict: this thread targets a Telegram chat
+    /// that is owned by a different thread. Contains the canonical thread's info.
+    var syncConflict: SyncConflictInfo?
+    /// Callback when user taps "Continue in Synced Thread"
+    var onContinueInSyncedThread: (() -> Void)?
+    /// Callback when user taps "Move Sync Here"
+    var onMoveSyncHere: (() -> Void)?
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     /// Sums utf8.count over each segment (O(1) per contiguous segment) instead of joining first,
@@ -89,6 +96,13 @@ struct ChatView: View {
                 apiKeyBanner
                 if let channelLabel = syncedChannelLabel {
                     SyncedChannelHeaderView(channelLabel: channelLabel)
+                }
+                if let conflict = syncConflict {
+                    SyncConflictBanner(
+                        info: conflict,
+                        onContinue: { onContinueInSyncedThread?() },
+                        onMove: { onMoveSyncHere?() }
+                    )
                 }
                 if messages.isEmpty && !isHistoryLoaded {
                     Spacer()
@@ -707,6 +721,56 @@ private struct ScrollWheelDetector: NSViewRepresentable {
             }
             return nil
         }
+    }
+}
+
+// MARK: - Sync Conflict
+
+/// Info about a sync conflict when the current thread is not the canonical owner.
+struct SyncConflictInfo {
+    let ownerThreadTitle: String
+    let sourceChannel: String
+    let externalChatId: String
+}
+
+/// Banner shown when the user tries to send from a non-canonical synced thread.
+private struct SyncConflictBanner: View {
+    let info: SyncConflictInfo
+    let onContinue: () -> Void
+    let onMove: () -> Void
+
+    var body: some View {
+        VStack(spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(VColor.warning)
+                Text("This Telegram chat is synced to \"\(info.ownerThreadTitle)\"")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                Spacer()
+            }
+            HStack(spacing: VSpacing.sm) {
+                Button(action: onContinue) {
+                    Label("Continue in Synced Thread", systemImage: "arrow.right.circle")
+                        .font(VFont.captionMedium)
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(VColor.accent)
+
+                Button(action: onMove) {
+                    Text("Move Sync Here")
+                        .font(VFont.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(VColor.textMuted)
+
+                Spacer()
+            }
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
+        .background(VColor.warning.opacity(0.1))
     }
 }
 

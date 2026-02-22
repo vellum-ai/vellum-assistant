@@ -1184,4 +1184,67 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return false
         }
     }
+
+    /// Move channel sync ownership to a different conversation.
+    /// Calls the runtime's POST /v1/channels/move-sync endpoint to
+    /// atomically transfer the binding from the current owner to the new conversation.
+    public func moveChannelSync(sourceChannel: String, externalChatId: String, newConversationId: String) async -> Bool {
+        let baseURL: String
+        let bearerToken: String?
+
+        if let httpTransport {
+            baseURL = httpTransport.baseURL
+            bearerToken = httpTransport.bearerToken
+        } else if let port = httpPort {
+            baseURL = "http://localhost:\(port)"
+            let tokenBase: String
+            if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !baseDir.isEmpty {
+                tokenBase = baseDir
+            } else {
+                tokenBase = NSHomeDirectory()
+            }
+            let tokenPath = tokenBase + "/.vellum/http-token"
+            do {
+                bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                log.error("Failed to read HTTP bearer token from \(tokenPath): \(error)")
+                bearerToken = nil
+            }
+        } else {
+            log.warning("Cannot move channel sync: no HTTP transport available")
+            return false
+        }
+
+        guard let url = URL(string: "\(baseURL)/v1/channels/move-sync") else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+        if let token = bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let body: [String: String] = [
+            "sourceChannel": sourceChannel,
+            "externalChatId": externalChatId,
+            "newConversationId": newConversationId,
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+            if http.statusCode == 200 {
+                log.info("Moved channel sync \(sourceChannel):\(externalChatId) to \(newConversationId)")
+                return true
+            } else {
+                log.error("Move channel sync failed (\(http.statusCode))")
+                return false
+            }
+        } catch {
+            log.error("Move channel sync error: \(error.localizedDescription)")
+            return false
+        }
+    }
 }

@@ -287,6 +287,60 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         log.info("Disconnected synced thread \(id) (\(sourceChannel):\(externalChatId))")
     }
 
+    /// Move Telegram sync ownership to the specified thread.
+    /// Calls the runtime's move-sync endpoint to atomically transfer the binding,
+    /// then updates the UI: the target thread becomes synced, the old owner loses its binding.
+    func moveSyncHere(threadId: UUID, sourceChannel: String, externalChatId: String) {
+        guard let targetIndex = threads.firstIndex(where: { $0.id == threadId }),
+              let sessionId = threads[targetIndex].sessionId else {
+            log.warning("Cannot move sync: thread \(threadId) not found or has no session")
+            return
+        }
+
+        Task { @MainActor in
+            let success = await daemonClient.moveChannelSync(
+                sourceChannel: sourceChannel,
+                externalChatId: externalChatId,
+                newConversationId: sessionId
+            )
+
+            if success {
+                // Find the old owner and clear its binding
+                for i in threads.indices {
+                    if threads[i].sourceChannel == sourceChannel &&
+                       threads[i].externalChatId == externalChatId &&
+                       threads[i].id != threadId {
+                        threads[i].sourceChannel = nil
+                        threads[i].externalChatId = nil
+                        threads[i].displayName = nil
+                        threads[i].username = nil
+                    }
+                }
+
+                // Set the new thread as synced
+                if let idx = threads.firstIndex(where: { $0.id == threadId }) {
+                    threads[idx].sourceChannel = sourceChannel
+                    threads[idx].externalChatId = externalChatId
+                }
+
+                log.info("Moved sync to thread \(threadId) for \(sourceChannel):\(externalChatId)")
+            } else {
+                log.error("Failed to move sync to thread \(threadId)")
+            }
+        }
+    }
+
+    /// Find the canonical synced thread for a given channel chat, if one exists.
+    /// Returns the thread that owns the sync binding, or nil if no other thread is synced to this chat.
+    func findCanonicalThread(sourceChannel: String, externalChatId: String, excludingThread: UUID) -> ThreadModel? {
+        return threads.first(where: {
+            $0.sourceChannel == sourceChannel &&
+            $0.externalChatId == externalChatId &&
+            $0.id != excludingThread &&
+            !$0.isArchived
+        })
+    }
+
     func unarchiveThread(id: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
 

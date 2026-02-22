@@ -807,8 +807,9 @@ struct MainWindowView: View {
                 Button {
                     threadManager.disconnectSyncedThread(id: thread.id)
                 } label: {
-                    Label("Disconnect Channel", systemImage: "link.badge.minus")
+                    Label("Hide Local Thread", systemImage: "eye.slash")
                 }
+                .help("This does not delete Telegram history. The thread reappears on next message.")
             }
             Button {
                 if thread.isPinned {
