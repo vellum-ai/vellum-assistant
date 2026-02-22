@@ -390,4 +390,48 @@ describe("runtime proxy handler", () => {
       expect(fetchCalls.length).toBe(1);
     });
   });
+
+  // ── Gateway-origin header on proxied requests ────────────────────────
+
+  describe("gateway-origin header", () => {
+    test("sets X-Gateway-Origin header when runtimeBearerToken is configured", async () => {
+      let capturedHeaders: Headers | undefined;
+      globalThis.fetch = mock(async (_input: any, init?: any) => {
+        capturedHeaders = init?.headers;
+        return new Response("ok", { status: 200 });
+      }) as any;
+
+      const handler = createRuntimeProxyHandler(
+        makeConfig({ runtimeBearerToken: "runtime-secret" }),
+      );
+      const req = new Request("http://localhost:7830/v1/channels/inbound", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "hello" }),
+      });
+      await handler(req);
+
+      expect(capturedHeaders!.get("x-gateway-origin")).toBe("runtime-secret");
+    });
+
+    test("does not set X-Gateway-Origin header when no runtimeBearerToken", async () => {
+      let capturedHeaders: Headers | undefined;
+      globalThis.fetch = mock(async (_input: any, init?: any) => {
+        capturedHeaders = init?.headers;
+        return new Response("ok", { status: 200 });
+      }) as any;
+
+      const handler = createRuntimeProxyHandler(
+        makeConfig({ runtimeBearerToken: undefined }),
+      );
+      const req = new Request("http://localhost:7830/v1/channels/inbound", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "hello" }),
+      });
+      await handler(req);
+
+      expect(capturedHeaders!.has("x-gateway-origin")).toBe(false);
+    });
+  });
 });
