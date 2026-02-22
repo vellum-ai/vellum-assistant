@@ -431,7 +431,7 @@ The SMS channel provides text-only messaging via Twilio, sharing the same teleph
 7. The event is forwarded to the runtime via `POST /channels/inbound`, including SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
 
 **Egress** (`POST /deliver/sms`):
-1. The runtime calls the gateway's `/deliver/sms` endpoint with `{ to, text }`.
+1. The runtime calls the gateway's `/deliver/sms` endpoint with `{ to, text }` or `{ chatId, text }`. The `chatId` field is an alias for `to`, allowing the runtime channel callback (which sends `{ chatId, text }`) to work without translation. When both `to` and `chatId` are provided, `to` takes precedence.
 2. The gateway authenticates the request via bearer token (same fail-closed model as `/deliver/telegram`).
 3. The gateway sends the SMS via the Twilio Messages API using the configured `TWILIO_PHONE_NUMBER` as the `From` number.
 
@@ -3546,6 +3546,7 @@ All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-
 | `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status` |
 | `getTwilioConnectActionUrl()` | `${base}/webhooks/twilio/connect-action` |
 | `getTwilioRelayUrl()` | `ws(s)://.../webhooks/twilio/relay` |
+| `getTwilioSmsWebhookUrl()` | `${base}/webhooks/twilio/sms` |
 | `getOAuthCallbackUrl()` | `${base}/webhooks/oauth/callback` |
 | `getTelegramWebhookUrl()` | `${base}/webhooks/telegram` |
 
@@ -3954,6 +3955,7 @@ Internet-facing Twilio callbacks terminate at the gateway, which validates signa
 | `POST /webhooks/twilio/status` | HMAC-SHA1 signature, payload size | `POST /v1/calls/status-callback` |
 | `POST /webhooks/twilio/connect-action` | HMAC-SHA1 signature, payload size | `POST /v1/calls/connect-action` |
 | `WS /webhooks/twilio/relay` | WebSocket upgrade | `WS /v1/calls/relay` (bidirectional proxy) |
+| `POST /webhooks/twilio/sms` | HMAC-SHA1 signature, payload size, MessageSid dedup | `POST /v1/channels/inbound` (normalized `GatewayInboundEventV1` with `sourceChannel: "sms"`) |
 
 In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice webhook) should point to the gateway's `/webhooks/twilio/relay` endpoint rather than directly to the runtime. The gateway proxies ConversationRelay frames bidirectionally between Twilio and the runtime, preserving close and error semantics for proper cleanup.
 
@@ -3964,7 +3966,7 @@ Signature validation is **fail-closed**: if the Twilio auth token is not configu
 1. `ingress.publicBaseUrl` in workspace config (preferred — set via Settings UI > Public Ingress)
 2. `INGRESS_PUBLIC_BASE_URL` environment variable (fallback)
 
-All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/telegram`, `/webhooks/oauth/callback`, etc.) are appended automatically.
+All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/twilio/sms`, `/webhooks/telegram`, `/webhooks/oauth/callback`, etc.) are appended automatically.
 
 For **inbound Twilio signature validation** at the gateway, URL reconstruction now supports multiple candidates in order:
 1. `config.ingressPublicBaseUrl` (if configured)
@@ -4220,3 +4222,34 @@ Keep-alive heartbeats (every 30 s by default):
 | Guardian verification challenges | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; consumed/expired challenges retained |
 | Guardian approval requests | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; decision outcome retained |
 | IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |
+
+## SMS/Twilio Parity Verification Checklist
+
+This section tracks the SMS channel's feature parity with the Telegram channel and verifies that all SMS/Twilio behaviors match their documented contracts. Each item maps to a specific behavior shipped across the SMS/Twilio Faithfulness Remediation milestones (M1-M5).
+
+### Test Matrix
+
+| Area | Behavior | Verified By | Source Files |
+|------|----------|-------------|--------------|
+| **SMS Reply Delivery** | `/deliver/sms` accepts `{ to, text }` for outbound SMS | `gateway/src/http/routes/sms-deliver.test.ts` | `gateway/src/http/routes/sms-deliver.ts` |
+| **SMS Reply Delivery** | `/deliver/sms` accepts `{ chatId, text }` as alias for `to` (runtime channel callback compatibility) | `gateway/src/http/routes/sms-deliver.test.ts` | `gateway/src/http/routes/sms-deliver.ts` |
+| **SMS Reply Delivery** | When both `to` and `chatId` are provided, `to` takes precedence | `gateway/src/http/routes/sms-deliver.test.ts` | `gateway/src/http/routes/sms-deliver.ts` |
+| **SMS Reply Delivery** | Fail-closed auth: 503 when no bearer token configured and bypass not set | `gateway/src/http/routes/sms-deliver.test.ts` | `gateway/src/http/routes/sms-deliver.ts` |
+| **SMS `/new` Reset** | `/new` command (case-insensitive, trimmed) resets conversation via runtime API | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
+| **SMS `/new` Reset** | Confirmation SMS sent after successful reset | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
+| **SMS `/new` Reset** | `/new` message is not forwarded to runtime (intercepted at gateway) | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
+| **MMS Unsupported** | `NumMedia > 0` triggers explicit unsupported notice to sender | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
+| **MMS Unsupported** | MMS payloads are not forwarded to the runtime | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
+| **Twilio Setup** | `provision_number` auto-assigns number to config and secure storage | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |
+| **Twilio Setup** | `provision_number` auto-configures webhooks (voice, status, SMS) when ingress URL is available | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |
+| **Twilio Setup** | `assign_number` auto-assigns and auto-configures webhooks consistently with `provision_number` | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |
+| **Twilio Setup** | Webhook configuration is best-effort (non-fatal when ingress not yet configured) | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |
+| **Twilio Setup** | SMS webhook URL (`/webhooks/twilio/sms`) included in auto-configured webhooks | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/inbound/public-ingress-urls.ts` |
+| **Ingress Boundary** | Direct POST to `/webhooks/twilio/sms` on runtime returns `410 GATEWAY_ONLY` | `assistant/src/__tests__/gateway-only-enforcement.test.ts` | `assistant/src/runtime/http-server.ts` |
+| **Ingress Boundary** | Direct POST to legacy `/v1/calls/twilio/sms` on runtime returns `410 GATEWAY_ONLY` | `assistant/src/__tests__/gateway-only-enforcement.test.ts` | `assistant/src/runtime/http-server.ts` |
+| **Ingress Boundary** | SMS webhook at gateway validates `X-Twilio-Signature` (HMAC-SHA1) | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/twilio/validate-webhook.ts` |
+| **Ingress Boundary** | `MessageSid` deduplication prevents reprocessing retried webhooks | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
+| **Settings UI** | `list_numbers` IPC action lists all incoming phone numbers with capabilities | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |
+| **Settings UI** | `set_credentials` validates and stores Account SID and Auth Token in secure storage | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |
+| **Settings UI** | `clear_credentials` removes all Twilio credentials from secure storage | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |
+| **Settings UI** | Single-number-per-assistant model: number stored at `sms.phoneNumber` in config | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |
