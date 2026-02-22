@@ -133,6 +133,20 @@ describe('deriveShellActionKeys', () => {
     expect(result.keys).toHaveLength(0);
   });
 
+  test('newline-separated commands are marked non-simple', async () => {
+    const analysis = await analyzeShellCommand('cd repo\ngh pr view 123');
+    const result = deriveShellActionKeys(analysis);
+    expect(result.isSimpleAction).toBe(false);
+    expect(result.keys).toHaveLength(0);
+  });
+
+  test('background operator (&) chains are marked non-simple', async () => {
+    const analysis = await analyzeShellCommand('sleep 5 & echo done');
+    const result = deriveShellActionKeys(analysis);
+    expect(result.isSimpleAction).toBe(false);
+    expect(result.keys).toHaveLength(0);
+  });
+
   test('numeric arguments are excluded from keys', async () => {
     const analysis = await analyzeShellCommand('gh pr view 5525');
     const result = deriveShellActionKeys(analysis);
@@ -184,6 +198,11 @@ describe('buildShellCommandCandidates', () => {
     expect(candidates).toEqual(['']);
   });
 
+  test('semicolon chain returns raw-only', async () => {
+    const candidates = await buildShellCommandCandidates('cd repo; gh pr view 123');
+    expect(candidates).toHaveLength(1);
+  });
+
   test('deduplication preserves order', async () => {
     // Single command — raw and canonical are the same
     const candidates = await buildShellCommandCandidates('git status');
@@ -206,6 +225,18 @@ describe('buildShellAllowlistOptions — complex command restrictions', () => {
     const options = await buildShellAllowlistOptions('cat file.txt | grep error | wc -l');
     expect(options).toHaveLength(1);
     expect(options[0].pattern).toBe('cat file.txt | grep error | wc -l');
+    expect(options[0].description).toContain('compound');
+  });
+
+  test('semicolon chain offers exact only', async () => {
+    const options = await buildShellAllowlistOptions('cd repo; gh pr view 123');
+    expect(options).toHaveLength(1);
+    expect(options[0].description).toContain('compound');
+  });
+
+  test('newline-separated commands offer exact only', async () => {
+    const options = await buildShellAllowlistOptions('cd repo\ngh pr view 123');
+    expect(options).toHaveLength(1);
     expect(options[0].description).toContain('compound');
   });
 
