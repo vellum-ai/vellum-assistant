@@ -383,7 +383,7 @@ describe('playbook tool edge cases', () => {
   });
 
   test('update detects collision with another playbook', async () => {
-    const r1 = await executePlaybookCreate({ trigger: 'trigger A', action: 'action A' }, ctx);
+    const _r1 = await executePlaybookCreate({ trigger: 'trigger A', action: 'action A' }, ctx);
     const r2 = await executePlaybookCreate({ trigger: 'trigger B', action: 'action B' }, ctx);
 
     const idB = r2.content.match(/ID: (\S+)/)![1];

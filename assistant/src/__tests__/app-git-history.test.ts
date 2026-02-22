@@ -14,8 +14,8 @@ mock.module('../util/platform.js', () => ({
 }));
 
 // Re-import after mocking so modules use our temp dir
-const { createApp, updateApp, deleteApp, writeAppFile, editAppFile, getAppsDir } = await import('../memory/app-store.js');
-const { getAppHistory, getAppDiff, getAppFileAtVersion, restoreAppVersion, commitAppChange } = await import('../memory/app-git-service.js');
+const { createApp, updateApp, deleteApp: _deleteApp, writeAppFile: _writeAppFile, editAppFile: _editAppFile, getAppsDir } = await import('../memory/app-store.js');
+const { getAppHistory, getAppDiff, getAppFileAtVersion, restoreAppVersion, commitAppChange: _commitAppChange } = await import('../memory/app-git-service.js');
 
 describe('App Git History', () => {
   beforeEach(() => {

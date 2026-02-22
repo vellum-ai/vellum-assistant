@@ -646,20 +646,24 @@ describe('credential_store tool — tool definition', () => {
   test('getDefinition returns valid schema with required action', () => {
     const def = credentialStoreTool.getDefinition();
     expect(def.name).toBe('credential_store');
-    expect(def.input_schema.type).toBe('object');
-    expect(def.input_schema.required).toContain('action');
-    expect(def.input_schema.properties.action.enum).toEqual(
+    const schema = def.input_schema as Record<string, unknown>;
+    expect(schema.type).toBe('object');
+    expect(schema.required).toContain('action');
+    const props = schema.properties as Record<string, Record<string, unknown>>;
+    expect(props.action.enum).toEqual(
       ['store', 'list', 'delete', 'prompt', 'oauth2_connect'],
     );
   });
 
   test('getDefinition includes injection_templates schema', () => {
     const def = credentialStoreTool.getDefinition();
-    const templates = def.input_schema.properties.injection_templates;
+    const schemaProps = (def.input_schema as Record<string, unknown>).properties as Record<string, Record<string, unknown>>;
+    const templates = schemaProps.injection_templates as Record<string, unknown>;
     expect(templates).toBeDefined();
     expect(templates.type).toBe('array');
-    expect(templates.items.properties.hostPattern).toBeDefined();
-    expect(templates.items.properties.injectionType.enum).toEqual(['header', 'query']);
+    const items = (templates.items as Record<string, unknown>).properties as Record<string, Record<string, unknown>>;
+    expect(items.hostPattern).toBeDefined();
+    expect(items.injectionType.enum).toEqual(['header', 'query']);
   });
 });
 

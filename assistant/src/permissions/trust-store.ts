@@ -253,7 +253,7 @@ function loadFromDisk(): TrustRule[] {
         // on loaded rules would silently widen their scope to global
         // wildcards. Stripping them and re-saving prevents scope escalation.
         for (const rule of rules) {
-          const r = rule as Record<string, unknown>;
+          const r = rule as unknown as Record<string, unknown>;
           if ('principalKind' in r || 'principalId' in r || 'principalVersion' in r) {
             delete r.principalKind;
             delete r.principalId;

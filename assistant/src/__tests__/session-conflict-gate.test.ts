@@ -265,7 +265,7 @@ mock.module('../agent/loop.js', () => ({
 }));
 
 import { Session, type SessionMemoryPolicy } from '../daemon/session.js';
-import { looksLikeClarificationReply } from '../daemon/session-conflict-gate.js';
+import { ConflictGate, looksLikeClarificationReply } from '../daemon/session-conflict-gate.js';
 
 function makeSession(memoryPolicy?: SessionMemoryPolicy): Session {
   const provider = {
@@ -928,7 +928,6 @@ describe('looksLikeClarificationReply', () => {
 });
 
 describe('ConflictGate askOnIrrelevantTurns knob', () => {
-  const { ConflictGate } = require('../daemon/session-conflict-gate.js') as typeof import('../daemon/session-conflict-gate.js');
 
   const baseConfig = {
     enabled: true,

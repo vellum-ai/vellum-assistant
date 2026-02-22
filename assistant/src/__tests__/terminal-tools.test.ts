@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -8,7 +8,7 @@ import { join } from 'node:path';
 
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
-    get: (_target: Record<string, unknown>, prop: string) => () => {},
+    get: (_target: Record<string, unknown>, _prop: string) => () => {},
   }),
 }));
 

@@ -249,7 +249,6 @@ export function createToolExecutor(
           undefined, undefined,
           ctx.conversationId,
           req.executionTarget,
-          req.principal,
         );
         if ((response.decision === 'always_allow' || response.decision === 'always_allow_high_risk') && response.selectedPattern && response.selectedScope) {
           log.info({ toolName: 'cc:' + req.toolName, pattern: response.selectedPattern, scope: response.selectedScope, highRisk: response.decision === 'always_allow_high_risk' }, 'Persisting always-allow trust rule');

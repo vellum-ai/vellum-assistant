@@ -53,7 +53,7 @@ extension DaemonClient {
         }
         #elseif os(iOS)
         // HTTP transport is already handled above; only TCP should reach here on iOS.
-        guard case .tcp(let configHostname, let configPort, let configTls, _) = config.transport else {
+        guard case .tcp(let configHostname, let configPort, _, _) = config.transport else {
             log.error("Unexpected transport type on iOS — HTTP should have been handled above")
             isConnecting = false
             return
@@ -77,20 +77,13 @@ extension DaemonClient {
             port = configPort
         }
 
-        // Also re-read TLS setting from UserDefaults on each connect to match hostname/port behaviour
-        let tlsEnabled: Bool
-        if UserDefaults.standard.object(forKey: "daemon_tls_enabled") != nil {
-            tlsEnabled = UserDefaults.standard.bool(forKey: "daemon_tls_enabled")
-        } else {
-            tlsEnabled = configTls
-        }
-
-        log.info("Connecting to daemon at \(hostname):\(port) (tls=\(tlsEnabled))")
+        // iOS always enforces TLS for TCP connections
+        log.info("Connecting to daemon at \(hostname):\(port) (tls=true)")
         endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(hostname),
             port: NWEndpoint.Port(integerLiteral: port)
         )
-        parameters = tlsEnabled ? .tls : .tcp
+        parameters = .tls
         #else
         #error("DaemonClient is only supported on macOS and iOS")
         #endif
@@ -251,9 +244,16 @@ extension DaemonClient {
     /// allowing the connection to be marked as ready.
     /// If no token is configured, marks the connection as authenticated immediately.
     func authenticateIfNeeded() async throws {
-        // Re-read from Keychain on each call to pick up runtime changes (mirrors hostname/port pattern).
-        // Falls back to legacy UserDefaults key with one-time migration (same logic as DaemonConfig).
-        let tokenFromKeychain = APIKeyManager.shared.getAPIKey(provider: "daemon-token")
+        // Re-read hostname/port from UserDefaults to match connect()'s resolution logic,
+        // so the token lookup key matches the actual connection target.
+        let resolvedHostname = UserDefaults.standard.string(forKey: "daemon_hostname").flatMap { $0.isEmpty ? nil : $0 } ?? config.hostname
+        let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
+        let resolvedPort: UInt16 = (rawPort > 0 && rawPort <= 65535) ? UInt16(rawPort) : config.port
+        // Check host-specific key first (QR pairing), fall back to bare key (single-Mac compat),
+        // then legacy UserDefaults migration — same precedence as DaemonConfig.fromUserDefaults().
+        let hostSpecificProvider = "daemon-token:\(resolvedHostname):\(resolvedPort)"
+        let tokenFromKeychain = APIKeyManager.shared.getAPIKey(provider: hostSpecificProvider)
+            ?? APIKeyManager.shared.getAPIKey(provider: "daemon-token")
             ?? DaemonConfig.migrateAuthToken()
         guard let token = tokenFromKeychain ?? config.authToken else {
             // No token configured — treat as unauthenticated (plain TCP, no handshake).

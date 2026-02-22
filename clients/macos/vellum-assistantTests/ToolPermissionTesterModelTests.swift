@@ -59,7 +59,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
     func testSimulate_setsIsSimulating() {
         model.toolName = "host_bash"
-        model.inputJSON = "{}"
         model.simulate()
 
         XCTAssertTrue(model.isSimulating)
@@ -74,7 +73,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         )
 
         model.toolName = "host_bash"
-        model.inputJSON = "{}"
         model.simulate()
 
         XCTAssertNil(model.lastError)
@@ -83,7 +81,9 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
     func testSimulate_sendsMessage() {
         model.toolName = "host_bash"
-        model.inputJSON = "{\"command\": \"echo hello\"}"
+        model.fieldDescriptors = [ToolFieldDescriptor(id: "command", fieldType: .string, description: nil, isRequired: true)]
+        model.fieldValues = ["command": "echo hello"]
+        model.fieldEnabled = ["command": true]
         model.workingDir = "/tmp"
         model.isInteractive = false
         model.forcePromptSideEffects = true
@@ -100,7 +100,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
     func testSimulate_emptyOptionalFieldsSendNil() {
         model.toolName = "host_bash"
-        model.inputJSON = "{}"
         model.workingDir = ""
 
         model.simulate()
@@ -111,24 +110,12 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         XCTAssertNil(msg?.workingDir)
     }
 
-    func testSimulate_invalidJSON_setsError() {
-        model.toolName = "host_bash"
-        model.inputJSON = "not json"
-
-        model.simulate()
-
-        XCTAssertNotNil(model.lastError)
-        XCTAssertTrue(model.lastError?.starts(with: "Invalid JSON:") == true)
-        XCTAssertFalse(model.isSimulating)
-    }
-
     func testSimulate_sendFailure_setsError() {
         daemonClient.sendOverride = { _ in
             throw NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "socket closed"])
         }
 
         model.toolName = "host_bash"
-        model.inputJSON = "{}"
         model.simulate()
 
         XCTAssertNotNil(model.lastError)
@@ -138,7 +125,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
     func testSimulate_handlesSuccessResponse() {
         model.toolName = "host_bash"
-        model.inputJSON = "{}"
         model.simulate()
 
         // Simulate the daemon sending a response
@@ -149,6 +135,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
             riskLevel: "low",
             reason: "Matched trust rule",
             promptPayload: nil,
+            executionTarget: nil,
             matchedRuleId: "rule-42",
             error: nil
         ))
@@ -168,7 +155,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
     func testSimulate_handlesErrorResponse() {
         model.toolName = "host_bash"
-        model.inputJSON = "{}"
         model.simulate()
 
         daemonClient.onToolPermissionSimulateResponse?(ToolPermissionSimulateResponseMessage(
@@ -178,6 +164,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
             riskLevel: nil,
             reason: nil,
             promptPayload: nil,
+            executionTarget: nil,
             matchedRuleId: nil,
             error: "Tool not found"
         ))
@@ -234,7 +221,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
     func testAlwaysAllow_sendsAddTrustRuleAndResimulates() {
         model.toolName = "host_bash"
-        model.inputJSON = "{}"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
@@ -261,7 +247,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
     func testAlwaysAllow_highRisk_usesAlwaysAllowHighRiskDecision() {
         model.toolName = "host_bash"
-        model.inputJSON = "{}"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "high", reason: "dangerous",
             matchedRuleId: nil, promptPayload: nil,
@@ -278,7 +263,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
     func testAlwaysAllow_mediumRisk_doesNotSetAllowHighRisk() {
         model.toolName = "host_bash"
-        model.inputJSON = "{}"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
@@ -295,7 +279,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
     func testAlwaysAllow_emptyMetadata_doesNotPassNilFields() {
         model.toolName = "host_bash"
-        model.inputJSON = "{}"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "low", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
@@ -313,7 +296,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
     func testInitialState() {
         XCTAssertEqual(model.toolName, "")
-        XCTAssertEqual(model.inputJSON, "{}")
         XCTAssertEqual(model.workingDir, "")
         XCTAssertTrue(model.isInteractive)
         XCTAssertFalse(model.forcePromptSideEffects)

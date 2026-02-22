@@ -133,7 +133,11 @@ public struct DaemonConfig {
         let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
         let finalPort: UInt16 = (rawPort > 0 && rawPort <= 65535) ? UInt16(rawPort) : 8765
         let tlsEnabled = UserDefaults.standard.bool(forKey: "daemon_tls_enabled")
-        let authToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token") ?? migrateAuthToken()
+        // Check host-specific Keychain key first (QR pairing), fall back to bare key (single-Mac compat)
+        let hostSpecificProvider = "daemon-token:\(hostname):\(finalPort)"
+        let authToken = APIKeyManager.shared.getAPIKey(provider: hostSpecificProvider)
+            ?? APIKeyManager.shared.getAPIKey(provider: "daemon-token")
+            ?? migrateAuthToken()
         return DaemonConfig(hostname: hostname, port: finalPort, tlsEnabled: tlsEnabled, authToken: authToken)
     }
 

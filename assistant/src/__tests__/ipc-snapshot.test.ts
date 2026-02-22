@@ -551,6 +551,9 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     isInteractive: true,
     forcePromptSideEffects: false,
   },
+  tool_names_list: {
+    type: 'tool_names_list',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1578,6 +1581,10 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     },
     executionTarget: 'host',
     matchedRuleId: undefined,
+  },
+  tool_names_list_response: {
+    type: 'tool_names_list_response',
+    names: ['bash', 'file_read', 'file_write'],
   },
 };
 

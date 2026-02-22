@@ -15,16 +15,40 @@ final class ClientProvider: ObservableObject {
     /// underlying client is a `DaemonClient`.
     @Published var isConnected: Bool = false
 
+    /// Cancellable subscription for the Combine bridge. Stored so we can
+    /// cancel it before creating a new one in `rebuildClient()` — prevents
+    /// old DaemonClient subscriptions from accumulating and writing stale
+    /// state to `isConnected`.
+    private var isConnectedSubscription: AnyCancellable?
+
     init(client: any DaemonClientProtocol) {
         self.client = client
+        bindCombineBridge()
+    }
+
+    /// Recreate the DaemonClient from current UserDefaults/Keychain settings.
+    /// Call this after QR pairing, cloud provisioning, or Settings changes so the
+    /// new transport configuration takes effect without an app restart.
+    func rebuildClient() {
+        // Tear down the old client's connection, timers, and monitors before replacing.
+        client.disconnect()
+        self.client = DaemonClient(config: .fromUserDefaults())
+        self.isConnected = false
+        bindCombineBridge()
+    }
+
+    private func bindCombineBridge() {
+        isConnectedSubscription?.cancel()
+        isConnectedSubscription = nil
         if let daemon = client as? DaemonClient {
             // Bridge DaemonClient's @Published isConnected to our own.
             // Both types are @MainActor so the publisher already emits on the
-            // main actor — no receive(on:) needed. assign(to:) writes directly
-            // through the @Published property wrapper, firing objectWillChange
-            // synchronously so SwiftUI picks up the change immediately.
-            daemon.$isConnected
-                .assign(to: &$isConnected)
+            // main actor — no receive(on:) needed. Using sink with [weak self]
+            // to avoid a retain cycle (assign(to:on:) holds a strong ref).
+            isConnectedSubscription = daemon.$isConnected
+                .sink { [weak self] value in
+                    self?.isConnected = value
+                }
         }
     }
 }

@@ -538,7 +538,7 @@ describe('call-orchestrator', () => {
   test('handleUserInstruction: does not break existing answer flow', async () => {
     // Step 1: Caller says something, LLM responds normally
     mockStreamFn.mockImplementation(() => createMockStream(['Hello! How can I help you today?']));
-    const { session, relay, orchestrator } = setupOrchestrator('Book appointment');
+    const { session: _session, relay, orchestrator } = setupOrchestrator('Book appointment');
 
     await orchestrator.handleCallerUtterance('Hi there');
 
