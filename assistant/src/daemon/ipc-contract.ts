@@ -539,8 +539,9 @@ export interface TwitterIntegrationConfigRequest {
 
 export interface TelegramConfigRequest {
   type: 'telegram_config';
-  action: 'get' | 'set' | 'clear';
+  action: 'get' | 'set' | 'clear' | 'set_commands';
   botToken?: string;  // Only for action: 'set'
+  commands?: Array<{ command: string; description: string }>;  // Only for action: 'set_commands'
 }
 
 export interface TelegramConfigResponse {

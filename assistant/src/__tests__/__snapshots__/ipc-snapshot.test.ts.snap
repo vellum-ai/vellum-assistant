@@ -499,40 +499,6 @@ exports[`IPC message snapshots ClientMessage types gallery_install serializes to
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types app_history_request serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "limit": 10,
-  "type": "app_history_request",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types app_diff_request serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "fromCommit": "abc123",
-  "toCommit": "def456",
-  "type": "app_diff_request",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types app_file_at_version_request serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "commitHash": "abc123",
-  "path": "index.html",
-  "type": "app_file_at_version_request",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types app_restore_request serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "commitHash": "abc123",
-  "type": "app_restore_request",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types app_update_preview serializes to expected JSON 1`] = `
 {
   "appId": "app-001",
@@ -545,6 +511,40 @@ exports[`IPC message snapshots ClientMessage types app_preview_request serialize
 {
   "appId": "app-001",
   "type": "app_preview_request",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types app_history_request serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "limit": 25,
+  "type": "app_history_request",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types app_diff_request serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "fromCommit": "abc123def456",
+  "toCommit": "789abc123def",
+  "type": "app_diff_request",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types app_file_at_version_request serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "commitHash": "abc123def456",
+  "path": "index.html",
+  "type": "app_file_at_version_request",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types app_restore_request serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "commitHash": "abc123def456",
+  "type": "app_restore_request",
 }
 `;
 
@@ -587,6 +587,13 @@ exports[`IPC message snapshots ClientMessage types twitter_integration_config se
 {
   "action": "get",
   "type": "twitter_integration_config",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types telegram_config serializes to expected JSON 1`] = `
+{
+  "action": "get",
+  "type": "telegram_config",
 }
 `;
 
@@ -1844,50 +1851,6 @@ exports[`IPC message snapshots ServerMessage types gallery_install_response seri
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types app_history_response serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "type": "app_history_response",
-  "versions": [
-    {
-      "commitHash": "abc123",
-      "message": "Initial commit",
-      "timestamp": 1700000000,
-    },
-  ],
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types app_diff_response serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "diff": 
-"--- a/index.html
-+++ b/index.html
-@@ -1 +1 @@
--old
-+new"
-,
-  "type": "app_diff_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types app_file_at_version_response serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "content": "<html><body>Hello</body></html>",
-  "path": "index.html",
-  "type": "app_file_at_version_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types app_restore_response serializes to expected JSON 1`] = `
-{
-  "success": true,
-  "type": "app_restore_response",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types share_app_cloud_response serializes to expected JSON 1`] = `
 {
   "shareToken": "abc123def456",
@@ -1941,6 +1904,17 @@ exports[`IPC message snapshots ServerMessage types twitter_integration_config_re
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types telegram_config_response serializes to expected JSON 1`] = `
+{
+  "botUsername": "my_test_bot",
+  "connected": true,
+  "hasBotToken": true,
+  "hasWebhookSecret": true,
+  "success": true,
+  "type": "telegram_config_response",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types twitter_auth_result serializes to expected JSON 1`] = `
 {
   "accountInfo": "@vellum_test",
@@ -1979,6 +1953,49 @@ exports[`IPC message snapshots ServerMessage types app_preview_response serializ
   "appId": "app-001",
   "preview": "base64-png-data",
   "type": "app_preview_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types app_history_response serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "type": "app_history_response",
+  "versions": [
+    {
+      "commitHash": "abc123def456",
+      "message": "Initial app commit",
+      "timestamp": 1700000000,
+    },
+    {
+      "commitHash": "789abc123def",
+      "message": "Update landing page",
+      "timestamp": 1700001000,
+    },
+  ],
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types app_diff_response serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "diff": "diff --git a/index.html b/index.html",
+  "type": "app_diff_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types app_file_at_version_response serializes to expected JSON 1`] = `
+{
+  "appId": "app-001",
+  "content": "<html><body>Hello</body></html>",
+  "path": "index.html",
+  "type": "app_file_at_version_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types app_restore_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "app_restore_response",
 }
 `;
 
@@ -2438,100 +2455,5 @@ exports[`IPC message snapshots ServerMessage types tool_permission_simulate_resp
   "riskLevel": "high",
   "success": true,
   "type": "tool_permission_simulate_response",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types app_history_request serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "limit": 25,
-  "type": "app_history_request",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types app_diff_request serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "fromCommit": "abc123def456",
-  "toCommit": "789abc123def",
-  "type": "app_diff_request",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types app_file_at_version_request serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "commitHash": "abc123def456",
-  "path": "index.html",
-  "type": "app_file_at_version_request",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types app_restore_request serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "commitHash": "abc123def456",
-  "type": "app_restore_request",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types app_history_response serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "type": "app_history_response",
-  "versions": [
-    {
-      "commitHash": "abc123def456",
-      "message": "Initial app commit",
-      "timestamp": 1700000000,
-    },
-    {
-      "commitHash": "789abc123def",
-      "message": "Update landing page",
-      "timestamp": 1700001000,
-    },
-  ],
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types app_diff_response serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "diff": "diff --git a/index.html b/index.html",
-  "type": "app_diff_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types app_file_at_version_response serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "content": "<html><body>Hello</body></html>",
-  "path": "index.html",
-  "type": "app_file_at_version_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types app_restore_response serializes to expected JSON 1`] = `
-{
-  "success": true,
-  "type": "app_restore_response",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types telegram_config serializes to expected JSON 1`] = `
-{
-  "action": "get",
-  "type": "telegram_config",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types telegram_config_response serializes to expected JSON 1`] = `
-{
-  "botUsername": "my_test_bot",
-  "connected": true,
-  "hasBotToken": true,
-  "hasWebhookSecret": true,
-  "success": true,
-  "type": "telegram_config_response",
 }
 `;

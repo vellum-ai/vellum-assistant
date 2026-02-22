@@ -28,7 +28,7 @@ The token is collected securely via a system-level prompt and is never exposed i
 
 After the token is collected, send it to the daemon's `telegram_config` handler which validates, stores, and configures everything in one step:
 
-- Send the `telegram_config` IPC message with `action: "set"`. The daemon retrieves the token from the credential store internally — you do not need to retrieve it yourself.
+- Send the `telegram_config` IPC message with `action: "set"`. The daemon retrieves the token from secure storage internally when `botToken` is not provided in the message — you do not need to retrieve it yourself.
 
 The daemon's `telegram_config set` handler automatically:
 - Validates the token by calling the Telegram `getMe` API

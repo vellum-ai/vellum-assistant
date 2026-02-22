@@ -1729,6 +1729,12 @@ public struct IPCTelegramConfigRequest: Codable, Sendable {
     public let type: String
     public let action: String
     public let botToken: String?
+    public let commands: [IPCTelegramConfigRequestCommand]?
+}
+
+public struct IPCTelegramConfigRequestCommand: Codable, Sendable {
+    public let command: String
+    public let description: String
 }
 
 public struct IPCTelegramConfigResponse: Codable, Sendable {
