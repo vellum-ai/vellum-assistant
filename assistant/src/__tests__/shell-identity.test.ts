@@ -117,6 +117,22 @@ describe('deriveShellActionKeys', () => {
     ]);
   });
 
+  test('OR chains (||) are marked non-simple', async () => {
+    const analysis = await analyzeShellCommand('cd repo || gh pr view 123');
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(false);
+    expect(result.keys).toHaveLength(0);
+  });
+
+  test('semicolon chains (;) are marked non-simple', async () => {
+    const analysis = await analyzeShellCommand('cd repo; gh pr view 123');
+    const result = deriveShellActionKeys(analysis);
+
+    expect(result.isSimpleAction).toBe(false);
+    expect(result.keys).toHaveLength(0);
+  });
+
   test('numeric arguments are excluded from keys', async () => {
     const analysis = await analyzeShellCommand('gh pr view 5525');
     const result = deriveShellActionKeys(analysis);
