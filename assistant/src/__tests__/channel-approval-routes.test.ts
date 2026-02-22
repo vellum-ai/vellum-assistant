@@ -48,6 +48,12 @@ import {
 } from '../memory/runs-store.js';
 import type { PendingConfirmation } from '../memory/runs-store.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
+import {
+  createBinding,
+  createApprovalRequest,
+  getPendingApprovalForRun,
+  getUnresolvedApprovalForRun,
+} from '../memory/channel-guardian-store.js';
 import type { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { handleChannelInbound, isChannelApprovalsEnabled } from '../runtime/routes/channel-routes.js';
 import * as gatewayClient from '../runtime/gateway-client.js';
@@ -78,6 +84,9 @@ function ensureConversation(conversationId: string): void {
 
 function resetTables(): void {
   const db = getDb();
+  db.run('DELETE FROM channel_guardian_approval_requests');
+  db.run('DELETE FROM channel_guardian_verification_challenges');
+  db.run('DELETE FROM channel_guardian_bindings');
   db.run('DELETE FROM message_runs');
   db.run('DELETE FROM channel_inbound_events');
   db.run('DELETE FROM conversations');
@@ -836,5 +845,427 @@ describe('terminal state check before markProcessed', () => {
     linkSpy.mockRestore();
     markSpy.mockRestore();
     deliverSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 10. Fail-closed guardian gate: unverified channel + sensitive request
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Helper to build a mock orchestrator that creates a real run in the DB
+ * with a pending confirmation, so `getPendingConfirmationsByConversation`
+ * returns the expected data during the background poll loop.
+ *
+ * The `startRun` callback discovers the auto-generated conversationId from
+ * the channel_inbound_events table and creates a real run+confirmation.
+ */
+function makeSensitiveOrchestrator(opts: {
+  runId: string;
+  /** After needs_confirmation is detected and handled, return this terminal status. */
+  terminalStatus: 'completed' | 'failed';
+}): RunOrchestrator & { realRunId: () => string | undefined } {
+  let realRunId: string | undefined;
+  let pollCount = 0;
+
+  return {
+    submitDecision: mock(() => 'applied' as const),
+    getRun: mock(() => {
+      pollCount++;
+      if (pollCount === 1 && realRunId) {
+        return {
+          id: realRunId,
+          conversationId: 'conv-1',
+          messageId: null,
+          status: 'needs_confirmation' as const,
+          pendingConfirmation: sampleConfirmation,
+          pendingSecret: null,
+          inputTokens: 0,
+          outputTokens: 0,
+          estimatedCost: 0,
+          error: null,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+      }
+      return {
+        id: realRunId ?? opts.runId,
+        conversationId: 'conv-1',
+        messageId: null,
+        status: opts.terminalStatus,
+        pendingConfirmation: null,
+        pendingSecret: null,
+        inputTokens: 0,
+        outputTokens: 0,
+        estimatedCost: 0,
+        error: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+    }),
+    startRun: mock(async (conversationId: string) => {
+      // Create a real run in the DB so getPendingConfirmationsByConversation works
+      ensureConversation(conversationId);
+      const run = createRun(conversationId);
+      setRunConfirmation(run.id, sampleConfirmation);
+      realRunId = run.id;
+      return {
+        id: run.id,
+        conversationId,
+        messageId: null,
+        status: 'running' as const,
+        pendingConfirmation: null,
+        pendingSecret: null,
+        inputTokens: 0,
+        outputTokens: 0,
+        estimatedCost: 0,
+        error: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+    }),
+    realRunId: () => realRunId,
+  } as unknown as RunOrchestrator & { realRunId: () => string | undefined };
+}
+
+describe('fail-closed guardian gate (unverified channel)', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('no-binding + sensitive request auto-denies and never self-approves', async () => {
+    const deliverReplySpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const orchestrator = makeSensitiveOrchestrator({
+      runId: 'run-unverified-deny',
+      terminalStatus: 'failed',
+    });
+
+    // Send from a non-guardian user with no guardian binding on the channel.
+    // senderExternalUserId triggers the actor role resolution path.
+    const req = makeInboundRequest({
+      content: 'do something dangerous',
+      senderExternalUserId: 'user-no-guardian',
+    });
+
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+
+    // Wait for the background async to complete
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    // The orchestrator should have auto-denied (submitDecision called with 'deny')
+    const realId = (orchestrator as unknown as { realRunId: () => string }).realRunId();
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(realId, 'deny');
+
+    // The requester should have been notified about missing guardian
+    const replyCalls = deliverReplySpy.mock.calls;
+    const denialNotice = replyCalls.find(
+      (call) => typeof call[1]?.text === 'string' &&
+        call[1].text.includes('no guardian has been set up'),
+    );
+    expect(denialNotice).toBeDefined();
+
+    deliverReplySpy.mockRestore();
+  });
+
+  test('no-binding + non-sensitive request still completes normally', async () => {
+    const deliverReplySpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const mockRun = {
+      id: 'run-unverified-ok',
+      conversationId: 'conv-1',
+      messageId: null,
+      status: 'running' as const,
+      pendingConfirmation: null,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    // Run completes without ever needing confirmation (non-sensitive action)
+    const orchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => ({ ...mockRun, status: 'completed' as const })),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    const req = makeInboundRequest({
+      content: 'hello world',
+      senderExternalUserId: 'user-no-guardian',
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+
+    // Wait for the background async to complete
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    // submitDecision should NOT have been called because no confirmation was needed
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    // No denial notice should have been sent
+    const denialNotice = deliverReplySpy.mock.calls.find(
+      (call) => typeof call[1]?.text === 'string' &&
+        call[1].text.includes('no guardian has been set up'),
+    );
+    expect(denialNotice).toBeUndefined();
+
+    deliverReplySpy.mockRestore();
+  });
+
+  test('unverified channel user cannot self-approve via approval interception', async () => {
+    const deliverReplySpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const orchestrator = makeMockOrchestrator();
+
+    // Establish the conversation from the unverified user
+    const initReq = makeInboundRequest({
+      content: 'init',
+      senderExternalUserId: 'user-no-guardian',
+    });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    // Create a pending run for this conversation
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    // Try to self-approve as the unverified user
+    const req = makeInboundRequest({
+      content: 'approve',
+      senderExternalUserId: 'user-no-guardian',
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    // Should be denied, not approved
+    expect(body.approval).toBe('decision_applied');
+    // submitDecision should have been called with 'deny' (auto-deny)
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'deny');
+
+    deliverReplySpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 11. Guardian-with-binding path regression
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('guardian-with-binding path regression', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('non-guardian with binding routes approval to guardian', async () => {
+    const deliverReplySpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const deliverApprovalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+
+    // Set up a guardian binding for telegram channel
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-1',
+      guardianDeliveryChatId: 'guardian-chat-1',
+      verifiedVia: 'challenge',
+    });
+
+    const orchestrator = makeSensitiveOrchestrator({
+      runId: 'run-with-binding',
+      terminalStatus: 'completed',
+    });
+
+    // Non-guardian user sends a message
+    const req = makeInboundRequest({
+      content: 'do something',
+      senderExternalUserId: 'requester-user-1',
+      senderUsername: 'requester_username',
+    });
+
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+
+    // Wait for background async
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    // The approval prompt should be delivered to the guardian's chat
+    expect(deliverApprovalSpy).toHaveBeenCalled();
+    const approvalCall = deliverApprovalSpy.mock.calls[0];
+    expect(approvalCall[1]).toBe('guardian-chat-1'); // guardian chat ID
+
+    // The requester should have been notified
+    const requesterNotice = deliverReplySpy.mock.calls.find(
+      (call) => typeof call[1]?.text === 'string' &&
+        call[1].text.includes('sent to the guardian for approval'),
+    );
+    expect(requesterNotice).toBeDefined();
+
+    // submitDecision should NOT have been called with 'deny' (no auto-deny)
+    const denyCalls = (orchestrator.submitDecision as ReturnType<typeof mock>).mock.calls.filter(
+      (call: unknown[]) => call[1] === 'deny',
+    );
+    expect(denyCalls.length).toBe(0);
+
+    deliverReplySpy.mockRestore();
+    deliverApprovalSpy.mockRestore();
+  });
+
+  test('guardian actor gets standard self-approval prompt', async () => {
+    const deliverApprovalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+    const deliverReplySpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Set up a guardian binding
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-2',
+      guardianDeliveryChatId: 'guardian-chat-2',
+      verifiedVia: 'challenge',
+    });
+
+    const orchestrator = makeSensitiveOrchestrator({
+      runId: 'run-guardian-self',
+      terminalStatus: 'completed',
+    });
+
+    // Guardian user sends a message (their external user ID matches the binding)
+    const req = makeInboundRequest({
+      content: 'do something',
+      senderExternalUserId: 'guardian-user-2',
+    });
+
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+
+    // Wait for background async
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    // The approval prompt should be delivered to the guardian's own chat (self-approval)
+    expect(deliverApprovalSpy).toHaveBeenCalled();
+    const approvalCall = deliverApprovalSpy.mock.calls[0];
+    // Should be sent to the requester's chat (externalChatId), not the guardian binding chat
+    expect(approvalCall[1]).toBe('chat-123');
+
+    deliverApprovalSpy.mockRestore();
+    deliverReplySpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 12. Guardian delivery failure denial
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('guardian delivery failure denial', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('delivery failure immediately denies run and notifies requester', async () => {
+    const deliverReplySpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    // Make deliverApprovalPrompt throw to simulate delivery failure
+    const deliverApprovalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockRejectedValue(
+      new Error('Network error: guardian unreachable'),
+    );
+
+    // Set up a guardian binding
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-fail',
+      guardianDeliveryChatId: 'guardian-chat-fail',
+      verifiedVia: 'challenge',
+    });
+
+    const orchestrator = makeSensitiveOrchestrator({
+      runId: 'run-delivery-fail',
+      terminalStatus: 'failed',
+    });
+
+    // Non-guardian user sends a message
+    const req = makeInboundRequest({
+      content: 'do something sensitive',
+      senderExternalUserId: 'requester-user-fail',
+    });
+
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+
+    // Wait for background async
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    // The run should have been auto-denied
+    const realId = (orchestrator as unknown as { realRunId: () => string }).realRunId();
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(realId, 'deny');
+
+    // The requester should be notified that approval could not be obtained
+    const denialNotice = deliverReplySpy.mock.calls.find(
+      (call) => typeof call[1]?.text === 'string' &&
+        call[1].text.includes('could not be sent to the guardian'),
+    );
+    expect(denialNotice).toBeDefined();
+
+    // No success notice ("has been sent to the guardian") should have been sent
+    // (the delivery failed, so the success notification should be skipped)
+    const successNotice = deliverReplySpy.mock.calls.find(
+      (call) => typeof call[1]?.text === 'string' &&
+        call[1].text.includes('has been sent to the guardian for approval'),
+    );
+    expect(successNotice).toBeUndefined();
+
+    deliverReplySpy.mockRestore();
+    deliverApprovalSpy.mockRestore();
+  });
+
+  test('delivery failure sets approval status to denied, preventing requester fallback', async () => {
+    const deliverReplySpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    // Make deliverApprovalPrompt throw
+    const deliverApprovalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockRejectedValue(
+      new Error('Network error'),
+    );
+
+    // Set up a guardian binding
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-fail-2',
+      guardianDeliveryChatId: 'guardian-chat-fail-2',
+      verifiedVia: 'challenge',
+    });
+
+    const orchestrator = makeSensitiveOrchestrator({
+      runId: 'run-delivery-fail-2',
+      terminalStatus: 'failed',
+    });
+
+    const req = makeInboundRequest({
+      content: 'do something sensitive',
+      senderExternalUserId: 'requester-user-fail-2',
+    });
+
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+
+    // Wait for background async
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    // After delivery failure, there should be no pending approval that the
+    // requester could exploit as a fallback path.
+    const realId = (orchestrator as unknown as { realRunId: () => string }).realRunId()!;
+    const pendingApproval = getPendingApprovalForRun(realId);
+    expect(pendingApproval).toBeNull();
+
+    // The unresolved approval (if any) should also not be in 'pending' status
+    const unresolvedApproval = getUnresolvedApprovalForRun(realId);
+    expect(unresolvedApproval).toBeNull();
+
+    deliverReplySpy.mockRestore();
+    deliverApprovalSpy.mockRestore();
   });
 });

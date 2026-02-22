@@ -46,7 +46,7 @@ const log = getLogger('runtime-http');
 // Actor role
 // ---------------------------------------------------------------------------
 
-export type ActorRole = 'guardian' | 'non-guardian';
+export type ActorRole = 'guardian' | 'non-guardian' | 'unverified_channel';
 
 export interface GuardianContext {
   actorRole: ActorRole;
@@ -323,6 +323,9 @@ export async function handleChannelInbound(
   // Determine whether the sender is the guardian for this channel.
   // When a guardian binding exists, non-guardian actors get stricter
   // side-effect controls and their approvals route to the guardian's chat.
+  // When NO binding exists and the sender is not the guardian, they are
+  // treated as 'unverified_channel' — sensitive actions are auto-denied
+  // (fail-closed) until a guardian is set up.
   let guardianCtx: GuardianContext = { actorRole: 'guardian' };
   if (isChannelApprovalsEnabled() && body.senderExternalUserId) {
     const senderIsGuardian = isGuardian('self', sourceChannel, body.senderExternalUserId);
@@ -337,6 +340,14 @@ export async function handleChannelInbound(
           guardianChatId: binding.guardianDeliveryChatId,
           guardianExternalUserId: binding.guardianExternalUserId,
           requesterIdentifier: requesterLabel,
+          requesterExternalUserId: body.senderExternalUserId,
+          requesterChatId: externalChatId,
+        };
+      } else {
+        // No guardian binding exists — treat as unverified so sensitive
+        // actions are denied rather than allowing self-approval.
+        guardianCtx = {
+          actorRole: 'unverified_channel',
           requesterExternalUserId: body.senderExternalUserId,
           requesterChatId: externalChatId,
         };
@@ -564,14 +575,17 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
   } = params;
 
   const isNonGuardian = guardianCtx.actorRole === 'non-guardian';
+  const isUnverifiedChannel = guardianCtx.actorRole === 'unverified_channel';
 
   (async () => {
     try {
+      // Both non-guardian and unverified_channel actors get strict side-effect
+      // enforcement so all sensitive tools trigger the confirmation flow.
       const run = await orchestrator.startRun(
         conversationId,
         content,
         attachmentIds,
-        isNonGuardian ? { forceStrictSideEffects: true } : undefined,
+        (isNonGuardian || isUnverifiedChannel) ? { forceStrictSideEffects: true } : undefined,
       );
 
       // Poll the run until it reaches a terminal state, delivering approval
@@ -588,7 +602,26 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
         if (current.status === 'needs_confirmation' && lastStatus !== 'needs_confirmation') {
           const pending = getPendingConfirmationsByConversation(conversationId);
 
-          if (isNonGuardian && guardianCtx.guardianChatId && pending.length > 0) {
+          if (isUnverifiedChannel && pending.length > 0) {
+            // Unverified channel (no guardian binding): auto-deny the sensitive
+            // action and tell the requester to set up a guardian first. This
+            // enforces fail-closed behavior — no self-approval for sensitive
+            // actions when no guardian has been configured.
+            const denyDecision: ApprovalDecisionResult = {
+              action: 'reject',
+              source: 'plain_text',
+            };
+            handleChannelDecision(conversationId, denyDecision, orchestrator);
+
+            try {
+              await deliverChannelReply(replyCallbackUrl, {
+                chatId: externalChatId,
+                text: `The action "${pending[0].toolName}" requires guardian approval, but no guardian has been set up for this channel. The action has been denied. Please ask an admin to configure a guardian first.`,
+              }, bearerToken);
+            } catch (err) {
+              log.error({ err, runId: run.id }, 'Failed to deliver unverified-channel denial notice');
+            }
+          } else if (isNonGuardian && guardianCtx.guardianChatId && pending.length > 0) {
             // Non-guardian actor: route the approval prompt to the guardian's chat
             const guardianPrompt = buildGuardianApprovalPrompt(
               pending[0],
@@ -623,9 +656,25 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
               guardianNotified = true;
             } catch (err) {
               log.error({ err, runId: run.id }, 'Failed to deliver guardian approval prompt');
-              // Cancel the stale approval record so the requester is not
-              // permanently blocked by an approval the guardian never saw.
-              updateApprovalDecision(approvalReqRecord.id, { status: 'cancelled' });
+              // Guardian delivery failed — immediately deny the run so the
+              // requester cannot bypass guardian control. Mark the approval as
+              // 'denied' (not 'cancelled') to prevent any fallback path.
+              updateApprovalDecision(approvalReqRecord.id, { status: 'denied' });
+
+              const failDenyDecision: ApprovalDecisionResult = {
+                action: 'reject',
+                source: 'plain_text',
+              };
+              handleChannelDecision(conversationId, failDenyDecision, orchestrator);
+
+              try {
+                await deliverChannelReply(replyCallbackUrl, {
+                  chatId: guardianCtx.requesterChatId ?? externalChatId,
+                  text: `Your request to run "${pending[0].toolName}" could not be sent to the guardian for approval. The action has been denied.`,
+                }, bearerToken);
+              } catch (notifyErr) {
+                log.error({ err: notifyErr, runId: run.id }, 'Failed to notify requester of guardian delivery failure denial');
+              }
             }
 
             // Only notify the requester if the guardian prompt was actually delivered
@@ -877,6 +926,32 @@ async function handleApprovalInterception(
   // ── Standard approval interception (existing flow) ──
   const pendingPrompt = getChannelApprovalPrompt(conversationId);
   if (!pendingPrompt) return { handled: false };
+
+  // When the sender is on an unverified channel (no guardian binding),
+  // block self-approval entirely. The approval was already auto-denied in
+  // processChannelMessageWithApprovals, but this is a defense-in-depth
+  // check in case a pending confirmation somehow remains.
+  if (guardianCtx.actorRole === 'unverified_channel') {
+    const pending = getPendingConfirmationsByConversation(conversationId);
+    if (pending.length > 0) {
+      // Auto-deny and notify
+      const denyDecision: ApprovalDecisionResult = {
+        action: 'reject',
+        source: 'plain_text',
+      };
+      handleChannelDecision(conversationId, denyDecision, orchestrator);
+
+      try {
+        await deliverChannelReply(replyCallbackUrl, {
+          chatId: externalChatId,
+          text: `The action "${pending[0].toolName}" requires guardian approval, but no guardian has been set up for this channel. The action has been denied. Please ask an admin to configure a guardian first.`,
+        }, bearerToken);
+      } catch (err) {
+        log.error({ err, conversationId }, 'Failed to deliver unverified-channel denial notice');
+      }
+      return { handled: true, type: 'decision_applied' };
+    }
+  }
 
   // When the sender is a non-guardian and there's a pending guardian approval
   // for this conversation's run, block self-approval. The non-guardian must
