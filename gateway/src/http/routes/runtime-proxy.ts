@@ -39,10 +39,30 @@ function stripHopByHop(headers: Headers): Headers {
   return cleaned;
 }
 
+/**
+ * Webhook paths are handled exclusively by the gateway's own route handlers
+ * and must never be forwarded to the runtime. This prevents external webhook
+ * traffic from bypassing gateway-level validation (signature checks, rate
+ * limiting, etc.).
+ */
+const WEBHOOK_PATH_RE = /^\/webhooks\//;
+
 export function createRuntimeProxyHandler(config: GatewayConfig) {
   return async (req: Request): Promise<Response> => {
     const start = performance.now();
     const url = new URL(req.url);
+
+    // Block forwarding of /webhooks/* paths — these are gateway-only.
+    if (WEBHOOK_PATH_RE.test(url.pathname)) {
+      log.warn(
+        { method: req.method, path: url.pathname },
+        "Blocked runtime proxy forwarding of webhook path",
+      );
+      return Response.json(
+        { error: "Not found", source: "gateway" },
+        { status: 404 },
+      );
+    }
 
     if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
       if (!config.runtimeProxyBearerToken) {

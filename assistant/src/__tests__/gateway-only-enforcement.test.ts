@@ -2,6 +2,7 @@
  * Tests for gateway-only ingress enforcement in the runtime HTTP server.
  *
  * Verifies:
+ * - Runtime does not expose any Telegram webhook ingress routes
  * - Direct Twilio webhook routes return 410
  * - Internal forwarding routes (gateway→runtime) still work
  * - Relay WebSocket upgrade blocked for non-private-network origins (isPrivateNetworkOrigin)
@@ -161,6 +162,36 @@ describe('gateway-only ingress enforcement', () => {
 
   afterEach(async () => {
     await server.stop();
+  });
+
+  // ── Runtime does not expose Telegram webhook ingress ─────────────
+
+  describe('runtime has no Telegram webhook routes', () => {
+
+    test('POST /webhooks/telegram returns 404 (not handled by runtime)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/webhooks/telegram`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ update_id: 1, message: { text: 'hello' } }),
+      });
+      // The runtime should not have any route matching /webhooks/telegram.
+      // It returns 404 because the path does not match any handler.
+      expect(res.status).toBe(404);
+    });
+
+    test('GET /webhooks/telegram returns 404', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/webhooks/telegram`);
+      expect(res.status).toBe(404);
+    });
+
+    test('POST /webhooks/telegram/test returns 404', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/webhooks/telegram/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(404);
+    });
   });
 
   // ── Direct Twilio webhook routes blocked in gateway_only mode ──────

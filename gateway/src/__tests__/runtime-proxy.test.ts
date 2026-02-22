@@ -278,4 +278,113 @@ describe("runtime proxy handler", () => {
 
     expect(capturedHeaders!.has("host")).toBe(false);
   });
+
+  // ── Webhook path blocking ──────────────────────────────────────────
+
+  describe("webhook path guard", () => {
+    test("blocks /webhooks/telegram from being proxied", async () => {
+      const fetchCalls: string[] = [];
+      globalThis.fetch = mock(async (input: any) => {
+        fetchCalls.push(String(input));
+        return new Response("ok", { status: 200 });
+      }) as any;
+
+      const handler = createRuntimeProxyHandler(makeConfig());
+      const req = new Request("http://localhost:7830/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ update_id: 1 }),
+      });
+      const res = await handler(req);
+
+      expect(res.status).toBe(404);
+      const body = await res.json();
+      expect(body.source).toBe("gateway");
+      // Verify fetch was never called — the request was blocked before proxying
+      expect(fetchCalls.length).toBe(0);
+    });
+
+    test("blocks /webhooks/twilio/voice from being proxied", async () => {
+      const fetchCalls: string[] = [];
+      globalThis.fetch = mock(async (input: any) => {
+        fetchCalls.push(String(input));
+        return new Response("ok", { status: 200 });
+      }) as any;
+
+      const handler = createRuntimeProxyHandler(makeConfig());
+      const req = new Request("http://localhost:7830/webhooks/twilio/voice", {
+        method: "POST",
+      });
+      const res = await handler(req);
+
+      expect(res.status).toBe(404);
+      expect(fetchCalls.length).toBe(0);
+    });
+
+    test("blocks /webhooks/oauth/callback from being proxied", async () => {
+      const fetchCalls: string[] = [];
+      globalThis.fetch = mock(async (input: any) => {
+        fetchCalls.push(String(input));
+        return new Response("ok", { status: 200 });
+      }) as any;
+
+      const handler = createRuntimeProxyHandler(makeConfig());
+      const req = new Request("http://localhost:7830/webhooks/oauth/callback");
+      const res = await handler(req);
+
+      expect(res.status).toBe(404);
+      expect(fetchCalls.length).toBe(0);
+    });
+
+    test("blocks /webhooks/any-future-channel from being proxied", async () => {
+      const fetchCalls: string[] = [];
+      globalThis.fetch = mock(async (input: any) => {
+        fetchCalls.push(String(input));
+        return new Response("ok", { status: 200 });
+      }) as any;
+
+      const handler = createRuntimeProxyHandler(makeConfig());
+      const req = new Request("http://localhost:7830/webhooks/any-future-channel", {
+        method: "POST",
+      });
+      const res = await handler(req);
+
+      expect(res.status).toBe(404);
+      expect(fetchCalls.length).toBe(0);
+    });
+
+    test("allows /v1/channels/inbound to be proxied (non-webhook path)", async () => {
+      const fetchCalls: string[] = [];
+      globalThis.fetch = mock(async (input: any) => {
+        fetchCalls.push(String(input));
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }) as any;
+
+      const handler = createRuntimeProxyHandler(makeConfig());
+      const req = new Request("http://localhost:7830/v1/channels/inbound", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "hello" }),
+      });
+      const res = await handler(req);
+
+      expect(res.status).toBe(200);
+      expect(fetchCalls.length).toBe(1);
+    });
+
+    test("allows /v1/health to be proxied (non-webhook path)", async () => {
+      const fetchCalls: string[] = [];
+      globalThis.fetch = mock(async (input: any) => {
+        fetchCalls.push(String(input));
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }) as any;
+
+      const handler = createRuntimeProxyHandler(makeConfig());
+      const req = new Request("http://localhost:7830/v1/health");
+      const res = await handler(req);
+
+      expect(res.status).toBe(200);
+      expect(fetchCalls.length).toBe(1);
+    });
+  });
 });
