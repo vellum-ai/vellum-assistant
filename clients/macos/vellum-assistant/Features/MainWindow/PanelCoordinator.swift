@@ -318,7 +318,8 @@ extension MainWindowView {
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
                 onMicrophoneToggle: onMicrophoneToggle,
-                isTemporaryChat: threadManager.activeThread?.kind == .private
+                isTemporaryChat: threadManager.activeThread?.kind == .private,
+                syncedChannelLabel: threadManager.activeThread?.isSynced == true ? threadManager.activeThread?.sourceChannel?.capitalized : nil
             )
             .overlay(alignment: .bottomTrailing) {
                 DemoOverlayView()
@@ -481,6 +482,7 @@ struct ActiveChatViewWrapper: View {
     @ObservedObject var settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
     var isTemporaryChat: Bool = false
+    var syncedChannelLabel: String?
 
     var body: some View {
         ChatView(
@@ -574,7 +576,8 @@ struct ActiveChatViewWrapper: View {
             daemonHttpPort: daemonClient.httpPort,
             isHistoryLoaded: viewModel.isHistoryLoaded,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
-            onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) }
+            onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
+            syncedChannelLabel: syncedChannelLabel
         )
     }
 }

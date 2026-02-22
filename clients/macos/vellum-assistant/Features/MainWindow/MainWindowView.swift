@@ -700,12 +700,25 @@ struct MainWindowView: View {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(VColor.accent.opacity(0.7))
+                } else if thread.isSynced {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
                 }
-                Text(thread.title)
-                    .font(.system(size: 13))
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(thread.title)
+                        .font(.system(size: 13))
+                        .foregroundColor(VColor.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if let senderLabel = thread.senderLabel {
+                        Text(senderLabel)
+                            .font(VFont.small)
+                            .foregroundColor(VColor.textMuted)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.md)

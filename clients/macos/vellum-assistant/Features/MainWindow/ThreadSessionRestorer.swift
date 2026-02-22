@@ -103,12 +103,17 @@ final class ThreadSessionRestorer {
         var restoredThreads: [ThreadModel] = []
         for session in recentSessions {
             let kind: ThreadKind = session.threadType == "private" ? .private : .standard
+            let binding = session.channelBinding
             let thread = ThreadModel(
                 title: session.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 sessionId: session.id,
                 isArchived: delegate.isSessionArchived(session.id),
-                kind: kind
+                kind: kind,
+                sourceChannel: binding?.sourceChannel,
+                displayName: binding?.displayName,
+                username: binding?.username,
+                externalChatId: binding?.externalChatId
             )
             let viewModel = delegate.makeViewModel()
             viewModel.sessionId = session.id
