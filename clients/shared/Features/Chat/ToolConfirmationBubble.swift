@@ -420,8 +420,8 @@ public struct ToolConfirmationBubble: View {
                 // Shift+Tab — move left
                 keyboardModel?.moveLeft()
                 return nil
-            case 48:
-                // Tab — move right
+            case 48 where event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty:
+                // Plain Tab — move right (modified Tab passes through)
                 keyboardModel?.moveRight()
                 return nil
             case 36, 76 where event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty:
@@ -430,8 +430,8 @@ public struct ToolConfirmationBubble: View {
                     activateAction(action)
                 }
                 return nil
-            case 53:
-                // Escape — deny
+            case 53 where event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty:
+                // Plain Escape — deny (modified Escape passes through)
                 activateAction(.dontAllow)
                 return nil
             default:
