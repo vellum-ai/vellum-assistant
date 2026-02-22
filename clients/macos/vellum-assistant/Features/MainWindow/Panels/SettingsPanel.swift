@@ -625,21 +625,15 @@ struct SettingsPanel: View {
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
 
-            // INTEGRATIONS section
-            if daemonClient != nil {
+            // INTEGRATIONS section (hidden when empty)
+            if daemonClient != nil && !integrations.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     Text("Integrations")
                         .font(VFont.sectionTitle)
                         .foregroundColor(VColor.textPrimary)
 
-                    if integrations.isEmpty {
-                        Text("No integrations available")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    } else {
-                        ForEach(integrations, id: \.id) { integration in
-                            integrationRow(integration)
-                        }
+                    ForEach(integrations, id: \.id) { integration in
+                        integrationRow(integration)
                     }
                 }
                 .padding(VSpacing.lg)
