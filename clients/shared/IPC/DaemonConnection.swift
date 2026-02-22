@@ -293,8 +293,9 @@ extension DaemonClient {
 
     // MARK: - HTTP Transport
 
-    /// Connect to a remote assistant via HTTP REST + SSE.
+    /// Connect to a remote assistant via HTTP REST + health check polling.
     /// Used when `config.transport` is `.http`.
+    /// SSE is managed separately via `startSSE()` / `stopSSE()`.
     func connectHTTP(baseURL: String, bearerToken: String?, conversationKey: String) async throws {
         let transport = HTTPTransport(
             baseURL: baseURL,
@@ -307,7 +308,7 @@ extension DaemonClient {
             self?.handleServerMessage(message)
         }
 
-        // Bridge HTTP transport connection state to DaemonClient's @Published isConnected.
+        // Bridge HTTP transport connection state (health-check driven) to DaemonClient.
         transport.onConnectionStateChanged = { [weak self] connected in
             guard let self else { return }
             self.isConnected = connected
@@ -321,8 +322,6 @@ extension DaemonClient {
 
         do {
             try await transport.connect()
-            // isConnected is set by the onConnectionStateChanged callback
-            // when the SSE stream establishes.
             isAuthenticated = true  // HTTP transport uses bearer token, no IPC auth needed
             isConnecting = false
         } catch {
@@ -330,6 +329,18 @@ extension DaemonClient {
             httpTransport = nil
             throw error
         }
+    }
+
+    // MARK: - SSE Lifecycle
+
+    /// Start the SSE event stream. Call when a chat window opens.
+    public func startSSE() {
+        httpTransport?.startSSE()
+    }
+
+    /// Stop the SSE event stream. Call when a chat window closes.
+    public func stopSSE() {
+        httpTransport?.stopSSE()
     }
 
     // MARK: - Disconnect

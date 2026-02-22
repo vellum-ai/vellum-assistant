@@ -35,9 +35,9 @@ struct ConversationsListResponse: Decodable {
 /// `.http` transport via `DaemonConfig`.
 ///
 /// Responsibilities:
-/// - SSE stream connection to `GET /v1/events?conversationKey=...`
+/// - Periodic health check via `GET /healthz` to drive connection status
+/// - SSE stream connection to `GET /v1/events?conversationKey=...` (on demand)
 /// - Translating IPC message types to HTTP API calls
-/// - Health check via `GET /healthz`
 /// - Auto-reconnect with exponential backoff
 @MainActor
 final class HTTPTransport {
@@ -49,28 +49,37 @@ final class HTTPTransport {
     /// Currently active SSE task.
     private var sseTask: Task<Void, Never>?
 
+    /// Periodic health check task.
+    private var healthCheckTask: Task<Void, Never>?
+
+    /// Health check interval in seconds.
+    private let healthCheckInterval: TimeInterval = 15.0
+
     /// Currently active run ID, tracked for decision/secret endpoints.
     private(set) var activeRunId: String?
 
-    /// Whether the SSE stream is connected.
+    /// Whether the assistant is reachable (health check passes).
     private(set) var isConnected: Bool = false
+
+    /// Whether the SSE stream is active and receiving events.
+    private(set) var isSSEConnected: Bool = false
 
     /// Whether we should attempt to reconnect on disconnect.
     private var shouldReconnect = true
 
-    /// Current reconnect backoff delay in seconds.
-    private var reconnectDelay: TimeInterval = 1.0
+    /// Current reconnect backoff delay in seconds (for SSE).
+    private var sseReconnectDelay: TimeInterval = 1.0
 
     /// Maximum reconnect backoff delay.
     private let maxReconnectDelay: TimeInterval = 30.0
 
-    /// Reconnect task handle.
-    private var reconnectTask: Task<Void, Never>?
+    /// SSE reconnect task handle.
+    private var sseReconnectTask: Task<Void, Never>?
 
     /// Callback for incoming server messages (called on main actor).
     var onMessage: ((ServerMessage) -> Void)?
 
-    /// Callback for connection state changes.
+    /// Callback for connection state changes (health check driven).
     var onConnectionStateChanged: ((Bool) -> Void)?
 
     private let decoder = JSONDecoder()
@@ -85,13 +94,22 @@ final class HTTPTransport {
         self.conversationKey = conversationKey
     }
 
-    // MARK: - Connect
+    // MARK: - Connect (health check driven)
 
-    /// Verify reachability via health check, then open SSE stream.
+    /// Verify reachability via health check and start periodic health monitoring.
+    /// Connection status is driven by health checks, not SSE.
     func connect() async throws {
         shouldReconnect = true
 
-        // 1. Health check
+        // Run initial health check
+        try await performHealthCheck()
+
+        // Start periodic health checks
+        startHealthCheckLoop()
+    }
+
+    /// Run a single health check against the gateway.
+    private func performHealthCheck() async throws {
         let healthURL = URL(string: "\(baseURL)/healthz")!
         var healthReq = URLRequest(url: healthURL)
         healthReq.timeoutInterval = 10
@@ -103,18 +121,57 @@ final class HTTPTransport {
                 throw HTTPTransportError.healthCheckFailed
             }
             log.info("Health check passed for \(self.baseURL, privacy: .public)")
+            setConnected(true)
         } catch let error as HTTPTransportError {
+            setConnected(false)
             throw error
         } catch {
             log.error("Health check failed: \(error.localizedDescription)")
+            setConnected(false)
             throw HTTPTransportError.healthCheckFailed
         }
+    }
 
-        // 2. Open SSE stream
+    /// Periodically poll `/healthz` to maintain connection status.
+    private func startHealthCheckLoop() {
+        healthCheckTask?.cancel()
+
+        healthCheckTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: UInt64((self?.healthCheckInterval ?? 15.0) * 1_000_000_000))
+                } catch {
+                    return
+                }
+
+                guard let self, self.shouldReconnect else { return }
+
+                do {
+                    try await self.performHealthCheck()
+                } catch {
+                    // Health check failed — isConnected already set to false
+                    log.warning("Periodic health check failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    // MARK: - SSE Stream (on demand)
+
+    /// Start the SSE event stream. Call when a chat window opens.
+    func startSSE() {
+        guard sseTask == nil else { return }
         startSSEStream()
     }
 
-    // MARK: - SSE Stream
+    /// Stop the SSE event stream. Call when a chat window closes.
+    func stopSSE() {
+        sseReconnectTask?.cancel()
+        sseReconnectTask = nil
+        sseTask?.cancel()
+        sseTask = nil
+        setSSEConnected(false)
+    }
 
     private func startSSEStream() {
         sseTask?.cancel()
@@ -139,11 +196,11 @@ final class HTTPTransport {
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                     log.error("SSE connection failed with status \(statusCode)")
-                    self.handleDisconnect()
+                    self.handleSSEDisconnect()
                     return
                 }
 
-                self.setConnected(true)
+                self.setSSEConnected(true)
                 log.info("SSE stream connected to \(urlString, privacy: .public)")
 
                 var dataBuffer = ""
@@ -167,7 +224,7 @@ final class HTTPTransport {
             }
 
             if !Task.isCancelled {
-                self.handleDisconnect()
+                self.handleSSEDisconnect()
             }
         }
     }
@@ -433,29 +490,32 @@ final class HTTPTransport {
 
     func disconnect() {
         shouldReconnect = false
-        reconnectTask?.cancel()
-        reconnectTask = nil
+        healthCheckTask?.cancel()
+        healthCheckTask = nil
+        sseReconnectTask?.cancel()
+        sseReconnectTask = nil
         sseTask?.cancel()
         sseTask = nil
         setConnected(false)
+        setSSEConnected(false)
         activeRunId = nil
     }
 
-    // MARK: - Reconnect
+    // MARK: - SSE Reconnect
 
-    private func handleDisconnect() {
-        setConnected(false)
-        guard shouldReconnect else { return }
-        scheduleReconnect()
+    private func handleSSEDisconnect() {
+        setSSEConnected(false)
+        guard shouldReconnect, sseTask != nil else { return }
+        scheduleSSEReconnect()
     }
 
-    private func scheduleReconnect() {
-        reconnectTask?.cancel()
+    private func scheduleSSEReconnect() {
+        sseReconnectTask?.cancel()
 
-        let delay = reconnectDelay
-        log.info("HTTP transport: scheduling reconnect in \(delay)s")
+        let delay = sseReconnectDelay
+        log.info("HTTP transport: scheduling SSE reconnect in \(delay)s")
 
-        reconnectTask = Task { @MainActor [weak self] in
+        sseReconnectTask = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             } catch {
@@ -463,16 +523,9 @@ final class HTTPTransport {
             }
 
             guard let self, self.shouldReconnect else { return }
-            self.reconnectDelay = min(self.reconnectDelay * 2, self.maxReconnectDelay)
+            self.sseReconnectDelay = min(self.sseReconnectDelay * 2, self.maxReconnectDelay)
 
-            do {
-                try await self.connect()
-            } catch {
-                log.error("HTTP reconnect failed: \(error.localizedDescription)")
-                if self.shouldReconnect {
-                    self.scheduleReconnect()
-                }
-            }
+            self.startSSEStream()
         }
     }
 
@@ -487,8 +540,13 @@ final class HTTPTransport {
     private func setConnected(_ connected: Bool) {
         guard isConnected != connected else { return }
         isConnected = connected
-        reconnectDelay = connected ? 1.0 : reconnectDelay
         onConnectionStateChanged?(connected)
+    }
+
+    private func setSSEConnected(_ connected: Bool) {
+        guard isSSEConnected != connected else { return }
+        isSSEConnected = connected
+        sseReconnectDelay = connected ? 1.0 : sseReconnectDelay
     }
 
     // MARK: - Errors

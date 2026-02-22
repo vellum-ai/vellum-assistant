@@ -558,6 +558,10 @@ struct MainWindowView: View {
                 windowState.persistentThreadId = activeId
             }
             requestHomeBaseDashboardIfNeeded()
+            daemonClient.startSSE()
+        }
+        .onDisappear {
+            daemonClient.stopSSE()
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)

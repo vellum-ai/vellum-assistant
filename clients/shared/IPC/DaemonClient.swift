@@ -103,6 +103,8 @@ public protocol DaemonClientProtocol {
     func send<T: Encodable>(_ message: T) throws
     func connect() async throws
     func disconnect()
+    func startSSE()
+    func stopSSE()
 }
 
 extension Notification.Name {

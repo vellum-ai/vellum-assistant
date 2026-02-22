@@ -524,4 +524,7 @@ private final class FailOnceDaemonClient: DaemonClientProtocol {
     func disconnect() {
         isConnected = false
     }
+
+    func startSSE() {}
+    func stopSSE() {}
 }

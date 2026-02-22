@@ -45,6 +45,9 @@ final class MockDaemonClient: DaemonClientProtocol {
     func disconnect() {
         isConnected = false
     }
+
+    func startSSE() {}
+    func stopSSE() {}
 }
 
 // MARK: - Mocks
