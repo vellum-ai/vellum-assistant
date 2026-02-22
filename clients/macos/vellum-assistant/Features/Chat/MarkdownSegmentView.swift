@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -150,19 +151,39 @@ struct MarkdownSegmentView: View {
                 result += heading
 
             case .list(let items):
+                let indentStep: CGFloat = 16
+                let font = NSFont.systemFont(ofSize: 13)
+
                 for (itemIndex, item) in items.enumerated() {
                     if itemIndex > 0 {
                         result += AttributedString("\n")
                     }
-                    let indent = String(repeating: "    ", count: item.indent / 2)
-                    let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
-                    var prefixAttr = AttributedString(indent + prefix)
+
+                    let indentLevel = CGFloat(item.indent / 2)
+                    let leftMargin = indentLevel * indentStep
+                    let prefix = item.ordered ? "\(item.number).\t" : "\u{2022}\t"
+
+                    // Measure the prefix width to set the tab stop / hanging indent
+                    let prefixForMeasure = item.ordered ? "\(item.number). " : "\u{2022} "
+                    let prefixSize = (prefixForMeasure as NSString).size(withAttributes: [.font: font])
+                    let textColumn = leftMargin + prefixSize.width
+
+                    // Build paragraph style with hanging indent so wrapped lines
+                    // align with the text column rather than the bullet/number.
+                    let paraStyle = NSMutableParagraphStyle()
+                    paraStyle.firstLineHeadIndent = leftMargin
+                    paraStyle.headIndent = textColumn
+                    paraStyle.tabStops = [NSTextTab(textAlignment: .left, location: textColumn)]
+
+                    var prefixAttr = AttributedString(prefix)
                     prefixAttr.foregroundColor = secondaryTextColor
                     prefixAttr.font = .system(size: 13)
+                    prefixAttr.paragraphStyle = paraStyle
                     result += prefixAttr
 
-                    let itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
+                    var itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
                         ?? AttributedString(item.text)
+                    itemAttr.paragraphStyle = paraStyle
                     result += itemAttr
                 }
 
