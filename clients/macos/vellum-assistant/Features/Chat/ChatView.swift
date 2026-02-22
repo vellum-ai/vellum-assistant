@@ -494,15 +494,27 @@ struct ChatView: View {
                     let lastVisible = displayMessages.last
                     let hasPendingConfirmation = lastVisible?.confirmation?.state == .pending
                     // Check the current assistant turn for active tool calls.
-                    // We scope to messages after the last user message so that
-                    // stale incomplete tool calls from earlier turns (e.g. after
-                    // daemon errors) don't permanently suppress the thinking
-                    // indicator. We still scan beyond lastVisible because
-                    // confirmation messages are inserted after the assistant
-                    // message that owns the tool call.
+                    // We scope to messages after the last user message that
+                    // started an assistant turn so that stale incomplete tool
+                    // calls from earlier turns (e.g. after daemon errors) don't
+                    // permanently suppress the thinking indicator. We skip
+                    // trailing user messages (queued follow-ups sent while
+                    // isSending) so they don't shrink the slice to empty and
+                    // incorrectly hide active tool calls. We still scan beyond
+                    // lastVisible because confirmation messages are inserted
+                    // after the assistant message that owns the tool call.
                     let currentTurnMessages: ArraySlice<ChatMessage> = {
-                        if let lastUserIndex = displayMessages.lastIndex(where: { $0.role == .user }) {
-                            return displayMessages[displayMessages.index(after: lastUserIndex)...]
+                        // Find the boundary of the current assistant turn by
+                        // locating the last user message that is followed by at
+                        // least one non-user message. This ignores queued user
+                        // messages appended at the tail during isSending.
+                        let lastTurnStart = displayMessages.indices.reversed().first(where: { idx in
+                            displayMessages[idx].role == .user
+                                && displayMessages.index(after: idx) < displayMessages.endIndex
+                                && displayMessages[displayMessages.index(after: idx)].role != .user
+                        })
+                        if let idx = lastTurnStart {
+                            return displayMessages[displayMessages.index(after: idx)...]
                         }
                         return displayMessages[displayMessages.startIndex...]
                     }()
