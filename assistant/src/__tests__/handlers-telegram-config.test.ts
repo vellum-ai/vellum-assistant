@@ -1,5 +1,5 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
-import { mkdtempSync } from 'node:fs';
+import { describe, test, expect, mock, beforeEach, afterAll } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as net from 'node:net';
@@ -114,6 +114,7 @@ mock.module('../tools/credentials/metadata-store.js', () => ({
 let _fetchMock: ((url: string | URL | Request) => Promise<Response>) | null = null;
 const originalFetch = globalThis.fetch;
 
+import { initializeDb, resetDb } from '../memory/db.js';
 import { handleTelegramConfig } from '../daemon/handlers/config.js';
 import type { HandlerContext } from '../daemon/handlers.js';
 import type {
@@ -121,6 +122,14 @@ import type {
   ServerMessage,
 } from '../daemon/ipc-contract.js';
 import { DebouncerMap } from '../util/debounce.js';
+
+// Initialize the database for guardian verification tests
+initializeDb();
+
+afterAll(() => {
+  resetDb();
+  try { rmSync(testDir, { recursive: true }); } catch { /* best effort */ }
+});
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
   const sent: ServerMessage[] = [];
@@ -774,6 +783,7 @@ describe('Telegram config handler', () => {
     expect(setCommandsCalled).toBe(true);
     expect((setCommandsBody as { commands: Array<{ command: string; description: string }> }).commands).toEqual([
       { command: 'new', description: 'Start a new conversation' },
+      { command: 'guardian_verify', description: 'Verify your guardian identity' },
     ]);
   });
 
@@ -851,5 +861,108 @@ describe('Telegram config handler', () => {
     const res = sent[0] as { type: string; success: boolean; error?: string };
     expect(res.success).toBe(false);
     expect(res.error).toContain('Failed to set bot commands');
+  });
+
+  test('default command registration includes /new and /guardian_verify', async () => {
+    secureKeyStore['credential:telegram:bot_token'] = 'test-bot-token';
+    secureKeyStore['credential:telegram:webhook_secret'] = 'test-webhook-secret';
+
+    let setCommandsBody: unknown = null;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('/setMyCommands')) {
+        setCommandsBody = JSON.parse(init?.body as string);
+        return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    // Call set_commands WITHOUT explicit commands to use defaults
+    const msg: TelegramConfigRequest = {
+      type: 'telegram_config',
+      action: 'set_commands',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTelegramConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean };
+    expect(res.success).toBe(true);
+
+    const commands = (setCommandsBody as { commands: Array<{ command: string; description: string }> }).commands;
+    expect(commands).toHaveLength(2);
+    expect(commands).toEqual([
+      { command: 'new', description: 'Start a new conversation' },
+      { command: 'guardian_verify', description: 'Verify your guardian identity' },
+    ]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Guardian verification status/revoke IPC actions
+// ═══════════════════════════════════════════════════════════════════════════
+
+import { handleGuardianVerification } from '../daemon/handlers/config.js';
+import type { GuardianVerificationRequest } from '../daemon/ipc-contract.js';
+
+describe('Guardian verification IPC actions', () => {
+  beforeEach(() => {
+    secureKeyStore = {};
+    setSecureKeyOverride = null;
+  });
+
+  test('status action returns bound=false when no binding exists', () => {
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      channel: 'telegram',
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleGuardianVerification(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; bound: boolean; guardianExternalUserId?: string };
+    expect(res.type).toBe('guardian_verification_response');
+    expect(res.success).toBe(true);
+    expect(res.bound).toBe(false);
+    expect(res.guardianExternalUserId).toBeUndefined();
+  });
+
+  test('create_challenge action returns a secret and instruction', () => {
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'create_challenge',
+      channel: 'telegram',
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleGuardianVerification(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; secret?: string; instruction?: string };
+    expect(res.type).toBe('guardian_verification_response');
+    expect(res.success).toBe(true);
+    expect(res.secret).toBeDefined();
+    expect(res.instruction).toBeDefined();
+    expect(res.instruction).toContain('/guardian_verify');
+  });
+
+  test('unknown action returns error', () => {
+    const msg = {
+      type: 'guardian_verification',
+      action: 'nonexistent',
+      channel: 'telegram',
+    } as unknown as GuardianVerificationRequest;
+
+    const { ctx, sent } = createTestContext();
+    handleGuardianVerification(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.type).toBe('guardian_verification_response');
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Unknown action');
   });
 });

@@ -93,13 +93,21 @@ Verify that the gateway routing is configured to deliver inbound messages to the
 
 If routing is misconfigured, inbound Telegram messages will be rejected and the gateway will send a visible notice to the chat explaining the issue (rate-limited to once per 5 minutes per chat).
 
-### Step 7: Report Success
+### Step 7: Verify Binding State
+
+Before reporting success, confirm the guardian binding was actually created. Send a `guardian_verification` IPC message with `action: "status"` (or query the guardian binding via the `getGuardianBinding` service call) to check whether a binding exists for the `telegram` channel. If the binding is absent and the user said they completed the verification:
+
+1. Tell the user the verification does not appear to have succeeded.
+2. Offer to generate a new challenge (repeat Step 5, substep 1).
+3. Only proceed to Step 8 once binding state is confirmed or the user explicitly skips guardian verification.
+
+### Step 8: Report Success
 
 Summarize what was done:
 - Bot verified and credentials stored securely via daemon
 - Webhook registration: handled automatically by the gateway
 - Bot commands registered: /new, /guardian_verify
-- Guardian identity verified (if completed)
+- Guardian identity verified (if completed and binding confirmed)
 - Routing configuration validated
 
 The gateway automatically detects credentials from the vault, reconciles the Telegram webhook registration, and begins accepting Telegram webhooks shortly. In single-assistant mode, routing is automatically configured — no manual environment variable configuration or webhook registration is needed. If the webhook secret changes later, the gateway's credential watcher will automatically re-register the webhook. If the ingress URL changes (e.g., tunnel restart), the assistant daemon triggers an immediate internal reconcile so the webhook re-registers automatically without a gateway restart.

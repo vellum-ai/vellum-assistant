@@ -38,7 +38,7 @@ import {
   searchAvailableNumbers,
   provisionPhoneNumber,
 } from '../../calls/twilio-rest.js';
-import { createVerificationChallenge } from '../../runtime/channel-guardian-service.js';
+import { createVerificationChallenge, getGuardianBinding, revokeBinding as revokeGuardianBinding } from '../../runtime/channel-guardian-service.js';
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
 
@@ -1032,6 +1032,7 @@ export async function handleTelegramConfig(
 
       const commands = msg.commands ?? [
         { command: 'new', description: 'Start a new conversation' },
+        { command: 'guardian_verify', description: 'Verify your guardian identity' },
       ];
 
       try {
@@ -1330,27 +1331,42 @@ export function handleGuardianVerification(
   ctx: HandlerContext,
 ): void {
   try {
-    if (msg.action !== 'create_challenge') {
+    // In single-assistant mode, 'self' is the canonical assistant ID used
+    // by channel routes when validating challenges on the inbound path.
+    const assistantId = 'self';
+    const channel = msg.channel ?? 'telegram';
+
+    if (msg.action === 'create_challenge') {
+      const result = createVerificationChallenge(assistantId, channel, msg.sessionId);
+
+      ctx.send(socket, {
+        type: 'guardian_verification_response',
+        success: true,
+        secret: result.secret,
+        instruction: result.instruction,
+      });
+    } else if (msg.action === 'status') {
+      const binding = getGuardianBinding(assistantId, channel);
+      ctx.send(socket, {
+        type: 'guardian_verification_response',
+        success: true,
+        bound: binding !== null,
+        guardianExternalUserId: binding?.guardianExternalUserId,
+      });
+    } else if (msg.action === 'revoke') {
+      const revoked = revokeGuardianBinding(assistantId, channel);
+      ctx.send(socket, {
+        type: 'guardian_verification_response',
+        success: true,
+        bound: !revoked,
+      });
+    } else {
       ctx.send(socket, {
         type: 'guardian_verification_response',
         success: false,
         error: `Unknown action: ${String(msg.action)}`,
       });
-      return;
     }
-
-    // In single-assistant mode, 'self' is the canonical assistant ID used
-    // by channel routes when validating challenges on the inbound path.
-    const assistantId = 'self';
-    const channel = msg.channel ?? 'telegram';
-    const result = createVerificationChallenge(assistantId, channel, msg.sessionId);
-
-    ctx.send(socket, {
-      type: 'guardian_verification_response',
-      success: true,
-      secret: result.secret,
-      instruction: result.instruction,
-    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Failed to handle guardian verification');

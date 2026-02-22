@@ -15,6 +15,7 @@ import {
   channelGuardianBindings,
   channelGuardianVerificationChallenges,
   channelGuardianApprovalRequests,
+  channelGuardianRateLimits,
 } from './schema.js';
 
 // ---------------------------------------------------------------------------
@@ -426,5 +427,160 @@ export function updateApprovalDecision(
       updatedAt: now,
     })
     .where(eq(channelGuardianApprovalRequests.id, id))
+    .run();
+}
+
+// ---------------------------------------------------------------------------
+// Verification Rate Limits
+// ---------------------------------------------------------------------------
+
+export interface VerificationRateLimit {
+  id: string;
+  assistantId: string;
+  channel: string;
+  actorExternalUserId: string;
+  actorChatId: string;
+  invalidAttempts: number;
+  windowStartedAt: number;
+  lockedUntil: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+function rowToRateLimit(row: typeof channelGuardianRateLimits.$inferSelect): VerificationRateLimit {
+  return {
+    id: row.id,
+    assistantId: row.assistantId,
+    channel: row.channel,
+    actorExternalUserId: row.actorExternalUserId,
+    actorChatId: row.actorChatId,
+    invalidAttempts: row.invalidAttempts,
+    windowStartedAt: row.windowStartedAt,
+    lockedUntil: row.lockedUntil,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+/**
+ * Get the rate-limit record for a given actor on a specific channel.
+ */
+export function getRateLimit(
+  assistantId: string,
+  channel: string,
+  actorExternalUserId: string,
+  actorChatId: string,
+): VerificationRateLimit | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(channelGuardianRateLimits)
+    .where(
+      and(
+        eq(channelGuardianRateLimits.assistantId, assistantId),
+        eq(channelGuardianRateLimits.channel, channel),
+        eq(channelGuardianRateLimits.actorExternalUserId, actorExternalUserId),
+        eq(channelGuardianRateLimits.actorChatId, actorChatId),
+      ),
+    )
+    .get();
+
+  return row ? rowToRateLimit(row) : null;
+}
+
+/**
+ * Record an invalid verification attempt. Creates the rate-limit row if
+ * it does not yet exist, or increments the counter within the current
+ * throttling window.
+ */
+export function recordInvalidAttempt(
+  assistantId: string,
+  channel: string,
+  actorExternalUserId: string,
+  actorChatId: string,
+  windowMs: number,
+  maxAttempts: number,
+  lockoutMs: number,
+): VerificationRateLimit {
+  const db = getDb();
+  const now = Date.now();
+
+  const existing = getRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
+
+  if (existing) {
+    // If the throttling window has elapsed, reset the counter
+    const windowExpired = now - existing.windowStartedAt > windowMs;
+    const newAttempts = windowExpired ? 1 : existing.invalidAttempts + 1;
+    const newWindowStart = windowExpired ? now : existing.windowStartedAt;
+    const newLockedUntil = newAttempts >= maxAttempts ? now + lockoutMs : existing.lockedUntil;
+
+    db.update(channelGuardianRateLimits)
+      .set({
+        invalidAttempts: newAttempts,
+        windowStartedAt: newWindowStart,
+        lockedUntil: newLockedUntil,
+        updatedAt: now,
+      })
+      .where(eq(channelGuardianRateLimits.id, existing.id))
+      .run();
+
+    return {
+      ...existing,
+      invalidAttempts: newAttempts,
+      windowStartedAt: newWindowStart,
+      lockedUntil: newLockedUntil,
+      updatedAt: now,
+    };
+  }
+
+  // First attempt — create the row
+  const id = uuid();
+  const lockedUntil = 1 >= maxAttempts ? now + lockoutMs : null;
+  const row = {
+    id,
+    assistantId,
+    channel,
+    actorExternalUserId,
+    actorChatId,
+    invalidAttempts: 1,
+    windowStartedAt: now,
+    lockedUntil,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  db.insert(channelGuardianRateLimits).values(row).run();
+
+  return rowToRateLimit(row);
+}
+
+/**
+ * Reset the rate-limit counter for a given actor (e.g. after a
+ * successful verification).
+ */
+export function resetRateLimit(
+  assistantId: string,
+  channel: string,
+  actorExternalUserId: string,
+  actorChatId: string,
+): void {
+  const db = getDb();
+  const now = Date.now();
+
+  db.update(channelGuardianRateLimits)
+    .set({
+      invalidAttempts: 0,
+      lockedUntil: null,
+      windowStartedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(channelGuardianRateLimits.assistantId, assistantId),
+        eq(channelGuardianRateLimits.channel, channel),
+        eq(channelGuardianRateLimits.actorExternalUserId, actorExternalUserId),
+        eq(channelGuardianRateLimits.actorChatId, actorChatId),
+      ),
+    )
     .run();
 }

@@ -992,6 +992,25 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_approval_run ON channel_guardian_approval_requests(run_id, status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_approval_status ON channel_guardian_approval_requests(status)`);
 
+  // ── Channel Guardian Verification Rate Limits ─────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS channel_guardian_rate_limits (
+      id TEXT PRIMARY KEY,
+      assistant_id TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      actor_external_user_id TEXT NOT NULL,
+      actor_chat_id TEXT NOT NULL,
+      invalid_attempts INTEGER NOT NULL DEFAULT 0,
+      window_started_at INTEGER NOT NULL,
+      locked_until INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_guardian_rate_limits_actor ON channel_guardian_rate_limits(assistant_id, channel, actor_external_user_id, actor_chat_id)`);
+
   migrateMemoryFtsBackfill(database);
 }
 

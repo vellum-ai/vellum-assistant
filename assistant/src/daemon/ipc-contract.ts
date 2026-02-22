@@ -570,7 +570,7 @@ export interface TwilioConfigResponse {
 
 export interface GuardianVerificationRequest {
   type: 'guardian_verification';
-  action: 'create_challenge';
+  action: 'create_challenge' | 'status' | 'revoke';
   channel?: string;  // Defaults to 'telegram'
   sessionId?: string;
 }
@@ -580,6 +580,9 @@ export interface GuardianVerificationResponse {
   success: boolean;
   secret?: string;
   instruction?: string;
+  /** Present when action is 'status'. */
+  bound?: boolean;
+  guardianExternalUserId?: string;
   error?: string;
 }
 

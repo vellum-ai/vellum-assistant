@@ -660,3 +660,18 @@ export const channelGuardianApprovalRequests = sqliteTable('channel_guardian_app
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+// ── Channel Guardian Verification Rate Limits ────────────────────────
+
+export const channelGuardianRateLimits = sqliteTable('channel_guardian_rate_limits', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull(),
+  channel: text('channel').notNull(),
+  actorExternalUserId: text('actor_external_user_id').notNull(),
+  actorChatId: text('actor_chat_id').notNull(),
+  invalidAttempts: integer('invalid_attempts').notNull().default(0),
+  windowStartedAt: integer('window_started_at').notNull(),
+  lockedUntil: integer('locked_until'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});

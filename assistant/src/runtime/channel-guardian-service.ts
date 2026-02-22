@@ -15,6 +15,9 @@ import {
   createChallenge,
   findPendingChallengeByHash,
   consumeChallenge,
+  getRateLimit,
+  recordInvalidAttempt,
+  resetRateLimit,
 } from '../memory/channel-guardian-store.js';
 import type { GuardianBinding } from '../memory/channel-guardian-store.js';
 
@@ -24,6 +27,15 @@ import type { GuardianBinding } from '../memory/channel-guardian-store.js';
 
 /** Challenge TTL in milliseconds (10 minutes). */
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
+
+/** Maximum invalid verification attempts within the throttling window before lockout. */
+const RATE_LIMIT_MAX_ATTEMPTS = 5;
+
+/** Throttling window in milliseconds (15 minutes). */
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+
+/** Lockout duration in milliseconds (30 minutes). */
+const RATE_LIMIT_LOCKOUT_MS = 30 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -102,9 +114,14 @@ export function createVerificationChallenge(
 /**
  * Validate and consume a verification challenge.
  *
+ * Checks per-actor/per-channel rate limits before attempting validation.
  * Hashes the provided secret, looks up a matching pending challenge,
  * validates it has not expired, consumes it, revokes any existing
  * active binding, and creates a new guardian binding.
+ *
+ * On failure the invalid-attempt counter is incremented; after
+ * exceeding the threshold the actor is locked out for a cooldown
+ * period. On success the counter resets.
  */
 export function validateAndConsumeChallenge(
   assistantId: string,
@@ -113,19 +130,38 @@ export function validateAndConsumeChallenge(
   actorExternalUserId: string,
   actorChatId: string,
 ): ValidateChallengeResult {
+  // ── Rate-limit check ──
+  const existing = getRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
+  if (existing && existing.lockedUntil !== null && Date.now() < existing.lockedUntil) {
+    // Use the same generic failure message to avoid leaking whether the
+    // actor is rate-limited vs. the code is genuinely wrong.
+    return { success: false, reason: 'Verification failed. Please try again later.' };
+  }
+
   const challengeHash = hashSecret(secret);
 
   const challenge = findPendingChallengeByHash(assistantId, channel, challengeHash);
   if (!challenge) {
-    return { success: false, reason: 'Invalid or expired verification code.' };
+    recordInvalidAttempt(
+      assistantId, channel, actorExternalUserId, actorChatId,
+      RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_LOCKOUT_MS,
+    );
+    return { success: false, reason: 'Verification failed. Please try again later.' };
   }
 
   if (Date.now() > challenge.expiresAt) {
-    return { success: false, reason: 'Invalid or expired verification code.' };
+    recordInvalidAttempt(
+      assistantId, channel, actorExternalUserId, actorChatId,
+      RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_LOCKOUT_MS,
+    );
+    return { success: false, reason: 'Verification failed. Please try again later.' };
   }
 
   // Consume the challenge so it cannot be reused
   consumeChallenge(challenge.id, actorExternalUserId, actorChatId);
+
+  // Reset the rate-limit counter on success
+  resetRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
 
   // Revoke any existing active binding before creating a new one
   storeRevokeBinding(assistantId, channel);

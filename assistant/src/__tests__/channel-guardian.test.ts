@@ -41,6 +41,9 @@ import {
   getPendingApprovalForRun,
   getPendingApprovalByGuardianChat,
   updateApprovalDecision,
+  getRateLimit,
+  recordInvalidAttempt,
+  resetRateLimit,
 } from '../memory/channel-guardian-store.js';
 import {
   createVerificationChallenge,
@@ -62,6 +65,7 @@ function resetTables(): void {
   db.run('DELETE FROM channel_guardian_bindings');
   db.run('DELETE FROM channel_guardian_verification_challenges');
   db.run('DELETE FROM channel_guardian_approval_requests');
+  db.run('DELETE FROM channel_guardian_rate_limits');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -369,7 +373,8 @@ describe('guardian service challenge validation', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.reason).toContain('Invalid or expired');
+      // Generic message to prevent oracle leakage
+      expect(result.reason).toContain('try again later');
     }
   });
 
@@ -395,7 +400,8 @@ describe('guardian service challenge validation', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.reason).toContain('Invalid or expired');
+      // Generic message to prevent oracle leakage
+      expect(result.reason).toContain('try again later');
     }
   });
 
@@ -831,5 +837,169 @@ describe('guardian approval request CRUD', () => {
 
     expect(request.riskLevel).toBeNull();
     expect(request.reason).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6. Verification Rate Limiting (Store)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('verification rate limiting store', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('getRateLimit returns null when no record exists', () => {
+    const rl = getRateLimit('asst-1', 'telegram', 'user-42', 'chat-42');
+    expect(rl).toBeNull();
+  });
+
+  test('recordInvalidAttempt creates a new record on first failure', () => {
+    const rl = recordInvalidAttempt('asst-1', 'telegram', 'user-42', 'chat-42', 900_000, 5, 1_800_000);
+    expect(rl.invalidAttempts).toBe(1);
+    expect(rl.lockedUntil).toBeNull();
+    expect(rl.assistantId).toBe('asst-1');
+    expect(rl.channel).toBe('telegram');
+    expect(rl.actorExternalUserId).toBe('user-42');
+  });
+
+  test('recordInvalidAttempt increments counter on subsequent failures', () => {
+    recordInvalidAttempt('asst-1', 'telegram', 'user-42', 'chat-42', 900_000, 5, 1_800_000);
+    recordInvalidAttempt('asst-1', 'telegram', 'user-42', 'chat-42', 900_000, 5, 1_800_000);
+    const rl = recordInvalidAttempt('asst-1', 'telegram', 'user-42', 'chat-42', 900_000, 5, 1_800_000);
+    expect(rl.invalidAttempts).toBe(3);
+    expect(rl.lockedUntil).toBeNull();
+  });
+
+  test('recordInvalidAttempt sets lockedUntil when max attempts reached', () => {
+    for (let i = 0; i < 4; i++) {
+      recordInvalidAttempt('asst-1', 'telegram', 'user-42', 'chat-42', 900_000, 5, 1_800_000);
+    }
+    const rl = recordInvalidAttempt('asst-1', 'telegram', 'user-42', 'chat-42', 900_000, 5, 1_800_000);
+    expect(rl.invalidAttempts).toBe(5);
+    expect(rl.lockedUntil).not.toBeNull();
+    expect(rl.lockedUntil!).toBeGreaterThan(Date.now());
+  });
+
+  test('resetRateLimit clears the counter and lockout', () => {
+    for (let i = 0; i < 5; i++) {
+      recordInvalidAttempt('asst-1', 'telegram', 'user-42', 'chat-42', 900_000, 5, 1_800_000);
+    }
+    const locked = getRateLimit('asst-1', 'telegram', 'user-42', 'chat-42');
+    expect(locked).not.toBeNull();
+    expect(locked!.lockedUntil).not.toBeNull();
+
+    resetRateLimit('asst-1', 'telegram', 'user-42', 'chat-42');
+
+    const after = getRateLimit('asst-1', 'telegram', 'user-42', 'chat-42');
+    expect(after).not.toBeNull();
+    expect(after!.invalidAttempts).toBe(0);
+    expect(after!.lockedUntil).toBeNull();
+  });
+
+  test('rate limits are scoped per actor and channel', () => {
+    recordInvalidAttempt('asst-1', 'telegram', 'user-42', 'chat-42', 900_000, 5, 1_800_000);
+    recordInvalidAttempt('asst-1', 'telegram', 'user-99', 'chat-99', 900_000, 5, 1_800_000);
+
+    const rl42 = getRateLimit('asst-1', 'telegram', 'user-42', 'chat-42');
+    const rl99 = getRateLimit('asst-1', 'telegram', 'user-99', 'chat-99');
+    const rlSms = getRateLimit('asst-1', 'sms', 'user-42', 'chat-42');
+
+    expect(rl42).not.toBeNull();
+    expect(rl42!.invalidAttempts).toBe(1);
+    expect(rl99).not.toBeNull();
+    expect(rl99!.invalidAttempts).toBe(1);
+    expect(rlSms).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 7. Verification Rate Limiting (Service — end-to-end)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('guardian service rate limiting', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('repeated invalid submissions hit rate limit', () => {
+    // Create a valid challenge so there is a pending challenge
+    createVerificationChallenge('asst-1', 'telegram');
+
+    // Submit wrong codes repeatedly
+    for (let i = 0; i < 5; i++) {
+      const result = validateAndConsumeChallenge(
+        'asst-1', 'telegram', `wrong-secret-${i}`, 'user-42', 'chat-42',
+      );
+      expect(result.success).toBe(false);
+    }
+
+    // The 6th attempt should be rate-limited even without a new challenge
+    const result = validateAndConsumeChallenge(
+      'asst-1', 'telegram', 'another-wrong', 'user-42', 'chat-42',
+    );
+    expect(result.success).toBe(false);
+    expect((result as { reason: string }).reason).toContain('try again later');
+
+    // Verify the rate limit record
+    const rl = getRateLimit('asst-1', 'telegram', 'user-42', 'chat-42');
+    expect(rl).not.toBeNull();
+    expect(rl!.lockedUntil).not.toBeNull();
+  });
+
+  test('valid challenge still succeeds when under threshold', () => {
+    // Record a couple invalid attempts
+    const { secret } = createVerificationChallenge('asst-1', 'telegram');
+    validateAndConsumeChallenge('asst-1', 'telegram', 'wrong-1', 'user-42', 'chat-42');
+    validateAndConsumeChallenge('asst-1', 'telegram', 'wrong-2', 'user-42', 'chat-42');
+
+    // Valid attempt should still succeed (under the 5-attempt threshold)
+    // Need a new challenge since the old one is still pending but the secret was never consumed
+    const { secret: secret2 } = createVerificationChallenge('asst-1', 'telegram');
+    const result = validateAndConsumeChallenge(
+      'asst-1', 'telegram', secret2, 'user-42', 'chat-42',
+    );
+    expect(result.success).toBe(true);
+
+    // Rate limit should be reset after success
+    const rl = getRateLimit('asst-1', 'telegram', 'user-42', 'chat-42');
+    expect(rl).not.toBeNull();
+    expect(rl!.invalidAttempts).toBe(0);
+    expect(rl!.lockedUntil).toBeNull();
+  });
+
+  test('rate-limit uses generic failure message (no oracle leakage)', () => {
+    createVerificationChallenge('asst-1', 'telegram');
+
+    // Trigger rate limit
+    for (let i = 0; i < 5; i++) {
+      validateAndConsumeChallenge(
+        'asst-1', 'telegram', `wrong-${i}`, 'user-42', 'chat-42',
+      );
+    }
+
+    const result = validateAndConsumeChallenge(
+      'asst-1', 'telegram', 'anything', 'user-42', 'chat-42',
+    );
+    expect(result.success).toBe(false);
+    // Must NOT reveal "invalid", "expired", or "rate limit" specifically
+    expect((result as { reason: string }).reason).not.toContain('Invalid');
+    expect((result as { reason: string }).reason).not.toContain('expired');
+    expect((result as { reason: string }).reason).not.toContain('rate limit');
+  });
+
+  test('rate limit does not affect different actors', () => {
+    // Rate-limit user-42
+    createVerificationChallenge('asst-1', 'telegram');
+    for (let i = 0; i < 5; i++) {
+      validateAndConsumeChallenge('asst-1', 'telegram', `wrong-${i}`, 'user-42', 'chat-42');
+    }
+
+    // user-99 should still be able to verify
+    const { secret } = createVerificationChallenge('asst-1', 'telegram');
+    const result = validateAndConsumeChallenge(
+      'asst-1', 'telegram', secret, 'user-99', 'chat-99',
+    );
+    expect(result.success).toBe(true);
   });
 });

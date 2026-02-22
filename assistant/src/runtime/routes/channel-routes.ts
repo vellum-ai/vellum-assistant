@@ -314,7 +314,7 @@ export async function handleChannelInbound(
 
       const replyText = verifyResult.success
         ? 'Guardian verified successfully. Your identity is now linked to this bot.'
-        : 'Verification failed. The code may be invalid or expired.';
+        : 'Verification failed. Please try again later.';
 
       try {
         await deliverChannelReply(replyCallbackUrl, {
