@@ -82,6 +82,10 @@ import { getOrCreateConversation, deleteConversationKey, getConversationByKey, s
 import { telegramBotMessagingProvider } from '../messaging/providers/telegram-bot/adapter.js';
 import { handleMoveSync, handleDeleteConversation } from '../runtime/routes/channel-routes.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
+import { registerMessagingProvider } from '../messaging/registry.js';
+import { run as runSend } from '../config/bundled-skills/messaging/tools/messaging-send.js';
+import { run as runReply } from '../config/bundled-skills/messaging/tools/messaging-reply.js';
+import type { ToolContext } from '../tools/types.js';
 
 initializeDb();
 
@@ -431,11 +435,15 @@ describe('channel sync arbitration', () => {
       getOrCreateConversation(`telegram:${uniqueChatIdB}`);
 
       // Simulate another conversation (conv-C) claiming chat-B's key via
-      // inbound traffic before the move-sync happens.  This can occur when
-      // the binding and conversation_keys tables diverge.
+      // inbound traffic before the move-sync happens.  The conversation_keys
+      // entry for chat-B now belongs to conv-C, but conv-B's external binding
+      // still points to chat-B (the tables have diverged).  Give conv-C its
+      // own external binding (for a different chat) so the guard sees it as a
+      // real, externally-bound conversation and preserves its key.
       const chatBKey = `telegram:${uniqueChatIdB}`;
       deleteConversationKey(chatBKey);
       setConversationKey(chatBKey, convC);
+      createBinding(convC, 'telegram', `claimed-chat-c-${uuid()}`);
 
       // Move chat-A to conv-B — conv-B's external binding still points to
       // chat-B, but the conversation_keys entry for chat-B now belongs to
@@ -594,6 +602,92 @@ describe('channel sync arbitration', () => {
       const convBBinding = externalConversationStore.getBindingByConversation(convB);
       expect(convBBinding).not.toBeNull();
       expect(convBBinding!.externalChatId).toBe(chatIdA);
+    });
+  });
+
+  describe('messaging tool senderConversationId propagation', () => {
+    // Register the Telegram provider so resolveProvider('telegram') works
+    beforeEach(() => {
+      registerMessagingProvider(telegramBotMessagingProvider);
+    });
+
+    function makeToolContext(conversationId: string): ToolContext {
+      return {
+        workingDir: testDir,
+        sessionId: 'test-session',
+        conversationId,
+      };
+    }
+
+    test('messaging-send forwards senderConversationId from context to provider', async () => {
+      const ownerConvId = uuid();
+      const uniqueChatId = `tool-send-fwd-${uuid()}`;
+      createBinding(ownerConvId, 'telegram', uniqueChatId);
+
+      // When the tool's context.conversationId matches the owner, no conflict
+      const ctx = makeToolContext(ownerConvId);
+      const result = await runSend(
+        { platform: 'telegram', conversation_id: uniqueChatId, text: 'Hello' },
+        ctx,
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('Message sent');
+    });
+
+    test('messaging-send returns conflict error when sender is not the owner', async () => {
+      const ownerConvId = uuid();
+      const senderConvId = uuid();
+      const uniqueChatId = `tool-send-conflict-${uuid()}`;
+      createBinding(ownerConvId, 'telegram', uniqueChatId);
+      ensureConversation(senderConvId);
+
+      const ctx = makeToolContext(senderConvId);
+      const result = await runSend(
+        { platform: 'telegram', conversation_id: uniqueChatId, text: 'Hello' },
+        ctx,
+      );
+
+      expect(result.isError).toBe(true);
+      const parsed = JSON.parse(result.content);
+      expect(parsed.error).toBe('conflict');
+      expect(parsed.ownerConversationId).toBe(ownerConvId);
+      expect(parsed.message).toContain('Another thread owns this chat');
+    });
+
+    test('messaging-reply forwards senderConversationId from context to provider', async () => {
+      const ownerConvId = uuid();
+      const uniqueChatId = `tool-reply-fwd-${uuid()}`;
+      createBinding(ownerConvId, 'telegram', uniqueChatId);
+
+      const ctx = makeToolContext(ownerConvId);
+      const result = await runReply(
+        { platform: 'telegram', conversation_id: uniqueChatId, thread_id: 'thread-1', text: 'Reply' },
+        ctx,
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('Reply sent');
+    });
+
+    test('messaging-reply returns conflict error when sender is not the owner', async () => {
+      const ownerConvId = uuid();
+      const senderConvId = uuid();
+      const uniqueChatId = `tool-reply-conflict-${uuid()}`;
+      createBinding(ownerConvId, 'telegram', uniqueChatId);
+      ensureConversation(senderConvId);
+
+      const ctx = makeToolContext(senderConvId);
+      const result = await runReply(
+        { platform: 'telegram', conversation_id: uniqueChatId, thread_id: 'thread-1', text: 'Reply' },
+        ctx,
+      );
+
+      expect(result.isError).toBe(true);
+      const parsed = JSON.parse(result.content);
+      expect(parsed.error).toBe('conflict');
+      expect(parsed.ownerConversationId).toBe(ownerConvId);
+      expect(parsed.message).toContain('Another thread owns this chat');
     });
   });
 });

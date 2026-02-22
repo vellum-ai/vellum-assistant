@@ -286,11 +286,15 @@ describe('Invariant 3: secrets never logged in plaintext', () => {
         // Verify log calls never include raw content fields — only safe
         // metadata like lineLength and errorType are permitted.
         // `trimmed.length` is safe (numeric); `trimmed` alone would leak raw content.
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^)]*[{,]\s*trimmed[^.]/);
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^)]*[{,]\s*line[^L]/);
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^)]*[{,]\s*data\b/);
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^)]*[{,]\s*buffer\b/);
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^)]*err\.message\b/);
+        // Use [^\n]* instead of [^)]* so that inner parentheses (e.g.
+        // helper calls like formatErr(err)) don't terminate the match
+        // early — avoiding false negatives — while still scoping each
+        // pattern to a single line (no cross-statement matching).
+        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^\n]*[{,]\s*trimmed[^.]/);
+        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^\n]*[{,]\s*line[^L]/);
+        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^\n]*[{,]\s*data\b/);
+        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^\n]*[{,]\s*buffer\b/);
+        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^\n]*err\.message\b/);
       });
     } else {
       // PR 25 — secret prompter log hygiene: verify the prompter source
