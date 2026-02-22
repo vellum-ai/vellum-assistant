@@ -190,10 +190,10 @@ describe("normalizeTelegramUpdate", () => {
     expect(result!.sender.externalUserId).toBe("12345");
   });
 
-  test("returns null for non-message updates (e.g. callback_query)", () => {
+  test("returns null for callback_query without message context", () => {
     const payload = {
       update_id: 1,
-      callback_query: { id: "abc", data: "some_data" },
+      callback_query: { id: "abc", from: { id: 123 }, data: "some_data" },
     };
     expect(normalizeTelegramUpdate(payload)).toBeNull();
   });
@@ -277,6 +277,163 @@ describe("normalizeTelegramUpdate", () => {
       },
     };
     expect(normalizeTelegramUpdate(payload)).toBeNull();
+  });
+});
+
+describe("normalizeTelegramUpdate: callback_query", () => {
+  test("normalizes a callback_query update with message context", () => {
+    const payload = {
+      update_id: 5001,
+      callback_query: {
+        id: "cbq-123",
+        from: {
+          id: 67890,
+          is_bot: false,
+          username: "testuser",
+          first_name: "Test",
+          last_name: "User",
+          language_code: "en",
+        },
+        message: {
+          message_id: 42,
+          text: "Original message",
+          chat: { id: 12345, type: "private" },
+        },
+        data: "apr:run-abc:approve",
+      },
+    };
+
+    const result = normalizeTelegramUpdate(payload);
+
+    expect(result).not.toBeNull();
+    expect(result!.version).toBe("v1");
+    expect(result!.sourceChannel).toBe("telegram");
+    expect(result!.message.content).toBe("apr:run-abc:approve");
+    expect(result!.message.externalChatId).toBe("12345");
+    expect(result!.message.externalMessageId).toBe("5001");
+    expect(result!.message.callbackQueryId).toBe("cbq-123");
+    expect(result!.message.callbackData).toBe("apr:run-abc:approve");
+    expect(result!.message.attachments).toBeUndefined();
+    expect(result!.sender.externalUserId).toBe("67890");
+    expect(result!.sender.username).toBe("testuser");
+    expect(result!.sender.displayName).toBe("Test User");
+    expect(result!.sender.firstName).toBe("Test");
+    expect(result!.sender.lastName).toBe("User");
+    expect(result!.sender.languageCode).toBe("en");
+    expect(result!.sender.isBot).toBe(false);
+    expect(result!.source.updateId).toBe("5001");
+    expect(result!.source.messageId).toBe("42");
+    expect(result!.source.chatType).toBe("private");
+  });
+
+  test("returns null when callback_query has no message (inline mode edge case)", () => {
+    const payload = {
+      update_id: 5002,
+      callback_query: {
+        id: "cbq-456",
+        from: { id: 67890, is_bot: false, username: "testuser", first_name: "Test" },
+        data: "some-data",
+      },
+    };
+
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).toBeNull();
+  });
+
+  test("returns null when callback_query has no data", () => {
+    const payload = {
+      update_id: 5003,
+      callback_query: {
+        id: "cbq-789",
+        from: { id: 67890, is_bot: false, username: "testuser", first_name: "Test" },
+        message: {
+          message_id: 42,
+          text: "Original message",
+          chat: { id: 12345, type: "private" },
+        },
+      },
+    };
+
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).toBeNull();
+  });
+
+  test("returns null when callback_query message has no chat id", () => {
+    const payload = {
+      update_id: 5004,
+      callback_query: {
+        id: "cbq-no-chat",
+        from: { id: 67890, is_bot: false, username: "testuser", first_name: "Test" },
+        message: {
+          message_id: 42,
+          text: "Original message",
+          chat: {},
+        },
+        data: "some-data",
+      },
+    };
+
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).toBeNull();
+  });
+
+  test("falls back to chat.id for externalUserId when from.id is missing", () => {
+    const payload = {
+      update_id: 5005,
+      callback_query: {
+        id: "cbq-no-from-id",
+        from: { is_bot: false, username: "testuser", first_name: "Test" },
+        message: {
+          message_id: 42,
+          text: "Original message",
+          chat: { id: 12345, type: "private" },
+        },
+        data: "some-data",
+      },
+    };
+
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).not.toBeNull();
+    expect(result!.sender.externalUserId).toBe("12345");
+  });
+
+  test("callback_query does not set isEdit or attachments", () => {
+    const payload = {
+      update_id: 5006,
+      callback_query: {
+        id: "cbq-clean",
+        from: { id: 67890, is_bot: false, username: "testuser", first_name: "Test" },
+        message: {
+          message_id: 42,
+          text: "Original message",
+          chat: { id: 12345, type: "private" },
+        },
+        data: "apr:run-xyz:reject",
+      },
+    };
+
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).not.toBeNull();
+    expect(result!.message.isEdit).toBeUndefined();
+    expect(result!.message.attachments).toBeUndefined();
+  });
+
+  test("regular text messages are unaffected by callback_query support", () => {
+    const payload = {
+      update_id: 6001,
+      message: {
+        message_id: 100,
+        text: "Hello world",
+        chat: { id: 12345, type: "private" },
+        from: { id: 67890, is_bot: false, username: "testuser", first_name: "Test" },
+      },
+    };
+
+    const result = normalizeTelegramUpdate(payload);
+    expect(result).not.toBeNull();
+    expect(result!.message.content).toBe("Hello world");
+    expect(result!.message.callbackQueryId).toBeUndefined();
+    expect(result!.message.callbackData).toBeUndefined();
   });
 });
 

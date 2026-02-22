@@ -4,6 +4,7 @@ import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
 import { AttachmentValidationError, resetConversation, uploadAttachment } from "../../runtime/client.js";
+import { callTelegramApi } from "../../telegram/api.js";
 import { downloadTelegramFile } from "../../telegram/download.js";
 import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
 import { sendTelegramReply } from "../../telegram/send.js";
@@ -213,6 +214,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
     }
 
     const isEdit = !!normalized.message.isEdit;
+    const isCallback = !!normalized.message.callbackQueryId;
 
     // Check routing early so we can gate attachments
     const chatId = normalized.message.externalChatId;
@@ -223,11 +225,11 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
     );
     const routable = !isRejection(routing);
 
-    // Download and upload attachments if present (skip for edits — the runtime
-    // edit path only updates text content and doesn't link new attachments)
+    // Download and upload attachments if present (skip for edits and callback
+    // queries — edits only update text, callbacks have no media to process)
     let attachmentIds: string[] | undefined;
     const eventAttachments = normalized.message.attachments;
-    if (eventAttachments && eventAttachments.length > 0 && routable && !isEdit) {
+    if (eventAttachments && eventAttachments.length > 0 && routable && !isEdit && !isCallback) {
       try {
         attachmentIds = [];
 
@@ -315,6 +317,16 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       }
 
       tlog.info({ status: "forwarded" }, "Forwarded to runtime");
+
+      // Acknowledge the callback query to clear the button spinner in the
+      // Telegram client. Best-effort — log errors but don't fail the flow.
+      if (isCallback && normalized.message.callbackQueryId) {
+        callTelegramApi(config, "answerCallbackQuery", {
+          callback_query_id: normalized.message.callbackQueryId,
+        }).catch((err) => {
+          tlog.error({ err, callbackQueryId: normalized.message.callbackQueryId }, "Failed to acknowledge callback query");
+        });
+      }
     } catch (err) {
       tlog.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
       if (updateId !== undefined) dedupCache.unreserve(updateId);

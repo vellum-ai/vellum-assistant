@@ -72,6 +72,8 @@ export async function handleInbound(
         externalMessageId: event.message.externalMessageId,
         content: event.message.content,
         ...(event.message.isEdit ? { isEdit: true } : {}),
+        ...(event.message.callbackQueryId ? { callbackQueryId: event.message.callbackQueryId } : {}),
+        ...(event.message.callbackData ? { callbackData: event.message.callbackData } : {}),
         senderName: displayName,
         senderExternalUserId: event.sender.externalUserId,
         senderUsername: event.sender.username,

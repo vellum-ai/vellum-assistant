@@ -30,6 +30,8 @@ export type RuntimeInboundPayload = {
   externalMessageId: string;
   content: string;
   isEdit?: boolean;
+  callbackQueryId?: string;
+  callbackData?: string;
   senderName?: string;
   senderExternalUserId?: string;
   senderUsername?: string;

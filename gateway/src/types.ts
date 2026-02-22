@@ -11,6 +11,8 @@ export type GatewayInboundEventV1 = {
     externalChatId: string;
     externalMessageId: string;
     isEdit?: boolean;
+    callbackQueryId?: string;
+    callbackData?: string;
     attachments?: {
       type: "photo" | "document";
       fileId: string;

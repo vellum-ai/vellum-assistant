@@ -33,10 +33,25 @@ interface TelegramMessage {
   document?: TelegramDocument;
 }
 
+interface TelegramCallbackQuery {
+  id: string;
+  from: {
+    id?: number;
+    is_bot?: boolean;
+    username?: string;
+    first_name?: string;
+    last_name?: string;
+    language_code?: string;
+  };
+  message?: TelegramMessage;
+  data?: string;
+}
+
 interface TelegramUpdate {
   update_id?: number;
   message?: TelegramMessage;
   edited_message?: TelegramMessage;
+  callback_query?: TelegramCallbackQuery;
 }
 
 /**
@@ -47,9 +62,61 @@ export function normalizeTelegramUpdate(
   payload: Record<string, unknown>,
 ): Omit<GatewayInboundEventV1, "routing"> | null {
   const update = payload as TelegramUpdate;
+  const updateId = update.update_id;
+
+  // Handle callback_query updates (inline button clicks)
+  if (update.callback_query) {
+    const cbq = update.callback_query;
+
+    // Skip if callback_query has no message (edge case, e.g. inline mode)
+    if (!cbq.message?.chat?.id || updateId == null) {
+      return null;
+    }
+
+    // Skip if there is no callback data to forward
+    if (!cbq.data) {
+      return null;
+    }
+
+    const chatId = String(cbq.message.chat.id);
+    const externalUserId = cbq.from?.id ? String(cbq.from.id) : chatId;
+
+    const displayName = [cbq.from?.first_name, cbq.from?.last_name]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    return {
+      version: "v1",
+      sourceChannel: "telegram",
+      receivedAt: new Date().toISOString(),
+      message: {
+        content: cbq.data,
+        externalChatId: chatId,
+        externalMessageId: String(updateId),
+        callbackQueryId: cbq.id,
+        callbackData: cbq.data,
+      },
+      sender: {
+        externalUserId,
+        username: cbq.from?.username,
+        displayName: displayName || undefined,
+        firstName: cbq.from?.first_name,
+        lastName: cbq.from?.last_name,
+        languageCode: cbq.from?.language_code,
+        isBot: cbq.from?.is_bot,
+      },
+      source: {
+        updateId: String(updateId),
+        messageId: cbq.message.message_id != null ? String(cbq.message.message_id) : undefined,
+        chatType: cbq.message.chat.type,
+      },
+      raw: payload,
+    };
+  }
+
   const isEdit = !update.message && !!update.edited_message;
   const message = update.message ?? update.edited_message;
-  const updateId = update.update_id;
 
   const hasContent = !!(message?.text || message?.photo || message?.document);
   if (!hasContent || !message?.chat?.id || updateId == null) {

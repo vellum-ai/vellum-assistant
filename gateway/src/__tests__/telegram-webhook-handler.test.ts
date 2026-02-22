@@ -364,3 +364,102 @@ describe("telegram webhook handler: in-flight dedup", () => {
     expect(fetchCalls.length).toBe(beforeCount);
   });
 });
+
+function makeCallbackQueryPayload(data: string, updateId = 7001) {
+  return {
+    update_id: updateId,
+    callback_query: {
+      id: "cbq-test-id",
+      from: { id: 67890, is_bot: false, username: "testuser", first_name: "Test" },
+      message: {
+        message_id: 42,
+        text: "Choose an action",
+        chat: { id: 12345, type: "private" },
+      },
+      data,
+    },
+  };
+}
+
+describe("telegram webhook handler: callback_query forwarding", () => {
+  test("forwards callback_query data to the runtime with callback metadata", async () => {
+    const config = makeConfig({
+      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
+    });
+    installFetchMock();
+    const handler = createTelegramWebhookHandler(config);
+
+    const payload = makeCallbackQueryPayload("apr:run-abc:approve", 7001);
+    const req = makeWebhookRequest(payload);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Verify the runtime forward call includes callback metadata
+    const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
+    expect(runtimeCall).toBeDefined();
+    const runtimeBody = runtimeCall!.body as any;
+    expect(runtimeBody.callbackQueryId).toBe("cbq-test-id");
+    expect(runtimeBody.callbackData).toBe("apr:run-abc:approve");
+    expect(runtimeBody.content).toBe("apr:run-abc:approve");
+  });
+
+  test("acknowledges the callback query via answerCallbackQuery after forwarding", async () => {
+    const config = makeConfig({
+      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
+    });
+    installFetchMock();
+    const handler = createTelegramWebhookHandler(config);
+
+    const payload = makeCallbackQueryPayload("apr:run-xyz:reject", 7002);
+    const req = makeWebhookRequest(payload);
+    await handler(req);
+
+    // Allow the fire-and-forget answerCallbackQuery call to complete
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Verify answerCallbackQuery was called
+    const ackCall = fetchCalls.find((c) => c.url.includes("/answerCallbackQuery"));
+    expect(ackCall).toBeDefined();
+    expect((ackCall!.body as any).callback_query_id).toBe("cbq-test-id");
+  });
+
+  test("does not call answerCallbackQuery for regular text messages", async () => {
+    const config = makeConfig({
+      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
+    });
+    installFetchMock();
+    const handler = createTelegramWebhookHandler(config);
+
+    const payload = makeTelegramPayload("hello", 7003);
+    const req = makeWebhookRequest(payload);
+    await handler(req);
+
+    // Allow any fire-and-forget calls to complete
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Verify no answerCallbackQuery call was made
+    const ackCall = fetchCalls.find((c) => c.url.includes("/answerCallbackQuery"));
+    expect(ackCall).toBeUndefined();
+  });
+
+  test("regular text messages do not include callback metadata in runtime payload", async () => {
+    const config = makeConfig({
+      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
+    });
+    installFetchMock();
+    const handler = createTelegramWebhookHandler(config);
+
+    const payload = makeTelegramPayload("hello", 7004);
+    const req = makeWebhookRequest(payload);
+    await handler(req);
+
+    const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
+    expect(runtimeCall).toBeDefined();
+    const runtimeBody = runtimeCall!.body as any;
+    expect(runtimeBody.callbackQueryId).toBeUndefined();
+    expect(runtimeBody.callbackData).toBeUndefined();
+  });
+});
