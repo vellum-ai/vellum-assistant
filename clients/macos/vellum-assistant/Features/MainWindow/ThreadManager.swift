@@ -254,6 +254,27 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         log.info("Archived thread \(id)")
     }
 
+
+    /// Hide a synced thread locally without removing the server-side binding.
+    /// The thread's channel fields are cleared so it no longer appears synced,
+    /// but the runtime binding remains intact so the next inbound message
+    /// re-creates the thread in the UI.
+    func hideLocalThread(id: UUID) {
+        guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
+        let thread = threads[index]
+        let sourceChannel = thread.sourceChannel ?? "?"
+        let externalChatId = thread.externalChatId ?? "?"
+
+        // Clear local channel fields only — runtime binding stays intact
+        threads[index].sourceChannel = nil
+        threads[index].externalChatId = nil
+        threads[index].displayName = nil
+        threads[index].username = nil
+
+        archiveThread(id: id)
+
+        log.info("Hid local thread \(id) (\(sourceChannel):\(externalChatId)), runtime binding preserved")
+    }
     /// Disconnect a synced thread's channel binding and archive it locally.
     /// Calls the runtime's DELETE /v1/channels/conversation endpoint to
     /// remove the conversation key mapping and external binding, then
@@ -308,7 +329,16 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             )
 
             if success {
-                // Find the old owner and clear its binding
+                // Capture metadata from old owner before clearing
+                let oldOwner = threads.first(where: {
+                    $0.sourceChannel == sourceChannel &&
+                    $0.externalChatId == externalChatId &&
+                    $0.id != threadId
+                })
+                let oldDisplayName = oldOwner?.displayName
+                let oldUsername = oldOwner?.username
+
+                // Clear old owner's binding
                 for i in threads.indices {
                     if threads[i].sourceChannel == sourceChannel &&
                        threads[i].externalChatId == externalChatId &&
@@ -320,10 +350,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                     }
                 }
 
-                // Set the new thread as synced
+                // Set the new thread as synced, preserving display metadata
                 if let idx = threads.firstIndex(where: { $0.id == threadId }) {
                     threads[idx].sourceChannel = sourceChannel
                     threads[idx].externalChatId = externalChatId
+                    threads[idx].displayName = threads[idx].displayName ?? oldDisplayName
+                    threads[idx].username = threads[idx].username ?? oldUsername
                 }
 
                 log.info("Moved sync to thread \(threadId) for \(sourceChannel):\(externalChatId)")
