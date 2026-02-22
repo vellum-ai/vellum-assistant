@@ -449,4 +449,42 @@ if [ $IPC_CHANGED -eq 1 ]; then
     fi
 fi
 
+# --- XcodeGen auto-regeneration check ---
+# When iOS source files are added/deleted/renamed, or project.yml changes,
+# regenerate the xcodeproj so it stays in sync.
+
+XCODEGEN_NEEDED=0
+
+# Check for project.yml changes (any modification)
+if git diff --cached --name-only -z | tr '\0' '\n' | grep -q '^clients/ios/project\.yml$'; then
+    XCODEGEN_NEEDED=1
+fi
+
+# Check for added/deleted/renamed files under iOS source directories
+if [ $XCODEGEN_NEEDED -eq 0 ]; then
+    if git diff --cached --name-only --diff-filter=ADR -z | tr '\0' '\n' | grep -qE '^clients/ios/(App|Views|Resources|Tests)/'; then
+        XCODEGEN_NEEDED=1
+    fi
+fi
+
+if [ $XCODEGEN_NEEDED -eq 1 ]; then
+    echo "🔍 iOS source structure changed — regenerating xcodeproj..."
+
+    XCODEGEN="${XCODEGEN:-$(command -v xcodegen 2>/dev/null || echo "")}"
+    if [ -z "$XCODEGEN" ] || [ ! -x "$XCODEGEN" ]; then
+        echo -e "${YELLOW}⚠️  xcodegen not found — skipping xcodeproj regeneration${NC}"
+        echo "  Install xcodegen (brew install xcodegen) or run 'cd clients/ios && xcodegen' manually."
+    else
+        if (cd clients/ios && "$XCODEGEN" --quiet) 2>/dev/null; then
+            git add clients/ios/vellum-assistant-ios.xcodeproj/project.pbxproj
+            echo "✅ xcodeproj regenerated and staged"
+        else
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${RED}xcodegen failed! Fix project.yml and try again.${NC}"
+            echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            exit 1
+        fi
+    fi
+fi
+
 exit 0
