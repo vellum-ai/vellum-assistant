@@ -525,7 +525,7 @@ export interface VerificationRateLimit {
   actorChatId: string;
   /** Individual attempt timestamps (epoch-ms) within the sliding window. */
   attemptTimestamps: number[];
-  /** Derived count of attempts currently inside the window (convenience). */
+  /** Total stored attempt count (may include expired timestamps; use lockedUntil for enforcement decisions). */
   invalidAttempts: number;
   lockedUntil: number | null;
   createdAt: number;

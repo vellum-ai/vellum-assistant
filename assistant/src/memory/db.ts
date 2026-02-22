@@ -1001,6 +1001,8 @@ export function initializeDb(): void {
       channel TEXT NOT NULL,
       actor_external_user_id TEXT NOT NULL,
       actor_chat_id TEXT NOT NULL,
+      invalid_attempts INTEGER NOT NULL DEFAULT 0,
+      window_started_at INTEGER NOT NULL DEFAULT 0,
       attempt_timestamps_json TEXT NOT NULL DEFAULT '[]',
       locked_until INTEGER,
       created_at INTEGER NOT NULL,
