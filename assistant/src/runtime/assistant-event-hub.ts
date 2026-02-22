@@ -7,6 +7,9 @@
  */
 
 import type { AssistantEvent } from './assistant-event.js';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('assistant-event-hub');
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -87,17 +90,31 @@ export class AssistantEventHub {
   async publish(event: AssistantEvent): Promise<void> {
     const snapshot = Array.from(this.subscribers);
     const errors: unknown[] = [];
+    let matched = 0;
 
     for (const entry of snapshot) {
       if (!entry.active) continue;
       if (entry.filter.assistantId !== event.assistantId) continue;
       if (entry.filter.sessionId != null && entry.filter.sessionId !== event.sessionId) continue;
+      matched++;
       try {
         await entry.callback(event);
       } catch (err) {
         errors.push(err);
       }
     }
+
+    const msgType = (event.message as { type?: string }).type ?? 'unknown';
+    log.info(
+      {
+        eventAssistantId: event.assistantId,
+        eventSessionId: event.sessionId,
+        msgType,
+        totalSubscribers: snapshot.length,
+        matched,
+      },
+      'Event published to hub',
+    );
 
     if (errors.length > 0) {
       throw new AggregateError(errors, 'One or more assistant-event subscribers threw');

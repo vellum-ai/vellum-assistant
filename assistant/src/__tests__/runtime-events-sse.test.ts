@@ -148,12 +148,18 @@ describe('SSE assistant-events endpoint', () => {
     await assistantEventHub.publish(event);
 
     // Read the first frame directly from the response body stream.
+    // The first chunk is the ': connected' comment; the event follows.
     const reader = response.body!.getReader();
-    const { value, done } = await reader.read();
+    const first = await reader.read();
+    expect(first.done).toBe(false);
+    const connectedFrame = new TextDecoder().decode(first.value);
+    expect(connectedFrame).toContain(': connected');
+
+    const second = await reader.read();
     ac.abort();
 
-    expect(done).toBe(false);
-    const frame = new TextDecoder().decode(value);
+    expect(second.done).toBe(false);
+    const frame = new TextDecoder().decode(second.value);
     expect(frame).toContain('event: assistant_event');
     expect(frame).toContain(`"assistantId":"self"`);
     expect(frame).toContain(`"sessionId":"${conversationId}"`);
