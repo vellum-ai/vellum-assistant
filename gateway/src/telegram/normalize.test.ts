@@ -7,6 +7,7 @@ function makeCallbackQueryPayload(overrides?: {
   data?: string;
   fromId?: number;
 }) {
+  const hasChatType = overrides !== undefined && "chatType" in overrides;
   return {
     update_id: 100,
     callback_query: {
@@ -16,7 +17,7 @@ function makeCallbackQueryPayload(overrides?: {
         message_id: 10,
         chat: {
           id: overrides?.chatId ?? 42,
-          type: overrides?.chatType ?? "private",
+          type: hasChatType ? overrides!.chatType : "private",
         },
       },
       data: overrides?.data ?? "apr:run1:approve",

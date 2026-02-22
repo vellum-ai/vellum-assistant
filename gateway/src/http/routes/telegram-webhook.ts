@@ -156,6 +156,21 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
     // Normalize the update
     const normalized = normalizeTelegramUpdate(payload);
     if (!normalized) {
+      // If the dropped update was a callback query, acknowledge it so the
+      // Telegram button spinner clears (e.g. non-DM callback queries).
+      const cbqId =
+        payload.callback_query &&
+        typeof payload.callback_query === "object" &&
+        "id" in (payload.callback_query as Record<string, unknown>)
+          ? String((payload.callback_query as Record<string, unknown>).id)
+          : undefined;
+      if (cbqId) {
+        callTelegramApi(config, "answerCallbackQuery", {
+          callback_query_id: cbqId,
+        }).catch((err) => {
+          tlog.error({ err, callbackQueryId: cbqId }, "Failed to acknowledge dropped callback query");
+        });
+      }
       return respond({ ok: true });
     }
 
