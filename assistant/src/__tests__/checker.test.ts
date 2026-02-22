@@ -4396,4 +4396,64 @@ describe('integration regressions (PR 11)', () => {
 
     expect(bashOptions).toEqual(hostBashOptions);
   });
+
+  // ── prompt-lifecycle integration (real parser) ──────────────────
+
+  describe('prompt-lifecycle integration (real parser)', () => {
+    test('allowlist options for shell use real parser output with action keys', async () => {
+      // Verify the real parser produces correct allowlist options
+      const options = await generateAllowlistOptions('bash', { command: 'cd /repo && gh pr view 5525 --json title' });
+
+      // Must have exact command as first option
+      expect(options[0].pattern).toBe('cd /repo && gh pr view 5525 --json title');
+      expect(options[0].description).toBe('This exact command');
+
+      // Must have action keys (not whitespace-split patterns)
+      expect(options.some(o => o.pattern === 'action:gh pr view')).toBe(true);
+      expect(options.some(o => o.pattern === 'action:gh pr')).toBe(true);
+      expect(options.some(o => o.pattern === 'action:gh')).toBe(true);
+
+      // Must NOT have whitespace-split patterns
+      expect(options.some(o => o.pattern === 'cd *')).toBe(false);
+      // Action key options must NOT contain numeric args (only the exact match does)
+      const actionOptions = options.filter(o => o.pattern.startsWith('action:'));
+      expect(actionOptions.some(o => o.pattern.includes('5525'))).toBe(false);
+    });
+
+    test('allowlist option patterns are valid for rule matching', async () => {
+      clearCache();
+
+      // Generate allowlist options for a command
+      const options = await generateAllowlistOptions('bash', { command: 'npm install express' });
+
+      // Each non-exact option pattern should work as a trust rule
+      for (const option of options) {
+        if (option.pattern.startsWith('action:')) {
+          clearCache();
+          addRule('bash', option.pattern, 'everywhere', 'allow');
+          const result = await check('bash', { command: 'npm install express' }, '/tmp');
+          expect(result.decision).toBe('allow');
+        }
+      }
+    });
+
+    test('scope options are always least-privilege-first in prompt payload', () => {
+      const scopes = generateScopeOptions('/Users/test/project', 'host_bash');
+      expect(scopes[0].scope).toBe('/Users/test/project');
+      expect(scopes[scopes.length - 1].scope).toBe('everywhere');
+
+      // Verify no reordering for host tools
+      const nonHostScopes = generateScopeOptions('/Users/test/project', 'bash');
+      expect(scopes.map(s => s.scope)).toEqual(nonHostScopes.map(s => s.scope));
+    });
+
+    test('compound command prompt offers only exact persistence', async () => {
+      const options = await generateAllowlistOptions('host_bash', { command: 'git add . && git commit -m "fix" && git push' });
+      expect(options).toHaveLength(1);
+      expect(options[0].description).toContain('compound');
+
+      // The exact pattern should be the full command
+      expect(options[0].pattern).toBe('git add . && git commit -m "fix" && git push');
+    });
+  });
 });
