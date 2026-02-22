@@ -608,6 +608,16 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
             } catch (err) {
               log.error({ err, runId: run.id }, 'Failed to deliver guardian approval prompt');
             }
+
+            // Notify the requester that their request is pending guardian approval
+            try {
+              await deliverChannelReply(replyCallbackUrl, {
+                chatId: guardianCtx.requesterChatId ?? externalChatId,
+                text: `Your request to run "${pending[0].toolName}" has been sent to the guardian for approval.`,
+              }, bearerToken);
+            } catch (err) {
+              log.error({ err, runId: run.id }, 'Failed to notify requester of pending guardian approval');
+            }
           } else {
             // Guardian actor or no guardian binding: standard approval prompt
             // sent to the requester's own chat.
@@ -736,6 +746,27 @@ async function handleApprovalInterception(
   ) {
     const guardianApproval = getPendingApprovalByGuardianChat(sourceChannel, externalChatId);
     if (guardianApproval) {
+      // Validate that the sender is the specific guardian who was assigned
+      // this approval request. This is a defense-in-depth check — the
+      // actorRole check above already verifies the sender is a guardian,
+      // but this catches edge cases like binding rotation between request
+      // creation and decision.
+      if (senderExternalUserId !== guardianApproval.guardianExternalUserId) {
+        log.warn(
+          { externalChatId, senderExternalUserId, expectedGuardian: guardianApproval.guardianExternalUserId },
+          'Non-guardian sender attempted to act on guardian approval request',
+        );
+        try {
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: externalChatId,
+            text: 'Only the verified guardian can approve or deny this request.',
+          }, bearerToken);
+        } catch (err) {
+          log.error({ err, externalChatId }, 'Failed to deliver guardian identity rejection notice');
+        }
+        return { handled: true, type: 'guardian_decision_applied' };
+      }
+
       let decision: ApprovalDecisionResult | null = null;
 
       if (callbackData) {
@@ -771,10 +802,11 @@ async function handleApprovalInterception(
         });
 
         if (result.applied) {
-          // Notify the requester's chat about the outcome
+          // Notify the requester's chat about the outcome with the tool name
+          const toolLabel = guardianApproval.toolName;
           const outcomeText = decision.action === 'reject'
-            ? 'Your request was denied by the guardian.'
-            : 'Your request was approved by the guardian.';
+            ? `Your request to run "${toolLabel}" was denied by the guardian.`
+            : `Your request to run "${toolLabel}" was approved by the guardian.`;
           try {
             await deliverChannelReply(replyCallbackUrl, {
               chatId: guardianApproval.requesterChatId,
@@ -817,6 +849,27 @@ async function handleApprovalInterception(
   // ── Standard approval interception (existing flow) ──
   const pendingPrompt = getChannelApprovalPrompt(conversationId);
   if (!pendingPrompt) return { handled: false };
+
+  // When the sender is a non-guardian and there's a pending guardian approval
+  // for this conversation's run, block self-approval. The non-guardian must
+  // wait for the guardian to decide.
+  if (guardianCtx.actorRole === 'non-guardian') {
+    const pending = getPendingConfirmationsByConversation(conversationId);
+    if (pending.length > 0) {
+      const guardianApprovalForRun = getPendingApprovalForRun(pending[0].runId);
+      if (guardianApprovalForRun) {
+        try {
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: externalChatId,
+            text: 'Your request is pending guardian approval. Only the verified guardian can approve or deny this request.',
+          }, bearerToken);
+        } catch (err) {
+          log.error({ err, conversationId }, 'Failed to deliver guardian-pending notice to requester');
+        }
+        return { handled: true, type: 'reminder_sent' };
+      }
+    }
+  }
 
   // Try to extract a decision from callback data (button press) first,
   // then fall back to plain-text parsing.
