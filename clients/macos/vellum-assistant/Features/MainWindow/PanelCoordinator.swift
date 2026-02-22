@@ -311,6 +311,23 @@ extension MainWindowView {
     @ViewBuilder
     var chatView: some View {
         if let viewModel = threadManager.activeViewModel {
+            let activeThread = threadManager.activeThread
+            let syncConflict: SyncConflictInfo? = {
+                guard let thread = activeThread,
+                      let sourceChannel = thread.sourceChannel,
+                      let externalChatId = thread.externalChatId,
+                      let canonical = threadManager.findCanonicalThread(
+                          sourceChannel: sourceChannel,
+                          externalChatId: externalChatId,
+                          excludingThread: thread.id
+                      ) else { return nil }
+                return SyncConflictInfo(
+                    ownerThreadTitle: canonical.title,
+                    sourceChannel: sourceChannel,
+                    externalChatId: externalChatId
+                )
+            }()
+
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
@@ -318,8 +335,32 @@ extension MainWindowView {
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
                 onMicrophoneToggle: onMicrophoneToggle,
-                isTemporaryChat: threadManager.activeThread?.kind == .private,
-                syncedChannelLabel: threadManager.activeThread?.isSynced == true ? threadManager.activeThread?.sourceChannel?.capitalized : nil
+                isTemporaryChat: activeThread?.kind == .private,
+                syncedChannelLabel: activeThread?.isSynced == true ? activeThread?.sourceChannel?.capitalized : nil,
+                syncConflict: syncConflict,
+                onContinueInSyncedThread: syncConflict != nil ? {
+                    if let thread = threadManager.activeThread,
+                       let sourceChannel = thread.sourceChannel,
+                       let externalChatId = thread.externalChatId,
+                       let canonical = threadManager.findCanonicalThread(
+                           sourceChannel: sourceChannel,
+                           externalChatId: externalChatId,
+                           excludingThread: thread.id
+                       ) {
+                        threadManager.activeThreadId = canonical.id
+                    }
+                } : nil,
+                onMoveSyncHere: syncConflict != nil ? {
+                    if let thread = threadManager.activeThread,
+                       let sourceChannel = thread.sourceChannel,
+                       let externalChatId = thread.externalChatId {
+                        threadManager.moveSyncHere(
+                            threadId: thread.id,
+                            sourceChannel: sourceChannel,
+                            externalChatId: externalChatId
+                        )
+                    }
+                } : nil
             )
             .overlay(alignment: .bottomTrailing) {
                 DemoOverlayView()
@@ -483,6 +524,9 @@ struct ActiveChatViewWrapper: View {
     let onMicrophoneToggle: () -> Void
     var isTemporaryChat: Bool = false
     var syncedChannelLabel: String?
+    var syncConflict: SyncConflictInfo?
+    var onContinueInSyncedThread: (() -> Void)?
+    var onMoveSyncHere: (() -> Void)?
 
     var body: some View {
         ChatView(
@@ -577,7 +621,10 @@ struct ActiveChatViewWrapper: View {
             isHistoryLoaded: viewModel.isHistoryLoaded,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
             onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
-            syncedChannelLabel: syncedChannelLabel
+            syncedChannelLabel: syncedChannelLabel,
+            syncConflict: syncConflict,
+            onContinueInSyncedThread: onContinueInSyncedThread,
+            onMoveSyncHere: onMoveSyncHere
         )
     }
 }
