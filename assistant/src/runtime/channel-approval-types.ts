@@ -68,4 +68,6 @@ export type ApprovalDecisionSource = 'telegram_button' | 'plain_text';
 export interface ApprovalDecisionResult {
   action: ApprovalAction;
   source: ApprovalDecisionSource;
+  /** Run ID extracted from callback data (button presses only). */
+  runId?: string;
 }

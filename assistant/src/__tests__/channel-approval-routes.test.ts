@@ -46,6 +46,7 @@ import {
   setRunConfirmation,
 } from '../memory/runs-store.js';
 import type { PendingConfirmation } from '../memory/runs-store.js';
+import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import type { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { handleChannelInbound, isChannelApprovalsEnabled } from '../runtime/routes/channel-routes.js';
 import * as gatewayClient from '../runtime/gateway-client.js';
@@ -434,5 +435,398 @@ describe('messages without pending approval proceed normally', () => {
     expect(body.accepted).toBe(true);
     // Should NOT be treated as an approval decision since there's no pending approval
     expect(body.approval).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6. Empty content with callbackData bypasses validation
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('empty content with callbackData bypasses validation', () => {
+  test('rejects empty content without callbackData', async () => {
+    const req = makeInboundRequest({ content: '' });
+    const res = await handleChannelInbound(req, noopProcessMessage);
+    expect(res.status).toBe(400);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe('content or attachmentIds is required');
+  });
+
+  test('allows empty content when callbackData is present', async () => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+    const orchestrator = makeMockOrchestrator();
+
+    // Establish the conversation first
+    const initReq = makeInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
+    const conversationId = events[0]?.conversationId;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!, 'msg-1');
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const req = makeInboundRequest({
+      content: '',
+      callbackData: `apr:${run.id}:approve_once`,
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    // Should NOT return 400 — callbackData allows empty content through
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('decision_applied');
+
+    deliverSpy.mockRestore();
+  });
+
+  test('allows undefined content when callbackData is present', async () => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+    const orchestrator = makeMockOrchestrator();
+
+    // Establish the conversation first
+    const initReq = makeInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
+    const conversationId = events[0]?.conversationId;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!, 'msg-1');
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Send with no content field at all, just callbackData
+    const body = {
+      sourceChannel: 'telegram',
+      externalChatId: 'chat-123',
+      externalMessageId: `msg-${Date.now()}-${Math.random()}`,
+      callbackData: `apr:${run.id}:approve_once`,
+      replyCallbackUrl: 'https://gateway.test/deliver',
+    };
+    const req = new Request('http://localhost/channels/inbound', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    expect(res.status).toBe(200);
+    const resBody = await res.json() as Record<string, unknown>;
+    expect(resBody.accepted).toBe(true);
+
+    deliverSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 7. Callback run ID validation — stale button press
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('callback run ID validation', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('ignores stale callback when run ID does not match pending run', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Establish the conversation
+    const initReq = makeInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
+    const conversationId = events[0]?.conversationId;
+    ensureConversation(conversationId!);
+
+    // Create a pending run
+    const run = createRun(conversationId!, 'msg-1');
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    // Send callback with a DIFFERENT run ID (stale button)
+    const req = makeInboundRequest({
+      content: '',
+      callbackData: `apr:stale-run-id:approve_once`,
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('decision_applied');
+    // submitDecision should NOT have been called because the run ID didn't match
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    deliverSpy.mockRestore();
+  });
+
+  test('applies callback when run ID matches pending run', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Establish the conversation
+    const initReq = makeInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
+    const conversationId = events[0]?.conversationId;
+    ensureConversation(conversationId!);
+
+    // Create a pending run
+    const run = createRun(conversationId!, 'msg-1');
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    // Send callback with the CORRECT run ID
+    const req = makeInboundRequest({
+      content: '',
+      callbackData: `apr:${run.id}:approve_once`,
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('decision_applied');
+    // submitDecision SHOULD have been called with the correct run ID
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+
+    deliverSpy.mockRestore();
+  });
+
+  test('plain-text decisions bypass run ID validation (no runId in result)', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Establish the conversation
+    const initReq = makeInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
+    const conversationId = events[0]?.conversationId;
+    ensureConversation(conversationId!);
+
+    // Create a pending run
+    const run = createRun(conversationId!, 'msg-1');
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    // Send plain text "yes" — no runId in the parsed result, so validation is skipped
+    const req = makeInboundRequest({ content: 'yes' });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('decision_applied');
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+
+    deliverSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 8. linkMessage in approval-aware processing path
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('linkMessage in approval-aware processing path', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('linkMessage is called when run has a messageId and reaches terminal state', async () => {
+    const linkSpy = spyOn(channelDeliveryStore, 'linkMessage');
+    const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const mockRun = {
+      id: 'run-link-test',
+      conversationId: 'conv-1',
+      messageId: 'user-msg-42',
+      status: 'running' as const,
+      pendingConfirmation: null,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    // getRun returns completed status immediately so the poll loop exits
+    const orchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => ({ ...mockRun, status: 'completed' as const })),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    const req = makeInboundRequest({ content: 'hello world' });
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+
+    // Wait for the background async to complete
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Verify linkMessage was called with the run's messageId
+    const linkCalls = linkSpy.mock.calls.filter(
+      (call) => call[1] === 'user-msg-42',
+    );
+    expect(linkCalls.length).toBeGreaterThanOrEqual(1);
+
+    // Verify markProcessed was also called
+    expect(markSpy).toHaveBeenCalled();
+
+    linkSpy.mockRestore();
+    markSpy.mockRestore();
+    deliverSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 9. Terminal state check before markProcessed
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('terminal state check before markProcessed', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('does NOT markProcessed when run is not in terminal state after poll timeout', async () => {
+    const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const mockRun = {
+      id: 'run-nonterminal',
+      conversationId: 'conv-1',
+      messageId: 'user-msg-99',
+      status: 'running' as const,
+      pendingConfirmation: null,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    // getRun always returns 'running' — the run never completes within the poll
+    const orchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => ({ ...mockRun, status: 'running' as const })),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    // To avoid the 5-minute timeout, we patch the poll constants by testing
+    // through a short scenario: since the poll loop checks Date.now() vs
+    // RUN_POLL_MAX_WAIT_MS (300_000), we can't easily test the full timeout.
+    // Instead, test the terminal check by having getRun return null (run
+    // disappeared), which causes the poll to break without a terminal status.
+    const orchNull = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => null),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    const req = makeInboundRequest({ content: 'hello world' });
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchNull);
+
+    // Wait for the background async to complete
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    // markProcessed should NOT have been called because the run is not terminal
+    // (getRun returned null, so isTerminal = false)
+    const markCalls = markSpy.mock.calls;
+    // Filter for calls that would correspond to the approval path event
+    // (the init message from processChannelMessageInBackground could also call markProcessed,
+    // but that's the non-approval path)
+    expect(markCalls.length).toBe(0);
+
+    markSpy.mockRestore();
+    deliverSpy.mockRestore();
+  });
+
+  test('markProcessed is called when run reaches completed state', async () => {
+    const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const mockRun = {
+      id: 'run-completes',
+      conversationId: 'conv-1',
+      messageId: 'user-msg-100',
+      status: 'running' as const,
+      pendingConfirmation: null,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const orchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => ({ ...mockRun, status: 'completed' as const })),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    const req = makeInboundRequest({ content: 'hello world' });
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+
+    // Wait for the background async to complete
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    // markProcessed should have been called because the run reached completed
+    expect(markSpy).toHaveBeenCalled();
+
+    markSpy.mockRestore();
+    deliverSpy.mockRestore();
+  });
+
+  test('markProcessed is called when run reaches failed state', async () => {
+    const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const mockRun = {
+      id: 'run-fails',
+      conversationId: 'conv-1',
+      messageId: 'user-msg-101',
+      status: 'running' as const,
+      pendingConfirmation: null,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const orchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => ({ ...mockRun, status: 'failed' as const })),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    const req = makeInboundRequest({ content: 'hello world' });
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+
+    // Wait for the background async to complete
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    // markProcessed should have been called because the run reached failed
+    expect(markSpy).toHaveBeenCalled();
+
+    markSpy.mockRestore();
+    deliverSpy.mockRestore();
   });
 });
