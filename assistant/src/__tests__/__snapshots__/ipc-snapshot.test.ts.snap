@@ -886,6 +886,21 @@ exports[`IPC message snapshots ClientMessage types tool_permission_simulate seri
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types tool_names_list serializes to expected JSON 1`] = `
+{
+  "type": "tool_names_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types guardian_verification serializes to expected JSON 1`] = `
+{
+  "action": "create_challenge",
+  "channel": "telegram",
+  "sessionId": "sess-001",
+  "type": "guardian_verification",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -2449,78 +2464,22 @@ exports[`IPC message snapshots ServerMessage types tool_permission_simulate_resp
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types app_history_request serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types tool_names_list_response serializes to expected JSON 1`] = `
 {
-  "appId": "app-001",
-  "type": "app_history_request",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types app_diff_request serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "fromCommit": "abc123",
-  "type": "app_diff_request",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types app_file_at_version_request serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "commitHash": "abc123",
-  "path": "index.html",
-  "type": "app_file_at_version_request",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types app_restore_request serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "commitHash": "abc123",
-  "type": "app_restore_request",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types app_history_response serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "type": "app_history_response",
-  "versions": [
-    {
-      "commitHash": "abc123",
-      "message": "Initial commit",
-      "timestamp": 1700000000,
-    },
+  "names": [
+    "bash",
+    "file_read",
+    "file_write",
   ],
+  "type": "tool_names_list_response",
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types app_diff_response serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types guardian_verification_response serializes to expected JSON 1`] = `
 {
-  "appId": "app-001",
-  "diff": 
-"--- a/index.html
-+++ b/index.html
-@@ -1 +1 @@
--old
-+new"
-,
-  "type": "app_diff_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types app_file_at_version_response serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "content": "<html></html>",
-  "path": "index.html",
-  "type": "app_file_at_version_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types app_restore_response serializes to expected JSON 1`] = `
-{
+  "instruction": "Send this code to the bot",
+  "secret": "VERIFY-ABC123",
   "success": true,
-  "type": "app_restore_response",
+  "type": "guardian_verification_response",
 }
 `;
