@@ -374,10 +374,10 @@ extension MainWindowView {
                     }
                 } : nil,
                 onMoveSyncHere: syncConflict != nil ? {
-                    viewModel.dismissSendConflict()
                     if let thread = threadManager.activeThread,
                        let sourceChannel = syncConflict?.sourceChannel, !sourceChannel.isEmpty,
                        let externalChatId = syncConflict?.externalChatId, !externalChatId.isEmpty {
+                        viewModel.dismissSendConflict()
                         threadManager.moveSyncHereAndResend(
                             threadId: thread.id,
                             sourceChannel: sourceChannel,
@@ -386,6 +386,7 @@ extension MainWindowView {
                     } else if let thread = threadManager.activeThread,
                        let sourceChannel = thread.sourceChannel,
                        let externalChatId = thread.externalChatId {
+                        viewModel.dismissSendConflict()
                         threadManager.moveSyncHereAndResend(
                             threadId: thread.id,
                             sourceChannel: sourceChannel,
