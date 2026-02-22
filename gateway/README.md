@@ -34,7 +34,7 @@ bun run dev
 | `GATEWAY_DEFAULT_ASSISTANT_ID` | No | — | Default assistant ID for unmapped users |
 | `GATEWAY_UNMAPPED_POLICY` | No | `reject` | Policy for unmapped users: `reject` or `default` |
 | `GATEWAY_PORT` | No | `7830` | Port for the gateway HTTP server |
-| `GATEWAY_INTERNAL_BASE_URL` | No | `http://127.0.0.1:${PORT}` | Base URL for runtime→gateway callbacks (e.g., reply delivery). Defaults to `http://127.0.0.1:${GATEWAY_PORT}`. Set this when gateway and runtime are not co-located (e.g., separate containers or hosts). |
+| `GATEWAY_INTERNAL_BASE_URL` | No | `http://127.0.0.1:${GATEWAY_PORT}` | Base URL for runtime→gateway callbacks (e.g., the `replyCallbackUrl` sent to the assistant runtime for Telegram reply delivery). Defaults to `http://127.0.0.1:${GATEWAY_PORT}`. Override when the gateway and runtime are not co-located (e.g., separate containers, hosts, or behind a service mesh). |
 | `INGRESS_PUBLIC_BASE_URL` | No | — | Public URL where the gateway is reachable (e.g. `https://abc123.ngrok-free.app`). Used by the assistant runtime to construct webhook and OAuth callback URLs. Set this to your tunnel's public URL. |
 | `GATEWAY_RUNTIME_PROXY_ENABLED` | No | `false` | Enable runtime proxy for non-Telegram requests |
 | `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH` | No | `true` | Require bearer auth for proxied requests |
