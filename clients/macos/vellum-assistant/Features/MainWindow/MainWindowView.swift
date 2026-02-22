@@ -805,7 +805,9 @@ struct MainWindowView: View {
         .contextMenu {
             if thread.sourceChannel != nil {
                 Button {
-                    threadManager.disconnectSyncedThread(id: thread.id)
+                    Task {
+                        await threadManager.disconnectSyncedThread(id: thread.id)
+                    }
                 } label: {
                     Label("Hide Local Thread", systemImage: "eye.slash")
                 }

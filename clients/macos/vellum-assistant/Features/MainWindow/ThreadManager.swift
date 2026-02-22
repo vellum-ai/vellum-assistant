@@ -259,7 +259,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// remove the conversation key mapping and external binding, then
     /// archives the thread in the UI. Does NOT call any external channel
     /// delete APIs (e.g. Telegram).
-    func disconnectSyncedThread(id: UUID) {
+    func disconnectSyncedThread(id: UUID) async {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
         let thread = threads[index]
         guard let sourceChannel = thread.sourceChannel,
@@ -268,12 +268,15 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             return
         }
 
-        // Fire the HTTP DELETE in the background; archive immediately in the UI
-        Task { @MainActor in
-            let _ = await daemonClient.deleteChannelConversation(
-                sourceChannel: sourceChannel,
-                externalChatId: externalChatId
-            )
+        // Await the DELETE so the runtime mapping is removed before we hide locally;
+        // otherwise inbound messages can route to an archived thread.
+        let success = await daemonClient.deleteChannelConversation(
+            sourceChannel: sourceChannel,
+            externalChatId: externalChatId
+        )
+
+        if !success {
+            log.warning("DELETE channel conversation failed for thread \(id) (\(sourceChannel):\(externalChatId)); proceeding with local archive")
         }
 
         // Clear channel binding fields so the thread no longer shows as synced
