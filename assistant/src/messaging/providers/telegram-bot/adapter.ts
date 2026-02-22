@@ -27,8 +27,11 @@ import { getSecureKey } from '../../../security/secure-keys.js';
 import { readHttpToken } from '../../../util/platform.js';
 import * as telegram from './client.js';
 
-/** Resolve the local gateway base URL from GATEWAY_PORT (default 7830). */
+/** Resolve the gateway base URL, preferring GATEWAY_INTERNAL_BASE_URL if set. */
 function getGatewayUrl(): string {
+  if (process.env.GATEWAY_INTERNAL_BASE_URL) {
+    return process.env.GATEWAY_INTERNAL_BASE_URL;
+  }
   const port = Number(process.env.GATEWAY_PORT) || 7830;
   return `http://127.0.0.1:${port}`;
 }
