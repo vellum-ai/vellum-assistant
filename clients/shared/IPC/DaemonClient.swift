@@ -282,6 +282,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `telegram_config_response` message.
     public var onTelegramConfigResponse: ((TelegramConfigResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `twilio_config_response` message.
+    public var onTwilioConfigResponse: ((TwilioConfigResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `twitter_integration_config_response` message.
     public var onTwitterIntegrationConfigResponse: ((TwitterIntegrationConfigResponseMessage) -> Void)?
 
@@ -934,6 +937,25 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Get, set, or clear Telegram bot token configuration.
     public func sendTelegramConfig(action: String, botToken: String? = nil, commands: [IPCTelegramConfigRequestCommand]? = nil) throws {
         try send(TelegramConfigRequestMessage(action: action, botToken: botToken, commands: commands))
+    }
+
+    /// Get, set, or clear Twilio credentials and manage phone numbers.
+    public func sendTwilioConfig(
+        action: String,
+        accountSid: String? = nil,
+        authToken: String? = nil,
+        phoneNumber: String? = nil,
+        areaCode: String? = nil,
+        country: String? = nil
+    ) throws {
+        try send(TwilioConfigRequestMessage(
+            action: action,
+            accountSid: accountSid,
+            authToken: authToken,
+            phoneNumber: phoneNumber,
+            areaCode: areaCode,
+            country: country
+        ))
     }
 
     /// Publish a static page to Vercel.

@@ -18,6 +18,7 @@ struct SettingsView: View {
                 }
                 DaemonConnectionSection()
                 IntegrationsSection()
+                TwilioSettingsSection()
                 TrustRulesSection()
                 SchedulesSection()
                 RemindersSection()

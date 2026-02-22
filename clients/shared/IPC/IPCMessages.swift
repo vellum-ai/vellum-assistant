@@ -46,6 +46,13 @@ import Foundation
 // │                                 │ generated contract                      │
 // │ SubagentEventMessage            │ Contains recursive ServerMessage ref;   │
 // │                                 │ codegen skips ServerMessage              │
+// │ TwilioConfigRequestMessage      │ Code generator has not yet produced     │
+// │                                 │ this type from the TS contract          │
+// │ TwilioConfigResponseMessage     │ Code generator has not yet produced     │
+// │                                 │ this type from the TS contract          │
+// │ TwilioNumberInfo                │ Nested type within                      │
+// │                                 │ TwilioConfigResponseMessage             │
+// │ TwilioNumberCapabilities        │ Nested type within TwilioNumberInfo     │
 // └─────────────────────────────────┴──────────────────────────────────────────┘
 //
 // **Do not add new manual structs** without documenting the reason here.
@@ -1815,6 +1822,59 @@ extension IPCTelegramConfigRequest {
 /// Backed by generated `IPCTelegramConfigResponse`.
 public typealias TelegramConfigResponseMessage = IPCTelegramConfigResponse
 
+// MARK: - Twilio Config Messages
+
+/// Sent to get/set/clear Twilio credentials and manage phone numbers.
+/// Manually defined because the code generator has not yet produced this type.
+public struct TwilioConfigRequestMessage: Encodable, Sendable {
+    public let type: String = "twilio_config"
+    public let action: String
+    public let accountSid: String?
+    public let authToken: String?
+    public let phoneNumber: String?
+    public let areaCode: String?
+    public let country: String?
+
+    public init(
+        action: String,
+        accountSid: String? = nil,
+        authToken: String? = nil,
+        phoneNumber: String? = nil,
+        areaCode: String? = nil,
+        country: String? = nil
+    ) {
+        self.action = action
+        self.accountSid = accountSid
+        self.authToken = authToken
+        self.phoneNumber = phoneNumber
+        self.areaCode = areaCode
+        self.country = country
+    }
+}
+
+/// Number entry returned in `twilio_config_response` `numbers` array.
+public struct TwilioNumberInfo: Decodable, Sendable {
+    public let phoneNumber: String
+    public let friendlyName: String
+    public let capabilities: TwilioNumberCapabilities
+}
+
+/// Capabilities of a Twilio phone number.
+public struct TwilioNumberCapabilities: Decodable, Sendable {
+    public let voice: Bool
+    public let sms: Bool
+}
+
+/// Response from Twilio config operations.
+/// Manually defined because the code generator has not yet produced this type.
+public struct TwilioConfigResponseMessage: Decodable, Sendable {
+    public let success: Bool
+    public let hasCredentials: Bool
+    public let phoneNumber: String?
+    public let numbers: [TwilioNumberInfo]?
+    public let error: String?
+}
+
 // MARK: - Twitter Integration Config Messages
 
 /// Sent to get/set Twitter integration config.
@@ -2023,6 +2083,7 @@ public enum ServerMessage: Decodable, Sendable {
     case ingressConfigResponse(IngressConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
     case telegramConfigResponse(TelegramConfigResponseMessage)
+    case twilioConfigResponse(TwilioConfigResponseMessage)
     case twitterIntegrationConfigResponse(TwitterIntegrationConfigResponseMessage)
     case twitterAuthResult(TwitterAuthResultMessage)
     case twitterAuthStatusResponse(TwitterAuthStatusResponseMessage)
@@ -2300,6 +2361,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "telegram_config_response":
             let message = try TelegramConfigResponseMessage(from: decoder)
             self = .telegramConfigResponse(message)
+        case "twilio_config_response":
+            let message = try TwilioConfigResponseMessage(from: decoder)
+            self = .twilioConfigResponse(message)
         case "twitter_integration_config_response":
             let message = try TwitterIntegrationConfigResponseMessage(from: decoder)
             self = .twitterIntegrationConfigResponse(message)
