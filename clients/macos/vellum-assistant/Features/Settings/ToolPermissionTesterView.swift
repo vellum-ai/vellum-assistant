@@ -80,7 +80,7 @@ struct ToolPermissionTesterView: View {
                     .foregroundColor(VColor.textSecondary)
                     .toggleStyle(.switch)
 
-                Toggle("Force Prompt Side Effects", isOn: $model.forcePromptSideEffects)
+                Toggle("In Temporary Chat", isOn: $model.forcePromptSideEffects)
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
                     .toggleStyle(.switch)
