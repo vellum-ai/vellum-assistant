@@ -516,9 +516,10 @@ export function handleIngressConfig(
 
       // Trigger immediate Telegram webhook reconcile on the gateway so
       // that changing the ingress URL takes effect without a restart.
-      if (value && isEnabled) {
-        triggerGatewayReconcile(value);
-      }
+      // Called unconditionally so the gateway clears its in-memory URL
+      // when ingress is disabled, preventing stale re-registration on
+      // credential rotation.
+      triggerGatewayReconcile(value && isEnabled ? value : undefined);
     } else {
       ctx.send(socket, { type: 'ingress_config_response', enabled: false, publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
     }

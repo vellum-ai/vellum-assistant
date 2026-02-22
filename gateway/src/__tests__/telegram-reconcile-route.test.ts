@@ -177,4 +177,43 @@ describe("POST /internal/telegram/reconcile", () => {
     const res = await handler(req);
     expect(res.status).toBe(400);
   });
+
+  test("serializes concurrent requests so the last URL wins", async () => {
+    const callOrder: string[] = [];
+    // Make reconcile slow enough that the first call is still in-flight
+    // when the second one arrives.
+    mockReconcile.mockImplementation(async (cfg: GatewayConfig) => {
+      callOrder.push(cfg.ingressPublicBaseUrl ?? "undefined");
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    const config = makeConfig({ ingressPublicBaseUrl: "https://original.com" });
+    const handler = createTelegramReconcileHandler(config);
+
+    // Fire two requests concurrently — without serialization the second
+    // would mutate config.ingressPublicBaseUrl while the first reconcile
+    // is still running, leaving Telegram pointed at the first URL.
+    const [res1, res2] = await Promise.all([
+      handler(
+        makeRequest("POST", "test-token", {
+          ingressPublicBaseUrl: "https://first.com",
+        }),
+      ),
+      handler(
+        makeRequest("POST", "test-token", {
+          ingressPublicBaseUrl: "https://second.com",
+        }),
+      ),
+    ]);
+
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+    expect(mockReconcile).toHaveBeenCalledTimes(2);
+
+    // The first reconcile should see "first" and the second should see
+    // "second" — proving that config mutation + reconcile are atomic.
+    expect(callOrder).toEqual(["https://first.com", "https://second.com"]);
+    // After both complete, the config should reflect the last write.
+    expect(config.ingressPublicBaseUrl).toBe("https://second.com");
+  });
 });
