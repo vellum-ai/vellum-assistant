@@ -1141,7 +1141,7 @@ export async function handleTwilioConfig(
           ctx.send(socket, {
             type: 'twilio_config_response',
             success: false,
-            hasCredentials: false,
+            hasCredentials: hasTwilioCredentials(),
             error: `Twilio API validation failed (${res.status}): ${body}`,
           });
           return;
@@ -1151,7 +1151,7 @@ export async function handleTwilioConfig(
         ctx.send(socket, {
           type: 'twilio_config_response',
           success: false,
-          hasCredentials: false,
+          hasCredentials: hasTwilioCredentials(),
           error: `Failed to validate Twilio credentials: ${message}`,
         });
         return;
@@ -1248,7 +1248,11 @@ export async function handleTwilioConfig(
         return;
       }
 
-      // Persist the phone number in assistant config (non-secret)
+      // Persist the phone number in the secure credential store so the
+      // active Twilio runtime can read it via credential:twilio:phone_number
+      setSecureKey('credential:twilio:phone_number', msg.phoneNumber);
+
+      // Also persist in assistant config (non-secret) for the UI
       const raw = loadRawConfig();
       const sms = (raw?.sms ?? {}) as Record<string, unknown>;
       sms.phoneNumber = msg.phoneNumber;
