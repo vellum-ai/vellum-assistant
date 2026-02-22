@@ -3579,19 +3579,28 @@ The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-clos
 In desktop deployments, Telegram bot tokens are stored in secure storage (macOS Keychain or the encrypted file fallback) and never in plaintext config files. When deploying the gateway standalone, operators may also supply credentials via environment variables (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`).
 
 ```
-Secure credential prompt (credential_store action: "prompt")
-  → telegram_config IPC (action: set, botToken)
-    → Daemon handler validates token via Telegram getMe API
-      → setSecureKey("credential:telegram:bot_token", token)
-      → upsertCredentialMetadata("telegram", "bot_token", {accountInfo: username})
-      → Auto-generates webhook secret if missing
-        → setSecureKey("credential:telegram:webhook_secret", secret)
-        → upsertCredentialMetadata("telegram", "webhook_secret", {})
-        → On storage failure: rolls back bot_token + metadata, returns error
-      → If webhook secret already exists: upserts metadata anyway (self-heal)
-      → Triggers gateway webhook reconcile
-        → Gateway credential reader picks up new credentials
-          → Webhook reconciliation registers webhook with Telegram
+Entry points:
+
+  1. Skill-based setup (chat):
+     credential_store action: "prompt" → token stored in secure storage
+       → telegram_config IPC (action: set) — daemon reads token from secure storage
+
+  2. Desktop Settings UI (macOS):
+     SettingsStore.saveTelegramToken(token)
+       → telegram_config IPC (action: set, botToken: token) — token passed directly
+
+Both paths converge at:
+  → Daemon handler validates token via Telegram getMe API
+    → setSecureKey("credential:telegram:bot_token", token)
+    → upsertCredentialMetadata("telegram", "bot_token", {accountInfo: username})
+    → Auto-generates webhook secret if missing
+      → setSecureKey("credential:telegram:webhook_secret", secret)
+      → upsertCredentialMetadata("telegram", "webhook_secret", {})
+      → On storage failure: rolls back bot_token + metadata, returns error
+    → If webhook secret already exists: upserts metadata anyway (self-heal)
+    → Triggers gateway webhook reconcile
+      → Gateway credential reader picks up new credentials
+        → Webhook reconciliation registers webhook with Telegram
 ```
 
 The `telegram_config` IPC message supports three actions:
