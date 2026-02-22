@@ -1193,6 +1193,7 @@ export async function handleTwilioConfig(
     } else if (msg.action === 'clear_credentials') {
       deleteSecureKey('credential:twilio:account_sid');
       deleteSecureKey('credential:twilio:auth_token');
+      deleteSecureKey('credential:twilio:phone_number');
       deleteCredentialMetadata('twilio', 'account_sid');
       deleteCredentialMetadata('twilio', 'auth_token');
 
@@ -1250,7 +1251,16 @@ export async function handleTwilioConfig(
 
       // Persist the phone number in the secure credential store so the
       // active Twilio runtime can read it via credential:twilio:phone_number
-      setSecureKey('credential:twilio:phone_number', msg.phoneNumber);
+      const phoneStored = setSecureKey('credential:twilio:phone_number', msg.phoneNumber);
+      if (!phoneStored) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: hasTwilioCredentials(),
+          error: 'Failed to store phone number in secure storage',
+        });
+        return;
+      }
 
       // Also persist in assistant config (non-secret) for the UI
       const raw = loadRawConfig();
