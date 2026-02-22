@@ -13,17 +13,26 @@ export interface VoiceQualityProfile {
 
 /**
  * Build a Twilio-compatible ElevenLabs voice string.
- * Format: voiceId or voiceId-modelId-stability_similarity_style
+ *
+ * Twilio ConversationRelay expects the format:
+ *   voiceId-model-speed_stability_similarity
+ *
+ * Where:
+ *   - speed:      0.7 – 1.2  (playback speed)
+ *   - stability:  0.0 – 1.0
+ *   - similarity: 0.0 – 1.0
+ *
+ * See: https://www.twilio.com/docs/voice/conversationrelay/voice-configuration
  */
 export function buildElevenLabsVoiceSpec(config: {
   voiceId: string;
   voiceModelId: string;
+  speed: number;
   stability: number;
   similarityBoost: number;
-  style: number;
 }): string {
   if (!config.voiceId) return '';
-  return `${config.voiceId}-${config.voiceModelId}-${config.stability}_${config.similarityBoost}_${config.style}`;
+  return `${config.voiceId}-${config.voiceModelId}-${config.speed}_${config.stability}_${config.similarityBoost}`;
 }
 
 /**

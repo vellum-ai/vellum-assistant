@@ -916,6 +916,11 @@ export const CallsElevenLabsConfigSchema = z.object({
   voiceModelId: z
     .string({ error: 'calls.voice.elevenlabs.voiceModelId must be a string' })
     .default('turbo_v2_5'),
+  speed: z
+    .number({ error: 'calls.voice.elevenlabs.speed must be a number' })
+    .min(0.7, 'calls.voice.elevenlabs.speed must be >= 0.7')
+    .max(1.2, 'calls.voice.elevenlabs.speed must be <= 1.2')
+    .default(1.0),
   stability: z
     .number({ error: 'calls.voice.elevenlabs.stability must be a number' })
     .min(0, 'calls.voice.elevenlabs.stability must be >= 0')
@@ -926,11 +931,6 @@ export const CallsElevenLabsConfigSchema = z.object({
     .min(0, 'calls.voice.elevenlabs.similarityBoost must be >= 0')
     .max(1, 'calls.voice.elevenlabs.similarityBoost must be <= 1')
     .default(0.75),
-  style: z
-    .number({ error: 'calls.voice.elevenlabs.style must be a number' })
-    .min(0, 'calls.voice.elevenlabs.style must be >= 0')
-    .max(1, 'calls.voice.elevenlabs.style must be <= 1')
-    .default(0.0),
   useSpeakerBoost: z
     .boolean({ error: 'calls.voice.elevenlabs.useSpeakerBoost must be a boolean' })
     .default(true),
@@ -968,9 +968,9 @@ export const CallsVoiceConfigSchema = z.object({
   elevenlabs: CallsElevenLabsConfigSchema.default({
     voiceId: '',
     voiceModelId: 'turbo_v2_5',
+    speed: 1.0,
     stability: 0.5,
     similarityBoost: 0.75,
-    style: 0.0,
     useSpeakerBoost: true,
     agentId: '',
     apiBaseUrl: 'https://api.elevenlabs.io',
@@ -1023,9 +1023,9 @@ export const CallsConfigSchema = z.object({
     elevenlabs: {
       voiceId: '',
       voiceModelId: 'turbo_v2_5',
+      speed: 1.0,
       stability: 0.5,
       similarityBoost: 0.75,
-      style: 0.0,
       useSpeakerBoost: true,
       agentId: '',
       apiBaseUrl: 'https://api.elevenlabs.io',
