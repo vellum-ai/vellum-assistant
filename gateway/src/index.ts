@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { loadConfig } from "./config.js";
 import { CredentialWatcher } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
@@ -167,25 +168,54 @@ function main() {
     });
   }
 
-  const credentialWatcher = new CredentialWatcher((credentials) => {
-    if (credentials) {
-      config.telegramBotToken = credentials.botToken;
-      config.telegramWebhookSecret = credentials.webhookSecret;
-      log.info("Telegram credentials loaded from credential vault");
-      registerTelegramCommands();
-      reconcileTelegramWebhook(config).catch((err) => {
-        log.error({ err }, "Failed to reconcile Telegram webhook after credential change");
-      });
-    } else {
-      config.telegramBotToken = undefined;
-      config.telegramWebhookSecret = undefined;
-      log.info("Telegram credentials cleared");
+  const credentialWatcher = new CredentialWatcher((event) => {
+    if (event.telegramChanged) {
+      if (event.telegramCredentials) {
+        config.telegramBotToken = event.telegramCredentials.botToken;
+        config.telegramWebhookSecret = event.telegramCredentials.webhookSecret;
+        log.info("Telegram credentials loaded from credential vault");
+        registerTelegramCommands();
+        reconcileTelegramWebhook(config).catch((err) => {
+          log.error({ err }, "Failed to reconcile Telegram webhook after credential change");
+        });
+      } else {
+        config.telegramBotToken = undefined;
+        config.telegramWebhookSecret = undefined;
+        log.info("Telegram credentials cleared");
+      }
+    }
+
+    if (event.twilioChanged) {
+      if (event.twilioCredentials) {
+        config.twilioAccountSid = event.twilioCredentials.accountSid;
+        config.twilioAuthToken = event.twilioCredentials.authToken;
+        log.info("Twilio credentials loaded from credential vault");
+      } else {
+        config.twilioAccountSid = undefined;
+        config.twilioAuthToken = undefined;
+        log.info("Twilio credentials cleared");
+      }
     }
   });
 
-  if (!isTelegramConfigured()) {
-    credentialWatcher.start();
-  }
+  credentialWatcher.start();
+
+  const configFileWatcher = new ConfigFileWatcher((event) => {
+    if (event.smsPhoneNumberChanged) {
+      config.twilioPhoneNumber = event.smsPhoneNumber;
+    }
+
+    if (event.ingressChanged) {
+      config.ingressPublicBaseUrl = event.ingressPublicBaseUrl;
+      if (isTelegramConfigured()) {
+        reconcileTelegramWebhook(config).catch((err) => {
+          log.error({ err }, "Failed to reconcile Telegram webhook after ingress URL change");
+        });
+      }
+    }
+  });
+
+  configFileWatcher.start();
 
   const drainMs = config.shutdownDrainMs;
 
@@ -193,6 +223,7 @@ function main() {
     log.info("SIGTERM received, starting graceful shutdown");
     draining = true;
     credentialWatcher.stop();
+    configFileWatcher.stop();
     setTimeout(() => {
       log.info("Drain window elapsed, stopping server");
       server.stop(true);
