@@ -344,12 +344,12 @@ When you approve a shell command (`host_bash` or `bash`), the permission prompt 
 
 For example, `cd /repo && gh pr view 5525 --json title` generates these allowlist options:
 
-- `gh pr view 5525 --json title` — this exact command
+- `cd /repo && gh pr view 5525 --json title` — the full original command text (exactly what will be approved)
 - `gh pr view *` — any `gh pr view` command (trust rule pattern: `action:gh pr view`)
 - `gh pr *` — any `gh pr` command (trust rule pattern: `action:gh pr`)
 - `gh *` — any `gh` command (trust rule pattern: `action:gh`)
 
-Setup prefixes (`cd`, `export`, `pushd`, etc.) are stripped before deriving action keys, so the allowlist options focus on the actual action being performed.
+Setup prefixes (`cd`, `export`, `pushd`, etc.) are stripped before deriving action keys for the broader pattern options, but the exact option always uses the full original command text.
 
 **Compound commands** (with `&&`, `||`, `|`) that contain multiple non-prefix actions only offer an exact-command option — no broad action-family patterns. This prevents a complex pipeline from being over-generalized into a permissive rule.
 
