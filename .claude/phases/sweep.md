@@ -14,7 +14,7 @@ The blitz is NOT done until there is zero remaining feedback or transitive feedb
 
 Repeat the following until the exit condition is met:
 
-1. **Run check-reviews**: Read and follow `.claude/commands/check-reviews.md`, passing `--namespace <namespace>` so that only PRs from this blitz are checked and any TODO items added are prefixed with the namespace.
+1. **Run check-reviews**: Read and follow `.claude/commands/check-reviews.md`, passing `--namespace <namespace>` so that only PRs from this blitz are checked and any TODO items added are prefixed with the namespace. If a `--branch` was provided to the sweep (e.g., from safe-blitz), also pass `--branch <branch-name>` to check-reviews so CI failures are checked on the correct branch instead of main.
 
 2. **Check for new action items**: After check-reviews completes, read `.private/TODO.md`:
    - If new `[<namespace>]`-prefixed "Address the feedback" or "Fix CI failures" items were added, go back to the Swarm phase to address them. When swarm finishes, return here and restart the sweep loop from step 1 (the new feedback PRs will be in UNREVIEWED_PRS.md and need their own reviews).

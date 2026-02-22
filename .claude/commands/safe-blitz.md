@@ -59,7 +59,10 @@ When presenting the plan for approval, also show:
 
 ## Phase 3: Prepare Milestone List
 
-Do NOT use `.claude/phases/populate-todo.md` here. Instead, maintain an internal ordered list of milestones from the plan (M1, M2, ..., MN) with their titles and GitHub issue numbers. These milestones will be executed **one at a time** in Phase 4 — do NOT write them all to TODO.md at once.
+Do NOT use `.claude/phases/populate-todo.md` here. Instead, maintain an internal ordered list of milestones (M1, M2, ..., MN) with their titles and GitHub issue numbers. These milestones will be executed **one at a time** in Phase 4 — do NOT write them all to TODO.md at once.
+
+- **If planning was performed** (no `--skip-plan`): use the milestones from the plan created in Phase 2.
+- **If `--skip-plan` was passed**: use the milestones fetched from existing "Ready" issues in Phase 2 (see `.claude/phases/plan-and-spec.md` skip-plan path). Order them by issue number (ascending) unless a dependency order is apparent from the issue descriptions.
 
 ## Phase 4: Execute Milestones with Review Gates
 
@@ -150,11 +153,11 @@ For "Fix CI failures from merged PR <PR URL> (run: <run URL>)" tasks:
 
 #### 4c. Per-milestone recursive sweep
 
-Run the recursive sweep (`.claude/phases/sweep.md`) with `--namespace <namespace>`. **Skip the entry pause** — treat as `--auto` for per-milestone sweeps. The user-facing pause only applies to the final sweep in Phase 5.
+Run the recursive sweep (`.claude/phases/sweep.md`) with `--namespace <namespace>` and `--branch <feature-branch-name>`. **Skip the entry pause** — treat as `--auto` for per-milestone sweeps. The user-facing pause only applies to the final sweep in Phase 5.
 
 When the sweep says "back to the Swarm phase," run the swarm workflow (`.claude/commands/swarm.md`) with these modifications:
 - Pass `--namespace <namespace>` so only namespaced feedback items are processed.
-- Pass the `--workers` count (or default: 12).
+- Pass the worker count as the first positional argument (or default: 12), e.g., `.claude/commands/swarm.md 12 --namespace <namespace>`.
 - All agents must use `--base <feature-branch-name>` (not main).
 - Create worktrees from the feature branch: `.claude/worktree create swarm/<namespace>/task-<counter> origin/<feature-branch-name>`.
 
@@ -175,7 +178,7 @@ When the sweep says "final phase," proceed to step 4d.
 
 After all milestones are merged and their individual reviews are clean, run one final recursive sweep on the entire feature branch.
 
-Read and follow `.claude/phases/sweep.md` with `--namespace <namespace>`. Unless `--auto` was passed, this is where the user-facing pause happens: **"All milestones complete. Run final sweep for review feedback?"**
+Read and follow `.claude/phases/sweep.md` with `--namespace <namespace>` and `--branch <feature-branch-name>`. Unless `--auto` was passed, this is where the user-facing pause happens: **"All milestones complete. Run final sweep for review feedback?"**
 
 This final sweep catches:
 - Any cross-milestone issues that individual per-milestone sweeps missed

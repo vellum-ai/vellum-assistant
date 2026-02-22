@@ -5,6 +5,7 @@ Arguments (optional): $ARGUMENTS
 Parse optional flags from `$ARGUMENTS`:
 
 - **`--namespace NAME`** (optional): when provided, only process PRs whose head branch starts with `swarm/<NAME>/`. Any TODO items added will be prefixed with `[<NAME>]` (e.g., `- [<NAME>] Address the feedback on <link>`). When omitted, process all PRs. TODO items will still be namespaced if the PR's branch name matches `swarm/<NAME>/...` (the namespace is inferred from the branch).
+- **`--branch NAME`** (optional): the branch to check for CI failures in Phase 2 (default: `main`). Use this when PRs merge into a branch other than main (e.g., a feature branch in safe-blitz).
 
 To check a PR's head branch name, include `headRefName` in the `--json` fields when fetching PR data.
 
@@ -112,15 +113,17 @@ Do NOT continue processing remaining PRs until the user responds.
 
 ## Phase 2: Check for merged PRs with CI failures
 
-After processing all items in UNREVIEWED_PRS.md, check for recently merged PRs where CI failed on the main branch.
+After processing all items in UNREVIEWED_PRS.md, check for recently merged PRs where CI failed on the target branch.
 
 **If `--namespace` was provided**: only consider CI failures from PRs whose head branch started with `swarm/<namespace>/`. Skip failures from unrelated PRs.
 
 ### How to detect CI failures
 
-Run: `gh run list --branch main --status failure --limit 10 --json databaseId,headSha,displayTitle,url,conclusion,createdAt,event`
+Use the branch specified by `--branch` (default: `main`):
 
-This returns failed workflow runs on main. For each failed run:
+Run: `gh run list --branch <branch-name> --status failure --limit 10 --json databaseId,headSha,displayTitle,url,conclusion,createdAt,event`
+
+This returns failed workflow runs on the target branch. For each failed run:
 
 1. **Find the associated PR**: Use `gh pr list --state merged --search "<headSha>" --json number,url,title,mergedAt,headRefName --limit 1` or cross-reference the run's `displayTitle` / `headSha` with merged PRs. If you can't find a matching PR, use the run URL directly.
 2. **Namespace filter**: If `--namespace` was provided, check the PR's `headRefName`. Skip this failure if the branch does NOT start with `swarm/<namespace>/`.
@@ -134,7 +137,7 @@ This returns failed workflow runs on main. For each failed run:
 
 Append a second table to the output:
 
-**CI Failures on main:**
+**CI Failures on `<branch-name>`:**
 
 | Run | PR | Title | Age | Added to TODO |
 | --- | --- | ----- | --- | ------------- |
@@ -145,6 +148,6 @@ Append a second table to the output:
 - **Age**: How long ago the run was created
 - **Added to TODO**: ✅ if added, `dup` if already in TODO, — if skipped for other reasons
 
-If there are no CI failures on main, print: "No CI failures on main. ✅"
+If there are no CI failures on the target branch, print: "No CI failures on `<branch-name>`. ✅"
 
 IMPORTANT: .private/TODO.md and .private/UNREVIEWED_PRS.md are written to by other processes so make sure you read them before writing to them and after writing to them. Don't be alarmed if you see changes that you didn't make, but make sure your changes are persisted and you're not overwriting other changes. .private/TODO.md and .private/UNREVIEWED_PRS.md are gitignored.
