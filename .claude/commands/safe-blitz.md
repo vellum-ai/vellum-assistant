@@ -140,9 +140,11 @@ gh issue close <issue-number>
 10. **If the user has NOT signaled stop AND the max-tasks limit has NOT been reached**: pick the next task and spawn a new agent.
 11. **If the user HAS signaled stop OR the max-tasks limit has been reached**: don't spawn. Once all in-flight agents finish, proceed to shutdown.
 
-## Phase 5: Sweep
+## Phase 5: Recursive Sweep
 
 Read and follow `.claude/phases/sweep.md`. When it says "back to the Swarm phase", return to Phase 4 above. When it says "final phase", proceed to Phase 6.
+
+This phase runs a recursive loop: check reviews → swarm to address feedback → check reviews on the new feedback PRs → repeat. PRs created to address feedback are themselves tracked in UNREVIEWED_PRS.md and must be reviewed before the blitz is considered done. The blitz only exits the sweep when there are no namespaced TODO items AND no namespaced PRs pending review.
 
 ## Phase 6: Create Final PR (Feature Branch -> Main)
 

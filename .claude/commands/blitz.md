@@ -46,9 +46,11 @@ gh issue close <issue-number>
 
 - Everything else follows the standard swarm workflow (worktrees, conflict avoidance, TODO/DONE/UNREVIEWED tracking).
 
-## Phase 5: Sweep
+## Phase 5: Recursive Sweep
 
 Read and follow `.claude/phases/sweep.md`. When it says "back to the Swarm phase", return to Phase 4 above. When it says "final phase", proceed to Phase 6.
+
+This phase runs a recursive loop: check reviews → swarm to address feedback → check reviews on the new feedback PRs → repeat. PRs created to address feedback are themselves tracked in UNREVIEWED_PRS.md and must be reviewed before the blitz is considered done. The blitz only exits the sweep when there are no namespaced TODO items AND no namespaced PRs pending review.
 
 ## Phase 6: Report
 
