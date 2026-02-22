@@ -182,7 +182,8 @@ struct ChatBubble: View {
                     // Single unified status area at the bottom of the message:
                     // - In-progress: shows "Running a terminal command ..."
                     // - Complete: shows compact chips ("Ran a terminal command" + "Permission granted")
-                    if !isUser {
+                    // Skip completed tool chips when already rendered inline via interleaved content.
+                    if !isUser && !(hasInterleavedContent && allToolCallsComplete) {
                         trailingStatus
                     }
                 }
@@ -628,9 +629,21 @@ struct ChatBubble: View {
                         textBubble(for: segmentText)
                     }
                 }
-            case .toolCalls:
-                // Tool calls are rendered by trailingStatus below the message
-                EmptyView()
+            case .toolCalls(let indices):
+                let calls = indices.compactMap { i in
+                    i < message.toolCalls.count ? message.toolCalls[i] : nil
+                }
+                if !calls.isEmpty && calls.allSatisfy({ $0.isComplete }) && !hideToolCalls {
+                    VStack(alignment: .leading, spacing: 0) {
+                        UsedToolsList(toolCalls: calls, isExpanded: $stepsExpanded)
+                        if stepsExpanded {
+                            StepsSection(toolCalls: calls)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+                    }
+                    .animation(VAnimation.fast, value: stepsExpanded)
+                    .padding(.top, VSpacing.xxs)
+                }
             case .surface(let i):
                 if i < message.inlineSurfaces.count,
                    message.inlineSurfaces[i].id != taskProgressOverlay.activeSurfaceId {
