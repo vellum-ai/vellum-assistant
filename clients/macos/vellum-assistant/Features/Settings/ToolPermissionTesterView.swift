@@ -86,19 +86,6 @@ struct ToolPermissionTesterView: View {
                     .toggleStyle(.switch)
             }
 
-            // Execution target
-            HStack(spacing: VSpacing.sm) {
-                fieldLabel("Execution Target")
-                Picker("", selection: $model.executionTarget) {
-                    Text("None").tag("")
-                    Text("Host").tag("host")
-                    Text("Sandbox").tag("sandbox")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-            }
-
         }
     }
 
@@ -172,7 +159,7 @@ struct ToolPermissionTesterView: View {
                         toolName: result.snapshotToolName,
                         input: parsed,
                         riskLevel: result.riskLevel,
-                        executionTarget: result.snapshotExecutionTarget.isEmpty ? nil : result.snapshotExecutionTarget,
+                        executionTarget: result.snapshotExecutionTarget,
                         promptPayload: payload
                     )
 

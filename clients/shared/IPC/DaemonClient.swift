@@ -657,16 +657,14 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         input: [String: AnyCodable],
         workingDir: String? = nil,
         isInteractive: Bool? = nil,
-        forcePromptSideEffects: Bool? = nil,
-        executionTarget: String? = nil
+        forcePromptSideEffects: Bool? = nil
     ) throws {
         try send(ToolPermissionSimulateMessage(
             toolName: toolName,
             input: input,
             workingDir: workingDir,
             isInteractive: isInteractive,
-            forcePromptSideEffects: forcePromptSideEffects,
-            executionTarget: executionTarget
+            forcePromptSideEffects: forcePromptSideEffects
         ))
     }
 

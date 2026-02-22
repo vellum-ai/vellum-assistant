@@ -70,7 +70,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "allow", riskLevel: "low", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: ""
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
         )
 
         model.toolName = "host_bash"
@@ -87,8 +87,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.workingDir = "/tmp"
         model.isInteractive = false
         model.forcePromptSideEffects = true
-        model.executionTarget = "host"
-
         model.simulate()
 
         XCTAssertEqual(sentMessages.count, 1)
@@ -98,14 +96,12 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         XCTAssertEqual(msg?.workingDir, "/tmp")
         XCTAssertEqual(msg?.isInteractive, false)
         XCTAssertEqual(msg?.forcePromptSideEffects, true)
-        XCTAssertEqual(msg?.executionTarget, "host")
     }
 
     func testSimulate_emptyOptionalFieldsSendNil() {
         model.toolName = "host_bash"
         model.inputJSON = "{}"
         model.workingDir = ""
-        model.executionTarget = ""
 
         model.simulate()
 
@@ -113,7 +109,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         let msg = sentMessages[0] as? ToolPermissionSimulateMessage
         XCTAssertNotNil(msg)
         XCTAssertNil(msg?.workingDir)
-        XCTAssertNil(msg?.executionTarget)
     }
 
     func testSimulate_invalidJSON_setsError() {
@@ -203,7 +198,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: ""
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
         )
 
         model.allowOnce()
@@ -222,7 +217,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: ""
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
         )
 
         model.denyOnce()
@@ -240,11 +235,10 @@ final class ToolPermissionTesterModelTests: XCTestCase {
     func testAlwaysAllow_sendsAddTrustRuleAndResimulates() {
         model.toolName = "host_bash"
         model.inputJSON = "{}"
-        model.executionTarget = "host"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: ""
+            snapshotToolName: "host_bash", snapshotInputJSON: "{}", snapshotExecutionTarget: "host"
         )
 
         model.alwaysAllow(pattern: "echo *", scope: "project")
@@ -271,7 +265,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "high", reason: "dangerous",
             matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: ""
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
         )
 
         model.alwaysAllow(pattern: "rm -rf *", scope: "global")
@@ -288,7 +282,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: ""
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
         )
 
         model.alwaysAllow(pattern: "echo *", scope: "project")
@@ -302,11 +296,10 @@ final class ToolPermissionTesterModelTests: XCTestCase {
     func testAlwaysAllow_emptyMetadata_doesNotPassNilFields() {
         model.toolName = "host_bash"
         model.inputJSON = "{}"
-        model.executionTarget = ""
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "low", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: ""
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
         )
 
         model.alwaysAllow(pattern: "*", scope: "global")
@@ -324,7 +317,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         XCTAssertEqual(model.workingDir, "")
         XCTAssertTrue(model.isInteractive)
         XCTAssertFalse(model.forcePromptSideEffects)
-        XCTAssertEqual(model.executionTarget, "")
         XCTAssertFalse(model.isSimulating)
         XCTAssertNil(model.lastResult)
         XCTAssertNil(model.lastError)

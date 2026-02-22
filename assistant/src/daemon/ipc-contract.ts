@@ -956,8 +956,6 @@ export interface ToolPermissionSimulateRequest {
   isInteractive?: boolean;
   /** When true, side-effect tools that would normally be auto-allowed get promoted to prompt. */
   forcePromptSideEffects?: boolean;
-  /** Optional execution target override. */
-  executionTarget?: 'host' | 'sandbox';
 }
 
 export type ClientMessage =
@@ -2281,6 +2279,8 @@ export interface ToolPermissionSimulateResponse {
     scopeOptions: Array<{ label: string; scope: string }>;
     persistentDecisionsAllowed: boolean;
   };
+  /** Resolved execution target for the tool. */
+  executionTarget?: 'host' | 'sandbox';
   /** ID of the trust rule that matched (if any). */
   matchedRuleId?: string;
   /** Error message when success is false. */
