@@ -326,6 +326,9 @@ export function getDeadLetterEvents(): Array<{
 
 const deliveredRuns = new Set<string>();
 
+/** TTL for delivery claims — 10 minutes, well beyond the poll max-wait. */
+const CLAIM_TTL_MS = 10 * 60 * 1000;
+
 /**
  * Atomically claim the right to deliver the final reply for a run.
  * Returns `true` if this caller won the claim (and should proceed with
@@ -334,16 +337,21 @@ const deliveredRuns = new Set<string>();
  * This is an in-memory guard — sufficient because both racing pollers
  * execute within the same process. The Set is never persisted; on restart
  * there are no in-flight pollers to race.
+ *
+ * Claims are automatically evicted after CLAIM_TTL_MS to prevent
+ * unbounded Set growth over the lifetime of the process.
  */
 export function claimRunDelivery(runId: string): boolean {
   if (deliveredRuns.has(runId)) return false;
   deliveredRuns.add(runId);
+  setTimeout(() => deliveredRuns.delete(runId), CLAIM_TTL_MS);
   return true;
 }
 
 /**
- * Reset the deliver-once guard for a run. Used in tests to ensure
- * isolation between test cases.
+ * Reset the deliver-once guard for a run. Used to release a claim when
+ * delivery fails (so the other racing poller can retry) and in tests
+ * for isolation between test cases.
  */
 export function resetRunDeliveryClaim(runId: string): void {
   deliveredRuns.delete(runId);

@@ -849,8 +849,15 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
         // Deliver the final assistant reply exactly once. The post-decision
         // poll in schedulePostDecisionDelivery races with this path; the
         // claimRunDelivery guard ensures only the winner sends the reply.
+        // If delivery fails, release the claim so the other poller can retry
+        // rather than permanently losing the reply.
         if (channelDeliveryStore.claimRunDelivery(run.id)) {
-          await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+          try {
+            await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+          } catch (deliveryErr) {
+            channelDeliveryStore.resetRunDeliveryClaim(run.id);
+            throw deliveryErr;
+          }
         }
 
         // If this was a non-guardian run that went through guardian approval,
@@ -1281,7 +1288,12 @@ function schedulePostDecisionDelivery(
         if (!current) break;
         if (current.status === 'completed' || current.status === 'failed') {
           if (channelDeliveryStore.claimRunDelivery(runId)) {
-            await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+            try {
+              await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+            } catch (deliveryErr) {
+              channelDeliveryStore.resetRunDeliveryClaim(runId);
+              throw deliveryErr;
+            }
           }
           return;
         }
