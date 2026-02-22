@@ -3586,6 +3586,75 @@ Runtime detects needs_confirmation
 | `gateway/src/telegram/send.ts` | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons |
 | `gateway/src/telegram/normalize.ts` | `callback_query` normalization into `GatewayInboundEventV1` |
 
+### Channel Guardian Security
+
+The guardian system adds a cryptographic trust layer for channel-based interactions. A **guardian** is the designated human authority for a given (assistantId, channel) pair. Once verified, the guardian's identity gates sensitive actions by non-guardian users and provides an approval pathway.
+
+#### Guardian Verification Flow
+
+A challenge-response handshake binds a Telegram user as the guardian:
+
+```mermaid
+sequenceDiagram
+    participant User as Guardian Candidate
+    participant Desktop as Desktop / IPC
+    participant Daemon as Daemon (Runtime)
+    participant TG as Telegram
+
+    Desktop->>Daemon: guardian_verify IPC (action: create_challenge)
+    Daemon->>Daemon: Generate random secret, hash (SHA-256), store challenge (10min TTL)
+    Daemon-->>Desktop: Return secret + instruction
+    Desktop-->>User: Display: "Send /guardian-verify <secret> to the bot"
+    User->>TG: /guardian-verify <secret>
+    TG->>Daemon: POST /v1/channels/inbound (content: /guardian-verify <secret>)
+    Daemon->>Daemon: Hash secret, find pending challenge, validate expiry
+    Daemon->>Daemon: Consume challenge (replay prevention)
+    Daemon->>Daemon: Revoke existing binding (if any)
+    Daemon->>Daemon: Create new guardian binding (active)
+    Daemon-->>TG: "You are now the guardian"
+```
+
+The raw secret is shown only once in the desktop UI. Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused.
+
+#### Actor Role Resolution
+
+When a message arrives on a channel with an active guardian binding, the runtime resolves the sender's role:
+
+- **Guardian**: `externalUserId` matches the binding's `guardianExternalUserId`. Standard approval flow applies.
+- **Non-guardian**: Any other sender. All side-effect tools are forced through the confirmation flow (`forceStrictSideEffects`), and approval prompts are routed to the guardian's chat instead of the requester's chat.
+
+#### Sensitive Action Gating (Non-Guardian Approval)
+
+When a non-guardian user triggers a tool requiring confirmation, the approval is escalated to the guardian:
+
+```mermaid
+sequenceDiagram
+    participant NG as Non-Guardian User
+    participant Daemon as Daemon (Runtime)
+    participant Guardian as Guardian (Telegram DM)
+
+    NG->>Daemon: Message triggers tool use
+    Daemon->>Daemon: Detect non-guardian, set forceStrictSideEffects
+    Daemon->>Daemon: Tool needs confirmation → create GuardianApprovalRequest
+    Daemon->>Guardian: POST /deliver/telegram (approval prompt + inline keyboard)
+    Daemon-->>NG: "Waiting for guardian approval..."
+    Guardian->>Daemon: Approve / Deny (callback_query or text)
+    Daemon->>Daemon: Validate guardian identity, update approval decision
+    Daemon->>Daemon: Apply decision to pending run
+    Daemon-->>NG: "Guardian approved/denied your request"
+    Daemon-->>Guardian: Confirmation of decision
+```
+
+The `channelGuardianApprovalRequests` table tracks per-run approval state. Each request records the requester, guardian, tool name, risk level, and decision outcome.
+
+**Key modules:**
+
+| Module | Purpose |
+|--------|---------|
+| `assistant/src/memory/channel-guardian-store.ts` | CRUD for guardian bindings, verification challenges, and approval requests |
+| `assistant/src/runtime/channel-guardian-service.ts` | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) |
+| `assistant/src/runtime/routes/channel-routes.ts` | Guardian verification intercept (`/guardian-verify` command), actor role resolution, approval routing to guardian |
+
 ### Telegram Credential Flow
 
 In desktop deployments, Telegram bot tokens are stored in secure storage (macOS Keychain or the encrypted file fallback) and never in plaintext config files. When deploying the gateway standalone, operators may also supply credentials via environment variables (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`).
@@ -4088,4 +4157,7 @@ Keep-alive heartbeats (every 30 s by default):
 | Proxy sessions | In-memory (SessionManager) | Map<ProxySessionId, ManagedSession> | Manual lifecycle | Ephemeral; 5min idle timeout, cleared on shutdown |
 | Call sessions, events, pending questions | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, cascade on session delete |
 | Active call orchestrators | In-memory (CallState) | Map<callSessionId, CallOrchestrator> | Manual lifecycle | Ephemeral; cleared on call end or destroy |
+| Guardian bindings | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; revoked bindings retained |
+| Guardian verification challenges | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; consumed/expired challenges retained |
+| Guardian approval requests | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; decision outcome retained |
 | IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |
