@@ -434,19 +434,47 @@ final class HTTPTransport {
             let (data, response) = try await URLSession.shared.data(for: request)
 
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                log.error("Fetch history failed")
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                log.error("Fetch history failed (HTTP \(statusCode))")
                 return
             }
 
-            // The /v1/messages endpoint returns { messages: [...] } which doesn't
-            // directly map to a HistoryResponseMessage. We need to construct one.
+            // The runtime's /v1/messages endpoint returns messages with `content`
+            // (string) and `timestamp` (ISO 8601 string), but IPCHistoryResponseMessage
+            // expects `text` and `timestamp` as a Double (ms since epoch). Transform
+            // the response to match the expected IPC format.
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let messages = json["messages"] as? [[String: Any]] {
+
+                    let isoFormatter = ISO8601DateFormatter()
+                    isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+                    let transformed: [[String: Any]] = messages.map { msg in
+                        var m = msg
+                        // Rename `content` → `text`
+                        if let content = m.removeValue(forKey: "content") {
+                            m["text"] = content
+                        }
+                        // Convert ISO 8601 timestamp string → Double (ms since epoch)
+                        if let tsString = m["timestamp"] as? String {
+                            if let date = isoFormatter.date(from: tsString) {
+                                m["timestamp"] = date.timeIntervalSince1970 * 1000.0
+                            } else {
+                                // Fallback: try without fractional seconds
+                                let fallback = ISO8601DateFormatter()
+                                if let date = fallback.date(from: tsString) {
+                                    m["timestamp"] = date.timeIntervalSince1970 * 1000.0
+                                }
+                            }
+                        }
+                        return m
+                    }
+
                     let historyPayload: [String: Any] = [
                         "type": "history_response",
                         "sessionId": sessionId,
-                        "messages": messages
+                        "messages": transformed
                     ]
 
                     let historyData = try JSONSerialization.data(withJSONObject: historyPayload)
