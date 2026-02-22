@@ -148,6 +148,55 @@ describe('getChannelApprovalPrompt', () => {
     expect(result!.promptText).toMatch(/shell|file_edit/);
   });
 
+  test('excludes approve_always action when persistentDecisionsAllowed is false', () => {
+    ensureConversation('conv-1');
+    const run = createRun('conv-1', 'msg-1');
+    setRunConfirmation(run.id, {
+      ...sampleConfirmation,
+      persistentDecisionsAllowed: false,
+    });
+
+    const result = getChannelApprovalPrompt('conv-1');
+    expect(result).not.toBeNull();
+    expect(result!.actions.map((a) => a.id)).toEqual(['approve_once', 'reject']);
+    expect(result!.plainTextFallback).not.toContain('always');
+  });
+
+  test('includes approve_always when persistentDecisionsAllowed is undefined', () => {
+    ensureConversation('conv-1');
+    const run = createRun('conv-1', 'msg-1');
+    setRunConfirmation(run.id, {
+      ...sampleConfirmation,
+      // persistentDecisionsAllowed not set — defaults to allowed
+    });
+
+    const result = getChannelApprovalPrompt('conv-1');
+    expect(result).not.toBeNull();
+    expect(result!.actions.map((a) => a.id)).toEqual([
+      'approve_once',
+      'approve_always',
+      'reject',
+    ]);
+    expect(result!.plainTextFallback).toContain('always');
+  });
+
+  test('includes approve_always when persistentDecisionsAllowed is true', () => {
+    ensureConversation('conv-1');
+    const run = createRun('conv-1', 'msg-1');
+    setRunConfirmation(run.id, {
+      ...sampleConfirmation,
+      persistentDecisionsAllowed: true,
+    });
+
+    const result = getChannelApprovalPrompt('conv-1');
+    expect(result).not.toBeNull();
+    expect(result!.actions.map((a) => a.id)).toEqual([
+      'approve_once',
+      'approve_always',
+      'reject',
+    ]);
+  });
+
   test('does not return prompts for other conversations', () => {
     ensureConversation('conv-1');
     ensureConversation('conv-2');
@@ -283,7 +332,7 @@ describe('handleChannelDecision', () => {
     addRuleSpy.mockRestore();
   });
 
-  test('approve_always falls back to "**" / "everywhere" when no options available', () => {
+  test('approve_always does not persist rule when no allowlist/scope options are available', () => {
     ensureConversation('conv-1');
     const run = createRun('conv-1', 'msg-1');
     setRunConfirmation(run.id, {
@@ -291,7 +340,38 @@ describe('handleChannelDecision', () => {
       toolUseId: 'req-no-opts',
       input: { command: 'echo hi' },
       riskLevel: 'low',
-      // No allowlistOptions or scopeOptions
+      // No allowlistOptions or scopeOptions — should not create blanket rule
+    });
+
+    const addRuleSpy = spyOn(trustStore, 'addRule');
+    const orchestrator = makeMockOrchestrator();
+    const decision: ApprovalDecisionResult = {
+      action: 'approve_always',
+      source: 'telegram_button',
+    };
+
+    const result = handleChannelDecision('conv-1', decision, orchestrator);
+
+    // Rule should NOT be persisted — no blanket "**"/"everywhere" fallback
+    expect(addRuleSpy).not.toHaveBeenCalled();
+
+    // The decision should still be applied as a one-time approval
+    expect(result.applied).toBe(true);
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+
+    addRuleSpy.mockRestore();
+  });
+
+  test('approve_always does not persist rule when allowlist/scope are empty arrays', () => {
+    ensureConversation('conv-1');
+    const run = createRun('conv-1', 'msg-1');
+    setRunConfirmation(run.id, {
+      toolName: 'bash',
+      toolUseId: 'req-empty-opts',
+      input: { command: 'echo hi' },
+      riskLevel: 'low',
+      allowlistOptions: [],
+      scopeOptions: [],
     });
 
     const addRuleSpy = spyOn(trustStore, 'addRule');
@@ -303,14 +383,36 @@ describe('handleChannelDecision', () => {
 
     handleChannelDecision('conv-1', decision, orchestrator);
 
-    expect(addRuleSpy).toHaveBeenCalledWith(
-      'bash',
-      '**',
-      'everywhere',
-      'allow',
-      100,
-      { executionTarget: undefined },
-    );
+    // Empty arrays should not trigger rule persistence
+    expect(addRuleSpy).not.toHaveBeenCalled();
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+
+    addRuleSpy.mockRestore();
+  });
+
+  test('approve_always does not persist rule when persistentDecisionsAllowed is false', () => {
+    ensureConversation('conv-1');
+    const run = createRun('conv-1', 'msg-1');
+    setRunConfirmation(run.id, {
+      ...sampleConfirmation,
+      persistentDecisionsAllowed: false,
+    });
+
+    const addRuleSpy = spyOn(trustStore, 'addRule');
+    const orchestrator = makeMockOrchestrator();
+    const decision: ApprovalDecisionResult = {
+      action: 'approve_always',
+      source: 'telegram_button',
+    };
+
+    const result = handleChannelDecision('conv-1', decision, orchestrator);
+
+    // Persistence blocked — rule must not be created
+    expect(addRuleSpy).not.toHaveBeenCalled();
+
+    // The current invocation should still be approved (one-time allow)
+    expect(result.applied).toBe(true);
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
 
     addRuleSpy.mockRestore();
   });
