@@ -539,11 +539,16 @@ final class AssistantCli {
             // Forward optional config vars the CLI or daemon may need
             for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR", "VELLUM_DEBUG",
                         "VELLUM_ASSISTANT_PLATFORM_URL",
-                        "RUNTIME_HTTP_PORT",
                         "SENTRY_DSN", "TMPDIR", "USER", "LANG"] {
                 if let val = fullEnv[key] {
                     env[key] = val
                 }
+            }
+            // Forward RUNTIME_HTTP_PORT only when the localHttpEnabled flag
+            // is active, so the daemon doesn't start its HTTP server by default.
+            if FeatureFlagManager.shared.isEnabled(.localHttpEnabled),
+               let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
+                env["RUNTIME_HTTP_PORT"] = port
             }
             proc.environment = env
 

@@ -103,8 +103,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var cachedApps: [AppItem] = []
     var refreshAppsTask: Task<Void, Never>?
 
-    /// Tracks whether the current assistant is remote (cloud != "local").
-    /// Used to decide whether to hatch a local daemon, independent of transport type.
+    /// Whether the current assistant runs remotely (cloud != "local").
+    /// When true, local daemon hatching is skipped.
     private var isCurrentAssistantRemote = false
 
     @AppStorage("themePreference") private var themePreference: String = "system"
@@ -465,16 +465,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Configure the daemon client's transport based on the lockfile assistant.
-    /// For remote assistants (cloud != "local"), uses HTTP+SSE transport via the gateway URL.
-    /// For local assistants, uses the default Unix domain socket — unless the
-    /// `desktopApp` feature flag is enabled, in which case local assistants
-    /// also use HTTP transport pointed at the daemon's runtime HTTP server.
+    /// Remote assistants (cloud != "local") use HTTP+SSE via the gateway URL.
+    /// Local assistants use the default Unix domain socket, unless the
+    /// `localHttpEnabled` flag redirects them to the daemon's runtime HTTP server.
     private func configureDaemonTransport(for assistant: LockfileAssistant?) {
         isCurrentAssistantRemote = assistant?.isRemote ?? false
 
         guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
             // Local assistant or no assistant.
-            if FeatureFlagManager.shared.isEnabled(.desktopApp) {
+            if FeatureFlagManager.shared.isEnabled(.localHttpEnabled) {
                 // Use HTTP transport for the local daemon instead of IPC.
                 // Bearer token is nil; resolved lazily at connect time.
                 let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
@@ -487,7 +486,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     conversationKey: conversationKey
                 ))
                 services.reconfigureDaemonClient(config: config)
-                log.info("Configured local HTTP transport (desktopApp flag) on port \(port)")
+                log.info("Configured local HTTP transport (localHttpEnabled flag) on port \(port)")
             }
             return
         }
@@ -514,7 +513,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Ensure the daemon starts its runtime HTTP server so the app
         // can communicate over HTTP instead of IPC.
-        if FeatureFlagManager.shared.isEnabled(.desktopApp) {
+        if FeatureFlagManager.shared.isEnabled(.localHttpEnabled) {
             if ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] == nil {
                 setenv("RUNTIME_HTTP_PORT", "7821", 0)
             }
