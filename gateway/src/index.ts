@@ -2,6 +2,7 @@ import { loadConfig } from "./config.js";
 import { CredentialWatcher } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
+import { createTelegramReconcileHandler } from "./http/routes/telegram-reconcile.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
@@ -25,6 +26,7 @@ function main() {
 
   const handleTelegramWebhook = createTelegramWebhookHandler(config);
   const handleTelegramDeliver = createTelegramDeliverHandler(config);
+  const handleTelegramReconcile = createTelegramReconcileHandler(config);
 
   const isTelegramConfigured = () =>
     !!(config.telegramBotToken && config.telegramWebhookSecret);
@@ -58,6 +60,10 @@ function main() {
           return Response.json({ status: "draining" }, { status: 503 });
         }
         return Response.json({ status: "ok" });
+      }
+
+      if (url.pathname === "/internal/telegram/reconcile") {
+        return handleTelegramReconcile(req);
       }
 
       if (url.pathname === "/webhooks/telegram") {

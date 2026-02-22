@@ -8,6 +8,7 @@ import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secu
 import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { postToSlackWebhook } from '../../slack/slack-webhook.js';
 import { getApp } from '../../memory/app-store.js';
+import { readHttpToken } from '../../util/platform.js';
 import type {
   ModelSetRequest,
   ImageGenModelSetRequest,
@@ -409,6 +410,43 @@ function computeLocalGatewayTarget(): string {
   return `http://127.0.0.1:${port}`;
 }
 
+/**
+ * Best-effort call to the gateway's internal reconcile endpoint so that
+ * Telegram webhook registration is updated immediately when the ingress
+ * URL changes, without requiring a gateway restart.
+ */
+function triggerGatewayReconcile(ingressPublicBaseUrl: string | undefined): void {
+  const gatewayBase = computeLocalGatewayTarget();
+  const token = readHttpToken();
+  if (!token) {
+    log.debug('Skipping gateway reconcile trigger: no HTTP bearer token available');
+    return;
+  }
+
+  const url = `${gatewayBase}/internal/telegram/reconcile`;
+  const body = ingressPublicBaseUrl
+    ? JSON.stringify({ ingressPublicBaseUrl })
+    : '{}';
+
+  fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body,
+    signal: AbortSignal.timeout(5_000),
+  }).then((res) => {
+    if (res.ok) {
+      log.info('Gateway Telegram webhook reconcile triggered successfully');
+    } else {
+      log.warn({ status: res.status }, 'Gateway Telegram webhook reconcile returned non-OK status');
+    }
+  }).catch((err) => {
+    log.debug({ err }, 'Gateway Telegram webhook reconcile failed (gateway may not be running)');
+  });
+}
+
 export function handleIngressConfig(
   msg: IngressConfigRequest,
   socket: net.Socket,
@@ -471,6 +509,12 @@ export function handleIngressConfig(
       }
 
       ctx.send(socket, { type: 'ingress_config_response', enabled: isEnabled, publicBaseUrl: value, localGatewayTarget, success: true });
+
+      // Trigger immediate Telegram webhook reconcile on the gateway so
+      // that changing the ingress URL takes effect without a restart.
+      if (value && isEnabled) {
+        triggerGatewayReconcile(value);
+      }
     } else {
       ctx.send(socket, { type: 'ingress_config_response', enabled: false, publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
     }
