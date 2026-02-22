@@ -1,0 +1,331 @@
+import SwiftUI
+import VellumAssistantShared
+
+/// Panel showing the version history of an app, with diff viewing and restore.
+struct AppVersionHistoryPanel: View {
+    let daemonClient: DaemonClient
+    let appId: String
+    let appName: String
+    let onClose: () -> Void
+
+    @State private var versions: [IPCAppHistoryResponseVersion] = []
+    @State private var isLoading = true
+    @State private var selectedVersion: IPCAppHistoryResponseVersion?
+    @State private var diffText: String?
+    @State private var isDiffLoading = false
+    @State private var restoreConfirmVersion: IPCAppHistoryResponseVersion?
+    @State private var isRestoring = false
+    @State private var restoreError: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack {
+                VButton(label: "Back", icon: "chevron.left", style: .ghost) {
+                    onClose()
+                }
+                .controlSize(.small)
+
+                Spacer()
+
+                Text("Version History")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
+
+                // Invisible spacer to balance the back button
+                Color.clear.frame(width: 60, height: 1)
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.md)
+
+            Divider()
+                .foregroundColor(VColor.surfaceBorder)
+
+            if isLoading {
+                Spacer()
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading history...")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Spacer()
+                }
+                Spacer()
+            } else if versions.isEmpty {
+                Spacer()
+                HStack {
+                    Spacer()
+                    VStack(spacing: VSpacing.sm) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 32))
+                            .foregroundColor(VColor.textTertiary)
+                        Text("No version history")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Text("Changes will appear here after you edit the app.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textTertiary)
+                    }
+                    Spacer()
+                }
+                Spacer()
+            } else {
+                // Version list + optional diff detail
+                HSplitView {
+                    versionList
+                        .frame(minWidth: 280, idealWidth: 320)
+
+                    if let selected = selectedVersion {
+                        diffDetailView(for: selected)
+                            .frame(minWidth: 300)
+                    }
+                }
+            }
+        }
+        .background(VColor.background)
+        .onAppear { fetchHistory() }
+        .alert("Restore Version?", isPresented: .init(
+            get: { restoreConfirmVersion != nil },
+            set: { if !$0 { restoreConfirmVersion = nil } }
+        )) {
+            Button("Cancel", role: .cancel) {
+                restoreConfirmVersion = nil
+            }
+            Button("Restore", role: .destructive) {
+                if let version = restoreConfirmVersion {
+                    restoreVersion(version)
+                }
+            }
+        } message: {
+            if let version = restoreConfirmVersion {
+                Text("This will restore \"\(appName)\" to version \(String(version.commitHash.prefix(7))). A new version will be created with the restored content.")
+            }
+        }
+    }
+
+    // MARK: - Version List
+
+    private var versionList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(versions.enumerated()), id: \.element.commitHash) { index, version in
+                    versionRow(version, isFirst: index == 0)
+                }
+            }
+            .padding(.vertical, VSpacing.sm)
+        }
+    }
+
+    private func versionRow(_ version: IPCAppHistoryResponseVersion, isFirst: Bool) -> some View {
+        let isSelected = selectedVersion?.commitHash == version.commitHash
+        return Button(action: {
+            if selectedVersion?.commitHash == version.commitHash {
+                selectedVersion = nil
+                diffText = nil
+            } else {
+                selectVersion(version)
+            }
+        }) {
+            HStack(alignment: .top, spacing: VSpacing.md) {
+                // Timeline dot
+                Circle()
+                    .fill(isFirst ? VColor.accent : VColor.textTertiary.opacity(0.5))
+                    .frame(width: 8, height: 8)
+                    .padding(.top, 5)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(version.message)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .lineLimit(2)
+
+                    HStack(spacing: VSpacing.sm) {
+                        Text(String(version.commitHash.prefix(7)))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(VColor.textTertiary)
+
+                        Text(relativeTime(from: version.timestamp))
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textTertiary)
+                    }
+                }
+
+                Spacer()
+
+                if !isFirst {
+                    Button(action: {
+                        restoreConfirmVersion = version
+                    }) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 12))
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Restore to this version")
+                }
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .background(isSelected ? VColor.accent.opacity(0.1) : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Diff Detail
+
+    @ViewBuilder
+    private func diffDetailView(for version: IPCAppHistoryResponseVersion) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Diff header
+            HStack {
+                Text("Changes in ")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                + Text(String(version.commitHash.prefix(7)))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
+
+                if !isRestoring {
+                    VButton(label: "Restore", icon: "arrow.counterclockwise", style: .ghost) {
+                        restoreConfirmVersion = version
+                    }
+                    .controlSize(.small)
+                }
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.md)
+
+            Divider()
+
+            if isDiffLoading {
+                Spacer()
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
+                    Spacer()
+                }
+                Spacer()
+            } else if let diff = diffText, !diff.isEmpty {
+                ScrollView(.vertical) {
+                    ScrollView(.horizontal) {
+                        Text(diff)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(VColor.textPrimary)
+                            .textSelection(.enabled)
+                            .padding(VSpacing.md)
+                    }
+                }
+            } else {
+                Spacer()
+                HStack {
+                    Spacer()
+                    Text("No changes in this version")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Spacer()
+                }
+                Spacer()
+            }
+
+            if let error = restoreError {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundColor(VColor.error)
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                }
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.sm)
+            }
+        }
+        .background(VColor.surface)
+    }
+
+    // MARK: - Data Fetching
+
+    private func fetchHistory() {
+        isLoading = true
+        daemonClient.onAppHistoryResponse = { response in
+            if response.appId == appId {
+                versions = response.versions
+                isLoading = false
+            }
+        }
+        do {
+            try daemonClient.sendAppHistory(appId: appId)
+        } catch {
+            isLoading = false
+        }
+    }
+
+    private func selectVersion(_ version: IPCAppHistoryResponseVersion) {
+        selectedVersion = version
+        isDiffLoading = true
+        diffText = nil
+
+        // Find the previous version to diff against
+        guard let index = versions.firstIndex(where: { $0.commitHash == version.commitHash }),
+              index + 1 < versions.count else {
+            // First version — no previous to diff against
+            isDiffLoading = false
+            diffText = ""
+            return
+        }
+        let previousVersion = versions[index + 1]
+
+        daemonClient.onAppDiffResponse = { response in
+            if response.appId == appId {
+                diffText = response.diff
+                isDiffLoading = false
+            }
+        }
+        do {
+            try daemonClient.sendAppDiff(appId: appId, fromCommit: previousVersion.commitHash, toCommit: version.commitHash)
+        } catch {
+            isDiffLoading = false
+            diffText = ""
+        }
+    }
+
+    private func restoreVersion(_ version: IPCAppHistoryResponseVersion) {
+        isRestoring = true
+        restoreError = nil
+        restoreConfirmVersion = nil
+
+        daemonClient.onAppRestoreResponse = { response in
+            isRestoring = false
+            if response.success {
+                // Refresh history to show the new restore commit
+                fetchHistory()
+                selectedVersion = nil
+                diffText = nil
+            } else {
+                restoreError = response.error ?? "Restore failed"
+            }
+        }
+        do {
+            try daemonClient.sendAppRestore(appId: appId, commitHash: version.commitHash)
+        } catch {
+            isRestoring = false
+            restoreError = "Failed to send restore request"
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func relativeTime(from timestamp: Double) -> String {
+        let date = Date(timeIntervalSince1970: timestamp / 1000)
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}

@@ -257,6 +257,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `fork_shared_app_response` message.
     public var onForkSharedAppResponse: ((ForkSharedAppResponseMessage) -> Void)?
 
+    /// Called when the daemon sends an `app_history_response` message.
+    public var onAppHistoryResponse: ((IPCAppHistoryResponse) -> Void)?
+
+    /// Called when the daemon sends an `app_diff_response` message.
+    public var onAppDiffResponse: ((IPCAppDiffResponse) -> Void)?
+
+    /// Called when the daemon sends an `app_restore_response` message.
+    public var onAppRestoreResponse: ((IPCAppRestoreResponse) -> Void)?
+
     /// Called when the daemon sends a `bundle_app_response` message.
     public var onBundleAppResponse: ((BundleAppResponseMessage) -> Void)?
 
@@ -889,6 +898,21 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Request a single app's preview screenshot.
     public func sendAppPreview(appId: String) throws {
         try send(AppPreviewRequestMessage(type: "app_preview_request", appId: appId))
+    }
+
+    /// Request version history for an app.
+    public func sendAppHistory(appId: String, limit: Int? = nil) throws {
+        try send(IPCAppHistoryRequest(type: "app_history_request", appId: appId, limit: limit.map { Double($0) }))
+    }
+
+    /// Request a diff between two versions of an app.
+    public func sendAppDiff(appId: String, fromCommit: String, toCommit: String? = nil) throws {
+        try send(IPCAppDiffRequest(type: "app_diff_request", appId: appId, fromCommit: fromCommit, toCommit: toCommit))
+    }
+
+    /// Restore an app to a previous version.
+    public func sendAppRestore(appId: String, commitHash: String) throws {
+        try send(IPCAppRestoreRequest(type: "app_restore_request", appId: appId, commitHash: commitHash))
     }
 
     /// Request Home Base metadata from the daemon.
