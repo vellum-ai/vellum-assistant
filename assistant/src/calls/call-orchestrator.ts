@@ -379,6 +379,7 @@ export class CallOrchestrator {
             this.state = 'idle';
             updateCallSession(this.callSessionId, { status: 'in_progress' });
             expirePendingQuestions(this.callSessionId);
+            this.flushPendingInstructions();
           }
         }, getUserConsultationTimeoutMs());
         return;
