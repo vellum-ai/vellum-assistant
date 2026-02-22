@@ -105,6 +105,7 @@
     "WorkItemRunTaskRequest",
     "WorkItemUpdateRequest",
     "WorkItemsListRequest",
+    "ToolPermissionSimulateRequest",
     "WorkspaceFileReadRequest",
     "WorkspaceFilesListRequest"
   ],
@@ -227,6 +228,7 @@
     "WorkItemStatusChanged",
     "WorkItemUpdateResponse",
     "WorkItemsListResponse",
+    "ToolPermissionSimulateResponse",
     "WorkspaceFileReadResponse",
     "WorkspaceFilesListResponse"
   ],
@@ -313,6 +315,7 @@
     "subagent_status",
     "suggestion_request",
     "task_submit",
+    "tool_permission_simulate",
     "trust_rules_list",
     "twitter_auth_start",
     "twitter_auth_status",
@@ -426,6 +429,7 @@
     "tasks_changed",
     "tool_input_delta",
     "tool_output_chunk",
+    "tool_permission_simulate_response",
     "tool_result",
     "tool_use_start",
     "trace_event",

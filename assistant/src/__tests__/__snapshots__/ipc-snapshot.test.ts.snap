@@ -830,6 +830,23 @@ exports[`IPC message snapshots ClientMessage types identity_get serializes to ex
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types tool_permission_simulate serializes to expected JSON 1`] = `
+{
+  "executionTarget": "host",
+  "forcePromptSideEffects": false,
+  "input": {
+    "command": "rm -rf /tmp/test",
+  },
+  "isInteractive": true,
+  "principalId": "my-skill",
+  "principalKind": "skill",
+  "principalVersion": "sha256:abc123",
+  "toolName": "bash",
+  "type": "tool_permission_simulate",
+  "workingDir": "/projects/my-app",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -2312,5 +2329,31 @@ exports[`IPC message snapshots ServerMessage types identity_get_response seriali
   "personality": "Friendly",
   "role": "AI assistant",
   "type": "identity_get_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types tool_permission_simulate_response serializes to expected JSON 1`] = `
+{
+  "decision": "prompt",
+  "promptPayload": {
+    "allowlistOptions": [
+      {
+        "description": "Allow rm commands",
+        "label": "Allow rm commands",
+        "pattern": "bash:rm *",
+      },
+    ],
+    "persistentDecisionsAllowed": true,
+    "scopeOptions": [
+      {
+        "label": "In /projects/my-app",
+        "scope": "/projects/my-app",
+      },
+    ],
+  },
+  "reason": "No matching trust rule; tool requires approval",
+  "riskLevel": "high",
+  "success": true,
+  "type": "tool_permission_simulate_response",
 }
 `;

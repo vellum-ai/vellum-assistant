@@ -516,6 +516,18 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   identity_get: {
     type: 'identity_get',
   },
+  tool_permission_simulate: {
+    type: 'tool_permission_simulate',
+    toolName: 'bash',
+    input: { command: 'rm -rf /tmp/test' },
+    workingDir: '/projects/my-app',
+    isInteractive: true,
+    forcePromptSideEffects: false,
+    principalKind: 'skill',
+    principalId: 'my-skill',
+    principalVersion: 'sha256:abc123',
+    executionTarget: 'host',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1489,6 +1501,23 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     personality: 'Friendly',
     emoji: '✨',
     home: '~/workspace',
+  },
+  tool_permission_simulate_response: {
+    type: 'tool_permission_simulate_response',
+    success: true,
+    decision: 'prompt',
+    riskLevel: 'high',
+    reason: 'No matching trust rule; tool requires approval',
+    promptPayload: {
+      allowlistOptions: [
+        { label: 'Allow rm commands', description: 'Allow rm commands', pattern: 'bash:rm *' },
+      ],
+      scopeOptions: [
+        { label: 'In /projects/my-app', scope: '/projects/my-app' },
+      ],
+      persistentDecisionsAllowed: true,
+    },
+    matchedRuleId: undefined,
   },
 };
 

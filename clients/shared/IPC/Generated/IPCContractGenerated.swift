@@ -1665,6 +1665,60 @@ public struct IPCToolOutputChunk: Codable, Sendable {
     public let subToolId: String?
 }
 
+public struct IPCToolPermissionSimulateRequest: Codable, Sendable {
+    public let type: String
+    /// Tool name to simulate (e.g. 'bash', 'file_write').
+    public let toolName: String
+    /// Tool input record to simulate.
+    public let input: [String: AnyCodable]
+    /// Working directory context; defaults to daemon cwd when omitted.
+    public let workingDir: String?
+    /// Whether the simulated context is interactive (default true).
+    public let isInteractive: Bool?
+    /// When true, side-effect tools that would normally be auto-allowed get promoted to prompt.
+    public let forcePromptSideEffects: Bool?
+    /// Optional principal context overrides.
+    public let principalKind: String?
+    public let principalId: String?
+    public let principalVersion: String?
+    /// Optional execution target override.
+    public let executionTarget: String?
+}
+
+public struct IPCToolPermissionSimulateResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    /// The simulated permission decision.
+    public let decision: String?
+    /// Risk level of the simulated tool invocation.
+    public let riskLevel: String?
+    /// Human-readable reason for the decision.
+    public let reason: String?
+    /// When decision is 'prompt', the data needed to render a ToolConfirmationBubble.
+    public let promptPayload: IPCToolPermissionSimulateResponsePromptPayload?
+    /// ID of the trust rule that matched (if any).
+    public let matchedRuleId: String?
+    /// Error message when success is false.
+    public let error: String?
+}
+
+public struct IPCToolPermissionSimulateResponsePromptPayload: Codable, Sendable {
+    public let allowlistOptions: [IPCToolPermissionSimulateResponsePromptPayloadAllowlistOption]
+    public let scopeOptions: [IPCToolPermissionSimulateResponsePromptPayloadScopeOption]
+    public let persistentDecisionsAllowed: Bool
+}
+
+public struct IPCToolPermissionSimulateResponsePromptPayloadAllowlistOption: Codable, Sendable {
+    public let label: String
+    public let description: String
+    public let pattern: String
+}
+
+public struct IPCToolPermissionSimulateResponsePromptPayloadScopeOption: Codable, Sendable {
+    public let label: String
+    public let scope: String
+}
+
 public struct IPCToolResult: Codable, Sendable {
     public let type: String
     public let toolName: String
@@ -1751,6 +1805,8 @@ public struct IPCTwitterIntegrationConfigResponse: Codable, Sendable {
     public let connected: Bool
     public let accountInfo: String?
     public let strategy: String?
+    /// Whether the user has explicitly set a strategy (vs. relying on the default 'auto').
+    public let strategyConfigured: Bool?
     public let error: String?
 }
 

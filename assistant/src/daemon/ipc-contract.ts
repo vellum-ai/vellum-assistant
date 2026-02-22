@@ -896,6 +896,26 @@ export interface IdentityGetRequest {
   type: 'identity_get';
 }
 
+export interface ToolPermissionSimulateRequest {
+  type: 'tool_permission_simulate';
+  /** Tool name to simulate (e.g. 'bash', 'file_write'). */
+  toolName: string;
+  /** Tool input record to simulate. */
+  input: Record<string, unknown>;
+  /** Working directory context; defaults to daemon cwd when omitted. */
+  workingDir?: string;
+  /** Whether the simulated context is interactive (default true). */
+  isInteractive?: boolean;
+  /** When true, side-effect tools that would normally be auto-allowed get promoted to prompt. */
+  forcePromptSideEffects?: boolean;
+  /** Optional principal context overrides. */
+  principalKind?: 'core' | 'skill' | 'task';
+  principalId?: string;
+  principalVersion?: string;
+  /** Optional execution target override. */
+  executionTarget?: 'host' | 'sandbox';
+}
+
 export type ClientMessage =
   | AuthMessage
   | UserMessage
@@ -1003,7 +1023,8 @@ export type ClientMessage =
   | SubagentDetailRequest
   | WorkspaceFilesListRequest
   | WorkspaceFileReadRequest
-  | IdentityGetRequest;
+  | IdentityGetRequest
+  | ToolPermissionSimulateRequest;
 
 export interface IntegrationListRequest {
   type: 'integration_list';
@@ -2164,6 +2185,27 @@ export interface IdentityGetResponse {
   originSystem?: string;
 }
 
+export interface ToolPermissionSimulateResponse {
+  type: 'tool_permission_simulate_response';
+  success: boolean;
+  /** The simulated permission decision. */
+  decision?: 'allow' | 'deny' | 'prompt';
+  /** Risk level of the simulated tool invocation. */
+  riskLevel?: string;
+  /** Human-readable reason for the decision. */
+  reason?: string;
+  /** When decision is 'prompt', the data needed to render a ToolConfirmationBubble. */
+  promptPayload?: {
+    allowlistOptions: Array<{ label: string; description: string; pattern: string }>;
+    scopeOptions: Array<{ label: string; scope: string }>;
+    persistentDecisionsAllowed: boolean;
+  };
+  /** ID of the trust rule that matched (if any). */
+  matchedRuleId?: string;
+  /** Error message when success is false. */
+  error?: string;
+}
+
 export type ServerMessage =
   | AuthResult
   | UserMessageEcho
@@ -2284,7 +2326,8 @@ export type ServerMessage =
   | SubagentDetailResponse
   | WorkspaceFilesListResponse
   | WorkspaceFileReadResponse
-  | IdentityGetResponse;
+  | IdentityGetResponse
+  | ToolPermissionSimulateResponse;
 
 // === Subagent IPC ─────────────────────────────────────────────────────
 

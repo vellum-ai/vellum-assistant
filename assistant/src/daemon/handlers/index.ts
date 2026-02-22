@@ -86,6 +86,15 @@ const inlineHandlers = defineHandlers({
     });
   },
   integration_disconnect: () => { /* no-op — integration registry removed */ },
+
+  // Stub: runtime behavior wired in a later PR
+  tool_permission_simulate: (_msg, socket, ctx) => {
+    ctx.send(socket, {
+      type: 'tool_permission_simulate_response',
+      success: false,
+      error: 'Not implemented yet',
+    });
+  },
 });
 
 const handlers = {
