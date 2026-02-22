@@ -328,9 +328,24 @@ describe('scheduler RRULE execution', () => {
     // advance to offset 61 (odd). Using 59 minutes (not 60) is critical:
     // at 60 minutes the first post-now occurrence is offset 61 (odd), which
     // would pass the parity check even if EXRULE were completely ignored.
-    const now = new Date();
+    //
+    // We freeze the baseline to 30 seconds past the current minute so that
+    // neither this test nor the scheduler (which calls Date.now() independently)
+    // can cross a minute boundary during the ~500ms test window. This prevents
+    // a timing-dependent false negative reported in PR #6328.
+    const realNow = new Date();
+    const frozenNow = new Date(realNow);
+    frozenNow.setUTCSeconds(30);
+    frozenNow.setUTCMilliseconds(0);
+    // If the real clock is past second 50, the frozen timestamp at :30 would
+    // be in the past relative to the scheduler's Date.now(). Shift forward
+    // one minute to guarantee ample margin.
+    if (realNow.getUTCSeconds() >= 50) {
+      frozenNow.setTime(frozenNow.getTime() + 60_000);
+    }
+
     const pad = (n: number) => String(n).padStart(2, '0');
-    const pastDate = new Date(now.getTime() - 59 * 60_000);
+    const pastDate = new Date(frozenNow.getTime() - 59 * 60_000);
     pastDate.setUTCSeconds(0);
     pastDate.setUTCMilliseconds(0);
     const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}00Z`;
@@ -338,12 +353,13 @@ describe('scheduler RRULE execution', () => {
     const expression = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1\nEXRULE:FREQ=MINUTELY;INTERVAL=2`;
 
     // Compute what the next occurrence would be WITHOUT EXRULE — this should
-    // be at an even offset that EXRULE must exclude.
+    // be at an even offset that EXRULE must exclude. Use frozenNow as the
+    // baseline so the assertion is independent of wall-clock jitter.
     const withoutExrule = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1`;
     const { computeNextRunAt } = await import('../schedule/recurrence-engine.js');
     const nextWithoutExrule = computeNextRunAt(
       { syntax: 'rrule', expression: withoutExrule },
-      now.getTime(),
+      frozenNow.getTime(),
     );
     const offsetWithout = Math.round((nextWithoutExrule - pastDate.getTime()) / 60_000);
     // Sanity: the without-EXRULE occurrence must be even (would be excluded)
