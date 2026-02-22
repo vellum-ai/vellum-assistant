@@ -2090,9 +2090,9 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], sessionId: nil)))
         XCTAssertFalse(viewModel.isThinking, "Tool chip is visible, thinking should be false")
 
-        // Tool completes — agent is now processing the result
+        // Tool completes — agent is processing the result but isn't "thinking" yet
         viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "file.txt", isError: nil, diff: nil, status: nil, sessionId: nil, imageData: nil)))
-        XCTAssertTrue(viewModel.isThinking, "Thinking should restore after tool result while still sending")
+        XCTAssertFalse(viewModel.isThinking, "Thinking should not restore after tool result — tool chip indicates activity")
     }
 
     func testToolResultDoesNotRestoreThinkingWhenNotSending() {
@@ -2127,7 +2127,8 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testThinkingCycleThroughMultipleTools() {
-        // Full cycle: thinking → text → tool1 → result → thinking → tool2 → result → thinking → complete
+        // Full cycle: thinking → text → tool1 → result → tool2 → result → complete
+        // Thinking should NOT re-appear between tools — only the tool chip shows activity
         viewModel.isSending = true
         viewModel.isThinking = true
 
@@ -2139,17 +2140,17 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], sessionId: nil)))
         XCTAssertFalse(viewModel.isThinking)
 
-        // First tool completes
+        // First tool completes — no "Thinking" flash between tools
         viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "files", isError: nil, diff: nil, status: nil, sessionId: nil, imageData: nil)))
-        XCTAssertTrue(viewModel.isThinking, "Thinking should show between tools")
+        XCTAssertFalse(viewModel.isThinking, "Thinking should not show between tools")
 
         // Second tool starts
         viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "file_read", input: ["path": AnyCodable("foo.txt")], sessionId: nil)))
-        XCTAssertFalse(viewModel.isThinking, "Thinking should clear when new tool starts")
+        XCTAssertFalse(viewModel.isThinking, "Thinking should stay false when new tool starts")
 
         // Second tool completes
         viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "file_read", result: "contents", isError: nil, diff: nil, status: nil, sessionId: nil, imageData: nil)))
-        XCTAssertTrue(viewModel.isThinking, "Thinking should show again after second tool")
+        XCTAssertFalse(viewModel.isThinking, "Thinking should not show after second tool")
 
         // Message completes
         viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
