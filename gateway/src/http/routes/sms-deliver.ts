@@ -76,6 +76,7 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
 
     let body: {
       to?: string;
+      chatId?: string;
       text?: string;
     };
     try {
@@ -84,7 +85,10 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    const { to, text } = body;
+    const { text } = body;
+    // Accept `chatId` as an alias for `to` so runtime channel callbacks
+    // (which send `{ chatId, text }`) work without translation.
+    const to = body.to ?? body.chatId;
 
     if (!to || typeof to !== "string") {
       return Response.json({ error: "to is required" }, { status: 400 });
