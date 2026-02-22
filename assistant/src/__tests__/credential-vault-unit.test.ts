@@ -101,6 +101,7 @@ describe('CredentialBroker transient credentials', () => {
 
     // Second authorize + consume should NOT have the transient value
     const auth2 = broker.authorize({ service: 'svc', field: 'key', toolName: 'tool1' });
+    expect(auth2.authorized).toBe(true);
     if (!auth2.authorized) return;
     const result2 = broker.consume(auth2.token.tokenId);
     expect(result2.success).toBe(true);
