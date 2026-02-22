@@ -2175,7 +2175,7 @@ describe('hash change re-prompt regressions (PR 35)', () => {
 // Version hash plumbing regression tests
 // Verify that createSkillToolsFromManifest receives the computed hash and
 // that projected tools carry ownerSkillVersionHash, which downstream
-// components (executor.ts) use to build version-bound policy principals.
+// components (executor.ts) use to build policy context.
 // ---------------------------------------------------------------------------
 
 describe('version hash plumbing to projected tools', () => {

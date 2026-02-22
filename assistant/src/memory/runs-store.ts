@@ -25,12 +25,6 @@ export interface PendingConfirmation {
   executionTarget?: 'sandbox' | 'host';
   allowlistOptions?: Array<{ label: string; pattern: string }>;
   scopeOptions?: Array<{ label: string; scope: string }>;
-  /** Principal kind that initiated this tool use (e.g. 'core' or 'skill'). */
-  principalKind?: string;
-  /** Skill ID when principalKind is 'skill'. */
-  principalId?: string;
-  /** Content-hash of the skill source for version tracking. */
-  principalVersion?: string;
   /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
   persistentDecisionsAllowed?: boolean;
 }

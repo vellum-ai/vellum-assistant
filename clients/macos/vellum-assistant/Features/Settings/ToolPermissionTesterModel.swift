@@ -18,9 +18,6 @@ struct SimulationResult: Equatable {
     let snapshotToolName: String
     let snapshotInputJSON: String
     let snapshotExecutionTarget: String
-    let snapshotPrincipalKind: String
-    let snapshotPrincipalId: String
-    let snapshotPrincipalVersion: String
 
     static func == (lhs: SimulationResult, rhs: SimulationResult) -> Bool {
         lhs.decision == rhs.decision
@@ -46,9 +43,6 @@ final class ToolPermissionTesterModel: ObservableObject {
     @Published var isInteractive: Bool = true
     @Published var forcePromptSideEffects: Bool = false
     @Published var executionTarget: String = ""
-    @Published var principalKind: String = ""
-    @Published var principalId: String = ""
-    @Published var principalVersion: String = ""
 
     // MARK: - Result State
 
@@ -66,9 +60,6 @@ final class ToolPermissionTesterModel: ObservableObject {
     private var pendingSnapshotToolName: String = ""
     private var pendingSnapshotInputJSON: String = ""
     private var pendingSnapshotExecutionTarget: String = ""
-    private var pendingSnapshotPrincipalKind: String = ""
-    private var pendingSnapshotPrincipalId: String = ""
-    private var pendingSnapshotPrincipalVersion: String = ""
 
     init(daemonClient: DaemonClientProtocol) {
         self.daemonClient = daemonClient
@@ -97,9 +88,6 @@ final class ToolPermissionTesterModel: ObservableObject {
         pendingSnapshotToolName = toolName
         pendingSnapshotInputJSON = inputJSON
         pendingSnapshotExecutionTarget = executionTarget
-        pendingSnapshotPrincipalKind = principalKind
-        pendingSnapshotPrincipalId = principalId
-        pendingSnapshotPrincipalVersion = principalVersion
 
         // Wire up the one-shot response callback before sending.
         if let dc = daemonClient as? DaemonClient {
@@ -117,9 +105,6 @@ final class ToolPermissionTesterModel: ObservableObject {
                 workingDir: workingDir.isEmpty ? nil : workingDir,
                 isInteractive: isInteractive,
                 forcePromptSideEffects: forcePromptSideEffects,
-                principalKind: principalKind.isEmpty ? nil : principalKind,
-                principalId: principalId.isEmpty ? nil : principalId,
-                principalVersion: principalVersion.isEmpty ? nil : principalVersion,
                 executionTarget: executionTarget.isEmpty ? nil : executionTarget
             ))
         } catch {
@@ -167,9 +152,6 @@ final class ToolPermissionTesterModel: ObservableObject {
                 scope: scope,
                 decision: "allow",
                 allowHighRisk: isHighRisk ? true : nil,
-                principalKind: snapshot.snapshotPrincipalKind.isEmpty ? nil : snapshot.snapshotPrincipalKind,
-                principalId: snapshot.snapshotPrincipalId.isEmpty ? nil : snapshot.snapshotPrincipalId,
-                principalVersion: snapshot.snapshotPrincipalVersion.isEmpty ? nil : snapshot.snapshotPrincipalVersion,
                 executionTarget: snapshot.snapshotExecutionTarget.isEmpty ? nil : snapshot.snapshotExecutionTarget
             )
             // Re-simulate to show the updated outcome with the new rule in effect.
@@ -197,10 +179,7 @@ final class ToolPermissionTesterModel: ObservableObject {
             promptPayload: response.promptPayload,
             snapshotToolName: pendingSnapshotToolName,
             snapshotInputJSON: pendingSnapshotInputJSON,
-            snapshotExecutionTarget: pendingSnapshotExecutionTarget,
-            snapshotPrincipalKind: pendingSnapshotPrincipalKind,
-            snapshotPrincipalId: pendingSnapshotPrincipalId,
-            snapshotPrincipalVersion: pendingSnapshotPrincipalVersion
+            snapshotExecutionTarget: pendingSnapshotExecutionTarget
         )
     }
 

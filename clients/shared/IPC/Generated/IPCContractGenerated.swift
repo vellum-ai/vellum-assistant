@@ -29,12 +29,6 @@ public struct IPCAddTrustRule: Codable, Sendable {
     public let decision: String
     /// When true, the rule also covers high-risk invocations.
     public let allowHighRisk: Bool?
-    /// Principal kind that this rule applies to (e.g. 'core', 'skill', 'task').
-    public let principalKind: String?
-    /// Skill/task ID when principalKind is 'skill' or 'task'.
-    public let principalId: String?
-    /// Content-hash of the skill source for version pinning.
-    public let principalVersion: String?
     /// Execution target override for this rule.
     public let executionTarget: String?
 }
@@ -370,12 +364,6 @@ public struct IPCConfirmationRequest: Codable, Sendable {
     public let diff: IPCConfirmationRequestDiff?
     public let sandboxed: Bool?
     public let sessionId: String?
-    /// Principal kind that initiated this tool use (e.g. 'core' or 'skill').
-    public let principalKind: String?
-    /// Skill ID when principalKind is 'skill'.
-    public let principalId: String?
-    /// Content-hash of the skill source for version tracking.
-    public let principalVersion: String?
     /// When false, the client should hide "always allow" / trust-rule persistence affordances.
     public let persistentDecisionsAllowed: Bool?
 }
@@ -1778,10 +1766,6 @@ public struct IPCToolPermissionSimulateRequest: Codable, Sendable {
     public let isInteractive: Bool?
     /// When true, side-effect tools that would normally be auto-allowed get promoted to prompt.
     public let forcePromptSideEffects: Bool?
-    /// Optional principal context overrides.
-    public let principalKind: String?
-    public let principalId: String?
-    public let principalVersion: String?
     /// Optional execution target override.
     public let executionTarget: String?
 }

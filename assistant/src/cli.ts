@@ -20,7 +20,6 @@ import { ensureDaemonRunning } from './daemon/lifecycle.js';
 import { shouldAutoStartDaemon } from './daemon/connection-policy.js';
 import { renderMainScreen, updateStatusText, updateDaemonText, type MainScreenLayout } from './cli/main-screen.jsx';
 
-const SHORT_HASH_LENGTH = 8;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
 const RECONNECT_BASE_DELAY_MS = 1_000;
@@ -43,21 +42,6 @@ export function sanitizeUrlForDisplay(rawUrl: unknown): string {
   }
 }
 
-/**
- * Format a human-readable principal tag for display in permission prompts.
- * Core principals are omitted (empty string) since they're the default.
- * Skill principals show the skill name, shortened version hash, and target.
- */
-export function formatPrincipalTag(req: Pick<ConfirmationRequest, 'principalKind' | 'principalId' | 'principalVersion' | 'executionTarget'>): string {
-  if (!req.principalKind || req.principalKind === 'core') return '';
-  const name = req.principalId ?? req.principalKind;
-  // Show a shortened version hash when available (first 8 hex chars after any scheme prefix)
-  const versionSuffix = req.principalVersion
-    ? `@${req.principalVersion.replace(/^[^:]+:/, '').slice(0, SHORT_HASH_LENGTH)}`
-    : '';
-  const target = req.executionTarget ? ` \u2192 ${req.executionTarget}` : '';
-  return `[${req.principalKind}: ${name}${versionSuffix}${target}]`;
-}
 
 export async function startCli(): Promise<void> {
   const socketPath = getSocketPath();
@@ -186,13 +170,10 @@ export async function startCli(): Promise<void> {
 
   function renderConfirmationPrompt(req: ConfirmationRequest): void {
     const preview = formatCommandPreview(req);
-    const principalTag = formatPrincipalTag(req);
     process.stdout.write('\n');
     process.stdout.write(`\u250C ${req.toolName}: ${preview}\n`);
     process.stdout.write(`\u2502 Risk: ${req.riskLevel}${req.sandboxed ? '  [sandboxed]' : ''}\n`);
-    if (principalTag) {
-      process.stdout.write(`\u2502 Principal: ${principalTag}\n`);
-    } else if (req.executionTarget) {
+    if (req.executionTarget) {
       process.stdout.write(`\u2502 Target: ${req.executionTarget}\n`);
     }
     if (req.diff) {

@@ -6,7 +6,7 @@ This document describes the security model for the Vellum Assistant skill system
 
 Skills extend the assistant's capabilities by providing instructions (via `SKILL.md`) and optional custom tools (via `TOOLS.json`). Skills can be **bundled** (shipped with the application), **managed** (user-installed via `scaffold_managed_skill`), **workspace** (project-local), or **extra** (additional directories configured by the user).
 
-Because skills can introduce arbitrary tool behavior, they are subject to stricter permission defaults than core tools. The permission system uses **principal-aware trust rules** and **version-bound approvals** to ensure that skill-originated actions are explicitly authorized by the user.
+Because skills can introduce arbitrary tool behavior, they are subject to stricter permission defaults than core tools.
 
 ## Permission Defaults for Skill Tools
 
@@ -37,7 +37,7 @@ The allowlist options presented during a permission prompt include both version-
 
 ## Version-Bound Approvals
 
-Trust rules can include a `principalVersion` field that binds the rule to a specific content hash of the skill's source files. This is the primary mechanism for ensuring that approving a skill does not grant blanket permission to future (potentially modified) versions of that skill.
+Trust rules for `skill_load` can use version-specific patterns (e.g., `skill_load:my-skill@v1:abc123...`) to pin approval to a specific content hash of the skill's source files.
 
 ### How version hashing works
 
@@ -50,7 +50,7 @@ The `computeSkillVersionHash(directoryPath)` function computes a deterministic S
 
 ### Version invalidation
 
-When a skill's source files change (any file added, removed, or modified), the hash changes. Trust rules with the old `principalVersion` no longer match, and the user is re-prompted. This protects against:
+When a skill's source files change (any file added, removed, or modified), the hash changes. Version-specific trust rules with the old hash no longer match, and the user is re-prompted. This protects against:
 
 - **Supply-chain attacks**: A malicious update to a managed or workspace skill cannot silently inherit previous approvals.
 - **Accidental drift**: Editing a skill's tool scripts invalidates stale approvals, ensuring the user reviews the new behavior.
@@ -155,4 +155,4 @@ Trust rules are stored in `~/.vellum/protected/trust.json`. You can inspect this
 
 ### "A skill tool keeps prompting even though I approved it."
 
-Check whether the rule in `trust.json` has a `principalVersion` field. If so, the rule is version-specific and will stop matching if the skill's code has changed since approval. Also check whether the rule has the correct `executionTarget` — a rule scoped to `sandbox` will not match a tool running on `host`.
+Check whether the rule has the correct `executionTarget` — a rule scoped to `sandbox` will not match a tool running on `host`.

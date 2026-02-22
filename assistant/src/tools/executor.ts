@@ -255,11 +255,6 @@ export class ToolExecutor {
           sandboxed,
           context.conversationId,
           executionTarget,
-          policyContext?.principal ? {
-            kind: policyContext.principal.kind,
-            id: policyContext.principal.id,
-            version: policyContext.principal.version,
-          } : undefined,
           persistentDecisionsAllowed,
         );
 
@@ -327,9 +322,6 @@ export class ToolExecutor {
         ) {
           const ruleOptions: {
             allowHighRisk?: boolean;
-            principalKind?: string;
-            principalId?: string;
-            principalVersion?: string;
             executionTarget?: string;
           } = {};
 
@@ -337,19 +329,6 @@ export class ToolExecutor {
             ruleOptions.allowHighRisk = true;
           }
 
-          // Capture the principal context from the tool so the saved rule
-          // is scoped to the specific skill/version that was approved.
-          if (policyContext?.principal) {
-            if (policyContext.principal.kind != null) {
-              ruleOptions.principalKind = policyContext.principal.kind;
-            }
-            if (policyContext.principal.id != null) {
-              ruleOptions.principalId = policyContext.principal.id;
-            }
-            if (policyContext.principal.version != null) {
-              ruleOptions.principalVersion = policyContext.principal.version;
-            }
-          }
           if (policyContext?.executionTarget != null) {
             ruleOptions.executionTarget = policyContext.executionTarget;
           }
@@ -395,11 +374,7 @@ export class ToolExecutor {
       const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
       const toolTimeoutMs = safeTimeoutMs(rawTimeoutSec);
 
-      // Enrich context with principal so tools (e.g. claude_code) can
-      // forward it through sub-tool confirmation requests.
-      const execContext = policyContext?.principal
-        ? { ...context, principal: policyContext.principal }
-        : context;
+      const execContext = context;
 
       if (tool.executionMode === 'proxy') {
         if (!context.proxyToolResolver) {
@@ -591,7 +566,6 @@ export class ToolExecutor {
               undefined, // not sandboxed
               context.conversationId,
               executionTarget,
-              undefined, // no principal
               false, // no persistent decisions
             );
 

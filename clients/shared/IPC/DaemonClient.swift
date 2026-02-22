@@ -606,9 +606,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         scope: String,
         decision: String,
         allowHighRisk: Bool? = nil,
-        principalKind: String? = nil,
-        principalId: String? = nil,
-        principalVersion: String? = nil,
         executionTarget: String? = nil
     ) throws {
         try send(AddTrustRuleMessage(
@@ -617,9 +614,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             scope: scope,
             decision: decision,
             allowHighRisk: allowHighRisk,
-            principalKind: principalKind,
-            principalId: principalId,
-            principalVersion: principalVersion,
             executionTarget: executionTarget
         ))
     }
@@ -664,9 +658,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         workingDir: String? = nil,
         isInteractive: Bool? = nil,
         forcePromptSideEffects: Bool? = nil,
-        principalKind: String? = nil,
-        principalId: String? = nil,
-        principalVersion: String? = nil,
         executionTarget: String? = nil
     ) throws {
         try send(ToolPermissionSimulateMessage(
@@ -675,9 +666,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             workingDir: workingDir,
             isInteractive: isInteractive,
             forcePromptSideEffects: forcePromptSideEffects,
-            principalKind: principalKind,
-            principalId: principalId,
-            principalVersion: principalVersion,
             executionTarget: executionTarget
         ))
     }

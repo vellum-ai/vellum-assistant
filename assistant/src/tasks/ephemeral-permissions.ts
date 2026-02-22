@@ -44,7 +44,5 @@ export function buildTaskRules(taskRunId: string, requiredTools: string[], _work
     allowHighRisk: true,
     priority: 75,
     createdAt: Date.now(),
-    principalKind: 'task',
-    principalId: taskRunId,
   }));
 }

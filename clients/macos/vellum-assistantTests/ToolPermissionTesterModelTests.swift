@@ -70,7 +70,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "allow", riskLevel: "low", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: "", snapshotPrincipalKind: "", snapshotPrincipalId: "", snapshotPrincipalVersion: ""
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: ""
         )
 
         model.toolName = "host_bash"
@@ -88,9 +88,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.isInteractive = false
         model.forcePromptSideEffects = true
         model.executionTarget = "host"
-        model.principalKind = "skill"
-        model.principalId = "my-skill"
-        model.principalVersion = "abc123"
 
         model.simulate()
 
@@ -102,9 +99,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         XCTAssertEqual(msg?.isInteractive, false)
         XCTAssertEqual(msg?.forcePromptSideEffects, true)
         XCTAssertEqual(msg?.executionTarget, "host")
-        XCTAssertEqual(msg?.principalKind, "skill")
-        XCTAssertEqual(msg?.principalId, "my-skill")
-        XCTAssertEqual(msg?.principalVersion, "abc123")
     }
 
     func testSimulate_emptyOptionalFieldsSendNil() {
@@ -112,7 +106,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.inputJSON = "{}"
         model.workingDir = ""
         model.executionTarget = ""
-        model.principalKind = ""
 
         model.simulate()
 
@@ -121,9 +114,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         XCTAssertNotNil(msg)
         XCTAssertNil(msg?.workingDir)
         XCTAssertNil(msg?.executionTarget)
-        XCTAssertNil(msg?.principalKind)
-        XCTAssertNil(msg?.principalId)
-        XCTAssertNil(msg?.principalVersion)
     }
 
     func testSimulate_invalidJSON_setsError() {
@@ -213,7 +203,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: "", snapshotPrincipalKind: "", snapshotPrincipalId: "", snapshotPrincipalVersion: ""
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: ""
         )
 
         model.allowOnce()
@@ -232,7 +222,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: "", snapshotPrincipalKind: "", snapshotPrincipalId: "", snapshotPrincipalVersion: ""
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: ""
         )
 
         model.denyOnce()
@@ -251,13 +241,10 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.toolName = "host_bash"
         model.inputJSON = "{}"
         model.executionTarget = "host"
-        model.principalKind = "skill"
-        model.principalId = "my-skill"
-        model.principalVersion = "v1"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: "", snapshotPrincipalKind: "", snapshotPrincipalId: "", snapshotPrincipalVersion: ""
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: ""
         )
 
         model.alwaysAllow(pattern: "echo *", scope: "project")
@@ -272,9 +259,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         XCTAssertEqual(trustRuleMsg?.scope, "project")
         XCTAssertEqual(trustRuleMsg?.decision, "allow")
         XCTAssertEqual(trustRuleMsg?.executionTarget, "host")
-        XCTAssertEqual(trustRuleMsg?.principalKind, "skill")
-        XCTAssertEqual(trustRuleMsg?.principalId, "my-skill")
-        XCTAssertEqual(trustRuleMsg?.principalVersion, "v1")
 
         // Second message is the re-simulate
         let resimMsg = sentMessages[1] as? ToolPermissionSimulateMessage
@@ -287,7 +271,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "high", reason: "dangerous",
             matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: "", snapshotPrincipalKind: "", snapshotPrincipalId: "", snapshotPrincipalVersion: ""
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: ""
         )
 
         model.alwaysAllow(pattern: "rm -rf *", scope: "global")
@@ -304,7 +288,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: "", snapshotPrincipalKind: "", snapshotPrincipalId: "", snapshotPrincipalVersion: ""
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: ""
         )
 
         model.alwaysAllow(pattern: "echo *", scope: "project")
@@ -319,11 +303,10 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.toolName = "host_bash"
         model.inputJSON = "{}"
         model.executionTarget = ""
-        model.principalKind = ""
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "low", reason: "test",
             matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: "", snapshotPrincipalKind: "", snapshotPrincipalId: "", snapshotPrincipalVersion: ""
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: ""
         )
 
         model.alwaysAllow(pattern: "*", scope: "global")
@@ -331,9 +314,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         let trustRuleMsg = sentMessages[0] as? AddTrustRuleMessage
         XCTAssertNotNil(trustRuleMsg)
         XCTAssertNil(trustRuleMsg?.executionTarget)
-        XCTAssertNil(trustRuleMsg?.principalKind)
-        XCTAssertNil(trustRuleMsg?.principalId)
-        XCTAssertNil(trustRuleMsg?.principalVersion)
     }
 
     // MARK: - Initial State
@@ -345,9 +325,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         XCTAssertTrue(model.isInteractive)
         XCTAssertFalse(model.forcePromptSideEffects)
         XCTAssertEqual(model.executionTarget, "")
-        XCTAssertEqual(model.principalKind, "")
-        XCTAssertEqual(model.principalId, "")
-        XCTAssertEqual(model.principalVersion, "")
         XCTAssertFalse(model.isSimulating)
         XCTAssertNil(model.lastResult)
         XCTAssertNil(model.lastError)

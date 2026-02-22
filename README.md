@@ -334,7 +334,6 @@ Existing users with `permissions.mode: "strict"` or `permissions.mode: "legacy"`
 User approval decisions are persisted as trust rules in `~/.vellum/protected/trust.json`. Rules support:
 
 - **Pattern matching**: Minimatch glob patterns for tool commands and file paths.
-- **Principal binding**: Rules can target specific skills (`principalId`) and even specific versions (`principalVersion`) via content hashing.
 - **Execution target binding**: Rules can be scoped to `sandbox` or `host` execution contexts.
 - **High-risk override**: Rules with `allowHighRisk: true` auto-allow even high-risk tool invocations.
 

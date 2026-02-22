@@ -99,53 +99,6 @@ struct ToolPermissionTesterView: View {
                 .fixedSize()
             }
 
-            // Principal override
-            HStack(spacing: VSpacing.sm) {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    fieldLabel("Principal Kind")
-                    Picker("", selection: $model.principalKind) {
-                        Text("None").tag("")
-                        Text("Core").tag("core")
-                        Text("Skill").tag("skill")
-                        Text("Task").tag("task")
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .fixedSize()
-                }
-
-                if !model.principalKind.isEmpty {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        fieldLabel("Principal ID")
-                        TextField("e.g. my-skill", text: $model.principalId)
-                            .textFieldStyle(.plain)
-                            .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.xs)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.sm)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
-                    }
-
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        fieldLabel("Version")
-                        TextField("hash", text: $model.principalVersion)
-                            .textFieldStyle(.plain)
-                            .font(VFont.monoSmall)
-                            .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.xs)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.sm)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
-                    }
-                }
-            }
         }
     }
 

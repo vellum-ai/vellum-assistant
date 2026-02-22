@@ -320,12 +320,6 @@ export interface AddTrustRule {
   decision: 'allow' | 'deny' | 'ask';
   /** When true, the rule also covers high-risk invocations. */
   allowHighRisk?: boolean;
-  /** Principal kind that this rule applies to (e.g. 'core', 'skill', 'task'). */
-  principalKind?: 'core' | 'skill' | 'task';
-  /** Skill/task ID when principalKind is 'skill' or 'task'. */
-  principalId?: string;
-  /** Content-hash of the skill source for version pinning. */
-  principalVersion?: string;
   /** Execution target override for this rule. */
   executionTarget?: 'host' | 'sandbox';
 }
@@ -962,10 +956,6 @@ export interface ToolPermissionSimulateRequest {
   isInteractive?: boolean;
   /** When true, side-effect tools that would normally be auto-allowed get promoted to prompt. */
   forcePromptSideEffects?: boolean;
-  /** Optional principal context overrides. */
-  principalKind?: 'core' | 'skill' | 'task';
-  principalId?: string;
-  principalVersion?: string;
   /** Optional execution target override. */
   executionTarget?: 'host' | 'sandbox';
 }
@@ -1190,12 +1180,6 @@ export interface ConfirmationRequest {
   diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
   sandboxed?: boolean;
   sessionId?: string;
-  /** Principal kind that initiated this tool use (e.g. 'core' or 'skill'). */
-  principalKind?: string;
-  /** Skill ID when principalKind is 'skill'. */
-  principalId?: string;
-  /** Content-hash of the skill source for version tracking. */
-  principalVersion?: string;
   /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
   persistentDecisionsAllowed?: boolean;
 }

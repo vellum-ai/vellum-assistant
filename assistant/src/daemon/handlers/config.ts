@@ -212,12 +212,7 @@ export function handleAddTrustRule(
   _ctx: HandlerContext,
 ): void {
   try {
-    // Forward optional metadata fields when present so the persisted rule
-    // captures principal-scoping, high-risk coverage, and execution target.
     const hasMetadata = msg.allowHighRisk != null
-      || msg.principalKind != null
-      || msg.principalId != null
-      || msg.principalVersion != null
       || msg.executionTarget != null;
 
     addRule(
@@ -229,9 +224,6 @@ export function handleAddTrustRule(
       hasMetadata
         ? {
             allowHighRisk: msg.allowHighRisk,
-            principalKind: msg.principalKind,
-            principalId: msg.principalId,
-            principalVersion: msg.principalVersion,
             executionTarget: msg.executionTarget,
           }
         : undefined,
@@ -1137,22 +1129,9 @@ export async function handleToolPermissionSimulate(
 
     const workingDir = msg.workingDir ?? process.cwd();
 
-    // Build policy context from optional principal / execution-target fields
-    const hasPrincipal = !!msg.principalKind;
-    const hasTarget = !!msg.executionTarget;
-    const policyContext = (hasPrincipal || hasTarget)
-      ? {
-          ...(hasPrincipal && {
-            principal: {
-              kind: msg.principalKind as 'core' | 'skill' | 'task',
-              id: msg.principalId,
-              version: msg.principalVersion,
-            },
-          }),
-          ...(hasTarget && {
-            executionTarget: msg.executionTarget as 'host' | 'sandbox',
-          }),
-        }
+    // Build policy context from optional execution-target field
+    const policyContext = msg.executionTarget
+      ? { executionTarget: msg.executionTarget as 'host' | 'sandbox' }
       : undefined;
 
     const riskLevel = await classifyRisk(msg.toolName, msg.input, workingDir);

@@ -92,7 +92,7 @@ describe('handleAddTrustRule metadata plumbing', () => {
     clearCache();
   });
 
-  test('persists allowHighRisk and principal fields when provided', () => {
+  test('persists allowHighRisk and executionTarget fields when provided', () => {
     const { ctx } = createTestContext();
     const msg: AddTrustRule = {
       type: 'add_trust_rule',
@@ -101,9 +101,6 @@ describe('handleAddTrustRule metadata plumbing', () => {
       scope: '/projects/my-app',
       decision: 'allow',
       allowHighRisk: true,
-      principalKind: 'skill',
-      principalId: 'my-skill',
-      principalVersion: 'sha256:abc123',
       executionTarget: 'host',
     };
 
@@ -113,9 +110,6 @@ describe('handleAddTrustRule metadata plumbing', () => {
     const userRule = rules.find((r) => r.tool === 'bash' && r.pattern === 'git *');
     expect(userRule).toBeDefined();
     expect(userRule!.allowHighRisk).toBe(true);
-    expect(userRule!.principalKind).toBe('skill');
-    expect(userRule!.principalId).toBe('my-skill');
-    expect(userRule!.principalVersion).toBe('sha256:abc123');
     expect(userRule!.executionTarget).toBe('host');
   });
 
@@ -137,9 +131,6 @@ describe('handleAddTrustRule metadata plumbing', () => {
     expect(userRule!.decision).toBe('allow');
     // Metadata fields should be absent
     expect(userRule!.allowHighRisk).toBeUndefined();
-    expect(userRule!.principalKind).toBeUndefined();
-    expect(userRule!.principalId).toBeUndefined();
-    expect(userRule!.principalVersion).toBeUndefined();
     expect(userRule!.executionTarget).toBeUndefined();
   });
 
@@ -152,8 +143,6 @@ describe('handleAddTrustRule metadata plumbing', () => {
       scope: '/projects/web',
       decision: 'allow',
       allowHighRisk: false,
-      principalKind: 'task',
-      principalId: 'task-42',
       executionTarget: 'sandbox',
     };
 
@@ -167,10 +156,6 @@ describe('handleAddTrustRule metadata plumbing', () => {
     expect(userRule!.scope).toBe('/projects/web');
     expect(userRule!.decision).toBe('allow');
     expect(userRule!.allowHighRisk).toBe(false);
-    expect(userRule!.principalKind).toBe('task');
-    expect(userRule!.principalId).toBe('task-42');
-    // principalVersion was not set
-    expect(userRule!.principalVersion).toBeUndefined();
     expect(userRule!.executionTarget).toBe('sandbox');
   });
 
@@ -191,9 +176,6 @@ describe('handleAddTrustRule metadata plumbing', () => {
     const userRule = rules.find((r) => r.tool === 'bash' && r.pattern === 'docker *');
     expect(userRule).toBeDefined();
     expect(userRule!.allowHighRisk).toBe(true);
-    expect(userRule!.principalKind).toBeUndefined();
-    expect(userRule!.principalId).toBeUndefined();
-    expect(userRule!.principalVersion).toBeUndefined();
     expect(userRule!.executionTarget).toBeUndefined();
   });
 
@@ -215,6 +197,5 @@ describe('handleAddTrustRule metadata plumbing', () => {
     expect(userRule).toBeDefined();
     expect(userRule!.executionTarget).toBe('sandbox');
     expect(userRule!.allowHighRisk).toBeUndefined();
-    expect(userRule!.principalKind).toBeUndefined();
   });
 });

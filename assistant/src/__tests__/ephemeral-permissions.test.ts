@@ -76,8 +76,6 @@ describe('ephemeral-permissions', () => {
       expect(fileReadRule.scope).toBe('everywhere');
       expect(fileReadRule.decision).toBe('allow');
       expect(fileReadRule.priority).toBe(75);
-      expect(fileReadRule.principalKind).toBe('task');
-      expect(fileReadRule.principalId).toBe('run-123');
       expect(fileReadRule.createdAt).toBeGreaterThan(0);
 
       // allowHighRisk is set because task runs execute asynchronously
@@ -156,12 +154,9 @@ describe('ephemeral-permissions', () => {
         decision: 'allow',
         priority: 50,
         createdAt: Date.now(),
-        principalKind: 'task',
-        principalId: 'run-1',
       }];
 
       const ctx: PolicyContext = {
-        principal: { kind: 'task', id: 'run-1' },
         ephemeralRules,
       };
 
@@ -189,12 +184,9 @@ describe('ephemeral-permissions', () => {
         decision: 'allow',
         priority: 50,
         createdAt: Date.now(),
-        principalKind: 'task',
-        principalId: 'run-1',
       }];
 
       const ctx: PolicyContext = {
-        principal: { kind: 'task', id: 'run-1' },
         ephemeralRules,
       };
 
@@ -219,12 +211,9 @@ describe('ephemeral-permissions', () => {
         decision: 'allow',
         priority: 50,
         createdAt: Date.now(),
-        principalKind: 'task',
-        principalId: 'run-1',
       }];
 
       const ctx: PolicyContext = {
-        principal: { kind: 'task', id: 'run-1' },
         ephemeralRules,
       };
 
@@ -259,12 +248,9 @@ describe('ephemeral-permissions', () => {
         decision: 'allow',
         priority: 50,
         createdAt: Date.now(),
-        principalKind: 'task',
-        principalId: 'run-1',
       }];
 
       const ctx: PolicyContext = {
-        principal: { kind: 'task', id: 'run-1' },
         ephemeralRules,
       };
 
@@ -289,13 +275,10 @@ describe('ephemeral-permissions', () => {
         decision: 'allow',
         priority: 50,
         createdAt: Date.now(),
-        principalKind: 'task',
-        principalId: 'run-1',
         // Note: allowHighRisk is NOT set
       }];
 
       const ctx: PolicyContext = {
-        principal: { kind: 'task', id: 'run-1' },
         ephemeralRules,
       };
 
@@ -363,12 +346,9 @@ describe('ephemeral-permissions', () => {
         decision: 'allow',
         priority: 50,
         createdAt: Date.now(),
-        principalKind: 'task',
-        principalId: 'run-ws',
       }];
 
       const ctx: PolicyContext = {
-        principal: { kind: 'task', id: 'run-ws' },
         ephemeralRules,
       };
 

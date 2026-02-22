@@ -1,4 +1,4 @@
-import type { RiskLevel, AllowlistOption, ScopeOption, ToolPrincipalKind } from '../permissions/types.js';
+import type { RiskLevel, AllowlistOption, ScopeOption } from '../permissions/types.js';
 import type { ToolDefinition, ContentBlock } from '../providers/types.js';
 import type { SecretPromptResult } from '../permissions/secret-prompter.js';
 
@@ -12,12 +12,6 @@ interface ToolLifecycleEventBase {
   conversationId: string;
   requestId?: string;
   executionTarget?: ExecutionTarget;
-  /** Security principal kind (e.g. 'core', 'skill', or 'task'). */
-  principalKind?: ToolPrincipalKind;
-  /** Security principal ID (skill ID when principalKind is 'skill'; task ID when 'task'). */
-  principalId?: string;
-  /** Content-hash of the principal's source at invocation time. */
-  principalVersion?: string;
 }
 
 export interface ToolExecutionStartEvent extends ToolLifecycleEventBase {
@@ -109,16 +103,12 @@ export interface ToolContext {
   proxyToolResolver?: ProxyToolResolver;
   /** When set, only tools in this set may execute. Tools outside the set are blocked with an error. */
   allowedToolNames?: Set<string>;
-  /** Principal that owns this tool invocation (set by executor from tool metadata). */
-  principal?: { kind?: string; id?: string; version?: string };
   /** Request user confirmation for a sub-tool operation (used by claude_code tool). */
   requestConfirmation?: (req: {
     toolName: string;
     input: Record<string, unknown>;
     riskLevel: string;
     executionTarget?: ExecutionTarget;
-    /** Principal that owns the parent tool invocation. */
-    principal?: { kind?: string; id?: string; version?: string };
   }) => Promise<{ decision: 'allow' | 'deny' }>;
   /** Prompt the user for a secret value via native SecureField UI. */
   requestSecret?: (params: {

@@ -169,7 +169,7 @@ describe('ToolExecutor allowedToolNames gating', () => {
   });
 });
 
-describe('ToolExecutor principal context plumbing', () => {
+describe('ToolExecutor policy context plumbing', () => {
   beforeEach(() => {
     fakeToolResult = { content: 'ok', isError: false };
     lastCheckArgs = undefined;
@@ -179,7 +179,7 @@ describe('ToolExecutor principal context plumbing', () => {
     if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
   });
 
-  test('passes PolicyContext with skill principal for skill-origin tools', async () => {
+  test('passes PolicyContext with executionTarget for skill-origin tools', async () => {
     getToolOverride = (name: string) => {
       if (name === 'unknown_tool') return undefined;
       return {
@@ -202,11 +202,6 @@ describe('ToolExecutor principal context plumbing', () => {
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
-      principal: {
-        kind: 'skill',
-        id: 'my-skill-123',
-        version: 'abc123hash',
-      },
       executionTarget: 'sandbox',
     });
   });
@@ -268,42 +263,32 @@ describe('ToolExecutor principal context plumbing', () => {
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
-      principal: {
-        kind: 'skill',
-        id: 'host-skill',
-        version: 'host-hash',
-      },
       executionTarget: 'host',
     });
   });
 
-  test('skill tool without version hash passes undefined version in principal', async () => {
+  test('skill tool without executionTarget passes undefined executionTarget', async () => {
     getToolOverride = (name: string) => {
       if (name === 'unknown_tool') return undefined;
       return {
         name,
-        description: 'skill without hash',
+        description: 'skill without target',
         category: 'skill',
         defaultRiskLevel: RiskLevel.Low,
         origin: 'skill' as const,
-        ownerSkillId: 'no-hash-skill',
-        // ownerSkillVersionHash intentionally omitted
+        ownerSkillId: 'no-target-skill',
+        // executionTarget intentionally omitted
         getDefinition: () => ({ name, description: 'skill tool', input_schema: { type: 'object' as const, properties: {} } }),
         execute: async () => fakeToolResult,
       };
     };
 
     const executor = new ToolExecutor(makePrompter());
-    const result = await executor.execute('no_hash_tool', {}, makeContext());
+    const result = await executor.execute('no_target_tool', {}, makeContext());
 
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
-      principal: {
-        kind: 'skill',
-        id: 'no-hash-skill',
-        version: undefined,
-      },
       executionTarget: undefined,
     });
   });
@@ -344,7 +329,7 @@ describe('ToolExecutor contextual rule creation', () => {
     return addRuleSpy;
   }
 
-  test('always_allow for a skill tool captures principal context in the rule', async () => {
+  test('always_allow for a skill tool captures execution target in the rule', async () => {
     checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
     const spy = setupAddRuleSpy();
 
@@ -376,13 +361,10 @@ describe('ToolExecutor contextual rule creation', () => {
     expect(scope).toBe('/tmp/project');
     expect(decision).toBe('allow');
     expect(options).toBeDefined();
-    expect(options.principalKind).toBe('skill');
-    expect(options.principalId).toBe('my-skill-42');
-    expect(options.principalVersion).toBe('sha256-deadbeef');
     expect(options.executionTarget).toBe('sandbox');
   });
 
-  test('always_allow_high_risk sets allowHighRisk and captures principal context', async () => {
+  test('always_allow_high_risk sets allowHighRisk and captures execution target', async () => {
     checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
     const spy = setupAddRuleSpy();
 
@@ -415,13 +397,10 @@ describe('ToolExecutor contextual rule creation', () => {
     expect(decision).toBe('allow');
     expect(options).toBeDefined();
     expect(options.allowHighRisk).toBe(true);
-    expect(options.principalKind).toBe('skill');
-    expect(options.principalId).toBe('dangerous-skill');
-    expect(options.principalVersion).toBe('sha256-abc');
     expect(options.executionTarget).toBe('host');
   });
 
-  test('always_allow for a core tool creates rule without principal context', async () => {
+  test('always_allow for a core tool creates rule without options', async () => {
     checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
     const spy = setupAddRuleSpy();
 
@@ -439,7 +418,7 @@ describe('ToolExecutor contextual rule creation', () => {
     expect(pattern).toBe('git *');
     expect(scope).toBe('/tmp/project');
     expect(decision).toBe('allow');
-    // No options since there's no principal context for core tools
+    // No options since there's no execution target for core tools
     expect(options).toBeUndefined();
   });
 
@@ -467,7 +446,7 @@ describe('ToolExecutor contextual rule creation', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  test('always_allow_high_risk for core tool sets allowHighRisk without principal fields', async () => {
+  test('always_allow_high_risk for core tool sets allowHighRisk without execution target', async () => {
     checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
     const spy = setupAddRuleSpy();
     getToolOverride = undefined;
@@ -481,10 +460,7 @@ describe('ToolExecutor contextual rule creation', () => {
     const [,,,, , options] = spy.mock.calls[0];
     expect(options).toBeDefined();
     expect(options.allowHighRisk).toBe(true);
-    // No principal fields for core tools
-    expect(options.principalKind).toBeUndefined();
-    expect(options.principalId).toBeUndefined();
-    expect(options.principalVersion).toBeUndefined();
+    // No execution target for core tools
     expect(options.executionTarget).toBeUndefined();
   });
 
@@ -517,89 +493,6 @@ describe('ToolExecutor contextual rule creation', () => {
     const [,,,, , options] = spy.mock.calls[0];
     expect(options).toBeDefined();
     expect(options.executionTarget).toBe('host');
-    expect(options.principalKind).toBe('skill');
-    expect(options.principalId).toBe('host-skill');
-    expect(options.principalVersion).toBe('host-hash-v1');
-  });
-});
-
-describe('ToolExecutor prompter principal arg (PR fix3)', () => {
-  beforeEach(() => {
-    fakeToolResult = { content: 'ok', isError: false };
-    lastCheckArgs = undefined;
-    getToolOverride = undefined;
-    checkResultOverride = { decision: 'prompt', reason: 'test prompt' };
-    checkFnOverride = undefined;
-    if (addRuleSpy) { addRuleSpy.mockRestore(); addRuleSpy = undefined; }
-  });
-
-  test('passes principal context (kind, id, version) to prompter for skill-origin tools', async () => {
-    getToolOverride = (name: string) => {
-      if (name === 'unknown_tool') return undefined;
-      return {
-        name,
-        description: 'skill tool',
-        category: 'skill',
-        defaultRiskLevel: RiskLevel.Low,
-        origin: 'skill' as const,
-        ownerSkillId: 'prompt-skill-42',
-        ownerSkillVersionHash: 'sha256-prompt-v1',
-        executionTarget: 'sandbox' as const,
-        getDefinition: () => ({ name, description: 'skill tool', input_schema: { type: 'object' as const, properties: {} } }),
-        execute: async () => fakeToolResult,
-      };
-    };
-
-    let capturedPrincipal: unknown;
-    const prompter = {
-      prompt: async (
-        _toolName: string, _input: Record<string, unknown>, _riskLevel: string,
-        _allowlistOptions: any[], _scopeOptions: any[], _diff: any, _sandboxed: any,
-        _sessionId: any, _executionTarget: any, principal: any,
-      ) => {
-        capturedPrincipal = principal;
-        return { decision: 'allow' as const };
-      },
-      resolveConfirmation: () => {},
-      updateSender: () => {},
-      dispose: () => {},
-    } as unknown as PermissionPrompter;
-
-    const executor = new ToolExecutor(prompter);
-    const result = await executor.execute('skill_tool', { action: 'run' }, makeContext());
-
-    expect(result.isError).toBe(false);
-    expect(capturedPrincipal).toEqual({
-      kind: 'skill',
-      id: 'prompt-skill-42',
-      version: 'sha256-prompt-v1',
-    });
-  });
-
-  test('passes undefined principal to prompter for core tools', async () => {
-    // Default getTool returns core tools with no origin field
-    getToolOverride = undefined;
-
-    let capturedPrincipal: unknown = 'NOT_CALLED';
-    const prompter = {
-      prompt: async (
-        _toolName: string, _input: Record<string, unknown>, _riskLevel: string,
-        _allowlistOptions: any[], _scopeOptions: any[], _diff: any, _sandboxed: any,
-        _sessionId: any, _executionTarget: any, principal: any,
-      ) => {
-        capturedPrincipal = principal;
-        return { decision: 'allow' as const };
-      },
-      resolveConfirmation: () => {},
-      updateSender: () => {},
-      dispose: () => {},
-    } as unknown as PermissionPrompter;
-
-    const executor = new ToolExecutor(prompter);
-    const result = await executor.execute('file_read', { path: 'test.txt' }, makeContext());
-
-    expect(result.isError).toBe(false);
-    expect(capturedPrincipal).toBeUndefined();
   });
 });
 
@@ -653,11 +546,8 @@ describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
     expect(pattern).toBe('deploy_tool:*');
     expect(scope).toBe('everywhere');
     expect(decision).toBe('allow');
-    // The key integration assertion: allowHighRisk + principal context together
+    // The key integration assertion: allowHighRisk + execution target together
     expect(options.allowHighRisk).toBe(true);
-    expect(options.principalKind).toBe('skill');
-    expect(options.principalId).toBe('deploy-skill');
-    expect(options.principalVersion).toBe('sha256-deploy-v1');
     expect(options.executionTarget).toBe('host');
   });
 
@@ -692,9 +582,8 @@ describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
     expect(spy).toHaveBeenCalledTimes(1);
     const [,,,, , options] = spy.mock.calls[0];
     expect(options).toBeDefined();
-    // Principal context should be present
-    expect(options.principalKind).toBe('skill');
-    expect(options.principalId).toBe('risky-skill');
+    // executionTarget should be present
+    expect(options.executionTarget).toBe('sandbox');
     // But allowHighRisk should NOT be set
     expect(options.allowHighRisk).toBeUndefined();
   });
@@ -721,18 +610,13 @@ describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
 
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
-      principal: {
-        kind: 'skill',
-        id: 'versioned-skill',
-        version: 'v3:content-hash-xyz',
-      },
       executionTarget: 'sandbox',
     });
   });
 
   // ── Skill mutation approval regression tests (PR 30) ──────────
 
-  test('always_allow_high_risk for skill source write creates rule with allowHighRisk and principal context', async () => {
+  test('always_allow_high_risk for skill source write creates rule with allowHighRisk and execution target', async () => {
     checkResultOverride = { decision: 'prompt', reason: 'High risk: always requires approval' };
     const spy = setupAddRuleSpy();
 
@@ -764,9 +648,6 @@ describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
     expect(scope).toBe('everywhere');
     expect(decision).toBe('allow');
     expect(options.allowHighRisk).toBe(true);
-    expect(options.principalKind).toBe('skill');
-    expect(options.principalId).toBe('code-editor-skill');
-    expect(options.principalVersion).toBe('sha256-v1-original');
     expect(options.executionTarget).toBe('sandbox');
   });
 
@@ -799,8 +680,7 @@ describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
     expect(spy).toHaveBeenCalledTimes(1);
     const [,,,, , options] = spy.mock.calls[0];
     expect(options).toBeDefined();
-    expect(options.principalKind).toBe('skill');
-    expect(options.principalId).toBe('editor-skill');
+    expect(options.executionTarget).toBe('sandbox');
     // Without always_allow_high_risk, the allowHighRisk flag should NOT be set
     expect(options.allowHighRisk).toBeUndefined();
   });
@@ -833,10 +713,8 @@ describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
     expect(spy).toHaveBeenCalledTimes(1);
     const [tool, , , , , options] = spy.mock.calls[0];
     expect(tool).toBe('file_edit');
-    // Verify the version hash is persisted — a changed skill will have a
-    // different hash, so the rule won't match (version mismatch rejection).
-    expect(options.principalVersion).toBe('v3:content-hash-xyz789');
     expect(options.allowHighRisk).toBe(true);
+    expect(options.executionTarget).toBe('sandbox');
   });
 
   test('executor forwards policyContext with version for skill source mutation', async () => {
@@ -861,16 +739,11 @@ describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
 
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
-      principal: {
-        kind: 'skill',
-        id: 'editor-skill',
-        version: 'sha256-v2-updated',
-      },
       executionTarget: 'sandbox',
     });
   });
 
-  test('executor creates principal-scoped rule on always_allow_high_risk with full context', async () => {
+  test('executor creates rule on always_allow_high_risk with full context', async () => {
     checkResultOverride = { decision: 'prompt', reason: 'High risk: always requires approval' };
     const spy = setupAddRuleSpy();
 
@@ -904,9 +777,6 @@ describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
     expect(scope).toBe('everywhere');
     expect(decision).toBe('allow');
     expect(options.allowHighRisk).toBe(true);
-    expect(options.principalKind).toBe('skill');
-    expect(options.principalId).toBe('admin-skill');
-    expect(options.principalVersion).toBe('sha256-admin-v2');
     expect(options.executionTarget).toBe('host');
   });
 });
@@ -1711,7 +1581,7 @@ describe('ToolExecutor persistentDecisionsAllowed contract', () => {
       prompt: async (
         _toolName: string, _input: Record<string, unknown>, _riskLevel: string,
         _allowlistOptions: any[], _scopeOptions: any[], _diff: any, _sandboxed: any,
-        _sessionId: any, _executionTarget: any, _principal: any, persistentDecisionsAllowed: any,
+        _sessionId: any, _executionTarget: any, persistentDecisionsAllowed: any,
       ) => {
         capturedPersistent = persistentDecisionsAllowed;
         return { decision: 'allow' as const };
