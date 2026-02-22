@@ -104,6 +104,7 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
         { from: params.From, reason: routing.reason },
         "Routing rejected inbound SMS",
       );
+      dedupCache.mark(messageSid);
       return Response.json({ ok: true });
     }
 
@@ -119,6 +120,7 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
           { from: params.From, reason: result.rejectionReason },
           "Routing rejected inbound SMS",
         );
+        dedupCache.mark(messageSid);
         return Response.json({ ok: true });
       }
 
