@@ -2737,6 +2737,8 @@ graph TB
     BLOCK --> LOG["Log warning with<br/>detectedTypes + matchCount<br/>(never the secret itself)"]
 ```
 
+The secret scanner includes pattern-based detection for Telegram bot tokens (format: `<8-10 digit bot_id>:<35-char secret>`), API keys from major providers, Slack tokens, and other common secret formats. This prevents users from accidentally pasting a Telegram bot token in chat — the token must be entered through the secure credential prompt flow or the Settings UI instead.
+
 ### Brokered Credential Use
 
 ```mermaid
@@ -3551,11 +3553,33 @@ The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-clos
 
 **Bot-account limitations:** The Telegram Bot API only supports sending messages to chats that have previously interacted with the bot. Bots cannot enumerate chats, read message history, or search messages. A future MTProto user-account session track may lift some of these restrictions.
 
+### Telegram Credential Flow
+
+Telegram bot tokens are never stored in plaintext config files — they always live in secure storage (macOS Keychain or the encrypted file fallback).
+
+```
+Settings UI (macOS)
+  → telegram_config IPC (action: set, botToken)
+    → Daemon handler validates token via Telegram getMe API
+      → setSecureKey("credential:telegram:bot_token", token)
+      → Auto-generates webhook secret if missing
+      → upsertCredentialMetadata("telegram", "bot_token", {accountInfo: username})
+        → Gateway credential reader picks up new credentials
+          → Webhook reconciliation triggers automatically
+```
+
+The `telegram_config` IPC message supports three actions:
+- **`get`** — returns connection status (`hasBotToken`, `botUsername`, `connected`, `hasWebhookSecret`) without exposing secret values
+- **`set`** — validates the bot token against the Telegram API, stores it in secure storage, auto-generates a webhook secret if none exists, and triggers gateway webhook reconciliation
+- **`clear`** — deletes the bot token and webhook secret from both secure storage and credential metadata, then triggers reconciliation to deregister the webhook
+
+The gateway reads Telegram credentials via its `credential-reader` module (`gateway/src/credential-reader.ts`), which uses a keychain-first fallback strategy on macOS: it tries the macOS Keychain first (via the `security` CLI), then falls back to the encrypted file store (`~/.vellum/protected/keys.enc`). This mirrors the assistant's own `secure-keys.ts` module. On non-macOS platforms, only the encrypted store is used.
+
 ### Webhook Reconciliation
 
 On startup, the gateway automatically reconciles the Telegram webhook registration:
 
-1. Reads `INGRESS_PUBLIC_BASE_URL` and Telegram credentials (bot token, webhook secret)
+1. Reads `INGRESS_PUBLIC_BASE_URL` and Telegram credentials (bot token, webhook secret) from secure storage via the credential reader
 2. Calls `getWebhookInfo` to log the current registration state
 3. Unconditionally calls `setWebhook` with the expected URL, secret, and allowed updates (idempotent — Telegram does not expose the current secret via `getWebhookInfo`, so a compare-then-set approach would miss secret rotations)
 
