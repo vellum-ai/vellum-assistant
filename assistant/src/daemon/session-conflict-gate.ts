@@ -16,7 +16,9 @@ import { resolveConflictClarification } from '../memory/clarification-resolver.j
 import {
   computeConflictRelevance,
   looksLikeClarificationReply,
+  overlapRatio,
   shouldAttemptConflictResolution,
+  tokenizeForConflictRelevance,
 } from '../memory/conflict-intent.js';
 import { isConflictKindPairEligible, isStatementConflictEligible } from '../memory/conflict-policy.js';
 
@@ -158,6 +160,12 @@ export class ConflictGate {
       return false;
     }
     if (!isStatementConflictEligible(conflict.candidateKind, conflict.candidateStatement, { conflictableKinds })) {
+      return false;
+    }
+    // Dismiss incoherent conflicts where the two statements have zero topical overlap
+    const existingTokens = tokenizeForConflictRelevance(conflict.existingStatement);
+    const candidateTokens = tokenizeForConflictRelevance(conflict.candidateStatement);
+    if (overlapRatio(existingTokens, candidateTokens) === 0) {
       return false;
     }
     return true;

@@ -33,7 +33,7 @@ const NOISE_TOKENS = new Set([
 // stripping dotted identifiers like "index.ts/runtime".
 const URL_PATTERN = /https?:\/\/[^\s)>\]]+|(?:github|gitlab|bitbucket)\.(?:com|org|io)\/[^\s)>\]]*/gi;
 
-function tokenizeForConflictRelevance(input: string): Set<string> {
+export function tokenizeForConflictRelevance(input: string): Set<string> {
   const stripped = input.replace(URL_PATTERN, ' ');
   const tokens = stripped
     .toLowerCase()
@@ -45,7 +45,7 @@ function tokenizeForConflictRelevance(input: string): Set<string> {
   return new Set(tokens);
 }
 
-function overlapRatio(left: Set<string>, right: Set<string>): number {
+export function overlapRatio(left: Set<string>, right: Set<string>): number {
   if (left.size === 0 || right.size === 0) return 0;
   let overlap = 0;
   for (const token of left) {

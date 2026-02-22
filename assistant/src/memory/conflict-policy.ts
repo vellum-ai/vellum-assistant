@@ -5,6 +5,7 @@
 
 export interface ConflictPolicyConfig {
   conflictableKinds: readonly string[];
+  [key: string]: unknown;
 }
 
 /**

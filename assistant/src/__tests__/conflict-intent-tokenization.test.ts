@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { computeConflictRelevance } from '../memory/conflict-intent.js';
+import { computeConflictRelevance, tokenizeForConflictRelevance, overlapRatio } from '../memory/conflict-intent.js';
 
 describe('tokenizeForConflictRelevance hardening', () => {
   test('excludes numeric-only tokens from relevance', () => {
@@ -81,5 +81,49 @@ describe('tokenizeForConflictRelevance hardening', () => {
     );
     // Real content tokens like "react", "frontend" should still match
     expect(relevance).toBeGreaterThan(0);
+  });
+});
+
+describe('statement coherence (overlap between conflict statements)', () => {
+  test('unrelated statements have zero overlap', () => {
+    const existingTokens = tokenizeForConflictRelevance(
+      'The default model for the summarize CLI is google/gemini-3-flash-preview.',
+    );
+    const candidateTokens = tokenizeForConflictRelevance(
+      "User's favorite color is blue.",
+    );
+    expect(overlapRatio(existingTokens, candidateTokens)).toBe(0);
+  });
+
+  test('related statements have non-zero overlap', () => {
+    const existingTokens = tokenizeForConflictRelevance(
+      "User's favorite color is blue.",
+    );
+    const candidateTokens = tokenizeForConflictRelevance(
+      "User's favorite color is green.",
+    );
+    // Should share tokens like "favorite", "color"
+    expect(overlapRatio(existingTokens, candidateTokens)).toBeGreaterThan(0);
+  });
+
+  test('topically similar preferences have overlap', () => {
+    const existingTokens = tokenizeForConflictRelevance(
+      'Use React for frontend work.',
+    );
+    const candidateTokens = tokenizeForConflictRelevance(
+      'Use Vue for frontend work.',
+    );
+    // Should share "frontend", "work"
+    expect(overlapRatio(existingTokens, candidateTokens)).toBeGreaterThan(0);
+  });
+
+  test('completely disjoint technical topics have zero overlap', () => {
+    const existingTokens = tokenizeForConflictRelevance(
+      'Always use PostgreSQL for database storage.',
+    );
+    const candidateTokens = tokenizeForConflictRelevance(
+      'The preferred terminal font is JetBrains Mono.',
+    );
+    expect(overlapRatio(existingTokens, candidateTokens)).toBe(0);
   });
 });

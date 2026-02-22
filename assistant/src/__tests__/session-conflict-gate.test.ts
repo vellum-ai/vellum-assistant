@@ -220,6 +220,12 @@ mock.module('../memory/conflict-store.js', () => ({
   applyConflictResolution: () => true,
   resolveConflict: (id: string, input: { status: string; resolutionNote?: string | null }) => {
     resolveConflictCalls.push({ id, input });
+    // Remove dismissed conflicts so the second listPendingConflictDetails call
+    // reflects the dismissal (mirrors real DB behavior).
+    if (input.status === 'dismissed') {
+      const idx = pendingConflicts.findIndex((c) => c.id === id);
+      if (idx !== -1) pendingConflicts.splice(idx, 1);
+    }
     return null;
   },
 }));
@@ -775,6 +781,45 @@ describe('Session conflict soft gate', () => {
     // The conflict should have been dismissed
     expect(resolveConflictCalls).toEqual([{
       id: 'conflict-transient',
+      input: {
+        status: 'dismissed',
+        resolutionNote: 'Dismissed by conflict policy (transient/non-durable).',
+      },
+    }]);
+  });
+
+  test('incoherent conflict (zero statement overlap) is dismissed', async () => {
+    pendingConflicts = [{
+      id: 'conflict-incoherent',
+      scopeId: 'default',
+      existingItemId: 'existing-incoherent',
+      candidateItemId: 'candidate-incoherent',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'I have conflicting notes: "The default model for the summarize CLI is google/gemini-3-flash-preview" vs "User\'s favorite color is blue." Which one is correct?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'The default model for the summarize CLI is google/gemini-3-flash-preview.',
+      candidateStatement: "User's favorite color is blue.",
+      existingKind: 'preference',
+      candidateKind: 'preference',
+    }];
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events: ServerMessage[] = [];
+    await session.processMessage('my favorite color is white', [], (event) => events.push(event));
+
+    // Should run normal agent loop, no clarification asked
+    expect(runCalls).toHaveLength(1);
+    expect(markAskedCalls).toEqual([]);
+    // The conflict should have been dismissed as incoherent
+    expect(resolveConflictCalls).toEqual([{
+      id: 'conflict-incoherent',
       input: {
         status: 'dismissed',
         resolutionNote: 'Dismissed by conflict policy (transient/non-durable).',
