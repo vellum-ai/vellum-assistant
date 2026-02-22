@@ -6,6 +6,18 @@ import { sendTelegramAttachments, sendTelegramReply } from "../../telegram/send.
 
 const log = getLogger("telegram-deliver");
 
+export type ApprovalAction = {
+  id: string;
+  label: string;
+};
+
+export type ApprovalPayload = {
+  runId: string;
+  requestId: string;
+  actions: ApprovalAction[];
+  plainTextFallback: string;
+};
+
 export function createTelegramDeliverHandler(config: GatewayConfig) {
   return async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
@@ -42,6 +54,7 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       text?: string;
       assistantId?: string;
       attachments?: RuntimeAttachmentMeta[];
+      approval?: ApprovalPayload;
     };
     try {
       body = (await req.json()) as typeof body;
@@ -49,7 +62,7 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    const { chatId, text, assistantId, attachments } = body;
+    const { chatId, text, assistantId, attachments, approval } = body;
 
     if (!chatId || typeof chatId !== "string") {
       return Response.json({ error: "chatId is required" }, { status: 400 });
@@ -76,9 +89,36 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       }
     }
 
+    // Validate approval payload shape when present.
+    if (approval !== undefined) {
+      if (approval === null || typeof approval !== "object" || Array.isArray(approval)) {
+        return Response.json({ error: "approval must be an object" }, { status: 400 });
+      }
+      if (!approval.runId || typeof approval.runId !== "string") {
+        return Response.json({ error: "approval.runId is required" }, { status: 400 });
+      }
+      if (!approval.requestId || typeof approval.requestId !== "string") {
+        return Response.json({ error: "approval.requestId is required" }, { status: 400 });
+      }
+      if (!Array.isArray(approval.actions) || approval.actions.length === 0) {
+        return Response.json({ error: "approval.actions must be a non-empty array" }, { status: 400 });
+      }
+      for (const action of approval.actions) {
+        if (action === null || typeof action !== "object" || Array.isArray(action)) {
+          return Response.json({ error: "each approval action must be an object" }, { status: 400 });
+        }
+        if (!action.id || typeof action.id !== "string") {
+          return Response.json({ error: "each approval action must have an id" }, { status: 400 });
+        }
+        if (!action.label || typeof action.label !== "string") {
+          return Response.json({ error: "each approval action must have a label" }, { status: 400 });
+        }
+      }
+    }
+
     try {
       if (text) {
-        await sendTelegramReply(config, chatId, text);
+        await sendTelegramReply(config, chatId, text, approval);
       }
 
       if (attachments && attachments.length > 0) {

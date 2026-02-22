@@ -1,4 +1,5 @@
 import type { GatewayConfig } from "../config.js";
+import type { ApprovalPayload } from "../http/routes/telegram-deliver.js";
 import { getLogger } from "../logger.js";
 import { downloadAttachment, downloadAttachmentById, type RuntimeAttachmentMeta } from "../runtime/client.js";
 import { callTelegramApi, callTelegramApiMultipart } from "./api.js";
@@ -28,18 +29,40 @@ function splitText(text: string): string[] {
   return chunks;
 }
 
+export function buildInlineKeyboard(
+  approval: ApprovalPayload,
+): { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } {
+  return {
+    inline_keyboard: approval.actions.map((action) => [
+      {
+        text: action.label,
+        callback_data: `apr:${approval.runId}:${action.id}`,
+      },
+    ]),
+  };
+}
+
 export async function sendTelegramReply(
   config: GatewayConfig,
   chatId: string,
   text: string,
+  approval?: ApprovalPayload,
 ): Promise<void> {
   const chunks = splitText(text);
 
-  for (const chunk of chunks) {
-    await callTelegramApi(config, "sendMessage", {
+  for (let i = 0; i < chunks.length; i++) {
+    const payload: Record<string, unknown> = {
       chat_id: chatId,
-      text: chunk,
-    });
+      text: chunks[i],
+    };
+
+    // Attach inline keyboard only to the last chunk so buttons appear after
+    // the full message text.
+    if (approval && i === chunks.length - 1) {
+      payload.reply_markup = buildInlineKeyboard(approval);
+    }
+
+    await callTelegramApi(config, "sendMessage", payload);
   }
 
   log.debug({ chatId, chunks: chunks.length }, "Telegram reply sent");

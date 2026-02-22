@@ -1,11 +1,16 @@
-import { describe, it, expect, mock } from "bun:test";
+import { describe, it, expect, mock, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../../config.js";
 import { createTelegramDeliverHandler } from "./telegram-deliver.js";
 
 // ---- Mocks ----
 
+// Track calls to sendTelegramReply so we can assert on approval passthrough.
+let sendTelegramReplyCalls: Array<unknown[]> = [];
+
 mock.module("../../telegram/send.js", () => ({
-  sendTelegramReply: async () => {},
+  sendTelegramReply: async (...args: unknown[]) => {
+    sendTelegramReplyCalls.push(args);
+  },
   sendTelegramAttachments: async () => {},
 }));
 
@@ -155,5 +160,214 @@ describe("telegram-deliver attachment validation", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
+  });
+});
+
+describe("telegram-deliver approval validation", () => {
+  const config = makeConfig();
+  const handler = createTelegramDeliverHandler(config);
+
+  beforeEach(() => {
+    sendTelegramReplyCalls = [];
+  });
+
+  it("accepts a valid payload without approval (existing behavior unchanged)", async () => {
+    const res = await handler(makeRequest({ chatId: "123", text: "hello" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+  });
+
+  it("accepts a valid payload with approval", async () => {
+    const res = await handler(
+      makeRequest({
+        chatId: "123",
+        text: "Please approve",
+        approval: {
+          runId: "run-1",
+          requestId: "req-1",
+          actions: [
+            { id: "approve_once", label: "Approve once" },
+            { id: "reject", label: "Reject" },
+          ],
+          plainTextFallback: "Reply: approve or reject",
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 400 when approval is not an object", async () => {
+    const res = await handler(
+      makeRequest({ chatId: "123", text: "hi", approval: "bad" }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("approval must be an object");
+  });
+
+  it("returns 400 when approval is null", async () => {
+    const res = await handler(
+      makeRequest({ chatId: "123", text: "hi", approval: null }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("approval must be an object");
+  });
+
+  it("returns 400 when approval is an array", async () => {
+    const res = await handler(
+      makeRequest({ chatId: "123", text: "hi", approval: [] }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("approval must be an object");
+  });
+
+  it("returns 400 when approval.runId is missing", async () => {
+    const res = await handler(
+      makeRequest({
+        chatId: "123",
+        text: "hi",
+        approval: {
+          requestId: "req-1",
+          actions: [{ id: "ok", label: "OK" }],
+          plainTextFallback: "ok",
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("approval.runId is required");
+  });
+
+  it("returns 400 when approval.requestId is missing", async () => {
+    const res = await handler(
+      makeRequest({
+        chatId: "123",
+        text: "hi",
+        approval: {
+          runId: "run-1",
+          actions: [{ id: "ok", label: "OK" }],
+          plainTextFallback: "ok",
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("approval.requestId is required");
+  });
+
+  it("returns 400 when approval.actions is empty", async () => {
+    const res = await handler(
+      makeRequest({
+        chatId: "123",
+        text: "hi",
+        approval: {
+          runId: "run-1",
+          requestId: "req-1",
+          actions: [],
+          plainTextFallback: "ok",
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("approval.actions must be a non-empty array");
+  });
+
+  it("returns 400 when approval.actions is not an array", async () => {
+    const res = await handler(
+      makeRequest({
+        chatId: "123",
+        text: "hi",
+        approval: {
+          runId: "run-1",
+          requestId: "req-1",
+          actions: "not-array",
+          plainTextFallback: "ok",
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("approval.actions must be a non-empty array");
+  });
+
+  it("returns 400 when an action is missing id", async () => {
+    const res = await handler(
+      makeRequest({
+        chatId: "123",
+        text: "hi",
+        approval: {
+          runId: "run-1",
+          requestId: "req-1",
+          actions: [{ label: "OK" }],
+          plainTextFallback: "ok",
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("each approval action must have an id");
+  });
+
+  it("returns 400 when an action is missing label", async () => {
+    const res = await handler(
+      makeRequest({
+        chatId: "123",
+        text: "hi",
+        approval: {
+          runId: "run-1",
+          requestId: "req-1",
+          actions: [{ id: "ok" }],
+          plainTextFallback: "ok",
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("each approval action must have a label");
+  });
+
+  it("returns 400 when an action is not an object", async () => {
+    const res = await handler(
+      makeRequest({
+        chatId: "123",
+        text: "hi",
+        approval: {
+          runId: "run-1",
+          requestId: "req-1",
+          actions: [null],
+          plainTextFallback: "ok",
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("each approval action must be an object");
+  });
+
+  it("passes approval payload through to sendTelegramReply", async () => {
+    const approval = {
+      runId: "run-x",
+      requestId: "req-y",
+      actions: [{ id: "go", label: "Go" }],
+      plainTextFallback: "go",
+    };
+    await handler(makeRequest({ chatId: "c1", text: "msg", approval }));
+
+    expect(sendTelegramReplyCalls).toHaveLength(1);
+    // sendTelegramReply(config, chatId, text, approval)
+    const args = sendTelegramReplyCalls[0];
+    expect(args[3]).toEqual(approval);
+  });
+
+  it("does not pass approval to sendTelegramReply when not provided", async () => {
+    await handler(makeRequest({ chatId: "c1", text: "msg" }));
+
+    expect(sendTelegramReplyCalls).toHaveLength(1);
+    const args = sendTelegramReplyCalls[0];
+    expect(args[3]).toBeUndefined();
   });
 });
