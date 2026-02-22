@@ -101,7 +101,7 @@ import {
   fireCallCompletionNotifier,
 } from '../calls/call-state.js';
 import { CallOrchestrator } from '../calls/call-orchestrator.js';
-import { tryHandlePendingCallAnswer } from '../calls/call-bridge.js';
+import { tryRouteCallMessage } from '../calls/call-bridge.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import type { RelayConnection } from '../calls/relay-server.js';
 
@@ -177,26 +177,26 @@ describe('call-bridge', () => {
     mockStreamFn.mockImplementation(() => createMockStream(['Hello']));
   });
 
-  // ── tryHandlePendingCallAnswer ──────────────────────────────────
+  // ── tryRouteCallMessage — answer path ───────────────────────
 
   test('returns handled:false when no active call exists', async () => {
     ensureConversation('conv-no-call');
-    const result = await tryHandlePendingCallAnswer('conv-no-call', 'some answer');
+    const result = await tryRouteCallMessage('conv-no-call', 'some answer');
     expect(result.handled).toBe(false);
     expect(result.reason).toBe('no_active_call');
   });
 
-  test('returns handled:false when call exists but no pending question', async () => {
-    ensureConversation('conv-no-question');
+  test('returns instruction_relay_failed when call exists but no orchestrator and no pending question', async () => {
+    ensureConversation('conv-no-orch');
     createCallSession({
-      conversationId: 'conv-no-question',
+      conversationId: 'conv-no-orch',
       provider: 'twilio',
       fromNumber: '+15551111111',
       toNumber: '+15552222222',
     });
-    const result = await tryHandlePendingCallAnswer('conv-no-question', 'some answer');
+    const result = await tryRouteCallMessage('conv-no-orch', 'some instruction');
     expect(result.handled).toBe(false);
-    expect(result.reason).toBe('no_pending_question');
+    expect(result.reason).toBe('instruction_relay_failed');
   });
 
   test('returns handled:false when orchestrator is not found (call still active but no orchestrator)', async () => {
@@ -215,7 +215,7 @@ describe('call-bridge', () => {
     // Create a pending question without an orchestrator
     createPendingQuestion(callSession.id, 'What time?');
 
-    const result = await tryHandlePendingCallAnswer('conv-ended', 'Too late');
+    const result = await tryRouteCallMessage('conv-ended', 'Too late');
     expect(result.handled).toBe(false);
     expect(result.reason).toBe('orchestrator_not_found');
   });
@@ -231,7 +231,7 @@ describe('call-bridge', () => {
     // Mark the call as completed — getActiveCallSessionForConversation will return null
     updateCallSession(callSession.id, { status: 'completed', endedAt: Date.now() });
 
-    const result = await tryHandlePendingCallAnswer('conv-completed', 'Too late');
+    const result = await tryRouteCallMessage('conv-completed', 'Too late');
     expect(result.handled).toBe(false);
     expect(result.reason).toBe('no_active_call');
   });
@@ -252,7 +252,7 @@ describe('call-bridge', () => {
     // Create a pending question in the DB but orchestrator is idle, not waiting_on_user
     createPendingQuestion(callSession.id, 'What time?');
 
-    const result = await tryHandlePendingCallAnswer('conv-not-waiting', 'answer');
+    const result = await tryRouteCallMessage('conv-not-waiting', 'answer');
     expect(result.handled).toBe(false);
     expect(result.reason).toBe('orchestrator_not_waiting');
 
@@ -284,7 +284,7 @@ describe('call-bridge', () => {
     // Now provide the answer — set up mock for the LLM call after answer
     mockStreamFn.mockImplementation(() => createMockStream(['Great, booking for tomorrow.']));
 
-    const result = await tryHandlePendingCallAnswer('conv-bridge', 'Tomorrow at noon');
+    const result = await tryRouteCallMessage('conv-bridge', 'Tomorrow at noon');
     expect(result.handled).toBe(true);
 
     // Wait for the fire-and-forget LLM call
@@ -296,6 +296,89 @@ describe('call-bridge', () => {
     expect(question).toBeNull();
 
     orchestrator.destroy();
+  });
+
+  // ── tryRouteCallMessage — instruction path ────────────────────
+
+  test('routes instruction to orchestrator when active call exists with no pending question', async () => {
+    ensureConversation('conv-instruct');
+    const callSession = createCallSession({
+      conversationId: 'conv-instruct',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    const relay = createMockRelay();
+    const orchestrator = new CallOrchestrator(callSession.id, relay as unknown as RelayConnection, 'test task');
+
+    const result = await tryRouteCallMessage('conv-instruct', 'Please ask about pricing');
+    expect(result.handled).toBe(true);
+
+    // Verify acknowledgement was persisted
+    const msgs = getMessagesForConversation('conv-instruct');
+    const ackMsg = msgs.find((m) => m.content.includes('Instruction relayed'));
+    expect(ackMsg).toBeDefined();
+    expect(ackMsg!.role).toBe('assistant');
+
+    orchestrator.destroy();
+  });
+
+  test('prefers answer path over instruction path when pending question exists', async () => {
+    // Setup: trigger ASK_USER to put orchestrator in waiting_on_user state
+    mockStreamFn.mockImplementation(() =>
+      createMockStream(['Hold on. [ASK_USER: Budget range?]']),
+    );
+
+    ensureConversation('conv-prefer-answer');
+    const callSession = createCallSession({
+      conversationId: 'conv-prefer-answer',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    const relay = createMockRelay();
+    const orchestrator = new CallOrchestrator(callSession.id, relay as unknown as RelayConnection, 'test task');
+
+    await orchestrator.handleCallerUtterance('What is your budget?');
+    expect(orchestrator.getState()).toBe('waiting_on_user');
+
+    // Mock the next LLM call
+    mockStreamFn.mockImplementation(() => createMockStream(['Got it, thanks.']));
+
+    // This should route as answer, not instruction
+    const result = await tryRouteCallMessage('conv-prefer-answer', '$500');
+    expect(result.handled).toBe(true);
+
+    // Wait for fire-and-forget LLM call
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Should have answered the pending question, not relayed as instruction
+    const question = getPendingQuestion(callSession.id);
+    expect(question).toBeNull();
+
+    // No instruction acknowledgement should be persisted
+    const msgs = getMessagesForConversation('conv-prefer-answer');
+    const ackMsg = msgs.find((m) => m.content.includes('Instruction relayed'));
+    expect(ackMsg).toBeUndefined();
+
+    orchestrator.destroy();
+  });
+
+  test('instruction relay fails gracefully when call has no orchestrator', async () => {
+    ensureConversation('conv-no-orch-instruct');
+    createCallSession({
+      conversationId: 'conv-no-orch-instruct',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    // No orchestrator registered — relay should fail
+    const result = await tryRouteCallMessage('conv-no-orch-instruct', 'Change the topic');
+    expect(result.handled).toBe(false);
+    expect(result.reason).toBe('instruction_relay_failed');
   });
 
   // ── Call question notifier ──────────────────────────────────────

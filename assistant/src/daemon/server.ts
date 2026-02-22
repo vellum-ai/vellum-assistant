@@ -36,7 +36,7 @@ import { assistantEventHub } from '../runtime/assistant-event-hub.js';
 import { buildAssistantEvent } from '../runtime/assistant-event.js';
 import { SessionEvictor } from './session-evictor.js';
 import { getSubagentManager } from '../subagent/index.js';
-import { tryHandlePendingCallAnswer } from '../calls/call-bridge.js';
+import { tryRouteCallMessage } from '../calls/call-bridge.js';
 import { resolveSlash } from './session-slash.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import { registerDaemonCallbacks } from '../work-items/work-item-runner.js';
@@ -1041,10 +1041,10 @@ export class DaemonServer {
     // Now that the processing lock is held, check the call-answer bridge.
     let bridgeHandled = false;
     try {
-      const bridgeResult = await tryHandlePendingCallAnswer(conversationId, content, messageId);
+      const bridgeResult = await tryRouteCallMessage(conversationId, content, messageId);
       bridgeHandled = bridgeResult.handled;
     } catch (err) {
-      log.warn({ err, conversationId }, 'Call-answer bridge check failed (non-fatal), proceeding with agent loop');
+      log.warn({ err, conversationId }, 'Call bridge check failed (non-fatal), proceeding with agent loop');
     }
 
     if (bridgeHandled) {
@@ -1052,7 +1052,7 @@ export class DaemonServer {
       resetSessionProcessingState(session);
       // Drain any queued messages that arrived while processing was true.
       session.drainQueue('loop_complete');
-      log.info({ conversationId, messageId }, 'User message consumed by call-answer bridge, skipping agent loop');
+      log.info({ conversationId, messageId }, 'User message consumed by call bridge, skipping agent loop');
       return { messageId };
     }
 
@@ -1150,10 +1150,10 @@ export class DaemonServer {
     // Now that the processing lock is held, check the call-answer bridge.
     let bridgeHandled = false;
     try {
-      const bridgeResult = await tryHandlePendingCallAnswer(conversationId, content, messageId);
+      const bridgeResult = await tryRouteCallMessage(conversationId, content, messageId);
       bridgeHandled = bridgeResult.handled;
     } catch (err) {
-      log.warn({ err, conversationId }, 'Call-answer bridge check failed (non-fatal), proceeding with agent loop');
+      log.warn({ err, conversationId }, 'Call bridge check failed (non-fatal), proceeding with agent loop');
     }
 
     if (bridgeHandled) {
@@ -1162,7 +1162,7 @@ export class DaemonServer {
       resetSessionProcessingState(session);
       // Drain any queued messages that arrived while processing was true.
       session.drainQueue('loop_complete');
-      log.info({ conversationId, messageId }, 'User message consumed by call-answer bridge, skipping agent loop');
+      log.info({ conversationId, messageId }, 'User message consumed by call bridge, skipping agent loop');
       return { messageId };
     }
 
