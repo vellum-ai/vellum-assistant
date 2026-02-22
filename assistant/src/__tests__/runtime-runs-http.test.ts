@@ -58,6 +58,7 @@ function makeCompletingSession(): Session {
   return {
     isProcessing: () => processing,
     persistUserMessage: () => undefined as unknown as string,
+    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
     updateClient: () => {},
     runAgentLoop: async () => {
@@ -73,6 +74,7 @@ function makeFailingSession(errorMsg: string): Session {
   return {
     isProcessing: () => false,
     persistUserMessage: () => undefined as unknown as string,
+    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
@@ -87,6 +89,7 @@ function makeConfirmationSession(toolName: string): Session {
   return {
     isProcessing: () => false,
     persistUserMessage: () => undefined as unknown as string,
+    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
@@ -113,6 +116,7 @@ function makeHangingSession(): Session {
   return {
     isProcessing: () => processing,
     persistUserMessage: () => undefined as unknown as string,
+    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
     updateClient: () => {},
     runAgentLoop: async () => {
@@ -152,6 +156,7 @@ describe('runtime runs — HTTP layer', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => sessionFactory(),
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
     server = new RuntimeHttpServer({ port, bearerToken: TEST_TOKEN, runOrchestrator: orchestrator });
     await server.start();

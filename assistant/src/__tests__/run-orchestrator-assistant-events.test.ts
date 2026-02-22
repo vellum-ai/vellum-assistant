@@ -66,6 +66,7 @@ function makeSessionEmittingViaClient(...messages: ServerMessage[]): Session {
   return {
     isProcessing: () => false,
     persistUserMessage: () => undefined as unknown as string,
+    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
@@ -87,6 +88,7 @@ function makeSessionEmittingViaAgentLoop(...messages: ServerMessage[]): Session 
   return {
     isProcessing: () => false,
     persistUserMessage: () => undefined as unknown as string,
+    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
@@ -130,6 +132,7 @@ describe('HTTP run → confirmation_request mirrors to assistant-events hub', ()
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => session,
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
 
     await orchestrator.startRun(conversation.id, 'Do something');
@@ -176,6 +179,7 @@ describe('HTTP run → message flow mirrors to assistant-events hub', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => session,
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
 
     await orchestrator.startRun(conversation.id, 'Hello');
@@ -209,6 +213,7 @@ describe('HTTP run → message flow mirrors to assistant-events hub', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => session,
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
 
     await orchestrator.startRun(conversation.id, 'ping');

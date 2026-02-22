@@ -41,6 +41,7 @@ function makeSessionWithConfirmation(message: ServerMessage): Session {
     // Return undefined so createRun stores messageId as null and avoids
     // a foreign-key dependency on the conversation-store message table.
     persistUserMessage: () => undefined as unknown as string,
+    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
@@ -61,6 +62,7 @@ function makeSessionWithEvent(message: ServerMessage): Session {
   return {
     isProcessing: () => false,
     persistUserMessage: () => undefined as unknown as string,
+    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
@@ -91,6 +93,7 @@ describe('run failure detection', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => session,
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
 
     const run = await orchestrator.startRun(conversation.id, 'Hello');
@@ -113,6 +116,7 @@ describe('run failure detection', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => session,
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
 
     const run = await orchestrator.startRun(conversation.id, 'Hello');
@@ -191,6 +195,7 @@ describe('run approval state executionTarget', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => session,
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
 
     const run = await orchestrator.startRun(conversation.id, 'Run host command');
@@ -231,6 +236,7 @@ describe('startRun channel capability resolution', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => session,
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
 
     await orchestrator.startRun(conversation.id, 'Hello from Telegram', undefined, {
@@ -264,6 +270,7 @@ describe('startRun channel capability resolution', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => session,
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
 
     await orchestrator.startRun(conversation.id, 'Hello from HTTP');
@@ -293,6 +300,7 @@ describe('startRun channel capability resolution', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => session,
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
 
     await orchestrator.startRun(conversation.id, 'Hello with options', undefined, {
@@ -303,5 +311,115 @@ describe('startRun channel capability resolution', () => {
 
     expect(capturedCapabilities).not.toBeNull();
     expect(capturedCapabilities!.channel).toBe('http-api');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// strictSideEffects re-derivation prevents stale flag across runs
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('strictSideEffects re-derivation across runs', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run('DELETE FROM message_runs');
+    db.run('DELETE FROM messages');
+    db.run('DELETE FROM conversations');
+  });
+
+  test('forceStrictSideEffects=true does not persist to subsequent run without override', async () => {
+    const conversation = createConversation('stale strict test');
+
+    // Shared session simulating a cached session reused across runs
+    const session = {
+      isProcessing: () => false,
+      persistUserMessage: () => undefined as unknown as string,
+      memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
+      setChannelCapabilities: () => {},
+      updateClient: () => {},
+      runAgentLoop: async () => {},
+      handleConfirmationResponse: () => {},
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+
+    // First run: force strict mode on
+    await orchestrator.startRun(conversation.id, 'non-guardian message', undefined, {
+      forceStrictSideEffects: true,
+    });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect((session as unknown as { memoryPolicy: { strictSideEffects: boolean } }).memoryPolicy.strictSideEffects).toBe(true);
+
+    // Second run: no override — should reset to derived default (false)
+    await orchestrator.startRun(conversation.id, 'guardian message');
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect((session as unknown as { memoryPolicy: { strictSideEffects: boolean } }).memoryPolicy.strictSideEffects).toBe(false);
+  });
+
+  test('private thread re-derives strictSideEffects=true when no override', async () => {
+    const conversation = createConversation('private thread strict test');
+
+    const session = {
+      isProcessing: () => false,
+      persistUserMessage: () => undefined as unknown as string,
+      memoryPolicy: { scopeId: 'private-scope', includeDefaultFallback: true, strictSideEffects: true },
+      setChannelCapabilities: () => {},
+      updateClient: () => {},
+      runAgentLoop: async () => {},
+      handleConfirmationResponse: () => {},
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      // Simulate private thread → default is true
+      deriveDefaultStrictSideEffects: () => true,
+    });
+
+    // Run with explicit false override
+    await orchestrator.startRun(conversation.id, 'override to false', undefined, {
+      forceStrictSideEffects: false,
+    });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect((session as unknown as { memoryPolicy: { strictSideEffects: boolean } }).memoryPolicy.strictSideEffects).toBe(false);
+
+    // Run without override — should re-derive to true (private thread)
+    await orchestrator.startRun(conversation.id, 'no override');
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect((session as unknown as { memoryPolicy: { strictSideEffects: boolean } }).memoryPolicy.strictSideEffects).toBe(true);
+  });
+
+  test('explicit forceStrictSideEffects=false sets strict to false', async () => {
+    const conversation = createConversation('explicit false test');
+
+    const session = {
+      isProcessing: () => false,
+      persistUserMessage: () => undefined as unknown as string,
+      memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: true },
+      setChannelCapabilities: () => {},
+      updateClient: () => {},
+      runAgentLoop: async () => {},
+      handleConfirmationResponse: () => {},
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => true,
+    });
+
+    await orchestrator.startRun(conversation.id, 'force off', undefined, {
+      forceStrictSideEffects: false,
+    });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect((session as unknown as { memoryPolicy: { strictSideEffects: boolean } }).memoryPolicy.strictSideEffects).toBe(false);
   });
 });

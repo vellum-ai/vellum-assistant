@@ -48,6 +48,7 @@ function makeCompletingSession(): Session {
   return {
     isProcessing: () => processing,
     persistUserMessage: () => undefined as unknown as string,
+    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
     updateClient: () => {},
     runAgentLoop: async () => {
@@ -66,6 +67,7 @@ function makeHangingSession(): Session {
   return {
     isProcessing: () => processing,
     persistUserMessage: () => undefined as unknown as string,
+    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
     updateClient: () => {},
     runAgentLoop: async () => {
@@ -82,6 +84,7 @@ function makeFailingSession(errorMsg: string): Session {
   return {
     isProcessing: () => false,
     persistUserMessage: () => undefined as unknown as string,
+    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
@@ -97,6 +100,7 @@ function makeConfirmationSession(toolName: string): Session {
   return {
     isProcessing: () => false,
     persistUserMessage: () => undefined as unknown as string,
+    memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
@@ -140,6 +144,7 @@ describe('runtime runs — swarm lifecycle', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => makeCompletingSession(),
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
 
     const run = await orchestrator.startRun(conversation.id, 'Build a feature');
@@ -157,6 +162,7 @@ describe('runtime runs — swarm lifecycle', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => makeFailingSession('Swarm backend unavailable'),
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
 
     const run = await orchestrator.startRun(conversation.id, 'Run swarm');
@@ -173,6 +179,7 @@ describe('runtime runs — swarm lifecycle', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => makeConfirmationSession('swarm_delegate'),
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
 
     const run = await orchestrator.startRun(conversation.id, 'Delegate a swarm task');
@@ -190,6 +197,7 @@ describe('runtime runs — swarm lifecycle', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => makeConfirmationSession('swarm_delegate'),
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
 
     const run = await orchestrator.startRun(conversation.id, 'Run with approval');
@@ -214,6 +222,7 @@ describe('runtime runs — swarm lifecycle', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => hangingSession,
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
 
     // First run starts and hangs
@@ -234,6 +243,7 @@ describe('runtime runs — swarm lifecycle', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => makeCompletingSession(),
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
     expect(orchestrator.getRun('nonexistent-id')).toBeNull();
   });
@@ -242,6 +252,7 @@ describe('runtime runs — swarm lifecycle', () => {
     const orchestrator = new RunOrchestrator({
       getOrCreateSession: async () => makeCompletingSession(),
       resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
     });
     const result = orchestrator.submitDecision('nonexistent-id', 'allow');
     expect(result).toBe('run_not_found');

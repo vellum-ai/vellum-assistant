@@ -1192,6 +1192,8 @@ export class DaemonServer {
           mimeType: a.mimeType,
           data: a.dataBase64,
         })),
+      deriveDefaultStrictSideEffects: (conversationId) =>
+        this.deriveMemoryPolicy(conversationId).strictSideEffects,
     });
   }
 

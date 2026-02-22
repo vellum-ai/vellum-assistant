@@ -44,6 +44,13 @@ export interface RunOrchestratorDeps {
     mimeType: string;
     data: string;
   }>;
+  /**
+   * Re-derive the default `strictSideEffects` value for a conversation
+   * from its thread type (e.g. private → true, standard → false).
+   * Called when `forceStrictSideEffects` is not explicitly provided so
+   * the session never retains a stale override from a prior run.
+   */
+  deriveDefaultStrictSideEffects: (conversationId: string) => boolean;
 }
 
 export interface RunStartOptions {
@@ -103,17 +110,17 @@ export class RunOrchestrator {
       throw new Error('Session is already processing a message');
     }
 
-    // Only override strictSideEffects when the caller explicitly requests it
-    // (e.g. guardian-gated channels forcing strict mode on for non-guardian
-    // actors). When not provided, preserve the session's existing memory
-    // policy — this avoids clobbering conversation-level defaults such as
-    // private-thread policies derived in server.ts.
-    if (options?.forceStrictSideEffects !== undefined) {
-      session.memoryPolicy = {
-        ...session.memoryPolicy,
-        strictSideEffects: options.forceStrictSideEffects,
-      };
-    }
+    // Determine the correct strictSideEffects value for this run:
+    // - explicit true/false from the caller → use that value
+    // - undefined → re-derive from the conversation's thread type so a
+    //   prior run's forceStrictSideEffects=true doesn't stick on the
+    //   cached session (private threads → true, standard → false)
+    const strictSideEffects = options?.forceStrictSideEffects
+      ?? this.deps.deriveDefaultStrictSideEffects(conversationId);
+    session.memoryPolicy = {
+      ...session.memoryPolicy,
+      strictSideEffects,
+    };
 
     const attachments = attachmentIds
       ? this.deps.resolveAttachments(attachmentIds)
