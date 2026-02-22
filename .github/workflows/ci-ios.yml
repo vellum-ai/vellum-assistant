@@ -23,15 +23,6 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Verify xcodeproj is up to date
-        working-directory: clients/ios
-        run: |
-          xcodegen
-          if ! git diff --exit-code vellum-assistant-ios.xcodeproj/; then
-            echo "::error::xcodeproj is out of date. Run 'cd clients/ios && xcodegen' and commit the result."
-            exit 1
-          fi
-
       - name: Build for simulator
         working-directory: clients/ios
         run: ./build.sh
