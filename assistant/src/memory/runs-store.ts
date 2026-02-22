@@ -228,6 +228,8 @@ export interface PendingRunInfo {
   toolName: string;
   input: Record<string, unknown>;
   riskLevel: string;
+  /** When false, persistent trust rules (approve_always) are not allowed. */
+  persistentDecisionsAllowed?: boolean;
 }
 
 /**
@@ -260,6 +262,7 @@ export function getPendingConfirmationsByConversation(conversationId: string): P
       toolName: run.pendingConfirmation.toolName,
       input: run.pendingConfirmation.input,
       riskLevel: run.pendingConfirmation.riskLevel,
+      persistentDecisionsAllowed: run.pendingConfirmation.persistentDecisionsAllowed,
     });
   }
   return results;

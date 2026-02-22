@@ -47,9 +47,15 @@ export function getChannelApprovalPrompt(
  */
 function buildPromptFromRunInfo(info: PendingRunInfo): ChannelApprovalPrompt {
   const promptText = `The assistant wants to use the tool "${info.toolName}". Do you want to allow this?`;
-  const actions = [...DEFAULT_APPROVAL_ACTIONS];
-  const plainTextFallback =
-    `${promptText}\n\nReply "yes" to approve once, "always" to approve always, or "no" to reject.`;
+
+  // Hide "approve always" when persistent trust rules are disallowed for this invocation.
+  const actions = info.persistentDecisionsAllowed === false
+    ? DEFAULT_APPROVAL_ACTIONS.filter((a) => a.id !== 'approve_always')
+    : [...DEFAULT_APPROVAL_ACTIONS];
+
+  const plainTextFallback = info.persistentDecisionsAllowed === false
+    ? `${promptText}\n\nReply "yes" to approve or "no" to reject.`
+    : `${promptText}\n\nReply "yes" to approve once, "always" to approve always, or "no" to reject.`;
 
   return { promptText, actions, plainTextFallback };
 }
@@ -102,16 +108,25 @@ export function handleChannelDecision(
   const info = pending[0];
 
   if (decision.action === 'approve_always') {
-    // Persist a trust rule so future invocations of this tool are auto-approved.
+    // Only persist a trust rule when the confirmation explicitly allows persistence
+    // AND provides explicit allowlist/scope options. Without explicit options we
+    // would create a blanket "**"/"everywhere" rule, which is a security risk.
     const run = getRun(info.runId);
     const confirmation = run?.pendingConfirmation;
-    if (confirmation) {
-      const pattern = confirmation.allowlistOptions?.[0]?.pattern ?? '**';
-      const scope = confirmation.scopeOptions?.[0]?.scope ?? 'everywhere';
+    if (
+      confirmation &&
+      confirmation.persistentDecisionsAllowed !== false &&
+      confirmation.allowlistOptions?.length &&
+      confirmation.scopeOptions?.length
+    ) {
+      const pattern = confirmation.allowlistOptions[0].pattern;
+      const scope = confirmation.scopeOptions[0].scope;
       addRule(confirmation.toolName, pattern, scope, 'allow', 100, {
         executionTarget: confirmation.executionTarget,
       });
     }
+    // When persistence is not allowed or options are missing, the decision
+    // still proceeds as a one-time approval (falls through to submitDecision).
   }
 
   // Map channel-level action to the permission system's UserDecision type.
