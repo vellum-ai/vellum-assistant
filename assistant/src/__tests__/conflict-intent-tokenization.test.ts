@@ -46,6 +46,19 @@ describe('tokenizeForConflictRelevance hardening', () => {
     expect(standaloneRelevance).toBeGreaterThan(0);
   });
 
+  test('strips scheme-less bare domain URLs from relevance', () => {
+    const relevance = computeConflictRelevance(
+      'Check github.com/org/repo/pull/123',
+      {
+        existingStatement: 'Review gitlab.com/org/repo/issues/456',
+        candidateStatement: 'Review github.com/org/repo/pull/789',
+      },
+    );
+    // Bare URLs should be stripped entirely; tokens like "pull", "issues"
+    // embedded in paths must not contribute to overlap
+    expect(relevance).toBeLessThanOrEqual(0.5);
+  });
+
   test('still computes meaningful relevance for real content tokens', () => {
     const relevance = computeConflictRelevance(
       'Should I use React for frontend?',
