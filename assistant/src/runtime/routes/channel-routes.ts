@@ -610,6 +610,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
               expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
             });
 
+            let guardianNotified = false;
             try {
               await deliverApprovalPrompt(
                 replyCallbackUrl,
@@ -618,18 +619,21 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
                 uiMetadata,
                 bearerToken,
               );
+              guardianNotified = true;
             } catch (err) {
               log.error({ err, runId: run.id }, 'Failed to deliver guardian approval prompt');
             }
 
-            // Notify the requester that their request is pending guardian approval
-            try {
-              await deliverChannelReply(replyCallbackUrl, {
-                chatId: guardianCtx.requesterChatId ?? externalChatId,
-                text: `Your request to run "${pending[0].toolName}" has been sent to the guardian for approval.`,
-              }, bearerToken);
-            } catch (err) {
-              log.error({ err, runId: run.id }, 'Failed to notify requester of pending guardian approval');
+            // Only notify the requester if the guardian prompt was actually delivered
+            if (guardianNotified) {
+              try {
+                await deliverChannelReply(replyCallbackUrl, {
+                  chatId: guardianCtx.requesterChatId ?? externalChatId,
+                  text: `Your request to run "${pending[0].toolName}" has been sent to the guardian for approval.`,
+                }, bearerToken);
+              } catch (err) {
+                log.error({ err, runId: run.id }, 'Failed to notify requester of pending guardian approval');
+              }
             }
           } else {
             // Guardian actor or no guardian binding: standard approval prompt
