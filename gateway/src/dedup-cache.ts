@@ -132,9 +132,15 @@ export class DedupCache {
  * Simple string-keyed TTL set for deduplication.
  * Used for SMS MessageSid dedup where we only need to track whether
  * a message ID has been seen, not cache a full response.
+ *
+ * Supports a reserve/unreserve pattern to prevent concurrent duplicates
+ * during async processing windows (matching the DedupCache pattern used
+ * by the Telegram webhook).
  */
 export class StringDedupCache {
   private cache = new Map<string, number>();
+  /** Keys that have been reserved but not yet finalized via mark(). */
+  private processing = new Set<string>();
   private readonly ttlMs: number;
   private readonly maxSize: number;
 
@@ -154,11 +160,11 @@ export class StringDedupCache {
   }
 
   /**
-   * Returns true if the key is already in the cache (within the TTL window),
-   * without marking it as seen. Use this for a read-only check when you want
-   * to defer marking until after successful processing.
+   * Returns true if the key is already in the cache (within the TTL window)
+   * or is currently reserved for processing. Use this for a read-only check.
    */
   has(key: string): boolean {
+    if (this.processing.has(key)) return true;
     const now = Date.now();
     const expiresAt = this.cache.get(key);
     if (expiresAt !== undefined) {
@@ -169,10 +175,35 @@ export class StringDedupCache {
   }
 
   /**
+   * Atomically checks whether a key is already reserved or cached, and if
+   * not, claims it so concurrent requests for the same key are blocked.
+   * Returns true if a new reservation was created (caller should proceed),
+   * false if the key was already present (caller should short-circuit).
+   *
+   * Call {@link mark} after successful processing to finalize, or
+   * {@link unreserve} on failure so retries are not blocked.
+   */
+  reserve(key: string): boolean {
+    if (this.has(key)) return false;
+    this.processing.add(key);
+    return true;
+  }
+
+  /**
+   * Remove a reserved-but-not-finalized key so that retries are not blocked
+   * after a processing failure.
+   */
+  unreserve(key: string): void {
+    this.processing.delete(key);
+  }
+
+  /**
    * Marks a key as seen. Call this after successful processing to prevent
    * future duplicates while still allowing retries on failure.
+   * Also clears any in-flight reservation for the key.
    */
   mark(key: string): void {
+    this.processing.delete(key);
     const now = Date.now();
 
     // Evict expired entries if at capacity
