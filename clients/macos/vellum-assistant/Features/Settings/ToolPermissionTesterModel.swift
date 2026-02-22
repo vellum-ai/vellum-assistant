@@ -44,6 +44,10 @@ final class ToolPermissionTesterModel: ObservableObject {
     @Published var isInteractive: Bool = true
     @Published var forcePromptSideEffects: Bool = false
 
+    // MARK: - Tool Names
+
+    @Published var availableToolNames: [String] = []
+
     // MARK: - Result State
 
     @Published var isSimulating: Bool = false
@@ -62,6 +66,26 @@ final class ToolPermissionTesterModel: ObservableObject {
 
     init(daemonClient: DaemonClientProtocol) {
         self.daemonClient = daemonClient
+        fetchToolNames()
+    }
+
+    // MARK: - Tool Names Fetching
+
+    /// Request the list of all registered tool names from the daemon.
+    func fetchToolNames() {
+        guard let dc = daemonClient as? DaemonClient else { return }
+
+        dc.onToolNamesListResponse = { [weak self] response in
+            Task { @MainActor [weak self] in
+                self?.availableToolNames = response.names
+            }
+        }
+
+        do {
+            try dc.sendToolNamesList()
+        } catch {
+            // Non-critical — the user can still type tool names manually.
+        }
     }
 
     // MARK: - Actions

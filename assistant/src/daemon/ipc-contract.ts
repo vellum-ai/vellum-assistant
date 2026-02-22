@@ -958,6 +958,10 @@ export interface ToolPermissionSimulateRequest {
   forcePromptSideEffects?: boolean;
 }
 
+export interface ToolNamesListRequest {
+  type: 'tool_names_list';
+}
+
 export type ClientMessage =
   | AuthMessage
   | UserMessage
@@ -1071,7 +1075,8 @@ export type ClientMessage =
   | WorkspaceFilesListRequest
   | WorkspaceFileReadRequest
   | IdentityGetRequest
-  | ToolPermissionSimulateRequest;
+  | ToolPermissionSimulateRequest
+  | ToolNamesListRequest;
 
 export interface IntegrationListRequest {
   type: 'integration_list';
@@ -2287,6 +2292,12 @@ export interface ToolPermissionSimulateResponse {
   error?: string;
 }
 
+export interface ToolNamesListResponse {
+  type: 'tool_names_list_response';
+  /** Sorted list of all registered tool names. */
+  names: string[];
+}
+
 export type ServerMessage =
   | AuthResult
   | UserMessageEcho
@@ -2413,7 +2424,8 @@ export type ServerMessage =
   | WorkspaceFilesListResponse
   | WorkspaceFileReadResponse
   | IdentityGetResponse
-  | ToolPermissionSimulateResponse;
+  | ToolPermissionSimulateResponse
+  | ToolNamesListResponse;
 
 // === Subagent IPC ─────────────────────────────────────────────────────
 

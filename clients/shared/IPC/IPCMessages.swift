@@ -1509,6 +1509,20 @@ extension IPCToolPermissionSimulateRequest {
 /// Backed by generated `IPCToolPermissionSimulateResponse`.
 public typealias ToolPermissionSimulateResponseMessage = IPCToolPermissionSimulateResponse
 
+/// Request the list of all registered tool names.
+/// Backed by generated `IPCToolNamesListRequest`.
+public typealias ToolNamesListMessage = IPCToolNamesListRequest
+
+extension IPCToolNamesListRequest {
+    public init() {
+        self.init(type: "tool_names_list")
+    }
+}
+
+/// Response containing all registered tool names.
+/// Backed by generated `IPCToolNamesListResponse`.
+public typealias ToolNamesListResponseMessage = IPCToolNamesListResponse
+
 /// Response from opening and scanning a .vellumapp bundle.
 /// Backed by generated `IPCOpenBundleResponse`.
 public typealias OpenBundleResponseMessage = IPCOpenBundleResponse
@@ -1986,6 +2000,7 @@ public enum ServerMessage: Decodable, Sendable {
     case traceEvent(TraceEventMessage)
     case trustRulesListResponse(TrustRulesListResponseMessage)
     case toolPermissionSimulateResponse(ToolPermissionSimulateResponseMessage)
+    case toolNamesListResponse(ToolNamesListResponseMessage)
     case acceptStarterBundleResponse(IPCAcceptStarterBundleResponse)
     case remindersListResponse(RemindersListResponseMessage)
     case schedulesListResponse(SchedulesListResponseMessage)
@@ -2216,6 +2231,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "tool_permission_simulate_response":
             let message = try ToolPermissionSimulateResponseMessage(from: decoder)
             self = .toolPermissionSimulateResponse(message)
+        case "tool_names_list_response":
+            let message = try ToolNamesListResponseMessage(from: decoder)
+            self = .toolNamesListResponse(message)
         case "accept_starter_bundle_response":
             let message = try IPCAcceptStarterBundleResponse(from: decoder)
             self = .acceptStarterBundleResponse(message)

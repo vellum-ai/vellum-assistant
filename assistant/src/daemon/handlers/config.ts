@@ -5,6 +5,7 @@ import { addRule, removeRule, updateRule, getAllRules, acceptStarterBundle } fro
 import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } from '../../permissions/checker.js';
 import { isSideEffectTool } from '../../tools/executor.js';
 import { resolveExecutionTarget } from '../../tools/execution-target.js';
+import { getAllTools } from '../../tools/registry.js';
 import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression } from '../../schedule/schedule-store.js';
 import { listReminders, cancelReminder } from '../../tools/reminder/reminder-store.js';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
@@ -1191,6 +1192,13 @@ export async function handleToolPermissionSimulate(
   }
 }
 
+export function handleToolNamesList(socket: net.Socket, ctx: HandlerContext): void {
+  const names = getAllTools()
+    .map((t) => t.name)
+    .sort((a, b) => a.localeCompare(b));
+  ctx.send(socket, { type: 'tool_names_list_response', names });
+}
+
 export const configHandlers = defineHandlers({
   model_get: (_msg, socket, ctx) => handleModelGet(socket, ctx),
   model_set: handleModelSet,
@@ -1213,4 +1221,5 @@ export const configHandlers = defineHandlers({
   telegram_config: handleTelegramConfig,
   env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
   tool_permission_simulate: handleToolPermissionSimulate,
+  tool_names_list: (_msg, socket, ctx) => handleToolNamesList(socket, ctx),
 });

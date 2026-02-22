@@ -32,17 +32,7 @@ struct ToolPermissionTesterView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Tool name
             fieldLabel("Tool Name")
-            TextField("e.g. host_bash, host_file_write", text: $model.toolName)
-                .textFieldStyle(.plain)
-                .font(VFont.mono)
-                .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.sm)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
+            toolNamePicker
 
             // Input JSON
             fieldLabel("Input JSON")
@@ -198,6 +188,45 @@ struct ToolPermissionTesterView: View {
     }
 
     // MARK: - Helpers
+
+    @ViewBuilder
+    private var toolNamePicker: some View {
+        if model.availableToolNames.isEmpty {
+            // Fallback to text field while loading or if fetch failed
+            TextField("e.g. host_bash, host_file_write", text: $model.toolName)
+                .textFieldStyle(.plain)
+                .font(VFont.mono)
+                .foregroundColor(VColor.textPrimary)
+                .padding(VSpacing.sm)
+                .background(VColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                )
+        } else {
+            Picker("", selection: $model.toolName) {
+                Text("Select a tool\u{2026}")
+                    .foregroundColor(VColor.textMuted)
+                    .tag("")
+                ForEach(model.availableToolNames, id: \.self) { name in
+                    Text(name)
+                        .font(VFont.mono)
+                        .tag(name)
+                }
+            }
+            .labelsHidden()
+            .font(VFont.mono)
+            .padding(.vertical, VSpacing.xs)
+            .padding(.horizontal, VSpacing.sm)
+            .background(VColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+            )
+        }
+    }
 
     private func fieldLabel(_ text: String) -> some View {
         Text(text)

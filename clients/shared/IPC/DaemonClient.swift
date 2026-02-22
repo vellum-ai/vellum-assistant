@@ -185,6 +185,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `tool_permission_simulate_response` message.
     public var onToolPermissionSimulateResponse: ((ToolPermissionSimulateResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `tool_names_list_response` message.
+    public var onToolNamesListResponse: ((ToolNamesListResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `schedules_list_response` message.
     public var onSchedulesListResponse: (([ScheduleItem]) -> Void)?
 
@@ -666,6 +669,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             isInteractive: isInteractive,
             forcePromptSideEffects: forcePromptSideEffects
         ))
+    }
+
+    /// Request the sorted list of all registered tool names from the daemon.
+    public func sendToolNamesList() throws {
+        try send(ToolNamesListMessage())
     }
 
     // MARK: - Schedules Management

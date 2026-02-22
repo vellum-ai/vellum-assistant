@@ -1743,6 +1743,16 @@ public struct IPCToolInputDelta: Codable, Sendable {
     public let sessionId: String?
 }
 
+public struct IPCToolNamesListRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCToolNamesListResponse: Codable, Sendable {
+    public let type: String
+    /// Sorted list of all registered tool names.
+    public let names: [String]
+}
+
 public struct IPCToolOutputChunk: Codable, Sendable {
     public let type: String
     public let chunk: String
