@@ -222,6 +222,12 @@ struct QRPairingSheet: View {
             return
         }
 
+        guard port >= 1 && port <= 65535 else {
+            errorMessage = "QR code contains an invalid port number (\(port)). Please regenerate the QR code on your Mac."
+            phase = .error
+            return
+        }
+
         let hostId = json["id"] as? String ?? ""
 
         scannedPayload = DaemonQRPayload(

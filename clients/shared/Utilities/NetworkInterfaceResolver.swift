@@ -19,16 +19,16 @@ enum NetworkInterfaceResolver {
         while let addr = current {
             defer { current = addr.pointee.ifa_next }
 
-            // Only IPv4 (AF_INET)
-            guard addr.pointee.ifa_addr.pointee.sa_family == UInt8(AF_INET) else { continue }
+            // Only IPv4 (AF_INET). ifa_addr can be NULL for some interfaces (e.g. awdl0, tunnels).
+            guard let ifaAddr = addr.pointee.ifa_addr, ifaAddr.pointee.sa_family == UInt8(AF_INET) else { continue }
 
             let name = String(cString: addr.pointee.ifa_name)
 
             // Extract the IPv4 address string
             var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
             let result = getnameinfo(
-                addr.pointee.ifa_addr,
-                socklen_t(addr.pointee.ifa_addr.pointee.sa_len),
+                ifaAddr,
+                socklen_t(ifaAddr.pointee.sa_len),
                 &hostname,
                 socklen_t(hostname.count),
                 nil, 0,

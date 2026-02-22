@@ -24,6 +24,7 @@ struct VellumAssistantApp: App {
                         .environmentObject(appDelegate.clientProvider)
                 } else {
                     OnboardingView(isCompleted: $onboardingCompleted, authManager: appDelegate.authManager)
+                        .environmentObject(appDelegate.clientProvider)
                 }
             }
             .preferredColorScheme(preferredScheme)

@@ -365,7 +365,7 @@ struct SettingsAdvancedTab: View {
                 regenerateSessionToken()
             }
         } message: {
-            Text("This will invalidate the current token. Any paired iOS devices will need to re-scan the QR code.")
+            Text("This will delete the current token. A new token will be generated on the next daemon restart. Any paired iOS devices will need to re-scan the QR code.\n\nRestart the daemon after regenerating to apply the change.")
         }
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(
