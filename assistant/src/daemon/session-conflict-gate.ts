@@ -86,10 +86,14 @@ export class ConflictGate {
       .filter((entry) => entry.relevance >= threshold)
       .find((entry) => this.shouldAsk(entry.conflict.id, cooldownTurns));
 
-    // If no relevant conflict to ask and askOnIrrelevantTurns is enabled, try irrelevant ones
+    // If no relevant conflict to ask and askOnIrrelevantTurns is enabled, try ones
+    // below the threshold but with at least some topical overlap (relevance > 0).
+    // Completely unrelated conflicts (relevance === 0) are excluded because marking
+    // them as asked would let wasRecentlyAsked trigger heuristic resolution on
+    // a subsequent unrelated short imperative turn.
     const candidateToAsk = askable
       ?? (conflictConfig.askOnIrrelevantTurns
-        ? scored.find((entry) => entry.relevance < threshold && this.shouldAsk(entry.conflict.id, cooldownTurns))
+        ? scored.find((entry) => entry.relevance > 0 && entry.relevance < threshold && this.shouldAsk(entry.conflict.id, cooldownTurns))
         : undefined);
 
     if (!candidateToAsk) return null;
