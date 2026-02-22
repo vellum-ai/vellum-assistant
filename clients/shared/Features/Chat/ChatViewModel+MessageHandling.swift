@@ -1016,13 +1016,6 @@ extension ChatViewModel {
                     }
                 }
             }
-            // Detect structured conflict payloads from messaging tool errors.
-            // The messaging-send and messaging-reply tools return a JSON string
-            // with {"error":"conflict","ownerConversationId":"..."} when the
-            // current thread is not the sync owner.
-            if msg.isError == true, let conflictInfo = SendConflictInfo.parse(from: msg.result) {
-                sendConflict = conflictInfo
-            }
             // Tool completed — don't re-show "Thinking..." here. The tool
             // call chip already indicates activity, and the LLM isn't actually
             // thinking yet. isThinking will be set when the user sends a new

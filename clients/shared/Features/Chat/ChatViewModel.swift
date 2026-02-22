@@ -47,11 +47,6 @@ public final class ChatViewModel: ObservableObject {
     /// Widget IDs dismissed by the user, persisted across view recreation.
     @Published public var dismissedDocumentSurfaceIds: Set<String> = []
 
-    /// Active send-conflict detected from a tool error with `{"error":"conflict","ownerConversationId":"..."}`.
-    /// Set when a messaging tool (e.g. messaging-send, messaging-reply) returns a conflict error,
-    /// indicating the current thread is not the sync owner. Cleared on dismiss or when the conflict is resolved.
-    @Published public var sendConflict: SendConflictInfo?
-
     /// The currently active model ID, updated via `model_info` IPC messages.
     @Published public var selectedModel: String = "claude-opus-4-6"
     /// Set of provider keys with configured API keys, updated via `model_info` IPC messages.
@@ -341,7 +336,6 @@ public final class ChatViewModel: ObservableObject {
         pendingSuggestionRequestId = nil
         errorText = nil
         sessionError = nil
-        sendConflict = nil
         lastFailedMessageText = nil
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
@@ -1437,45 +1431,10 @@ public final class ChatViewModel: ObservableObject {
         // Surfaces are now included directly in the history response and populated above
     }
 
-    /// Dismiss the active send-conflict banner.
-    public func dismissSendConflict() {
-        sendConflict = nil
-    }
-
     deinit {
         messageLoopTask?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
         }
-    }
-}
-
-// MARK: - Send Conflict Info
-
-/// Parsed conflict payload from a messaging tool error indicating the current
-/// thread tried to send to a chat owned by a different conversation.
-public struct SendConflictInfo: Equatable {
-    /// Daemon conversation/session ID of the thread that owns the external chat binding.
-    public let ownerConversationId: String
-    /// Human-readable message from the conflict error.
-    public let message: String
-
-    public init(ownerConversationId: String, message: String) {
-        self.ownerConversationId = ownerConversationId
-        self.message = message
-    }
-
-    /// Try to parse a tool error result string as a JSON conflict payload.
-    /// Returns nil if the string is not a valid conflict payload.
-    public static func parse(from toolResult: String) -> SendConflictInfo? {
-        guard let data = toolResult.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let error = json["error"] as? String,
-              error == "conflict",
-              let ownerConversationId = json["ownerConversationId"] as? String else {
-            return nil
-        }
-        let message = json["message"] as? String ?? "Another thread owns this chat."
-        return SendConflictInfo(ownerConversationId: ownerConversationId, message: message)
     }
 }

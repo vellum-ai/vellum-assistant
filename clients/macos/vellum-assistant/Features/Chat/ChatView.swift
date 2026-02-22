@@ -53,15 +53,6 @@ struct ChatView: View {
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
-    /// Label for the synced external channel (e.g. "Telegram"). Nil for local-only threads.
-    var syncedChannelLabel: String?
-    /// When non-nil, indicates a sync conflict: this thread targets a Telegram chat
-    /// that is owned by a different thread. Contains the canonical thread's info.
-    var syncConflict: SyncConflictInfo?
-    /// Callback when user taps "Continue in Synced Thread"
-    var onContinueInSyncedThread: (() -> Void)?
-    /// Callback when user taps "Move Sync Here"
-    var onMoveSyncHere: (() -> Void)?
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     /// Sums utf8.count over each segment (O(1) per contiguous segment) instead of joining first,
@@ -94,16 +85,6 @@ struct ChatView: View {
         ZStack {
             VStack(spacing: 0) {
                 apiKeyBanner
-                if let channelLabel = syncedChannelLabel {
-                    SyncedChannelHeaderView(channelLabel: channelLabel)
-                }
-                if let conflict = syncConflict {
-                    SyncConflictBanner(
-                        info: conflict,
-                        onContinue: { onContinueInSyncedThread?() },
-                        onMove: { onMoveSyncHere?() }
-                    )
-                }
                 if messages.isEmpty && !isHistoryLoaded {
                     Spacer()
                     HStack {
@@ -213,8 +194,7 @@ struct ChatView: View {
         let base: CGFloat = VSpacing.sm + VSpacing.md + topPad + bottomPad + contentHeight + buttonRow
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
         let error: CGFloat = (sessionError == nil && errorText != nil) ? 36 : 0
-        let syncNote: CGFloat = syncedChannelLabel != nil ? 18 : 0
-        return base + attachments + error + syncNote
+        return base + attachments + error
     }
 
     private func modelPickerView(for message: ChatMessage) -> some View {
@@ -253,17 +233,6 @@ struct ChatView: View {
                     onOpenDoctor: onOpenDoctor,
                     onDismissError: onDismissError
                 )
-            }
-            if let channelLabel = syncedChannelLabel {
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "paperplane.fill")
-                        .font(.system(size: 9, weight: .medium))
-                    Text("Replies are sent to \(channelLabel)")
-                        .font(VFont.small)
-                }
-                .foregroundColor(VColor.textMuted)
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.bottom, VSpacing.xxs)
             }
             ComposerView(
                 inputText: $inputText,
@@ -736,102 +705,6 @@ private struct ScrollWheelDetector: NSViewRepresentable {
             }
             return nil
         }
-    }
-}
-
-// MARK: - Sync Conflict
-
-/// Info about a sync conflict when the current thread is not the canonical owner.
-/// May originate from passive duplicate-binding detection or from an actual
-/// send-conflict error emitted by a messaging tool.
-struct SyncConflictInfo {
-    let ownerThreadTitle: String
-    /// Thread ID of the owner thread (when resolved from a send-conflict payload).
-    let ownerThreadId: UUID?
-    let sourceChannel: String
-    let externalChatId: String
-    /// Daemon conversation ID from the send-conflict payload, if this conflict
-    /// was detected from an actual tool error rather than passive binding check.
-    let ownerConversationId: String?
-
-    init(ownerThreadTitle: String, ownerThreadId: UUID? = nil, sourceChannel: String, externalChatId: String, ownerConversationId: String? = nil) {
-        self.ownerThreadTitle = ownerThreadTitle
-        self.ownerThreadId = ownerThreadId
-        self.sourceChannel = sourceChannel
-        self.externalChatId = externalChatId
-        self.ownerConversationId = ownerConversationId
-    }
-}
-
-/// Banner shown when the user tries to send from a non-canonical synced thread.
-private struct SyncConflictBanner: View {
-    let info: SyncConflictInfo
-    let onContinue: () -> Void
-    let onMove: () -> Void
-
-    var body: some View {
-        VStack(spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.xs) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(VColor.warning)
-                Text("This Telegram chat is synced to \"\(info.ownerThreadTitle)\"")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-            }
-            HStack(spacing: VSpacing.sm) {
-                Button(action: onContinue) {
-                    Label("Continue in Synced Thread", systemImage: "arrow.right.circle")
-                        .font(VFont.captionMedium)
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(VColor.accent)
-
-                Button(action: onMove) {
-                    Text("Move Sync Here")
-                        .font(VFont.caption)
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(VColor.textMuted)
-
-                Spacer()
-            }
-        }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.sm)
-        .background(VColor.warning.opacity(0.1))
-    }
-}
-
-// MARK: - Synced Channel Header
-
-/// Subtle pill badge shown at the top of the chat when the thread is synced to an external channel.
-private struct SyncedChannelHeaderView: View {
-    let channelLabel: String
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Spacer()
-            HStack(spacing: VSpacing.xs) {
-                Image(systemName: "paperplane.fill")
-                    .font(.system(size: 10, weight: .medium))
-                Text("Synced: \(channelLabel)")
-                    .font(VFont.captionMedium)
-            }
-            .foregroundColor(VColor.textMuted)
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.xs)
-            .background(VColor.surface)
-            .clipShape(Capsule())
-            .overlay(
-                Capsule()
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
-            )
-            Spacer()
-        }
-        .padding(.vertical, VSpacing.sm)
-        .accessibilityLabel("External chat synced to \(channelLabel)")
     }
 }
 
