@@ -18,8 +18,8 @@ declare -a PATTERNS=(
 
     # AWS Keys
     "AKIA[0-9A-Z]{16}"
-    "aws[_-]?access[_-]?key[_-]?id"
-    "aws[_-]?secret[_-]?access[_-]?key"
+    "aws[_-]?access[_-]?key[_-]?id['\"]?[[:space:]]*[:=]"
+    "aws[_-]?secret[_-]?access[_-]?key['\"]?[[:space:]]*[:=]"
 
     # Private Keys
     "-----BEGIN (RSA |DSA )?PRIVATE KEY-----"
@@ -61,6 +61,7 @@ declare -a PATTERNS=(
 declare -a SAFE_LINE_PATTERNS=(
     "[A-Za-z0-9_\"']*(sha256|SHA256|checksum|digest|hash|nonceSha256|observedNonceSha256)[A-Za-z0-9_\"']*[[:space:]]*[:=][[:space:]]*['\"][a-fA-F0-9]{32,}['\"]"
     "client[Ss]ecret:[[:space:]]*(String[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil)|client[Ss]ecret[[:space:]]*[,)])"
+    "private[_-]?[Kk]ey['\"]?:[[:space:]]*(String|string|Data|data)[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil|=[[:space:]]*['\"]['\"])"
 )
 
 matches_safe_line_pattern() {
@@ -116,7 +117,12 @@ if [ "${1:-}" = "--self-test" ]; then
     # Typed assignment with a string literal — must NOT be whitelisted
     DANGEROUS_TYPED_SECRET='let clientSecret: String = "real_secret_value_1234"'
 
+    # Real AWS key assignment (must match)
+    REAL_AWS_KEY_LINE='aws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"'
+
     # False-positive lines that must NOT match (plain identifiers, not secrets)
+    SAFE_AWS_ENV_NAMES='"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"'
+    SAFE_PRIVATE_KEY_DECL='var sshPrivateKey: String = ""'
     SAFE_CACHE_KEY_LINE='redis.get("user_session_key_prefix")'
     SAFE_CLIENT_SECRET_DOC='- **PKCE or client_secret flows** — Desktop apps use PKCE by default (S256).'
     SAFE_SWIFT_PARAM_LINE='public init(action: String, mode: String? = nil, clientId: String? = nil, clientSecret: String? = nil)'
@@ -197,6 +203,18 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if ! matches_secret_pattern "$SHARED_KEY_LINE"; then
         echo -e "${RED}Self-test failed:${NC} shared_key secret did not match"
+        exit 1
+    fi
+    if ! matches_secret_pattern "$REAL_AWS_KEY_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} real AWS key assignment did not match"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_AWS_ENV_NAMES"; then
+        echo -e "${RED}Self-test failed:${NC} AWS env var names false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_PRIVATE_KEY_DECL" && ! matches_safe_line_pattern "$SAFE_PRIVATE_KEY_DECL"; then
+        echo -e "${RED}Self-test failed:${NC} Swift privateKey type declaration false positive"
         exit 1
     fi
     if matches_secret_pattern "$SAFE_CACHE_KEY_LINE"; then
