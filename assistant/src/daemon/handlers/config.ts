@@ -27,9 +27,19 @@ import type {
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
 
-// Snapshot the env-provided value at module load time so we can restore it
-// when the user clears a Settings-set override.
-const ORIGINAL_INGRESS_ENV = process.env.INGRESS_PUBLIC_BASE_URL;
+// Lazily capture the env-provided INGRESS_PUBLIC_BASE_URL on first access
+// rather than at module load time. The daemon loads ~/.vellum/.env inside
+// runDaemon() (see lifecycle.ts), which runs AFTER static ES module imports
+// resolve. A module-level snapshot would miss dotenv-provided values.
+let _originalIngressEnvCaptured = false;
+let _originalIngressEnv: string | undefined;
+function getOriginalIngressEnv(): string | undefined {
+  if (!_originalIngressEnvCaptured) {
+    _originalIngressEnv = process.env.INGRESS_PUBLIC_BASE_URL;
+    _originalIngressEnvCaptured = true;
+  }
+  return _originalIngressEnv;
+}
 
 export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
   const config = getConfig();
@@ -500,10 +510,10 @@ export function handleIngressConfig(
       const isEnabled = (ingress.enabled as boolean | undefined) ?? (value ? true : false);
       if (value && isEnabled) {
         process.env.INGRESS_PUBLIC_BASE_URL = value;
-      } else if (isEnabled && ORIGINAL_INGRESS_ENV !== undefined) {
+      } else if (isEnabled && getOriginalIngressEnv() !== undefined) {
         // Ingress is enabled but the user cleared the URL — fall back to the
         // env var that was present when the process started.
-        process.env.INGRESS_PUBLIC_BASE_URL = ORIGINAL_INGRESS_ENV;
+        process.env.INGRESS_PUBLIC_BASE_URL = getOriginalIngressEnv()!;
       } else {
         // Ingress is disabled or no URL is configured and no startup env var
         // exists — remove the env var so the gateway stops accepting webhooks.
