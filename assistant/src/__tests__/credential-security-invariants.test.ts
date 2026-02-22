@@ -286,11 +286,11 @@ describe('Invariant 3: secrets never logged in plaintext', () => {
         // Verify log calls never include raw content fields — only safe
         // metadata like lineLength and errorType are permitted.
         // `trimmed.length` is safe (numeric); `trimmed` alone would leak raw content.
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\(.*[{,]\s*trimmed[^.]/s);
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\(.*[{,]\s*line[^L]/s);
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\(.*[{,]\s*data\b/s);
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\(.*[{,]\s*buffer\b/s);
-        expect(ipcSrc).not.toMatch(/\blog\.\w+\(.*err\.message\b/s);
+        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^)]*[{,]\s*trimmed[^.]/);
+        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^)]*[{,]\s*line[^L]/);
+        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^)]*[{,]\s*data\b/);
+        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^)]*[{,]\s*buffer\b/);
+        expect(ipcSrc).not.toMatch(/\blog\.\w+\([^)]*err\.message\b/);
       });
     } else {
       // PR 25 — secret prompter log hygiene: verify the prompter source
