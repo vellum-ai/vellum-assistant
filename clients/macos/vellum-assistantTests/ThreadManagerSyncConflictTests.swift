@@ -480,4 +480,105 @@ final class ThreadManagerSyncConflictTests: XCTestCase {
 
         XCTAssertNil(canonical, "Archived threads should not be returned as canonical")
     }
+
+    // MARK: - findThreadBySessionId
+
+    func testFindThreadBySessionIdReturnsCorrectThread() {
+        let (ownerThread, _) = createSyncedThread(title: "Owner Thread")
+
+        let found = threadManager.findThreadBySessionId(ownerThread.sessionId!)
+
+        XCTAssertEqual(found?.id, ownerThread.id)
+    }
+
+    func testFindThreadBySessionIdExcludesArchived() {
+        let (ownerThread, _) = createSyncedThread(title: "Archived Owner")
+
+        // Archive the thread
+        if let idx = threadManager.threads.firstIndex(where: { $0.id == ownerThread.id }) {
+            threadManager.threads[idx].isArchived = true
+        }
+
+        let found = threadManager.findThreadBySessionId(ownerThread.sessionId!)
+
+        XCTAssertNil(found, "Archived threads should not be returned by findThreadBySessionId")
+    }
+
+    func testFindThreadBySessionIdReturnsNilForUnknownSession() {
+        let _ = createSyncedThread(title: "Some Thread")
+
+        let found = threadManager.findThreadBySessionId("nonexistent-session-id")
+
+        XCTAssertNil(found)
+    }
+
+    // MARK: - resolveSendConflict
+
+    func testResolveSendConflictReturnsInfoForKnownOwner() {
+        let (ownerThread, _) = createSyncedThread(title: "Owner Thread")
+        let (nonOwnerThread, _) = createSyncedThread(
+            externalChatId: "chat-456",
+            title: "Non-Owner"
+        )
+
+        let conflict = SendConflictInfo(
+            ownerConversationId: ownerThread.sessionId!,
+            message: "Another thread owns this chat."
+        )
+
+        let resolved = threadManager.resolveSendConflict(conflict, excludingThread: nonOwnerThread.id)
+
+        XCTAssertNotNil(resolved)
+        XCTAssertEqual(resolved?.ownerThreadTitle, "Owner Thread")
+        XCTAssertEqual(resolved?.ownerThreadId, ownerThread.id)
+        XCTAssertEqual(resolved?.ownerConversationId, ownerThread.sessionId)
+        XCTAssertEqual(resolved?.sourceChannel, "telegram")
+        XCTAssertEqual(resolved?.externalChatId, "chat-123")
+    }
+
+    func testResolveSendConflictReturnsNilForUnknownOwner() {
+        let (nonOwnerThread, _) = createSyncedThread(
+            externalChatId: "chat-456",
+            title: "Non-Owner"
+        )
+
+        let conflict = SendConflictInfo(
+            ownerConversationId: "unknown-session-id",
+            message: "Conflict"
+        )
+
+        let resolved = threadManager.resolveSendConflict(conflict, excludingThread: nonOwnerThread.id)
+
+        XCTAssertNil(resolved, "Should return nil when owner session cannot be found")
+    }
+
+    func testResolveSendConflictExcludesSelf() {
+        let (ownerThread, _) = createSyncedThread(title: "Self Thread")
+
+        let conflict = SendConflictInfo(
+            ownerConversationId: ownerThread.sessionId!,
+            message: "Conflict"
+        )
+
+        // Exclude the same thread as the owner — should return nil
+        let resolved = threadManager.resolveSendConflict(conflict, excludingThread: ownerThread.id)
+
+        XCTAssertNil(resolved, "Should not resolve conflict when owner is the excluded thread itself")
+    }
+
+    func testResolveSendConflictUsesOwnerThreadId() {
+        // Verify the resolved conflict includes the ownerThreadId for direct navigation
+        let (ownerThread, _) = createSyncedThread(title: "Target Owner")
+
+        let conflict = SendConflictInfo(
+            ownerConversationId: ownerThread.sessionId!,
+            message: "Use the synced thread."
+        )
+
+        let resolved = threadManager.resolveSendConflict(conflict, excludingThread: UUID())
+
+        XCTAssertNotNil(resolved)
+        XCTAssertEqual(resolved?.ownerThreadId, ownerThread.id,
+                       "Resolved conflict must include ownerThreadId for direct thread navigation")
+    }
 }

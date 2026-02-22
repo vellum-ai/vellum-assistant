@@ -1016,6 +1016,14 @@ extension ChatViewModel {
                     }
                 }
             }
+            // Detect structured conflict payloads from messaging tool errors.
+            // The messaging-send and messaging-reply tools return a JSON string
+            // with {"error":"conflict","ownerConversationId":"..."} when the
+            // current thread is not the sync owner.
+            if msg.isError == true, let conflictInfo = SendConflictInfo.parse(from: msg.result) {
+                sendConflict = conflictInfo
+            }
+
             // Tool completed — agent is now processing the result. Show
             // thinking indicator until the next text delta or tool starts.
             if isSending && !isCancelling {

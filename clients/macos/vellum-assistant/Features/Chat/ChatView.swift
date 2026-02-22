@@ -727,10 +727,25 @@ private struct ScrollWheelDetector: NSViewRepresentable {
 // MARK: - Sync Conflict
 
 /// Info about a sync conflict when the current thread is not the canonical owner.
+/// May originate from passive duplicate-binding detection or from an actual
+/// send-conflict error emitted by a messaging tool.
 struct SyncConflictInfo {
     let ownerThreadTitle: String
+    /// Thread ID of the owner thread (when resolved from a send-conflict payload).
+    let ownerThreadId: UUID?
     let sourceChannel: String
     let externalChatId: String
+    /// Daemon conversation ID from the send-conflict payload, if this conflict
+    /// was detected from an actual tool error rather than passive binding check.
+    let ownerConversationId: String?
+
+    init(ownerThreadTitle: String, ownerThreadId: UUID? = nil, sourceChannel: String, externalChatId: String, ownerConversationId: String? = nil) {
+        self.ownerThreadTitle = ownerThreadTitle
+        self.ownerThreadId = ownerThreadId
+        self.sourceChannel = sourceChannel
+        self.externalChatId = externalChatId
+        self.ownerConversationId = ownerConversationId
+    }
 }
 
 /// Banner shown when the user tries to send from a non-canonical synced thread.

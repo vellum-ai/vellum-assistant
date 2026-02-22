@@ -2376,4 +2376,147 @@ final class ChatViewModelTests: XCTestCase {
 
         XCTAssertNil(viewModel.pendingSendDirectText)
     }
+
+    // MARK: - Send Conflict Detection from Tool Errors
+
+    func testToolResultConflictErrorSetsSendConflict() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        // Start a tool call so toolResult has something to complete
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(
+            type: "tool_use_start",
+            toolName: "messaging_send",
+            input: ["text": AnyCodable("hello")],
+            sessionId: "sess-1"
+        )))
+
+        // Simulate a conflict error from messaging-send
+        let conflictPayload = """
+        {"error":"conflict","ownerConversationId":"owner-session-42","message":"Another thread owns this chat."}
+        """
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(
+            type: "tool_result",
+            toolName: "messaging_send",
+            result: conflictPayload,
+            isError: true,
+            diff: nil,
+            status: nil,
+            sessionId: "sess-1",
+            imageData: nil
+        )))
+
+        XCTAssertNotNil(viewModel.sendConflict, "Send conflict should be set from tool error")
+        XCTAssertEqual(viewModel.sendConflict?.ownerConversationId, "owner-session-42")
+        XCTAssertEqual(viewModel.sendConflict?.message, "Another thread owns this chat.")
+    }
+
+    func testToolResultNonConflictErrorDoesNotSetSendConflict() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(
+            type: "tool_use_start",
+            toolName: "bash",
+            input: ["command": AnyCodable("ls")],
+            sessionId: "sess-1"
+        )))
+
+        // A regular tool error should not trigger sendConflict
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(
+            type: "tool_result",
+            toolName: "bash",
+            result: "command not found",
+            isError: true,
+            diff: nil,
+            status: nil,
+            sessionId: "sess-1",
+            imageData: nil
+        )))
+
+        XCTAssertNil(viewModel.sendConflict, "Regular errors should not set sendConflict")
+    }
+
+    func testToolResultSuccessDoesNotSetSendConflict() {
+        viewModel.sessionId = "sess-1"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(
+            type: "tool_use_start",
+            toolName: "messaging_send",
+            input: ["text": AnyCodable("hello")],
+            sessionId: "sess-1"
+        )))
+
+        // Successful tool result should not trigger sendConflict
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(
+            type: "tool_result",
+            toolName: "messaging_send",
+            result: "Message sent (ID: 123).",
+            isError: false,
+            diff: nil,
+            status: nil,
+            sessionId: "sess-1",
+            imageData: nil
+        )))
+
+        XCTAssertNil(viewModel.sendConflict, "Successful tool results should not set sendConflict")
+    }
+
+    func testDismissSendConflictClearsConflict() {
+        viewModel.sendConflict = SendConflictInfo(
+            ownerConversationId: "owner-1",
+            message: "Conflict"
+        )
+
+        viewModel.dismissSendConflict()
+
+        XCTAssertNil(viewModel.sendConflict)
+    }
+
+    // MARK: - SendConflictInfo Parsing
+
+    func testSendConflictInfoParseValidPayload() {
+        let json = """
+        {"error":"conflict","ownerConversationId":"sess-owner","message":"Another thread owns this chat."}
+        """
+        let result = SendConflictInfo.parse(from: json)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.ownerConversationId, "sess-owner")
+        XCTAssertEqual(result?.message, "Another thread owns this chat.")
+    }
+
+    func testSendConflictInfoParseNonConflictError() {
+        let json = """
+        {"error":"not_found","message":"Chat not found"}
+        """
+        let result = SendConflictInfo.parse(from: json)
+        XCTAssertNil(result, "Non-conflict errors should return nil")
+    }
+
+    func testSendConflictInfoParsePlainText() {
+        let result = SendConflictInfo.parse(from: "command not found")
+        XCTAssertNil(result, "Plain text errors should return nil")
+    }
+
+    func testSendConflictInfoParseMissingOwnerConversationId() {
+        let json = """
+        {"error":"conflict","message":"Conflict without owner"}
+        """
+        let result = SendConflictInfo.parse(from: json)
+        XCTAssertNil(result, "Conflict without ownerConversationId should return nil")
+    }
+
+    func testSendConflictInfoParseDefaultMessage() {
+        let json = """
+        {"error":"conflict","ownerConversationId":"sess-123"}
+        """
+        let result = SendConflictInfo.parse(from: json)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.ownerConversationId, "sess-123")
+        XCTAssertEqual(result?.message, "Another thread owns this chat.", "Should use default message when not provided")
+    }
 }

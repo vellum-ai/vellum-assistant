@@ -430,6 +430,28 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         })
     }
 
+    /// Find a thread by its daemon session/conversation ID.
+    /// Used to resolve `ownerConversationId` from send-conflict payloads to a concrete thread.
+    func findThreadBySessionId(_ sessionId: String) -> ThreadModel? {
+        return threads.first(where: { $0.sessionId == sessionId && !$0.isArchived })
+    }
+
+    /// Resolve a send-conflict's `ownerConversationId` into a `SyncConflictInfo` for the UI.
+    /// Returns nil if the owner thread cannot be found (e.g. archived or unknown session).
+    func resolveSendConflict(_ conflict: SendConflictInfo, excludingThread: UUID) -> SyncConflictInfo? {
+        guard let ownerThread = findThreadBySessionId(conflict.ownerConversationId),
+              ownerThread.id != excludingThread else {
+            return nil
+        }
+        return SyncConflictInfo(
+            ownerThreadTitle: ownerThread.title,
+            ownerThreadId: ownerThread.id,
+            sourceChannel: ownerThread.sourceChannel ?? "",
+            externalChatId: ownerThread.externalChatId ?? "",
+            ownerConversationId: conflict.ownerConversationId
+        )
+    }
+
     /// Switch to the canonical synced thread, carrying over any draft text and
     /// attachments from the source thread's composer so the user doesn't lose work.
     func continueInSyncedThread(targetThreadId: UUID, sourceThreadId: UUID) {
@@ -1031,10 +1053,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // Subscribe to the new active view model if one exists
         guard let viewModel = activeViewModel else { return }
 
-        // Only observe message count changes, not all ChatViewModel property changes
-        activeViewModelCancellable = viewModel.$messages
+        // Observe message count changes and send-conflict state changes.
+        // Message count drives the sidebar unread indicator; sendConflict
+        // triggers re-evaluation of the conflict banner in chatView.
+        let messagesPublisher = viewModel.$messages
             .map { $0.count }
             .removeDuplicates()
+            .map { _ in () }
+        let conflictPublisher = viewModel.$sendConflict
+            .removeDuplicates(by: { $0?.ownerConversationId == $1?.ownerConversationId })
+            .map { _ in () }
+        activeViewModelCancellable = messagesPublisher
+            .merge(with: conflictPublisher)
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }

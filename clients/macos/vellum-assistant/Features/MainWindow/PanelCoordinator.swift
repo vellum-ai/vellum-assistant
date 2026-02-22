@@ -312,7 +312,17 @@ extension MainWindowView {
     var chatView: some View {
         if let viewModel = threadManager.activeViewModel {
             let activeThread = threadManager.activeThread
+
+            // Merge two conflict sources: active send-conflict from a tool error
+            // takes priority over passive duplicate-binding detection.
             let syncConflict: SyncConflictInfo? = {
+                // 1. Active send-conflict from a tool error payload
+                if let thread = activeThread,
+                   let conflict = viewModel.sendConflict,
+                   let resolved = threadManager.resolveSendConflict(conflict, excludingThread: thread.id) {
+                    return resolved
+                }
+                // 2. Passive duplicate-binding detection (existing behavior)
                 guard let thread = activeThread,
                       let sourceChannel = thread.sourceChannel,
                       let externalChatId = thread.externalChatId,
@@ -339,7 +349,16 @@ extension MainWindowView {
                 syncedChannelLabel: activeThread?.isSynced == true ? activeThread?.sourceChannel?.capitalized : nil,
                 syncConflict: syncConflict,
                 onContinueInSyncedThread: syncConflict != nil ? {
+                    // When conflict was resolved from a send-conflict payload, use
+                    // the ownerThreadId directly instead of re-scanning bindings.
                     if let thread = threadManager.activeThread,
+                       let ownerThreadId = syncConflict?.ownerThreadId {
+                        viewModel.dismissSendConflict()
+                        threadManager.continueInSyncedThread(
+                            targetThreadId: ownerThreadId,
+                            sourceThreadId: thread.id
+                        )
+                    } else if let thread = threadManager.activeThread,
                        let sourceChannel = thread.sourceChannel,
                        let externalChatId = thread.externalChatId,
                        let canonical = threadManager.findCanonicalThread(
@@ -347,6 +366,7 @@ extension MainWindowView {
                            externalChatId: externalChatId,
                            excludingThread: thread.id
                        ) {
+                        viewModel.dismissSendConflict()
                         threadManager.continueInSyncedThread(
                             targetThreadId: canonical.id,
                             sourceThreadId: thread.id
@@ -354,7 +374,16 @@ extension MainWindowView {
                     }
                 } : nil,
                 onMoveSyncHere: syncConflict != nil ? {
+                    viewModel.dismissSendConflict()
                     if let thread = threadManager.activeThread,
+                       let sourceChannel = syncConflict?.sourceChannel, !sourceChannel.isEmpty,
+                       let externalChatId = syncConflict?.externalChatId, !externalChatId.isEmpty {
+                        threadManager.moveSyncHereAndResend(
+                            threadId: thread.id,
+                            sourceChannel: sourceChannel,
+                            externalChatId: externalChatId
+                        )
+                    } else if let thread = threadManager.activeThread,
                        let sourceChannel = thread.sourceChannel,
                        let externalChatId = thread.externalChatId {
                         threadManager.moveSyncHereAndResend(
