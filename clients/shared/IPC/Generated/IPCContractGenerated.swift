@@ -1743,6 +1743,12 @@ public struct IPCToolInputDelta: Codable, Sendable {
     public let sessionId: String?
 }
 
+public struct IPCToolInputSchema: Codable, Sendable {
+    public let type: String
+    public let properties: [String: AnyCodable]?
+    public let required: [String]?
+}
+
 public struct IPCToolNamesListRequest: Codable, Sendable {
     public let type: String
 }
@@ -1751,6 +1757,8 @@ public struct IPCToolNamesListResponse: Codable, Sendable {
     public let type: String
     /// Sorted list of all registered tool names.
     public let names: [String]
+    /// Input schemas keyed by tool name.
+    public let schemas: [String: AnyCodable]
 }
 
 public struct IPCToolOutputChunk: Codable, Sendable {

@@ -2292,10 +2292,23 @@ export interface ToolPermissionSimulateResponse {
   error?: string;
 }
 
+export interface ToolInputSchema {
+  type: 'object';
+  properties?: Record<string, {
+    type?: string;
+    description?: string;
+    enum?: string[];
+    [key: string]: unknown;
+  }>;
+  required?: string[];
+}
+
 export interface ToolNamesListResponse {
   type: 'tool_names_list_response';
   /** Sorted list of all registered tool names. */
   names: string[];
+  /** Input schemas keyed by tool name. */
+  schemas: Record<string, ToolInputSchema>;
 }
 
 export type ServerMessage =
