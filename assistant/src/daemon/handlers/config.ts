@@ -3,6 +3,7 @@ import { getConfig, loadRawConfig, saveRawConfig } from '../../config/loader.js'
 import { initializeProviders } from '../../providers/registry.js';
 import { addRule, removeRule, updateRule, getAllRules, acceptStarterBundle } from '../../permissions/trust-store.js';
 import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } from '../../permissions/checker.js';
+import { isSideEffectTool } from '../../tools/executor.js';
 import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression } from '../../schedule/schedule-store.js';
 import { listReminders, cancelReminder } from '../../tools/reminder/reminder-store.js';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
@@ -832,6 +833,22 @@ export async function handleToolPermissionSimulate(
 
     const riskLevel = await classifyRisk(msg.toolName, msg.input, workingDir);
     const result = await check(msg.toolName, msg.input, workingDir, policyContext);
+
+    // Private-thread override: promote allow → prompt for side-effect tools
+    if (
+      msg.forcePromptSideEffects
+      && result.decision === 'allow'
+      && isSideEffectTool(msg.toolName, msg.input)
+    ) {
+      result.decision = 'prompt';
+      result.reason = 'Private thread: side-effect tools require explicit approval';
+    }
+
+    // Non-interactive override: convert prompt → deny
+    if (msg.isInteractive === false && result.decision === 'prompt') {
+      result.decision = 'deny';
+      result.reason = 'Non-interactive session: no client to approve prompt';
+    }
 
     // When decision is prompt, generate the full payload the UI needs
     let promptPayload: {
