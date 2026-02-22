@@ -305,13 +305,14 @@ graph TB
     GW_VERIFY --> GW_NORMALIZE
     GW_NORMALIZE --> GW_ROUTE
     GW_ROUTE --> GW_FORWARD
-    GW_FORWARD -->|"HTTP"| HTTP_SERVER
+    GW_FORWARD -->|"HTTP + replyCallbackUrl"| HTTP_SERVER
     HTTP_SERVER -->|"channels/inbound transport<br/>channelId + hints + uxBrief"| PLAYBOOK_MGR
     GW_REPLY -->|"Telegram API"| GW_WEBHOOK
     GW_ATTACH -->|"download from runtime<br/>+ upload to Telegram"| GW_WEBHOOK
 
     %% Gateway flow — Telegram deliver (runtime → gateway → Telegram)
-    HTTP_SERVER -->|"POST /deliver/telegram"| GW_TG_DELIVER
+    %% replyCallbackUrl is built from gatewayInternalBaseUrl (GATEWAY_INTERNAL_BASE_URL env var)
+    HTTP_SERVER -->|"POST /deliver/telegram<br/>(via gatewayInternalBaseUrl)"| GW_TG_DELIVER
     GW_TG_DELIVER --> GW_REPLY
     GW_TG_DELIVER --> GW_ATTACH
 
@@ -3517,6 +3518,7 @@ Telegram messages follow three paths through the system:
 Inbound (user → assistant):
   Telegram → Gateway POST /webhooks/telegram → verify secret → normalize → route
     → Runtime POST /v1/assistants/:id/channels/inbound
+    (replyCallbackUrl = ${gatewayInternalBaseUrl}/deliver/telegram)
 
 Outbound reply (assistant → user, triggered by inbound):
   Runtime callback → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage/sendPhoto/sendDocument
@@ -3525,7 +3527,11 @@ Outbound proactive (assistant → user, initiated by messaging provider):
   Runtime messaging provider → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage
 ```
 
+The `replyCallbackUrl` included in the inbound forward is built from the `gatewayInternalBaseUrl` config field, which defaults to `http://127.0.0.1:${GATEWAY_PORT}` and can be overridden via the `GATEWAY_INTERNAL_BASE_URL` environment variable. This allows distributed deployments where the gateway and runtime are not co-located (e.g., separate containers or hosts).
+
 The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-closed). If no bearer token is configured and the dev-only bypass flag (`GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS`) is not set, the endpoint returns 503 rather than allowing unauthenticated access.
+
+**Bot-account limitations:** The Telegram Bot API only supports sending messages to chats that have previously interacted with the bot. Bots cannot enumerate chats, read message history, or search messages. A future MTProto user-account session track may lift some of these restrictions.
 
 ### Webhook Reconciliation
 

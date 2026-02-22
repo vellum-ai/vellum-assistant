@@ -34,6 +34,7 @@ bun run dev
 | `GATEWAY_DEFAULT_ASSISTANT_ID` | No | — | Default assistant ID for unmapped users |
 | `GATEWAY_UNMAPPED_POLICY` | No | `reject` | Policy for unmapped users: `reject` or `default` |
 | `GATEWAY_PORT` | No | `7830` | Port for the gateway HTTP server |
+| `GATEWAY_INTERNAL_BASE_URL` | No | `http://127.0.0.1:${PORT}` | Base URL for runtime→gateway callbacks (e.g., reply delivery). Defaults to `http://127.0.0.1:${GATEWAY_PORT}`. Set this when gateway and runtime are not co-located (e.g., separate containers or hosts). |
 | `INGRESS_PUBLIC_BASE_URL` | No | — | Public URL where the gateway is reachable (e.g. `https://abc123.ngrok-free.app`). Used by the assistant runtime to construct webhook and OAuth callback URLs. Set this to your tunnel's public URL. |
 | `GATEWAY_RUNTIME_PROXY_ENABLED` | No | `false` | Enable runtime proxy for non-Telegram requests |
 | `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH` | No | `true` | Require bearer auth for proxied requests |
@@ -226,6 +227,8 @@ docker run --rm -p 7830:7830 \
 ```
 
 The image runs as non-root user `gateway` (uid 1001) and exposes port `7830`.
+
+When the runtime and gateway run in separate containers or hosts, set `GATEWAY_INTERNAL_BASE_URL` so the runtime can reach the gateway for callbacks (e.g., Telegram reply delivery). By default it points to `http://127.0.0.1:${GATEWAY_PORT}`, which only works when both services share the same host.
 
 ## Development
 
