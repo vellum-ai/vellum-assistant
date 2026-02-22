@@ -88,6 +88,10 @@ describe('parseApprovalDecision', () => {
     'go ahead',
     'Go Ahead',
     'GO AHEAD',
+    'approve once',
+    'Approve once',
+    'Approve Once',
+    'APPROVE ONCE',
   ])('recognises "%s" as approve_once', (input) => {
     const result = parseApprovalDecision(input);
     expect(result).not.toBeNull();
@@ -165,7 +169,6 @@ describe('parseApprovalDecision', () => {
     'go',
     'ahead',
     'maybe',
-    'approve once',
   ])('returns null for non-matching text: "%s"', (input) => {
     expect(parseApprovalDecision(input)).toBeNull();
   });
