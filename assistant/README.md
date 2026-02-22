@@ -152,6 +152,26 @@ CHANNEL_APPROVALS_ENABLED=true
 
 When disabled (the default), channel messages follow the standard fire-and-forget processing path without approval interception.
 
+### Guardian-Specific Behavior
+
+When `CHANNEL_APPROVALS_ENABLED=true`, the channel guardian system adds a trust layer:
+
+| Flag / Behavior | Description |
+|-----------------|-------------|
+| `CHANNEL_APPROVALS_ENABLED=true` | Enables the approval flow and guardian role resolution on channel inbound messages |
+| `forceStrictSideEffects` | Automatically set on runs triggered by non-guardian or unverified-channel senders so all side-effect tools require approval |
+| **Fail-closed no-binding** | When no guardian binding exists for a channel, the sender is classified as `unverified_channel`. Any sensitive action is auto-denied with a notice that no guardian has been configured. This prevents unverified senders from self-approving actions. |
+| **Guardian-only approval** | Non-guardian senders cannot approve their own pending actions. Only the verified guardian can approve or deny. |
+| **Expired approval auto-deny** | If a guardian approval request expires (30-minute TTL) without a decision, the action is auto-denied when the non-guardian sender next interacts. |
+
+### Gateway-Origin Ingress Contract
+
+The `/channels/inbound` endpoint requires a valid `X-Gateway-Origin` header that matches the configured bearer token. This ensures channel messages can only be submitted via the gateway (which performs webhook-level verification) and not via direct HTTP calls that bypass signature checks.
+
+- **With bearer token configured:** Requests must include `X-Gateway-Origin` with the shared secret. Missing or invalid values return `403 GATEWAY_ORIGIN_REQUIRED`.
+- **Without bearer token:** Gateway-origin validation is skipped (local dev without auth).
+- **Auth layer order:** Bearer token authentication (`Authorization` header) is checked first. Gateway-origin validation runs inside the handler.
+
 ## Twilio Setup Primitive
 
 Twilio is the shared telephony provider for both voice calls and SMS messaging. Configuration is managed through the `twilio_config` IPC contract and the `twilio-setup` skill.

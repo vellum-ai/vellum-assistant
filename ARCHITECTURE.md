@@ -3625,20 +3625,25 @@ A challenge-response handshake binds a Telegram user as the guardian:
 sequenceDiagram
     participant User as Guardian Candidate
     participant Desktop as Desktop / IPC
-    participant Daemon as Daemon (Runtime)
     participant TG as Telegram
+    participant GW as Gateway
+    participant Daemon as Daemon (Runtime)
 
     Desktop->>Daemon: guardian_verify IPC (action: create_challenge)
     Daemon->>Daemon: Generate random secret, hash (SHA-256), store challenge (10min TTL)
     Daemon-->>Desktop: Return secret + instruction
     Desktop-->>User: Display: "Send /guardian_verify <secret> to the bot"
     User->>TG: /guardian_verify <secret>
-    TG->>Daemon: POST /v1/channels/inbound (content: /guardian_verify <secret>)
+    TG->>GW: POST /webhooks/telegram (webhook secret validated)
+    GW->>GW: Verify webhook secret, normalize update
+    GW->>Daemon: POST /v1/channels/inbound (X-Gateway-Origin proof)
+    Daemon->>Daemon: Verify gateway-origin proof
     Daemon->>Daemon: Hash secret, find pending challenge, validate expiry
     Daemon->>Daemon: Consume challenge (replay prevention)
     Daemon->>Daemon: Revoke existing binding (if any)
     Daemon->>Daemon: Create new guardian binding (active)
-    Daemon-->>TG: "You are now the guardian"
+    Daemon->>GW: Reply via callback URL
+    GW->>TG: sendMessage: "You are now the guardian"
 ```
 
 The raw secret is shown only once in the desktop UI. Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused.
@@ -3657,19 +3662,29 @@ When a non-guardian user triggers a tool requiring confirmation, the approval is
 ```mermaid
 sequenceDiagram
     participant NG as Non-Guardian User
+    participant TG as Telegram
+    participant GW as Gateway
     participant Daemon as Daemon (Runtime)
     participant Guardian as Guardian (Telegram DM)
 
-    NG->>Daemon: Message triggers tool use
+    NG->>TG: Message triggers tool use
+    TG->>GW: POST /webhooks/telegram
+    GW->>Daemon: POST /v1/channels/inbound (X-Gateway-Origin proof)
     Daemon->>Daemon: Detect non-guardian, set forceStrictSideEffects
     Daemon->>Daemon: Tool needs confirmation → create GuardianApprovalRequest
-    Daemon->>Guardian: POST /deliver/telegram (approval prompt + inline keyboard)
-    Daemon-->>NG: "Waiting for guardian approval..."
-    Guardian->>Daemon: Approve / Deny (callback_query or text)
+    Daemon->>GW: POST /deliver/telegram (approval prompt + inline keyboard)
+    GW->>Guardian: sendMessage (approval prompt)
+    Daemon->>GW: POST /deliver/telegram (requester notification)
+    GW-->>NG: "Waiting for guardian approval..."
+    Guardian->>TG: Approve / Deny (callback_query or text)
+    TG->>GW: POST /webhooks/telegram (callback_query)
+    GW->>Daemon: POST /v1/channels/inbound (X-Gateway-Origin proof)
     Daemon->>Daemon: Validate guardian identity, update approval decision
     Daemon->>Daemon: Apply decision to pending run
-    Daemon-->>NG: "Guardian approved/denied your request"
-    Daemon-->>Guardian: Confirmation of decision
+    Daemon->>GW: POST /deliver/telegram (outcome notification)
+    GW-->>NG: "Guardian approved/denied your request"
+    Daemon->>GW: POST /deliver/telegram (confirmation)
+    GW-->>Guardian: Confirmation of decision
 ```
 
 The `channelGuardianApprovalRequests` table tracks per-run approval state. Each request records the requester, guardian, tool name, risk level, and decision outcome.

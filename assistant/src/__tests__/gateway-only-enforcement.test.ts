@@ -518,6 +518,91 @@ describe('gateway-only ingress enforcement', () => {
 
   });
 
+  // ── Gateway-origin proof on /channels/inbound ──────────────────────
+
+  describe('gateway-origin proof on /channels/inbound', () => {
+
+    test('POST /v1/channels/inbound with auth but missing X-Gateway-Origin returns 403', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/channels/inbound`, {
+        method: 'POST',
+        headers: {
+          ...AUTH_HEADERS,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sourceChannel: 'telegram',
+          externalChatId: '12345',
+          externalMessageId: 'msg-gw-1',
+          content: 'hello',
+        }),
+      });
+      expect(res.status).toBe(403);
+      const body = await res.json() as { error: string; code: string };
+      expect(body.code).toBe('GATEWAY_ORIGIN_REQUIRED');
+      expect(body.error).toContain('gateway-origin proof');
+    });
+
+    test('POST /v1/channels/inbound with auth and invalid X-Gateway-Origin returns 403', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/channels/inbound`, {
+        method: 'POST',
+        headers: {
+          ...AUTH_HEADERS,
+          'Content-Type': 'application/json',
+          'X-Gateway-Origin': 'wrong-secret-value',
+        },
+        body: JSON.stringify({
+          sourceChannel: 'telegram',
+          externalChatId: '12345',
+          externalMessageId: 'msg-gw-2',
+          content: 'hello',
+        }),
+      });
+      expect(res.status).toBe(403);
+      const body = await res.json() as { error: string; code: string };
+      expect(body.code).toBe('GATEWAY_ORIGIN_REQUIRED');
+    });
+
+    test('POST /v1/channels/inbound with auth and valid X-Gateway-Origin passes gateway check', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/channels/inbound`, {
+        method: 'POST',
+        headers: {
+          ...AUTH_HEADERS,
+          'Content-Type': 'application/json',
+          'X-Gateway-Origin': TEST_TOKEN,
+        },
+        body: JSON.stringify({
+          sourceChannel: 'telegram',
+          externalChatId: '12345',
+          externalMessageId: 'msg-gw-3',
+          content: 'hello',
+        }),
+      });
+      // Should NOT be 403 — the gateway-origin check passes. It may return
+      // 200 (accepted) since there's no processMessage configured, or another
+      // non-403 status from downstream logic.
+      expect(res.status).not.toBe(403);
+    });
+
+    test('POST /v1/channels/inbound without auth still returns 401 (auth before gateway-origin)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/channels/inbound`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Gateway-Origin': TEST_TOKEN,
+        },
+        body: JSON.stringify({
+          sourceChannel: 'telegram',
+          externalChatId: '12345',
+          externalMessageId: 'msg-gw-4',
+          content: 'hello',
+        }),
+      });
+      // Auth middleware fires first, so even with a valid gateway-origin
+      // header, the request is rejected if bearer auth is missing.
+      expect(res.status).toBe(401);
+    });
+  });
+
   // ── Startup warning for non-loopback host ──────────────────────────
 
   describe('startup guard — non-loopback host', () => {

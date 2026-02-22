@@ -3,11 +3,21 @@ import { getLogger } from "../logger.js";
 
 const log = getLogger("runtime-client");
 
+/**
+ * Header name used to prove a request originated from the gateway.
+ * The value is the shared bearer token — the runtime validates it to reject
+ * direct calls that bypass the gateway's webhook-level verification.
+ */
+export const GATEWAY_ORIGIN_HEADER = "X-Gateway-Origin";
+
 /** Build common headers for runtime requests, including auth when configured. */
 function runtimeHeaders(config: GatewayConfig, extra?: Record<string, string>): Record<string, string> {
   const headers: Record<string, string> = { ...extra };
   if (config.runtimeBearerToken) {
     headers["Authorization"] = `Bearer ${config.runtimeBearerToken}`;
+    // Attach gateway-origin proof so the runtime can distinguish
+    // gateway-forwarded requests from direct external calls.
+    headers[GATEWAY_ORIGIN_HEADER] = config.runtimeBearerToken;
   }
   return headers;
 }

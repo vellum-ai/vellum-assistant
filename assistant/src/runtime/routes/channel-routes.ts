@@ -2,6 +2,7 @@
  * Route handlers for channel inbound messages, delivery acks, and
  * conversation deletion.
  */
+import { timingSafeEqual } from 'node:crypto';
 import { deleteConversationKey } from '../../memory/conversation-key-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
@@ -42,6 +43,37 @@ import type {
 } from '../http-types.js';
 
 const log = getLogger('runtime-http');
+
+// ---------------------------------------------------------------------------
+// Gateway-origin proof
+// ---------------------------------------------------------------------------
+
+/**
+ * Header name used by the gateway to prove a request originated from it.
+ * The gateway sets this to the shared bearer token; the runtime validates
+ * it using constant-time comparison. Requests to `/channels/inbound`
+ * that lack a valid gateway-origin proof are rejected with 403.
+ */
+export const GATEWAY_ORIGIN_HEADER = 'X-Gateway-Origin';
+
+/**
+ * Validate that the request carries a valid gateway-origin proof.
+ * Returns true when the header value matches the expected bearer token
+ * using constant-time comparison to prevent timing attacks.
+ *
+ * When no bearer token is configured (e.g., local dev without auth),
+ * gateway-origin validation is skipped — the server is already
+ * unauthenticated, so there is no shared secret to verify against.
+ */
+export function verifyGatewayOrigin(req: Request, bearerToken?: string): boolean {
+  if (!bearerToken) return true; // No shared secret configured — skip validation
+  const provided = req.headers.get(GATEWAY_ORIGIN_HEADER);
+  if (!provided) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(bearerToken);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 // ---------------------------------------------------------------------------
 // Actor role
@@ -135,6 +167,17 @@ export async function handleChannelInbound(
   bearerToken?: string,
   runOrchestrator?: RunOrchestrator,
 ): Promise<Response> {
+  // Reject requests that lack valid gateway-origin proof. This ensures
+  // channel inbound messages can only arrive via the gateway (which
+  // performs webhook-level verification) and not via direct HTTP calls.
+  if (!verifyGatewayOrigin(req, bearerToken)) {
+    log.warn('Rejected channel inbound request: missing or invalid gateway-origin proof');
+    return Response.json(
+      { error: 'Forbidden: missing gateway-origin proof', code: 'GATEWAY_ORIGIN_REQUIRED' },
+      { status: 403 },
+    );
+  }
+
   const body = await req.json() as {
     sourceChannel?: string;
     externalChatId?: string;

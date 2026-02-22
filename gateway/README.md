@@ -339,3 +339,14 @@ See [`benchmarking/gateway/README.md`](../benchmarking/gateway/README.md) for lo
 | "No route configured" replies | Add a routing entry or set `GATEWAY_UNMAPPED_POLICY=default` with a default assistant |
 | Runtime errors | Is `ASSISTANT_RUNTIME_BASE_URL` reachable? Check runtime logs. |
 | No reply from assistant | Is the assistant runtime processing messages? Check for `RUNTIME_HTTP_PORT` env var. |
+| 403 `GATEWAY_ORIGIN_REQUIRED` on channel inbound | The runtime rejected the request because it lacks a valid `X-Gateway-Origin` header. Ensure `RUNTIME_BEARER_TOKEN` (or the `~/.vellum/http-token` file) is set so the gateway and runtime share the same secret. |
+
+### Guardian-Specific Troubleshooting
+
+| Symptom | Cause | Resolution |
+|---------|-------|------------|
+| `/guardian_verify` command gets no reply | The verification message did not reach the runtime, or the challenge expired | Ensure the gateway is running, the bot token is valid, and the Telegram webhook is registered. Challenges expire after 10 minutes -- generate a new one via the desktop UI. |
+| Non-guardian actions auto-denied with "no guardian configured" | No guardian binding exists for the channel. The system is fail-closed: without a guardian, all sensitive actions are denied. | Set up a guardian by running the verification flow from the desktop UI. |
+| Approval prompt not delivered to guardian | The `replyCallbackUrl` may be unreachable, or the guardian's chat ID is stale | Verify `GATEWAY_INTERNAL_BASE_URL` is set correctly (especially in containerized deployments). Re-verify the guardian if the chat ID has changed. |
+| Guardian approval expired | The 30-minute TTL elapsed without a decision | The approval is auto-denied. The non-guardian user must re-trigger the action. |
+| "Only the verified guardian can approve or deny" | A non-guardian sender attempted to respond to a guardian approval prompt | Only the guardian whose `externalUserId` matches the approval request can approve or deny. |

@@ -62,7 +62,7 @@ function makeWebhookRequest(payload: unknown, secret = "test-webhook-secret"): R
 }
 
 const originalFetch = globalThis.fetch;
-let fetchCalls: { url: string; method: string; body?: unknown }[];
+let fetchCalls: { url: string; method: string; body?: unknown; headers?: Record<string, string> }[];
 
 beforeEach(() => {
   fetchCalls = [];
@@ -71,6 +71,25 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.fetch = originalFetch;
 });
+
+/** Extract headers from a fetch call into a plain object. */
+function extractHeaders(input: string | URL | Request, init?: RequestInit): Record<string, string> {
+  const result: Record<string, string> = {};
+  let headers: HeadersInit | undefined;
+  if (init?.headers) {
+    headers = init.headers;
+  } else if (typeof input === "object" && "headers" in input) {
+    headers = (input as Request).headers;
+  }
+  if (headers instanceof Headers) {
+    headers.forEach((v, k) => { result[k] = v; });
+  } else if (headers && typeof headers === "object" && !Array.isArray(headers)) {
+    for (const [k, v] of Object.entries(headers)) {
+      result[k] = v;
+    }
+  }
+  return result;
+}
 
 /**
  * Install a mock fetch that records calls and returns a 200 JSON response.
@@ -88,7 +107,8 @@ function installFetchMock() {
         body = await (input as Request).clone().json();
       }
     } catch { /* not JSON */ }
-    fetchCalls.push({ url, method, body });
+    const headers = extractHeaders(input, init);
+    fetchCalls.push({ url, method, body, headers });
 
     // Runtime inbound endpoint
     if (url.includes("/v1/assistants/") && url.includes("/inbound")) {
@@ -464,5 +484,46 @@ describe("telegram webhook handler: callback_query forwarding", () => {
     const runtimeBody = runtimeCall!.body as any;
     expect(runtimeBody.callbackQueryId).toBeUndefined();
     expect(runtimeBody.callbackData).toBeUndefined();
+  });
+});
+
+describe("telegram webhook handler: gateway-origin marker", () => {
+  test("forwards X-Gateway-Origin header when runtimeBearerToken is configured", async () => {
+    const bearerToken = "secret-runtime-token";
+    const config = makeConfig({
+      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
+      runtimeBearerToken: bearerToken,
+    });
+    installFetchMock();
+    const handler = createTelegramWebhookHandler(config);
+
+    const payload = makeTelegramPayload("hello", 8001);
+    const req = makeWebhookRequest(payload);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+
+    const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
+    expect(runtimeCall).toBeDefined();
+    expect(runtimeCall!.headers?.["x-gateway-origin"]).toBe(bearerToken);
+  });
+
+  test("does not include X-Gateway-Origin header when no runtimeBearerToken", async () => {
+    const config = makeConfig({
+      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
+      runtimeBearerToken: undefined,
+    });
+    installFetchMock();
+    const handler = createTelegramWebhookHandler(config);
+
+    const payload = makeTelegramPayload("hello", 8002);
+    const req = makeWebhookRequest(payload);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+
+    const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
+    expect(runtimeCall).toBeDefined();
+    expect(runtimeCall!.headers?.["x-gateway-origin"]).toBeUndefined();
   });
 });
