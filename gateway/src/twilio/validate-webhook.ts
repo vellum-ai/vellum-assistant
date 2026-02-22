@@ -45,11 +45,10 @@ function buildSignatureUrlCandidates(req: Request, config: GatewayConfig): strin
     addBase(`${forwardedProto}://${forwardedHost}`);
   }
 
-  // Include the raw request URL as a fallback only when no canonical public
-  // URL is configured. When ingressPublicBaseUrl is set, we enforce that the
-  // signature matches the public URL (or forwarded headers) to prevent
-  // accepting signatures computed against the local/internal URL.
-  if (!config.ingressPublicBaseUrl?.trim() && !candidates.includes(req.url)) {
+  // Always include the raw request URL as the final fallback candidate so
+  // valid signatures are not rejected when the other candidates are stale or
+  // incorrectly reconstructed (e.g. mixed proxy/tunnel setups).
+  if (!candidates.includes(req.url)) {
     candidates.push(req.url);
   }
 

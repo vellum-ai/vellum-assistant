@@ -359,7 +359,16 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
     expect(res.status).toBe(200);
   });
 
-  test("rejects when signature matches local URL but not public URL", async () => {
+  test("accepts when signature matches raw request URL even with public URL configured", async () => {
+    mockFetch(() =>
+      Promise.resolve(
+        new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
+      ),
+    );
+
     const publicBaseUrl = "https://public.example.com";
     const config = makeConfig({ ingressPublicBaseUrl: publicBaseUrl });
     const handler = createTwilioVoiceWebhookHandler(config);
@@ -367,7 +376,8 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
     const localUrl = "http://localhost:7830/webhooks/twilio/voice";
     const params = { CallSid: "CA123" };
 
-    // Sign against the LOCAL URL (incorrect — Twilio would sign against public)
+    // Sign against the raw request URL — the raw URL is always included as
+    // a final fallback candidate to prevent false 403s in mixed setups.
     const signature = computeSignature(localUrl, params, AUTH_TOKEN);
     const body = new URLSearchParams(params).toString();
     const req = new Request(localUrl, {
@@ -380,7 +390,7 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
     });
 
     const res = await handler(req);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
   });
 
   test("accepts signature from forwarded public URL headers when configured URL is stale", async () => {
