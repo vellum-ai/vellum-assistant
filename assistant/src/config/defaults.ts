@@ -235,7 +235,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       fallbackToStandardOnError: true,
       elevenlabs: {
         voiceId: '',
-        voiceModelId: 'turbo_v2_5',
+        voiceModelId: '',
         speed: 1.0,
         stability: 0.5,
         similarityBoost: 0.75,

@@ -915,7 +915,7 @@ export const CallsElevenLabsConfigSchema = z.object({
     .default(''),
   voiceModelId: z
     .string({ error: 'calls.voice.elevenlabs.voiceModelId must be a string' })
-    .default('turbo_v2_5'),
+    .default(''),
   speed: z
     .number({ error: 'calls.voice.elevenlabs.speed must be a number' })
     .min(0.7, 'calls.voice.elevenlabs.speed must be >= 0.7')
@@ -967,7 +967,7 @@ export const CallsVoiceConfigSchema = z.object({
     .default(true),
   elevenlabs: CallsElevenLabsConfigSchema.default({
     voiceId: '',
-    voiceModelId: 'turbo_v2_5',
+    voiceModelId: '',
     speed: 1.0,
     stability: 0.5,
     similarityBoost: 0.75,
@@ -1022,7 +1022,7 @@ export const CallsConfigSchema = z.object({
     fallbackToStandardOnError: true,
     elevenlabs: {
       voiceId: '',
-      voiceModelId: 'turbo_v2_5',
+      voiceModelId: '',
       speed: 1.0,
       stability: 0.5,
       similarityBoost: 0.75,
@@ -1327,7 +1327,7 @@ export const AssistantConfigSchema = z.object({
       fallbackToStandardOnError: true,
       elevenlabs: {
         voiceId: '',
-        voiceModelId: 'turbo_v2_5',
+        voiceModelId: '',
         speed: 1.0,
         stability: 0.5,
         similarityBoost: 0.75,

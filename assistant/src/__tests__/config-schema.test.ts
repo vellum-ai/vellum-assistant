@@ -693,7 +693,7 @@ describe('AssistantConfigSchema', () => {
         fallbackToStandardOnError: true,
         elevenlabs: {
           voiceId: '',
-          voiceModelId: 'turbo_v2_5',
+          voiceModelId: '',
           speed: 1.0,
           stability: 0.5,
           similarityBoost: 0.75,
@@ -806,7 +806,7 @@ describe('AssistantConfigSchema', () => {
     expect(result.calls.voice.transcriptionProvider).toBe('Deepgram');
     expect(result.calls.voice.fallbackToStandardOnError).toBe(true);
     expect(result.calls.voice.elevenlabs.voiceId).toBe('');
-    expect(result.calls.voice.elevenlabs.voiceModelId).toBe('turbo_v2_5');
+    expect(result.calls.voice.elevenlabs.voiceModelId).toBe('');
     expect(result.calls.voice.elevenlabs.speed).toBe(1.0);
     expect(result.calls.voice.elevenlabs.stability).toBe(0.5);
     expect(result.calls.voice.elevenlabs.similarityBoost).toBe(0.75);
@@ -860,7 +860,7 @@ describe('AssistantConfigSchema', () => {
     expect(result.calls.voice.elevenlabs.voiceId).toBe('abc123');
     expect(result.calls.voice.elevenlabs.stability).toBe(0.8);
     // Defaults preserved for unset fields
-    expect(result.calls.voice.elevenlabs.voiceModelId).toBe('turbo_v2_5');
+    expect(result.calls.voice.elevenlabs.voiceModelId).toBe('');
     expect(result.calls.voice.elevenlabs.similarityBoost).toBe(0.75);
   });
 
@@ -996,7 +996,7 @@ describe('resolveVoiceQualityProfile', () => {
     const profile = resolveVoiceQualityProfile(config);
     expect(profile.mode).toBe('twilio_elevenlabs_tts');
     expect(profile.ttsProvider).toBe('ElevenLabs');
-    expect(profile.voice).toBe('test-voice-id-turbo_v2_5-1_0.5_0.75');
+    expect(profile.voice).toBe('test-voice-id');
     expect(profile.validationErrors).toEqual([]);
   });
 
@@ -1046,7 +1046,7 @@ describe('resolveVoiceQualityProfile', () => {
     const profile = resolveVoiceQualityProfile(config);
     expect(profile.mode).toBe('elevenlabs_agent');
     expect(profile.ttsProvider).toBe('ElevenLabs');
-    expect(profile.voice).toBe('v1-turbo_v2_5-1_0.5_0.75');
+    expect(profile.voice).toBe('v1');
     expect(profile.agentId).toBe('agent-123');
     expect(profile.validationErrors).toEqual([]);
   });
@@ -1122,7 +1122,7 @@ describe('buildElevenLabsVoiceSpec', () => {
     expect(spec).toBe('myVoice-eleven_multilingual_v2-0.9_0.8_0.9');
   });
 
-  test('default config produces valid speed (not below 0.7)', () => {
+  test('default config uses a bare voiceId when no model override is set', () => {
     const config = AssistantConfigSchema.parse({
       calls: {
         voice: {
@@ -1132,12 +1132,7 @@ describe('buildElevenLabsVoiceSpec', () => {
       },
     });
     const spec = buildElevenLabsVoiceSpec(config.calls.voice.elevenlabs);
-    // speed=1, stability=0.5, similarity=0.75
-    expect(spec).toBe('test-turbo_v2_5-1_0.5_0.75');
-    // The first numeric value (speed) must be >= 0.7 for Twilio
-    const parts = spec.split('-');
-    const tuning = parts[2].split('_');
-    expect(Number(tuning[0])).toBeGreaterThanOrEqual(0.7);
+    expect(spec).toBe('test');
   });
 });
 

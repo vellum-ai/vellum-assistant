@@ -176,17 +176,33 @@ ElevenLabs integration is entirely optional. The standard Twilio-only setup work
 
 ### Mode: `twilio_elevenlabs_tts`
 
-Uses ElevenLabs voices through Twilio's ConversationRelay. Speech is more natural-sounding than the default Google TTS voices. No ElevenLabs API key is needed for this mode — just a voice ID.
+Uses ElevenLabs voices through Twilio's ConversationRelay. Speech is more natural-sounding than the default Google TTS voices.
 
-**Setup:**
+**Recommended user-friendly workflow (no technical IDs required):**
 
-1. Browse ElevenLabs voices at https://elevenlabs.io/voice-library and pick a voice ID
-2. Set the voice mode and voice ID:
+1. Ask what kind of voice the user wants (examples: "warm", "professional", "playful", "calm", "deeper", "brighter")
+2. If the user doesn't care, keep `twilio_standard` (simplest path)
+3. If they want higher-quality voice, switch to `twilio_elevenlabs_tts` and choose a matching ElevenLabs voice on their behalf
+
+The user should not need to know what a `voiceId` is unless they explicitly want advanced/manual control.
+
+**Manual/advanced setup (optional):**
 
 ```bash
 vellum config set calls.voice.mode twilio_elevenlabs_tts
 vellum config set calls.voice.elevenlabs.voiceId "<your-voice-id>"
 ```
+
+By default, the system sends a **bare** `voiceId` to Twilio ConversationRelay (no model/tuning suffix). This is the safest default across voice IDs.
+
+If you want to force Twilio's extended voice spec, you can optionally set a model ID:
+
+```bash
+vellum config set calls.voice.elevenlabs.voiceModelId "flash_v2_5"
+```
+
+When `voiceModelId` is set, the emitted voice string becomes:
+`voiceId-model-speed_stability_similarity`.
 
 ### Mode: `elevenlabs_agent` (experimental/restricted)
 
@@ -404,7 +420,8 @@ All call-related settings can be managed via `vellum config`:
 | `calls.voice.language` | Language code for TTS and transcription | `en-US` |
 | `calls.voice.transcriptionProvider` | Speech-to-text provider (`Deepgram`, `Google`) | `Deepgram` |
 | `calls.voice.fallbackToStandardOnError` | Auto-fallback to standard Twilio TTS on ElevenLabs errors | `true` |
-| `calls.voice.elevenlabs.voiceId` | ElevenLabs voice ID (for `twilio_elevenlabs_tts` mode) | *(empty)* |
+| `calls.voice.elevenlabs.voiceId` | Advanced/internal ElevenLabs voice identifier. Usually set by the assistant based on requested voice style | *(empty)* |
+| `calls.voice.elevenlabs.voiceModelId` | Optional Twilio ConversationRelay model suffix. Leave empty to send bare `voiceId` | *(empty)* |
 | `calls.voice.elevenlabs.agentId` | ElevenLabs agent ID (for `elevenlabs_agent` mode) | *(empty)* |
 | `calls.voice.elevenlabs.speed` | Playback speed (`0.7` – `1.2`) | `1.0` |
 | `calls.voice.elevenlabs.stability` | Voice stability (`0.0` – `1.0`) | `0.5` |
@@ -471,8 +488,15 @@ The system has a 30-second silence timeout. If nobody speaks for 30 seconds, the
 
 ### Call quality didn't improve after enabling ElevenLabs
 - Verify `calls.voice.mode` is set to `twilio_elevenlabs_tts` or `elevenlabs_agent` (not still `twilio_standard`)
-- Check that `calls.voice.elevenlabs.voiceId` contains a valid ElevenLabs voice ID
+- Ask for the desired voice style again and try a different voice selection
+- If configuring manually: check that `calls.voice.elevenlabs.voiceId` contains a valid ElevenLabs voice ID
 - If mode is `elevenlabs_agent`, ensure `calls.voice.elevenlabs.agentId` is also set
+
+### Twilio says "application error" right after answer
+- This often means ConversationRelay rejected voice configuration after TwiML fetch
+- Keep `calls.voice.elevenlabs.voiceModelId` empty first (bare `voiceId` mode)
+- If you set `voiceModelId`, try clearing it and retesting:
+  `vellum config set calls.voice.elevenlabs.voiceModelId ""`
 
 ### ElevenLabs mode falls back to standard
 When `calls.voice.fallbackToStandardOnError` is `true` (the default), the system silently falls back to standard Twilio TTS if ElevenLabs encounters an error or restriction. Check:

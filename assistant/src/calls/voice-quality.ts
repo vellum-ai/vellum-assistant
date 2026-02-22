@@ -14,25 +14,33 @@ export interface VoiceQualityProfile {
 /**
  * Build a Twilio-compatible ElevenLabs voice string.
  *
- * Twilio ConversationRelay expects the format:
- *   voiceId-model-speed_stability_similarity
+ * Twilio ConversationRelay accepts:
+ *   - bare voiceId
+ *   - voiceId-model-speed_stability_similarity
  *
- * Where:
- *   - speed:      0.7 – 1.2  (playback speed)
- *   - stability:  0.0 – 1.0
- *   - similarity: 0.0 – 1.0
+ * We default to bare voiceId unless a model is explicitly configured.
+ * This avoids forcing model/tuning suffixes that may be rejected for some
+ * voice + model combinations.
  *
  * See: https://www.twilio.com/docs/voice/conversationrelay/voice-configuration
  */
 export function buildElevenLabsVoiceSpec(config: {
   voiceId: string;
-  voiceModelId: string;
-  speed: number;
-  stability: number;
-  similarityBoost: number;
+  voiceModelId?: string;
+  speed?: number;
+  stability?: number;
+  similarityBoost?: number;
 }): string {
-  if (!config.voiceId) return '';
-  return `${config.voiceId}-${config.voiceModelId}-${config.speed}_${config.stability}_${config.similarityBoost}`;
+  const voiceId = config.voiceId?.trim();
+  if (!voiceId) return '';
+
+  const voiceModelId = config.voiceModelId?.trim();
+  if (!voiceModelId) return voiceId;
+
+  const speed = config.speed ?? 1.0;
+  const stability = config.stability ?? 0.5;
+  const similarityBoost = config.similarityBoost ?? 0.75;
+  return `${voiceId}-${voiceModelId}-${speed}_${stability}_${similarityBoost}`;
 }
 
 /**
