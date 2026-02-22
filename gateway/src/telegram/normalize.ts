@@ -79,6 +79,13 @@ export function normalizeTelegramUpdate(
     }
 
     const chatId = String(cbq.message.chat.id);
+    const chatType = cbq.message.chat.type;
+
+    // v1 is DM-only — reject callback queries from groups/channels
+    if (chatType !== "private") {
+      return null;
+    }
+
     const externalUserId = cbq.from?.id ? String(cbq.from.id) : chatId;
 
     const displayName = [cbq.from?.first_name, cbq.from?.last_name]

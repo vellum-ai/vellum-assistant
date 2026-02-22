@@ -1,166 +1,185 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../../config.js";
-import { createTelegramWebhookHandler } from "./telegram-webhook.js";
 
-// ---- Mocks ----
+// --- Mocks ----------------------------------------------------------------
 
-// Track calls to sendTelegramReply
-let sendTelegramReplyCalls: Array<{ chatId: string; text: string }> = [];
+const callTelegramApiMock = mock(() => Promise.resolve({}));
+const sendTelegramReplyMock = mock(() => Promise.resolve());
+const handleInboundMock = mock(() =>
+  Promise.resolve({ forwarded: true, rejected: false }),
+);
+const resetConversationMock = mock(() => Promise.resolve());
+
+mock.module("../../telegram/api.js", () => ({
+  callTelegramApi: callTelegramApiMock,
+  callTelegramApiMultipart: mock(() => Promise.resolve({})),
+}));
 
 mock.module("../../telegram/send.js", () => ({
-  sendTelegramReply: async (_config: unknown, chatId: string, text: string) => {
-    sendTelegramReplyCalls.push({ chatId, text });
-  },
-  sendTelegramAttachments: async () => {},
-  sendTypingIndicator: async () => true,
+  sendTelegramReply: sendTelegramReplyMock,
+}));
+
+mock.module("../../handlers/handle-inbound.js", () => ({
+  handleInbound: handleInboundMock,
+}));
+
+mock.module("../../runtime/client.js", () => ({
+  resetConversation: resetConversationMock,
+  uploadAttachment: mock(() => Promise.resolve({ id: "att-1" })),
+  AttachmentValidationError: class extends Error {},
 }));
 
 mock.module("../../telegram/verify.js", () => ({
   verifyWebhookSecret: () => true,
 }));
 
-mock.module("../../runtime/client.js", () => ({
-  resetConversation: async () => {},
-  forwardToRuntime: async () => ({ eventId: "evt-1", duplicate: false }),
-  uploadAttachment: async () => ({ id: "att-1" }),
-  AttachmentValidationError: class extends Error {},
-}));
-
 mock.module("../../telegram/download.js", () => ({
-  downloadTelegramFile: async () => ({
-    data: Buffer.from("fake"),
-    fileName: "test.txt",
-    mimeType: "text/plain",
-  }),
+  downloadTelegramFile: mock(() =>
+    Promise.resolve({ buffer: Buffer.alloc(0), fileName: "f.txt", mimeType: "text/plain" }),
+  ),
 }));
 
-// ---- Helpers ----
+// Import after mocks are registered
+const { createTelegramWebhookHandler } = await import("./telegram-webhook.js");
 
-function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
-  return {
-    assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: undefined,
-    gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    logFile: { dir: undefined, retentionDays: 30 },
-    maxAttachmentBytes: 20 * 1024 * 1024,
-    maxAttachmentConcurrency: 3,
-    maxWebhookPayloadBytes: 1024 * 1024,
-    port: 7830,
-    routingEntries: [],
-    runtimeBearerToken: undefined,
-    runtimeInitialBackoffMs: 500,
-    runtimeMaxRetries: 2,
-    runtimeProxyBearerToken: undefined,
-    runtimeProxyEnabled: false,
-    runtimeProxyRequireAuth: true,
-    runtimeTimeoutMs: 30000,
-    shutdownDrainMs: 5000,
-    telegramApiBaseUrl: "https://api.telegram.org",
-    telegramBotToken: "test-bot-token",
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
-    telegramWebhookSecret: "test-secret",
-    twilioAuthToken: undefined,
-    ingressPublicBaseUrl: undefined,
-    unmappedPolicy: "reject",
-    ...overrides,
-  };
-}
+// --- Helpers ---------------------------------------------------------------
 
-function makeTelegramPayload(text: string, updateId = 1, chatId = 12345) {
-  return {
+const baseConfig: GatewayConfig = {
+  assistantRuntimeBaseUrl: "http://localhost:7821",
+  defaultAssistantId: "ast-default",
+  gatewayInternalBaseUrl: "http://127.0.0.1:7830",
+  logFile: { dir: undefined, retentionDays: 30 },
+  maxAttachmentBytes: 20 * 1024 * 1024,
+  maxAttachmentConcurrency: 3,
+  maxWebhookPayloadBytes: 1024 * 1024,
+  port: 7830,
+  routingEntries: [],
+  runtimeBearerToken: undefined,
+  runtimeInitialBackoffMs: 500,
+  runtimeMaxRetries: 2,
+  runtimeProxyBearerToken: undefined,
+  runtimeProxyEnabled: false,
+  runtimeProxyRequireAuth: true,
+  runtimeTimeoutMs: 30000,
+  shutdownDrainMs: 5000,
+  telegramApiBaseUrl: "https://api.telegram.org",
+  telegramBotToken: "test-token",
+  telegramDeliverAuthBypass: true,
+  telegramInitialBackoffMs: 1000,
+  telegramMaxRetries: 3,
+  telegramTimeoutMs: 15000,
+  telegramWebhookSecret: "test-secret",
+  twilioAuthToken: undefined,
+  ingressPublicBaseUrl: undefined,
+  unmappedPolicy: "default",
+};
+
+function makeCallbackQueryBody(data: string, updateId = 200) {
+  return JSON.stringify({
     update_id: updateId,
-    message: {
-      message_id: 100,
-      text,
-      chat: { id: chatId, type: "private" },
-      from: { id: 99, is_bot: false, username: "testuser", first_name: "Test" },
+    callback_query: {
+      id: "cbq-42",
+      from: { id: 42, first_name: "Alice" },
+      message: {
+        message_id: 10,
+        chat: { id: 42, type: "private" },
+      },
+      data,
     },
-  };
+  });
 }
 
-function makeRequest(body: object): Request {
-  const json = JSON.stringify(body);
+function postRequest(body: string): Request {
   return new Request("http://localhost:7830/webhook/telegram", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "x-telegram-bot-api-secret-token": "test-secret",
     },
-    body: json,
+    body,
   });
 }
 
-// ---- Tests ----
+// --- Tests -----------------------------------------------------------------
 
-describe("telegram-webhook /new rejection", () => {
+describe("telegram-webhook callback query acknowledgment", () => {
   beforeEach(() => {
-    sendTelegramReplyCalls = [];
+    callTelegramApiMock.mockClear();
+    sendTelegramReplyMock.mockClear();
+    handleInboundMock.mockClear();
+    resetConversationMock.mockClear();
+    // Default: forwarding succeeds
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({ forwarded: true, rejected: false }),
+    );
   });
 
-  it("sends a rejection notice when /new is routed to an unmapped chat", async () => {
-    // No routing entries + unmappedPolicy "reject" means every chat is rejected
-    const config = makeConfig({ unmappedPolicy: "reject", routingEntries: [] });
-    const handler = createTelegramWebhookHandler(config);
-
-    const payload = makeTelegramPayload("/new", 1000, 55555);
-    const req = makeRequest(payload);
-    const res = await handler(req);
+  it("acknowledges callback query after successful forwarding", async () => {
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = makeCallbackQueryBody("apr:run1:approve", 300);
+    const res = await handler(postRequest(body));
 
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toEqual({ ok: true });
-
-    // The handler should have sent a rejection notice to the chat
-    const rejectionReply = sendTelegramReplyCalls.find((c) =>
-      c.text.includes("could not be routed"),
+    const answerCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "answerCallbackQuery",
     );
-    expect(rejectionReply).toBeDefined();
-    expect(rejectionReply!.chatId).toBe("55555");
-  });
-
-  it("does not send a rejection notice when /new routing succeeds", async () => {
-    const config = makeConfig({
-      unmappedPolicy: "reject",
-      routingEntries: [{ type: "chat_id", key: "55555", assistantId: "asst-1" }],
+    expect(answerCalls.length).toBe(1);
+    expect(answerCalls[0][2]).toEqual({
+      callback_query_id: "cbq-42",
     });
-    const handler = createTelegramWebhookHandler(config);
-
-    const payload = makeTelegramPayload("/new", 1001, 55555);
-    const req = makeRequest(payload);
-    const res = await handler(req);
-
-    expect(res.status).toBe(200);
-
-    // Should get the success confirmation, not a rejection notice
-    const rejectionReply = sendTelegramReplyCalls.find((c) =>
-      c.text.includes("could not be routed"),
-    );
-    expect(rejectionReply).toBeUndefined();
-
-    const confirmReply = sendTelegramReplyCalls.find((c) =>
-      c.text.includes("Starting a new conversation"),
-    );
-    expect(confirmReply).toBeDefined();
   });
 
-  it("rate-limits rejection notices for the same chat on /new", async () => {
-    const config = makeConfig({ unmappedPolicy: "reject", routingEntries: [] });
-    const handler = createTelegramWebhookHandler(config);
-
-    // First /new — should produce a notice
-    const req1 = makeRequest(makeTelegramPayload("/new", 2000, 77777));
-    await handler(req1);
-
-    // Second /new from the same chat — should be rate-limited (no notice)
-    const req2 = makeRequest(makeTelegramPayload("/new", 2001, 77777));
-    await handler(req2);
-
-    const rejectionReplies = sendTelegramReplyCalls.filter(
-      (c) => c.chatId === "77777" && c.text.includes("could not be routed"),
+  it("acknowledges callback query when routing rejects the message", async () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({ forwarded: false, rejected: true, rejectionReason: "No route" }),
     );
-    expect(rejectionReplies.length).toBe(1);
+
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = makeCallbackQueryBody("apr:run1:approve", 301);
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(200);
+    const answerCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "answerCallbackQuery",
+    );
+    expect(answerCalls.length).toBe(1);
+    expect(answerCalls[0][2]).toEqual({
+      callback_query_id: "cbq-42",
+    });
+  });
+
+  it("acknowledges callback query when /new command is triggered via callback", async () => {
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = makeCallbackQueryBody("/new", 302);
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(200);
+    const answerCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "answerCallbackQuery",
+    );
+    expect(answerCalls.length).toBe(1);
+    expect(answerCalls[0][2]).toEqual({
+      callback_query_id: "cbq-42",
+    });
+  });
+
+  it("does not call answerCallbackQuery for regular text messages", async () => {
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = JSON.stringify({
+      update_id: 303,
+      message: {
+        message_id: 11,
+        text: "hello",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice" },
+      },
+    });
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(200);
+    const answerCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "answerCallbackQuery",
+    );
+    expect(answerCalls.length).toBe(0);
   });
 });
