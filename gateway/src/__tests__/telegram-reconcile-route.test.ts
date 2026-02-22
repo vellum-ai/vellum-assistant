@@ -1,12 +1,19 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { createTelegramReconcileHandler } from "../http/routes/telegram-reconcile.js";
 import type { GatewayConfig } from "../config.js";
 
-// Mock reconcileTelegramWebhook so tests don't call the real Telegram API
-const mockReconcile = mock(() => Promise.resolve());
-mock.module("../telegram/webhook-manager.js", () => ({
-  reconcileTelegramWebhook: mockReconcile,
-}));
+// Instead of mock.module("../telegram/webhook-manager.js", ...) — which leaks
+// across Bun test files (process-global module mocks) — we mock globalThis.fetch
+// so that the real reconcileTelegramWebhook runs but API calls are intercepted.
+
+const originalFetch = globalThis.fetch;
+
+function makeTelegramResponse(result: unknown) {
+  return new Response(JSON.stringify({ ok: true, result }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {
@@ -31,7 +38,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     telegramBotToken: "bot-token",
     telegramDeliverAuthBypass: false,
     telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
+    telegramMaxRetries: 0,
     telegramTimeoutMs: 15000,
     telegramWebhookSecret: "webhook-secret",
     twilioAuthToken: undefined,
@@ -59,9 +66,36 @@ function makeRequest(
   });
 }
 
+/** Default fetch mock that handles Telegram API calls with success responses. */
+function installDefaultFetchMock() {
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+    if (url.includes("/getWebhookInfo")) {
+      return makeTelegramResponse({
+        url: "",
+        has_custom_certificate: false,
+        pending_update_count: 0,
+      });
+    }
+    if (url.includes("/setWebhook")) {
+      return makeTelegramResponse(true);
+    }
+    return new Response("Not found", { status: 404 });
+  }) as any;
+}
+
 describe("POST /internal/telegram/reconcile", () => {
   beforeEach(() => {
-    mockReconcile.mockClear();
+    installDefaultFetchMock();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
   test("rejects non-POST methods", async () => {
@@ -105,8 +139,8 @@ describe("POST /internal/telegram/reconcile", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(mockReconcile).toHaveBeenCalledTimes(1);
-    expect(mockReconcile).toHaveBeenCalledWith(config);
+    // Fetch was called (getWebhookInfo + setWebhook) proving reconcile ran.
+    expect(globalThis.fetch).toHaveBeenCalled();
   });
 
   test("updates ingressPublicBaseUrl when provided", async () => {
@@ -120,7 +154,6 @@ describe("POST /internal/telegram/reconcile", () => {
     expect(res.status).toBe(200);
     // Trailing slash should be normalized
     expect(config.ingressPublicBaseUrl).toBe("https://new.example.com");
-    expect(mockReconcile).toHaveBeenCalledTimes(1);
   });
 
   test("clears ingressPublicBaseUrl when empty string is provided", async () => {
@@ -133,7 +166,6 @@ describe("POST /internal/telegram/reconcile", () => {
     );
     expect(res.status).toBe(200);
     expect(config.ingressPublicBaseUrl).toBeUndefined();
-    expect(mockReconcile).toHaveBeenCalledTimes(1);
   });
 
   test("works with empty body (no URL update)", async () => {
@@ -148,13 +180,12 @@ describe("POST /internal/telegram/reconcile", () => {
     const res = await handler(req);
     expect(res.status).toBe(200);
     expect(config.ingressPublicBaseUrl).toBe("https://example.com");
-    expect(mockReconcile).toHaveBeenCalledTimes(1);
   });
 
   test("returns 502 when reconcile throws", async () => {
-    mockReconcile.mockImplementationOnce(() =>
-      Promise.reject(new Error("Telegram API error")),
-    );
+    globalThis.fetch = mock(async () => {
+      throw new Error("Telegram API error");
+    }) as any;
     const config = makeConfig();
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(makeRequest("POST", "test-token"));
@@ -179,13 +210,34 @@ describe("POST /internal/telegram/reconcile", () => {
   });
 
   test("serializes concurrent requests so the last URL wins", async () => {
-    const callOrder: string[] = [];
+    const setWebhookUrls: string[] = [];
+
     // Make reconcile slow enough that the first call is still in-flight
     // when the second one arrives.
-    mockReconcile.mockImplementation(async (cfg: GatewayConfig) => {
-      callOrder.push(cfg.ingressPublicBaseUrl ?? "undefined");
-      await new Promise((r) => setTimeout(r, 50));
-    });
+    globalThis.fetch = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        if (url.includes("/getWebhookInfo")) {
+          return makeTelegramResponse({
+            url: "",
+            has_custom_certificate: false,
+            pending_update_count: 0,
+          });
+        }
+        if (url.includes("/setWebhook")) {
+          const body = init?.body ? JSON.parse(init.body as string) : {};
+          setWebhookUrls.push(body.url);
+          await new Promise((r) => setTimeout(r, 50));
+          return makeTelegramResponse(true);
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    ) as any;
 
     const config = makeConfig({ ingressPublicBaseUrl: "https://original.com" });
     const handler = createTelegramReconcileHandler(config);
@@ -208,11 +260,13 @@ describe("POST /internal/telegram/reconcile", () => {
 
     expect(res1.status).toBe(200);
     expect(res2.status).toBe(200);
-    expect(mockReconcile).toHaveBeenCalledTimes(2);
 
-    // The first reconcile should see "first" and the second should see
+    // The first reconcile should register with "first" and the second with
     // "second" — proving that config mutation + reconcile are atomic.
-    expect(callOrder).toEqual(["https://first.com", "https://second.com"]);
+    expect(setWebhookUrls).toEqual([
+      "https://first.com/webhooks/telegram",
+      "https://second.com/webhooks/telegram",
+    ]);
     // After both complete, the config should reflect the last write.
     expect(config.ingressPublicBaseUrl).toBe("https://second.com");
   });

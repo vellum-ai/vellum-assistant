@@ -3541,7 +3541,7 @@ On startup, the gateway automatically reconciles the Telegram webhook registrati
 2. Calls `getWebhookInfo` to log the current registration state
 3. Unconditionally calls `setWebhook` with the expected URL, secret, and allowed updates (idempotent — Telegram does not expose the current secret via `getWebhookInfo`, so a compare-then-set approach would miss secret rotations)
 
-This also runs when the credential watcher detects changes to Telegram credentials. If the ingress URL changes (e.g., tunnel restart), a gateway restart is required. Manual webhook registration is no longer required.
+This also runs when the credential watcher detects changes to Telegram credentials. If the ingress URL changes (e.g., tunnel restart), the assistant daemon triggers an immediate internal reconcile via `POST /internal/telegram/reconcile`, so the webhook re-registers automatically without a gateway restart. Manual webhook registration is no longer required.
 
 ### Routing Auto-Configuration
 
@@ -3732,7 +3732,7 @@ For **inbound Twilio signature validation** at the gateway, URL reconstruction n
 2. Forwarded public URL headers from the tunnel/proxy (`X-Forwarded-Proto` + `X-Forwarded-Host`/`X-Original-Host` fallbacks)
 3. Raw request URL (always included as the final fallback)
 
-This makes ingress URL updates smoother in local tunnel workflows because Twilio webhooks can continue validating even before a gateway restart.
+This makes ingress URL updates smoother in local tunnel workflows because Twilio webhooks can continue validating immediately. For Telegram, ingress URL changes trigger an immediate internal reconcile, so neither channel requires a gateway restart.
 
 ### Runtime HTTP Endpoints
 
