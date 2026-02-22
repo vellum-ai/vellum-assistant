@@ -5,7 +5,10 @@ import type { GatewayConfig } from "../config.js";
 
 // Capture calls to callTelegramApi so we can inspect payloads without
 // hitting the network.
-const callTelegramApiMock = mock(() => Promise.resolve({}));
+const callTelegramApiMock = mock(
+  (_config: GatewayConfig, _method: string, _body: Record<string, unknown>) =>
+    Promise.resolve({}),
+);
 
 // Mock the api module before importing send.ts functions. The import
 // above resolved the real module, but Bun's mock.module patches the
@@ -134,7 +137,7 @@ describe("sendTelegramReply", () => {
     await sendTelegramReply(baseConfig, "chat-1", "Hello");
 
     expect(callTelegramApiMock).toHaveBeenCalledTimes(1);
-    const payload = callTelegramApiMock.mock.calls[0][2] as Record<string, unknown>;
+    const payload = callTelegramApiMock.mock.calls[0][2];
     expect(payload.chat_id).toBe("chat-1");
     expect(payload.text).toBe("Hello");
     expect(payload.reply_markup).toBeUndefined();
@@ -144,7 +147,7 @@ describe("sendTelegramReply", () => {
     await sendTelegramReply(baseConfig, "chat-1", "Approve?", sampleApproval);
 
     expect(callTelegramApiMock).toHaveBeenCalledTimes(1);
-    const payload = callTelegramApiMock.mock.calls[0][2] as Record<string, unknown>;
+    const payload = callTelegramApiMock.mock.calls[0][2];
     expect(payload.reply_markup).toBeDefined();
 
     const markup = payload.reply_markup as {
@@ -161,10 +164,10 @@ describe("sendTelegramReply", () => {
 
     expect(callTelegramApiMock).toHaveBeenCalledTimes(2);
 
-    const firstPayload = callTelegramApiMock.mock.calls[0][2] as Record<string, unknown>;
+    const firstPayload = callTelegramApiMock.mock.calls[0][2];
     expect(firstPayload.reply_markup).toBeUndefined();
 
-    const lastPayload = callTelegramApiMock.mock.calls[1][2] as Record<string, unknown>;
+    const lastPayload = callTelegramApiMock.mock.calls[1][2];
     expect(lastPayload.reply_markup).toBeDefined();
   });
 });
