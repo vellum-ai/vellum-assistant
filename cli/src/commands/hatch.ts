@@ -78,6 +78,8 @@ export async function buildStartupScript(
   cloud: RemoteHost,
 ): Promise<string> {
   const platformUrl = process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai";
+  const hatchedBy = process.env.VELLUM_HATCHED_BY;
+  const hatchedByLine = hatchedBy ? `VELLUM_HATCHED_BY=${hatchedBy}\n` : "";
   const timestampRedirect = buildTimestampRedirect();
   const userSetup = buildUserSetup(sshUser);
   const ownershipFixup = buildOwnershipFixup();
@@ -112,7 +114,7 @@ GATEWAY_RUNTIME_PROXY_ENABLED=\$GATEWAY_RUNTIME_PROXY_ENABLED
 RUNTIME_PROXY_BEARER_TOKEN=\$RUNTIME_PROXY_BEARER_TOKEN
 RUNTIME_HTTP_PORT=7821
 VELLUM_CLOUD=\$VELLUM_CLOUD
-DOTENV_EOF
+${hatchedByLine}DOTENV_EOF
 
 mkdir -p "\$HOME/.vellum/workspace"
 cat > "\$HOME/.vellum/workspace/config.json" << CONFIG_EOF
