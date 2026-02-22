@@ -34,20 +34,8 @@ struct ToolPermissionTesterView: View {
             fieldLabel("Tool Name")
             toolNamePicker
 
-            // Input JSON
-            fieldLabel("Input JSON")
-            TextEditor(text: $model.inputJSON)
-                .font(VFont.monoSmall)
-                .foregroundColor(VColor.textPrimary)
-                .scrollContentBackground(.hidden)
-                .padding(VSpacing.xs)
-                .frame(minHeight: 60, maxHeight: 120)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
+            // Dynamic input fields based on schema
+            toolInputFields
 
             // Working directory
             fieldLabel("Working Directory")
@@ -77,6 +65,148 @@ struct ToolPermissionTesterView: View {
             }
 
         }
+    }
+
+    // MARK: - Dynamic Tool Input Fields
+
+    @ViewBuilder
+    private var toolInputFields: some View {
+        if !model.fieldDescriptors.isEmpty {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                fieldLabel("Parameters")
+
+                ForEach(model.fieldDescriptors) { field in
+                    toolFieldRow(field)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func toolFieldRow(_ field: ToolFieldDescriptor) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            if field.isRequired {
+                // Required fields are always shown
+                fieldNameLabel(field)
+                toolFieldInput(field)
+            } else {
+                // Optional fields have a checkbox
+                HStack(spacing: VSpacing.xs) {
+                    Toggle(isOn: fieldEnabledBinding(for: field.id)) {
+                        fieldNameLabel(field)
+                    }
+                    .toggleStyle(.checkbox)
+                }
+
+                if model.fieldEnabled[field.id] == true {
+                    toolFieldInput(field)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func fieldNameLabel(_ field: ToolFieldDescriptor) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            Text(field.id)
+                .font(VFont.monoSmall)
+                .foregroundColor(VColor.textPrimary)
+
+            if field.isRequired {
+                Text("*")
+                    .font(VFont.captionMedium)
+                    .foregroundColor(VColor.error)
+            }
+
+            if let desc = field.description {
+                Text(desc)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func toolFieldInput(_ field: ToolFieldDescriptor) -> some View {
+        switch field.fieldType {
+        case .string:
+            TextField("", text: fieldValueBinding(for: field.id))
+                .textFieldStyle(.plain)
+                .font(VFont.mono)
+                .foregroundColor(VColor.textPrimary)
+                .padding(VSpacing.sm)
+                .background(VColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                )
+
+        case .number, .integer:
+            TextField("", text: fieldValueBinding(for: field.id))
+                .textFieldStyle(.plain)
+                .font(VFont.mono)
+                .foregroundColor(VColor.textPrimary)
+                .padding(VSpacing.sm)
+                .background(VColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                )
+
+        case .boolean:
+            Toggle("", isOn: fieldBoolBinding(for: field.id))
+                .toggleStyle(.switch)
+                .labelsHidden()
+
+        case .enumeration(let values):
+            Picker("", selection: fieldValueBinding(for: field.id)) {
+                Text("Select\u{2026}")
+                    .foregroundColor(VColor.textMuted)
+                    .tag("")
+                ForEach(values, id: \.self) { value in
+                    Text(value)
+                        .font(VFont.mono)
+                        .tag(value)
+                }
+            }
+            .labelsHidden()
+            .font(VFont.mono)
+            .padding(.vertical, VSpacing.xs)
+            .padding(.horizontal, VSpacing.sm)
+            .background(VColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+            )
+        }
+    }
+
+    // MARK: - Bindings
+
+    private func fieldValueBinding(for key: String) -> Binding<String> {
+        Binding(
+            get: { model.fieldValues[key] ?? "" },
+            set: { model.fieldValues[key] = $0 }
+        )
+    }
+
+    private func fieldEnabledBinding(for key: String) -> Binding<Bool> {
+        Binding(
+            get: { model.fieldEnabled[key] ?? false },
+            set: { model.fieldEnabled[key] = $0 }
+        )
+    }
+
+    private func fieldBoolBinding(for key: String) -> Binding<Bool> {
+        Binding(
+            get: { model.fieldValues[key] == "true" },
+            set: { model.fieldValues[key] = $0 ? "true" : "false" }
+        )
     }
 
     // MARK: - Simulate Button
