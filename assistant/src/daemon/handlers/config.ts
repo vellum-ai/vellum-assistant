@@ -2,7 +2,7 @@ import * as net from 'node:net';
 import { getConfig, loadRawConfig, saveRawConfig } from '../../config/loader.js';
 import { initializeProviders } from '../../providers/registry.js';
 import { addRule, removeRule, updateRule, getAllRules, acceptStarterBundle } from '../../permissions/trust-store.js';
-import { classifyRisk, check } from '../../permissions/checker.js';
+import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } from '../../permissions/checker.js';
 import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression } from '../../schedule/schedule-store.js';
 import { listReminders, cancelReminder } from '../../tools/reminder/reminder-store.js';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
@@ -830,6 +830,23 @@ export async function handleToolPermissionSimulate(
     const riskLevel = await classifyRisk(msg.toolName, msg.input, workingDir);
     const result = await check(msg.toolName, msg.input, workingDir, policyContext);
 
+    // When decision is prompt, generate the full payload the UI needs
+    let promptPayload: {
+      allowlistOptions: Array<{ label: string; description: string; pattern: string }>;
+      scopeOptions: Array<{ label: string; scope: string }>;
+      persistentDecisionsAllowed: boolean;
+    } | undefined;
+
+    if (result.decision === 'prompt') {
+      const allowlistOptions = await generateAllowlistOptions(msg.toolName, msg.input);
+      const scopeOptions = generateScopeOptions(workingDir, msg.toolName);
+      const persistentDecisionsAllowed = !(
+        msg.toolName === 'bash'
+        && msg.input.network_mode === 'proxied'
+      );
+      promptPayload = { allowlistOptions, scopeOptions, persistentDecisionsAllowed };
+    }
+
     ctx.send(socket, {
       type: 'tool_permission_simulate_response',
       success: true,
@@ -837,6 +854,7 @@ export async function handleToolPermissionSimulate(
       riskLevel,
       reason: result.reason,
       matchedRuleId: result.matchedRule?.id,
+      promptPayload,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
