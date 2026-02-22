@@ -392,25 +392,32 @@ export function getUnresolvedApprovalForRun(runId: string): GuardianApprovalRequ
 /**
  * Find a pending guardian approval request by the guardian's chat ID.
  * Used when the guardian sends a decision from their chat.
+ *
+ * When `assistantId` is provided, the lookup is scoped to that assistant,
+ * preventing cross-assistant approval consumption in shared guardian chats.
  */
 export function getPendingApprovalByGuardianChat(
   channel: string,
   guardianChatId: string,
+  assistantId?: string,
 ): GuardianApprovalRequest | null {
   const db = getDb();
   const now = Date.now();
 
+  const conditions = [
+    eq(channelGuardianApprovalRequests.channel, channel),
+    eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
+    eq(channelGuardianApprovalRequests.status, 'pending'),
+    gt(channelGuardianApprovalRequests.expiresAt, now),
+  ];
+  if (assistantId) {
+    conditions.push(eq(channelGuardianApprovalRequests.assistantId, assistantId));
+  }
+
   const row = db
     .select()
     .from(channelGuardianApprovalRequests)
-    .where(
-      and(
-        eq(channelGuardianApprovalRequests.channel, channel),
-        eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
-        eq(channelGuardianApprovalRequests.status, 'pending'),
-        gt(channelGuardianApprovalRequests.expiresAt, now),
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(desc(channelGuardianApprovalRequests.createdAt))
     .get();
 
@@ -422,27 +429,34 @@ export function getPendingApprovalByGuardianChat(
  * guardian chat, and channel. Used when a callback button provides a run ID,
  * so the decision is applied to exactly the right approval even when
  * multiple approvals target the same guardian chat.
+ *
+ * When `assistantId` is provided, the lookup is further scoped to that
+ * assistant to prevent cross-assistant approval consumption.
  */
 export function getPendingApprovalByRunAndGuardianChat(
   runId: string,
   channel: string,
   guardianChatId: string,
+  assistantId?: string,
 ): GuardianApprovalRequest | null {
   const db = getDb();
   const now = Date.now();
 
+  const conditions = [
+    eq(channelGuardianApprovalRequests.runId, runId),
+    eq(channelGuardianApprovalRequests.channel, channel),
+    eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
+    eq(channelGuardianApprovalRequests.status, 'pending'),
+    gt(channelGuardianApprovalRequests.expiresAt, now),
+  ];
+  if (assistantId) {
+    conditions.push(eq(channelGuardianApprovalRequests.assistantId, assistantId));
+  }
+
   const row = db
     .select()
     .from(channelGuardianApprovalRequests)
-    .where(
-      and(
-        eq(channelGuardianApprovalRequests.runId, runId),
-        eq(channelGuardianApprovalRequests.channel, channel),
-        eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
-        eq(channelGuardianApprovalRequests.status, 'pending'),
-        gt(channelGuardianApprovalRequests.expiresAt, now),
-      ),
-    )
+    .where(and(...conditions))
     .get();
 
   return row ? rowToApprovalRequest(row) : null;
@@ -452,25 +466,32 @@ export function getPendingApprovalByRunAndGuardianChat(
  * Return all pending (non-expired) guardian approval requests for a given
  * guardian chat and channel. Used to detect ambiguity when a guardian sends
  * a plain-text decision while multiple approvals are pending.
+ *
+ * When `assistantId` is provided, the results are scoped to that assistant
+ * to prevent cross-assistant approval consumption.
  */
 export function getAllPendingApprovalsByGuardianChat(
   channel: string,
   guardianChatId: string,
+  assistantId?: string,
 ): GuardianApprovalRequest[] {
   const db = getDb();
   const now = Date.now();
 
+  const conditions = [
+    eq(channelGuardianApprovalRequests.channel, channel),
+    eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
+    eq(channelGuardianApprovalRequests.status, 'pending'),
+    gt(channelGuardianApprovalRequests.expiresAt, now),
+  ];
+  if (assistantId) {
+    conditions.push(eq(channelGuardianApprovalRequests.assistantId, assistantId));
+  }
+
   const rows = db
     .select()
     .from(channelGuardianApprovalRequests)
-    .where(
-      and(
-        eq(channelGuardianApprovalRequests.channel, channel),
-        eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
-        eq(channelGuardianApprovalRequests.status, 'pending'),
-        gt(channelGuardianApprovalRequests.expiresAt, now),
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(desc(channelGuardianApprovalRequests.createdAt))
     .all();
 

@@ -91,6 +91,9 @@ export function verifyGatewayOrigin(
 
 export type ActorRole = 'guardian' | 'non-guardian' | 'unverified_channel';
 
+/** Sub-reason for `unverified_channel` denials. */
+export type DenialReason = 'no_binding' | 'no_identity';
+
 export interface GuardianContext {
   actorRole: ActorRole;
   /** The guardian's delivery chat ID (from the guardian binding). */
@@ -103,6 +106,8 @@ export interface GuardianContext {
   requesterExternalUserId?: string;
   /** The requester's chat ID. */
   requesterChatId?: string;
+  /** Sub-reason when actorRole is 'unverified_channel'. */
+  denialReason?: DenialReason;
 }
 
 /** Guardian approval request expiry (30 minutes). */
@@ -419,6 +424,7 @@ export async function handleChannelInbound(
         // unverified. Sensitive actions will be auto-denied (fail-closed).
         guardianCtx = {
           actorRole: 'unverified_channel',
+          denialReason: 'no_binding',
           requesterExternalUserId: body.senderExternalUserId,
           requesterChatId: externalChatId,
         };
@@ -432,7 +438,8 @@ export async function handleChannelInbound(
     if (binding) {
       guardianCtx = {
         actorRole: 'unverified_channel',
-        requesterExternalUserId: undefined as unknown as string,
+        denialReason: 'no_identity',
+        requesterExternalUserId: undefined,
         requesterChatId: externalChatId,
       };
     }
@@ -714,12 +721,15 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
           const pending = getPendingConfirmationsByConversation(conversationId);
 
           if (isUnverifiedChannel && pending.length > 0) {
-            // No guardian binding — auto-deny the sensitive action (fail-closed).
+            // Unverified channel — auto-deny the sensitive action (fail-closed).
             handleChannelDecision(conversationId, { action: 'reject', source: 'plain_text' }, orchestrator);
+            const denialText = guardianCtx.denialReason === 'no_identity'
+              ? `The action "${pending[0].toolName}" requires guardian approval, but your identity could not be determined. The action has been denied. Please ensure your messaging client sends user identity information.`
+              : `The action "${pending[0].toolName}" requires guardian approval, but no guardian has been set up for this channel. The action has been denied. Please ask an administrator to configure a guardian.`;
             try {
               await deliverChannelReply(replyCallbackUrl, {
                 chatId: externalChatId,
-                text: `The action "${pending[0].toolName}" requires guardian approval, but no guardian has been set up for this channel. The action has been denied. Please ask an administrator to configure a guardian.`,
+                text: denialText,
               }, bearerToken);
             } catch (err) {
               log.error({ err, runId: run.id }, 'Failed to deliver unverified-channel denial notice');
@@ -950,6 +960,7 @@ async function handleApprovalInterception(
     bearerToken,
     orchestrator,
     guardianCtx,
+    assistantId,
   } = params;
 
   // ── Guardian approval decision path ──
@@ -975,14 +986,14 @@ async function handleApprovalInterception(
     // the decision resolves to exactly the right approval even when
     // multiple approvals target the same guardian chat.
     let guardianApproval = decision?.runId
-      ? getPendingApprovalByRunAndGuardianChat(decision.runId, sourceChannel, externalChatId)
+      ? getPendingApprovalByRunAndGuardianChat(decision.runId, sourceChannel, externalChatId, assistantId)
       : null;
 
     // For plain-text decisions (no run ID), check how many pending
     // approvals exist for this guardian chat. If there are multiple,
     // the guardian must use buttons to disambiguate.
     if (!guardianApproval && decision && !decision.runId) {
-      const allPending = getAllPendingApprovalsByGuardianChat(sourceChannel, externalChatId);
+      const allPending = getAllPendingApprovalsByGuardianChat(sourceChannel, externalChatId, assistantId);
       if (allPending.length > 1) {
         try {
           await deliverChannelReply(replyCallbackUrl, {
@@ -1002,7 +1013,7 @@ async function handleApprovalInterception(
     // Fall back to the single-result lookup for non-decision messages
     // (reminder path) or when the scoped lookup found nothing.
     if (!guardianApproval && !decision) {
-      guardianApproval = getPendingApprovalByGuardianChat(sourceChannel, externalChatId);
+      guardianApproval = getPendingApprovalByGuardianChat(sourceChannel, externalChatId, assistantId);
     }
 
     if (guardianApproval) {
@@ -1122,16 +1133,19 @@ async function handleApprovalInterception(
   const pendingPrompt = getChannelApprovalPrompt(conversationId);
   if (!pendingPrompt) return { handled: false };
 
-  // When the sender is from an unverified channel (no guardian binding),
-  // auto-deny any pending confirmation and block self-approval.
+  // When the sender is from an unverified channel, auto-deny any pending
+  // confirmation and block self-approval.
   if (guardianCtx.actorRole === 'unverified_channel') {
     const pending = getPendingConfirmationsByConversation(conversationId);
     if (pending.length > 0) {
       handleChannelDecision(conversationId, { action: 'reject', source: 'plain_text' }, orchestrator);
+      const denialText = guardianCtx.denialReason === 'no_identity'
+        ? `The action "${pending[0].toolName}" requires guardian approval, but your identity could not be determined. The action has been denied.`
+        : `The action "${pending[0].toolName}" requires guardian approval, but no guardian has been set up for this channel. The action has been denied.`;
       try {
         await deliverChannelReply(replyCallbackUrl, {
           chatId: externalChatId,
-          text: `The action "${pending[0].toolName}" requires guardian approval, but no guardian has been set up for this channel. The action has been denied.`,
+          text: denialText,
         }, bearerToken);
       } catch (err) {
         log.error({ err, conversationId }, 'Failed to deliver unverified-channel denial notice during interception');
