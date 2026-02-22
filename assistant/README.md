@@ -164,7 +164,7 @@ The daemon handles `twilio_config` messages with the following actions:
 |--------|-------------|
 | `get` | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned) |
 | `set_credentials` | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file). Credentials are retrieved from the credential store internally. |
-| `clear_credentials` | Removes stored Account SID and Auth Token from secure storage. Does not affect the phone number assignment. |
+| `clear_credentials` | Removes stored Account SID, Auth Token, and phone number from secure storage. |
 | `provision_number` | Purchases a new phone number via the Twilio API. Accepts optional `areaCode` and `country` (ISO 3166-1 alpha-2, default `US`). Returns the purchased number but does not assign it — call `assign_number` separately to persist it. |
 | `assign_number` | Assigns an existing Twilio phone number (E.164 format) to the assistant |
 | `list_numbers` | Lists all incoming phone numbers on the Twilio account with their capabilities (voice, SMS) |
