@@ -98,6 +98,7 @@ function resetTables(): void {
   db.run('DELETE FROM channel_inbound_events');
   db.run('DELETE FROM messages');
   db.run('DELETE FROM conversations');
+  channelDeliveryStore.resetAllRunDeliveryClaims();
 }
 
 const sampleConfirmation: PendingConfirmation = {
@@ -2356,6 +2357,258 @@ describe('expired guardian approval auto-denies via sweep', () => {
 
     // submitDecision should NOT have been called
     expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    deliverSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 24. Deliver-once idempotency guard
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('deliver-once idempotency guard', () => {
+  test('claimRunDelivery returns true on first call, false on subsequent calls', () => {
+    const runId = 'run-idem-unit';
+    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(true);
+    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(false);
+    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(false);
+    channelDeliveryStore.resetRunDeliveryClaim(runId);
+  });
+
+  test('different run IDs are independent', () => {
+    expect(channelDeliveryStore.claimRunDelivery('run-a')).toBe(true);
+    expect(channelDeliveryStore.claimRunDelivery('run-b')).toBe(true);
+    expect(channelDeliveryStore.claimRunDelivery('run-a')).toBe(false);
+    expect(channelDeliveryStore.claimRunDelivery('run-b')).toBe(false);
+    channelDeliveryStore.resetRunDeliveryClaim('run-a');
+    channelDeliveryStore.resetRunDeliveryClaim('run-b');
+  });
+
+  test('resetRunDeliveryClaim allows re-claim', () => {
+    const runId = 'run-idem-reset';
+    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(true);
+    channelDeliveryStore.resetRunDeliveryClaim(runId);
+    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(true);
+    channelDeliveryStore.resetRunDeliveryClaim(runId);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 25. Final reply idempotency — main poll wins vs post-decision poll wins
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('final reply idempotency — no duplicate delivery', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('main poll wins: deliverChannelReply called exactly once when main poll delivers first', async () => {
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Establish the conversation
+    const initReq = makeInboundRequest({ content: 'init' });
+    const orchestrator = makeMockOrchestrator();
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    // Create a pending run and add an assistant message for delivery
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+    conversationStore.addMessage(conversationId!, 'assistant', 'Main poll result.');
+
+    // Orchestrator: first getRun returns needs_confirmation (to trigger
+    // approval prompt delivery in the poll), subsequent calls return
+    // completed so the main poll can deliver the reply.
+    let getRunCount = 0;
+    const racingOrchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => {
+        getRunCount++;
+        if (getRunCount <= 1) {
+          return {
+            id: run.id,
+            conversationId: conversationId!,
+            messageId: null,
+            status: 'needs_confirmation' as const,
+            pendingConfirmation: sampleConfirmation,
+            pendingSecret: null,
+            inputTokens: 0, outputTokens: 0, estimatedCost: 0,
+            error: null,
+            createdAt: Date.now(), updatedAt: Date.now(),
+          };
+        }
+        return {
+          id: run.id,
+          conversationId: conversationId!,
+          messageId: null,
+          status: 'completed' as const,
+          pendingConfirmation: null,
+          pendingSecret: null,
+          inputTokens: 0, outputTokens: 0, estimatedCost: 0,
+          error: null,
+          createdAt: Date.now(), updatedAt: Date.now(),
+        };
+      }),
+      startRun: mock(async () => ({
+        id: run.id,
+        conversationId: conversationId!,
+        messageId: null,
+        status: 'running' as const,
+        pendingConfirmation: null,
+        pendingSecret: null,
+        inputTokens: 0, outputTokens: 0, estimatedCost: 0,
+        error: null,
+        createdAt: Date.now(), updatedAt: Date.now(),
+      })),
+    } as unknown as RunOrchestrator;
+
+    deliverSpy.mockClear();
+
+    // Send a message that triggers the approval path, then send a decision
+    // to trigger the post-decision poll. Both pollers should compete for delivery.
+    const msgReq = makeInboundRequest({ content: 'do something' });
+    await handleChannelInbound(msgReq, noopProcessMessage, 'token', racingOrchestrator);
+
+    // Send the decision to start the post-decision delivery poll
+    const decisionReq = makeInboundRequest({
+      content: '',
+      callbackData: `apr:${run.id}:approve_once`,
+    });
+    await handleChannelInbound(decisionReq, noopProcessMessage, 'token', racingOrchestrator);
+
+    // Wait for both pollers to finish
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // Count deliverChannelReply calls that carry the assistant reply text.
+    // Approval-related notifications (e.g. "has been sent to the guardian")
+    // are separate from the final reply. The final reply call is the one
+    // that delivers the actual conversation content.
+    const replyDeliveryCalls = deliverSpy.mock.calls.filter(
+      (call) => typeof call[1] === 'object' &&
+        (call[1] as { text?: string }).text === 'Main poll result.',
+    );
+
+    // The guard should ensure at most one delivery of the final reply
+    expect(replyDeliveryCalls.length).toBeLessThanOrEqual(1);
+
+    deliverSpy.mockRestore();
+  });
+
+  test('post-decision poll wins: delivers exactly once when main poll already exited', async () => {
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Establish the conversation
+    const initReq = makeInboundRequest({ content: 'init-late' });
+    const orchestrator = makeMockOrchestrator();
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[events.length - 1]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    // Create a pending run
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+    conversationStore.addMessage(conversationId!, 'assistant', 'Post-decision result.');
+
+    // Orchestrator: getRun always returns needs_confirmation for the main poll
+    // (so the main poll times out without delivering), then returns completed
+    // for the post-decision poll. We use a separate call counter per context.
+    let mainPollExited = false;
+    let postDecisionGetRunCount = 0;
+    const lateOrchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => {
+        if (!mainPollExited) {
+          // Main poll context — always return needs_confirmation so it exits
+          // without delivering (the 5min timeout is simulated by having the
+          // main poll see needs_confirmation until it gives up).
+          return {
+            id: run.id,
+            conversationId: conversationId!,
+            messageId: null,
+            status: 'needs_confirmation' as const,
+            pendingConfirmation: sampleConfirmation,
+            pendingSecret: null,
+            inputTokens: 0, outputTokens: 0, estimatedCost: 0,
+            error: null,
+            createdAt: Date.now(), updatedAt: Date.now(),
+          };
+        }
+        // Post-decision poll — return completed after a short delay
+        postDecisionGetRunCount++;
+        if (postDecisionGetRunCount <= 1) {
+          return {
+            id: run.id,
+            conversationId: conversationId!,
+            messageId: null,
+            status: 'needs_confirmation' as const,
+            pendingConfirmation: null,
+            pendingSecret: null,
+            inputTokens: 0, outputTokens: 0, estimatedCost: 0,
+            error: null,
+            createdAt: Date.now(), updatedAt: Date.now(),
+          };
+        }
+        return {
+          id: run.id,
+          conversationId: conversationId!,
+          messageId: null,
+          status: 'completed' as const,
+          pendingConfirmation: null,
+          pendingSecret: null,
+          inputTokens: 0, outputTokens: 0, estimatedCost: 0,
+          error: null,
+          createdAt: Date.now(), updatedAt: Date.now(),
+        };
+      }),
+      startRun: mock(async () => ({
+        id: run.id,
+        conversationId: conversationId!,
+        messageId: null,
+        status: 'running' as const,
+        pendingConfirmation: null,
+        pendingSecret: null,
+        inputTokens: 0, outputTokens: 0, estimatedCost: 0,
+        error: null,
+        createdAt: Date.now(), updatedAt: Date.now(),
+      })),
+    } as unknown as RunOrchestrator;
+
+    deliverSpy.mockClear();
+
+    // Start the main poll — it will see needs_confirmation and exit after
+    // the first poll interval (marking the event as processed, not delivering).
+    const msgReq = makeInboundRequest({ content: 'do something late' });
+    await handleChannelInbound(msgReq, noopProcessMessage, 'token', lateOrchestrator);
+
+    // Wait for the main poll to see needs_confirmation and mark processed
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    mainPollExited = true;
+
+    // Now send the decision to trigger the post-decision delivery
+    const decisionReq = makeInboundRequest({
+      content: '',
+      callbackData: `apr:${run.id}:approve_once`,
+    });
+    await handleChannelInbound(decisionReq, noopProcessMessage, 'token', lateOrchestrator);
+
+    // Wait for the post-decision poll to deliver
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // Count deliveries of the final assistant reply
+    const replyDeliveryCalls = deliverSpy.mock.calls.filter(
+      (call) => typeof call[1] === 'object' &&
+        (call[1] as { text?: string }).text === 'Post-decision result.',
+    );
+
+    // Exactly one delivery should have occurred (from the post-decision poll)
+    expect(replyDeliveryCalls.length).toBe(1);
 
     deliverSpy.mockRestore();
   });

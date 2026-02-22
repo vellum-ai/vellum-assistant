@@ -316,6 +316,46 @@ export function getDeadLetterEvents(): Array<{
     .all();
 }
 
+// ── Deliver-once guard for terminal reply idempotency ────────────────
+//
+// When both the main poll (processChannelMessageWithApprovals) and the
+// post-decision poll (schedulePostDecisionDelivery) race to deliver the
+// final assistant reply for the same run, this guard ensures only one
+// of them actually sends the message. The guard is run-scoped so old
+// assistant messages from previous runs are not affected.
+
+const deliveredRuns = new Set<string>();
+
+/**
+ * Atomically claim the right to deliver the final reply for a run.
+ * Returns `true` if this caller won the claim (and should proceed with
+ * delivery). Returns `false` if another caller already claimed it.
+ *
+ * This is an in-memory guard — sufficient because both racing pollers
+ * execute within the same process. The Set is never persisted; on restart
+ * there are no in-flight pollers to race.
+ */
+export function claimRunDelivery(runId: string): boolean {
+  if (deliveredRuns.has(runId)) return false;
+  deliveredRuns.add(runId);
+  return true;
+}
+
+/**
+ * Reset the deliver-once guard for a run. Used in tests to ensure
+ * isolation between test cases.
+ */
+export function resetRunDeliveryClaim(runId: string): void {
+  deliveredRuns.delete(runId);
+}
+
+/**
+ * Clear all delivery claims. Used in tests for full isolation.
+ */
+export function resetAllRunDeliveryClaims(): void {
+  deliveredRuns.clear();
+}
+
 /**
  * Reset dead-lettered events back to 'failed' so the sweep can retry
  * them. Resets attempt counter and sets an immediate retry_after.
