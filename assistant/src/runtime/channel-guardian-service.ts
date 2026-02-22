@@ -80,7 +80,7 @@ export function createVerificationChallenge(
   return {
     challengeId,
     secret,
-    instruction: `Send \`/guardian-verify ${secret}\` to your bot from your Telegram account within 10 minutes.`,
+    instruction: `Send \`/guardian_verify ${secret}\` to your bot from your Telegram account within 10 minutes.`,
   };
 }
 

@@ -282,11 +282,11 @@ export async function handleChannelInbound(
   // Handled before normal message processing so it never enters the agent loop.
   if (
     !result.duplicate &&
-    trimmedContent.startsWith('/guardian-verify ') &&
+    trimmedContent.startsWith('/guardian_verify ') &&
     replyCallbackUrl &&
     body.senderExternalUserId
   ) {
-    const token = trimmedContent.slice('/guardian-verify '.length).trim();
+    const token = trimmedContent.slice('/guardian_verify '.length).trim();
     if (token.length > 0) {
       const verifyResult = validateAndConsumeChallenge(
         'self',
