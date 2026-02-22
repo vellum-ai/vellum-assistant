@@ -24,11 +24,13 @@ export function computeConflictRelevance(
 
 const NOISE_TOKENS = new Set([
   'http', 'https', 'github', 'gitlab', 'www', 'com', 'org',
-  'pull', 'issue', 'ticket',
 ]);
 
+const URL_PATTERN = /https?:\/\/[^\s)>\]]+/gi;
+
 function tokenizeForConflictRelevance(input: string): Set<string> {
-  const tokens = input
+  const stripped = input.replace(URL_PATTERN, ' ');
+  const tokens = stripped
     .toLowerCase()
     .split(/[^a-z0-9]+/g)
     .map((token) => token.trim())
