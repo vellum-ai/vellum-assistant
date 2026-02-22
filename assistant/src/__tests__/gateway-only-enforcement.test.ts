@@ -491,19 +491,6 @@ describe('gateway-only ingress enforcement', () => {
       expect(res.status).toBe(401);
     });
 
-    test('POST /v1/channels/move-sync without auth returns 401', async () => {
-      const res = await fetch(`http://127.0.0.1:${port}/v1/channels/move-sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sourceChannel: 'telegram',
-          externalChatId: '12345',
-          newConversationId: 'conv-1',
-        }),
-      });
-      expect(res.status).toBe(401);
-    });
-
     test('DELETE /v1/channels/conversation without auth returns 401', async () => {
       const res = await fetch(`http://127.0.0.1:${port}/v1/channels/conversation`, {
         method: 'DELETE',
@@ -529,20 +516,6 @@ describe('gateway-only ingress enforcement', () => {
       expect(res.status).toBe(401);
     });
 
-    test('POST /v1/channels/move-sync with valid auth is not blocked (returns non-401)', async () => {
-      const res = await fetch(`http://127.0.0.1:${port}/v1/channels/move-sync`, {
-        method: 'POST',
-        headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sourceChannel: 'telegram',
-          externalChatId: '12345',
-          newConversationId: 'conv-1',
-        }),
-      });
-      // Should pass auth — will fail at handler level (e.g. 500 because DB
-      // not fully initialized), but must NOT be 401.
-      expect(res.status).not.toBe(401);
-    });
   });
 
   // ── Startup warning for non-loopback host ──────────────────────────

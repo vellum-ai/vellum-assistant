@@ -2,8 +2,7 @@
  * Route handlers for channel inbound messages, delivery acks, and
  * conversation deletion.
  */
-import { deleteConversationKey, getConversationByKey, setConversationKey } from '../../memory/conversation-key-store.js';
-import { getDb } from '../../memory/db.js';
+import { deleteConversationKey } from '../../memory/conversation-key-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
@@ -40,70 +39,6 @@ export async function handleDeleteConversation(req: Request): Promise<Response> 
   externalConversationStore.deleteBindingByChannelChat(sourceChannel, externalChatId);
 
   return Response.json({ ok: true });
-}
-
-export async function handleMoveSync(req: Request): Promise<Response> {
-  const body = await req.json() as {
-    sourceChannel?: string;
-    externalChatId?: string;
-    newConversationId?: string;
-  };
-
-  const { sourceChannel, externalChatId, newConversationId } = body;
-
-  if (!sourceChannel || typeof sourceChannel !== 'string') {
-    return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
-  }
-  if (!externalChatId || typeof externalChatId !== 'string') {
-    return Response.json({ error: 'externalChatId is required' }, { status: 400 });
-  }
-  if (!newConversationId || typeof newConversationId !== 'string') {
-    return Response.json({ error: 'newConversationId is required' }, { status: 400 });
-  }
-
-  const currentBinding = externalConversationStore.getBindingByChannelChat(sourceChannel, externalChatId);
-  const previousOwner = currentBinding?.conversationId ?? null;
-
-  const conversationKey = `${sourceChannel}:${externalChatId}`;
-
-  // Wrap in transaction so a failure mid-way rolls back all changes
-  const db = getDb();
-  db.transaction(() => {
-    deleteConversationKey(conversationKey);
-    externalConversationStore.deleteBindingByChannelChat(sourceChannel, externalChatId);
-
-    // If the target conversation already had a different chat bound, remove
-    // that stale conversation-key so inbound messages on the old chat no
-    // longer route to the target conversation.
-    const existingTargetBinding = externalConversationStore.getBindingByConversation(newConversationId);
-    if (existingTargetBinding &&
-        (existingTargetBinding.sourceChannel !== sourceChannel || existingTargetBinding.externalChatId !== externalChatId)) {
-      const oldTargetKey = `${existingTargetBinding.sourceChannel}:${existingTargetBinding.externalChatId}`;
-      // Delete the old key unless it has been claimed by a different
-      // conversation that has its own active external binding.  Keys auto-
-      // created by getOrCreateConversation produce orphan conversation IDs
-      // (no external binding) and are safe to clean up.  Keys owned by a
-      // real, externally-bound conversation must be preserved.
-      const oldTargetMapping = getConversationByKey(oldTargetKey);
-      if (oldTargetMapping) {
-        const isOwnedByTarget = oldTargetMapping.conversationId === newConversationId;
-        const hasOwnBinding = !isOwnedByTarget &&
-          externalConversationStore.getBindingByConversation(oldTargetMapping.conversationId) !== null;
-        if (!hasOwnBinding) {
-          deleteConversationKey(oldTargetKey);
-        }
-      }
-    }
-
-    setConversationKey(conversationKey, newConversationId);
-    externalConversationStore.upsertOutboundBinding({
-      conversationId: newConversationId,
-      sourceChannel,
-      externalChatId,
-    });
-  });
-
-  return Response.json({ ok: true, previousOwner });
 }
 
 export async function handleChannelInbound(
