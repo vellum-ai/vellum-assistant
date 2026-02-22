@@ -540,6 +540,10 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
 const RUN_POLL_INTERVAL_MS = 500;
 const RUN_POLL_MAX_WAIT_MS = 300_000; // 5 minutes
 
+/** Post-decision delivery poll: shorter window since the run should finish quickly after a decision. */
+const POST_DECISION_POLL_INTERVAL_MS = 500;
+const POST_DECISION_POLL_MAX_WAIT_MS = 30_000; // 30 seconds
+
 interface ApprovalProcessingParams {
   orchestrator: RunOrchestrator;
   conversationId: string;
@@ -726,14 +730,18 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
           }
         }
       } else {
-        const timeoutErr = new Error(
-          `Approval poll timeout: run did not reach terminal state within ${RUN_POLL_MAX_WAIT_MS}ms`,
-        );
+        // The run is still alive (likely waiting for an approval decision) but
+        // the poll window has elapsed. Mark the event as processed rather than
+        // failed — the run will resume when the user clicks approve/reject,
+        // and `handleApprovalInterception` will deliver the reply via its own
+        // post-decision poll. Marking it failed would cause the generic retry
+        // sweep to replay through `processMessage`, which throws "Session is
+        // already processing a message" and dead-letters a valid conversation.
         log.warn(
           { runId: run.id, status: finalRun?.status, conversationId },
-          'Approval-path poll loop timed out before run reached terminal state',
+          'Approval-path poll loop timed out before run reached terminal state; marking event as processed',
         );
-        channelDeliveryStore.recordProcessingFailure(eventId, timeoutErr);
+        channelDeliveryStore.markProcessed(eventId);
       }
     } catch (err) {
       log.error({ err, conversationId }, 'Approval-aware channel message processing failed');
@@ -876,6 +884,19 @@ async function handleApprovalInterception(
           } catch (err) {
             log.error({ err, conversationId: guardianApproval.conversationId }, 'Failed to notify requester of guardian decision');
           }
+
+          // Schedule post-decision delivery to the requester's chat in case
+          // the original poll has already exited.
+          if (result.runId) {
+            schedulePostDecisionDelivery(
+              orchestrator,
+              result.runId,
+              guardianApproval.conversationId,
+              guardianApproval.requesterChatId,
+              replyCallbackUrl,
+              bearerToken,
+            );
+          }
         }
 
         return { handled: true, type: 'guardian_decision_applied' };
@@ -992,9 +1013,21 @@ async function handleApprovalInterception(
 
     const result = handleChannelDecision(conversationId, decision, orchestrator);
 
-    // The decision is applied; the final reply will be delivered by the
-    // terminal run completion path in processChannelMessageWithApprovals.
-    // No immediate reply is sent here to avoid duplicate messages.
+    // Schedule a background poll for run terminal state and deliver the reply.
+    // This handles the case where the original poll in
+    // processChannelMessageWithApprovals has already exited due to timeout.
+    // If the original poll is still running and delivers first, the duplicate
+    // delivery is acceptable (gateway deduplicates or user sees a repeat).
+    if (result.applied && result.runId) {
+      schedulePostDecisionDelivery(
+        orchestrator,
+        result.runId,
+        conversationId,
+        externalChatId,
+        replyCallbackUrl,
+        bearerToken,
+      );
+    }
 
     return { handled: true, type: 'decision_applied' };
   }
@@ -1023,6 +1056,46 @@ async function handleApprovalInterception(
   }
 
   return { handled: true, type: 'reminder_sent' };
+}
+
+/**
+ * Fire-and-forget: after a decision is applied via `handleApprovalInterception`,
+ * poll the run briefly for terminal state and deliver the final reply. This
+ * handles the case where the original poll in `processChannelMessageWithApprovals`
+ * has already exited due to the 5-minute timeout.
+ *
+ * If the original poll already delivered the reply, delivering it again is
+ * acceptable — the gateway will deduplicate or the user sees a duplicate
+ * (better than seeing nothing).
+ */
+function schedulePostDecisionDelivery(
+  orchestrator: RunOrchestrator,
+  runId: string,
+  conversationId: string,
+  externalChatId: string,
+  replyCallbackUrl: string,
+  bearerToken?: string,
+): void {
+  (async () => {
+    try {
+      const startTime = Date.now();
+      while (Date.now() - startTime < POST_DECISION_POLL_MAX_WAIT_MS) {
+        await new Promise((resolve) => setTimeout(resolve, POST_DECISION_POLL_INTERVAL_MS));
+        const current = orchestrator.getRun(runId);
+        if (!current) break;
+        if (current.status === 'completed' || current.status === 'failed') {
+          await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+          return;
+        }
+      }
+      log.warn(
+        { runId, conversationId },
+        'Post-decision delivery poll timed out without run reaching terminal state',
+      );
+    } catch (err) {
+      log.error({ err, runId, conversationId }, 'Post-decision delivery failed');
+    }
+  })();
 }
 
 async function deliverReplyViaCallback(
