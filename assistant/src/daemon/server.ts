@@ -1,8 +1,11 @@
 import * as net from 'node:net';
+import * as tls from 'node:tls';
 import { randomBytes } from 'node:crypto';
-import { existsSync, chmodSync, readFileSync, writeFileSync, unlinkSync, readdirSync, watch, type FSWatcher } from 'node:fs';
+import { existsSync, chmodSync, readFileSync, writeFileSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
-import { getSocketPath, getSessionTokenPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile, getTCPPort, getTCPHost, isTCPEnabled } from '../util/platform.js';
+import { getSocketPath, getSessionTokenPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile, getTCPPort, getTCPHost, isTCPEnabled, isIOSPairingEnabled } from '../util/platform.js';
+import { ensureTlsCert } from './tls-certs.js';
+import { getLocalIPv4 } from '../util/network-info.js';
 import { hasNoAuthOverride } from './connection-policy.js';
 import { getLogger } from '../util/logger.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
@@ -58,7 +61,7 @@ const daemonVersion = readPackageVersion();
 
 export class DaemonServer {
   private server: net.Server | null = null;
-  private tcpServer: net.Server | null = null;
+  private tcpServer: tls.Server | null = null;
   private sessions = new Map<string, Session>();
   private socketToSession = new Map<net.Socket, string>();
   private cuSessions = new Map<string, ComputerUseSession>();
@@ -204,15 +207,36 @@ export class DaemonServer {
 
     this.startFileWatchers();
 
-    // Generate a session token and write it to disk so clients can
-    // authenticate when connecting. Written before the socket starts
-    // listening to ensure the token is available by the time a client
-    // can connect.
-    this.sessionToken = randomBytes(32).toString('hex');
+    // Reuse existing session token from disk if present, so pairing
+    // (e.g. iOS QR code) survives daemon restarts. Only generate a
+    // new token when none exists on disk.
     const tokenPath = getSessionTokenPath();
-    writeFileSync(tokenPath, this.sessionToken, { mode: 0o600 });
-    chmodSync(tokenPath, 0o600);
-    log.info({ tokenPath }, 'Session token written');
+    let existingToken: string | null = null;
+    try {
+      const raw = readFileSync(tokenPath, 'utf-8').trim();
+      if (raw.length >= 32) existingToken = raw;
+    } catch { /* file doesn't exist yet */ }
+
+    if (existingToken) {
+      this.sessionToken = existingToken;
+      log.info({ tokenPath }, 'Reusing existing session token');
+    } else {
+      this.sessionToken = randomBytes(32).toString('hex');
+      writeFileSync(tokenPath, this.sessionToken, { mode: 0o600 });
+      chmodSync(tokenPath, 0o600);
+      log.info({ tokenPath }, 'New session token generated');
+    }
+
+    // Generate TLS certificate before starting listeners so it's
+    // available synchronously in the listen callback.
+    let tlsCreds: { cert: string; key: string; fingerprint: string } | null = null;
+    if (isTCPEnabled()) {
+      try {
+        tlsCreds = await ensureTlsCert();
+      } catch (err) {
+        log.error({ err }, 'Failed to generate TLS certificate — TCP listener will not start');
+      }
+    }
 
     return new Promise((resolve, reject) => {
       this.server = net.createServer((socket) => {
@@ -237,17 +261,31 @@ export class DaemonServer {
         chmodSync(this.socketPath, 0o600);
         log.info({ socketPath: this.socketPath }, 'Daemon server listening');
 
-        // Start TCP listener for iOS clients (alongside the Unix socket)
-        if (isTCPEnabled()) {
+        // Start TLS-encrypted TCP listener for iOS clients (alongside the Unix socket)
+        if (tlsCreds) {
           const tcpPort = getTCPPort();
-          this.tcpServer = net.createServer((socket) => {
-            this.handleConnection(socket);
-          });
+          const tcpHost = getTCPHost();
+          this.tcpServer = tls.createServer(
+            { cert: tlsCreds.cert, key: tlsCreds.key },
+            (socket) => { this.handleConnection(socket); },
+          );
           this.tcpServer.on('error', (err) => {
-            log.error({ err, tcpPort }, 'TCP server error');
+            log.error({ err, tcpPort }, 'TLS TCP server error');
           });
-          this.tcpServer.listen(tcpPort, getTCPHost(), () => {
-            log.info({ tcpPort, tcpHost: getTCPHost() }, 'TCP listener started');
+          const fingerprint = tlsCreds.fingerprint;
+          this.tcpServer.listen(tcpPort, tcpHost, () => {
+            const localIP = getLocalIPv4();
+            log.info(
+              { tcpPort, tcpHost, fingerprint, localIP, iosPairing: isIOSPairingEnabled() },
+              'TLS TCP listener started',
+            );
+            if (isIOSPairingEnabled() && localIP) {
+              log.warn(
+                { localIP, tcpPort },
+                'iOS pairing enabled — daemon is reachable on the local network at %s:%d',
+                localIP, tcpPort,
+              );
+            }
           });
         }
 
@@ -265,10 +303,9 @@ export class DaemonServer {
     }
     this.stopFileWatchers();
 
-    // Clean up session token
-    try {
-      unlinkSync(getSessionTokenPath());
-    } catch { /* ignore if already gone */ }
+    // Session token is intentionally kept on disk so pairing
+    // (e.g. iOS QR code) survives daemon restarts. To regenerate,
+    // delete ~/.vellum/session-token and restart the daemon.
 
     for (const timer of this.authTimeouts.values()) {
       clearTimeout(timer);

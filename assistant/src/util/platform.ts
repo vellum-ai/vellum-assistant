@@ -135,12 +135,37 @@ export function isTCPEnabled(): boolean {
 
 /**
  * Returns the hostname/address for the TCP listener.
- * Reads VELLUM_DAEMON_TCP_HOST env var; defaults to '127.0.0.1' (localhost only).
- * Set VELLUM_DAEMON_TCP_HOST=0.0.0.0 to accept connections from all interfaces
- * (required for real iOS device connections over a local network).
+ * Resolution order (first match wins):
+ *   1. VELLUM_DAEMON_TCP_HOST env var (explicit override)
+ *   2. If iOS pairing is enabled: '0.0.0.0' (LAN-accessible)
+ *   3. Default: '127.0.0.1' (localhost only)
  */
 export function getTCPHost(): string {
-  return process.env.VELLUM_DAEMON_TCP_HOST?.trim() || '127.0.0.1';
+  const override = process.env.VELLUM_DAEMON_TCP_HOST?.trim();
+  if (override) return override;
+  if (isIOSPairingEnabled()) return '0.0.0.0';
+  return '127.0.0.1';
+}
+
+/**
+ * Returns whether iOS pairing mode is enabled.
+ * When enabled, the TCP listener binds to 0.0.0.0 (all interfaces)
+ * instead of 127.0.0.1 (localhost only), making the daemon reachable
+ * from iOS devices on the same local network.
+ *
+ * Resolution order (first match wins):
+ *   1. VELLUM_DAEMON_IOS_PAIRING env var ('true'/'1' → on, 'false'/'0' → off)
+ *   2. Presence of the flag file ~/.vellum/ios-pairing-enabled (exists → on)
+ *   3. Default: false
+ *
+ * This is separate from isTCPEnabled() — TCP can be enabled for localhost-only
+ * access without exposing the daemon to the LAN.
+ */
+export function isIOSPairingEnabled(): boolean {
+  const override = process.env.VELLUM_DAEMON_IOS_PAIRING?.trim();
+  if (override === 'true' || override === '1') return true;
+  if (override === 'false' || override === '0') return false;
+  return existsSync(join(getRootDir(), 'ios-pairing-enabled'));
 }
 
 export function getHttpTokenPath(): string {
