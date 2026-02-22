@@ -718,7 +718,7 @@ describe('Twitter integration config handler', () => {
 
   // --- Strategy tests ---
 
-  test('get_strategy returns auto by default', () => {
+  test('get_strategy returns auto by default with strategyConfigured=false', () => {
     const msg: TwitterIntegrationConfigRequest = {
       type: 'twitter_integration_config',
       action: 'get_strategy',
@@ -728,13 +728,14 @@ describe('Twitter integration config handler', () => {
     handleMessage(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
-    const res = sent[0] as { type: string; success: boolean; strategy: string };
+    const res = sent[0] as { type: string; success: boolean; strategy: string; strategyConfigured: boolean };
     expect(res.type).toBe('twitter_integration_config_response');
     expect(res.success).toBe(true);
     expect(res.strategy).toBe('auto');
+    expect(res.strategyConfigured).toBe(false);
   });
 
-  test('set_strategy persists and can be read back', () => {
+  test('set_strategy persists and can be read back with strategyConfigured=true', () => {
     // Set strategy to oauth
     const setMsg: TwitterIntegrationConfigRequest = {
       type: 'twitter_integration_config',
@@ -745,9 +746,10 @@ describe('Twitter integration config handler', () => {
     handleMessage(setMsg, {} as net.Socket, ctx1);
 
     expect(sent1).toHaveLength(1);
-    const setRes = sent1[0] as { type: string; success: boolean; strategy: string };
+    const setRes = sent1[0] as { type: string; success: boolean; strategy: string; strategyConfigured: boolean };
     expect(setRes.success).toBe(true);
     expect(setRes.strategy).toBe('oauth');
+    expect(setRes.strategyConfigured).toBe(true);
 
     // Read it back with get_strategy
     const getMsg: TwitterIntegrationConfigRequest = {
@@ -758,9 +760,10 @@ describe('Twitter integration config handler', () => {
     handleMessage(getMsg, {} as net.Socket, ctx2);
 
     expect(sent2).toHaveLength(1);
-    const getRes = sent2[0] as { type: string; success: boolean; strategy: string };
+    const getRes = sent2[0] as { type: string; success: boolean; strategy: string; strategyConfigured: boolean };
     expect(getRes.success).toBe(true);
     expect(getRes.strategy).toBe('oauth');
+    expect(getRes.strategyConfigured).toBe(true);
 
     // Verify persistence via saveRawConfig
     expect(saveRawConfigCalls.length).toBeGreaterThan(0);
@@ -801,7 +804,7 @@ describe('Twitter integration config handler', () => {
     expect(res.error).toContain('Invalid strategy value');
   });
 
-  test('get action includes strategy field', () => {
+  test('get action includes strategy field with strategyConfigured=true when set', () => {
     // Set a specific strategy first
     rawConfigStore = { twitterOperationStrategy: 'browser' };
 
@@ -814,13 +817,14 @@ describe('Twitter integration config handler', () => {
     handleMessage(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
-    const res = sent[0] as { type: string; success: boolean; strategy: string; mode: string };
+    const res = sent[0] as { type: string; success: boolean; strategy: string; strategyConfigured: boolean; mode: string };
     expect(res.type).toBe('twitter_integration_config_response');
     expect(res.success).toBe(true);
     expect(res.strategy).toBe('browser');
+    expect(res.strategyConfigured).toBe(true);
   });
 
-  test('get action returns auto strategy by default', () => {
+  test('get action returns auto strategy by default with strategyConfigured=false', () => {
     const msg: TwitterIntegrationConfigRequest = {
       type: 'twitter_integration_config',
       action: 'get',
@@ -830,8 +834,9 @@ describe('Twitter integration config handler', () => {
     handleMessage(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
-    const res = sent[0] as { type: string; success: boolean; strategy: string };
+    const res = sent[0] as { type: string; success: boolean; strategy: string; strategyConfigured: boolean };
     expect(res.strategy).toBe('auto');
+    expect(res.strategyConfigured).toBe(false);
   });
 
   test('set_strategy cycles through all valid values', () => {

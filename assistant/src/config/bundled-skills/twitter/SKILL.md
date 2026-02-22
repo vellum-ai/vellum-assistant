@@ -1,6 +1,6 @@
 ---
 name: "X"
-description: "Read and post on X (formerly Twitter) using your authenticated session"
+description: "Read and post on X (formerly Twitter) via OAuth or browser session"
 user-invocable: true
 metadata: {"vellum": {"emoji": "𝕏"}}
 ---
@@ -42,10 +42,10 @@ When the user triggers a Twitter operation and no strategy has been configured y
    ```bash
    vellum x status --json
    ```
-   Look at `oauthConnected`, `browserSessionActive`, and `preferredStrategy` in the response.
+   Look at `oauthConnected`, `browserSessionActive`, `preferredStrategy`, and `strategyConfigured` in the response. If `strategyConfigured` is `false`, the user has not yet chosen a strategy and should be guided through setup.
 
 2. **Present both options with trade-offs:**
-   - **OAuth**: Most reliable and official. Requires X developer app credentials (API key and secret). Supports posting and replying. Set up through Settings UI.
+   - **OAuth**: Most reliable and official. Requires X developer app credentials (OAuth Client ID and optional Client Secret). Supports posting and replying. Set up through Settings UI.
    - **Browser session**: Quick to start, no developer credentials needed. Supports all operations including reading timelines and searching. Set up with `vellum x refresh`.
 
 3. **Ask the user which they prefer.** Do not choose for them.

@@ -69,11 +69,31 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
       getJson(cmd),
     );
   } catch (err) {
+    const meta = err as Record<string, unknown>;
     if (err instanceof SessionExpiredError) {
-      output(
-        { ok: false, error: 'session_expired', message: SESSION_EXPIRED_MSG },
-        getJson(cmd),
-      );
+      // Preserve backward-compatible error code while surfacing router metadata
+      const payload: Record<string, unknown> = {
+        ok: false,
+        error: 'session_expired',
+        message: SESSION_EXPIRED_MSG,
+      };
+      if (meta.pathUsed !== undefined) payload.pathUsed = meta.pathUsed;
+      if (meta.suggestAlternative !== undefined) payload.suggestAlternative = meta.suggestAlternative;
+      if (meta.oauthError !== undefined) payload.oauthError = meta.oauthError;
+      output(payload, getJson(cmd));
+      process.exitCode = 1;
+      return;
+    }
+    // For routed errors with suggestAlternative, emit structured JSON
+    if (err instanceof Error && meta.suggestAlternative !== undefined) {
+      const payload: Record<string, unknown> = {
+        ok: false,
+        error: err.message,
+      };
+      if (meta.pathUsed !== undefined) payload.pathUsed = meta.pathUsed;
+      payload.suggestAlternative = meta.suggestAlternative;
+      if (meta.oauthError !== undefined) payload.oauthError = meta.oauthError;
+      output(payload, getJson(cmd));
       process.exitCode = 1;
       return;
     }
@@ -90,7 +110,7 @@ export function registerTwitterCommand(program: Command): void {
     .command('x')
     .alias('twitter')
     .description(
-      'Post on X and manage sessions. Requires a session imported from a Ride Shotgun recording.',
+      'Post on X and manage connections. Supports OAuth (official API) and browser session paths.',
     )
     .option('--json', 'Machine-readable JSON output');
 
@@ -199,6 +219,7 @@ export function registerTwitterCommand(program: Command): void {
           oauthConnected: r.connected ?? false,
           oauthAccount: r.accountInfo ?? undefined,
           preferredStrategy: r.strategy ?? 'auto',
+          strategyConfigured: r.strategyConfigured ?? false,
         };
       } catch {
         // Daemon may not be running; report what we can from the local session
@@ -206,6 +227,7 @@ export function registerTwitterCommand(program: Command): void {
           oauthConnected: undefined,
           oauthAccount: undefined,
           preferredStrategy: undefined,
+          strategyConfigured: undefined,
         };
       }
 
