@@ -14,14 +14,28 @@ concurrency:
 jobs:
   bump-and-tag:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
 
-      - name: Bump versions and tag
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Bump versions via PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           VERSION="${{ inputs.version }}"
+          BRANCH="release/v$VERSION"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
 
           # Bump all package.json files
           for pkg in assistant cli gateway meta; do
@@ -38,12 +52,25 @@ jobs:
           # Bump macOS app version
           sed -i "s/^let appVersion = .*/let appVersion = \"$VERSION\"/" clients/Package.swift
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "Release v$VERSION"
-          git tag "v$VERSION"
-          git push origin main --tags
+          git push origin "$BRANCH"
+
+          PR_URL=$(gh pr create \
+            --title "Release v$VERSION" \
+            --body "Automated version bump to $VERSION." \
+            --base main \
+            --head "$BRANCH")
+          gh pr merge "$PR_URL" --squash --admin
+
+      - name: Tag release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          git fetch origin main
+          git tag "v$VERSION" origin/main
+          git push origin "v$VERSION"
 
     outputs:
       version: ${{ inputs.version }}
