@@ -56,6 +56,23 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "text or attachments required" }, { status: 400 });
     }
 
+    // Validate attachment array shape and element types before accessing properties.
+    // Without these checks, null or non-object elements would throw a TypeError
+    // outside the delivery try/catch, producing an unhandled 500 instead of a 400.
+    if (attachments) {
+      if (!Array.isArray(attachments)) {
+        return Response.json({ error: "attachments must be an array" }, { status: 400 });
+      }
+      for (const att of attachments) {
+        if (att === null || typeof att !== "object" || Array.isArray(att)) {
+          return Response.json({ error: "each attachment must be an object" }, { status: 400 });
+        }
+        if (!att.id || typeof att.id !== "string") {
+          return Response.json({ error: "each attachment must have an id" }, { status: 400 });
+        }
+      }
+    }
+
     try {
       if (text) {
         await sendTelegramReply(config, chatId, text);
