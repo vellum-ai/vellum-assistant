@@ -145,6 +145,12 @@ describe('Telegram bot tokens', () => {
     expectMatch(`My bot token is ${BOT_TOKEN} please save it`, 'Telegram Bot Token');
   });
 
+  test('detects bot token ending with hyphen', () => {
+    // ~1.5% of valid tokens end with '-'; trailing \b would miss these
+    const tokenEndingHyphen = ['123456789', ':', 'ABCDefGHIJklmnopQRSTuvwxyz01234567-'].join('');
+    expectMatch(`token=${tokenEndingHyphen}`, 'Telegram Bot Token');
+  });
+
   test('does not flag short numeric:alpha strings', () => {
     // Too few digits in bot ID (only 5)
     const matches = scanText('12345:ABCDefGHIJklmnopQRSTuvwxyz012345678');

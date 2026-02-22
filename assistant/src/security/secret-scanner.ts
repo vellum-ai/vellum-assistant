@@ -85,7 +85,7 @@ const PATTERNS: SecretPattern[] = [
   {
     type: 'Telegram Bot Token',
     // Format: <bot_id>:<secret> where bot_id is 8-10 digits and secret is 35 alphanumeric/dash/underscore chars
-    regex: /\b([0-9]{8,10}:[A-Za-z0-9_-]{35})\b/g,
+    regex: /\b([0-9]{8,10}:[A-Za-z0-9_-]{35})(?=[^A-Za-z0-9_-]|$)/g,
   },
 
   // -- Anthropic --

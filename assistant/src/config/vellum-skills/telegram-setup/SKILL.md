@@ -17,34 +17,27 @@ You are helping your user connect a Telegram bot to the Vellum Assistant gateway
 
 ## Setup Steps
 
-### Step 1: Collect and Verify the Bot Token
+### Step 1: Collect the Bot Token Securely
 
-First, collect the bot token securely using the credential prompt:
+Collect the bot token through the secure credential prompt:
 - Call `credential_store` with `action: "prompt"`, `service: "telegram"`, `field: "bot_token"`, and `prompt: "Enter your Telegram bot token from @BotFather"`.
 
-Then verify the token by calling the Telegram `getMe` API using `evaluate_typescript_code`:
+The token is stored securely and is never exposed in plaintext chat.
 
-```typescript
-export default async (input: { token: string }) => {
-  const res = await fetch(`https://api.telegram.org/bot${input.token}/getMe`, { method: 'POST' });
-  return res.json();
-};
-```
+### Step 2: Configure via Daemon
 
-Pass the bot token via `mock_input_json`. Verify the response has `ok: true` and note the bot's username and ID.
+After the token is stored, retrieve it and pass it to the daemon's `telegram_config` handler which validates, stores, and configures everything in one step:
 
-If the token is invalid, tell the user and ask them to double-check it.
+1. Call `credential_store` with `action: "retrieve"`, `service: "telegram"`, `field: "bot_token"` to get the stored token.
+2. Send the `telegram_config` IPC message with `action: "set"` and `botToken: <retrieved token>`.
 
-### Step 2: Generate a Webhook Secret
+The daemon's `telegram_config set` handler automatically:
+- Validates the token by calling the Telegram `getMe` API
+- Stores the bot token in secure storage with bot username metadata
+- Generates a webhook secret if one does not already exist
+- Triggers an immediate gateway webhook reconcile
 
-Use `evaluate_typescript_code` to generate a random secret:
-
-```typescript
-import { randomUUID } from 'node:crypto';
-export default () => ({ secret: randomUUID() });
-```
-
-Save this value for the next steps.
+If the token is invalid, the daemon returns an error. Tell the user and ask them to re-enter the token via the secure prompt.
 
 ### Step 3: Webhook Registration (Automatic)
 
@@ -52,11 +45,9 @@ Manual webhook registration is no longer required. The gateway automatically rec
 
 If the webhook secret changes (e.g., secret rotation), the gateway's credential watcher detects the change and re-registers the webhook automatically. If the ingress URL changes (e.g., tunnel restart), the assistant daemon triggers an immediate internal reconcile so the webhook re-registers automatically without a gateway restart.
 
-You can skip directly to storing credentials.
-
 ### Step 4: Register Bot Commands
 
-Use `evaluate_typescript_code` to register the `/new` command:
+Use `credential_store` with `action: "retrieve"`, `service: "telegram"`, `field: "bot_token"` to get the token, then use `evaluate_typescript_code` to register the `/new` command:
 
 ```typescript
 export default async (input: { token: string }) => {
@@ -71,17 +62,7 @@ export default async (input: { token: string }) => {
 };
 ```
 
-### Step 5: Store Credentials
-
-Use `credential_store` twice to securely save the credentials:
-
-1. **Store the bot token:**
-   - action: `store`, service: `telegram`, field: `bot_token`, value: the bot token
-
-2. **Store the webhook secret:**
-   - action: `store`, service: `telegram`, field: `webhook_secret`, value: the generated secret
-
-### Step 6: Validate Routing Configuration
+### Step 5: Validate Routing Configuration
 
 Verify that the gateway routing is configured to deliver inbound messages to the assistant:
 
@@ -90,13 +71,12 @@ Verify that the gateway routing is configured to deliver inbound messages to the
 
 If routing is misconfigured, inbound Telegram messages will be rejected and the gateway will send a visible notice to the chat explaining the issue (rate-limited to once per 5 minutes per chat).
 
-### Step 7: Report Success
+### Step 6: Report Success
 
 Summarize what was done:
-- Bot verified: @username (ID: nnn)
+- Bot verified and credentials stored securely via daemon
 - Webhook registration: handled automatically by the gateway
 - Bot commands registered: /new
-- Credentials stored securely in the vault
 - Routing configuration validated
 
 The gateway automatically detects credentials from the vault, reconciles the Telegram webhook registration, and begins accepting Telegram webhooks shortly. In single-assistant mode, routing is automatically configured — no manual environment variable configuration or webhook registration is needed. If the webhook secret changes later, the gateway's credential watcher will automatically re-register the webhook. If the ingress URL changes (e.g., tunnel restart), the assistant daemon triggers an immediate internal reconcile so the webhook re-registers automatically without a gateway restart.
@@ -126,7 +106,6 @@ The following steps still require **manual** action:
 
 | Step | Details |
 |------|---------|
-| Bot token from @BotFather | User must create a bot and provide the token |
+| Bot token from @BotFather | User must create a bot and provide the token via secure prompt |
 | Bot command registration | Registered via the setup skill (Step 4 above) |
-| Credential storage | Stored via the setup skill (Step 5 above) |
 | Multi-assistant routing | Requires manual `GATEWAY_ASSISTANT_ROUTING_JSON` configuration |
