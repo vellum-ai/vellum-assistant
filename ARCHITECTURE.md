@@ -3604,9 +3604,9 @@ sequenceDiagram
     Desktop->>Daemon: guardian_verify IPC (action: create_challenge)
     Daemon->>Daemon: Generate random secret, hash (SHA-256), store challenge (10min TTL)
     Daemon-->>Desktop: Return secret + instruction
-    Desktop-->>User: Display: "Send /guardian-verify <secret> to the bot"
-    User->>TG: /guardian-verify <secret>
-    TG->>Daemon: POST /v1/channels/inbound (content: /guardian-verify <secret>)
+    Desktop-->>User: Display: "Send /guardian_verify <secret> to the bot"
+    User->>TG: /guardian_verify <secret>
+    TG->>Daemon: POST /v1/channels/inbound (content: /guardian_verify <secret>)
     Daemon->>Daemon: Hash secret, find pending challenge, validate expiry
     Daemon->>Daemon: Consume challenge (replay prevention)
     Daemon->>Daemon: Revoke existing binding (if any)
@@ -3653,7 +3653,7 @@ The `channelGuardianApprovalRequests` table tracks per-run approval state. Each 
 |--------|---------|
 | `assistant/src/memory/channel-guardian-store.ts` | CRUD for guardian bindings, verification challenges, and approval requests |
 | `assistant/src/runtime/channel-guardian-service.ts` | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) |
-| `assistant/src/runtime/routes/channel-routes.ts` | Guardian verification intercept (`/guardian-verify` command), actor role resolution, approval routing to guardian |
+| `assistant/src/runtime/routes/channel-routes.ts` | Guardian verification intercept (`/guardian_verify` command), actor role resolution, approval routing to guardian |
 
 ### Telegram Credential Flow
 

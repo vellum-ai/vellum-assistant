@@ -309,7 +309,7 @@ describe('guardian service challenge validation', () => {
     expect(result.challengeId).toBeDefined();
     expect(result.secret).toBeDefined();
     expect(result.secret.length).toBe(64); // 32 bytes hex-encoded
-    expect(result.instruction).toContain('/guardian-verify');
+    expect(result.instruction).toContain('/guardian_verify');
     expect(result.instruction).toContain(result.secret);
   });
 
