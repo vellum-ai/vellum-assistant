@@ -13,13 +13,16 @@ You are helping your user connect a Telegram bot to the Vellum Assistant gateway
 1. **Bot token** from Telegram's @BotFather (the user provides this)
 2. **Gateway webhook URL** — derived from the canonical ingress setting: `${ingress.publicBaseUrl}/webhooks/telegram`. The gateway is the only publicly reachable endpoint; Telegram sends webhooks to the gateway, which validates and forwards them to the assistant runtime internally. If `ingress.publicBaseUrl` is not configured, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the URL before continuing.
 
-If the user has already provided the bot token in the conversation, use it directly. Otherwise, ask for it.
+**IMPORTANT — Secure credential collection only:** Never use a bot token that was pasted in plaintext chat. Always collect the bot token through the secure credential prompt flow using `credential_store` with `action: "prompt"` and `service: "telegram"`, `field: "bot_token"`. If the user has already pasted a token in the conversation, inform them that for security reasons you cannot use tokens shared in chat and must collect it through the secure prompt instead.
 
 ## Setup Steps
 
-### Step 1: Verify the Bot Token
+### Step 1: Collect and Verify the Bot Token
 
-Use `evaluate_typescript_code` to call the Telegram `getMe` API and confirm the token is valid:
+First, collect the bot token securely using the credential prompt:
+- Call `credential_store` with `action: "prompt"`, `service: "telegram"`, `field: "bot_token"`, and `prompt: "Enter your Telegram bot token from @BotFather"`.
+
+Then verify the token by calling the Telegram `getMe` API using `evaluate_typescript_code`:
 
 ```typescript
 export default async (input: { token: string }) => {

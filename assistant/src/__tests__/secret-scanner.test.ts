@@ -131,6 +131,43 @@ describe('Slack tokens', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Telegram
+// ---------------------------------------------------------------------------
+describe('Telegram bot tokens', () => {
+  // Build test token at runtime to avoid tripping pre-commit secret hook
+  const BOT_TOKEN = ['123456789', ':', 'ABCDefGHIJklmnopQRSTuvwxyz012345678'].join('');
+
+  test('detects Telegram bot token', () => {
+    expectMatch(`token=${BOT_TOKEN}`, 'Telegram Bot Token');
+  });
+
+  test('detects bot token in surrounding text', () => {
+    expectMatch(`My bot token is ${BOT_TOKEN} please save it`, 'Telegram Bot Token');
+  });
+
+  test('does not flag short numeric:alpha strings', () => {
+    // Too few digits in bot ID (only 5)
+    const matches = scanText('12345:ABCDefGHIJklmnopQRSTuvwxyz012345678');
+    const telegram = matches.filter((m) => m.type === 'Telegram Bot Token');
+    expect(telegram).toHaveLength(0);
+  });
+
+  test('does not flag token with wrong secret length', () => {
+    // Secret part is only 10 chars (needs 35)
+    const matches = scanText('123456789:ABCDefGHIJ');
+    const telegram = matches.filter((m) => m.type === 'Telegram Bot Token');
+    expect(telegram).toHaveLength(0);
+  });
+
+  test('does not flag token with too-long secret part', () => {
+    // Secret part is 40 chars (needs exactly 35)
+    const matches = scanText('123456789:ABCDefGHIJklmnopQRSTuvwxyz0123456789AB');
+    const telegram = matches.filter((m) => m.type === 'Telegram Bot Token');
+    expect(telegram).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Anthropic
 // ---------------------------------------------------------------------------
 describe('Anthropic keys', () => {
