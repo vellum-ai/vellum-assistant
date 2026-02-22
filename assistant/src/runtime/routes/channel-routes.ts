@@ -50,9 +50,10 @@ const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
 function parseCallbackData(data: string): ApprovalDecisionResult | null {
   const parts = data.split(':');
   if (parts.length < 3 || parts[0] !== 'apr') return null;
+  const runId = parts[1];
   const action = parts.slice(2).join(':');
-  if (!VALID_ACTIONS.has(action)) return null;
-  return { action: action as ApprovalAction, source: 'telegram_button' };
+  if (!runId || !VALID_ACTIONS.has(action)) return null;
+  return { action: action as ApprovalAction, source: 'telegram_button', runId };
 }
 
 export async function handleDeleteConversation(req: Request): Promise<Response> {
@@ -127,7 +128,9 @@ export async function handleChannelInbound(
   const trimmedContent = typeof content === 'string' ? content.trim() : '';
   const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
 
-  if (trimmedContent.length === 0 && !hasAttachments && !isEdit) {
+  const hasCallbackData = typeof body.callbackData === 'string' && body.callbackData.length > 0;
+
+  if (trimmedContent.length === 0 && !hasAttachments && !isEdit && !hasCallbackData) {
     return Response.json({ error: 'content or attachmentIds is required' }, { status: 400 });
   }
 
@@ -475,10 +478,30 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
         }
       }
 
-      channelDeliveryStore.markProcessed(eventId);
+      // Only mark processed and deliver the final reply when the run has
+      // actually reached a terminal state. If the poll loop timed out while
+      // the run is still in progress, leave the event unprocessed so it can
+      // be retried or dead-lettered.
+      const finalRun = orchestrator.getRun(run.id);
+      const isTerminal = finalRun?.status === 'completed' || finalRun?.status === 'failed';
 
-      // Deliver the final assistant reply
-      await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+      if (isTerminal) {
+        // Link the inbound event to the user message created by the run so
+        // that edit lookups and dead letter replay work correctly.
+        if (run.messageId) {
+          channelDeliveryStore.linkMessage(eventId, run.messageId);
+        }
+
+        channelDeliveryStore.markProcessed(eventId);
+
+        // Deliver the final assistant reply
+        await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+      } else {
+        log.warn(
+          { runId: run.id, status: finalRun?.status, conversationId },
+          'Approval-path poll loop timed out before run reached terminal state',
+        );
+      }
     } catch (err) {
       log.error({ err, conversationId }, 'Approval-aware channel message processing failed');
       channelDeliveryStore.recordProcessingFailure(eventId, err);
@@ -541,6 +564,20 @@ async function handleApprovalInterception(
   }
 
   if (decision) {
+    // When the decision came from a callback button, validate that the embedded
+    // run ID matches the currently pending run. A stale button (from a previous
+    // approval prompt) must not apply to a different pending run.
+    if (decision.runId) {
+      const pending = getPendingConfirmationsByConversation(conversationId);
+      if (pending.length === 0 || pending[0].runId !== decision.runId) {
+        log.warn(
+          { conversationId, callbackRunId: decision.runId, pendingRunId: pending[0]?.runId },
+          'Callback run ID does not match pending run, ignoring stale button press',
+        );
+        return { handled: true, type: 'decision_applied' };
+      }
+    }
+
     const result = handleChannelDecision(conversationId, decision, orchestrator);
 
     if (result.applied) {
