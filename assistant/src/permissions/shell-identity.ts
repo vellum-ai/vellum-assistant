@@ -76,14 +76,29 @@ export function deriveShellActionKeys(analysis: ShellIdentityAnalysis): ActionKe
     return { keys: [], isSimpleAction: false };
   }
 
-  // Pipelines are never simple
-  if (operators.includes('|')) {
-    return { keys: [], isSimpleAction: false };
-  }
-
-  // Only && is a valid setup-prefix chain; || and ; change control flow semantics
-  if (operators.some(op => op === '||' || op === ';')) {
-    return { keys: [], isSimpleAction: false };
+  // For multi-segment commands, only allow simple-action classification if
+  // ALL inter-segment operators are explicitly &&. Any other operator (|, ||,
+  // ;, &, empty/missing) means the separator is unknown or unsafe.
+  // This safely handles cases where the parser doesn't capture certain
+  // separators (;, newline, &) and leaves them as empty operators.
+  if (segments.length > 1) {
+    for (const seg of segments) {
+      const op = seg.operator;
+      // Non-empty operator that isn't && → definitely complex
+      if (op && op !== '&&') {
+        return { keys: [], isSimpleAction: false };
+      }
+    }
+    // Also check: if there are multiple segments but no operators at all
+    // between them (e.g. newline-separated), that's suspicious.
+    // The first segment always has operator '' (no preceding operator).
+    // If any non-first segment also has operator '', the separator was
+    // not captured — treat as complex for safety.
+    for (let i = 1; i < segments.length; i++) {
+      if (!segments[i].operator) {
+        return { keys: [], isSimpleAction: false };
+      }
+    }
   }
 
   // Separate setup-prefix segments from action segments
