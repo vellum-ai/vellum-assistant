@@ -1,8 +1,10 @@
 import { randomBytes } from "crypto";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
-import { createRequire } from "module";
+import { existsSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir, userInfo } from "os";
-import { dirname, join } from "path";
+import { join } from "path";
+
+// Direct import — bun embeds this at compile time so it works in compiled binaries.
+import cliPkg from "../../package.json";
 
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
 import { loadAllAssistants, saveAssistantEntry } from "../lib/assistant-config";
@@ -569,27 +571,7 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
 }
 
 function getCliVersion(): string {
-  // Strategy 1: createRequire — works in Bun dev (source tree).
-  try {
-    const require = createRequire(import.meta.url);
-    const pkg = require("../../package.json") as { version?: string };
-    if (pkg.version) return pkg.version;
-  } catch {
-    // Fall through to next strategy.
-  }
-
-  // Strategy 2: Read package.json adjacent to the compiled binary.
-  try {
-    const binPkg = join(dirname(process.execPath), "package.json");
-    if (existsSync(binPkg)) {
-      const pkg = JSON.parse(readFileSync(binPkg, "utf-8")) as { version?: string };
-      if (pkg.version) return pkg.version;
-    }
-  } catch {
-    // Fall through.
-  }
-
-  return "unknown";
+  return cliPkg.version ?? "unknown";
 }
 
 export async function hatch(): Promise<void> {

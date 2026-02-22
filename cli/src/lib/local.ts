@@ -294,7 +294,7 @@ export async function startGateway(): Promise<string> {
   }
 
   console.log("🌐 Starting gateway...");
-  const gatewayDir = resolveGatewayDir();
+
   // Only auto-configure default routing when the workspace has exactly one
   // assistant.  In multi-assistant deployments, falling back to "default"
   // would silently deliver unmapped Telegram chats to whichever assistant was
@@ -331,12 +331,34 @@ export async function startGateway(): Promise<string> {
     console.log(`   Ingress URL: ${ingressPublicBaseUrl}`);
   }
 
-  const gateway = spawn("bun", ["run", "src/index.ts"], {
-    cwd: gatewayDir,
-    detached: true,
-    stdio: "ignore",
-    env: gatewayEnv,
-  });
+  let gateway;
+
+  if (process.env.VELLUM_DESKTOP_APP) {
+    // Desktop app: spawn the compiled gateway binary directly (mirrors daemon pattern).
+    const gatewayBinary = join(dirname(process.execPath), "vellum-gateway");
+    if (!existsSync(gatewayBinary)) {
+      throw new Error(
+        `vellum-gateway binary not found at ${gatewayBinary}.\n` +
+          "  Ensure the gateway binary is bundled alongside the CLI in the app bundle.",
+      );
+    }
+
+    gateway = spawn(gatewayBinary, [], {
+      detached: true,
+      stdio: "ignore",
+      env: gatewayEnv,
+    });
+  } else {
+    // Source tree / bunx: resolve the gateway source directory and run via bun.
+    const gatewayDir = resolveGatewayDir();
+    gateway = spawn("bun", ["run", "src/index.ts"], {
+      cwd: gatewayDir,
+      detached: true,
+      stdio: "ignore",
+      env: gatewayEnv,
+    });
+  }
+
   gateway.unref();
 
   if (gateway.pid) {
