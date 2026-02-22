@@ -40,10 +40,10 @@ vellum config get calls.enabled
 Also check for existing credentials:
 
 ```bash
-credential_store action=get service=credential:twilio:account_sid
-credential_store action=get service=credential:twilio:auth_token
-credential_store action=get service=credential:twilio:phone_number
+credential_store action=list
 ```
+
+Look for entries with service `twilio` and fields `account_sid`, `auth_token`, and `phone_number`.
 
 If all three credentials exist and `calls.enabled` is `true`, skip to the **Making Calls** section. If credentials are partially configured, skip to whichever step is still needed.
 
@@ -74,25 +74,25 @@ Once the user provides their credentials, store them securely using the `credent
 
 **Account SID:**
 ```
-credential_store action=set service=credential:twilio:account_sid value=<their_account_sid>
+credential_store action=store service=twilio field=account_sid value=<their_account_sid>
 ```
 
 **Auth Token:**
 ```
-credential_store action=set service=credential:twilio:auth_token value=<their_auth_token>
+credential_store action=store service=twilio field=auth_token value=<their_auth_token>
 ```
 
 **Phone Number** (must be in E.164 format, e.g. `+14155551234`):
 ```
-credential_store action=set service=credential:twilio:phone_number value=<their_phone_number>
+credential_store action=store service=twilio field=phone_number value=<their_phone_number>
 ```
 
 After storing, verify each credential was saved:
 ```
-credential_store action=get service=credential:twilio:account_sid
-credential_store action=get service=credential:twilio:auth_token
-credential_store action=get service=credential:twilio:phone_number
+credential_store action=list
 ```
+
+Confirm that entries for service `twilio` with fields `account_sid`, `auth_token`, and `phone_number` appear in the output.
 
 **Important:** Credentials are stored in the OS keychain (macOS Keychain / Linux secret-service) or encrypted at rest. They are never logged or exposed in plaintext.
 
@@ -139,7 +139,7 @@ vellum config get calls.enabled
 
 Before making real calls, offer a quick verification:
 
-1. Confirm credentials are stored: all three `credential:twilio:*` keys must be present
+1. Confirm credentials are stored: all three Twilio credentials (`account_sid`, `auth_token`, `phone_number`) must be present
 2. Confirm ingress is running: `ingress.publicBaseUrl` must be set and the tunnel active
 3. Confirm calls are enabled: `calls.enabled` must be `true`
 
@@ -149,7 +149,7 @@ If they agree, ask for their personal phone number and place a test call with a 
 
 ## Caller Identity
 
-By default, calls are placed from the assistant's Twilio phone number (the one stored as `credential:twilio:phone_number`). This is the number that appears on the recipient's caller ID.
+By default, calls are placed from the assistant's Twilio phone number (the one stored as service `twilio`, field `phone_number`). This is the number that appears on the recipient's caller ID.
 
 ### User-number mode
 
@@ -158,7 +158,7 @@ If the user wants calls to appear as coming from their own phone number instead,
 **To configure a user phone number:**
 
 ```
-credential_store action=set service=credential:twilio:user_phone_number value=+14155559999
+credential_store action=store service=twilio field=user_phone_number value=+14155559999
 ```
 
 **To set user-number mode as the default:**
@@ -214,7 +214,7 @@ Full ElevenLabs conversational agent mode. This requires an ElevenLabs account w
 1. Store your ElevenLabs API key securely:
 
 ```
-credential_store action=set service=credential:elevenlabs:api_key value=<your_api_key>
+credential_store action=store service=elevenlabs field=api_key value=<your_api_key>
 ```
 
 2. Set the voice mode and agent ID:
