@@ -371,6 +371,19 @@ export async function handleChannelInbound(
         approval: approvalResult.type,
       });
     }
+
+    // When a callback-only payload (no text content, no attachments) was not
+    // handled by approval interception, it's a stale button press with no
+    // pending approval. Return early instead of falling through to normal
+    // message processing, which would start a run with empty user content.
+    if (hasCallbackData && trimmedContent.length === 0 && !hasAttachments) {
+      return Response.json({
+        accepted: true,
+        duplicate: false,
+        eventId: result.eventId,
+        approval: 'stale_ignored',
+      });
+    }
   }
 
   // For new (non-duplicate) messages, run the secret ingress check
@@ -707,7 +720,7 @@ interface ApprovalInterceptionParams {
 
 interface ApprovalInterceptionResult {
   handled: boolean;
-  type?: 'decision_applied' | 'reminder_sent' | 'guardian_decision_applied';
+  type?: 'decision_applied' | 'reminder_sent' | 'guardian_decision_applied' | 'stale_ignored';
 }
 
 /**
@@ -783,7 +796,7 @@ async function handleApprovalInterception(
             { externalChatId, callbackRunId: decision.runId, approvalRunId: guardianApproval.runId },
             'Callback run ID does not match guardian approval run, ignoring stale button press',
           );
-          return { handled: true, type: 'guardian_decision_applied' };
+          return { handled: true, type: 'stale_ignored' };
         }
 
         // Apply the decision to the underlying run using the requester's
@@ -894,7 +907,7 @@ async function handleApprovalInterception(
           { conversationId, callbackRunId: decision.runId, pendingRunId: pending[0]?.runId },
           'Callback run ID does not match pending run, ignoring stale button press',
         );
-        return { handled: true, type: 'decision_applied' };
+        return { handled: true, type: 'stale_ignored' };
       }
     }
 

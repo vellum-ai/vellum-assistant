@@ -561,7 +561,7 @@ describe('callback run ID validation', () => {
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.approval).toBe('decision_applied');
+    expect(body.approval).toBe('stale_ignored');
     // submitDecision should NOT have been called because the run ID didn't match
     expect(orchestrator.submitDecision).not.toHaveBeenCalled();
 
