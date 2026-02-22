@@ -266,16 +266,10 @@ struct SettingsPanel: View {
                         apiKeyText = ""
                     }
                 }
-            }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
 
-            // MODEL section (only when API key is configured)
-            if store.hasKey {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    Text("Model")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
+                if store.hasKey {
+                    Divider()
+                        .background(VColor.surfaceBorder)
 
                     HStack {
                         Text("Active Model")
@@ -288,49 +282,177 @@ struct SettingsPanel: View {
                         )
                     }
                 }
-                .padding(VSpacing.lg)
-                .vCard(background: VColor.surfaceSubtle)
-                .overlay(alignment: .bottomTrailing) {
-                    if showModelDropdown {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(SettingsStore.availableModels, id: \.self) { model in
-                                ModelPickerItem(
-                                    name: SettingsStore.modelDisplayNames[model] ?? model,
-                                    isSelected: model == store.selectedModel
-                                ) {
-                                    store.selectedModel = model
-                                    store.setModel(model)
-                                    withAnimation(VAnimation.fast) { showModelDropdown = false }
-                                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+            .overlay(alignment: .bottomTrailing) {
+                if showModelDropdown {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(SettingsStore.availableModels, id: \.self) { model in
+                            ModelPickerItem(
+                                name: SettingsStore.modelDisplayNames[model] ?? model,
+                                isSelected: model == store.selectedModel
+                            ) {
+                                store.selectedModel = model
+                                store.setModel(model)
+                                withAnimation(VAnimation.fast) { showModelDropdown = false }
                             }
                         }
-                        .padding(.vertical, VSpacing.xs)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.lg)
-                                .stroke(VColor.surfaceBorder, lineWidth: 1)
-                        )
-                        .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
-                        .fixedSize(horizontal: true, vertical: true)
-                        .alignmentGuide(.bottom) { d in d[.top] }
-                        .padding(.trailing, VSpacing.lg)
-                        .transition(.opacity)
-                        .background(
-                            GeometryReader { geo in
-                                Color.clear.onAppear {
-                                    modelDropdownFrame = geo.frame(in: .global)
-                                }
-                                .onChange(of: geo.frame(in: .global)) { _, newFrame in
-                                    modelDropdownFrame = newFrame
-                                }
-                            }
-                        )
                     }
+                    .padding(.vertical, VSpacing.xs)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .alignmentGuide(.bottom) { d in d[.top] }
+                    .padding(.trailing, VSpacing.lg)
+                    .transition(.opacity)
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.onAppear {
+                                modelDropdownFrame = geo.frame(in: .global)
+                            }
+                            .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                                modelDropdownFrame = newFrame
+                            }
+                        }
+                    )
                 }
-                .animation(VAnimation.fast, value: showModelDropdown)
-                .zIndex(showModelDropdown ? 1 : 0)
             }
+            .animation(VAnimation.fast, value: showModelDropdown)
+            .zIndex(showModelDropdown ? 1 : 0)
+
+            // PUBLIC INGRESS section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                HStack {
+                    Text("Public Ingress")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { store.ingressEnabled },
+                        set: { store.setIngressEnabled($0) }
+                    ))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .disabled(store.ingressPublicBaseUrl.isEmpty && !store.ingressEnabled)
+                }
+
+                HStack(alignment: .top, spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 12))
+                    Text("Setting a public base URL may expose this computer to the public internet. Use with caution.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                // Public Ingress URL field
+                HStack(spacing: VSpacing.xs) {
+                    Text("Public Ingress URL")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                TextField("https://abc123.ngrok-free.app", text: $ingressUrlText)
+                    .focused($isIngressUrlFocused)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.md)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+
+                VButton(label: "Save", style: .primary) {
+                    store.saveIngressPublicBaseUrl(ingressUrlText)
+                }
+
+                Divider()
+                    .background(VColor.surfaceBorder)
+
+                // Local Gateway Target (read-only)
+                HStack(spacing: VSpacing.xs) {
+                    Text("Local Gateway Target")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                HStack(spacing: VSpacing.sm) {
+                    Text(store.localGatewayTarget)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+                        .textSelection(.enabled)
+                        .padding(VSpacing.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(VColor.surface.opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+                        )
+
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(VColor.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy gateway address")
+                    .help("Copy address")
+
+                    // Check Gateway button
+                    Button {
+                        checkGatewayHealth()
+                    } label: {
+                        if checkingGateway {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 28, height: 28)
+                        } else {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(VColor.textSecondary)
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(checkingGateway)
+                    .accessibilityLabel("Check gateway health")
+                    .help("Check gateway health")
+                }
+
+                if let reachable = gatewayHealthResult {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: reachable ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(reachable ? VColor.success : VColor.error)
+                        Text(reachable ? "Gateway is reachable" : "Gateway is not reachable")
+                            .font(VFont.caption)
+                            .foregroundColor(reachable ? VColor.success : VColor.error)
+                    }
+                    .transition(.opacity)
+                }
+
+                Text("Point your tunnel service at this local address.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
 
             // PERPLEXITY SEARCH section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -645,134 +767,6 @@ struct SettingsPanel: View {
 
             // TELEGRAM section
             telegramSection
-
-            // PUBLIC INGRESS section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                HStack {
-                    Text("Public Ingress")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    Spacer()
-                    Toggle("", isOn: Binding(
-                        get: { store.ingressEnabled },
-                        set: { store.setIngressEnabled($0) }
-                    ))
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .disabled(store.ingressPublicBaseUrl.isEmpty && !store.ingressEnabled)
-                }
-
-                HStack(alignment: .top, spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 12))
-                    Text("Setting a public base URL may expose this computer to the public internet. Use with caution.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                // Public Ingress URL field
-                HStack(spacing: VSpacing.xs) {
-                    Text("Public Ingress URL")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                TextField("https://abc123.ngrok-free.app", text: $ingressUrlText)
-                    .focused($isIngressUrlFocused)
-                    .textFieldStyle(.plain)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .padding(VSpacing.md)
-                    .background(VColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                    )
-
-                VButton(label: "Save", style: .primary) {
-                    store.saveIngressPublicBaseUrl(ingressUrlText)
-                }
-
-                Divider()
-                    .background(VColor.surfaceBorder)
-
-                // Local Gateway Target (read-only)
-                HStack(spacing: VSpacing.xs) {
-                    Text("Local Gateway Target")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                HStack(spacing: VSpacing.sm) {
-                    Text(store.localGatewayTarget)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
-                        .textSelection(.enabled)
-                        .padding(VSpacing.md)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(VColor.surface.opacity(0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-                        )
-
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Copy gateway address")
-                    .help("Copy address")
-
-                    // Check Gateway button
-                    Button {
-                        checkGatewayHealth()
-                    } label: {
-                        if checkingGateway {
-                            ProgressView()
-                                .controlSize(.small)
-                                .frame(width: 28, height: 28)
-                        } else {
-                            Image(systemName: "antenna.radiowaves.left.and.right")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(VColor.textSecondary)
-                                .frame(width: 28, height: 28)
-                                .contentShape(Rectangle())
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(checkingGateway)
-                    .accessibilityLabel("Check gateway health")
-                    .help("Check gateway health")
-                }
-
-                if let reachable = gatewayHealthResult {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: reachable ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(reachable ? VColor.success : VColor.error)
-                        Text(reachable ? "Gateway is reachable" : "Gateway is not reachable")
-                            .font(VFont.caption)
-                            .foregroundColor(reachable ? VColor.success : VColor.error)
-                    }
-                    .transition(.opacity)
-                }
-
-                Text("Point your tunnel service at this local address.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-            }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
         }
     }
 
