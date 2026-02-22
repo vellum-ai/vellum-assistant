@@ -7,6 +7,7 @@ import Combine
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadManager")
 private let archivedSessionsKey = "archivedSessionIds"
+private let hiddenSessionsKey = "hiddenSessionTimestamps"
 
 /// Haiku is used for title generation because it's cost-effective and fast enough
 /// for simple summarization tasks without sacrificing quality.
@@ -256,8 +257,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
 
     /// Hide a synced thread locally without removing the server-side binding.
-    /// Removes the thread from the UI entirely (without adding to archivedSessionIds)
-    /// so the session restorer can re-create it when the next inbound message arrives.
+    /// Removes the thread from the UI and persists a hidden timestamp so the
+    /// session restorer suppresses it on restart. When the daemon reports new
+    /// activity (updatedAt > hideTime), the hidden state auto-clears and the
+    /// thread re-appears as visible.
     func hideLocalThread(id: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
         let thread = threads[index]
@@ -268,9 +271,17 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         chatViewModels[id]?.stopGenerating()
         chatViewModels.removeValue(forKey: id)
 
-        // Remove the thread from the array — deliberately not adding to
-        // archivedSessionIds so the session restorer will re-create the
-        // thread when the next inbound message arrives.
+        // Persist the hidden state so the session restorer suppresses this
+        // thread on restart. Unlike archivedSessionIds, the hidden timestamp
+        // is compared against the session's updatedAt — if new activity
+        // arrives (updatedAt advances), the hidden state is automatically
+        // cleared and the thread re-appears.
+        if let sessionId = thread.sessionId {
+            var hidden = hiddenSessionTimestamps
+            hidden[sessionId] = Int(Date().timeIntervalSince1970 * 1000)
+            hiddenSessionTimestamps = hidden
+        }
+
         threads.remove(at: index)
 
         // If the removed thread was active, select an adjacent thread or create a new one
@@ -410,6 +421,28 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func isSessionArchived(_ sessionId: String) -> Bool {
         archivedSessionIds.contains(sessionId)
+    }
+
+    /// Returns true if the session was hidden and has not received new activity
+    /// since the hide timestamp. `updatedAt` is the daemon's session timestamp
+    /// (milliseconds since epoch); if it exceeds the stored hide time, the session
+    /// has new activity and the hidden state is automatically cleared.
+    func isSessionHidden(_ sessionId: String, updatedAt: Int) -> Bool {
+        guard let hideTime = hiddenSessionTimestamps[sessionId] else { return false }
+        if updatedAt > hideTime {
+            // New activity arrived — clear the hidden state so the thread re-appears.
+            var hidden = hiddenSessionTimestamps
+            hidden.removeValue(forKey: sessionId)
+            hiddenSessionTimestamps = hidden
+            return false
+        }
+        return true
+    }
+
+    func clearHiddenSession(_ sessionId: String) {
+        var hidden = hiddenSessionTimestamps
+        hidden.removeValue(forKey: sessionId)
+        hiddenSessionTimestamps = hidden
     }
 
     /// Clear the `activeSurfaceId` on a specific thread's ChatViewModel.
@@ -721,6 +754,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         set {
             UserDefaults.standard.set(Array(newValue), forKey: archivedSessionsKey)
+        }
+    }
+
+    /// Maps hidden session IDs to the timestamp (ms since epoch) when they were hidden.
+    /// Used to suppress threads on restore while allowing re-creation when new activity
+    /// (updatedAt > hideTime) is detected.
+    private var hiddenSessionTimestamps: [String: Int] {
+        get {
+            UserDefaults.standard.dictionary(forKey: hiddenSessionsKey) as? [String: Int] ?? [:]
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: hiddenSessionsKey)
         }
     }
 

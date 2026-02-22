@@ -18,6 +18,7 @@ protocol ThreadRestorerDelegate: AnyObject {
     func activateThread(_ id: UUID)
     func createThread()
     func isSessionArchived(_ sessionId: String) -> Bool
+    func isSessionHidden(_ sessionId: String, updatedAt: Int) -> Bool
     func restoreLastActiveThread()
 }
 
@@ -108,7 +109,7 @@ final class ThreadSessionRestorer {
                 title: session.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 sessionId: session.id,
-                isArchived: delegate.isSessionArchived(session.id),
+                isArchived: delegate.isSessionArchived(session.id) || delegate.isSessionHidden(session.id, updatedAt: session.updatedAt),
                 kind: kind,
                 sourceChannel: binding?.sourceChannel,
                 displayName: binding?.displayName,
