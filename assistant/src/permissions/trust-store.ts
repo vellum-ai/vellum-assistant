@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { v4 as uuid } from 'uuid';
-import { minimatch } from 'minimatch';
+import { Minimatch } from 'minimatch';
 import { getRootDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getDefaultRuleTemplates } from './defaults.js';
@@ -20,6 +20,33 @@ interface TrustFile {
 
 let cachedRules: TrustRule[] | null = null;
 let cachedStarterBundleAccepted: boolean | null = null;
+
+/**
+ * Cache of pre-compiled Minimatch objects keyed by pattern string.
+ * Rebuilt whenever cachedRules changes. Avoids re-parsing glob patterns
+ * on every tool-call permission check.
+ */
+const compiledPatterns = new Map<string, Minimatch>();
+
+/** Get or compile a Minimatch object for the given pattern. */
+function getCompiledPattern(pattern: string): Minimatch {
+  let compiled = compiledPatterns.get(pattern);
+  if (!compiled) {
+    compiled = new Minimatch(pattern);
+    compiledPatterns.set(pattern, compiled);
+  }
+  return compiled;
+}
+
+/** Rebuild the compiled pattern cache from the current rule set. */
+function rebuildPatternCache(rules: TrustRule[]): void {
+  compiledPatterns.clear();
+  for (const rule of rules) {
+    if (!compiledPatterns.has(rule.pattern)) {
+      compiledPatterns.set(rule.pattern, new Minimatch(rule.pattern));
+    }
+  }
+}
 
 function getTrustPath(): string {
   return join(getRootDir(), 'protected', 'trust.json');
@@ -262,6 +289,7 @@ function saveToDisk(rules: TrustRule[]): void {
 function getRules(): TrustRule[] {
   if (cachedRules === null) {
     cachedRules = loadFromDisk();
+    rebuildPatternCache(cachedRules);
   }
   return cachedRules;
 }
@@ -311,6 +339,7 @@ export function addRule(
   rules.push(rule);
   rules.sort(ruleOrder);
   cachedRules = rules;
+  rebuildPatternCache(rules);
   saveToDisk(rules);
   log.info({ rule }, 'Added trust rule');
   return rule;
@@ -337,6 +366,7 @@ export function updateRule(
   rules[index] = rule;
   rules.sort(ruleOrder);
   cachedRules = rules;
+  rebuildPatternCache(rules);
   saveToDisk(rules);
   log.info({ rule }, 'Updated trust rule');
   return rule;
@@ -353,6 +383,7 @@ export function removeRule(id: string): boolean {
   if (index === -1) return false;
   rules.splice(index, 1);
   cachedRules = rules;
+  rebuildPatternCache(rules);
   saveToDisk(rules);
   log.info({ id }, 'Removed trust rule');
   return true;
@@ -372,7 +403,7 @@ function findRuleByDecision(tool: string, command: string, scope: string, decisi
   for (const rule of rules) {
     if (rule.tool !== tool) continue;
     if (rule.decision !== decision) continue;
-    if (!minimatch(command, rule.pattern)) continue;
+    if (!getCompiledPattern(rule.pattern).match(command)) continue;
     if (!matchesScope(rule.scope, scope)) continue;
     return rule;
   }
@@ -451,8 +482,9 @@ export function findHighestPriorityRule(tool: string, commands: string[], scope:
     if (!matchesScope(rule.scope, scope)) continue;
     if (!matchesPrincipal(rule, ctx)) continue;
     if (!matchesExecutionTarget(rule, ctx)) continue;
+    const compiled = getCompiledPattern(rule.pattern);
     for (const command of commands) {
-      if (minimatch(command, rule.pattern)) {
+      if (compiled.match(command)) {
         return rule;
       }
     }
@@ -480,6 +512,7 @@ export function clearAllRules(): void {
   backfillDefaults(rules);
   rules.sort(ruleOrder);
   cachedRules = rules;
+  rebuildPatternCache(rules);
   saveToDisk(rules);
   log.info('Cleared all user trust rules (default rules preserved)');
 }
@@ -487,6 +520,7 @@ export function clearAllRules(): void {
 export function clearCache(): void {
   cachedRules = null;
   cachedStarterBundleAccepted = null;
+  compiledPatterns.clear();
 }
 
 // ─── Starter approval bundle ────────────────────────────────────────────────
@@ -577,6 +611,7 @@ export function acceptStarterBundle(): AcceptStarterBundleResult {
   cachedStarterBundleAccepted = true;
   rules.sort(ruleOrder);
   cachedRules = rules;
+  rebuildPatternCache(rules);
   saveToDisk(rules);
   log.info({ rulesAdded: added }, 'Starter approval bundle accepted');
 
