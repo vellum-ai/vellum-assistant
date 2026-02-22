@@ -72,9 +72,10 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
       return Response.json({ error: "Missing MessageSid" }, { status: 400 });
     }
 
-    // Dedup by MessageSid — check only, defer marking until after successful forwarding
-    // so Twilio retries are not suppressed when downstream handling fails.
-    if (dedupCache.has(messageSid)) {
+    // Dedup by MessageSid — atomically reserve the key so concurrent retries
+    // are blocked even while the first request is still processing.
+    // On failure, unreserve() allows Twilio retries; on success, mark() finalizes.
+    if (!dedupCache.reserve(messageSid)) {
       tlog.info({ messageSid }, "Duplicate MessageSid, ignoring");
       return Response.json({ ok: true });
     }
@@ -123,6 +124,7 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
 
       if (!result.forwarded) {
         tlog.error({ messageSid }, "Failed to forward SMS to runtime");
+        dedupCache.unreserve(messageSid);
         return Response.json({ error: "Internal error" }, { status: 500 });
       }
 
@@ -131,6 +133,7 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
       tlog.info({ status: "forwarded", messageSid }, "SMS forwarded to runtime");
     } catch (err) {
       tlog.error({ err, messageSid }, "Failed to process inbound SMS");
+      dedupCache.unreserve(messageSid);
       return Response.json({ error: "Internal error" }, { status: 500 });
     }
 
