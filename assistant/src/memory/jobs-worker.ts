@@ -85,8 +85,9 @@ export async function runMemoryJobsOnce(
   // Periodic stale item sweep (throttled to at most once per hour)
   sweepStaleItems(config);
 
+  const batchSize = Math.max(1, config.memory.jobs.batchSize);
   const concurrency = Math.max(1, config.memory.jobs.workerConcurrency);
-  const jobs = claimMemoryJobs(concurrency);
+  const jobs = claimMemoryJobs(batchSize);
   if (jobs.length === 0) {
     if (enableScheduledCleanup) {
       maybeEnqueueScheduledCleanupJobs(config);
@@ -94,34 +95,45 @@ export async function runMemoryJobsOnce(
     return 0;
   }
 
+  // Process jobs concurrently (up to workerConcurrency at a time).
+  // Each job is isolated — a failure in one does not affect others.
   let processed = 0;
-  for (const job of jobs) {
-    try {
-      await processJob(job, config);
-      completeMemoryJob(job.id);
-      processed += 1;
-    } catch (err) {
-      if (err instanceof BackendUnavailableError) {
-        // Backend not configured yet -- put the job back with exponential backoff.
-        const result = deferMemoryJob(job.id);
-        if (result === 'failed') {
-          log.warn({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, job exceeded max deferrals');
-        } else {
-          log.debug({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, deferring job');
-        }
+  for (let i = 0; i < jobs.length; i += concurrency) {
+    const chunk = jobs.slice(i, i + concurrency);
+    const results = await Promise.allSettled(
+      chunk.map(async (job) => {
+        await processJob(job, config);
+        completeMemoryJob(job.id);
+      }),
+    );
+    for (let j = 0; j < results.length; j++) {
+      const result = results[j];
+      if (result.status === 'fulfilled') {
+        processed += 1;
       } else {
-        const message = err instanceof Error ? err.message : String(err);
-        const category = classifyError(err);
-        if (category === 'retryable') {
-          const delay = retryDelayForAttempt(job.attempts + 1);
-          failMemoryJob(job.id, message, {
-            retryDelayMs: delay,
-            maxAttempts: RETRY_MAX_ATTEMPTS,
-          });
-          log.warn({ err, jobId: job.id, type: job.type, delay, category }, 'Memory job failed (retryable)');
+        const job = chunk[j];
+        const err = result.reason;
+        if (err instanceof BackendUnavailableError) {
+          const deferResult = deferMemoryJob(job.id);
+          if (deferResult === 'failed') {
+            log.warn({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, job exceeded max deferrals');
+          } else {
+            log.debug({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, deferring job');
+          }
         } else {
-          failMemoryJob(job.id, message, { maxAttempts: 1 });
-          log.warn({ err, jobId: job.id, type: job.type, category }, 'Memory job failed (fatal)');
+          const message = err instanceof Error ? err.message : String(err);
+          const category = classifyError(err);
+          if (category === 'retryable') {
+            const delay = retryDelayForAttempt(job.attempts + 1);
+            failMemoryJob(job.id, message, {
+              retryDelayMs: delay,
+              maxAttempts: RETRY_MAX_ATTEMPTS,
+            });
+            log.warn({ err, jobId: job.id, type: job.type, delay, category }, 'Memory job failed (retryable)');
+          } else {
+            failMemoryJob(job.id, message, { maxAttempts: 1 });
+            log.warn({ err, jobId: job.id, type: job.type, category }, 'Memory job failed (fatal)');
+          }
         }
       }
     }

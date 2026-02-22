@@ -437,6 +437,11 @@ export const MemoryJobsConfigSchema = z.object({
     .int('memory.jobs.workerConcurrency must be an integer')
     .positive('memory.jobs.workerConcurrency must be a positive integer')
     .default(2),
+  batchSize: z
+    .number({ error: 'memory.jobs.batchSize must be a number' })
+    .int('memory.jobs.batchSize must be an integer')
+    .positive('memory.jobs.batchSize must be a positive integer')
+    .default(10),
 });
 
 export const MemoryRetentionConfigSchema = z.object({
@@ -648,6 +653,7 @@ export const MemoryConfigSchema = z.object({
   }),
   jobs: MemoryJobsConfigSchema.default({
     workerConcurrency: 2,
+    batchSize: 10,
   }),
   retention: MemoryRetentionConfigSchema.default({
     keepRawForever: true,
@@ -1168,6 +1174,7 @@ export const AssistantConfigSchema = z.object({
     },
     jobs: {
       workerConcurrency: 2,
+      batchSize: 10,
     },
     retention: {
       keepRawForever: true,
