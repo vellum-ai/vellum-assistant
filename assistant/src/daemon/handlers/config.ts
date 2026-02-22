@@ -25,6 +25,7 @@ import type {
   IngressConfigRequest,
   VercelApiConfigRequest,
   TwitterIntegrationConfigRequest,
+  TelegramConfigRequest,
   ToolPermissionSimulateRequest,
 } from '../ipc-protocol.js';
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
@@ -815,6 +816,168 @@ export function handleTwitterIntegrationConfig(
   }
 }
 
+export async function handleTelegramConfig(
+  msg: TelegramConfigRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    if (msg.action === 'get') {
+      const hasBotToken = !!getSecureKey('credential:telegram:bot_token');
+      const hasWebhookSecret = !!getSecureKey('credential:telegram:webhook_secret');
+      const meta = getCredentialMetadata('telegram', 'bot_token');
+      const botUsername = meta?.accountInfo ?? undefined;
+      ctx.send(socket, {
+        type: 'telegram_config_response',
+        success: true,
+        hasBotToken,
+        botUsername,
+        connected: hasBotToken,
+        hasWebhookSecret,
+      });
+    } else if (msg.action === 'set') {
+      if (!msg.botToken) {
+        ctx.send(socket, {
+          type: 'telegram_config_response',
+          success: false,
+          hasBotToken: false,
+          connected: false,
+          hasWebhookSecret: false,
+          error: 'botToken is required for set action',
+        });
+        return;
+      }
+
+      // Validate token via Telegram getMe API
+      let botUsername: string;
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${msg.botToken}/getMe`);
+        if (!res.ok) {
+          const body = await res.text();
+          ctx.send(socket, {
+            type: 'telegram_config_response',
+            success: false,
+            hasBotToken: false,
+            connected: false,
+            hasWebhookSecret: false,
+            error: `Telegram API validation failed: ${body}`,
+          });
+          return;
+        }
+        const data = await res.json() as { ok: boolean; result?: { username?: string } };
+        if (!data.ok || !data.result?.username) {
+          ctx.send(socket, {
+            type: 'telegram_config_response',
+            success: false,
+            hasBotToken: false,
+            connected: false,
+            hasWebhookSecret: false,
+            error: 'Telegram API returned unexpected response',
+          });
+          return;
+        }
+        botUsername = data.result.username;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        ctx.send(socket, {
+          type: 'telegram_config_response',
+          success: false,
+          hasBotToken: false,
+          connected: false,
+          hasWebhookSecret: false,
+          error: `Failed to validate bot token: ${message}`,
+        });
+        return;
+      }
+
+      // Store bot token securely
+      const stored = setSecureKey('credential:telegram:bot_token', msg.botToken);
+      if (!stored) {
+        ctx.send(socket, {
+          type: 'telegram_config_response',
+          success: false,
+          hasBotToken: false,
+          connected: false,
+          hasWebhookSecret: false,
+          error: 'Failed to store bot token in secure storage',
+        });
+        return;
+      }
+
+      // Store metadata with bot username
+      upsertCredentialMetadata('telegram', 'bot_token', {
+        accountInfo: botUsername,
+      });
+
+      // Ensure webhook secret exists (generate if missing)
+      let hasWebhookSecret = !!getSecureKey('credential:telegram:webhook_secret');
+      if (!hasWebhookSecret) {
+        const { randomUUID } = await import('node:crypto');
+        const webhookSecret = randomUUID();
+        const secretStored = setSecureKey('credential:telegram:webhook_secret', webhookSecret);
+        if (secretStored) {
+          upsertCredentialMetadata('telegram', 'webhook_secret', {});
+          hasWebhookSecret = true;
+        }
+      }
+
+      ctx.send(socket, {
+        type: 'telegram_config_response',
+        success: true,
+        hasBotToken: true,
+        botUsername,
+        connected: true,
+        hasWebhookSecret,
+      });
+
+      // Trigger gateway reconcile so the webhook registration updates immediately
+      const effectiveUrl = process.env.INGRESS_PUBLIC_BASE_URL;
+      if (effectiveUrl) {
+        triggerGatewayReconcile(effectiveUrl);
+      }
+    } else if (msg.action === 'clear') {
+      deleteSecureKey('credential:telegram:bot_token');
+      deleteCredentialMetadata('telegram', 'bot_token');
+      deleteSecureKey('credential:telegram:webhook_secret');
+      deleteCredentialMetadata('telegram', 'webhook_secret');
+
+      ctx.send(socket, {
+        type: 'telegram_config_response',
+        success: true,
+        hasBotToken: false,
+        connected: false,
+        hasWebhookSecret: false,
+      });
+
+      // Trigger reconcile to deregister webhook
+      const effectiveUrl = process.env.INGRESS_PUBLIC_BASE_URL;
+      if (effectiveUrl) {
+        triggerGatewayReconcile(effectiveUrl);
+      }
+    } else {
+      ctx.send(socket, {
+        type: 'telegram_config_response',
+        success: false,
+        hasBotToken: false,
+        connected: false,
+        hasWebhookSecret: false,
+        error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}`,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to handle Telegram config');
+    ctx.send(socket, {
+      type: 'telegram_config_response',
+      success: false,
+      hasBotToken: false,
+      connected: false,
+      hasWebhookSecret: false,
+      error: message,
+    });
+  }
+}
+
 export function handleEnvVarsRequest(socket: net.Socket, ctx: HandlerContext): void {
   const vars: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -941,6 +1104,7 @@ export const configHandlers = defineHandlers({
   ingress_config: handleIngressConfig,
   vercel_api_config: handleVercelApiConfig,
   twitter_integration_config: handleTwitterIntegrationConfig,
+  telegram_config: handleTelegramConfig,
   env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
   tool_permission_simulate: handleToolPermissionSimulate,
 });
