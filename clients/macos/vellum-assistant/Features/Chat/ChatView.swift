@@ -524,10 +524,20 @@ struct ChatView: View {
 
                     let lastVisible = displayMessages.last
                     let hasPendingConfirmation = lastVisible?.confirmation?.state == .pending
-                    // Check all messages for active tool calls — not just lastVisible —
-                    // because confirmation messages are inserted after the assistant
-                    // message that owns the tool call, so lastVisible may miss it.
-                    let hasActiveToolCall = displayMessages.contains(where: {
+                    // Check the current assistant turn for active tool calls.
+                    // We scope to messages after the last user message so that
+                    // stale incomplete tool calls from earlier turns (e.g. after
+                    // daemon errors) don't permanently suppress the thinking
+                    // indicator. We still scan beyond lastVisible because
+                    // confirmation messages are inserted after the assistant
+                    // message that owns the tool call.
+                    let currentTurnMessages: ArraySlice<ChatMessage> = {
+                        if let lastUserIndex = displayMessages.lastIndex(where: { $0.role == .user }) {
+                            return displayMessages[displayMessages.index(after: lastUserIndex)...]
+                        }
+                        return displayMessages[displayMessages.startIndex...]
+                    }()
+                    let hasActiveToolCall = currentTurnMessages.contains(where: {
                         $0.toolCalls.contains(where: { !$0.isComplete })
                     })
                     if isSending && !(lastVisible?.isStreaming == true) && !hasPendingConfirmation && !hasActiveToolCall {
