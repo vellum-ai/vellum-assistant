@@ -27,13 +27,6 @@ The platform has three main components:
 
 - **Docker** is required. The sandbox uses Docker as its default backend for container-level isolation. Install [Docker Desktop](https://docs.docker.com/get-docker/) (macOS/Windows) or Docker Engine (Linux) and ensure the daemon is running before starting the assistant.
 
-## Local Development
-
-```bash
-# Start local services (Postgres + MinIO)
-docker compose up -d
-```
-
 ## Git Hooks
 
 This repository includes git hooks to help maintain code quality and security. The hooks are installed by running the install script directly.
