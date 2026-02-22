@@ -31,6 +31,9 @@ mock.module('../util/platform.js', () => ({
     const logsDir = join(TEST_DIR, 'logs');
     if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true });
   },
+  migrateToWorkspaceLayout: () => {},
+  migrateToDataLayout: () => {},
+  migratePath: () => {},
   isMacOS: () => false,
   isLinux: () => false,
   isWindows: () => false,
@@ -45,8 +48,23 @@ import { getSecureKey } from '../security/secure-keys.js';
 // Tests
 // ---------------------------------------------------------------------------
 
+// API key env vars that loadConfig checks — must be cleared during tests
+// so they don't override the migrated values under test.
+const API_KEY_ENV_VARS = [
+  'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY',
+  'OLLAMA_API_KEY', 'FIREWORKS_API_KEY', 'OPENROUTER_API_KEY',
+  'BRAVE_API_KEY', 'PERPLEXITY_API_KEY',
+];
+
 describe('key migration', () => {
+  const savedEnv: Record<string, string | undefined> = {};
+
   beforeEach(() => {
+    // Save and clear API key env vars
+    for (const key of API_KEY_ENV_VARS) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });
     }
@@ -62,6 +80,11 @@ describe('key migration', () => {
     _setStorePath(null);
     _setBackend(undefined);
     invalidateConfigCache();
+    // Restore API key env vars
+    for (const key of API_KEY_ENV_VARS) {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key]!;
+    }
   });
 
   test('[experimental] migrates plaintext apiKeys from config.json to secure storage', () => {

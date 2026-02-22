@@ -61,13 +61,20 @@ describe('OAuth callback registry', () => {
 
   test('TTL expiry rejects callback with timeout error', async () => {
     const promise = new Promise<string>((resolve, reject) => {
-      registerPendingCallback('state-ttl', resolve, reject, 50);
+      registerPendingCallback('state-ttl', resolve, reject, 100);
     });
 
-    // Wait for the TTL to expire
-    await new Promise((r) => setTimeout(r, 100));
+    // Attach a catch handler immediately to prevent unhandled rejection
+    // during the sleep. We capture the error and verify it afterwards.
+    let caughtError: Error | undefined;
+    const guarded = promise.catch((err) => { caughtError = err; });
 
-    await expect(promise).rejects.toThrow('OAuth callback timed out');
+    // Wait for the TTL to expire (generous margin)
+    await new Promise((r) => setTimeout(r, 300));
+    await guarded;
+
+    expect(caughtError).toBeDefined();
+    expect(caughtError!.message).toBe('OAuth callback timed out');
 
     // After expiry, consume should return false
     const consumed = consumeCallback('state-ttl', 'late-code');

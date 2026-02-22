@@ -73,15 +73,16 @@ describe('ephemeral-permissions', () => {
       expect(fileReadRule.id).toBe('ephemeral:run-123:file_read');
       expect(fileReadRule.tool).toBe('file_read');
       expect(fileReadRule.pattern).toBe('**');
-      expect(fileReadRule.scope).toBe('/home/user/project');
+      expect(fileReadRule.scope).toBe('everywhere');
       expect(fileReadRule.decision).toBe('allow');
-      expect(fileReadRule.priority).toBe(50);
+      expect(fileReadRule.priority).toBe(75);
       expect(fileReadRule.principalKind).toBe('task');
       expect(fileReadRule.principalId).toBe('run-123');
       expect(fileReadRule.createdAt).toBeGreaterThan(0);
 
-      // Verify allowHighRisk is NOT set
-      expect(fileReadRule.allowHighRisk).toBeUndefined();
+      // allowHighRisk is set because task runs execute asynchronously
+      // without interactive confirmation — pre-approved via preflight
+      expect(fileReadRule.allowHighRisk).toBe(true);
 
       // Check other rules have correct tool names
       expect(rules[1].tool).toBe('bash');
