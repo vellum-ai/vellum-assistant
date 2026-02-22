@@ -907,8 +907,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Get, set, or clear Telegram bot token configuration.
-    public func sendTelegramConfig(action: String, botToken: String? = nil) throws {
-        try send(TelegramConfigRequestMessage(action: action, botToken: botToken))
+    public func sendTelegramConfig(action: String, botToken: String? = nil, commands: [IPCTelegramConfigRequestCommand]? = nil) throws {
+        try send(TelegramConfigRequestMessage(action: action, botToken: botToken, commands: commands))
     }
 
     /// Publish a static page to Vercel.
