@@ -24,13 +24,26 @@ describe('tokenizeForConflictRelevance hardening', () => {
     expect(relevance).toBeLessThanOrEqual(0.5);
   });
 
-  test('excludes generic tracking tokens from relevance', () => {
-    const relevance = computeConflictRelevance(
-      'Check issue #42',
-      { existingStatement: 'Track issue #10 for review.', candidateStatement: 'Track issue #11 for review.' },
+  test('URL-embedded tracking tokens are stripped, standalone usage preserved', () => {
+    // URLs containing "issue", "pull", etc. are stripped entirely before tokenizing
+    const urlRelevance = computeConflictRelevance(
+      'Check https://github.com/org/repo/issues/42',
+      {
+        existingStatement: 'Review https://github.com/org/repo/issues/10',
+        candidateStatement: 'Review https://github.com/org/repo/issues/11',
+      },
     );
-    // "issue" should be excluded as a noise token
-    expect(relevance).toBeLessThan(0.5);
+    expect(urlRelevance).toBeLessThanOrEqual(0.5);
+
+    // Standalone "issue" is preserved as a meaningful token
+    const standaloneRelevance = computeConflictRelevance(
+      'should I file an issue?',
+      {
+        existingStatement: 'File an issue when bugs are found.',
+        candidateStatement: 'Skip filing an issue for minor bugs.',
+      },
+    );
+    expect(standaloneRelevance).toBeGreaterThan(0);
   });
 
   test('still computes meaningful relevance for real content tokens', () => {
