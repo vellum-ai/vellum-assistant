@@ -153,13 +153,14 @@ export async function commitAppChange(message: string): Promise<void> {
  */
 export async function getAppHistory(appId: string, limit = 50): Promise<AppVersion[]> {
   validateAppId(appId);
+  const safeLimit = Math.max(1, Math.min(Math.floor(limit), 500));
   const appsDir = getAppsDir();
   const gitService = getWorkspaceGitService(appsDir);
 
   // Format: hash<TAB>unix-seconds<TAB>subject line
   const { stdout } = await gitService.runReadOnlyGit([
     'log',
-    `--max-count=${limit}`,
+    `--max-count=${safeLimit}`,
     '--format=%H\t%at\t%s',
     '--',
     `${appId}.json`,
@@ -258,7 +259,8 @@ export async function restoreAppVersion(appId: string, commitHash: string): Prom
       `${appId}/`,
     ]);
 
-    // Read the app name for the commit message
+    // Read the app name and refresh updatedAt so the restored app
+    // doesn't appear stale in recency ordering.
     let appName = appId;
     const jsonPath = join(appsDir, `${appId}.json`);
     if (existsSync(jsonPath)) {
@@ -266,6 +268,8 @@ export async function restoreAppVersion(appId: string, commitHash: string): Prom
         const raw = readFileSync(jsonPath, 'utf-8');
         const app = JSON.parse(raw);
         if (app.name) appName = app.name;
+        app.updatedAt = Date.now();
+        writeFileSync(jsonPath, JSON.stringify(app, null, 2) + '\n', 'utf-8');
       } catch {
         // fall back to id
       }
