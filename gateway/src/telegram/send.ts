@@ -54,9 +54,10 @@ export async function sendTelegramAttachments(
   const failures: string[] = [];
 
   for (const meta of attachments) {
-    if (meta.sizeBytes > config.maxAttachmentBytes) {
+    // When size is known upfront, skip oversized attachments before downloading.
+    if (meta.sizeBytes !== undefined && meta.sizeBytes > config.maxAttachmentBytes) {
       log.warn({ attachmentId: meta.id, sizeBytes: meta.sizeBytes }, "Skipping oversized outbound attachment");
-      failures.push(meta.filename);
+      failures.push(meta.filename ?? meta.id);
       continue;
     }
 
@@ -66,25 +67,39 @@ export async function sendTelegramAttachments(
       const payload = assistantId
         ? await downloadAttachment(config, assistantId, meta.id)
         : await downloadAttachmentById(config, meta.id);
+
+      // Hydrate missing metadata from the downloaded payload so that
+      // ID-only attachment payloads work correctly.
+      const mimeType = meta.mimeType ?? payload.mimeType ?? "application/octet-stream";
+      const filename = meta.filename ?? payload.filename ?? meta.id;
+      const sizeBytes = meta.sizeBytes ?? payload.sizeBytes ?? Math.ceil((payload.data.length * 3) / 4);
+
+      // Check size after hydration for ID-only payloads where size was unknown.
+      if (sizeBytes > config.maxAttachmentBytes) {
+        log.warn({ attachmentId: meta.id, sizeBytes }, "Skipping oversized outbound attachment (detected after download)");
+        failures.push(filename);
+        continue;
+      }
+
       const buffer = Buffer.from(payload.data, "base64");
-      const blob = new Blob([buffer], { type: meta.mimeType });
+      const blob = new Blob([buffer], { type: mimeType });
 
       const form = new FormData();
       form.set("chat_id", chatId);
 
-      const isImage = IMAGE_MIME_PREFIXES.some((p) => meta.mimeType.startsWith(p));
+      const isImage = IMAGE_MIME_PREFIXES.some((p) => mimeType.startsWith(p));
       if (isImage) {
-        form.set("photo", blob, meta.filename);
+        form.set("photo", blob, filename);
         await callTelegramApiMultipart(config, "sendPhoto", form);
       } else {
-        form.set("document", blob, meta.filename);
+        form.set("document", blob, filename);
         await callTelegramApiMultipart(config, "sendDocument", form);
       }
 
-      log.debug({ chatId, attachmentId: meta.id, filename: meta.filename }, "Attachment sent to Telegram");
+      log.debug({ chatId, attachmentId: meta.id, filename }, "Attachment sent to Telegram");
     } catch (err) {
       log.error({ err, attachmentId: meta.id, filename: meta.filename }, "Failed to send attachment to Telegram");
-      failures.push(meta.filename);
+      failures.push(meta.filename ?? meta.id);
     }
   }
 

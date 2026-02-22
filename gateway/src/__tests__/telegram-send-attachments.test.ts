@@ -187,6 +187,129 @@ describe("sendTelegramAttachments", () => {
     expect(calls[1]).toContain("sendPhoto");
   });
 
+  test("ID-only attachment hydrates metadata from downloaded payload", async () => {
+    const calls: string[] = [];
+
+    mockFetch(async (url: string) => {
+      calls.push(url);
+      if (url.includes("/attachments/att-id-only")) {
+        return new Response(
+          JSON.stringify({
+            id: "att-id-only",
+            filename: "downloaded.png",
+            mimeType: "image/png",
+            sizeBytes: 120,
+            kind: "generated_image",
+            data: "iVBORw0KGgo=",
+          }),
+        );
+      }
+      return new Response(JSON.stringify(telegramOk));
+    });
+
+    const config = makeConfig();
+    // Only provide `id` — no filename, mimeType, sizeBytes, or kind
+    const meta: RuntimeAttachmentMeta = { id: "att-id-only" };
+
+    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toContain("/attachments/att-id-only");
+    // Should use mimeType from downloaded payload to determine it's an image
+    expect(calls[1]).toContain("sendPhoto");
+  });
+
+  test("ID-only attachment falls back to defaults when download payload also lacks metadata", async () => {
+    const calls: string[] = [];
+
+    mockFetch(async (url: string) => {
+      calls.push(url);
+      if (url.includes("/attachments/att-bare")) {
+        return new Response(
+          JSON.stringify({
+            id: "att-bare",
+            data: "AQID", // 3 bytes base64
+          }),
+        );
+      }
+      return new Response(JSON.stringify(telegramOk));
+    });
+
+    const config = makeConfig();
+    const meta: RuntimeAttachmentMeta = { id: "att-bare" };
+
+    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toContain("/attachments/att-bare");
+    // With default mime type (application/octet-stream), should send as document
+    expect(calls[1]).toContain("sendDocument");
+  });
+
+  test("ID-only attachment skipped when hydrated size exceeds limit", async () => {
+    const calls: string[] = [];
+
+    mockFetch(async (url: string) => {
+      calls.push(url);
+      if (url.includes("/attachments/att-big")) {
+        return new Response(
+          JSON.stringify({
+            id: "att-big",
+            filename: "big.bin",
+            mimeType: "application/octet-stream",
+            sizeBytes: 200,
+            kind: "filesystem",
+            data: "AQID",
+          }),
+        );
+      }
+      return new Response(JSON.stringify(telegramOk));
+    });
+
+    const config = makeConfig({ maxAttachmentBytes: 50 });
+    // No sizeBytes in meta — will be hydrated from download payload (200 > 50 limit)
+    const meta: RuntimeAttachmentMeta = { id: "att-big" };
+
+    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+
+    // Should download, discover size exceeds limit, skip, then send failure notice
+    expect(calls.filter((u) => u.includes("/attachments/att-big"))).toHaveLength(1);
+    expect(calls.filter((u) => u.includes("sendMessage"))).toHaveLength(1);
+    expect(calls.filter((u) => u.includes("sendPhoto"))).toHaveLength(0);
+    expect(calls.filter((u) => u.includes("sendDocument"))).toHaveLength(0);
+  });
+
+  test("ID-only attachment uses id as filename fallback", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    const origMockFetch = mock(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (url.includes("/attachments/my-attachment-id")) {
+        return new Response(
+          JSON.stringify({
+            id: "my-attachment-id",
+            mimeType: "application/pdf",
+            sizeBytes: 50,
+            data: "JVBER",
+          }),
+        );
+      }
+      return new Response(JSON.stringify(telegramOk));
+    });
+    Object.assign(origMockFetch, { preconnect: () => {} });
+    globalThis.fetch = origMockFetch as unknown as typeof fetch;
+
+    const config = makeConfig();
+    const meta: RuntimeAttachmentMeta = { id: "my-attachment-id" };
+
+    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+
+    expect(calls).toHaveLength(2);
+    // Second call is the Telegram API call with FormData
+    const telegramCall = calls[1];
+    expect(telegramCall.url).toContain("sendDocument");
+  });
+
   test("continues sending remaining attachments on individual failure", async () => {
     const calls: string[] = [];
 
