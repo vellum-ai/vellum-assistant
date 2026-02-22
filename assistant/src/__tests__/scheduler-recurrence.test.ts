@@ -320,19 +320,34 @@ describe('scheduler RRULE execution', () => {
 
   test('EXRULE schedule skips excluded occurrence and advances to next valid date', async () => {
     // RRULE: every minute from a known dtstart
-    // EXRULE: every 2nd minute from the same dtstart
-    // EXRULE excludes minutes 0, 2, 4, 6, ... from dtstart, leaving only
-    // odd-offset minutes (1, 3, 5, ...). The nextRunAt MUST land on an
-    // odd-minute offset — this would fail if EXRULE were silently ignored.
+    // EXRULE: every 2nd minute from the same dtstart (excludes offsets 0, 2, 4, ...)
+    //
+    // DTSTART is set to 59 minutes ago (floored to minute) so the first
+    // occurrence after "now" without EXRULE would be at offset 60 (even).
+    // With EXRULE active, offset 60 is excluded and the scheduler must
+    // advance to offset 61 (odd). Using 59 minutes (not 60) is critical:
+    // at 60 minutes the first post-now occurrence is offset 61 (odd), which
+    // would pass the parity check even if EXRULE were completely ignored.
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
-    const pastDate = new Date(now.getTime() - 3_600_000);
-    // Zero out seconds so minute-offset arithmetic is clean
+    const pastDate = new Date(now.getTime() - 59 * 60_000);
     pastDate.setUTCSeconds(0);
     pastDate.setUTCMilliseconds(0);
     const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}00Z`;
 
     const expression = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1\nEXRULE:FREQ=MINUTELY;INTERVAL=2`;
+
+    // Compute what the next occurrence would be WITHOUT EXRULE — this should
+    // be at an even offset that EXRULE must exclude.
+    const withoutExrule = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1`;
+    const { computeNextRunAt } = await import('../schedule/recurrence-engine.js');
+    const nextWithoutExrule = computeNextRunAt(
+      { syntax: 'rrule', expression: withoutExrule },
+      now.getTime(),
+    );
+    const offsetWithout = Math.round((nextWithoutExrule - pastDate.getTime()) / 60_000);
+    // Sanity: the without-EXRULE occurrence must be even (would be excluded)
+    expect(offsetWithout % 2).toBe(0);
 
     const schedule = createSchedule({
       name: 'EXRULE scheduler test',
@@ -359,12 +374,12 @@ describe('scheduler RRULE execution', () => {
     const after = getSchedule(schedule.id);
     expect(after).not.toBeNull();
     expect(after!.lastRunAt).not.toBeNull();
-    // nextRunAt must be in the future
     expect(after!.nextRunAt).toBeGreaterThan(Date.now() - 5000);
 
-    // Deterministic EXRULE assertion: nextRunAt must fall on an odd-minute
-    // offset from dtstart. If EXRULE were a no-op, the scheduler would
-    // happily land on even offsets too, so this catches regressions.
+    // nextRunAt must NOT equal the without-EXRULE occurrence (which is excluded)
+    expect(after!.nextRunAt).not.toBe(nextWithoutExrule);
+
+    // nextRunAt must land on an odd-minute offset from dtstart
     const dtstartMs = pastDate.getTime();
     const minuteOffset = Math.round((after!.nextRunAt - dtstartMs) / 60_000);
     expect(minuteOffset % 2).toBe(1);
