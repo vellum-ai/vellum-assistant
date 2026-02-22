@@ -591,8 +591,10 @@ export function recordInvalidAttempt(
   const existing = getRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
 
   if (existing) {
-    // If the throttling window has elapsed, reset the counter
-    const windowExpired = now - existing.windowStartedAt > windowMs;
+    // Rolling window: reset the counter only when enough time has elapsed
+    // since the last attempt (updatedAt), not since a fixed window start.
+    // This prevents timing attacks that split attempts around a fixed boundary.
+    const windowExpired = now - existing.updatedAt > windowMs;
     const newAttempts = windowExpired ? 1 : existing.invalidAttempts + 1;
     const newWindowStart = windowExpired ? now : existing.windowStartedAt;
     const newLockedUntil = newAttempts >= maxAttempts ? now + lockoutMs : existing.lockedUntil;

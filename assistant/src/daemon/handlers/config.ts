@@ -1358,7 +1358,7 @@ export function handleGuardianVerification(
       ctx.send(socket, {
         type: 'guardian_verification_response',
         success: true,
-        bound: !revoked,
+        bound: false,
       });
     } else {
       ctx.send(socket, {
