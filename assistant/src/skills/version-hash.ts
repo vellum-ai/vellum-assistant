@@ -80,20 +80,6 @@ function collectFiles(dir: string, base: string, ancestors: Set<string> = new Se
   return entries;
 }
 
-// ---------------------------------------------------------------------------
-// In-memory TTL cache for computed hashes — avoids redundant filesystem I/O
-// when the same skill directory is hashed multiple times within a short window.
-// ---------------------------------------------------------------------------
-
-const CACHE_TTL_MS = 60_000; // 60 seconds
-
-interface CacheEntry {
-  hash: string;
-  expiresAt: number;
-}
-
-const hashCache = new Map<string, CacheEntry>();
-
 /**
  * Compute a deterministic version hash for a skill directory.
  *
@@ -104,16 +90,8 @@ const hashCache = new Map<string, CacheEntry>();
  *
  * The result is a canonical string in the format `v1:<hex-sha256>`.
  * File traversal order does not affect the result.
- *
- * Results are cached in memory for 60 seconds to avoid redundant disk reads.
  */
 export function computeSkillVersionHash(skillDir: string): string {
-  const now = Date.now();
-  const cached = hashCache.get(skillDir);
-  if (cached && now < cached.expiresAt) {
-    return cached.hash;
-  }
-
   const files = collectFiles(skillDir, skillDir);
   const hash = createHash('sha256');
 
@@ -128,19 +106,5 @@ export function computeSkillVersionHash(skillDir: string): string {
     hash.update('\n');
   }
 
-  const result = `v1:${hash.digest('hex')}`;
-  hashCache.set(skillDir, { hash: result, expiresAt: now + CACHE_TTL_MS });
-  return result;
-}
-
-/**
- * Invalidate the cached hash for a specific skill directory, or clear the
- * entire cache if no directory is specified.
- */
-export function invalidateSkillVersionHashCache(skillDir?: string): void {
-  if (skillDir) {
-    hashCache.delete(skillDir);
-  } else {
-    hashCache.clear();
-  }
+  return `v1:${hash.digest('hex')}`;
 }
