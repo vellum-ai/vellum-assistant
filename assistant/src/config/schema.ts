@@ -1056,11 +1056,18 @@ export const SkillsConfigSchema = z.object({
 export const IngressConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'ingress.enabled must be a boolean' })
-    .default(false),
+    .optional(),
   publicBaseUrl: z
     .string({ error: 'ingress.publicBaseUrl must be a string' })
     .default(''),
-});
+}).transform((val) => ({
+  ...val,
+  // Backward compatibility: if `enabled` was never explicitly set (undefined),
+  // infer it from whether a publicBaseUrl is configured. Existing users who
+  // have a URL but predate the `enabled` field should not have their webhooks
+  // silently disabled on upgrade.
+  enabled: val.enabled ?? (val.publicBaseUrl ? true : false),
+}));
 
 export const AssistantConfigSchema = z.object({
   provider: z
@@ -1334,7 +1341,6 @@ export const AssistantConfigSchema = z.object({
     },
   }),
   ingress: IngressConfigSchema.default({
-    enabled: false,
     publicBaseUrl: '',
   }),
 }).superRefine((config, ctx) => {
