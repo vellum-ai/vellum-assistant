@@ -2281,8 +2281,9 @@ describe('expired guardian approval auto-denies via sweep', () => {
 
     const orchestrator = makeMockOrchestrator();
 
-    // Run the sweep
-    sweepExpiredGuardianApprovals(orchestrator, 'https://gateway.test/deliver', 'token');
+    // Run the sweep — pass the gateway base URL; the function constructs
+    // per-channel delivery URLs like ${gatewayBaseUrl}/deliver/${channel}
+    sweepExpiredGuardianApprovals(orchestrator, 'https://gateway.test', 'token');
 
     // Wait for async notifications
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -2339,7 +2340,7 @@ describe('expired guardian approval auto-denies via sweep', () => {
 
     const orchestrator = makeMockOrchestrator();
 
-    sweepExpiredGuardianApprovals(orchestrator, 'https://gateway.test/deliver', 'token');
+    sweepExpiredGuardianApprovals(orchestrator, 'https://gateway.test', 'token');
 
     await new Promise((resolve) => setTimeout(resolve, 200));
 

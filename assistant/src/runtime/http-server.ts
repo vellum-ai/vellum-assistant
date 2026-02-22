@@ -413,8 +413,7 @@ export class RuntimeHttpServer {
 
     // Start proactive guardian approval expiry sweep when approvals are enabled
     if (isChannelApprovalsEnabled() && this.runOrchestrator) {
-      const gatewayDeliverUrl = `${getGatewayBaseUrl()}/deliver/telegram`;
-      startGuardianExpirySweep(this.runOrchestrator, gatewayDeliverUrl, this.bearerToken);
+      startGuardianExpirySweep(this.runOrchestrator, getGatewayBaseUrl(), this.bearerToken);
       log.info('Guardian approval expiry sweep started');
     }
 
