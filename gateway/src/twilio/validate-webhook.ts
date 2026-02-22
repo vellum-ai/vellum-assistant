@@ -49,7 +49,7 @@ function buildSignatureUrlCandidates(req: Request, config: GatewayConfig): strin
   // URL is configured. When ingressPublicBaseUrl is set, we enforce that the
   // signature matches the public URL (or forwarded headers) to prevent
   // accepting signatures computed against the local/internal URL.
-  if (!config.ingressPublicBaseUrl && !candidates.includes(req.url)) {
+  if (!config.ingressPublicBaseUrl?.trim() && !candidates.includes(req.url)) {
     candidates.push(req.url);
   }
 
