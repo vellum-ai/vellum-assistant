@@ -790,6 +790,13 @@ async function handleApprovalInterception(
       }
 
       if (decision) {
+        // approve_always is not available for guardian approvals — guardians
+        // should not be able to permanently allowlist tools on behalf of the
+        // requester. Downgrade to approve_once.
+        if (decision.action === 'approve_always') {
+          decision = { ...decision, action: 'approve_once' };
+        }
+
         // Validate run ID from callback matches the guardian approval's run
         if (decision.runId && decision.runId !== guardianApproval.runId) {
           log.warn(
