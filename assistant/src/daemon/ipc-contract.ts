@@ -456,6 +456,32 @@ export interface GalleryInstallRequest {
   galleryAppId: string;
 }
 
+export interface AppHistoryRequest {
+  type: 'app_history_request';
+  appId: string;
+  limit?: number;
+}
+
+export interface AppDiffRequest {
+  type: 'app_diff_request';
+  appId: string;
+  fromCommit: string;
+  toCommit?: string;
+}
+
+export interface AppFileAtVersionRequest {
+  type: 'app_file_at_version_request';
+  appId: string;
+  path: string;
+  commitHash: string;
+}
+
+export interface AppRestoreRequest {
+  type: 'app_restore_request';
+  appId: string;
+  commitHash: string;
+}
+
 export interface ShareAppCloudRequest {
   type: 'share_app_cloud';
   appId: string;
@@ -990,6 +1016,10 @@ export type ClientMessage =
   | SessionsClearRequest
   | GalleryListRequest
   | GalleryInstallRequest
+  | AppHistoryRequest
+  | AppDiffRequest
+  | AppFileAtVersionRequest
+  | AppRestoreRequest
   | AppUpdatePreviewRequest
   | AppPreviewRequest
   | PublishPageRequest
@@ -1720,6 +1750,35 @@ export interface GalleryInstallResponse {
   error?: string;
 }
 
+export interface AppHistoryResponse {
+  type: 'app_history_response';
+  appId: string;
+  versions: Array<{
+    commitHash: string;
+    message: string;
+    timestamp: number;
+  }>;
+}
+
+export interface AppDiffResponse {
+  type: 'app_diff_response';
+  appId: string;
+  diff: string;
+}
+
+export interface AppFileAtVersionResponse {
+  type: 'app_file_at_version_response';
+  appId: string;
+  path: string;
+  content: string;
+}
+
+export interface AppRestoreResponse {
+  type: 'app_restore_response';
+  success: boolean;
+  error?: string;
+}
+
 export interface ShareToSlackResponse {
   type: 'share_to_slack_response';
   success: boolean;
@@ -2281,6 +2340,10 @@ export type ServerMessage =
   | TraceEvent
   | GalleryListResponse
   | GalleryInstallResponse
+  | AppHistoryResponse
+  | AppDiffResponse
+  | AppFileAtVersionResponse
+  | AppRestoreResponse
   | ShareToSlackResponse
   | SlackWebhookConfigResponse
   | IngressConfigResponse

@@ -16,8 +16,13 @@ import type {
   ShareAppCloudRequest,
   GalleryInstallRequest,
   AppUpdatePreviewRequest,
+  AppHistoryRequest,
+  AppDiffRequest,
+  AppFileAtVersionRequest,
+  AppRestoreRequest,
   UiSurfaceShow,
 } from '../ipc-protocol.js';
+import { getAppHistory, getAppDiff, getAppFileAtVersion, restoreAppVersion } from '../../memory/app-git-service.js';
 import { log, compareSemver, createSigningCallback, defineHandlers, type HandlerContext } from './shared.js';
 
 export function handleAppDataRequest(
@@ -445,6 +450,66 @@ export function handleGalleryInstall(
   }
 }
 
+export async function handleAppHistory(
+  msg: AppHistoryRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const versions = await getAppHistory(msg.appId, msg.limit);
+    ctx.send(socket, { type: 'app_history_response', appId: msg.appId, versions });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, appId: msg.appId }, 'Failed to get app history');
+    ctx.send(socket, { type: 'error', message: `Failed to get app history: ${message}` });
+  }
+}
+
+export async function handleAppDiff(
+  msg: AppDiffRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const diff = await getAppDiff(msg.appId, msg.fromCommit, msg.toCommit);
+    ctx.send(socket, { type: 'app_diff_response', appId: msg.appId, diff });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, appId: msg.appId }, 'Failed to get app diff');
+    ctx.send(socket, { type: 'error', message: `Failed to get app diff: ${message}` });
+  }
+}
+
+export async function handleAppFileAtVersion(
+  msg: AppFileAtVersionRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const content = await getAppFileAtVersion(msg.appId, msg.path, msg.commitHash);
+    ctx.send(socket, { type: 'app_file_at_version_response', appId: msg.appId, path: msg.path, content });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, appId: msg.appId }, 'Failed to get app file at version');
+    ctx.send(socket, { type: 'error', message: `Failed to get app file at version: ${message}` });
+  }
+}
+
+export async function handleAppRestore(
+  msg: AppRestoreRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    await restoreAppVersion(msg.appId, msg.commitHash);
+    ctx.send(socket, { type: 'app_restore_response', success: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, appId: msg.appId }, 'Failed to restore app version');
+    ctx.send(socket, { type: 'app_restore_response', success: false, error: message });
+  }
+}
+
 export const appHandlers = defineHandlers({
   app_data_request: handleAppDataRequest,
   app_open_request: handleAppOpenRequest,
@@ -458,4 +523,8 @@ export const appHandlers = defineHandlers({
   bundle_app: handleBundleApp,
   gallery_list: (_msg, socket, ctx) => handleGalleryList(socket, ctx),
   gallery_install: handleGalleryInstall,
+  app_history_request: handleAppHistory,
+  app_diff_request: handleAppDiff,
+  app_file_at_version_request: handleAppFileAtVersion,
+  app_restore_request: handleAppRestore,
 });
