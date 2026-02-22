@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/assistant",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "type": "module",
   "bin": {
     "vellum": "./src/index.ts"
@@ -49,8 +49,7 @@
     "tree-sitter-bash": "0.25.1",
     "uuid": "^11.1.0",
     "web-tree-sitter": "0.26.5",
-    "zod": "^4.3.6",
-    "@vellumai/cli": "0.3.0"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@pydantic/logfire-node": "^0.13.0",

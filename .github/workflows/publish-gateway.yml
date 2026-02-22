@@ -67,7 +67,7 @@ jobs:
       changed: ${{ steps.version.outputs.changed }}
       version: ${{ steps.version.outputs.current }}
 
-  update-assistant:
+  update-meta:
     needs: [publish]
     if: needs.publish.outputs.changed == 'true'
     runs-on: ubuntu-latest
@@ -86,49 +86,48 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: '1.3.8'
-
-      - name: Update assistant dependency and bump version
+      - name: Update meta-package dependency
         env:
           NEW_VERSION: ${{ needs.publish.outputs.version }}
         run: |
-          cd assistant
+          cd meta
 
-          CURRENT_ASSISTANT_VERSION=$(jq -r '.version' package.json)
-          IFS='.' read -r major minor patch <<< "$CURRENT_ASSISTANT_VERSION"
-          BUMPED_ASSISTANT_VERSION="${major}.${minor}.$((patch + 1))"
+          CURRENT=$(jq -r '.dependencies["@vellumai/vellum-gateway"]' package.json)
+          if [ "$CURRENT" = "$NEW_VERSION" ]; then
+            echo "meta already depends on @vellumai/vellum-gateway@$NEW_VERSION"
+            exit 0
+          fi
 
           jq --arg v "$NEW_VERSION" '.dependencies["@vellumai/vellum-gateway"] = $v' package.json > package.json.tmp && mv package.json.tmp package.json
-          jq --arg v "$BUMPED_ASSISTANT_VERSION" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
-
-          bun install
 
       - name: Create Pull Request
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           NEW_VERSION: ${{ needs.publish.outputs.version }}
         run: |
-          BRANCH="auto/bump-gateway-${NEW_VERSION}"
+          if git diff --quiet; then
+            echo "No meta-package changes to commit"
+            exit 0
+          fi
+
+          BRANCH="auto/bump-gateway-${NEW_VERSION}-in-meta"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add assistant/package.json assistant/bun.lock
-          git commit -m "Bump @vellumai/vellum-gateway to ${NEW_VERSION} in assistant"
+          git add meta/package.json
+          git commit -m "Bump @vellumai/vellum-gateway to ${NEW_VERSION} in meta"
           git push origin "$BRANCH"
           PR_URL=$(gh pr create \
-            --title "Bump @vellumai/vellum-gateway to ${NEW_VERSION} in assistant" \
-            --body "Auto-generated PR to update @vellumai/vellum-gateway to ${NEW_VERSION} and bump assistant version." \
+            --title "Bump @vellumai/vellum-gateway to ${NEW_VERSION} in meta" \
+            --body "Auto-generated PR to update @vellumai/vellum-gateway to ${NEW_VERSION} in the meta-package." \
             --base main \
             --head "$BRANCH")
           sleep 10
-          gh pr merge "$PR_URL" --auto --squash
+          gh pr merge "$PR_URL" --auto --squash || echo "PR created but could not be auto-merged"
 
   notify-failure:
     if: failure()
-    needs: [publish, update-assistant]
+    needs: [publish, update-meta]
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack of publish failure
