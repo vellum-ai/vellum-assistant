@@ -76,7 +76,7 @@ mock.module('../messaging/providers/telegram-bot/client.js', () => ({
 import { initializeDb } from '../memory/db.js';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../memory/db.js';
-import { conversations } from '../memory/schema.js';
+import { conversations, externalConversationBindings } from '../memory/schema.js';
 import * as externalConversationStore from '../memory/external-conversation-store.js';
 import { getOrCreateConversation, deleteConversationKey, getConversationByKey, setConversationKey } from '../memory/conversation-key-store.js';
 import { telegramBotMessagingProvider } from '../messaging/providers/telegram-bot/adapter.js';
@@ -345,9 +345,9 @@ describe('channel sync arbitration', () => {
       createBinding(convA, 'telegram', uniqueChatIdA);
       createBinding(convB, 'telegram', uniqueChatIdB);
 
-      // Create conversation key mappings
-      getOrCreateConversation(`telegram:${uniqueChatIdA}`);
-      getOrCreateConversation(`telegram:${uniqueChatIdB}`);
+      // Create conversation key mappings pointing to the correct conversations
+      setConversationKey(`telegram:${uniqueChatIdA}`, convA);
+      setConversationKey(`telegram:${uniqueChatIdB}`, convB);
 
       // Move chat-A to conv-B (which already has a binding for chat-B)
       const req = makeJsonRequest({
@@ -387,9 +387,9 @@ describe('channel sync arbitration', () => {
       createBinding(convA, 'telegram', uniqueChatIdA);
       createBinding(convB, 'telegram', uniqueChatIdB);
 
-      // Create conversation key mappings for both chats
-      getOrCreateConversation(`telegram:${uniqueChatIdA}`);
-      getOrCreateConversation(`telegram:${uniqueChatIdB}`);
+      // Create conversation key mappings pointing to the correct conversations
+      setConversationKey(`telegram:${uniqueChatIdA}`, convA);
+      setConversationKey(`telegram:${uniqueChatIdB}`, convB);
 
       // Move chat-A to conv-B (which already has a binding for chat-B)
       const req = makeJsonRequest({
@@ -458,6 +458,142 @@ describe('channel sync arbitration', () => {
       const chatAKeyMapping = getConversationByKey(`telegram:${uniqueChatIdA}`);
       expect(chatAKeyMapping).not.toBeNull();
       expect(chatAKeyMapping!.conversationId).toBe(convB);
+    });
+  });
+
+  describe('unique (sourceChannel, externalChatId) constraint', () => {
+    test('inserting a duplicate (sourceChannel, externalChatId) for a different conversation fails', () => {
+      const convA = uuid();
+      const convB = uuid();
+      const uniqueChatId = `unique-dup-${uuid()}`;
+
+      createBinding(convA, 'telegram', uniqueChatId);
+      ensureConversation(convB);
+
+      // Attempting to insert a second binding with the same (sourceChannel, externalChatId)
+      // but a different conversationId should throw due to the unique index.
+      expect(() => {
+        const db = getDb();
+        db.insert(externalConversationBindings)
+          .values({
+            conversationId: convB,
+            sourceChannel: 'telegram',
+            externalChatId: uniqueChatId,
+            externalUserId: null,
+            displayName: null,
+            username: null,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          })
+          .run();
+      }).toThrow();
+    });
+
+    test('upsertOutboundBinding on same conversationId updates in place (no constraint violation)', () => {
+      const convA = uuid();
+      const uniqueChatId = `unique-upsert-${uuid()}`;
+
+      createBinding(convA, 'telegram', uniqueChatId);
+
+      // Upserting the same (conversationId, sourceChannel, externalChatId) should succeed
+      expect(() => {
+        externalConversationStore.upsertOutboundBinding({
+          conversationId: convA,
+          sourceChannel: 'telegram',
+          externalChatId: uniqueChatId,
+        });
+      }).not.toThrow();
+
+      const binding = externalConversationStore.getBindingByChannelChat('telegram', uniqueChatId);
+      expect(binding).not.toBeNull();
+      expect(binding!.conversationId).toBe(convA);
+    });
+
+    test('different channels with same externalChatId are allowed', () => {
+      const convA = uuid();
+      const convB = uuid();
+      const uniqueChatId = `unique-diff-chan-${uuid()}`;
+
+      createBinding(convA, 'telegram', uniqueChatId);
+      ensureConversation(convB);
+
+      // Different sourceChannel should not conflict
+      expect(() => {
+        createBinding(convB, 'sms', uniqueChatId);
+      }).not.toThrow();
+
+      const bindingTelegram = externalConversationStore.getBindingByChannelChat('telegram', uniqueChatId);
+      const bindingSms = externalConversationStore.getBindingByChannelChat('sms', uniqueChatId);
+      expect(bindingTelegram!.conversationId).toBe(convA);
+      expect(bindingSms!.conversationId).toBe(convB);
+    });
+  });
+
+  describe('move-sync with uniqueness constraint', () => {
+    test('move-sync atomically transfers binding without violating unique constraint', async () => {
+      const convA = uuid();
+      const convB = uuid();
+      const uniqueChatId = `move-unique-${uuid()}`;
+
+      // conv-A owns the chat
+      createBinding(convA, 'telegram', uniqueChatId);
+      ensureConversation(convB);
+
+      setConversationKey(`telegram:${uniqueChatId}`, convA);
+
+      // Move to conv-B — the old binding is deleted first, then re-created
+      const req = makeJsonRequest({
+        sourceChannel: 'telegram',
+        externalChatId: uniqueChatId,
+        newConversationId: convB,
+      });
+
+      const resp = await handleMoveSync(req);
+      expect(resp.status).toBe(200);
+
+      // Only conv-B should own the chat now
+      const binding = externalConversationStore.getBindingByChannelChat('telegram', uniqueChatId);
+      expect(binding).not.toBeNull();
+      expect(binding!.conversationId).toBe(convB);
+
+      // conv-A should have no binding
+      const oldBinding = externalConversationStore.getBindingByConversation(convA);
+      expect(oldBinding).toBeNull();
+    });
+
+    test('move-sync with target already bound to a different chat respects uniqueness', async () => {
+      const convA = uuid();
+      const convB = uuid();
+      const chatIdA = `move-unique-a-${uuid()}`;
+      const chatIdB = `move-unique-b-${uuid()}`;
+
+      // conv-A owns chat-A, conv-B owns chat-B
+      createBinding(convA, 'telegram', chatIdA);
+      createBinding(convB, 'telegram', chatIdB);
+
+      setConversationKey(`telegram:${chatIdA}`, convA);
+      setConversationKey(`telegram:${chatIdB}`, convB);
+
+      // Move chat-A to conv-B — conv-B's old binding (chat-B) is replaced
+      const req = makeJsonRequest({
+        sourceChannel: 'telegram',
+        externalChatId: chatIdA,
+        newConversationId: convB,
+      });
+
+      const resp = await handleMoveSync(req);
+      expect(resp.status).toBe(200);
+
+      // conv-B now owns chat-A
+      const binding = externalConversationStore.getBindingByChannelChat('telegram', chatIdA);
+      expect(binding).not.toBeNull();
+      expect(binding!.conversationId).toBe(convB);
+
+      // chat-B should no longer be bound (the old binding for conv-B was replaced)
+      // The upsertOutboundBinding updates conv-B's row to point to chat-A
+      const convBBinding = externalConversationStore.getBindingByConversation(convB);
+      expect(convBBinding).not.toBeNull();
+      expect(convBBinding!.externalChatId).toBe(chatIdA);
     });
   });
 });
