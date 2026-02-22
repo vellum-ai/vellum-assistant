@@ -44,6 +44,7 @@ import {
 } from './routes/channel-routes.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import * as externalConversationStore from '../memory/external-conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import { renderHistoryContent } from '../daemon/handlers.js';
 import { deliverChannelReply } from './gateway-client.js';
@@ -616,13 +617,28 @@ export class RuntimeHttpServer {
       if (endpoint === 'conversations' && req.method === 'GET') {
         const limit = Number(url.searchParams.get('limit') ?? 50);
         const conversations = conversationStore.listConversations(limit);
+        const bindings = externalConversationStore.getBindingsForConversations(
+          conversations.map((c) => c.id),
+        );
         return Response.json({
-          sessions: conversations.map((c) => ({
-            id: c.id,
-            title: c.title ?? 'Untitled',
-            updatedAt: c.updatedAt,
-            threadType: c.threadType === 'private' ? 'private' : 'standard',
-          })),
+          sessions: conversations.map((c) => {
+            const binding = bindings.get(c.id);
+            return {
+              id: c.id,
+              title: c.title ?? 'Untitled',
+              updatedAt: c.updatedAt,
+              threadType: c.threadType === 'private' ? 'private' : 'standard',
+              ...(binding ? {
+                channelBinding: {
+                  sourceChannel: binding.sourceChannel,
+                  externalChatId: binding.externalChatId,
+                  externalUserId: binding.externalUserId,
+                  displayName: binding.displayName,
+                  username: binding.username,
+                },
+              } : {}),
+            };
+          }),
         });
       }
 

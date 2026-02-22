@@ -6,6 +6,7 @@ import { deleteConversationKey } from '../../memory/conversation-key-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
+import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import { renderHistoryContent } from '../../daemon/handlers.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { IngressBlockedError } from '../../util/errors.js';
@@ -178,6 +179,16 @@ export async function handleChannelInbound(
     externalMessageId,
     { sourceMessageId },
   );
+
+  // Upsert external conversation binding with sender metadata
+  externalConversationStore.upsertBinding({
+    conversationId: result.conversationId,
+    sourceChannel,
+    externalChatId,
+    externalUserId: body.senderExternalUserId ?? null,
+    displayName: body.senderName ?? null,
+    username: body.senderUsername ?? null,
+  });
 
   const metadataHintsRaw = sourceMetadata?.hints;
   const metadataHints = Array.isArray(metadataHintsRaw)

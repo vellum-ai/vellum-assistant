@@ -1232,9 +1232,18 @@ export interface SessionInfo {
   threadType?: ThreadType;
 }
 
+/** Channel binding metadata exposed in session/conversation list APIs. */
+export interface ChannelBinding {
+  sourceChannel: string;
+  externalChatId: string;
+  externalUserId?: string | null;
+  displayName?: string | null;
+  username?: string | null;
+}
+
 export interface SessionListResponse {
   type: 'session_list_response';
-  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType }>;
+  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType; channelBinding?: ChannelBinding }>;
 }
 
 export interface SessionsClearResponse {
