@@ -409,6 +409,14 @@ public struct ToolConfirmationBubble: View {
         removeKeyMonitor()
         keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // If an editable text view (e.g. the composer) is the first responder,
+            // let the event pass through so it can handle Enter/Tab/Escape normally.
+            // Non-editable text views (e.g. selectable command previews inside the
+            // confirmation bubble) don't need these keys, so we still intercept them.
+            if let firstResponder = NSApp.keyWindow?.firstResponder as? NSTextView,
+               firstResponder.isEditable {
+                return event
+            }
             let mods = event.modifierFlags.intersection(Self.intentionalModifiers)
             // Nested popover is open — handle up/down/enter/escape within it
             if showAlwaysAllowMenu || showScopePickerMenu {
