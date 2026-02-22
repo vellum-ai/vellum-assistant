@@ -11,16 +11,14 @@ import { generateRandomSuffix } from "./random-name";
 import { exec, execOutput } from "./step-runner";
 
 export async function activateServiceAccount(): Promise<(() => void) | null> {
-  const account = process.env.GCP_ACCOUNT_EMAIL;
   const keyFile = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (!account || !keyFile) return null;
+  if (!keyFile) return null;
 
   const gcpConfigDir = mkdtempSync(join(tmpdir(), "vellum-gcloud-"));
   process.env.CLOUDSDK_CONFIG = gcpConfigDir;
   await exec("gcloud", [
     "auth",
     "activate-service-account",
-    account,
     `--key-file=${keyFile}`,
   ]);
 
