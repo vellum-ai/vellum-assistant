@@ -20,8 +20,11 @@ import {
 import {
   createApprovalRequest,
   getPendingApprovalByGuardianChat,
+  getPendingApprovalByRunAndGuardianChat,
+  getAllPendingApprovalsByGuardianChat,
   getPendingApprovalForRun,
   getUnresolvedApprovalForRun,
+  getExpiredPendingApprovals,
   updateApprovalDecision,
 } from '../../memory/channel-guardian-store.js';
 import { deliverChannelReply, deliverApprovalPrompt } from '../gateway-client.js';
@@ -837,7 +840,51 @@ async function handleApprovalInterception(
     guardianCtx.actorRole === 'guardian' &&
     senderExternalUserId
   ) {
-    const guardianApproval = getPendingApprovalByGuardianChat(sourceChannel, externalChatId);
+    // First, try to parse the inbound payload to determine if it carries
+    // a run ID (callback button) or is plain text. This governs how we
+    // look up the target approval request.
+    let decision: ApprovalDecisionResult | null = null;
+    if (callbackData) {
+      decision = parseCallbackData(callbackData);
+    }
+    if (!decision && content) {
+      decision = parseApprovalDecision(content);
+    }
+
+    // When a callback button provides a run ID, use the scoped lookup so
+    // the decision resolves to exactly the right approval even when
+    // multiple approvals target the same guardian chat.
+    let guardianApproval = decision?.runId
+      ? getPendingApprovalByRunAndGuardianChat(decision.runId, sourceChannel, externalChatId)
+      : null;
+
+    // For plain-text decisions (no run ID), check how many pending
+    // approvals exist for this guardian chat. If there are multiple,
+    // the guardian must use buttons to disambiguate.
+    if (!guardianApproval && decision && !decision.runId) {
+      const allPending = getAllPendingApprovalsByGuardianChat(sourceChannel, externalChatId);
+      if (allPending.length > 1) {
+        try {
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: externalChatId,
+            text: `You have ${allPending.length} pending approval requests. Please use the approval buttons to respond to a specific request.`,
+          }, bearerToken);
+        } catch (err) {
+          log.error({ err, externalChatId }, 'Failed to deliver disambiguation notice');
+        }
+        return { handled: true, type: 'guardian_decision_applied' };
+      }
+      if (allPending.length === 1) {
+        guardianApproval = allPending[0];
+      }
+    }
+
+    // Fall back to the single-result lookup for non-decision messages
+    // (reminder path) or when the scoped lookup found nothing.
+    if (!guardianApproval && !decision) {
+      guardianApproval = getPendingApprovalByGuardianChat(sourceChannel, externalChatId);
+    }
+
     if (guardianApproval) {
       // Validate that the sender is the specific guardian who was assigned
       // this approval request. This is a defense-in-depth check — the
@@ -860,30 +907,12 @@ async function handleApprovalInterception(
         return { handled: true, type: 'guardian_decision_applied' };
       }
 
-      let decision: ApprovalDecisionResult | null = null;
-
-      if (callbackData) {
-        decision = parseCallbackData(callbackData);
-      }
-      if (!decision && content) {
-        decision = parseApprovalDecision(content);
-      }
-
       if (decision) {
         // approve_always is not available for guardian approvals — guardians
         // should not be able to permanently allowlist tools on behalf of the
         // requester. Downgrade to approve_once.
         if (decision.action === 'approve_always') {
           decision = { ...decision, action: 'approve_once' };
-        }
-
-        // Validate run ID from callback matches the guardian approval's run
-        if (decision.runId && decision.runId !== guardianApproval.runId) {
-          log.warn(
-            { externalChatId, callbackRunId: decision.runId, approvalRunId: guardianApproval.runId },
-            'Callback run ID does not match guardian approval run, ignoring stale button press',
-          );
-          return { handled: true, type: 'stale_ignored' };
         }
 
         // Apply the decision to the underlying run using the requester's
@@ -961,6 +990,11 @@ async function handleApprovalInterception(
       }
 
       return { handled: true, type: 'reminder_sent' };
+    }
+
+    // Callback with a run ID that no longer has a pending approval — stale button
+    if (decision?.runId) {
+      return { handled: true, type: 'stale_ignored' };
     }
   }
 
@@ -1228,4 +1262,89 @@ export async function handleChannelDeliveryAck(req: Request): Promise<Response> 
   }
 
   return new Response(null, { status: 204 });
+}
+
+// ---------------------------------------------------------------------------
+// Proactive guardian approval expiry sweep
+// ---------------------------------------------------------------------------
+
+/** Interval at which the expiry sweep runs (60 seconds). */
+const GUARDIAN_EXPIRY_SWEEP_INTERVAL_MS = 60_000;
+
+/** Timer handle for the expiry sweep so it can be stopped in tests. */
+let expirySweepTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Sweep expired guardian approval requests, auto-deny the underlying runs,
+ * and notify both the requester and guardian. This runs proactively on a
+ * timer so expired approvals are closed without waiting for follow-up
+ * traffic from either party.
+ */
+export function sweepExpiredGuardianApprovals(
+  orchestrator: RunOrchestrator,
+  replyCallbackUrl: string,
+  bearerToken?: string,
+): void {
+  const expired = getExpiredPendingApprovals();
+  for (const approval of expired) {
+    // Mark the approval as expired
+    updateApprovalDecision(approval.id, { status: 'expired' });
+
+    // Auto-deny the underlying run
+    const expiredDecision: ApprovalDecisionResult = {
+      action: 'reject',
+      source: 'plain_text',
+    };
+    handleChannelDecision(approval.conversationId, expiredDecision, orchestrator);
+
+    // Notify the requester that the approval expired
+    deliverChannelReply(replyCallbackUrl, {
+      chatId: approval.requesterChatId,
+      text: `Your guardian approval request for "${approval.toolName}" has expired and the action has been denied. Please try again.`,
+    }, bearerToken).catch((err) => {
+      log.error({ err, runId: approval.runId }, 'Failed to notify requester of guardian approval expiry');
+    });
+
+    // Notify the guardian that the approval expired
+    deliverChannelReply(replyCallbackUrl, {
+      chatId: approval.guardianChatId,
+      text: `The approval request for "${approval.toolName}" from user ${approval.requesterExternalUserId} has expired and was automatically denied.`,
+    }, bearerToken).catch((err) => {
+      log.error({ err, runId: approval.runId }, 'Failed to notify guardian of approval expiry');
+    });
+
+    log.info(
+      { runId: approval.runId, approvalId: approval.id },
+      'Auto-denied expired guardian approval request',
+    );
+  }
+}
+
+/**
+ * Start the periodic expiry sweep. Idempotent — calling it multiple times
+ * re-uses the same timer.
+ */
+export function startGuardianExpirySweep(
+  orchestrator: RunOrchestrator,
+  replyCallbackUrl: string,
+  bearerToken?: string,
+): void {
+  if (expirySweepTimer) return;
+  expirySweepTimer = setInterval(() => {
+    try {
+      sweepExpiredGuardianApprovals(orchestrator, replyCallbackUrl, bearerToken);
+    } catch (err) {
+      log.error({ err }, 'Guardian expiry sweep failed');
+    }
+  }, GUARDIAN_EXPIRY_SWEEP_INTERVAL_MS);
+}
+
+/**
+ * Stop the periodic expiry sweep. Used in tests and shutdown.
+ */
+export function stopGuardianExpirySweep(): void {
+  if (expirySweepTimer) {
+    clearInterval(expirySweepTimer);
+    expirySweepTimer = null;
+  }
 }
