@@ -594,6 +594,13 @@ exports[`IPC message snapshots ClientMessage types telegram_config serializes to
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types twilio_config serializes to expected JSON 1`] = `
+{
+  "action": "get",
+  "type": "twilio_config",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types guardian_verification serializes to expected JSON 1`] = `
 {
   "action": "create_challenge",
@@ -1917,6 +1924,15 @@ exports[`IPC message snapshots ServerMessage types telegram_config_response seri
   "hasWebhookSecret": true,
   "success": true,
   "type": "telegram_config_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types twilio_config_response serializes to expected JSON 1`] = `
+{
+  "hasCredentials": true,
+  "phoneNumber": "+15551234567",
+  "success": true,
+  "type": "twilio_config_response",
 }
 `;
 

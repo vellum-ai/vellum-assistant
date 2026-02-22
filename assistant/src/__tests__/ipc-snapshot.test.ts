@@ -378,6 +378,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'telegram_config',
     action: 'get',
   },
+  twilio_config: {
+    type: 'twilio_config',
+    action: 'get',
+  },
   guardian_verification: {
     type: 'guardian_verification',
     action: 'create_challenge',
@@ -1217,6 +1221,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     botUsername: 'my_test_bot',
     connected: true,
     hasWebhookSecret: true,
+  },
+  twilio_config_response: {
+    type: 'twilio_config_response',
+    success: true,
+    hasCredentials: true,
+    phoneNumber: '+15551234567',
   },
   guardian_verification_response: {
     type: 'guardian_verification_response',

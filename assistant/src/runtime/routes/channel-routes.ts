@@ -599,6 +599,22 @@ const RUN_POLL_MAX_WAIT_MS = 300_000; // 5 minutes
 const POST_DECISION_POLL_INTERVAL_MS = 500;
 const POST_DECISION_POLL_MAX_WAIT_MS = RUN_POLL_MAX_WAIT_MS;
 
+/**
+ * Override the poll max-wait for tests. When set, used in place of
+ * RUN_POLL_MAX_WAIT_MS so tests can exercise timeout paths without
+ * waiting 5 minutes.
+ */
+let testPollMaxWaitOverride: number | null = null;
+
+/** @internal — test-only: set an override for the poll max-wait. */
+export function _setTestPollMaxWait(ms: number | null): void {
+  testPollMaxWaitOverride = ms;
+}
+
+function getEffectivePollMaxWait(): number {
+  return testPollMaxWaitOverride ?? RUN_POLL_MAX_WAIT_MS;
+}
+
 interface ApprovalProcessingParams {
   orchestrator: RunOrchestrator;
   conversationId: string;
@@ -656,9 +672,10 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
       // Poll the run until it reaches a terminal state, delivering approval
       // prompts when it transitions to needs_confirmation.
       const startTime = Date.now();
+      const pollMaxWait = getEffectivePollMaxWait();
       let lastStatus = run.status;
 
-      while (Date.now() - startTime < RUN_POLL_MAX_WAIT_MS) {
+      while (Date.now() - startTime < pollMaxWait) {
         await new Promise((resolve) => setTimeout(resolve, RUN_POLL_INTERVAL_MS));
 
         const current = orchestrator.getRun(run.id);
@@ -765,7 +782,14 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
                   bearerToken,
                 );
               } catch (err) {
-                log.error({ err, runId: run.id }, 'Failed to deliver approval prompt for channel run');
+                // Fail-closed: if we cannot deliver the approval prompt, the
+                // user will never see it and the run would hang indefinitely
+                // in needs_confirmation. Auto-deny to avoid silent wait states.
+                log.error(
+                  { err, runId: run.id, conversationId },
+                  'Failed to deliver standard approval prompt; auto-denying (fail-closed)',
+                );
+                handleChannelDecision(conversationId, { action: 'reject', source: 'plain_text' }, orchestrator);
               }
             }
           }
@@ -827,7 +851,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
         // needs_secret, or disappeared). Record a processing failure so the
         // retry/dead-letter machinery can handle it.
         const timeoutErr = new Error(
-          `Approval poll timeout: run did not reach terminal state within ${RUN_POLL_MAX_WAIT_MS}ms (status: ${finalRun?.status ?? 'null'})`,
+          `Approval poll timeout: run did not reach terminal state within ${pollMaxWait}ms (status: ${finalRun?.status ?? 'null'})`,
         );
         log.warn(
           { runId: run.id, status: finalRun?.status, conversationId },

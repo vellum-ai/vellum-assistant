@@ -62,6 +62,7 @@ import {
   handleChannelInbound,
   isChannelApprovalsEnabled,
   sweepExpiredGuardianApprovals,
+  _setTestPollMaxWait,
 } from '../runtime/routes/channel-routes.js';
 import * as gatewayClient from '../runtime/gateway-client.js';
 
@@ -133,6 +134,10 @@ function makeMockOrchestrator(
   } as unknown as RunOrchestrator;
 }
 
+/** Default bearer token used by tests. Include the X-Gateway-Origin header
+ *  so that verifyGatewayOrigin does not reject the request. */
+const TEST_BEARER_TOKEN = 'token';
+
 function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
   const body = {
     sourceChannel: 'telegram',
@@ -144,7 +149,10 @@ function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
   };
   return new Request('http://localhost/channels/inbound', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Gateway-Origin': TEST_BEARER_TOKEN,
+    },
     body: JSON.stringify(body),
   });
 }
@@ -532,11 +540,14 @@ describe('empty content with callbackData bypasses validation', () => {
     };
     const req = new Request('http://localhost/channels/inbound', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gateway-Origin': TEST_BEARER_TOKEN,
+      },
       body: JSON.stringify(body),
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const res = await handleChannelInbound(req, noopProcessMessage, TEST_BEARER_TOKEN, orchestrator);
     expect(res.status).toBe(200);
     const resBody = await res.json() as Record<string, unknown>;
     expect(resBody.accepted).toBe(true);
@@ -1049,6 +1060,10 @@ describe('poll timeout handling by run state', () => {
   });
 
   test('marks event as processed when run is in needs_confirmation state after poll timeout', async () => {
+    // Use a short poll timeout so the test can exercise the timeout path
+    // without waiting 5 minutes.
+    _setTestPollMaxWait(600);
+
     const linkSpy = spyOn(channelDeliveryStore, 'linkMessage').mockImplementation(() => {});
     const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
     const failureSpy = spyOn(channelDeliveryStore, 'recordProcessingFailure').mockImplementation(() => {});
@@ -1081,8 +1096,8 @@ describe('poll timeout handling by run state', () => {
     const req = makeInboundRequest({ content: 'hello needs_confirm' });
     await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
 
-    // Wait for the background async to complete
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    // Wait for the background async to complete (poll timeout is 600ms + one poll interval of 500ms)
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     // markProcessed SHOULD have been called — the run is waiting for approval,
     // and the post-decision delivery path will handle the final reply.
@@ -1095,6 +1110,7 @@ describe('poll timeout handling by run state', () => {
     markSpy.mockRestore();
     failureSpy.mockRestore();
     deliverSpy.mockRestore();
+    _setTestPollMaxWait(null);
   });
 
   test('does NOT call recordProcessingFailure when run reaches terminal state', async () => {
@@ -1336,7 +1352,10 @@ describe('SMS channel approval decisions', () => {
     };
     return new Request('http://localhost/channels/inbound', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gateway-Origin': TEST_BEARER_TOKEN,
+      },
       body: JSON.stringify(body),
     });
   }
@@ -1482,7 +1501,10 @@ describe('SMS guardian verify intercept', () => {
 
     const req = new Request('http://localhost/channels/inbound', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gateway-Origin': TEST_BEARER_TOKEN,
+      },
       body: JSON.stringify({
         sourceChannel: 'sms',
         externalChatId: 'sms-chat-verify',
@@ -1493,7 +1515,7 @@ describe('SMS guardian verify intercept', () => {
       }),
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage, TEST_BEARER_TOKEN);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -1514,7 +1536,10 @@ describe('SMS guardian verify intercept', () => {
 
     const req = new Request('http://localhost/channels/inbound', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gateway-Origin': TEST_BEARER_TOKEN,
+      },
       body: JSON.stringify({
         sourceChannel: 'sms',
         externalChatId: 'sms-chat-verify-fail',
@@ -1525,7 +1550,7 @@ describe('SMS guardian verify intercept', () => {
       }),
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const res = await handleChannelInbound(req, noopProcessMessage, TEST_BEARER_TOKEN);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -1586,7 +1611,10 @@ describe('SMS non-guardian actor gating', () => {
     // Send message from a NON-guardian sms user
     const req = new Request('http://localhost/channels/inbound', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gateway-Origin': TEST_BEARER_TOKEN,
+      },
       body: JSON.stringify({
         sourceChannel: 'sms',
         externalChatId: 'sms-other-chat',
@@ -1597,7 +1625,7 @@ describe('SMS non-guardian actor gating', () => {
       }),
     });
 
-    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    await handleChannelInbound(req, noopProcessMessage, TEST_BEARER_TOKEN, orchestrator);
 
     // Wait for the background async to fire
     await new Promise((resolve) => setTimeout(resolve, 800));
@@ -2069,6 +2097,52 @@ describe('guardian delivery failure → denial', () => {
     // There should also be NO unresolved approval (it was set to 'denied')
     const unresolvedApproval = getUnresolvedApprovalForRun(runId!);
     expect(unresolvedApproval).toBeNull();
+
+    deliverSpy.mockRestore();
+    approvalSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 20b. Standard approval prompt delivery failure → auto-deny (WS-B)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('standard approval prompt delivery failure → auto-deny', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('standard prompt delivery failure auto-denies the run (fail-closed)', async () => {
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    // Make the approval prompt delivery fail for the standard (self-approval) path
+    const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockRejectedValue(
+      new Error('Network error: approval prompt unreachable'),
+    );
+
+    // No guardian binding — sender is a guardian (default role), so the
+    // standard self-approval path is used.
+    const orchestrator = makeSensitiveOrchestrator({ runId: 'run-std-fail', terminalStatus: 'failed' });
+
+    const req = makeInboundRequest({
+      content: 'do something dangerous',
+      senderExternalUserId: 'guardian-std-user',
+    });
+
+    // Set up a guardian binding so the sender is recognized as guardian
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-std-user',
+      guardianDeliveryChatId: 'chat-123',
+    });
+
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    // The run should have been auto-denied because the prompt could not be delivered
+    expect(orchestrator.submitDecision).toHaveBeenCalled();
+    const decisionArgs = (orchestrator.submitDecision as ReturnType<typeof mock>).mock.calls[0];
+    expect(decisionArgs[1]).toBe('deny');
 
     deliverSpy.mockRestore();
     approvalSpy.mockRestore();
