@@ -124,8 +124,9 @@ export function loadConfig(): GatewayConfig {
     throw new Error("GATEWAY_PORT must be a valid port number");
   }
 
-  const gatewayInternalBaseUrl =
-    process.env.GATEWAY_INTERNAL_BASE_URL || `http://127.0.0.1:${port}`;
+  const gatewayInternalBaseUrl = (
+    process.env.GATEWAY_INTERNAL_BASE_URL || `http://127.0.0.1:${port}`
+  ).replace(/\/+$/, "");
 
   const proxyEnabledRaw = process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
   if (proxyEnabledRaw !== undefined && proxyEnabledRaw !== "true" && proxyEnabledRaw !== "false") {

@@ -30,7 +30,7 @@ import * as telegram from './client.js';
 /** Resolve the gateway base URL from GATEWAY_BASE_URL env var, falling back to localhost. */
 function getGatewayUrl(): string {
   if (process.env.GATEWAY_BASE_URL) {
-    return process.env.GATEWAY_BASE_URL;
+    return process.env.GATEWAY_BASE_URL.replace(/\/+$/, "");
   }
   const port = Number(process.env.GATEWAY_PORT) || 7830;
   return `http://127.0.0.1:${port}`;
