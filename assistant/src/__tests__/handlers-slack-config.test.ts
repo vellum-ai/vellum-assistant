@@ -82,6 +82,7 @@ import type {
   ShareToSlackRequest,
   ServerMessage,
 } from '../daemon/ipc-contract.js';
+import { DebouncerMap } from '../util/debounce.js';
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
   const sent: ServerMessage[] = [];
@@ -93,7 +94,7 @@ function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
     cuObservationParseSequence: new Map(),
     socketSandboxOverride: new Map(),
     sharedRequestTimestamps: [],
-    debounceTimers: new Map(),
+    debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
     suppressConfigReload: false,
     setSuppressConfigReload: () => {},
     updateConfigFingerprint: () => {},

@@ -60,6 +60,7 @@ import { handleToolPermissionSimulate } from '../daemon/handlers/config.js';
 import { addRule, clearAllRules, clearCache } from '../permissions/trust-store.js';
 import type { ToolPermissionSimulateRequest, ToolPermissionSimulateResponse, ServerMessage } from '../daemon/ipc-contract.js';
 import type { HandlerContext } from '../daemon/handlers.js';
+import { DebouncerMap } from '../util/debounce.js';
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
   const sent: ServerMessage[] = [];
@@ -71,7 +72,7 @@ function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
     cuObservationParseSequence: new Map(),
     socketSandboxOverride: new Map(),
     sharedRequestTimestamps: [],
-    debounceTimers: new Map(),
+    debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
     suppressConfigReload: false,
     setSuppressConfigReload: () => {},
     updateConfigFingerprint: () => {},

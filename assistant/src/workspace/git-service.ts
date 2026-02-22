@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { getLogger } from '../util/logger.js';
 import { getConfig } from '../config/loader.js';
+import { PromiseGuard } from '../util/promise-guard.js';
 
 const execFileAsync = promisify(execFile);
 const log = getLogger('workspace-git');
@@ -133,7 +134,7 @@ export class WorkspaceGitService {
   private readonly workspaceDir: string;
   private readonly mutex: Mutex;
   private initialized = false;
-  private initPromise: Promise<void> | null = null;
+  private readonly initGuard = new PromiseGuard<void>();
   private consecutiveFailures = 0;
   private nextAllowedAttemptMs = 0;
   private initConsecutiveFailures = 0;
@@ -236,81 +237,38 @@ export class WorkspaceGitService {
     }
 
     // If initialization is in progress, wait for it
-    if (this.initPromise) {
-      return this.initPromise;
+    if (this.initGuard.active) {
+      return this.initGuard.run(() => { throw new Error('unreachable'); });
     }
 
     // Circuit breaker: skip if multiple recent init attempts have been failing.
-    // Checked AFTER initPromise so callers waiting on in-progress init aren't
+    // Checked AFTER initGuard.active so callers waiting on in-progress init aren't
     // blocked, and only activates after 2+ consecutive failures so that a
     // single transient failure allows immediate retry.
     if (this.isInitBreakerOpen()) {
       throw new Error('Init circuit breaker open: backing off after repeated failures');
     }
 
-    // Start initialization
-    this.initPromise = this.mutex.withLock(async () => {
-      // Double-check after acquiring lock
-      if (this.initialized) {
-        return;
-      }
-
-      const gitDir = join(this.workspaceDir, '.git');
-
-      if (existsSync(gitDir)) {
-        // Validate existing repo is not corrupted before marking as ready.
-        // A corrupted .git directory (e.g. missing HEAD) would cause all
-        // subsequent git operations to fail with confusing errors.
-        try {
-          await this.execGit(['rev-parse', '--git-dir']);
-        } catch (err: unknown) {
-          // Distinguish transient failures from genuine corruption.
-          // Transient errors (timeouts, permissions, missing git binary)
-          // should NOT destroy .git — they will resolve on retry via
-          // the initPromise clearing logic.
-          const errMsg = err instanceof Error ? err.message : String(err);
-          const execErr = err as ExecError;
-          const isTimeout = execErr.killed === true
-            || execErr.signal === 'SIGTERM'
-            || errMsg.includes('SIGTERM')
-            || errMsg.includes('timed out');
-          const isPermission = execErr.code === 'EACCES'
-            || errMsg.includes('EACCES')
-            || errMsg.toLowerCase().includes('permission denied');
-          const isMissingBinary = execErr.code === 'ENOENT'
-            || errMsg.includes('ENOENT');
-
-          if (isTimeout || isPermission || isMissingBinary) {
-            // Re-throw so initialization fails gracefully without
-            // destroying valid git history.
-            throw err;
-          }
-
-          // Genuine corruption (e.g. missing HEAD, broken refs) —
-          // remove corrupted .git and fall through to full init below.
-          log.warn(
-            { workspaceDir: this.workspaceDir, err: errMsg },
-            'Corrupted .git directory detected; reinitializing',
-          );
-          const { rmSync } = await import('node:fs');
-          rmSync(gitDir, { recursive: true, force: true });
+    return this.initGuard.run(
+      () => this.mutex.withLock(async () => {
+        // Double-check after acquiring lock
+        if (this.initialized) {
+          return;
         }
 
+        const gitDir = join(this.workspaceDir, '.git');
+
         if (existsSync(gitDir)) {
-          // .git exists and passed the corruption check, but we still
-          // need to verify that at least one commit exists. A partial
-          // init (e.g. git init succeeded but the initial commit failed)
-          // leaves .git present with an undefined HEAD. In that case,
-          // fall through to the initial commit logic below.
-          let headExists = false;
+          // Validate existing repo is not corrupted before marking as ready.
+          // A corrupted .git directory (e.g. missing HEAD) would cause all
+          // subsequent git operations to fail with confusing errors.
           try {
-            await this.execGit(['rev-parse', 'HEAD']);
-            headExists = true;
+            await this.execGit(['rev-parse', '--git-dir']);
           } catch (err: unknown) {
-            // Distinguish transient failures from genuine "no commits".
+            // Distinguish transient failures from genuine corruption.
             // Transient errors (timeouts, permissions, missing git binary)
-            // should NOT fall through to re-initialization — they will
-            // resolve on retry via the initPromise clearing logic.
+            // should NOT destroy .git — they will resolve on retry via
+            // the guard clearing logic.
             const errMsg = err instanceof Error ? err.message : String(err);
             const execErr = err as ExecError;
             const isTimeout = execErr.killed === true
@@ -324,68 +282,104 @@ export class WorkspaceGitService {
               || errMsg.includes('ENOENT');
 
             if (isTimeout || isPermission || isMissingBinary) {
+              // Re-throw so initialization fails gracefully without
+              // destroying valid git history.
               throw err;
             }
-            // Genuine "no commits" (unborn HEAD) — fall through to
-            // create the initial commit.
+
+            // Genuine corruption (e.g. missing HEAD, broken refs) —
+            // remove corrupted .git and fall through to full init below.
+            log.warn(
+              { workspaceDir: this.workspaceDir, err: errMsg },
+              'Corrupted .git directory detected; reinitializing',
+            );
+            const { rmSync } = await import('node:fs');
+            rmSync(gitDir, { recursive: true, force: true });
           }
 
-          if (headExists) {
-            // HEAD resolves — repo is fully initialized.
-            // Run normalization for existing repos that may have been
-            // created before these helpers existed, or by external tools.
-            // These calls are OUTSIDE the rev-parse try/catch so that
-            // normalization errors are not misclassified as "no commits".
-            this.ensureGitignoreRulesLocked();
-            await this.ensureCommitIdentityLocked();
-            await this.ensureOnMainLocked();
-            this.initialized = true;
-            this.recordInitSuccess();
-            return;
+          if (existsSync(gitDir)) {
+            // .git exists and passed the corruption check, but we still
+            // need to verify that at least one commit exists. A partial
+            // init (e.g. git init succeeded but the initial commit failed)
+            // leaves .git present with an undefined HEAD. In that case,
+            // fall through to the initial commit logic below.
+            let headExists = false;
+            try {
+              await this.execGit(['rev-parse', 'HEAD']);
+              headExists = true;
+            } catch (err: unknown) {
+              // Distinguish transient failures from genuine "no commits".
+              // Transient errors (timeouts, permissions, missing git binary)
+              // should NOT fall through to re-initialization — they will
+              // resolve on retry via the guard clearing logic.
+              const errMsg = err instanceof Error ? err.message : String(err);
+              const execErr = err as ExecError;
+              const isTimeout = execErr.killed === true
+                || execErr.signal === 'SIGTERM'
+                || errMsg.includes('SIGTERM')
+                || errMsg.includes('timed out');
+              const isPermission = execErr.code === 'EACCES'
+                || errMsg.includes('EACCES')
+                || errMsg.toLowerCase().includes('permission denied');
+              const isMissingBinary = execErr.code === 'ENOENT'
+                || errMsg.includes('ENOENT');
+
+              if (isTimeout || isPermission || isMissingBinary) {
+                throw err;
+              }
+              // Genuine "no commits" (unborn HEAD) — fall through to
+              // create the initial commit.
+            }
+
+            if (headExists) {
+              // HEAD resolves — repo is fully initialized.
+              // Run normalization for existing repos that may have been
+              // created before these helpers existed, or by external tools.
+              // These calls are OUTSIDE the rev-parse try/catch so that
+              // normalization errors are not misclassified as "no commits".
+              this.ensureGitignoreRulesLocked();
+              await this.ensureCommitIdentityLocked();
+              await this.ensureOnMainLocked();
+              this.initialized = true;
+              this.recordInitSuccess();
+              return;
+            }
           }
+          // Otherwise fall through to reinitialize / create initial commit
         }
-        // Otherwise fall through to reinitialize / create initial commit
-      }
 
-      // Initialize new git repository
-      await this.execGit(['init', '-b', 'main']);
+        // Initialize new git repository
+        await this.execGit(['init', '-b', 'main']);
 
-      // Run normalization (gitignore + identity + branch enforcement).
-      // For fresh `git init -b main` the branch is already main, but
-      // in the corruption-recovery path we fall through here after
-      // removing .git, so branch enforcement is still useful.
-      this.ensureGitignoreRulesLocked();
-      await this.ensureCommitIdentityLocked();
-      await this.ensureOnMainLocked();
+        // Run normalization (gitignore + identity + branch enforcement).
+        // For fresh `git init -b main` the branch is already main, but
+        // in the corruption-recovery path we fall through here after
+        // removing .git, so branch enforcement is still useful.
+        this.ensureGitignoreRulesLocked();
+        await this.ensureCommitIdentityLocked();
+        await this.ensureOnMainLocked();
 
-      // Create initial commit synchronously within the lock to prevent
-      // races with the first commitChanges() call. Without this, the
-      // initial commit could run concurrently and consume edits meant
-      // for the first user-requested commit.
-      const status = await this.getStatusInternal();
-      const hasExistingFiles = status.untracked.length > 1 || // More than just .gitignore
-        status.untracked.some(f => f !== '.gitignore');
+        // Create initial commit synchronously within the lock to prevent
+        // races with the first commitChanges() call. Without this, the
+        // initial commit could run concurrently and consume edits meant
+        // for the first user-requested commit.
+        const status = await this.getStatusInternal();
+        const hasExistingFiles = status.untracked.length > 1 || // More than just .gitignore
+          status.untracked.some(f => f !== '.gitignore');
 
-      await this.execGit(['add', '-A']);
+        await this.execGit(['add', '-A']);
 
-      const message = hasExistingFiles
-        ? 'Initial commit: migrated existing workspace'
-        : 'Initial commit: new workspace';
+        const message = hasExistingFiles
+          ? 'Initial commit: migrated existing workspace'
+          : 'Initial commit: new workspace';
 
-      await this.execGit(['commit', '-m', message, '--allow-empty']);
+        await this.execGit(['commit', '-m', message, '--allow-empty']);
 
-      this.initialized = true;
-      this.recordInitSuccess();
-    });
-
-    // If initialization fails, clear the cached promise so subsequent
-    // calls can retry instead of permanently returning the rejected promise.
-    this.initPromise.catch(() => {
-      this.initPromise = null;
-      this.recordInitFailure();
-    });
-
-    return this.initPromise;
+        this.initialized = true;
+        this.recordInitSuccess();
+      }),
+      () => this.recordInitFailure(),
+    );
   }
 
   /**

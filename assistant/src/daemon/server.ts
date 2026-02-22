@@ -40,6 +40,7 @@ import { tryRouteCallMessage } from '../calls/call-bridge.js';
 import { resolveSlash } from './session-slash.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import { registerDaemonCallbacks } from '../work-items/work-item-runner.js';
+import { DebouncerMap } from '../util/debounce.js';
 
 const log = getLogger('server');
 
@@ -77,8 +78,11 @@ export class DaemonServer {
   private socketPath: string;
   private httpPort: number | undefined;
   private watchers: FSWatcher[] = [];
-  private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private static readonly MAX_DEBOUNCE_ENTRIES = 1000;
+  private debounceTimers = new DebouncerMap({
+    defaultDelayMs: 200,
+    maxEntries: 1000,
+    protectedKeyPrefix: '__',
+  });
   private suppressConfigReload = false;
   private lastConfigFingerprint = '';
   private lastConfigRefreshTime = 0;
@@ -373,16 +377,10 @@ export class DaemonServer {
           if (!filename) return;
           const file = String(filename);
           if (!handlers[file]) return;
-          const key = `file:${file}`;
-          const existing = this.debounceTimers.get(key);
-          if (existing) clearTimeout(existing);
-          const timer = setTimeout(() => {
-            this.debounceTimers.delete(key);
+          this.debounceTimers.schedule(`file:${file}`, () => {
             log.info({ file }, 'File changed, reloading');
             handlers[file]();
-          }, 200);
-          this.debounceTimers.set(key, timer);
-          this.enforceDebounceLimit();
+          });
         });
         this.watchers.push(watcher);
         log.info({ dir }, `Watching ${label}`);
@@ -478,34 +476,11 @@ export class DaemonServer {
   }
 
   private stopFileWatchers(): void {
-    for (const timer of this.debounceTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.debounceTimers.clear();
+    this.debounceTimers.cancelAll();
     for (const watcher of this.watchers) {
       watcher.close();
     }
     this.watchers = [];
-  }
-
-  /**
-   * Evict the oldest file-watcher debounce entries when the map exceeds the safety cap.
-   * Map iteration order follows insertion order, so the first keys are oldest.
-   * Protects system timers (keys starting with '__') from eviction, so critical
-   * timers like '__suppress_reset__' are never cleared during bursts of file events.
-   */
-  private enforceDebounceLimit(): void {
-    if (this.debounceTimers.size <= DaemonServer.MAX_DEBOUNCE_ENTRIES) return;
-    const excess = this.debounceTimers.size - DaemonServer.MAX_DEBOUNCE_ENTRIES;
-    let removed = 0;
-    for (const [key, timer] of this.debounceTimers) {
-      if (removed >= excess) break;
-      // Skip system timers (those with keys starting with '__')
-      if (key.startsWith('__')) continue;
-      clearTimeout(timer);
-      this.debounceTimers.delete(key);
-      removed++;
-    }
   }
 
   private startSkillsWatchers(evictSessions: () => void): void {
@@ -513,16 +488,10 @@ export class DaemonServer {
     if (!existsSync(skillsDir)) return;
 
     const scheduleSkillsReload = (file: string): void => {
-      const key = `skills:${file}`;
-      const existing = this.debounceTimers.get(key);
-      if (existing) clearTimeout(existing);
-      const timer = setTimeout(() => {
-        this.debounceTimers.delete(key);
+      this.debounceTimers.schedule(`skills:${file}`, () => {
         log.info({ file }, 'Skill file changed, reloading');
         evictSessions();
-      }, 200);
-      this.debounceTimers.set(key, timer);
-      this.enforceDebounceLimit();
+      });
     };
 
     try {

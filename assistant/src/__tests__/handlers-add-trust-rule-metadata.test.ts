@@ -62,6 +62,7 @@ import { getAllRules, clearAllRules, clearCache } from '../permissions/trust-sto
 import type { AddTrustRule } from '../daemon/ipc-contract.js';
 import type { HandlerContext } from '../daemon/handlers.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
+import { DebouncerMap } from '../util/debounce.js';
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
   const sent: ServerMessage[] = [];
@@ -73,7 +74,7 @@ function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
     cuObservationParseSequence: new Map(),
     socketSandboxOverride: new Map(),
     sharedRequestTimestamps: [],
-    debounceTimers: new Map(),
+    debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
     suppressConfigReload: false,
     setSuppressConfigReload: () => {},
     updateConfigFingerprint: () => {},

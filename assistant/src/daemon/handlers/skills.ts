@@ -61,10 +61,7 @@ export function handleSkillsEnable(
     }
     invalidateConfigCache();
 
-    const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
-    if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
-    ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+    ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
 
     ctx.updateConfigFingerprint();
 
@@ -108,10 +105,7 @@ export function handleSkillsDisable(
     }
     invalidateConfigCache();
 
-    const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
-    if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
-    ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+    ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
 
     ctx.updateConfigFingerprint();
 
@@ -165,10 +159,7 @@ export function handleSkillsConfigure(
     }
     invalidateConfigCache();
 
-    const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
-    if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
-    ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+    ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
 
     ctx.updateConfigFingerprint();
 
@@ -226,10 +217,7 @@ export async function handleSkillsInstall(
         throw err;
       }
       invalidateConfigCache();
-      const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
-      if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-      const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
-      ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+      ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
       ctx.updateConfigFingerprint();
     } catch (err) {
       log.warn({ err, skillId }, 'Failed to auto-enable installed skill');
@@ -321,10 +309,7 @@ export async function handleSkillsUninstall(
       }
       invalidateConfigCache();
 
-      const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
-      if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-      const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
-      ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+      ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
 
       ctx.updateConfigFingerprint();
     }

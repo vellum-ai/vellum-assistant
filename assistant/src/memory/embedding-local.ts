@@ -1,5 +1,6 @@
 import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-backend.js';
 import { getLogger } from '../util/logger.js';
+import { PromiseGuard } from '../util/promise-guard.js';
 
 const log = getLogger('memory-embedding-local');
 
@@ -19,7 +20,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   readonly provider = 'local' as const;
   readonly model: string;
   private extractor: FeatureExtractionPipeline | null = null;
-  private initPromise: Promise<void> | null = null;
+  private readonly initGuard = new PromiseGuard<void>();
 
   constructor(model: string) {
     this.model = model;
@@ -50,18 +51,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
 
   private async ensureInitialized(): Promise<void> {
     if (this.extractor) return;
-    if (this.initPromise) {
-      await this.initPromise;
-      return;
-    }
-
-    this.initPromise = this.initialize();
-    try {
-      await this.initPromise;
-    } catch (err) {
-      this.initPromise = null;
-      throw err;
-    }
+    await this.initGuard.run(() => this.initialize());
   }
 
   private async initialize(): Promise<void> {

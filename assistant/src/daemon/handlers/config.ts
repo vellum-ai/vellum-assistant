@@ -145,10 +145,7 @@ export function handleModelSet(
       ctx.setSuppressConfigReload(wasSuppressed);
       throw err;
     }
-    const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
-    if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
-    ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+    ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
 
     // Re-initialize provider with the new model so LLM calls use it
     const config = getConfig();
@@ -195,10 +192,7 @@ export function handleImageGenModelSet(
       ctx.setSuppressConfigReload(wasSuppressed);
       throw err;
     }
-    const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
-    if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-    const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
-    ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+    ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
 
     ctx.updateConfigFingerprint();
     log.info({ model: msg.model }, 'Image generation model updated');
@@ -547,10 +541,7 @@ export function handleIngressConfig(
         ctx.setSuppressConfigReload(wasSuppressed);
         throw err;
       }
-      const existingSuppressTimer = ctx.debounceTimers.get('__suppress_reset__');
-      if (existingSuppressTimer) clearTimeout(existingSuppressTimer);
-      const resetTimer = setTimeout(() => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
-      ctx.debounceTimers.set('__suppress_reset__', resetTimer);
+      ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
 
       // Propagate to the gateway's process environment so it picks up the
       // new URL when it is restarted. For the local-deployment path the
