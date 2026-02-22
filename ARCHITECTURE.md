@@ -1304,7 +1304,7 @@ graph LR
         C9["ping"]
         C10["ipc_blob_probe<br/>probeId, nonceSha256"]
         C11["work_items_list / work_item_get<br/>work_item_create / work_item_update<br/>work_item_complete / work_item_run_task<br/>(planned)"]
-        C12["tool_permission_simulate<br/>toolName, input, workingDir?,<br/>isInteractive?, forcePromptSideEffects?,<br/>principalKind?, executionTarget?"]
+        C12["tool_permission_simulate<br/>toolName, input, workingDir?,<br/>isInteractive?, forcePromptSideEffects?,<br/>executionTarget?"]
     end
 
     SOCKET["Unix Socket<br/>~/.vellum/vellum.sock<br/>───────────────<br/>Newline-delimited JSON<br/>Max 96MB per message<br/>Ping/pong every 30s<br/>Auto-reconnect<br/>1s → 30s backoff"]
@@ -1870,7 +1870,7 @@ graph TB
 
 ## Permission and Trust Security Model
 
-The permission system controls which tool actions the agent can execute without explicit user approval. It supports three operating modes (`workspace`, `strict`, and `legacy`), principal-aware trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
+The permission system controls which tool actions the agent can execute without explicit user approval. It supports three operating modes (`workspace`, `strict`, and `legacy`), execution-target-scoped trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
 
 ### Permission Evaluation Flow
 
@@ -1878,7 +1878,7 @@ The permission system controls which tool actions the agent can execute without 
 graph TB
     TOOL_CALL["Tool invocation<br/>(toolName, input, policyContext)"] --> CLASSIFY["classifyRisk()<br/>→ Low / Medium / High"]
     CLASSIFY --> CANDIDATES["buildCommandCandidates()<br/>tool:target strings +<br/>canonical path variants"]
-    CANDIDATES --> FIND_RULE["findHighestPriorityRule()<br/>iterate sorted rules:<br/>tool, scope, pattern (minimatch),<br/>principal, executionTarget"]
+    CANDIDATES --> FIND_RULE["findHighestPriorityRule()<br/>iterate sorted rules:<br/>tool, scope, pattern (minimatch),<br/>executionTarget"]
 
     FIND_RULE -->|"Deny rule"| DENY["decision: deny<br/>Blocked by rule"]
     FIND_RULE -->|"Ask rule"| PROMPT_ASK["decision: prompt<br/>Always ask user"]
@@ -1940,38 +1940,10 @@ Rules are stored in `~/.vellum/protected/trust.json` with version `3`. Each rule
 | `scope` | `string` | Path prefix or `everywhere` — restricts where the rule applies |
 | `decision` | `allow \| deny \| ask` | What to do when the rule matches |
 | `priority` | `number` | Higher priority wins; deny wins ties at equal priority |
-| `principalKind` | `string?` | `core` or `skill` — filters by tool origin |
-| `principalId` | `string?` | Skill ID — only matches invocations from this skill |
-| `principalVersion` | `string?` | Version hash — only matches this exact skill version |
 | `executionTarget` | `string?` | `sandbox` or `host` — restricts by execution context |
 | `allowHighRisk` | `boolean?` | When true, auto-allows even high-risk invocations |
 
-Missing optional fields act as wildcards. A rule with no `principalKind`, `principalId`, or `principalVersion` matches any principal. A rule with no `executionTarget` matches any target.
-
-### Principal and Version Matching
-
-When a tool invocation carries a `PolicyContext` with a `ToolPrincipal`, the trust store filters rules by principal constraints:
-
-```mermaid
-graph TB
-    RULE["Trust rule with<br/>principalKind, principalId,<br/>principalVersion"] --> KIND_CHECK{"principalKind<br/>on rule?"}
-    KIND_CHECK -->|"absent"| ID_CHECK
-    KIND_CHECK -->|"present"| KIND_MATCH{"ctx.principal.kind<br/>matches?"}
-    KIND_MATCH -->|"no"| SKIP["Rule does not match"]
-    KIND_MATCH -->|"yes"| ID_CHECK{"principalId<br/>on rule?"}
-
-    ID_CHECK -->|"absent"| VER_CHECK
-    ID_CHECK -->|"present"| ID_MATCH{"ctx.principal.id<br/>matches?"}
-    ID_MATCH -->|"no"| SKIP
-    ID_MATCH -->|"yes"| VER_CHECK{"principalVersion<br/>on rule?"}
-
-    VER_CHECK -->|"absent"| MATCH["Rule matches<br/>(any version)"]
-    VER_CHECK -->|"present"| VER_MATCH{"ctx.principal.version<br/>matches?"}
-    VER_MATCH -->|"no"| SKIP
-    VER_MATCH -->|"yes"| MATCH
-```
-
-Version-bound rules are central to the security model for skills: when a user approves a specific skill version, the trust rule records the version hash. If the skill's source files change (producing a different hash from `computeSkillVersionHash()`), the old rule no longer matches and the user is re-prompted.
+Missing optional fields act as wildcards. A rule with no `executionTarget` matches any target.
 
 ### Risk Classification and Escalation
 
@@ -2060,9 +2032,6 @@ When a permission prompt is sent to the client (via `confirmation_request` IPC m
 | `input` | Redacted tool input (sensitive fields removed) |
 | `riskLevel` | `low`, `medium`, or `high` |
 | `executionTarget` | `sandbox` or `host` — where the action will execute |
-| `principalKind` | `core` or `skill` — who owns the tool |
-| `principalId` | Skill ID (if skill-origin) |
-| `principalVersion` | Version hash (if available) |
 | `allowlistOptions` | Suggested patterns for "always allow" rules |
 | `scopeOptions` | Suggested scopes for rule persistence |
 
@@ -2076,10 +2045,10 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 
 | File | Role |
 |---|---|
-| `assistant/src/permissions/types.ts` | `TrustRule`, `PolicyContext`, `ToolPrincipal`, `RiskLevel`, `UserDecision` types |
+| `assistant/src/permissions/types.ts` | `TrustRule`, `PolicyContext`, `RiskLevel`, `UserDecision` types |
 | `assistant/src/permissions/checker.ts` | `classifyRisk()`, `check()`, `buildCommandCandidates()`, allowlist/scope generation |
 | `assistant/src/permissions/shell-identity.ts` | `analyzeShellCommand()`, `deriveShellActionKeys()`, `buildShellCommandCandidates()`, `buildShellAllowlistOptions()` — parser-based shell command identity and action key derivation |
-| `assistant/src/permissions/trust-store.ts` | Rule persistence, `findHighestPriorityRule()`, principal/version matching, starter bundle |
+| `assistant/src/permissions/trust-store.ts` | Rule persistence, `findHighestPriorityRule()`, execution-target matching, starter bundle |
 | `assistant/src/permissions/prompter.ts` | IPC prompt flow: `confirmation_request` → `confirmation_response` |
 | `assistant/src/permissions/defaults.ts` | Default rule templates (system ask rules for host tools, CU, etc.) |
 | `assistant/src/skills/version-hash.ts` | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files |
@@ -2094,7 +2063,7 @@ The `tool_permission_simulate` IPC message lets clients dry-run a tool invocatio
 
 **Simulation semantics:**
 
-- The request specifies `toolName`, `input`, and optional context overrides (`workingDir`, `isInteractive`, `forcePromptSideEffects`, `principalKind`, `executionTarget`).
+- The request specifies `toolName`, `input`, and optional context overrides (`workingDir`, `isInteractive`, `forcePromptSideEffects`, `executionTarget`).
 - The daemon runs `classifyRisk()` and `check()` against the live trust rules, then returns the decision (`allow`, `deny`, or `prompt`), risk level, reason, matched rule ID, and (when decision is `prompt`) the full `promptPayload` with allowlist/scope options.
 - **Simulation-only allow/deny**: A simulated `allow` or `deny` decision does not persist any state. No trust rules are created or modified.
 - **Always-allow persistence**: When the tester UI's "Always Allow" action is used, the client sends a separate `add_trust_rule` message that persists the rule to `trust.json`, identical to the existing confirmation flow.
@@ -2604,7 +2573,7 @@ When the OAuth2 flow completes, the handler stores credential metadata at `integ
   allowedDomains: [],
   oauth2TokenUrl: "https://api.x.com/2/oauth2/token",
   oauth2ClientId: "<user's client ID>",
-  oauth2ClientSecret: "<optional>",
+  oauth2Credentials: "<optional — PKCE used by default>",
   grantedScopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
   expiresAt: <epoch ms>
 }
