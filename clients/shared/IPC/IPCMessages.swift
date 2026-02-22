@@ -1791,6 +1791,22 @@ extension IPCVercelApiConfigRequest {
 /// Backed by generated `IPCVercelApiConfigResponse`.
 public typealias VercelApiConfigResponseMessage = IPCVercelApiConfigResponse
 
+// MARK: - Telegram Config Messages
+
+/// Sent to get/set/clear Telegram bot config.
+/// Backed by generated `IPCTelegramConfigRequest`.
+public typealias TelegramConfigRequestMessage = IPCTelegramConfigRequest
+
+extension IPCTelegramConfigRequest {
+    public init(action: String, botToken: String? = nil) {
+        self.init(type: "telegram_config", action: action, botToken: botToken)
+    }
+}
+
+/// Response from Telegram config operations.
+/// Backed by generated `IPCTelegramConfigResponse`.
+public typealias TelegramConfigResponseMessage = IPCTelegramConfigResponse
+
 // MARK: - Twitter Integration Config Messages
 
 /// Sent to get/set Twitter integration config.
@@ -1997,6 +2013,7 @@ public enum ServerMessage: Decodable, Sendable {
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
     case ingressConfigResponse(IngressConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
+    case telegramConfigResponse(TelegramConfigResponseMessage)
     case twitterIntegrationConfigResponse(TwitterIntegrationConfigResponseMessage)
     case twitterAuthResult(TwitterAuthResultMessage)
     case twitterAuthStatusResponse(TwitterAuthStatusResponseMessage)
@@ -2268,6 +2285,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "vercel_api_config_response":
             let message = try VercelApiConfigResponseMessage(from: decoder)
             self = .vercelApiConfigResponse(message)
+        case "telegram_config_response":
+            let message = try TelegramConfigResponseMessage(from: decoder)
+            self = .telegramConfigResponse(message)
         case "twitter_integration_config_response":
             let message = try TwitterIntegrationConfigResponseMessage(from: decoder)
             self = .twitterIntegrationConfigResponse(message)

@@ -26,6 +26,7 @@ struct SettingsPanel: View {
     @State private var showingReminders = false
     @State private var twitterClientId: String = ""
     @State private var twitterClientSecret: String = ""
+    @State private var telegramBotTokenText: String = ""
     @State private var ingressUrlText: String = ""
     @FocusState private var isIngressUrlFocused: Bool
     @State private var checkingGateway: Bool = false
@@ -92,6 +93,7 @@ struct SettingsPanel: View {
         .onAppear {
             store.refreshAPIKeyState()
             store.refreshTwitterStatus()
+            store.refreshTelegramStatus()
             store.refreshIngressConfig()
             ingressUrlText = store.ingressPublicBaseUrl
             setupIntegrationCallbacks()
@@ -644,6 +646,9 @@ struct SettingsPanel: View {
             // TWITTER / X section
             twitterSection
 
+            // TELEGRAM section
+            telegramSection
+
             // PUBLIC INGRESS section
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 HStack {
@@ -919,6 +924,86 @@ struct SettingsPanel: View {
                         .foregroundColor(VColor.textMuted)
                     }
                 }
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Telegram Section
+
+    private var telegramSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Telegram")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            if store.telegramHasBotToken {
+                // Connected / configured state
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                        .font(.system(size: 14))
+                    if let username = store.telegramBotUsername {
+                        Text("@\(username)")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                    } else {
+                        Text("Bot token configured")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                    Spacer()
+                    VButton(label: "Clear", style: .danger) {
+                        store.clearTelegramCredentials()
+                        telegramBotTokenText = ""
+                    }
+                }
+            } else {
+                // Not configured — show SecureField for token entry
+                HStack(spacing: VSpacing.xs) {
+                    Text("Enter Bot Token")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                SecureField("Telegram bot token", text: $telegramBotTokenText)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.md)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+
+                Text("Get your bot token from @BotFather on Telegram")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+
+                if store.telegramSaveInProgress {
+                    HStack(spacing: VSpacing.sm) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Saving...")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                } else {
+                    VButton(label: "Save", style: .primary) {
+                        store.saveTelegramToken(botToken: telegramBotTokenText)
+                        telegramBotTokenText = ""
+                    }
+                    .disabled(telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+
+            if let error = store.telegramError {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
             }
         }
         .padding(VSpacing.lg)

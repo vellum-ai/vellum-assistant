@@ -245,6 +245,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `vercel_api_config_response` message.
     public var onVercelApiConfigResponse: ((VercelApiConfigResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `telegram_config_response` message.
+    public var onTelegramConfigResponse: ((TelegramConfigResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `twitter_integration_config_response` message.
     public var onTwitterIntegrationConfigResponse: ((TwitterIntegrationConfigResponseMessage) -> Void)?
 
@@ -901,6 +904,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Get, set, or delete the Vercel API token configuration.
     public func sendVercelApiConfig(action: String, apiToken: String? = nil) throws {
         try send(VercelApiConfigRequestMessage(action: action, apiToken: apiToken))
+    }
+
+    /// Get, set, or clear Telegram bot token configuration.
+    public func sendTelegramConfig(action: String, botToken: String? = nil) throws {
+        try send(TelegramConfigRequestMessage(action: action, botToken: botToken))
     }
 
     /// Publish a static page to Vercel.

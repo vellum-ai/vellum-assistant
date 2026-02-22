@@ -125,6 +125,8 @@ extension DaemonClient {
             onIngressConfigResponse?(msg)
         case .vercelApiConfigResponse(let msg):
             onVercelApiConfigResponse?(msg)
+        case .telegramConfigResponse(let msg):
+            onTelegramConfigResponse?(msg)
         case .twitterIntegrationConfigResponse(let msg):
             onTwitterIntegrationConfigResponse?(msg)
         case .twitterAuthResult(let msg):
