@@ -498,15 +498,15 @@ struct MainWindowView: View {
                         DrawerMenuView(
                             onSettings: {
                                 showControlCenterDrawer = false
-                                windowState.togglePanel(.settings)
+                                windowState.selection = .panel(.settings)
                             },
                             onDebug: {
                                 showControlCenterDrawer = false
-                                windowState.togglePanel(.debug)
+                                windowState.selection = .panel(.debug)
                             },
                             onDoctor: {
                                 showControlCenterDrawer = false
-                                windowState.togglePanel(.doctor)
+                                windowState.selection = .panel(.doctor)
                             }
                         )
                         .frame(width: threadDrawerWidth - VSpacing.sm * 2)
