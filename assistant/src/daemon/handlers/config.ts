@@ -1193,10 +1193,18 @@ export async function handleToolPermissionSimulate(
 }
 
 export function handleToolNamesList(socket: net.Socket, ctx: HandlerContext): void {
-  const names = getAllTools()
-    .map((t) => t.name)
-    .sort((a, b) => a.localeCompare(b));
-  ctx.send(socket, { type: 'tool_names_list_response', names });
+  const tools = getAllTools();
+  const names = tools.map((t) => t.name).sort((a, b) => a.localeCompare(b));
+  const schemas: Record<string, import('../ipc-contract.js').ToolInputSchema> = {};
+  for (const tool of tools) {
+    try {
+      const def = tool.getDefinition();
+      schemas[tool.name] = def.input_schema as import('../ipc-contract.js').ToolInputSchema;
+    } catch {
+      // Skip tools whose definitions can't be resolved
+    }
+  }
+  ctx.send(socket, { type: 'tool_names_list_response', names, schemas });
 }
 
 export const configHandlers = defineHandlers({
