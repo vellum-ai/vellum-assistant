@@ -214,12 +214,12 @@ struct ToolPermissionTesterView: View {
                 if result.decision == "prompt",
                    result.localOverrideLabel == nil,
                    let payload = result.promptPayload {
-                    let parsed = (try? model.parseInputJSON(model.inputJSON)) ?? [:]
+                    let parsed = (try? model.parseInputJSON(result.snapshotInputJSON)) ?? [:]
                     let confirmation = ToolConfirmationData.fromSimulation(
-                        toolName: model.toolName,
+                        toolName: result.snapshotToolName,
                         input: parsed,
                         riskLevel: result.riskLevel,
-                        executionTarget: model.executionTarget.isEmpty ? nil : model.executionTarget,
+                        executionTarget: result.snapshotExecutionTarget.isEmpty ? nil : result.snapshotExecutionTarget,
                         promptPayload: payload
                     )
 

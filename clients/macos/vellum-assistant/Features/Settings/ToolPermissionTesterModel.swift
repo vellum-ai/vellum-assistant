@@ -12,6 +12,16 @@ struct SimulationResult: Equatable {
     /// Transient display state set by local-only actions (allowOnce / denyOnce).
     var localOverrideLabel: String?
 
+    // Snapshot of form values at simulation time, so the confirmation bubble
+    // and "Always Allow" rule persist the values that produced this result
+    // rather than whatever the user may have edited since.
+    let snapshotToolName: String
+    let snapshotInputJSON: String
+    let snapshotExecutionTarget: String
+    let snapshotPrincipalKind: String
+    let snapshotPrincipalId: String
+    let snapshotPrincipalVersion: String
+
     static func == (lhs: SimulationResult, rhs: SimulationResult) -> Bool {
         lhs.decision == rhs.decision
         && lhs.riskLevel == rhs.riskLevel
@@ -114,28 +124,33 @@ final class ToolPermissionTesterModel: ObservableObject {
 
     /// Persist a trust rule via IPC, then re-simulate to show updated decision.
     ///
-    /// Forwards the simulation's metadata (execution target, principal) so the
-    /// persisted rule matches the context that was being tested.
+    /// Uses the snapshot captured at simulation time so the persisted rule
+    /// matches the context that produced the prompt, not whatever the user
+    /// may have edited in the form since then.
     func alwaysAllow(pattern: String, scope: String) {
         guard let dc = daemonClient as? DaemonClient else {
             lastError = "Cannot add trust rule: daemon client unavailable"
             return
         }
 
-        let riskLevel = lastResult?.riskLevel ?? ""
-        let isHighRisk = riskLevel.lowercased() == "high"
+        guard let snapshot = lastResult else {
+            lastError = "Cannot add trust rule: no simulation result"
+            return
+        }
+
+        let isHighRisk = snapshot.riskLevel.lowercased() == "high"
 
         do {
             try dc.sendAddTrustRule(
-                toolName: toolName,
+                toolName: snapshot.snapshotToolName,
                 pattern: pattern,
                 scope: scope,
-                decision: "allow",  // Always use canonical "allow" — metadata handles high-risk
+                decision: "allow",
                 allowHighRisk: isHighRisk ? true : nil,
-                principalKind: principalKind.isEmpty ? nil : principalKind,
-                principalId: principalId.isEmpty ? nil : principalId,
-                principalVersion: principalVersion.isEmpty ? nil : principalVersion,
-                executionTarget: executionTarget.isEmpty ? nil : executionTarget
+                principalKind: snapshot.snapshotPrincipalKind.isEmpty ? nil : snapshot.snapshotPrincipalKind,
+                principalId: snapshot.snapshotPrincipalId.isEmpty ? nil : snapshot.snapshotPrincipalId,
+                principalVersion: snapshot.snapshotPrincipalVersion.isEmpty ? nil : snapshot.snapshotPrincipalVersion,
+                executionTarget: snapshot.snapshotExecutionTarget.isEmpty ? nil : snapshot.snapshotExecutionTarget
             )
             // Re-simulate to show the updated outcome with the new rule in effect.
             simulate()
@@ -159,7 +174,13 @@ final class ToolPermissionTesterModel: ObservableObject {
             riskLevel: response.riskLevel ?? "unknown",
             reason: response.reason ?? "",
             matchedRuleId: response.matchedRuleId,
-            promptPayload: response.promptPayload
+            promptPayload: response.promptPayload,
+            snapshotToolName: toolName,
+            snapshotInputJSON: inputJSON,
+            snapshotExecutionTarget: executionTarget,
+            snapshotPrincipalKind: principalKind,
+            snapshotPrincipalId: principalId,
+            snapshotPrincipalVersion: principalVersion
         )
     }
 
