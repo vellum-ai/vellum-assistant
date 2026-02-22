@@ -19,6 +19,11 @@ protocol ThreadRestorerDelegate: AnyObject {
     func createThread()
     func isSessionArchived(_ sessionId: String) -> Bool
     func restoreLastActiveThread()
+    /// Returns true if the session was previously hidden locally.
+    func isSessionHidden(_ sessionId: String) -> Bool
+    /// Remove a session from the hidden-sessions tracker (called when the
+    /// session restorer re-creates the thread on daemon reconnect).
+    func clearHiddenSession(_ sessionId: String)
 }
 
 /// Handles daemon session restoration: fetching the session list on connect,
@@ -102,6 +107,13 @@ final class ThreadSessionRestorer {
 
         var restoredThreads: [ThreadModel] = []
         for session in recentSessions {
+            // If this session was hidden locally, clear the hidden-session
+            // tracker so the monitor stops watching for it. The thread will
+            // be re-created normally (not archived) and remain visible.
+            if delegate.isSessionHidden(session.id) {
+                delegate.clearHiddenSession(session.id)
+            }
+
             let kind: ThreadKind = session.threadType == "private" ? .private : .standard
             let binding = session.channelBinding
             let thread = ThreadModel(

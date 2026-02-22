@@ -52,6 +52,16 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
         archivedSessionIds.contains(sessionId)
     }
 
+    var hiddenSessionIds: Set<String> = []
+
+    func isSessionHidden(_ sessionId: String) -> Bool {
+        hiddenSessionIds.contains(sessionId)
+    }
+
+    func clearHiddenSession(_ sessionId: String) {
+        hiddenSessionIds.remove(sessionId)
+    }
+
     func restoreLastActiveThread() {
         // no-op for tests
     }

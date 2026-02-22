@@ -558,6 +558,18 @@ struct MainWindowView: View {
                 windowState.persistentThreadId = activeId
             }
             requestHomeBaseDashboardIfNeeded()
+
+            // Show a brief toast when a previously-hidden thread reappears
+            threadManager.onThreadReconnected = { [weak windowState] title in
+                windowState?.showToast(
+                    message: "Reconnected: \(title)",
+                    style: .success
+                )
+                // Auto-dismiss after 3 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak windowState] in
+                    windowState?.dismissToast()
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
