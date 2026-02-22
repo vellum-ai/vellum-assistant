@@ -53,6 +53,8 @@ struct ChatView: View {
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
+    /// Label for the synced external channel (e.g. "Telegram"). Nil for local-only threads.
+    var syncedChannelLabel: String?
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     /// Sums utf8.count over each segment (O(1) per contiguous segment) instead of joining first,
@@ -85,6 +87,9 @@ struct ChatView: View {
         ZStack {
             VStack(spacing: 0) {
                 apiKeyBanner
+                if let channelLabel = syncedChannelLabel {
+                    SyncedChannelHeaderView(channelLabel: channelLabel)
+                }
                 if messages.isEmpty && !isHistoryLoaded {
                     Spacer()
                     HStack {
@@ -233,6 +238,17 @@ struct ChatView: View {
                     onOpenDoctor: onOpenDoctor,
                     onDismissError: onDismissError
                 )
+            }
+            if let channelLabel = syncedChannelLabel {
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 9, weight: .medium))
+                    Text("Replies are sent to \(channelLabel)")
+                        .font(VFont.small)
+                }
+                .foregroundColor(VColor.textMuted)
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.bottom, VSpacing.xxs)
             }
             ComposerView(
                 inputText: $inputText,
@@ -690,6 +706,37 @@ private struct ScrollWheelDetector: NSViewRepresentable {
             }
             return nil
         }
+    }
+}
+
+// MARK: - Synced Channel Header
+
+/// Subtle pill badge shown at the top of the chat when the thread is synced to an external channel.
+private struct SyncedChannelHeaderView: View {
+    let channelLabel: String
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Spacer()
+            HStack(spacing: VSpacing.xs) {
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 10, weight: .medium))
+                Text("Synced: \(channelLabel)")
+                    .font(VFont.captionMedium)
+            }
+            .foregroundColor(VColor.textMuted)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.xs)
+            .background(VColor.surface)
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
+            Spacer()
+        }
+        .padding(.vertical, VSpacing.sm)
+        .accessibilityLabel("External chat synced to \(channelLabel)")
     }
 }
 
