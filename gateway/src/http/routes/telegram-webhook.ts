@@ -210,6 +210,15 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         }
       }
 
+      // Acknowledge callback query so the button spinner clears
+      if (normalized.message.callbackQueryId) {
+        callTelegramApi(config, "answerCallbackQuery", {
+          callback_query_id: normalized.message.callbackQueryId,
+        }).catch((err) => {
+          tlog.error({ err, callbackQueryId: normalized.message.callbackQueryId }, "Failed to acknowledge callback query");
+        });
+      }
+
       return respond({ ok: true });
     }
 
@@ -305,6 +314,14 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
             "\u26a0\ufe0f This message could not be routed to an assistant. Please check your gateway routing configuration.",
           ).catch((err) => {
             tlog.error({ err, chatId }, "Failed to send routing rejection notice");
+          });
+        }
+        // Acknowledge rejected callback queries so the button spinner clears
+        if (isCallback && normalized.message.callbackQueryId) {
+          callTelegramApi(config, "answerCallbackQuery", {
+            callback_query_id: normalized.message.callbackQueryId,
+          }).catch((err) => {
+            tlog.error({ err, callbackQueryId: normalized.message.callbackQueryId }, "Failed to acknowledge callback query");
           });
         }
         return respond({ ok: true });
