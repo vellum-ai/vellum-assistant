@@ -315,6 +315,7 @@ struct TwilioSettingsSection: View {
         } catch {
             isClearing = false
             errorMessage = "Failed to send clear request"
+            restoreDefaultHandler()
         }
     }
 
@@ -383,6 +384,7 @@ struct TwilioSettingsSection: View {
             )
         } catch {
             isProvisioning = false
+            showProvisionSheet = false
             errorMessage = "Failed to connect to daemon"
         }
     }
