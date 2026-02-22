@@ -510,6 +510,8 @@ export interface TwitterIntegrationConfigResponse {
   connected: boolean;
   accountInfo?: string;
   strategy?: 'oauth' | 'browser' | 'auto';
+  /** Whether the user has explicitly set a strategy (vs. relying on the default 'auto'). */
+  strategyConfigured?: boolean;
   error?: string;
 }
 

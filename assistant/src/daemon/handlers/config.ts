@@ -552,6 +552,7 @@ export function handleTwitterIntegrationConfig(
       const raw = loadRawConfig();
       const mode = (raw.twitterIntegrationMode as 'local_byo' | 'managed' | undefined) ?? 'local_byo';
       const strategy = (raw.twitterOperationStrategy as 'oauth' | 'browser' | 'auto' | undefined) ?? 'auto';
+      const strategyConfigured = Object.prototype.hasOwnProperty.call(raw, 'twitterOperationStrategy');
       const localClientConfigured = !!getSecureKey('credential:integration:twitter:oauth_client_id');
       const connected = !!getSecureKey('credential:integration:twitter:access_token');
       const meta = getCredentialMetadata('integration:twitter', 'access_token');
@@ -564,10 +565,12 @@ export function handleTwitterIntegrationConfig(
         connected,
         accountInfo: meta?.accountInfo ?? undefined,
         strategy,
+        strategyConfigured,
       });
     } else if (msg.action === 'get_strategy') {
       const raw = loadRawConfig();
       const strategy = (raw.twitterOperationStrategy as 'oauth' | 'browser' | 'auto' | undefined) ?? 'auto';
+      const strategyConfigured = Object.prototype.hasOwnProperty.call(raw, 'twitterOperationStrategy');
       ctx.send(socket, {
         type: 'twitter_integration_config_response',
         success: true,
@@ -575,6 +578,7 @@ export function handleTwitterIntegrationConfig(
         localClientConfigured: !!getSecureKey('credential:integration:twitter:oauth_client_id'),
         connected: !!getSecureKey('credential:integration:twitter:access_token'),
         strategy,
+        strategyConfigured,
       });
     } else if (msg.action === 'set_strategy') {
       const valid = ['oauth', 'browser', 'auto'];
@@ -600,6 +604,7 @@ export function handleTwitterIntegrationConfig(
         localClientConfigured: !!getSecureKey('credential:integration:twitter:oauth_client_id'),
         connected: !!getSecureKey('credential:integration:twitter:access_token'),
         strategy: value as 'oauth' | 'browser' | 'auto',
+        strategyConfigured: true,
       });
     } else if (msg.action === 'set_mode') {
       const raw = loadRawConfig();
