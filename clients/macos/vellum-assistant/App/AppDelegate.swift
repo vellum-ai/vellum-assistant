@@ -473,11 +473,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         isCurrentAssistantRemote = assistant?.isRemote ?? false
 
         guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
-            // Local assistant or no assistant
+            // Local assistant or no assistant.
             if FeatureFlagManager.shared.isEnabled(.desktopApp) {
-                // When the desktopApp flag is enabled, use HTTP transport for the
-                // local daemon instead of IPC. The bearer token is nil here because
-                // the daemon hasn't started yet; it will be read lazily at connect time.
+                // Use HTTP transport for the local daemon instead of IPC.
+                // Bearer token is nil; resolved lazily at connect time.
                 let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
                 let port = Int(portString) ?? 7821
                 let baseURL = "http://localhost:\(port)"
@@ -513,9 +512,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let assistant = loadAssistantFromLockfile()
 
-        // When the desktopApp flag is enabled, ensure the daemon starts its
-        // runtime HTTP server by setting RUNTIME_HTTP_PORT in the process env.
-        // This must happen before hatching so the CLI forwards it to the daemon.
+        // Ensure the daemon starts its runtime HTTP server so the app
+        // can communicate over HTTP instead of IPC.
         if FeatureFlagManager.shared.isEnabled(.desktopApp) {
             if ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] == nil {
                 setenv("RUNTIME_HTTP_PORT", "7821", 0)
