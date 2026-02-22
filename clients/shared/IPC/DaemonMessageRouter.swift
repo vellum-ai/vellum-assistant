@@ -101,6 +101,8 @@ extension DaemonClient {
             break // Fire-and-forget; no callback needed
         case .appPreviewResponse(let msg):
             onAppPreviewResponse?(msg)
+        case .appDiffResponse, .appFileAtVersionResponse, .appHistoryResponse, .appRestoreResponse:
+            break // Handled by subscribers; no dedicated callback yet
         case .sharedAppsListResponse(let msg):
             onSharedAppsListResponse?(msg)
         case .sharedAppDeleteResponse(let msg):

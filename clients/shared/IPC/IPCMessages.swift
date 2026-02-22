@@ -1445,8 +1445,29 @@ extension IPCSecretResponse {
 public typealias AddTrustRuleMessage = IPCAddTrustRule
 
 extension IPCAddTrustRule {
-    public init(toolName: String, pattern: String, scope: String, decision: String) {
-        self.init(type: "add_trust_rule", toolName: toolName, pattern: pattern, scope: scope, decision: decision)
+    public init(
+        toolName: String,
+        pattern: String,
+        scope: String,
+        decision: String,
+        allowHighRisk: Bool? = nil,
+        principalKind: String? = nil,
+        principalId: String? = nil,
+        principalVersion: String? = nil,
+        executionTarget: String? = nil
+    ) {
+        self.init(
+            type: "add_trust_rule",
+            toolName: toolName,
+            pattern: pattern,
+            scope: scope,
+            decision: decision,
+            allowHighRisk: allowHighRisk,
+            principalKind: principalKind,
+            principalId: principalId,
+            principalVersion: principalVersion,
+            executionTarget: executionTarget
+        )
     }
 }
 
@@ -1962,6 +1983,10 @@ public enum ServerMessage: Decodable, Sendable {
     case homeBaseGetResponse(HomeBaseGetResponseMessage)
     case appUpdatePreviewResponse(AppUpdatePreviewResponseMessage)
     case appPreviewResponse(AppPreviewResponseMessage)
+    case appDiffResponse(IPCAppDiffResponse)
+    case appFileAtVersionResponse(IPCAppFileAtVersionResponse)
+    case appHistoryResponse(IPCAppHistoryResponse)
+    case appRestoreResponse(IPCAppRestoreResponse)
     case sharedAppsListResponse(SharedAppsListResponseMessage)
     case sharedAppDeleteResponse(SharedAppDeleteResponseMessage)
     case forkSharedAppResponse(ForkSharedAppResponseMessage)
@@ -2201,6 +2226,18 @@ public enum ServerMessage: Decodable, Sendable {
         case "app_preview_response":
             let message = try AppPreviewResponseMessage(from: decoder)
             self = .appPreviewResponse(message)
+        case "app_diff_response":
+            let message = try IPCAppDiffResponse(from: decoder)
+            self = .appDiffResponse(message)
+        case "app_file_at_version_response":
+            let message = try IPCAppFileAtVersionResponse(from: decoder)
+            self = .appFileAtVersionResponse(message)
+        case "app_history_response":
+            let message = try IPCAppHistoryResponse(from: decoder)
+            self = .appHistoryResponse(message)
+        case "app_restore_response":
+            let message = try IPCAppRestoreResponse(from: decoder)
+            self = .appRestoreResponse(message)
         case "shared_apps_list_response":
             let message = try SharedAppsListResponseMessage(from: decoder)
             self = .sharedAppsListResponse(message)

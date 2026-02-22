@@ -64,9 +64,54 @@ public struct IPCAppDataResponse: Codable, Sendable {
     public let error: String?
 }
 
+public struct IPCAppDiffRequest: Codable, Sendable {
+    public let type: String
+    public let appId: String
+    public let fromCommit: String
+    public let toCommit: String?
+}
+
+public struct IPCAppDiffResponse: Codable, Sendable {
+    public let type: String
+    public let appId: String
+    public let diff: String
+}
+
+public struct IPCAppFileAtVersionRequest: Codable, Sendable {
+    public let type: String
+    public let appId: String
+    public let path: String
+    public let commitHash: String
+}
+
+public struct IPCAppFileAtVersionResponse: Codable, Sendable {
+    public let type: String
+    public let appId: String
+    public let path: String
+    public let content: String
+}
+
 public struct IPCAppFilesChanged: Codable, Sendable {
     public let type: String
     public let appId: String
+}
+
+public struct IPCAppHistoryRequest: Codable, Sendable {
+    public let type: String
+    public let appId: String
+    public let limit: Double?
+}
+
+public struct IPCAppHistoryResponse: Codable, Sendable {
+    public let type: String
+    public let appId: String
+    public let versions: [IPCAppHistoryResponseVersion]
+}
+
+public struct IPCAppHistoryResponseVersion: Codable, Sendable {
+    public let commitHash: String
+    public let message: String
+    public let timestamp: Double
 }
 
 public struct IPCAppOpenRequest: Codable, Sendable {
@@ -83,6 +128,18 @@ public struct IPCAppPreviewResponse: Codable, Sendable {
     public let type: String
     public let appId: String
     public let preview: String?
+}
+
+public struct IPCAppRestoreRequest: Codable, Sendable {
+    public let type: String
+    public let appId: String
+    public let commitHash: String
+}
+
+public struct IPCAppRestoreResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
 }
 
 public struct IPCAppsListRequest: Codable, Sendable {
