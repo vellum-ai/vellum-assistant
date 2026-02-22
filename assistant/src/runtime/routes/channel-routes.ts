@@ -3,6 +3,7 @@
  * conversation deletion.
  */
 import { deleteConversationKey, setConversationKey } from '../../memory/conversation-key-store.js';
+import { getDb } from '../../memory/db.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
@@ -60,21 +61,22 @@ export async function handleMoveSync(req: Request): Promise<Response> {
     return Response.json({ error: 'newConversationId is required' }, { status: 400 });
   }
 
-  // Get current owner
   const currentBinding = externalConversationStore.getBindingByChannelChat(sourceChannel, externalChatId);
   const previousOwner = currentBinding?.conversationId ?? null;
 
-  // Delete old mappings
   const conversationKey = `${sourceChannel}:${externalChatId}`;
-  deleteConversationKey(conversationKey);
-  externalConversationStore.deleteBindingByChannelChat(sourceChannel, externalChatId);
 
-  // Create new mappings
-  setConversationKey(conversationKey, newConversationId);
-  externalConversationStore.upsertOutboundBinding({
-    conversationId: newConversationId,
-    sourceChannel,
-    externalChatId,
+  // Wrap in transaction so a failure mid-way rolls back all changes
+  const db = getDb();
+  db.transaction(() => {
+    deleteConversationKey(conversationKey);
+    externalConversationStore.deleteBindingByChannelChat(sourceChannel, externalChatId);
+    setConversationKey(conversationKey, newConversationId);
+    externalConversationStore.upsertOutboundBinding({
+      conversationId: newConversationId,
+      sourceChannel,
+      externalChatId,
+    });
   });
 
   return Response.json({ ok: true, previousOwner });

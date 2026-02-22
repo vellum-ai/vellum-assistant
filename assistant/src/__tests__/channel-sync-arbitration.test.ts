@@ -333,4 +333,46 @@ describe('channel sync arbitration', () => {
       expect(resp.status).toBe(400);
     });
   });
+
+  describe('move-sync upsert', () => {
+    test('updates binding fields when newConversationId already has an existing binding', async () => {
+      const convA = uuid();
+      const convB = uuid();
+      const uniqueChatIdA = `upsert-a-${uuid()}`;
+      const uniqueChatIdB = `upsert-b-${uuid()}`;
+
+      // conv-A owns chat-A, conv-B owns chat-B
+      createBinding(convA, 'telegram', uniqueChatIdA);
+      createBinding(convB, 'telegram', uniqueChatIdB);
+
+      // Create conversation key mappings
+      getOrCreateConversation(`telegram:${uniqueChatIdA}`);
+      getOrCreateConversation(`telegram:${uniqueChatIdB}`);
+
+      // Move chat-A to conv-B (which already has a binding for chat-B)
+      const req = makeJsonRequest({
+        sourceChannel: 'telegram',
+        externalChatId: uniqueChatIdA,
+        newConversationId: convB,
+      });
+
+      const resp = await handleMoveSync(req);
+      const body = await resp.json() as { ok: boolean; previousOwner: string | null };
+
+      expect(resp.status).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.previousOwner).toBe(convA);
+
+      // conv-B's binding should now point to chat-A (sourceChannel/externalChatId updated)
+      const binding = externalConversationStore.getBindingByConversation(convB);
+      expect(binding).not.toBeNull();
+      expect(binding!.sourceChannel).toBe('telegram');
+      expect(binding!.externalChatId).toBe(uniqueChatIdA);
+
+      // Conversation key for chat-A should resolve to conv-B
+      const keyMapping = getConversationByKey(`telegram:${uniqueChatIdA}`);
+      expect(keyMapping).not.toBeNull();
+      expect(keyMapping!.conversationId).toBe(convB);
+    });
+  });
 });

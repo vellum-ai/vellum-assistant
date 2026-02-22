@@ -96,6 +96,8 @@ export function upsertOutboundBinding(input: {
     .onConflictDoUpdate({
       target: externalConversationBindings.conversationId,
       set: {
+        sourceChannel: input.sourceChannel,
+        externalChatId: input.externalChatId,
         updatedAt: now,
         lastOutboundAt: now,
       },
