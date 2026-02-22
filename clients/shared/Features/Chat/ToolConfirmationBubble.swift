@@ -399,6 +399,12 @@ public struct ToolConfirmationBubble: View {
     // MARK: - Key Monitor (macOS)
 
     #if os(macOS)
+    /// The modifier flags we consider "intentional". Caps Lock, NumericPad, and
+    /// Function are excluded because they can be set passively (e.g. Caps Lock
+    /// is on, or the key physically sits on the numpad / function row) and
+    /// should not prevent keyboard shortcuts from working.
+    private static let intentionalModifiers: NSEvent.ModifierFlags = [.shift, .control, .option, .command]
+
     private func installKeyMonitor(actions: [ToolConfirmationKeyboardModel.Action]) {
         removeKeyMonitor()
         keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
@@ -410,27 +416,28 @@ public struct ToolConfirmationBubble: View {
                firstResponder is NSTextView {
                 return event
             }
+            let mods = event.modifierFlags.intersection(Self.intentionalModifiers)
             // Nested popover is open — handle up/down/enter/escape within it
             if showAlwaysAllowMenu || showScopePickerMenu {
-                return handlePopoverKey(event)
+                return handlePopoverKey(event, mods: mods)
             }
             // Top-level button row navigation
             switch event.keyCode {
-            case 48 where event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .shift:
+            case 48 where mods == .shift:
                 // Shift+Tab — move left
                 keyboardModel?.moveLeft()
                 return nil
-            case 48 where event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty:
+            case 48 where mods.isEmpty:
                 // Plain Tab — move right (modified Tab passes through)
                 keyboardModel?.moveRight()
                 return nil
-            case 36, 76 where event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty:
+            case 36, 76 where mods.isEmpty:
                 // Plain Return / numpad Enter — activate (modified Enter passes through, e.g. Shift+Enter for newline)
                 if let action = keyboardModel?.selectedAction {
                     activateAction(action)
                 }
                 return nil
-            case 53 where event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty:
+            case 53 where mods.isEmpty:
                 // Plain Escape — deny (modified Escape passes through)
                 activateAction(.dontAllow)
                 return nil
@@ -442,7 +449,7 @@ public struct ToolConfirmationBubble: View {
 
     /// Handle key events when a nested popover (Always Allow dropdown or
     /// scope picker) is open.
-    private func handlePopoverKey(_ event: NSEvent) -> NSEvent? {
+    private func handlePopoverKey(_ event: NSEvent, mods: NSEvent.ModifierFlags) -> NSEvent? {
         switch event.keyCode {
         case 126:
             // Up arrow
@@ -452,11 +459,11 @@ public struct ToolConfirmationBubble: View {
             // Down arrow
             popoverKeyboardModel?.moveDown()
             return nil
-        case 36, 76 where event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty:
+        case 36, 76 where mods.isEmpty:
             // Plain Return / numpad Enter — activate selected row (modified Enter passes through)
             activatePopoverSelection()
             return nil
-        case 53 where event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty:
+        case 53 where mods.isEmpty:
             // Plain Escape — back or close (modified Escape passes through)
             handlePopoverEscape()
             return nil
