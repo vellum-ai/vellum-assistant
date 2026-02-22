@@ -1,11 +1,11 @@
 import { randomBytes } from "crypto";
-import { existsSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { createRequire } from "module";
-import { tmpdir, userInfo } from "os";
-import { join } from "path";
+import { homedir, tmpdir, userInfo } from "os";
+import { dirname, join } from "path";
 
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
-import { saveAssistantEntry } from "../lib/assistant-config";
+import { loadAllAssistants, saveAssistantEntry } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { hatchAws } from "../lib/aws";
 import {
@@ -17,7 +17,8 @@ import {
 import type { RemoteHost, Species } from "../lib/constants";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
-import { startLocalDaemon, startGateway } from "../lib/local";
+import { startLocalDaemon, startGateway, stopLocalProcesses } from "../lib/local";
+import { isProcessAlive } from "../lib/process";
 import { generateRandomSuffix } from "../lib/random-name";
 import { exec } from "../lib/step-runner";
 
@@ -514,13 +515,36 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
   const instanceName =
     name ?? process.env.VELLUM_ASSISTANT_NAME ?? `${species}-${generateRandomSuffix()}`;
 
+  // Clean up stale local state: if daemon/gateway processes are running but
+  // the lock file has no entries, stop them before starting fresh.
+  const vellumDir = join(homedir(), ".vellum");
+  const existingAssistants = loadAllAssistants();
+  const localAssistants = existingAssistants.filter((a) => a.cloud === "local");
+  if (localAssistants.length === 0) {
+    const daemonPid = isProcessAlive(join(vellumDir, "vellum.pid"));
+    const gatewayPid = isProcessAlive(join(vellumDir, "gateway.pid"));
+    if (daemonPid.alive || gatewayPid.alive) {
+      console.log("🧹 Cleaning up stale local processes (no lock file entry)...\n");
+      await stopLocalProcesses();
+    }
+  }
+
   console.log(`🥚 Hatching local assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
   console.log("");
 
   await startLocalDaemon();
 
-  const runtimeUrl = await startGateway();
+  let runtimeUrl: string;
+  try {
+    runtimeUrl = await startGateway();
+  } catch (error) {
+    // Gateway failed — stop the daemon we just started so we don't leave
+    // orphaned processes with no lock file entry.
+    console.error(`\n❌ Gateway startup failed — stopping daemon to avoid orphaned processes.`);
+    await stopLocalProcesses();
+    throw error;
+  }
 
   const baseDataDir = join(process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? userInfo().homedir), ".vellum");
   const localEntry: AssistantEntry = {
@@ -545,14 +569,27 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
 }
 
 function getCliVersion(): string {
+  // Strategy 1: createRequire — works in Bun dev (source tree).
   try {
-    // Use createRequire for JSON import — works in both Bun dev and compiled binary.
     const require = createRequire(import.meta.url);
     const pkg = require("../../package.json") as { version?: string };
-    return pkg.version ?? "unknown";
+    if (pkg.version) return pkg.version;
   } catch {
-    return "unknown";
+    // Fall through to next strategy.
   }
+
+  // Strategy 2: Read package.json adjacent to the compiled binary.
+  try {
+    const binPkg = join(dirname(process.execPath), "package.json");
+    if (existsSync(binPkg)) {
+      const pkg = JSON.parse(readFileSync(binPkg, "utf-8")) as { version?: string };
+      if (pkg.version) return pkg.version;
+    }
+  } catch {
+    // Fall through.
+  }
+
+  return "unknown";
 }
 
 export async function hatch(): Promise<void> {
