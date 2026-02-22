@@ -27,6 +27,7 @@ dist
 .qdrant-initialized
 .claude/*
 !.claude/commands/
+!.claude/phases/
 !.claude/README.md
 !.claude/worktree
 !.claude/ship
