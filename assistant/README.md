@@ -120,6 +120,38 @@ assistant/
 └── package.json
 ```
 
+## Channel Approval Flow
+
+When the assistant needs tool-use confirmation during a channel session (e.g., Telegram), the approval flow intercepts the run and surfaces an interactive prompt to the user. This is gated behind the `CHANNEL_APPROVALS_ENABLED=true` environment variable.
+
+### How it works
+
+1. **Detection** — When a channel inbound message triggers an agent loop, the runtime polls the run status. If the run transitions to `needs_confirmation`, the runtime sends an approval prompt to the gateway with inline keyboard metadata.
+2. **Interception** — Subsequent inbound messages on the same conversation are intercepted before normal processing. The handler checks for a pending approval and attempts to extract a decision from either callback data (button clicks) or plain text.
+3. **Decision** — The user's decision is mapped to the permission system (`allow` or `deny`) and applied to the pending run. For `approve_always`, a trust rule is persisted so future invocations of the same tool are auto-approved.
+4. **Reminder** — If the user sends a non-decision message while an approval is pending, a reminder prompt is re-sent with the approval buttons.
+
+### Key modules
+
+| File | Purpose |
+|------|---------|
+| `src/runtime/channel-approvals.ts` | Orchestration: `getChannelApprovalPrompt`, `buildApprovalUIMetadata`, `handleChannelDecision`, `buildReminderPrompt` |
+| `src/runtime/channel-approval-parser.ts` | Plain-text decision parser — matches phrases like `yes`, `approve`, `always`, `no`, `reject`, `deny`, `cancel` (case-insensitive) |
+| `src/runtime/channel-approval-types.ts` | Shared types: `ApprovalAction`, `ChannelApprovalPrompt`, `ApprovalUIMetadata`, `ApprovalDecisionResult` |
+| `src/runtime/routes/channel-routes.ts` | Integration point: `handleApprovalInterception` and `processChannelMessageWithApprovals` in the channel inbound handler |
+| `src/runtime/gateway-client.ts` | `deliverApprovalPrompt()` — sends the approval payload (text + UI metadata) to the gateway for rendering |
+| `src/memory/runs-store.ts` | `getPendingConfirmationsByConversation` — queries runs in `needs_confirmation` state |
+
+### Enabling
+
+Set the environment variable before starting the daemon:
+
+```bash
+CHANNEL_APPROVALS_ENABLED=true
+```
+
+When disabled (the default), channel messages follow the standard fire-and-forget processing path without approval interception.
+
 ## Database
 
 SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments (with FTS5), memory items, entities, reminders, and recurrence schedules (cron + RRULE).

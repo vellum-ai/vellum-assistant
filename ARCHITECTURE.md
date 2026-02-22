@@ -3543,6 +3543,45 @@ The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-clos
 
 **Bot-account limitations:** The Telegram Bot API only supports sending messages to chats that have previously interacted with the bot. Bots cannot enumerate chats, read message history, or search messages. A future MTProto user-account session track may lift some of these restrictions.
 
+### Channel Approval Flow
+
+When the assistant requires tool-use confirmation during a channel session (e.g., Telegram), the approval flow intercepts the run and surfaces an interactive prompt to the user. Gated behind the `CHANNEL_APPROVALS_ENABLED` feature flag.
+
+**State machine:**
+
+```
+Running → NeedsConfirmation → Running → Completed | Failed
+```
+
+The run transitions to `NeedsConfirmation` when the agent loop emits a `confirmation_request` event. It returns to `Running` after the user submits a decision (approve/reject), and eventually reaches `Completed` or `Failed`.
+
+**Telegram button round-trip:**
+
+```
+Runtime detects needs_confirmation
+  → runtime builds approval prompt + UI metadata
+  → POST /deliver/telegram with `approval` payload
+  → gateway renders inline keyboard (buttons: Approve once, Approve always, Reject)
+  → user clicks button → Telegram callback_query
+  → gateway normalizes callback_query into inbound event (callbackData field)
+  → runtime parses callback data (format: apr:<runId>:<action>)
+  → runtime applies decision to pending run → run resumes
+```
+
+**Plain-text fallback:** When no button click is detected (e.g., non-Telegram channels or user typing a reply), the text parser matches approval phrases case-insensitively: `yes`, `approve`, `allow`, `go ahead` (approve once), `always`, `approve always`, `allow always` (approve always), `no`, `reject`, `deny`, `cancel` (reject). If the user sends a non-decision message while an approval is pending, a reminder prompt is re-sent with the approval buttons.
+
+**Key modules:**
+
+| Module | Purpose |
+|--------|---------|
+| `assistant/src/runtime/channel-approvals.ts` | Orchestration: detect pending confirmations, build prompts, apply decisions, build reminders |
+| `assistant/src/runtime/channel-approval-parser.ts` | Plain-text decision parser (phrase matching) |
+| `assistant/src/runtime/channel-approval-types.ts` | Shared types: actions, prompts, UI metadata, decisions |
+| `assistant/src/runtime/routes/channel-routes.ts` | Integration point: approval interception in the channel inbound handler |
+| `assistant/src/runtime/gateway-client.ts` | `deliverApprovalPrompt()` — sends approval payload to gateway |
+| `gateway/src/telegram/send.ts` | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons |
+| `gateway/src/telegram/normalize.ts` | `callback_query` normalization into `GatewayInboundEventV1` |
+
 ### Telegram Credential Flow
 
 In desktop deployments, Telegram bot tokens are stored in secure storage (macOS Keychain or the encrypted file fallback) and never in plaintext config files. When deploying the gateway standalone, operators may also supply credentials via environment variables (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`).

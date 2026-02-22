@@ -74,7 +74,7 @@ Webhook registration is now handled automatically by the gateway. On startup, th
 For manual setup (or reference), register the webhook with Telegram using the `setWebhook` API method. Pass:
 - `url` — your gateway URL, e.g. `https://your-host/webhooks/telegram`
 - The verify value matching your `TELEGRAM_WEBHOOK_SECRET` env var
-- `allowed_updates` — `["message", "edited_message"]`
+- `allowed_updates` — `["message", "edited_message", "callback_query"]`
 
 See the [Telegram Bot API docs](https://core.telegram.org/bots/api#setwebhook) for the full API reference.
 
@@ -90,6 +90,43 @@ The `/deliver/telegram` endpoint requires bearer auth by default (fail-closed). 
 | No bearer token configured + bypass not set | 503 Service Not Configured |
 
 This ensures that misconfiguration cannot expose an unauthenticated public message-send surface. In production, always configure `RUNTIME_PROXY_BEARER_TOKEN`. The `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS` flag is intended for local development only.
+
+## Callback Query Handling
+
+The gateway normalizes Telegram `callback_query` updates (inline button clicks) into the same `GatewayInboundEventV1` format used for regular messages. When a `callback_query` is present in the webhook payload, the normalizer extracts:
+
+- `callbackQueryId` — the Telegram callback query ID
+- `callbackData` — the opaque data string attached to the button (e.g., `apr:<runId>:<action>`)
+- `content` — set to the callback data string (so the runtime always has content to process)
+
+These fields are forwarded to the runtime in the `/channels/inbound` payload alongside the standard `externalChatId`, `externalMessageId`, and sender metadata. The runtime uses `callbackData` to route the click to the appropriate approval handler.
+
+## Approval Buttons and Inline Keyboard
+
+The `/deliver/telegram` endpoint accepts an optional `approval` field in the request body. When present, the gateway renders Telegram inline keyboard buttons below the message text.
+
+**Approval payload shape:**
+
+```json
+{
+  "chatId": "123456",
+  "text": "The assistant wants to use the tool \"bash\". Do you want to allow this?",
+  "approval": {
+    "runId": "run-uuid",
+    "requestId": "request-uuid",
+    "actions": [
+      { "id": "approve_once", "label": "Approve once" },
+      { "id": "approve_always", "label": "Approve always" },
+      { "id": "reject", "label": "Reject" }
+    ],
+    "plainTextFallback": "Reply \"yes\" to approve once, \"always\" to approve always, or \"no\" to reject."
+  }
+}
+```
+
+**Inline keyboard format:** Each action is rendered as a single-button row. The callback data uses the compact format `apr:<runId>:<action>` (e.g., `apr:run-uuid:approve_once`) so the runtime can parse it back when the button is clicked.
+
+**Fallback behavior:** For non-Telegram channels that do not support inline keyboards, the `plainTextFallback` string is included in the prompt text, providing plain-text instructions for the user to type their decision.
 
 ## Public Ingress Routes
 
