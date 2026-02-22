@@ -45,6 +45,8 @@ export type GatewayConfig = {
   twilioAuthToken: string | undefined;
   /** Canonical public ingress base URL, used for webhook signature reconstruction. */
   ingressPublicBaseUrl: string | undefined;
+  /** Internal base URL used for gateway self-references (e.g. reply callback URLs). */
+  gatewayInternalBaseUrl: string;
   unmappedPolicy: "reject" | "default";
 };
 
@@ -231,6 +233,9 @@ export function loadConfig(): GatewayConfig {
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN || undefined;
   const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
 
+  const gatewayInternalBaseUrl =
+    process.env.GATEWAY_INTERNAL_BASE_URL || `http://127.0.0.1:${port}`;
+
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
 
   const logFileRetentionDays = Number(process.env.GATEWAY_LOG_RETENTION_DAYS || "30");
@@ -257,6 +262,7 @@ export function loadConfig(): GatewayConfig {
       telegramDeliverAuthBypass,
       hasTwilioAuthToken: !!twilioAuthToken,
       ingressPublicBaseUrl,
+      gatewayInternalBaseUrl,
     },
     "Configuration loaded",
   );
@@ -288,6 +294,7 @@ export function loadConfig(): GatewayConfig {
     telegramWebhookSecret,
     twilioAuthToken,
     ingressPublicBaseUrl,
+    gatewayInternalBaseUrl,
     unmappedPolicy,
   };
 }
