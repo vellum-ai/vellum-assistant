@@ -146,10 +146,10 @@ export class ConflictGate {
     if (!isConflictKindPairEligible(conflict.existingKind, conflict.candidateKind, { conflictableKinds })) {
       return false;
     }
-    if (!isStatementConflictEligible(conflict.existingKind, conflict.existingStatement)) {
+    if (!isStatementConflictEligible(conflict.existingKind, conflict.existingStatement, { conflictableKinds })) {
       return false;
     }
-    if (!isStatementConflictEligible(conflict.candidateKind, conflict.candidateStatement)) {
+    if (!isStatementConflictEligible(conflict.candidateKind, conflict.candidateStatement, { conflictableKinds })) {
       return false;
     }
     return true;
