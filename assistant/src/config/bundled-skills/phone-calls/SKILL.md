@@ -12,7 +12,7 @@ You are helping the user set up and make outgoing phone calls via Twilio. This s
 
 Twilio credentials and phone number configuration are shared between voice calls and SMS messaging. If Twilio is not yet configured, install and load the **twilio-setup** skill first:
 
-- Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "twilio-setup"`.
+- Call `vellum_skills_catalog` with `action: "install"`, `skill_id: "twilio-setup"`, and `overwrite: true` (so it succeeds even if already installed).
 - Then call `skill_load` with `skill: "twilio-setup"`.
 
 The twilio-setup skill handles credential storage, phone number provisioning/assignment, and public ingress setup. Once complete, return here to enable the calls feature and start making calls.
