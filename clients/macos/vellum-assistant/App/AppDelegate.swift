@@ -103,6 +103,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var cachedApps: [AppItem] = []
     var refreshAppsTask: Task<Void, Never>?
 
+    /// Tracks whether the current assistant is remote (cloud != "local").
+    /// Used to decide whether to hatch a local daemon, independent of transport type.
+    private var isCurrentAssistantRemote = false
+
     @AppStorage("themePreference") private var themePreference: String = "system"
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
@@ -189,15 +193,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // (setupDaemonClient already started connecting — don't interfere).
         guard !daemonClient.isConnected, !daemonClient.isConnecting else { return }
 
-        let isRemoteTransport: Bool
-        if case .http = daemonClient.config.transport {
-            isRemoteTransport = true
-        } else {
-            isRemoteTransport = false
-        }
-
         Task {
-            if !isRemoteTransport {
+            if !isCurrentAssistantRemote {
                 do {
                     try await assistantCli.hatch(daemonOnly: true)
                 } catch {
@@ -469,10 +466,30 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Configure the daemon client's transport based on the lockfile assistant.
     /// For remote assistants (cloud != "local"), uses HTTP+SSE transport via the gateway URL.
-    /// For local assistants, uses the default Unix domain socket.
+    /// For local assistants, uses the default Unix domain socket — unless the
+    /// `desktopApp` feature flag is enabled, in which case local assistants
+    /// also use HTTP transport pointed at the daemon's runtime HTTP server.
     private func configureDaemonTransport(for assistant: LockfileAssistant?) {
+        isCurrentAssistantRemote = assistant?.isRemote ?? false
+
         guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
-            // Local assistant or no assistant — use default socket transport
+            // Local assistant or no assistant
+            if FeatureFlagManager.shared.isEnabled(.desktopApp) {
+                // When the desktopApp flag is enabled, use HTTP transport for the
+                // local daemon instead of IPC. The bearer token is nil here because
+                // the daemon hasn't started yet; it will be read lazily at connect time.
+                let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
+                let port = Int(portString) ?? 7821
+                let baseURL = "http://localhost:\(port)"
+                let conversationKey = assistant?.assistantId ?? UUID().uuidString
+                let config = DaemonConfig(transport: .http(
+                    baseURL: baseURL,
+                    bearerToken: nil,
+                    conversationKey: conversationKey
+                ))
+                services.reconfigureDaemonClient(config: config)
+                log.info("Configured local HTTP transport (desktopApp flag) on port \(port)")
+            }
             return
         }
 
@@ -495,6 +512,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         hasSetupDaemon = true
 
         let assistant = loadAssistantFromLockfile()
+
+        // When the desktopApp flag is enabled, ensure the daemon starts its
+        // runtime HTTP server by setting RUNTIME_HTTP_PORT in the process env.
+        // This must happen before hatching so the CLI forwards it to the daemon.
+        if FeatureFlagManager.shared.isEnabled(.desktopApp) {
+            if ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] == nil {
+                setenv("RUNTIME_HTTP_PORT", "7821", 0)
+            }
+        }
+
         configureDaemonTransport(for: assistant)
 
         // Show macOS notification when a reminder fires
@@ -632,17 +659,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // For remote assistants (HTTP transport), skip local daemon hatching
-        // and connect directly via the gateway URL.
-        let isRemoteTransport: Bool
-        if case .http = daemonClient.config.transport {
-            isRemoteTransport = true
-        } else {
-            isRemoteTransport = false
-        }
-
         Task {
-            if !isRemoteTransport {
+            if !isCurrentAssistantRemote {
                 // Hatch the assistant via CLI (spawns daemon in release builds).
                 // daemonOnly: true prevents creating a new lockfile entry on every launch.
                 do {
