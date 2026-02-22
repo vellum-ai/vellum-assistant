@@ -932,6 +932,10 @@ export async function handleTelegramConfig(
           });
           return;
         }
+      } else {
+        // Self-heal: ensure metadata exists even when the secret was
+        // already present (covers previously lost/corrupted metadata).
+        upsertCredentialMetadata('telegram', 'webhook_secret', {});
       }
 
       ctx.send(socket, {
