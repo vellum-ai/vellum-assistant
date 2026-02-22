@@ -603,6 +603,13 @@ export async function surfaceProxyResolver(
       surfaceId,
       data: mergedData,
     });
+
+    // Keep the persisted snapshot in sync so updates survive session restart.
+    const idx = ctx.currentTurnSurfaces.findIndex(s => s.surfaceId === surfaceId);
+    if (idx !== -1) {
+      ctx.currentTurnSurfaces[idx].data = mergedData;
+    }
+
     return { content: 'Surface updated', isError: false };
   }
 
@@ -662,7 +669,10 @@ export async function surfaceProxyResolver(
     const seededHomeBase = findSeededHomeBaseApp();
     const defaultPreview = seededHomeBase && seededHomeBase.id === app.id
       ? getPrebuiltHomeBasePreview()
-      : undefined;
+      // Generate a minimal fallback preview from app metadata so that the
+      // surface is always rendered as a clickable preview card (not an
+      // un-clickable fallback chip) after session restart.
+      : { title: app.name, subtitle: app.description };
 
     const surfaceData: DynamicPageSurfaceData = {
       html: app.htmlDefinition,

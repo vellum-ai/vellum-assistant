@@ -129,7 +129,19 @@ public struct InlineSurfaceRouter: View {
                     }
                 }
             } else {
-                InlineFallbackChip(surfaceType: surface.surfaceType)
+                // Still allow opening the workspace even without a preview card.
+                Button {
+                    if let msg = surface.surfaceMessage {
+                        NotificationCenter.default.post(
+                            name: Notification.Name("MainWindow.openDynamicWorkspace"),
+                            object: nil,
+                            userInfo: ["surfaceMessage": msg]
+                        )
+                    }
+                } label: {
+                    InlineFallbackChip(surfaceType: surface.surfaceType)
+                }
+                .buttonStyle(.plain)
             }
         case .table(let data):
             InlineTableWidget(data: data) { actionId, payload in
