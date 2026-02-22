@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "chatgpt_import",
-      "description": "Import ChatGPT conversation history from an exported conversations.json file or ZIP archive. Use dry_run first to preview what will be imported, then run again without dry_run to perform the import.",
+      "description": "Import ChatGPT conversation history from an exported ZIP archive. Accepts the ZIP file that ChatGPT emails after requesting a data export.",
       "category": "import",
       "risk": "medium",
       "input_schema": {
@@ -11,11 +11,7 @@
         "properties": {
           "file_path": {
             "type": "string",
-            "description": "Absolute path to the conversations.json file or ChatGPT export ZIP file"
-          },
-          "dry_run": {
-            "type": "boolean",
-            "description": "If true, only preview what would be imported without actually importing. Defaults to false."
+            "description": "Absolute path to the ChatGPT export ZIP file"
           }
         },
         "required": ["file_path"]
