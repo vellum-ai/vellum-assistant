@@ -476,7 +476,7 @@ if [ $XCODEGEN_NEEDED -eq 1 ]; then
         echo "  Install xcodegen (brew install xcodegen) or run 'cd clients/ios && xcodegen' manually."
     else
         if (cd clients/ios && "$XCODEGEN" --quiet) 2>/dev/null; then
-            git add clients/ios/vellum-assistant-ios.xcodeproj/project.pbxproj
+            git add clients/ios/vellum-assistant-ios.xcodeproj/
             echo "✅ xcodeproj regenerated and staged"
         else
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

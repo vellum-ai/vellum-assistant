@@ -27,7 +27,7 @@ jobs:
         working-directory: clients/ios
         run: |
           xcodegen
-          if ! git diff --exit-code vellum-assistant-ios.xcodeproj/project.pbxproj; then
+          if ! git diff --exit-code vellum-assistant-ios.xcodeproj/; then
             echo "::error::xcodeproj is out of date. Run 'cd clients/ios && xcodegen' and commit the result."
             exit 1
           fi
