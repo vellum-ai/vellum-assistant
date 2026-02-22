@@ -45,6 +45,33 @@ function getOriginalIngressEnv(): string | undefined {
   return _originalIngressEnv;
 }
 
+const TELEGRAM_BOT_TOKEN_IN_URL_PATTERN = /\/bot\d{8,10}:[A-Za-z0-9_-]{30,120}\//g;
+const TELEGRAM_BOT_TOKEN_PATTERN = /\b\d{8,10}:[A-Za-z0-9_-]{30,120}\b/g;
+
+function redactTelegramBotTokens(value: string): string {
+  return value
+    .replace(TELEGRAM_BOT_TOKEN_IN_URL_PATTERN, '/bot[REDACTED]/')
+    .replace(TELEGRAM_BOT_TOKEN_PATTERN, '[REDACTED]');
+}
+
+function summarizeTelegramError(err: unknown): string {
+  const parts: string[] = [];
+  if (err instanceof Error) {
+    parts.push(err.message);
+  } else {
+    parts.push(String(err));
+  }
+  const path = (err as { path?: unknown })?.path;
+  if (typeof path === 'string' && path.length > 0) {
+    parts.push(`path=${path}`);
+  }
+  const code = (err as { code?: unknown })?.code;
+  if (typeof code === 'string' && code.length > 0) {
+    parts.push(`code=${code}`);
+  }
+  return redactTelegramBotTokens(parts.join(' '));
+}
+
 export function handleModelGet(socket: net.Socket, ctx: HandlerContext): void {
   const config = getConfig();
   const configured = Object.keys(config.apiKeys).filter((k) => !!config.apiKeys[k]);
@@ -882,7 +909,7 @@ export async function handleTelegramConfig(
         }
         botUsername = data.result.username;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = summarizeTelegramError(err);
         ctx.send(socket, {
           type: 'telegram_config_response',
           success: false,
@@ -970,7 +997,10 @@ export async function handleTelegramConfig(
         try {
           await fetch(`https://api.telegram.org/bot${botToken}/deleteWebhook`);
         } catch (err) {
-          log.warn({ err }, 'Failed to deregister Telegram webhook (proceeding with credential cleanup)');
+          log.warn(
+            { error: summarizeTelegramError(err) },
+            'Failed to deregister Telegram webhook (proceeding with credential cleanup)',
+          );
         }
       }
 
@@ -1029,7 +1059,7 @@ export async function handleTelegramConfig(
           return;
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = summarizeTelegramError(err);
         ctx.send(socket, {
           type: 'telegram_config_response',
           success: false,

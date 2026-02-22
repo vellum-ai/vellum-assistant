@@ -10,6 +10,36 @@ interface TelegramApiResponse<T> {
   parameters?: { retry_after?: number };
 }
 
+const TELEGRAM_BOT_TOKEN_IN_URL_PATTERN = /\/bot\d{8,10}:[A-Za-z0-9_-]{30,120}\//g;
+const TELEGRAM_BOT_TOKEN_PATTERN = /\b\d{8,10}:[A-Za-z0-9_-]{30,120}\b/g;
+
+function redactTelegramBotTokens(value: string): string {
+  return value
+    .replace(TELEGRAM_BOT_TOKEN_IN_URL_PATTERN, "/bot[REDACTED]/")
+    .replace(TELEGRAM_BOT_TOKEN_PATTERN, "[REDACTED]");
+}
+
+function summarizeFetchError(err: unknown): string {
+  const parts: string[] = [];
+  if (err instanceof Error) {
+    parts.push(err.message);
+  } else {
+    parts.push(String(err));
+  }
+
+  const path = (err as { path?: unknown })?.path;
+  if (typeof path === "string" && path.length > 0) {
+    parts.push(`path=${path}`);
+  }
+
+  const code = (err as { code?: unknown })?.code;
+  if (typeof code === "string" && code.length > 0) {
+    parts.push(`code=${code}`);
+  }
+
+  return redactTelegramBotTokens(parts.join(" "));
+}
+
 function isRetryable(status: number): boolean {
   return status === 429 || status >= 500;
 }
@@ -69,8 +99,9 @@ async function retryableFetch<T>(
     try {
       response = await doFetch();
     } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      log.warn({ err: lastError, attempt, method }, "Telegram API fetch failed");
+      const safeError = summarizeFetchError(err);
+      lastError = new Error(`Telegram ${method} request failed: ${safeError}`);
+      log.warn({ error: safeError, attempt, method }, "Telegram API fetch failed");
       continue;
     }
 

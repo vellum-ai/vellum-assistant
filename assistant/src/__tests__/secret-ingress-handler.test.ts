@@ -12,6 +12,8 @@ const mockConfig = {
 mock.module('../config/loader.js', () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
+  loadRawConfig: () => ({ secretDetection: { ...mockConfig.secretDetection } }),
+  saveRawConfig: () => {},
   invalidateConfigCache: () => {},
 }));
 
@@ -19,6 +21,7 @@ mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
     get: () => () => {},
   }),
+  isDebug: () => false,
 }));
 
 const { checkIngressForSecrets } = await import('../security/secret-ingress.js');

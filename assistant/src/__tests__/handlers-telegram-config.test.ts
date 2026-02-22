@@ -542,8 +542,12 @@ describe('Telegram config handler', () => {
   });
 
   test('set action handles network error during getMe', async () => {
-    globalThis.fetch = (async (_url: string | URL | Request) => {
-      throw new Error('Network error: ECONNREFUSED');
+    const tgToken = ['123456789', ':', 'ABCDefGHIJklmnopQRSTuvwxyz012345678'].join('');
+    globalThis.fetch = (async () => {
+      const err = new Error('Network error: ECONNREFUSED') as Error & { path?: string; code?: string };
+      err.path = `https://api.telegram.org/bot${tgToken}/getMe`;
+      err.code = 'ConnectionRefused';
+      throw err;
     }) as unknown as typeof fetch;
 
     const msg: TelegramConfigRequest = {
@@ -560,6 +564,8 @@ describe('Telegram config handler', () => {
     expect(res.success).toBe(false);
     expect(res.error).toContain('Failed to validate bot token');
     expect(res.error).toContain('ECONNREFUSED');
+    expect(res.error).toContain('[REDACTED]');
+    expect(res.error).not.toContain(tgToken);
   });
 
   test('get action reports connected only when both bot_token and webhook_secret exist', async () => {
@@ -706,11 +712,15 @@ describe('Telegram config handler', () => {
   });
 
   test('clear action proceeds even when webhook deregistration fails', async () => {
-    secureKeyStore['credential:telegram:bot_token'] = 'test-bot-token';
+    const tgToken = ['123456789', ':', 'ABCDefGHIJklmnopQRSTuvwxyz012345678'].join('');
+    secureKeyStore['credential:telegram:bot_token'] = tgToken;
     secureKeyStore['credential:telegram:webhook_secret'] = 'test-webhook-secret';
 
-    globalThis.fetch = (async (_url: string | URL | Request) => {
-      throw new Error('Network error');
+    globalThis.fetch = (async () => {
+      const err = new Error('Network error') as Error & { path?: string; code?: string };
+      err.path = `https://api.telegram.org/bot${tgToken}/deleteWebhook`;
+      err.code = 'ConnectionRefused';
+      throw err;
     }) as unknown as typeof fetch;
 
     const { ctx, sent } = createTestContext();
