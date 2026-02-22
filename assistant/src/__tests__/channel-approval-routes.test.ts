@@ -2910,22 +2910,11 @@ describe('guardian enforcement independence from approval flag', () => {
       guardianDeliveryChatId: 'chat-guardian',
     });
 
-    const orchestrator = makeMockOrchestrator();
-    // Override startRun to return needs_confirmation for a sensitive action
-    (orchestrator.startRun as ReturnType<typeof mock>).mockImplementation(async () => ({
-      id: 'run-failclosed-1',
-      conversationId: 'conv-1',
-      messageId: null,
-      status: 'needs_confirmation' as const,
-      pendingConfirmation: sampleConfirmation,
-      pendingSecret: null,
-      inputTokens: 0,
-      outputTokens: 0,
-      estimatedCost: 0,
-      error: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }));
+    // Use makeSensitiveOrchestrator so that getRun returns needs_confirmation
+    // on the first poll (triggering the unverified_channel auto-deny path)
+    // and then returns terminal state.
+    const orchestrator = makeSensitiveOrchestrator({ runId: 'run-failclosed-1', terminalStatus: 'failed' });
+
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
     const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
 
@@ -2942,11 +2931,14 @@ describe('guardian enforcement independence from approval flag', () => {
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
     // The unknown actor should be treated as unverified_channel and
-    // sensitive actions should be auto-denied with a setup notice
+    // sensitive actions should be auto-denied with a setup notice.
+    // deliverChannelReply args: (callbackUrl, payload, bearerToken?)
+    // The denial notice is in payload.text (index 1 of the call args).
     expect(deliverSpy).toHaveBeenCalled();
-    const replyArgs = deliverSpy.mock.calls[0];
-    const replyText = replyArgs[2] as string;
-    expect(replyText).toContain('guardian');
+    const denialCalls = deliverSpy.mock.calls.filter(
+      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.includes('no guardian has been set up'),
+    );
+    expect(denialCalls.length).toBeGreaterThanOrEqual(1);
 
     deliverSpy.mockRestore();
     approvalSpy.mockRestore();
@@ -3018,5 +3010,263 @@ describe('verifyGatewayOrigin with dedicated gateway-origin secret', () => {
     expect(verifyGatewayOrigin(makeReqWithHeader(), 'bearer', undefined)).toBe(false);
     expect(verifyGatewayOrigin(makeReqWithHeader(), undefined, 'secret')).toBe(false);
     expect(verifyGatewayOrigin(makeReqWithHeader(), 'bearer', 'secret')).toBe(false);
+  });
+
+  test('rejects mismatched length headers (constant-time comparison guard)', () => {
+    // Different lengths should be rejected without timing leaks
+    expect(verifyGatewayOrigin(makeReqWithHeader('short'), 'a-much-longer-secret', undefined)).toBe(false);
+    expect(verifyGatewayOrigin(makeReqWithHeader('a-much-longer-secret'), 'short', undefined)).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 29. handleChannelInbound passes gatewayOriginSecret to verifyGatewayOrigin
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('handleChannelInbound gatewayOriginSecret integration', () => {
+  test('rejects request when bearer token matches but dedicated secret does not', async () => {
+    const bearerToken = 'my-bearer';
+    const gatewaySecret = 'dedicated-gw-secret';
+
+    // Request carries the bearer token as X-Gateway-Origin, but the
+    // dedicated secret is configured — verifyGatewayOrigin should require
+    // the dedicated secret, not the bearer token.
+    const req = new Request('http://localhost/channels/inbound', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gateway-Origin': bearerToken,
+      },
+      body: JSON.stringify({
+        sourceChannel: 'telegram',
+        externalChatId: 'chat-gw-secret-test',
+        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
+        content: 'hello',
+      }),
+    });
+
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, bearerToken, undefined, 'self', gatewaySecret,
+    );
+    expect(res.status).toBe(403);
+    const body = await res.json() as { code: string };
+    expect(body.code).toBe('GATEWAY_ORIGIN_REQUIRED');
+  });
+
+  test('accepts request when dedicated secret matches', async () => {
+    const bearerToken = 'my-bearer';
+    const gatewaySecret = 'dedicated-gw-secret';
+
+    const req = new Request('http://localhost/channels/inbound', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gateway-Origin': gatewaySecret,
+      },
+      body: JSON.stringify({
+        sourceChannel: 'telegram',
+        externalChatId: 'chat-gw-secret-pass',
+        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
+        content: 'hello',
+      }),
+    });
+
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, bearerToken, undefined, 'self', gatewaySecret,
+    );
+    // Should pass the gateway-origin check and proceed to normal processing
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+  });
+
+  test('falls back to bearer token when no dedicated secret is set', async () => {
+    const bearerToken = 'my-bearer';
+
+    const req = new Request('http://localhost/channels/inbound', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gateway-Origin': bearerToken,
+      },
+      body: JSON.stringify({
+        sourceChannel: 'telegram',
+        externalChatId: 'chat-gw-fallback',
+        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
+        content: 'hello',
+      }),
+    });
+
+    // No gatewayOriginSecret (6th param undefined) — should fall back to bearer
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, bearerToken, undefined, 'self', undefined,
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 30. Unknown actor identity — forceStrictSideEffects propagation
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('unknown actor identity — forceStrictSideEffects', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('unknown sender (no senderExternalUserId) with guardian binding gets forceStrictSideEffects', async () => {
+    // Create a guardian binding so the channel is guardian-enforced
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'known-guardian',
+      guardianDeliveryChatId: 'guardian-chat',
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const mockRun = {
+      id: 'run-unknown-actor',
+      conversationId: 'conv-1',
+      messageId: null,
+      status: 'running' as const,
+      pendingConfirmation: null,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const orchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => ({ ...mockRun, status: 'completed' as const })),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    // Send message with no senderExternalUserId — the unknown actor should
+    // be classified as unverified_channel and forceStrictSideEffects set.
+    const req = makeInboundRequest({
+      content: 'do something',
+      senderExternalUserId: undefined,
+    });
+
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    // startRun should have been called with forceStrictSideEffects: true
+    expect(orchestrator.startRun).toHaveBeenCalled();
+    const startRunArgs = (orchestrator.startRun as ReturnType<typeof mock>).mock.calls[0];
+    const options = startRunArgs[3] as { forceStrictSideEffects?: boolean } | undefined;
+    expect(options).toBeDefined();
+    expect(options!.forceStrictSideEffects).toBe(true);
+
+    deliverSpy.mockRestore();
+  });
+
+  test('known non-guardian sender with guardian binding gets forceStrictSideEffects', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'the-guardian',
+      guardianDeliveryChatId: 'guardian-chat-2',
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+
+    const mockRun = {
+      id: 'run-nongrd-strict',
+      conversationId: 'conv-1',
+      messageId: null,
+      status: 'running' as const,
+      pendingConfirmation: null,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const orchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => ({ ...mockRun, status: 'completed' as const })),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    // Non-guardian user sends a message
+    const req = makeInboundRequest({
+      content: 'do something',
+      senderExternalUserId: 'not-the-guardian',
+    });
+
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    // startRun should have been called with forceStrictSideEffects: true
+    expect(orchestrator.startRun).toHaveBeenCalled();
+    const startRunArgs = (orchestrator.startRun as ReturnType<typeof mock>).mock.calls[0];
+    const options = startRunArgs[3] as { forceStrictSideEffects?: boolean } | undefined;
+    expect(options).toBeDefined();
+    expect(options!.forceStrictSideEffects).toBe(true);
+
+    deliverSpy.mockRestore();
+    approvalSpy.mockRestore();
+  });
+
+  test('guardian sender does NOT get forceStrictSideEffects', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'the-guardian',
+      guardianDeliveryChatId: 'guardian-chat-3',
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const mockRun = {
+      id: 'run-grd-no-strict',
+      conversationId: 'conv-1',
+      messageId: null,
+      status: 'running' as const,
+      pendingConfirmation: null,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const orchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => ({ ...mockRun, status: 'completed' as const })),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    // The guardian sends a message — should NOT get forceStrictSideEffects
+    const req = makeInboundRequest({
+      content: 'do something',
+      senderExternalUserId: 'the-guardian',
+    });
+
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    expect(orchestrator.startRun).toHaveBeenCalled();
+    const startRunArgs = (orchestrator.startRun as ReturnType<typeof mock>).mock.calls[0];
+    const options = startRunArgs[3] as { forceStrictSideEffects?: boolean; sourceChannel?: string } | undefined;
+    expect(options).toBeDefined();
+    // Guardian should NOT have forceStrictSideEffects set
+    expect(options!.forceStrictSideEffects).toBeUndefined();
+
+    deliverSpy.mockRestore();
   });
 });

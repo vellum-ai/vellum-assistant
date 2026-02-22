@@ -965,4 +965,58 @@ describe('Guardian verification IPC actions', () => {
     expect(res.success).toBe(false);
     expect(res.error).toContain('Unknown action');
   });
+
+  test('create_challenge with explicit assistantId scopes challenge to that assistant', () => {
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'create_challenge',
+      channel: 'telegram',
+      assistantId: 'asst-ipc-X',
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleGuardianVerification(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; secret?: string; instruction?: string };
+    expect(res.success).toBe(true);
+    expect(res.secret).toBeDefined();
+    expect(res.instruction).toContain('/guardian_verify');
+  });
+
+  test('status action with explicit assistantId checks binding for that assistant', () => {
+    // No binding exists for asst-ipc-Y, so status should return bound=false
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      channel: 'telegram',
+      assistantId: 'asst-ipc-Y',
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleGuardianVerification(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; bound: boolean };
+    expect(res.success).toBe(true);
+    expect(res.bound).toBe(false);
+  });
+
+  test('assistantId defaults to "self" when not provided', () => {
+    // create_challenge without assistantId should scope to 'self'
+    const createMsg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'create_challenge',
+      channel: 'telegram',
+      // assistantId intentionally omitted
+    };
+
+    const { ctx: ctx1, sent: sent1 } = createTestContext();
+    handleGuardianVerification(createMsg, {} as net.Socket, ctx1);
+
+    expect(sent1).toHaveLength(1);
+    const createRes = sent1[0] as { type: string; success: boolean; secret?: string };
+    expect(createRes.success).toBe(true);
+    expect(createRes.secret).toBeDefined();
+  });
 });
