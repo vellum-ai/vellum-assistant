@@ -406,6 +406,9 @@ All call-related settings can be managed via `vellum config`:
 | `calls.voice.fallbackToStandardOnError` | Auto-fallback to standard Twilio TTS on ElevenLabs errors | `true` |
 | `calls.voice.elevenlabs.voiceId` | ElevenLabs voice ID (for `twilio_elevenlabs_tts` mode) | *(empty)* |
 | `calls.voice.elevenlabs.agentId` | ElevenLabs agent ID (for `elevenlabs_agent` mode) | *(empty)* |
+| `calls.voice.elevenlabs.speed` | Playback speed (`0.7` – `1.2`) | `1.0` |
+| `calls.voice.elevenlabs.stability` | Voice stability (`0.0` – `1.0`) | `0.5` |
+| `calls.voice.elevenlabs.similarityBoost` | Voice similarity boost (`0.0` – `1.0`) | `0.75` |
 
 ### Adjusting settings
 

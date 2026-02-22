@@ -39,11 +39,11 @@ describe('generateTwiML with voice quality profile', () => {
       language: 'en-US',
       transcriptionProvider: 'Deepgram',
       ttsProvider: 'ElevenLabs',
-      voice: 'voice123-turbo_v2_5-0.5_0.75_0',
+      voice: 'voice123-turbo_v2_5-1_0.5_0.75',
     });
 
     expect(twiml).toContain('ttsProvider="ElevenLabs"');
-    expect(twiml).toContain('voice="voice123-turbo_v2_5-0.5_0.75_0"');
+    expect(twiml).toContain('voice="voice123-turbo_v2_5-1_0.5_0.75"');
   });
 
   test('voice attribute reflects configured voice for twilio_standard mode', () => {
@@ -62,10 +62,10 @@ describe('generateTwiML with voice quality profile', () => {
       language: 'en-US',
       transcriptionProvider: 'Deepgram',
       ttsProvider: 'ElevenLabs',
-      voice: 'abc123-turbo_v2_5-0.5_0.75_0',
+      voice: 'abc123-turbo_v2_5-1_0.5_0.75',
     });
 
-    expect(twiml).toContain('voice="abc123-turbo_v2_5-0.5_0.75_0"');
+    expect(twiml).toContain('voice="abc123-turbo_v2_5-1_0.5_0.75"');
   });
 
   test('language attribute reflects configured language', () => {

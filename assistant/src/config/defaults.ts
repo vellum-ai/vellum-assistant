@@ -236,9 +236,9 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       elevenlabs: {
         voiceId: '',
         voiceModelId: 'turbo_v2_5',
+        speed: 1.0,
         stability: 0.5,
         similarityBoost: 0.75,
-        style: 0.0,
         useSpeakerBoost: true,
         agentId: '',
         apiBaseUrl: 'https://api.elevenlabs.io',

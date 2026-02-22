@@ -3819,7 +3819,7 @@ Voice and TTS settings are configurable via the `calls.voice` config block — t
 The resolution logic works as follows:
 
 - **`twilio_standard`** (fully supported) — Returns a profile using Google TTS with a default Google voice (`Google.en-US-Journey-O`). This is the default when no voice config is changed.
-- **`twilio_elevenlabs_tts`** (fully supported) — Builds an ElevenLabs voice spec string from `voiceId`, `voiceModelId`, and tuning parameters (stability, similarity, style). If `voiceId` is empty and fallback is enabled, silently falls back to the `twilio_standard` profile.
+- **`twilio_elevenlabs_tts`** (fully supported) — Builds an ElevenLabs voice spec string from `voiceId`, `voiceModelId`, and tuning parameters (speed, stability, similarity). The Twilio ConversationRelay format is `voiceId-model-speed_stability_similarity` where speed is 0.7–1.2 and stability/similarity are 0.0–1.0. If `voiceId` is empty and fallback is enabled, silently falls back to the `twilio_standard` profile.
 - **`elevenlabs_agent`** (experimental/restricted) — Requires `agentId` to be set. If `agentId` is empty and fallback is enabled, silently falls back to `twilio_standard`. Even when the profile resolves successfully, a runtime guard in `handleVoiceWebhook` blocks this mode before any ElevenLabs API calls are made (see below). No register-call flow is reachable while the guard is active.
 
 When `fallbackToStandardOnError` is `true` (default), any misconfiguration or runtime error in ElevenLabs modes causes a graceful fallback to standard Twilio TTS rather than a call failure. Validation errors are captured in `validationErrors` on the profile for logging.
