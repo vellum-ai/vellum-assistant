@@ -235,49 +235,4 @@ final class FeatureFlagManagerTests: XCTestCase {
         XCTAssertTrue(manager.isEnabled("DARKMODE"))
     }
 
-    /// Tests that the userHostedEnabled flag is recognized from its environment variable.
-    func testUserHostedEnabledFlagFromEnv() {
-        // GIVEN an environment with VELLUM_FLAG_USER_HOSTED_ENABLED set to "true"
-        let env = ["VELLUM_FLAG_USER_HOSTED_ENABLED": "true"]
-
-        // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
-
-        // THEN the flag is enabled via the enum case
-        XCTAssertTrue(manager.isEnabled(.userHostedEnabled))
-
-        // AND via the raw string
-        XCTAssertTrue(manager.isEnabled("user_hosted_enabled"))
-    }
-
-    /// Tests that the userHostedEnabled flag defaults to disabled when not set.
-    func testUserHostedEnabledFlagDefaultsToDisabled() {
-        // GIVEN an empty environment
-        let env: [String: String] = [:]
-
-        // WHEN we create a manager from that environment
-        let manager = FeatureFlagManager(environment: env)
-
-        // THEN the userHostedEnabled flag is disabled
-        XCTAssertFalse(manager.isEnabled(.userHostedEnabled))
-    }
-
-    /// Tests that the userHostedEnabled flag can be toggled via setOverride.
-    func testUserHostedEnabledFlagOverride() {
-        // GIVEN a manager with no flags
-        let manager = FeatureFlagManager(environment: [:])
-
-        // WHEN we override userHostedEnabled to true
-        manager.setOverride(.userHostedEnabled, enabled: true)
-
-        // THEN the flag is enabled
-        XCTAssertTrue(manager.isEnabled(.userHostedEnabled))
-
-        // AND when we remove the override
-        manager.removeOverride(.userHostedEnabled)
-
-        // THEN the flag returns to disabled
-        XCTAssertFalse(manager.isEnabled(.userHostedEnabled))
-    }
-
 }

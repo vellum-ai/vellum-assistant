@@ -1,5 +1,6 @@
 import Foundation
 import os
+import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AssistantCli")
 
@@ -576,6 +577,12 @@ final class AssistantCli {
                 if let val = fullEnv[key] {
                     env[key] = val
                 }
+            }
+            // Forward RUNTIME_HTTP_PORT only when the localHttpEnabled flag
+            // is active, so the daemon doesn't start its HTTP server by default.
+            if FeatureFlagManager.shared.isEnabled(.localHttpEnabled),
+               let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
+                env["RUNTIME_HTTP_PORT"] = port
             }
             proc.environment = env
 
