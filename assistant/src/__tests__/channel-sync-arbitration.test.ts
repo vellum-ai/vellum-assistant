@@ -82,6 +82,10 @@ import { getOrCreateConversation, deleteConversationKey, getConversationByKey, s
 import { telegramBotMessagingProvider } from '../messaging/providers/telegram-bot/adapter.js';
 import { handleMoveSync, handleDeleteConversation } from '../runtime/routes/channel-routes.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
+import { registerMessagingProvider } from '../messaging/registry.js';
+import { run as runSend } from '../config/bundled-skills/messaging/tools/messaging-send.js';
+import { run as runReply } from '../config/bundled-skills/messaging/tools/messaging-reply.js';
+import type { ToolContext } from '../tools/types.js';
 
 initializeDb();
 
@@ -458,6 +462,92 @@ describe('channel sync arbitration', () => {
       const chatAKeyMapping = getConversationByKey(`telegram:${uniqueChatIdA}`);
       expect(chatAKeyMapping).not.toBeNull();
       expect(chatAKeyMapping!.conversationId).toBe(convB);
+    });
+  });
+
+  describe('messaging tool senderConversationId propagation', () => {
+    // Register the Telegram provider so resolveProvider('telegram') works
+    beforeEach(() => {
+      registerMessagingProvider(telegramBotMessagingProvider);
+    });
+
+    function makeToolContext(conversationId: string): ToolContext {
+      return {
+        workingDir: testDir,
+        sessionId: 'test-session',
+        conversationId,
+      };
+    }
+
+    test('messaging-send forwards senderConversationId from context to provider', async () => {
+      const ownerConvId = uuid();
+      const uniqueChatId = `tool-send-fwd-${uuid()}`;
+      createBinding(ownerConvId, 'telegram', uniqueChatId);
+
+      // When the tool's context.conversationId matches the owner, no conflict
+      const ctx = makeToolContext(ownerConvId);
+      const result = await runSend(
+        { platform: 'telegram', conversation_id: uniqueChatId, text: 'Hello' },
+        ctx,
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('Message sent');
+    });
+
+    test('messaging-send returns conflict error when sender is not the owner', async () => {
+      const ownerConvId = uuid();
+      const senderConvId = uuid();
+      const uniqueChatId = `tool-send-conflict-${uuid()}`;
+      createBinding(ownerConvId, 'telegram', uniqueChatId);
+      ensureConversation(senderConvId);
+
+      const ctx = makeToolContext(senderConvId);
+      const result = await runSend(
+        { platform: 'telegram', conversation_id: uniqueChatId, text: 'Hello' },
+        ctx,
+      );
+
+      expect(result.isError).toBe(true);
+      const parsed = JSON.parse(result.content);
+      expect(parsed.error).toBe('conflict');
+      expect(parsed.ownerConversationId).toBe(ownerConvId);
+      expect(parsed.message).toContain('Another thread owns this chat');
+    });
+
+    test('messaging-reply forwards senderConversationId from context to provider', async () => {
+      const ownerConvId = uuid();
+      const uniqueChatId = `tool-reply-fwd-${uuid()}`;
+      createBinding(ownerConvId, 'telegram', uniqueChatId);
+
+      const ctx = makeToolContext(ownerConvId);
+      const result = await runReply(
+        { platform: 'telegram', conversation_id: uniqueChatId, thread_id: 'thread-1', text: 'Reply' },
+        ctx,
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain('Reply sent');
+    });
+
+    test('messaging-reply returns conflict error when sender is not the owner', async () => {
+      const ownerConvId = uuid();
+      const senderConvId = uuid();
+      const uniqueChatId = `tool-reply-conflict-${uuid()}`;
+      createBinding(ownerConvId, 'telegram', uniqueChatId);
+      ensureConversation(senderConvId);
+
+      const ctx = makeToolContext(senderConvId);
+      const result = await runReply(
+        { platform: 'telegram', conversation_id: uniqueChatId, thread_id: 'thread-1', text: 'Reply' },
+        ctx,
+      );
+
+      expect(result.isError).toBe(true);
+      const parsed = JSON.parse(result.content);
+      expect(parsed.error).toBe('conflict');
+      expect(parsed.ownerConversationId).toBe(ownerConvId);
+      expect(parsed.message).toContain('Another thread owns this chat');
     });
   });
 });
