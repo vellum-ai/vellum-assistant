@@ -44,6 +44,7 @@ const makeConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
   maxAttachmentConcurrency: 3,
   twilioAuthToken: undefined,
   ingressPublicBaseUrl: undefined,
+  gatewayInternalBaseUrl: "http://127.0.0.1:7830",
   ...overrides,
 });
 
@@ -76,7 +77,7 @@ function createFakeUpstreamWs() {
   const sent: unknown[] = [];
   const closes: { code?: number; reason?: string }[] = [];
   return {
-    readyState: WS_CONNECTING,
+    readyState: WS_CONNECTING as number,
     sent,
     closes,
     listeners,
@@ -106,7 +107,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
   test("returns 400 when callSessionId is missing", () => {
     const handler = createTwilioRelayWebsocketHandler(makeConfig());
     const req = new Request("http://localhost:7830/ws/twilio/relay");
-    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server;
+    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<unknown>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeInstanceOf(Response);
@@ -120,7 +121,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-42",
     );
-    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server;
+    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<unknown>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeUndefined();
@@ -139,7 +140,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",
     );
-    const fakeServer = { upgrade: mock(() => false) } as unknown as import("bun").Server;
+    const fakeServer = { upgrade: mock(() => false) } as unknown as import("bun").Server<unknown>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeInstanceOf(Response);
@@ -197,7 +198,7 @@ describe("getRelayWebsocketHandlers", () => {
     });
     handlers.open(ws as never);
 
-    const ctorCall = (globalThis.WebSocket as ReturnType<typeof mock>).mock.calls[0] as unknown[];
+    const ctorCall = (globalThis.WebSocket as unknown as ReturnType<typeof mock>).mock.calls[0] as unknown[];
     const url = ctorCall[0] as string;
     expect(url).toBe("ws://runtime:8000/v1/calls/relay?callSessionId=s%26id%3D1");
   });
