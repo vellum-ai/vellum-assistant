@@ -30,7 +30,7 @@ export function isConflictKindPairEligible(
 
 const PR_URL_PATTERN = /github\.com\/[^/]+\/[^/]+\/pull\/\d+/i;
 const ISSUE_TICKET_PATTERN = /\b(?:issue|pr|ticket|pull request)\s*#?\d+/i;
-const TRACKING_LANGUAGE_PATTERN = /\b(?:this pr|that issue|while we wait|today|right now|currently tracking)\b/i;
+const TRACKING_LANGUAGE_PATTERN = /\b(?:this pr|that issue|while we wait|currently tracking)\b/i;
 
 /**
  * Returns true when a statement looks like a transient tracking note
@@ -62,7 +62,8 @@ export function isDurableInstructionStatement(statement: string): boolean {
  * For instruction/style kinds: requires positive durable cues and no transient cues.
  * For other eligible kinds: rejects if transient tracking cues dominate.
  */
-export function isStatementConflictEligible(kind: string, statement: string): boolean {
+export function isStatementConflictEligible(kind: string, statement: string, config?: ConflictPolicyConfig): boolean {
+  if (config && !isConflictKindEligible(kind, config)) return false;
   if (isTransientTrackingStatement(statement)) return false;
   if (kind === 'instruction' || kind === 'style') {
     return isDurableInstructionStatement(statement);

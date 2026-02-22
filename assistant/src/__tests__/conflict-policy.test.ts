@@ -58,6 +58,11 @@ describe('conflict-policy', () => {
       expect(isTransientTrackingStatement('This PR needs review')).toBe(true);
     });
 
+    test('does not flag generic time words as transient', () => {
+      expect(isTransientTrackingStatement('The deadline is today')).toBe(false);
+      expect(isTransientTrackingStatement('I need this right now')).toBe(false);
+    });
+
     test('does not flag durable statements', () => {
       expect(isTransientTrackingStatement('Always answer with concise bullet points')).toBe(false);
       expect(isTransientTrackingStatement('User prefers dark mode')).toBe(false);
@@ -100,6 +105,16 @@ describe('conflict-policy', () => {
 
     test('accepts non-transient statements for non-instruction kinds', () => {
       expect(isStatementConflictEligible('preference', 'User prefers dark mode')).toBe(true);
+      expect(isStatementConflictEligible('fact', 'User works at Acme Corp')).toBe(true);
+    });
+
+    test('rejects kinds not in conflictableKinds when config is provided', () => {
+      const policyConfig = { conflictableKinds: ['preference', 'profile'] };
+      expect(isStatementConflictEligible('fact', 'User works at Acme Corp', policyConfig)).toBe(false);
+      expect(isStatementConflictEligible('preference', 'User prefers dark mode', policyConfig)).toBe(true);
+    });
+
+    test('skips kind check when config is omitted', () => {
       expect(isStatementConflictEligible('fact', 'User works at Acme Corp')).toBe(true);
     });
   });

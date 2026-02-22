@@ -52,8 +52,8 @@ export async function resolvePendingConflictsForMessageJob(job: MemoryJob, confi
       conflict.existingKind, conflict.candidateKind, { conflictableKinds },
     );
     if (!kindEligible
-      || !isStatementConflictEligible(conflict.existingKind, conflict.existingStatement)
-      || !isStatementConflictEligible(conflict.candidateKind, conflict.candidateStatement)) {
+      || !isStatementConflictEligible(conflict.existingKind, conflict.existingStatement, { conflictableKinds })
+      || !isStatementConflictEligible(conflict.candidateKind, conflict.candidateStatement, { conflictableKinds })) {
       resolveConflict(conflict.id, {
         status: 'dismissed',
         resolutionNote: 'Dismissed by conflict policy (transient/non-durable).',

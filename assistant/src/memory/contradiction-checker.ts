@@ -68,14 +68,14 @@ export async function checkContradictions(newItemId: string): Promise<void> {
   }
 
   // Skip if the new item's statement is transient/non-durable
-  if (!isStatementConflictEligible(newItem.kind, newItem.statement)) {
+  if (!isStatementConflictEligible(newItem.kind, newItem.statement, config.memory.conflicts)) {
     log.debug({ newItemId, kind: newItem.kind }, 'Skipping contradiction check — statement is transient or non-durable');
     return;
   }
 
   for (const existing of candidates) {
     // Skip candidate if its statement is transient/non-durable
-    if (!isStatementConflictEligible(existing.kind, existing.statement)) {
+    if (!isStatementConflictEligible(existing.kind, existing.statement, config.memory.conflicts)) {
       log.debug({ existingId: existing.id }, 'Skipping candidate — statement is transient or non-durable');
       continue;
     }
