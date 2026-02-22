@@ -273,10 +273,42 @@ struct TwilioSettingsSection: View {
         }
     }
 
+    /// Restores the default onTwilioConfigResponse handler (the one set by
+    /// loadStatus) so that subsequent responses — such as clear_credentials —
+    /// are handled correctly instead of being swallowed by a stale callback
+    /// from a previous action.
+    private func restoreDefaultHandler() {
+        guard let daemon = clientProvider.client as? DaemonClient else { return }
+        daemon.onTwilioConfigResponse = { response in
+            isLoading = false
+            isClearing = false
+            if response.success {
+                hasCredentials = response.hasCredentials
+                phoneNumber = response.phoneNumber
+                errorMessage = nil
+            } else {
+                errorMessage = response.error ?? "Failed to load Twilio status"
+            }
+        }
+    }
+
     private func clearCredentials() {
         guard let daemon = clientProvider.client as? DaemonClient else { return }
         isClearing = true
         errorMessage = nil
+
+        daemon.onTwilioConfigResponse = { response in
+            isClearing = false
+            if response.success {
+                hasCredentials = response.hasCredentials
+                phoneNumber = response.phoneNumber
+                availableNumbers = []
+                errorMessage = nil
+            } else {
+                errorMessage = response.error ?? "Failed to clear credentials"
+            }
+            restoreDefaultHandler()
+        }
 
         do {
             try daemon.sendTwilioConfig(action: "clear_credentials")
@@ -295,7 +327,9 @@ struct TwilioSettingsSection: View {
             isLoadingNumbers = false
             if response.success {
                 hasCredentials = response.hasCredentials
-                phoneNumber = response.phoneNumber
+                // Don't update phoneNumber here — list_numbers responses don't
+                // include a phoneNumber field, so writing it would clear the
+                // currently assigned number in the UI.
                 availableNumbers = response.numbers ?? []
                 if availableNumbers.isEmpty {
                     errorMessage = "No numbers found on this Twilio account."
@@ -305,6 +339,7 @@ struct TwilioSettingsSection: View {
             } else {
                 errorMessage = response.error ?? "Failed to list numbers"
             }
+            restoreDefaultHandler()
         }
 
         do {
@@ -331,7 +366,11 @@ struct TwilioSettingsSection: View {
                 // Refresh the number list to include the newly provisioned number
                 listNumbers()
             } else {
+                // Dismiss the sheet so the error message is visible in the
+                // parent section rather than hidden behind the sheet.
+                showProvisionSheet = false
                 errorMessage = response.error ?? "Failed to provision number"
+                restoreDefaultHandler()
             }
         }
 
@@ -364,6 +403,7 @@ struct TwilioSettingsSection: View {
             } else {
                 errorMessage = response.error ?? "Failed to assign number"
             }
+            restoreDefaultHandler()
         }
 
         do {
