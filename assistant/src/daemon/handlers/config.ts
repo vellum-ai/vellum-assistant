@@ -1245,7 +1245,13 @@ export async function handleTwilioConfig(
       // (same persistence as assign_number for consistency)
       const phoneStored = setSecureKey('credential:twilio:phone_number', purchased.phoneNumber);
       if (!phoneStored) {
-        log.warn('Failed to store provisioned phone number in secure storage');
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: hasTwilioCredentials(),
+          error: 'Failed to store provisioned phone number in secure storage',
+        });
+        return;
       }
 
       const raw = loadRawConfig();
@@ -1266,7 +1272,7 @@ export async function handleTwilioConfig(
       // still usable even if ingress isn't configured yet.
       try {
         const ingressConfig: IngressConfig = loadRawConfig();
-        const voiceUrl = getTwilioVoiceWebhookUrl(ingressConfig, '{{CallSid}}');
+        const voiceUrl = getTwilioVoiceWebhookUrl(ingressConfig);
         const statusCallbackUrl = getTwilioStatusCallbackUrl(ingressConfig);
         const smsUrl = getTwilioSmsWebhookUrl(ingressConfig);
         await updatePhoneNumberWebhooks(accountSid, authToken, purchased.phoneNumber, {
@@ -1331,7 +1337,7 @@ export async function handleTwilioConfig(
           const acctSid = getSecureKey('credential:twilio:account_sid')!;
           const acctToken = getSecureKey('credential:twilio:auth_token')!;
           const ingressConfig: IngressConfig = loadRawConfig();
-          const voiceUrl = getTwilioVoiceWebhookUrl(ingressConfig, '{{CallSid}}');
+          const voiceUrl = getTwilioVoiceWebhookUrl(ingressConfig);
           const statusCallbackUrl = getTwilioStatusCallbackUrl(ingressConfig);
           const smsUrl = getTwilioSmsWebhookUrl(ingressConfig);
           await updatePhoneNumberWebhooks(acctSid, acctToken, msg.phoneNumber, {

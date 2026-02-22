@@ -73,11 +73,20 @@ export function getPublicBaseUrl(config: IngressConfig): string {
 }
 
 /**
- * Build the Twilio voice webhook URL for a given call session.
+ * Build the Twilio voice webhook URL.
+ *
+ * When `callSessionId` is provided (outbound calls), it is included as a
+ * query parameter so the gateway can correlate the webhook to an existing
+ * session. When omitted (phone-number-level webhook configuration for
+ * inbound calls), the URL is returned without the query parameter — the
+ * gateway will create a new session for inbound calls.
  */
-export function getTwilioVoiceWebhookUrl(config: IngressConfig, callSessionId: string): string {
+export function getTwilioVoiceWebhookUrl(config: IngressConfig, callSessionId?: string): string {
   const base = getPublicBaseUrl(config);
-  return `${base}/webhooks/twilio/voice?callSessionId=${callSessionId}`;
+  if (callSessionId) {
+    return `${base}/webhooks/twilio/voice?callSessionId=${callSessionId}`;
+  }
+  return `${base}/webhooks/twilio/voice`;
 }
 
 /**
