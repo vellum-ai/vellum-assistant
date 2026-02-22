@@ -38,6 +38,10 @@ export async function handleStartCall(req: Request): Promise<Response> {
     return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
   }
 
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+  }
+
   if (!body.conversationId) {
     return Response.json({ error: 'conversationId is required' }, { status: 400 });
   }
@@ -138,6 +142,10 @@ export async function handleAnswerCall(req: Request, callSessionId: string): Pro
     body = await req.json() as typeof body;
   } catch {
     return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+  }
+
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
   }
 
   const result = await answerCall({
