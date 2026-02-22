@@ -95,7 +95,6 @@ final class ToolPermissionTesterModel: ObservableObject {
 
     init(daemonClient: DaemonClientProtocol) {
         self.daemonClient = daemonClient
-        fetchToolNames()
 
         // Rebuild dynamic fields whenever the selected tool changes.
         $toolName
@@ -109,6 +108,10 @@ final class ToolPermissionTesterModel: ObservableObject {
     // MARK: - Tool Names Fetching
 
     /// Request the list of all registered tool names from the daemon.
+    ///
+    /// Call this after init (e.g. from `onAppear`) rather than from init itself
+    /// to avoid polluting test `sentMessages` and to allow connection-state
+    /// retries.
     func fetchToolNames() {
         guard let dc = daemonClient as? DaemonClient else { return }
 
@@ -125,10 +128,23 @@ final class ToolPermissionTesterModel: ObservableObject {
             }
         }
 
+        // Retry when the daemon connection (re)connects, so the dropdown
+        // populates even if the initial send fails.
+        dc.$isConnected
+            .removeDuplicates()
+            .filter { $0 }
+            .sink { [weak self] _ in
+                guard let self,
+                      let dc = self.daemonClient as? DaemonClient else { return }
+                try? dc.sendToolNamesList()
+            }
+            .store(in: &cancellables)
+
+        // Also attempt immediately if already connected.
         do {
             try dc.sendToolNamesList()
         } catch {
-            // Non-critical — the user can still type tool names manually.
+            // Non-critical — the retry subscription above will handle reconnects.
         }
     }
 
