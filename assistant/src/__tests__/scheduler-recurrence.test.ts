@@ -329,76 +329,75 @@ describe('scheduler RRULE execution', () => {
     // at 60 minutes the first post-now occurrence is offset 61 (odd), which
     // would pass the parity check even if EXRULE were completely ignored.
     //
-    // We freeze the baseline to 30 seconds past the current minute so that
-    // neither this test nor the scheduler (which calls Date.now() independently)
-    // can cross a minute boundary during the ~500ms test window. This prevents
-    // a timing-dependent false negative reported in PR #6328.
+    // We mock Date.now() so the scheduler's internal clock matches the test
+    // baseline exactly, making the test fully deterministic regardless of
+    // when it runs.
     const realNow = new Date();
     const frozenNow = new Date(realNow);
     frozenNow.setUTCSeconds(30);
     frozenNow.setUTCMilliseconds(0);
-    // If the real clock is past second 50, the frozen timestamp at :30 would
-    // be in the past relative to the scheduler's Date.now(). Shift forward
-    // one minute to guarantee ample margin.
-    if (realNow.getUTCSeconds() >= 50) {
-      frozenNow.setTime(frozenNow.getTime() + 60_000);
+
+    const originalDateNow = Date.now;
+    Date.now = () => frozenNow.getTime();
+
+    try {
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const pastDate = new Date(frozenNow.getTime() - 59 * 60_000);
+      pastDate.setUTCSeconds(0);
+      pastDate.setUTCMilliseconds(0);
+      const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}00Z`;
+
+      const expression = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1\nEXRULE:FREQ=MINUTELY;INTERVAL=2`;
+
+      // Compute what the next occurrence would be WITHOUT EXRULE — this should
+      // be at an even offset that EXRULE must exclude.
+      const withoutExrule = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1`;
+      const { computeNextRunAt } = await import('../schedule/recurrence-engine.js');
+      const nextWithoutExrule = computeNextRunAt(
+        { syntax: 'rrule', expression: withoutExrule },
+        frozenNow.getTime(),
+      );
+      const offsetWithout = Math.round((nextWithoutExrule - pastDate.getTime()) / 60_000);
+      // Sanity: the without-EXRULE occurrence must be even (would be excluded)
+      expect(offsetWithout % 2).toBe(0);
+
+      const schedule = createSchedule({
+        name: 'EXRULE scheduler test',
+        cronExpression: expression,
+        message: 'EXRULE scheduler fire',
+        syntax: 'rrule',
+        expression,
+      });
+
+      forceScheduleDue(schedule.id);
+
+      const processedMessages: string[] = [];
+      const processMessage = async (_conversationId: string, message: string) => {
+        processedMessages.push(message);
+      };
+
+      const scheduler = startScheduler(processMessage, () => {}, () => {});
+      await new Promise(resolve => setTimeout(resolve, 500));
+      scheduler.stop();
+
+      // The schedule should have fired
+      expect(processedMessages).toContain('EXRULE scheduler fire');
+
+      const after = getSchedule(schedule.id);
+      expect(after).not.toBeNull();
+      expect(after!.lastRunAt).not.toBeNull();
+      expect(after!.nextRunAt).toBeGreaterThan(frozenNow.getTime() - 5000);
+
+      // nextRunAt must NOT equal the without-EXRULE occurrence (which is excluded)
+      expect(after!.nextRunAt).not.toBe(nextWithoutExrule);
+
+      // nextRunAt must land on an odd-minute offset from dtstart
+      const dtstartMs = pastDate.getTime();
+      const minuteOffset = Math.round((after!.nextRunAt - dtstartMs) / 60_000);
+      expect(minuteOffset % 2).toBe(1);
+    } finally {
+      Date.now = originalDateNow;
     }
-
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const pastDate = new Date(frozenNow.getTime() - 59 * 60_000);
-    pastDate.setUTCSeconds(0);
-    pastDate.setUTCMilliseconds(0);
-    const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}00Z`;
-
-    const expression = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1\nEXRULE:FREQ=MINUTELY;INTERVAL=2`;
-
-    // Compute what the next occurrence would be WITHOUT EXRULE — this should
-    // be at an even offset that EXRULE must exclude. Use frozenNow as the
-    // baseline so the assertion is independent of wall-clock jitter.
-    const withoutExrule = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1`;
-    const { computeNextRunAt } = await import('../schedule/recurrence-engine.js');
-    const nextWithoutExrule = computeNextRunAt(
-      { syntax: 'rrule', expression: withoutExrule },
-      frozenNow.getTime(),
-    );
-    const offsetWithout = Math.round((nextWithoutExrule - pastDate.getTime()) / 60_000);
-    // Sanity: the without-EXRULE occurrence must be even (would be excluded)
-    expect(offsetWithout % 2).toBe(0);
-
-    const schedule = createSchedule({
-      name: 'EXRULE scheduler test',
-      cronExpression: expression,
-      message: 'EXRULE scheduler fire',
-      syntax: 'rrule',
-      expression,
-    });
-
-    forceScheduleDue(schedule.id);
-
-    const processedMessages: string[] = [];
-    const processMessage = async (_conversationId: string, message: string) => {
-      processedMessages.push(message);
-    };
-
-    const scheduler = startScheduler(processMessage, () => {}, () => {});
-    await new Promise(resolve => setTimeout(resolve, 500));
-    scheduler.stop();
-
-    // The schedule should have fired
-    expect(processedMessages).toContain('EXRULE scheduler fire');
-
-    const after = getSchedule(schedule.id);
-    expect(after).not.toBeNull();
-    expect(after!.lastRunAt).not.toBeNull();
-    expect(after!.nextRunAt).toBeGreaterThan(Date.now() - 5000);
-
-    // nextRunAt must NOT equal the without-EXRULE occurrence (which is excluded)
-    expect(after!.nextRunAt).not.toBe(nextWithoutExrule);
-
-    // nextRunAt must land on an odd-minute offset from dtstart
-    const dtstartMs = pastDate.getTime();
-    const minuteOffset = Math.round((after!.nextRunAt - dtstartMs) / 60_000);
-    expect(minuteOffset % 2).toBe(1);
   });
 
   test('RRULE schedule advances nextRunAt after firing', async () => {
