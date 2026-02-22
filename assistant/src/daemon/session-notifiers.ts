@@ -95,7 +95,7 @@ export function registerSessionNotifiers(
   registerCallQuestionNotifier(conversationId, (callSessionId: string, question: string) => {
     const callSession = getCallSession(callSessionId);
     const callee = callSession?.toNumber ?? 'the caller';
-    const questionText = `**Live call question** (to ${callee}):\n\n${question}\n\n_Reply in this thread to answer. You can also send messages anytime during the call to steer the conversation._`;
+    const questionText = `**Live call question** (to ${callee}):\n\n${question}\n\n_Reply in this thread to answer. Your next message will be treated as the answer to this question. Once answered, you can send messages to steer the conversation._`;
 
     conversationStore.addMessage(
       conversationId,
