@@ -82,7 +82,6 @@ PY
    ```bash
    REPO_ROOT="$(pwd)"
    cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh run &
-   cd ..
    ```
 
 8. Verify health:
