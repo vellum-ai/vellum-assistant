@@ -3,7 +3,10 @@ import type { GatewayConfig } from "../../config.js";
 
 // --- Mocks ----------------------------------------------------------------
 
-const callTelegramApiMock = mock(() => Promise.resolve({}));
+const callTelegramApiMock = mock(
+  (_config: GatewayConfig, _method: string, _body: Record<string, unknown>) =>
+    Promise.resolve({}),
+);
 const sendTelegramReplyMock = mock(() => Promise.resolve());
 const handleInboundMock = mock(() =>
   Promise.resolve({ forwarded: true, rejected: false }),
