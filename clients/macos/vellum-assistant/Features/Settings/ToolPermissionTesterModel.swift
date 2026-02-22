@@ -124,16 +124,13 @@ final class ToolPermissionTesterModel: ObservableObject {
 
         let riskLevel = lastResult?.riskLevel ?? ""
         let isHighRisk = riskLevel.lowercased() == "high"
-        let effectiveDecision = isHighRisk
-            ? "always_allow_high_risk"
-            : decision
 
         do {
             try dc.sendAddTrustRule(
                 toolName: toolName,
                 pattern: pattern,
                 scope: scope,
-                decision: effectiveDecision,
+                decision: "allow",  // Always use canonical "allow" — metadata handles high-risk
                 allowHighRisk: isHighRisk ? true : nil,
                 principalKind: principalKind.isEmpty ? nil : principalKind,
                 principalId: principalId.isEmpty ? nil : principalId,
