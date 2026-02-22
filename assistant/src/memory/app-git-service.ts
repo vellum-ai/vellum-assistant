@@ -77,10 +77,14 @@ function validateCommitHash(hash: string): void {
   }
 }
 
-/** Validate an app ID (UUID-like, no path traversal). */
+/** Validate an app ID (UUID-like, no path traversal or git pathspec chars). */
 function validateAppId(id: string): void {
   if (!id || id.includes('/') || id.includes('\\') || id.includes('..') || id !== id.trim()) {
     throw new Error(`Invalid app ID: ${id}`);
+  }
+  // Reject git pathspec metacharacters to prevent cross-app operations
+  if (/[*?[\]:(]/.test(id)) {
+    throw new Error(`Invalid app ID: contains git pathspec characters: ${id}`);
   }
 }
 
@@ -269,9 +273,9 @@ export async function restoreAppVersion(appId: string, commitHash: string): Prom
 
     const shortHash = commitHash.substring(0, 7);
 
-    // Stage and commit atomically within the same mutex lock
-    await exec(['add', '-A']);
-    await exec(['commit', '-m', `Restore app: ${appName} to ${shortHash}`]);
+    // Stage only this app's files and commit atomically within the same mutex lock
+    await exec(['add', '--', `${appId}.json`, `${appId}/`]);
+    await exec(['commit', '-m', `Restore app: ${appName} to ${shortHash}`, '--allow-empty']);
   });
 }
 
