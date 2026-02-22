@@ -614,7 +614,7 @@ export async function generateAllowlistOptions(toolName: string, input: Record<s
   return [{ label: '*', description: 'Everything', pattern: '*' }];
 }
 
-export function generateScopeOptions(workingDir: string, toolName?: string): ScopeOption[] {
+export function generateScopeOptions(workingDir: string, _toolName?: string): ScopeOption[] {
   const home = homedir();
   const options: ScopeOption[] = [];
 

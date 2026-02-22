@@ -70,7 +70,7 @@ export async function analyzeShellCommand(command: string, preParsed?: ParsedCom
  * action keys. Pipelines and complex chains are marked non-simple.
  */
 export function deriveShellActionKeys(analysis: ShellIdentityAnalysis): ActionKeyResult {
-  const { segments, operators } = analysis;
+  const { segments } = analysis;
 
   if (segments.length === 0) {
     return { keys: [], isSimpleAction: false };
