@@ -41,6 +41,7 @@ mock.module('../daemon/handlers.js', () => ({
 }));
 
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
+import { conversations } from '../memory/schema.js';
 import {
   createRun,
   setRunConfirmation,
@@ -65,10 +66,11 @@ afterAll(() => {
 function ensureConversation(conversationId: string): void {
   const db = getDb();
   try {
-    db.run(
-      `INSERT INTO conversations (id, createdAt, updatedAt) VALUES (?, ?, ?)`,
-      [conversationId, Date.now(), Date.now()],
-    );
+    db.insert(conversations).values({
+      id: conversationId,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }).run();
   } catch {
     // already exists
   }
@@ -179,7 +181,7 @@ describe('feature flag disabled → normal flow', () => {
 
   test('proceeds normally even when pending approvals exist', async () => {
     ensureConversation('conv-1');
-    const run = createRun('conv-1', 'msg-1');
+    const run = createRun('conv-1');
     setRunConfirmation(run.id, sampleConfirmation);
 
     const orchestrator = makeMockOrchestrator();
@@ -230,15 +232,15 @@ describe('inbound callback metadata triggers decision handling', () => {
     // Now we need to find the actual conversationId that was created.
     // Check the channel_inbound_events table.
     const db = getDb();
-    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
-    const conversationId = events[0]?.conversationId;
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
     expect(conversationId).toBeTruthy();
 
     // Ensure conversation row exists for FK constraints
     ensureConversation(conversationId!);
 
     // Create a pending run for this conversation
-    const run = createRun(conversationId!, 'msg-1');
+    const run = createRun(conversationId!);
     setRunConfirmation(run.id, sampleConfirmation);
 
     // Now send a callback data message
@@ -266,11 +268,11 @@ describe('inbound callback metadata triggers decision handling', () => {
     await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
 
     const db = getDb();
-    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
-    const conversationId = events[0]?.conversationId;
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
-    const run = createRun(conversationId!, 'msg-1');
+    const run = createRun(conversationId!);
     setRunConfirmation(run.id, sampleConfirmation);
 
     const req = makeInboundRequest({
@@ -307,11 +309,11 @@ describe('inbound text matching approval phrases triggers decision handling', ()
     await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
 
     const db = getDb();
-    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
-    const conversationId = events[0]?.conversationId;
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
-    const run = createRun(conversationId!, 'msg-1');
+    const run = createRun(conversationId!);
     setRunConfirmation(run.id, sampleConfirmation);
 
     const req = makeInboundRequest({ content: 'approve' });
@@ -334,11 +336,11 @@ describe('inbound text matching approval phrases triggers decision handling', ()
     await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
 
     const db = getDb();
-    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
-    const conversationId = events[0]?.conversationId;
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
-    const run = createRun(conversationId!, 'msg-1');
+    const run = createRun(conversationId!);
     setRunConfirmation(run.id, sampleConfirmation);
 
     const req = makeInboundRequest({ content: 'always' });
@@ -372,11 +374,11 @@ describe('non-decision messages during pending approval trigger reminder', () =>
     await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
 
     const db = getDb();
-    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
-    const conversationId = events[0]?.conversationId;
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
-    const run = createRun(conversationId!, 'msg-1');
+    const run = createRun(conversationId!);
     setRunConfirmation(run.id, sampleConfirmation);
 
     // Send a message that is NOT a decision
@@ -460,11 +462,11 @@ describe('empty content with callbackData bypasses validation', () => {
     await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
 
     const db = getDb();
-    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
-    const conversationId = events[0]?.conversationId;
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
-    const run = createRun(conversationId!, 'msg-1');
+    const run = createRun(conversationId!);
     setRunConfirmation(run.id, sampleConfirmation);
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
@@ -493,11 +495,11 @@ describe('empty content with callbackData bypasses validation', () => {
     await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
 
     const db = getDb();
-    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
-    const conversationId = events[0]?.conversationId;
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
-    const run = createRun(conversationId!, 'msg-1');
+    const run = createRun(conversationId!);
     setRunConfirmation(run.id, sampleConfirmation);
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
@@ -543,12 +545,12 @@ describe('callback run ID validation', () => {
     await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
 
     const db = getDb();
-    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
-    const conversationId = events[0]?.conversationId;
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
     // Create a pending run
-    const run = createRun(conversationId!, 'msg-1');
+    const run = createRun(conversationId!);
     setRunConfirmation(run.id, sampleConfirmation);
 
     // Send callback with a DIFFERENT run ID (stale button)
@@ -577,12 +579,12 @@ describe('callback run ID validation', () => {
     await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
 
     const db = getDb();
-    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
-    const conversationId = events[0]?.conversationId;
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
     // Create a pending run
-    const run = createRun(conversationId!, 'msg-1');
+    const run = createRun(conversationId!);
     setRunConfirmation(run.id, sampleConfirmation);
 
     // Send callback with the CORRECT run ID
@@ -611,12 +613,12 @@ describe('callback run ID validation', () => {
     await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
 
     const db = getDb();
-    const events = db.prepare('SELECT conversationId FROM channel_inbound_events').all() as Array<{ conversationId: string }>;
-    const conversationId = events[0]?.conversationId;
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
     // Create a pending run
-    const run = createRun(conversationId!, 'msg-1');
+    const run = createRun(conversationId!);
     setRunConfirmation(run.id, sampleConfirmation);
 
     // Send plain text "yes" — no runId in the parsed result, so validation is skipped
@@ -643,7 +645,7 @@ describe('linkMessage in approval-aware processing path', () => {
   });
 
   test('linkMessage is called when run has a messageId and reaches terminal state', async () => {
-    const linkSpy = spyOn(channelDeliveryStore, 'linkMessage');
+    const linkSpy = spyOn(channelDeliveryStore, 'linkMessage').mockImplementation(() => {});
     const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
@@ -672,8 +674,8 @@ describe('linkMessage in approval-aware processing path', () => {
     const req = makeInboundRequest({ content: 'hello world' });
     await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
 
-    // Wait for the background async to complete
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Wait for the background async to complete (must exceed RUN_POLL_INTERVAL_MS of 500ms)
+    await new Promise((resolve) => setTimeout(resolve, 800));
 
     // Verify linkMessage was called with the run's messageId
     const linkCalls = linkSpy.mock.calls.filter(
@@ -700,6 +702,7 @@ describe('terminal state check before markProcessed', () => {
   });
 
   test('does NOT markProcessed when run is not in terminal state after poll timeout', async () => {
+    const linkSpy = spyOn(channelDeliveryStore, 'linkMessage').mockImplementation(() => {});
     const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
@@ -750,11 +753,13 @@ describe('terminal state check before markProcessed', () => {
     // but that's the non-approval path)
     expect(markCalls.length).toBe(0);
 
+    linkSpy.mockRestore();
     markSpy.mockRestore();
     deliverSpy.mockRestore();
   });
 
   test('markProcessed is called when run reaches completed state', async () => {
+    const linkSpy = spyOn(channelDeliveryStore, 'linkMessage').mockImplementation(() => {});
     const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
@@ -788,11 +793,13 @@ describe('terminal state check before markProcessed', () => {
     // markProcessed should have been called because the run reached completed
     expect(markSpy).toHaveBeenCalled();
 
+    linkSpy.mockRestore();
     markSpy.mockRestore();
     deliverSpy.mockRestore();
   });
 
   test('markProcessed is called when run reaches failed state', async () => {
+    const linkSpy = spyOn(channelDeliveryStore, 'linkMessage').mockImplementation(() => {});
     const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
@@ -826,6 +833,7 @@ describe('terminal state check before markProcessed', () => {
     // markProcessed should have been called because the run reached failed
     expect(markSpy).toHaveBeenCalled();
 
+    linkSpy.mockRestore();
     markSpy.mockRestore();
     deliverSpy.mockRestore();
   });

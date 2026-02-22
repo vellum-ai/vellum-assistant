@@ -29,6 +29,7 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
+import { conversations } from '../memory/schema.js';
 import {
   createRun,
   setRunConfirmation,
@@ -58,10 +59,11 @@ afterAll(() => {
 function ensureConversation(conversationId: string): void {
   const db = getDb();
   try {
-    db.run(
-      `INSERT INTO conversations (id, createdAt, updatedAt) VALUES (?, ?, ?)`,
-      [conversationId, Date.now(), Date.now()],
-    );
+    db.insert(conversations).values({
+      id: conversationId,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }).run();
   } catch {
     // already exists
   }
@@ -107,14 +109,14 @@ describe('getChannelApprovalPrompt', () => {
 
   test('returns null when runs exist but none need confirmation', () => {
     ensureConversation('conv-1');
-    createRun('conv-1', 'msg-1');
+    createRun('conv-1');
     const result = getChannelApprovalPrompt('conv-1');
     expect(result).toBeNull();
   });
 
   test('returns a prompt when a run needs confirmation', () => {
     ensureConversation('conv-1');
-    const run = createRun('conv-1', 'msg-1');
+    const run = createRun('conv-1');
     setRunConfirmation(run.id, sampleConfirmation);
 
     const result = getChannelApprovalPrompt('conv-1');
@@ -133,8 +135,8 @@ describe('getChannelApprovalPrompt', () => {
 
   test('uses the first pending run when multiple exist', () => {
     ensureConversation('conv-1');
-    const run1 = createRun('conv-1', 'msg-1');
-    const run2 = createRun('conv-1', 'msg-2');
+    const run1 = createRun('conv-1');
+    const run2 = createRun('conv-1');
     setRunConfirmation(run1.id, sampleConfirmation);
     setRunConfirmation(run2.id, {
       ...sampleConfirmation,
@@ -150,7 +152,7 @@ describe('getChannelApprovalPrompt', () => {
 
   test('excludes approve_always action when persistentDecisionsAllowed is false', () => {
     ensureConversation('conv-1');
-    const run = createRun('conv-1', 'msg-1');
+    const run = createRun('conv-1');
     setRunConfirmation(run.id, {
       ...sampleConfirmation,
       persistentDecisionsAllowed: false,
@@ -164,7 +166,7 @@ describe('getChannelApprovalPrompt', () => {
 
   test('includes approve_always when persistentDecisionsAllowed is undefined', () => {
     ensureConversation('conv-1');
-    const run = createRun('conv-1', 'msg-1');
+    const run = createRun('conv-1');
     setRunConfirmation(run.id, {
       ...sampleConfirmation,
       // persistentDecisionsAllowed not set — defaults to allowed
@@ -182,7 +184,7 @@ describe('getChannelApprovalPrompt', () => {
 
   test('includes approve_always when persistentDecisionsAllowed is true', () => {
     ensureConversation('conv-1');
-    const run = createRun('conv-1', 'msg-1');
+    const run = createRun('conv-1');
     setRunConfirmation(run.id, {
       ...sampleConfirmation,
       persistentDecisionsAllowed: true,
@@ -200,7 +202,7 @@ describe('getChannelApprovalPrompt', () => {
   test('does not return prompts for other conversations', () => {
     ensureConversation('conv-1');
     ensureConversation('conv-2');
-    const run = createRun('conv-1', 'msg-1');
+    const run = createRun('conv-1');
     setRunConfirmation(run.id, sampleConfirmation);
 
     const result = getChannelApprovalPrompt('conv-2');
@@ -263,7 +265,7 @@ describe('handleChannelDecision', () => {
 
   test('approves once via orchestrator.submitDecision with "allow"', () => {
     ensureConversation('conv-1');
-    const run = createRun('conv-1', 'msg-1');
+    const run = createRun('conv-1');
     setRunConfirmation(run.id, sampleConfirmation);
 
     const orchestrator = makeMockOrchestrator();
@@ -280,7 +282,7 @@ describe('handleChannelDecision', () => {
 
   test('rejects via orchestrator.submitDecision with "deny"', () => {
     ensureConversation('conv-1');
-    const run = createRun('conv-1', 'msg-1');
+    const run = createRun('conv-1');
     setRunConfirmation(run.id, sampleConfirmation);
 
     const orchestrator = makeMockOrchestrator();
@@ -297,7 +299,7 @@ describe('handleChannelDecision', () => {
 
   test('approve_always adds a trust rule and submits "allow"', () => {
     ensureConversation('conv-1');
-    const run = createRun('conv-1', 'msg-1');
+    const run = createRun('conv-1');
     setRunConfirmation(run.id, {
       ...sampleConfirmation,
       executionTarget: 'sandbox',
@@ -334,7 +336,7 @@ describe('handleChannelDecision', () => {
 
   test('approve_always does not persist rule when no allowlist/scope options are available', () => {
     ensureConversation('conv-1');
-    const run = createRun('conv-1', 'msg-1');
+    const run = createRun('conv-1');
     setRunConfirmation(run.id, {
       toolName: 'bash',
       toolUseId: 'req-no-opts',
@@ -364,7 +366,7 @@ describe('handleChannelDecision', () => {
 
   test('approve_always does not persist rule when allowlist/scope are empty arrays', () => {
     ensureConversation('conv-1');
-    const run = createRun('conv-1', 'msg-1');
+    const run = createRun('conv-1');
     setRunConfirmation(run.id, {
       toolName: 'bash',
       toolUseId: 'req-empty-opts',
@@ -392,7 +394,7 @@ describe('handleChannelDecision', () => {
 
   test('approve_always does not persist rule when persistentDecisionsAllowed is false', () => {
     ensureConversation('conv-1');
-    const run = createRun('conv-1', 'msg-1');
+    const run = createRun('conv-1');
     setRunConfirmation(run.id, {
       ...sampleConfirmation,
       persistentDecisionsAllowed: false,
@@ -419,7 +421,7 @@ describe('handleChannelDecision', () => {
 
   test('returns applied: false when orchestrator cannot apply decision', () => {
     ensureConversation('conv-1');
-    const run = createRun('conv-1', 'msg-1');
+    const run = createRun('conv-1');
     setRunConfirmation(run.id, sampleConfirmation);
 
     const orchestrator = makeMockOrchestrator('no_pending_decision');

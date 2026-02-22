@@ -554,6 +554,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   tool_names_list: {
     type: 'tool_names_list',
   },
+  guardian_verification: {
+    type: 'guardian_verification',
+    action: 'create_challenge',
+    channel: 'telegram',
+    sessionId: 'sess-001',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1585,6 +1591,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   tool_names_list_response: {
     type: 'tool_names_list_response',
     names: ['bash', 'file_read', 'file_write'],
+  },
+  guardian_verification_response: {
+    type: 'guardian_verification_response',
+    success: true,
+    secret: 'VERIFY-ABC123',
+    instruction: 'Send this code to the bot',
   },
 };
 
