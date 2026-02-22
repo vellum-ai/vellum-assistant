@@ -561,13 +561,17 @@ struct MainWindowView: View {
 
             // Show a brief toast when a previously-hidden thread reappears
             threadManager.onThreadReconnected = { [weak windowState] title in
+                let toastMessage = "Reconnected: \(title)"
                 windowState?.showToast(
-                    message: "Reconnected: \(title)",
+                    message: toastMessage,
                     style: .success
                 )
-                // Auto-dismiss after 3 seconds
+                // Auto-dismiss after 3 seconds, but only if this toast is still showing.
+                // Avoids prematurely dismissing an unrelated toast that appeared in the interim.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak windowState] in
-                    windowState?.dismissToast()
+                    if windowState?.toastInfo?.message == toastMessage {
+                        windowState?.dismissToast()
+                    }
                 }
             }
         }

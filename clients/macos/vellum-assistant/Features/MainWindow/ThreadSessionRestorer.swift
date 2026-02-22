@@ -108,20 +108,36 @@ final class ThreadSessionRestorer {
 
         var restoredThreads: [ThreadModel] = []
         for session in recentSessions {
-            // If this session was hidden locally, clear the hidden-session
-            // tracker so the monitor stops watching for it. The thread will
-            // be re-created normally (not archived) and remain visible.
+            // Check hidden state BEFORE clearing so isSessionHidden(_:updatedAt:)
+            // can read the persisted timestamp. If the session has new activity
+            // (updatedAt > hideTime), isSessionHidden returns false and the thread
+            // re-appears as visible.
+            let isHidden = delegate.isSessionHidden(session.id, updatedAt: session.updatedAt)
+
+            // Now that the hidden check is done, clear the in-memory monitor
+            // so the hidden-session monitor task stops watching for this session.
+            // The persisted timestamp was already handled by isSessionHidden above
+            // (it auto-clears when new activity is detected).
             if delegate.isSessionHidden(session.id) {
                 delegate.clearHiddenSession(session.id)
             }
 
             let kind: ThreadKind = session.threadType == "private" ? .private : .standard
             let binding = session.channelBinding
+
+            // Preserve user-set titles: if a thread with this session already
+            // exists locally and has a non-default title, keep it instead of
+            // overwriting with the daemon's auto-generated title.
+            let existingTitle = delegate.threads
+                .first(where: { $0.sessionId == session.id && $0.title != "New Conversation" })?
+                .title
+            let title = existingTitle ?? session.title
+
             let thread = ThreadModel(
-                title: session.title,
+                title: title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 sessionId: session.id,
-                isArchived: delegate.isSessionArchived(session.id) || delegate.isSessionHidden(session.id, updatedAt: session.updatedAt),
+                isArchived: delegate.isSessionArchived(session.id) || isHidden,
                 kind: kind,
                 sourceChannel: binding?.sourceChannel,
                 displayName: binding?.displayName,

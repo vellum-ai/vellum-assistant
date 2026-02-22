@@ -905,6 +905,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         )
         let viewModel = makeViewModel()
         viewModel.sessionId = sessionId
+        // Do NOT wire onFirstUserMessage — this is a restored thread with an
+        // existing title. Auto-titling would clobber the preserved title.
         viewModel.startMessageLoop()
 
         threads.insert(thread, at: 0)
