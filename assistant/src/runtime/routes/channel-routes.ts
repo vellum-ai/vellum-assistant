@@ -1355,7 +1355,7 @@ export function sweepExpiredGuardianApprovals(
     };
     handleChannelDecision(approval.conversationId, expiredDecision, orchestrator);
 
-    // Construct the delivery URL for this approval's channel
+    // Construct the per-channel delivery URL from the approval's channel
     const deliverUrl = `${gatewayBaseUrl}/deliver/${approval.channel}`;
 
     // Notify the requester that the approval expired

@@ -2281,8 +2281,7 @@ describe('expired guardian approval auto-denies via sweep', () => {
 
     const orchestrator = makeMockOrchestrator();
 
-    // Run the sweep — pass the gateway base URL; the function constructs
-    // per-channel delivery URLs like ${gatewayBaseUrl}/deliver/${channel}
+    // Run the sweep — pass the gateway base URL (not a full /deliver/<channel> URL)
     sweepExpiredGuardianApprovals(orchestrator, 'https://gateway.test', 'token');
 
     // Wait for async notifications
@@ -2313,6 +2312,12 @@ describe('expired guardian approval auto-denies via sweep', () => {
         (call[1] as { text?: string }).text?.includes('expired'),
     );
     expect(guardianNotify.length).toBeGreaterThanOrEqual(1);
+
+    // Verify the delivery URL is constructed per-channel (telegram in this case)
+    const allDeliverCalls = deliverSpy.mock.calls;
+    for (const call of allDeliverCalls) {
+      expect(call[0]).toBe('https://gateway.test/deliver/telegram');
+    }
 
     deliverSpy.mockRestore();
   });
