@@ -161,6 +161,26 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     method: 'query',
     appId: 'app-001',
   },
+  app_history_request: {
+    type: 'app_history_request',
+    appId: 'app-001',
+  },
+  app_diff_request: {
+    type: 'app_diff_request',
+    appId: 'app-001',
+    fromCommit: 'abc123',
+  },
+  app_file_at_version_request: {
+    type: 'app_file_at_version_request',
+    appId: 'app-001',
+    path: 'index.html',
+    commitHash: 'abc123',
+  },
+  app_restore_request: {
+    type: 'app_restore_request',
+    appId: 'app-001',
+    commitHash: 'abc123',
+  },
   skills_list: {
     type: 'skills_list',
   },
@@ -835,6 +855,26 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     callId: 'call-001',
     success: true,
     result: [{ id: 'rec-001', appId: 'app-001', data: { name: 'Test' }, createdAt: 1700000000, updatedAt: 1700000000 }],
+  },
+  app_history_response: {
+    type: 'app_history_response',
+    appId: 'app-001',
+    versions: [{ commitHash: 'abc123', message: 'Initial commit', timestamp: 1700000000 }],
+  },
+  app_diff_response: {
+    type: 'app_diff_response',
+    appId: 'app-001',
+    diff: '--- a/index.html\n+++ b/index.html\n@@ -1 +1 @@\n-old\n+new',
+  },
+  app_file_at_version_response: {
+    type: 'app_file_at_version_response',
+    appId: 'app-001',
+    path: 'index.html',
+    content: '<html></html>',
+  },
+  app_restore_response: {
+    type: 'app_restore_response',
+    success: true,
   },
   skills_list_response: {
     type: 'skills_list_response',
