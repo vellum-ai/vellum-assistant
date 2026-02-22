@@ -33,6 +33,7 @@ export type CredentialChangeCallback = (event: CredentialChangeEvent) => void;
 
 export class CredentialWatcher {
   private watcher: FSWatcher | null = null;
+  private watchingDirectory = false;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastBotToken: string | undefined;
   private lastWebhookSecret: string | undefined;
@@ -49,14 +50,15 @@ export class CredentialWatcher {
   start(): void {
     this.pollOnce();
 
-    const watchTarget = existsSync(this.metadataPath)
-      ? this.metadataPath
-      : dirname(this.metadataPath);
+    this.watchingDirectory = !existsSync(this.metadataPath);
+    const watchTarget = this.watchingDirectory
+      ? dirname(this.metadataPath)
+      : this.metadataPath;
 
     try {
       this.watcher = watch(watchTarget, { persistent: false }, (_event, filename) => {
         if (
-          watchTarget !== this.metadataPath &&
+          this.watchingDirectory &&
           filename !== "metadata.json"
         ) {
           return;
@@ -89,11 +91,7 @@ export class CredentialWatcher {
       this.debounceTimer = null;
       this.pollOnce();
 
-      if (
-        !this.watcher ||
-        (existsSync(this.metadataPath) &&
-          this.watcher.ref === undefined)
-      ) {
+      if (this.watchingDirectory && existsSync(this.metadataPath)) {
         this.upgradeWatcher();
       }
     }, DEBOUNCE_MS);
@@ -115,6 +113,7 @@ export class CredentialWatcher {
           this.scheduleCheck();
         },
       );
+      this.watchingDirectory = false;
       log.debug("Upgraded watcher to metadata file");
     } catch (err) {
       log.warn({ err }, "Failed to upgrade credential file watcher");

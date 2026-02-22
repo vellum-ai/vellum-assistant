@@ -168,8 +168,10 @@ function main() {
     });
   }
 
+  const telegramFromEnv = isTelegramConfigured();
+
   const credentialWatcher = new CredentialWatcher((event) => {
-    if (event.telegramChanged) {
+    if (event.telegramChanged && !telegramFromEnv) {
       if (event.telegramCredentials) {
         config.telegramBotToken = event.telegramCredentials.botToken;
         config.telegramWebhookSecret = event.telegramCredentials.webhookSecret;

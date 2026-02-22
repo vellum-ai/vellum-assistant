@@ -54,6 +54,7 @@ function readConfigFile(path: string): { ingressPublicBaseUrl?: string; smsPhone
 
 export class ConfigFileWatcher {
   private watcher: FSWatcher | null = null;
+  private watchingDirectory = false;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastIngressPublicBaseUrl: string | undefined;
   private lastSmsPhoneNumber: string | undefined;
@@ -68,14 +69,15 @@ export class ConfigFileWatcher {
   start(): void {
     this.pollOnce();
 
-    const watchTarget = existsSync(this.configPath)
-      ? this.configPath
-      : dirname(this.configPath);
+    this.watchingDirectory = !existsSync(this.configPath);
+    const watchTarget = this.watchingDirectory
+      ? dirname(this.configPath)
+      : this.configPath;
 
     try {
       this.watcher = watch(watchTarget, { persistent: false }, (_event, filename) => {
         if (
-          watchTarget !== this.configPath &&
+          this.watchingDirectory &&
           filename !== CONFIG_FILENAME
         ) {
           return;
@@ -108,11 +110,7 @@ export class ConfigFileWatcher {
       this.debounceTimer = null;
       this.pollOnce();
 
-      if (
-        !this.watcher ||
-        (existsSync(this.configPath) &&
-          this.watcher.ref === undefined)
-      ) {
+      if (this.watchingDirectory && existsSync(this.configPath)) {
         this.upgradeWatcher();
       }
     }, DEBOUNCE_MS);
@@ -134,6 +132,7 @@ export class ConfigFileWatcher {
           this.scheduleCheck();
         },
       );
+      this.watchingDirectory = false;
       log.debug("Upgraded watcher to config file");
     } catch (err) {
       log.warn({ err }, "Failed to upgrade config file watcher");
