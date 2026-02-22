@@ -44,9 +44,6 @@ export interface SendResult {
   id: string;
   timestamp: number;
   conversationId: string;
-  conflict?: {
-    ownerConversationId: string;
-  };
 }
 
 export interface ConnectionInfo {
@@ -80,6 +77,4 @@ export interface SendOptions {
   subject?: string;
   /** For email: in-reply-to message ID */
   inReplyTo?: string;
-  /** Internal conversation ID of the sender, used for owner arbitration */
-  senderConversationId?: string;
 }
