@@ -69,7 +69,7 @@ const successBody = {
   },
 };
 
-function mockFetch(fn: () => Promise<Response>) {
+function mockFetch(fn: (...args: Parameters<typeof fetch>) => Promise<Response>) {
   const m = mock(fn);
   Object.assign(m, { preconnect: () => {} });
   globalThis.fetch = m as unknown as typeof fetch;
@@ -111,10 +111,21 @@ describe("forwardToRuntime", () => {
   });
 
   test("5xx error retries and eventually succeeds", async () => {
-    let callCount = 0;
-    mockFetch(() => {
-      callCount++;
-      if (callCount <= 2) {
+    const config = makeConfig();
+    const expectedUrl = `${config.assistantRuntimeBaseUrl}/v1/assistants/assistant-a/channels/inbound`;
+    let inboundCallCount = 0;
+    const fetchMock = mockFetch((input) => {
+      const calledUrl =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (calledUrl === expectedUrl) {
+        inboundCallCount++;
+      }
+
+      if (inboundCallCount <= 2) {
         return Promise.resolve(
           new Response("Internal error", { status: 500 }),
         );
@@ -124,10 +135,13 @@ describe("forwardToRuntime", () => {
       );
     });
 
-    const config = makeConfig();
     const result = await forwardToRuntime(config, "assistant-a", payload);
     expect(result.accepted).toBe(true);
-    expect(callCount).toBe(3);
+    const callsToInboundRoute = fetchMock.mock.calls.filter((call) => {
+      const calledUrl = call[0];
+      return typeof calledUrl === "string" && calledUrl === expectedUrl;
+    });
+    expect(callsToInboundRoute).toHaveLength(3);
   });
 
   test("5xx error exhausts retries and throws", async () => {

@@ -332,6 +332,28 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'app_preview_request',
     appId: 'app-001',
   },
+  app_history_request: {
+    type: 'app_history_request',
+    appId: 'app-001',
+    limit: 25,
+  },
+  app_diff_request: {
+    type: 'app_diff_request',
+    appId: 'app-001',
+    fromCommit: 'abc123def456',
+    toCommit: '789abc123def',
+  },
+  app_file_at_version_request: {
+    type: 'app_file_at_version_request',
+    appId: 'app-001',
+    path: 'index.html',
+    commitHash: 'abc123def456',
+  },
+  app_restore_request: {
+    type: 'app_restore_request',
+    appId: 'app-001',
+    commitHash: 'abc123def456',
+  },
   share_app_cloud: {
     type: 'share_app_cloud',
     appId: 'app-001',
@@ -1211,6 +1233,37 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'app_preview_response',
     appId: 'app-001',
     preview: 'base64-png-data',
+  },
+  app_history_response: {
+    type: 'app_history_response',
+    appId: 'app-001',
+    versions: [
+      {
+        commitHash: 'abc123def456',
+        message: 'Initial app commit',
+        timestamp: 1700000000,
+      },
+      {
+        commitHash: '789abc123def',
+        message: 'Update landing page',
+        timestamp: 1700001000,
+      },
+    ],
+  },
+  app_diff_response: {
+    type: 'app_diff_response',
+    appId: 'app-001',
+    diff: 'diff --git a/index.html b/index.html',
+  },
+  app_file_at_version_response: {
+    type: 'app_file_at_version_response',
+    appId: 'app-001',
+    path: 'index.html',
+    content: '<html><body>Hello</body></html>',
+  },
+  app_restore_response: {
+    type: 'app_restore_response',
+    success: true,
   },
   ui_surface_undo_result: {
     type: 'ui_surface_undo_result',
