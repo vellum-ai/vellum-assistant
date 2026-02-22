@@ -69,7 +69,7 @@ function main() {
 
       // Attach a trace ID to every non-healthcheck request for
       // end-to-end correlation across webhook → runtime → reply.
-      const traceId = generateTraceId();
+      const traceId = req.headers.get("x-trace-id") || generateTraceId();
       const headers = new Headers(req.headers);
       headers.set("x-trace-id", traceId);
       const tracedReq = new Request(req, { headers });
@@ -120,7 +120,7 @@ function main() {
       }
 
       if (url.pathname === "/webhooks/twilio/relay" || url.pathname === "/v1/calls/relay") {
-        const upgradeResult = handleTwilioRelayWs(tracedReq, server);
+        const upgradeResult = handleTwilioRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         // If upgrade was handled, Bun doesn't need a response
         return undefined as unknown as Response;
