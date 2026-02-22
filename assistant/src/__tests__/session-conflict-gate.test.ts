@@ -410,7 +410,8 @@ describe('Session conflict soft gate', () => {
     expect(injectedText).toContain('Memory clarification request');
     expect(injectedText).toContain('Should I assume Postgres or MySQL?');
     expect(resolverCallCount).toBe(0);
-    expect(markAskedCalls).toEqual(['conflict-irrelevant']);
+    // Zero-relevance conflicts are surfaced but not tracked as asked
+    expect(markAskedCalls).toEqual([]);
     expect(events.some((event) => event.type === 'message_complete')).toBe(true);
   });
 
@@ -621,7 +622,7 @@ describe('Session conflict soft gate', () => {
     expect(markAskedCalls).toEqual([]);
   });
 
-  test('irrelevant conflict is soft-asked on first turn but cooldown prevents re-ask on subsequent turns when askOnIrrelevantTurns is explicitly true', async () => {
+  test('zero-relevance conflict is soft-asked on every turn (not tracked) when askOnIrrelevantTurns is explicitly true', async () => {
     askOnIrrelevantTurns = true;
     pendingConflicts = [{
       id: 'conflict-cooldown',
@@ -653,9 +654,12 @@ describe('Session conflict soft gate', () => {
     const secondUserText = extractText(runCalls[1][runCalls[1].length - 1]);
     // First turn: askOnIrrelevantTurns=true causes soft injection
     expect(firstUserText).toContain('Memory clarification request');
-    // Second turn: cooldown prevents re-asking
-    expect(secondUserText).not.toContain('Memory clarification request');
-    expect(markAskedCalls).toEqual(['conflict-cooldown']);
+    // Second turn: cooldown prevents re-asking (but since relevance is 0,
+    // the first ask was not tracked, so cooldown doesn't apply — the conflict
+    // is surfaced again on the second turn too)
+    expect(secondUserText).toContain('Memory clarification request');
+    // Zero-relevance conflicts are never tracked as asked
+    expect(markAskedCalls).toEqual([]);
   });
 
   test('passes session scopeId through to conflict store queries', async () => {
@@ -962,7 +966,55 @@ describe('ConflictGate askOnIrrelevantTurns knob', () => {
     expect(result).not.toBeNull();
     expect(result!.relevant).toBe(false);
     expect(result!.question).toContain('Postgres or MySQL');
-    expect(markAskedCalls).toEqual(['conflict-irrel-true']);
+    // Zero-relevance conflicts are surfaced but not tracked as asked
+    expect(markAskedCalls).toEqual([]);
+  });
+
+  test('zero-relevance conflict asked via askOnIrrelevantTurns does not cause wasRecentlyAsked on next turn', async () => {
+    pendingConflicts = [{
+      id: 'conflict-zero-rel',
+      scopeId: 'default',
+      existingItemId: 'existing-zero',
+      candidateItemId: 'candidate-zero',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Should I assume Postgres or MySQL?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Use Postgres as the default database.',
+      candidateStatement: 'Use MySQL as the default database.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
+    }];
+
+    const gate = new ConflictGate();
+
+    // First turn: zero-relevance conflict is surfaced via askOnIrrelevantTurns
+    const result1 = await gate.evaluate(
+      'How do I set up pre-commit hooks?',
+      { ...baseConfig, askOnIrrelevantTurns: true },
+    );
+    expect(result1).not.toBeNull();
+    expect(result1!.relevant).toBe(false);
+    // Not tracked as asked because relevance is 0
+    expect(markAskedCalls).toEqual([]);
+
+    // Second turn: an unrelated short imperative that looks like a clarification reply.
+    // If the zero-relevance conflict had been tracked, wasRecentlyAsked would return
+    // true and shouldAttemptConflictResolution would try to resolve it — which is wrong.
+    // Since we don't track zero-relevance asks, the resolver should NOT be called.
+    const result2 = await gate.evaluate(
+      'keep it',
+      { ...baseConfig, askOnIrrelevantTurns: false },
+    );
+
+    // The conflict should not have been resolved by the resolver
+    expect(resolverCallCount).toBe(0);
+    // With askOnIrrelevantTurns=false and the conflict being irrelevant, result is null
+    expect(result2).toBeNull();
   });
 
   test('relevant conflict is asked regardless of askOnIrrelevantTurns value', async () => {
