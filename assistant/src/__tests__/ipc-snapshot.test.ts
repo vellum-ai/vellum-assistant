@@ -550,7 +550,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     workingDir: '/projects/my-app',
     isInteractive: true,
     forcePromptSideEffects: false,
-    executionTarget: 'host',
   },
 };
 
@@ -1577,6 +1576,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       ],
       persistentDecisionsAllowed: true,
     },
+    executionTarget: 'host',
     matchedRuleId: undefined,
   },
 };

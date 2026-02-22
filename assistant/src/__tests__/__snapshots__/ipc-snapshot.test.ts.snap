@@ -875,7 +875,6 @@ exports[`IPC message snapshots ClientMessage types identity_get serializes to ex
 
 exports[`IPC message snapshots ClientMessage types tool_permission_simulate serializes to expected JSON 1`] = `
 {
-  "executionTarget": "host",
   "forcePromptSideEffects": false,
   "input": {
     "command": "rm -rf /tmp/test",
@@ -2426,6 +2425,7 @@ exports[`IPC message snapshots ServerMessage types identity_get_response seriali
 exports[`IPC message snapshots ServerMessage types tool_permission_simulate_response serializes to expected JSON 1`] = `
 {
   "decision": "prompt",
+  "executionTarget": "host",
   "promptPayload": {
     "allowlistOptions": [
       {

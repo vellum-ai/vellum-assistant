@@ -1766,8 +1766,6 @@ public struct IPCToolPermissionSimulateRequest: Codable, Sendable {
     public let isInteractive: Bool?
     /// When true, side-effect tools that would normally be auto-allowed get promoted to prompt.
     public let forcePromptSideEffects: Bool?
-    /// Optional execution target override.
-    public let executionTarget: String?
 }
 
 public struct IPCToolPermissionSimulateResponse: Codable, Sendable {
@@ -1781,6 +1779,8 @@ public struct IPCToolPermissionSimulateResponse: Codable, Sendable {
     public let reason: String?
     /// When decision is 'prompt', the data needed to render a ToolConfirmationBubble.
     public let promptPayload: IPCToolPermissionSimulateResponsePromptPayload?
+    /// Resolved execution target for the tool.
+    public let executionTarget: String?
     /// ID of the trust rule that matched (if any).
     public let matchedRuleId: String?
     /// Error message when success is false.

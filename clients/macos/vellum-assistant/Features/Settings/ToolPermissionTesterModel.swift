@@ -17,7 +17,8 @@ struct SimulationResult: Equatable {
     // rather than whatever the user may have edited since.
     let snapshotToolName: String
     let snapshotInputJSON: String
-    let snapshotExecutionTarget: String
+    /// Execution target resolved by the daemon from the tool name.
+    let snapshotExecutionTarget: String?
 
     static func == (lhs: SimulationResult, rhs: SimulationResult) -> Bool {
         lhs.decision == rhs.decision
@@ -42,7 +43,6 @@ final class ToolPermissionTesterModel: ObservableObject {
     @Published var workingDir: String = ""
     @Published var isInteractive: Bool = true
     @Published var forcePromptSideEffects: Bool = false
-    @Published var executionTarget: String = ""
 
     // MARK: - Result State
 
@@ -59,7 +59,6 @@ final class ToolPermissionTesterModel: ObservableObject {
     // not whatever the user may have edited while the request was in flight.
     private var pendingSnapshotToolName: String = ""
     private var pendingSnapshotInputJSON: String = ""
-    private var pendingSnapshotExecutionTarget: String = ""
 
     init(daemonClient: DaemonClientProtocol) {
         self.daemonClient = daemonClient
@@ -87,7 +86,6 @@ final class ToolPermissionTesterModel: ObservableObject {
         // while the IPC round-trip is in flight).
         pendingSnapshotToolName = toolName
         pendingSnapshotInputJSON = inputJSON
-        pendingSnapshotExecutionTarget = executionTarget
 
         // Wire up the one-shot response callback before sending.
         if let dc = daemonClient as? DaemonClient {
@@ -104,8 +102,7 @@ final class ToolPermissionTesterModel: ObservableObject {
                 input: parsed,
                 workingDir: workingDir.isEmpty ? nil : workingDir,
                 isInteractive: isInteractive,
-                forcePromptSideEffects: forcePromptSideEffects,
-                executionTarget: executionTarget.isEmpty ? nil : executionTarget
+                forcePromptSideEffects: forcePromptSideEffects
             ))
         } catch {
             isSimulating = false
@@ -152,7 +149,7 @@ final class ToolPermissionTesterModel: ObservableObject {
                 scope: scope,
                 decision: "allow",
                 allowHighRisk: isHighRisk ? true : nil,
-                executionTarget: snapshot.snapshotExecutionTarget.isEmpty ? nil : snapshot.snapshotExecutionTarget
+                executionTarget: snapshot.snapshotExecutionTarget
             )
             // Re-simulate to show the updated outcome with the new rule in effect.
             simulate()
@@ -179,7 +176,7 @@ final class ToolPermissionTesterModel: ObservableObject {
             promptPayload: response.promptPayload,
             snapshotToolName: pendingSnapshotToolName,
             snapshotInputJSON: pendingSnapshotInputJSON,
-            snapshotExecutionTarget: pendingSnapshotExecutionTarget
+            snapshotExecutionTarget: response.executionTarget
         )
     }
 

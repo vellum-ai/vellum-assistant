@@ -4,6 +4,7 @@ import { initializeProviders } from '../../providers/registry.js';
 import { addRule, removeRule, updateRule, getAllRules, acceptStarterBundle } from '../../permissions/trust-store.js';
 import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } from '../../permissions/checker.js';
 import { isSideEffectTool } from '../../tools/executor.js';
+import { resolveExecutionTarget } from '../../tools/execution-target.js';
 import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression } from '../../schedule/schedule-store.js';
 import { listReminders, cancelReminder } from '../../tools/reminder/reminder-store.js';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
@@ -1129,10 +1130,9 @@ export async function handleToolPermissionSimulate(
 
     const workingDir = msg.workingDir ?? process.cwd();
 
-    // Build policy context from optional execution-target field
-    const policyContext = msg.executionTarget
-      ? { executionTarget: msg.executionTarget as 'host' | 'sandbox' }
-      : undefined;
+    // Infer execution target from tool name
+    const executionTarget = resolveExecutionTarget(msg.toolName);
+    const policyContext = { executionTarget };
 
     const riskLevel = await classifyRisk(msg.toolName, msg.input, workingDir);
     const result = await check(msg.toolName, msg.input, workingDir, policyContext);
@@ -1176,6 +1176,7 @@ export async function handleToolPermissionSimulate(
       decision: result.decision,
       riskLevel,
       reason: result.reason,
+      executionTarget,
       matchedRuleId: result.matchedRule?.id,
       promptPayload,
     });

@@ -1500,8 +1500,8 @@ extension IPCUpdateTrustRule {
 public typealias ToolPermissionSimulateMessage = IPCToolPermissionSimulateRequest
 
 extension IPCToolPermissionSimulateRequest {
-    public init(toolName: String, input: [String: AnyCodable], workingDir: String? = nil, isInteractive: Bool? = nil, forcePromptSideEffects: Bool? = nil, executionTarget: String? = nil) {
-        self.init(type: "tool_permission_simulate", toolName: toolName, input: input, workingDir: workingDir, isInteractive: isInteractive, forcePromptSideEffects: forcePromptSideEffects, executionTarget: executionTarget)
+    public init(toolName: String, input: [String: AnyCodable], workingDir: String? = nil, isInteractive: Bool? = nil, forcePromptSideEffects: Bool? = nil) {
+        self.init(type: "tool_permission_simulate", toolName: toolName, input: input, workingDir: workingDir, isInteractive: isInteractive, forcePromptSideEffects: forcePromptSideEffects)
     }
 }
 
