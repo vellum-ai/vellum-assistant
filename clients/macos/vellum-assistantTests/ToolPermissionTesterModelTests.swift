@@ -167,14 +167,10 @@ final class ToolPermissionTesterModelTests: XCTestCase {
             error: nil
         ))
 
-        // Give the Task { @MainActor } a chance to run
-        let expectation = XCTestExpectation(description: "Response handled")
-        Task { @MainActor in
-            // Yield once to let the inner Task run
-            try? await Task.sleep(nanoseconds: 10_000_000)
-            expectation.fulfill()
-        }
-        wait(for: [expectation], timeout: 1.0)
+        // Wait for the Task { @MainActor } dispatch to complete
+        let predicate = NSPredicate { _, _ in !self.model.isSimulating }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
 
         XCTAssertFalse(model.isSimulating)
         XCTAssertNotNil(model.lastResult)
@@ -200,12 +196,10 @@ final class ToolPermissionTesterModelTests: XCTestCase {
             error: "Tool not found"
         ))
 
-        let expectation = XCTestExpectation(description: "Response handled")
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 10_000_000)
-            expectation.fulfill()
-        }
-        wait(for: [expectation], timeout: 1.0)
+        // Wait for the Task { @MainActor } dispatch to complete
+        let predicate = NSPredicate { _, _ in !self.model.isSimulating }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
 
         XCTAssertFalse(model.isSimulating)
         XCTAssertEqual(model.lastError, "Tool not found")
