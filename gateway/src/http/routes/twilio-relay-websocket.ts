@@ -6,12 +6,19 @@ const log = getLogger("twilio-relay-ws");
 // Cap buffered messages to prevent unbounded memory growth if upstream stalls
 const MAX_PENDING_MESSAGES = 100;
 
+type RelaySocketData = {
+  callSessionId: string;
+  config: GatewayConfig;
+  upstream?: WebSocket;
+  pendingMessages?: (string | ArrayBuffer | Uint8Array)[];
+};
+
 /**
  * Create a WebSocket upgrade handler that proxies Twilio ConversationRelay
  * frames between Twilio and the runtime's /v1/calls/relay endpoint.
  */
 export function createTwilioRelayWebsocketHandler(config: GatewayConfig) {
-  return function handleUpgrade(req: Request, server: import("bun").Server<unknown>): Response | undefined {
+  return function handleUpgrade(req: Request, server: import("bun").Server<RelaySocketData>): Response | undefined {
     const url = new URL(req.url);
     const callSessionId = url.searchParams.get("callSessionId");
 
@@ -32,13 +39,6 @@ export function createTwilioRelayWebsocketHandler(config: GatewayConfig) {
     return undefined;
   };
 }
-
-type RelaySocketData = {
-  callSessionId: string;
-  config: GatewayConfig;
-  upstream?: WebSocket;
-  pendingMessages?: (string | ArrayBuffer | Uint8Array)[];
-};
 
 /**
  * WebSocket handler config for Bun.serve() that proxies frames to runtime.

@@ -56,6 +56,15 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "text or attachments required" }, { status: 400 });
     }
 
+    // Validate that each attachment has at least an id
+    if (attachments) {
+      for (const att of attachments) {
+        if (!att.id || typeof att.id !== "string") {
+          return Response.json({ error: "each attachment must have an id" }, { status: 400 });
+        }
+      }
+    }
+
     try {
       if (text) {
         await sendTelegramReply(config, chatId, text);

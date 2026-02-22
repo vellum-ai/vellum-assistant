@@ -711,6 +711,7 @@ export function buildSchema(): Record<string, unknown> {
             filename: { type: "string" },
             mimeType: { type: "string" },
             sizeBytes: { type: "integer" },
+            kind: { type: "string" },
           },
         },
       },

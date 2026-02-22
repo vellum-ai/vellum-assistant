@@ -107,7 +107,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
   test("returns 400 when callSessionId is missing", () => {
     const handler = createTwilioRelayWebsocketHandler(makeConfig());
     const req = new Request("http://localhost:7830/ws/twilio/relay");
-    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<unknown>;
+    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeInstanceOf(Response);
@@ -121,7 +121,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-42",
     );
-    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<unknown>;
+    const fakeServer = { upgrade: mock(() => true) } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeUndefined();
@@ -140,7 +140,7 @@ describe("createTwilioRelayWebsocketHandler", () => {
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",
     );
-    const fakeServer = { upgrade: mock(() => false) } as unknown as import("bun").Server<unknown>;
+    const fakeServer = { upgrade: mock(() => false) } as unknown as import("bun").Server<any>;
     const res = handler(req, fakeServer);
 
     expect(res).toBeInstanceOf(Response);
