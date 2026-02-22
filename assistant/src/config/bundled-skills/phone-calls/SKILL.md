@@ -8,6 +8,18 @@ includes: ["public-ingress"]
 
 You are helping the user set up and make outgoing phone calls via Twilio. This skill covers the full lifecycle: Twilio account setup, credential storage, public ingress configuration, enabling the calls feature, placing calls, and monitoring live transcripts.
 
+## Prerequisites — Shared Twilio Setup
+
+Twilio credentials and phone number configuration are shared between voice calls and SMS messaging. If Twilio is not yet configured, load the **twilio-setup** skill first:
+
+```
+skill_load skill=twilio-setup
+```
+
+The twilio-setup skill handles credential storage, phone number provisioning/assignment, and public ingress setup. Once complete, return here to enable the calls feature and start making calls.
+
+If Twilio is already configured (check `twilio_config` with `action: "get"`), skip directly to **Step 5: Enable Calls** below.
+
 ## Overview
 
 The calling system uses Twilio's ConversationRelay to place outbound phone calls. Twilio works out of the box as the default voice provider. Optionally, you can enable ElevenLabs integration for higher-quality, more natural-sounding voices — but this is entirely optional.
