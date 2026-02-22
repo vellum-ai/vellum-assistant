@@ -385,8 +385,12 @@ export async function handleChannelInbound(
   // Determine whether the sender is the guardian for this channel.
   // When a guardian binding exists, non-guardian actors get stricter
   // side-effect controls and their approvals route to the guardian's chat.
+  //
+  // Guardian enforcement runs independently of CHANNEL_APPROVALS_ENABLED.
+  // The approval flag only gates the interactive approval prompting UX;
+  // actor-role resolution and fail-closed denial are always active.
   let guardianCtx: GuardianContext = { actorRole: 'guardian' };
-  if (isChannelApprovalsEnabled() && body.senderExternalUserId) {
+  if (body.senderExternalUserId) {
     const senderIsGuardian = isGuardian(assistantId, sourceChannel, body.senderExternalUserId);
     if (!senderIsGuardian) {
       const binding = getGuardianBinding(assistantId, sourceChannel);
@@ -411,6 +415,18 @@ export async function handleChannelInbound(
           requesterChatId: externalChatId,
         };
       }
+    }
+  } else {
+    // No sender identity available — fail-closed when guardian enforcement
+    // is active for this channel. If a binding exists, unknown actors must
+    // not be granted default guardian permissions.
+    const binding = getGuardianBinding(assistantId, sourceChannel);
+    if (binding) {
+      guardianCtx = {
+        actorRole: 'unverified_channel',
+        requesterExternalUserId: undefined as unknown as string,
+        requesterChatId: externalChatId,
+      };
     }
   }
 

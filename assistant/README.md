@@ -154,13 +154,14 @@ When disabled (the default), channel messages follow the standard fire-and-forge
 
 ### Guardian-Specific Behavior
 
-When `CHANNEL_APPROVALS_ENABLED=true`, the channel guardian system adds a trust layer:
+Guardian enforcement (actor-role resolution, fail-closed denial for unknown actors) runs **independently** of `CHANNEL_APPROVALS_ENABLED`. The flag only controls the interactive approval prompting UX (callback handling, approval prompt surfacing). Even when the flag is off, the guardian system classifies actors and enforces fail-closed behavior.
 
 | Flag / Behavior | Description |
 |-----------------|-------------|
-| `CHANNEL_APPROVALS_ENABLED=true` | Enables the approval flow and guardian role resolution on channel inbound messages |
+| `CHANNEL_APPROVALS_ENABLED=true` | Enables the interactive approval UX: approval prompts, callback-based decisions, and reminder messages. Guardian actor-role resolution runs regardless of this flag. |
 | `forceStrictSideEffects` | Automatically set on runs triggered by non-guardian or unverified-channel senders so all side-effect tools require approval |
 | **Fail-closed no-binding** | When no guardian binding exists for a channel, the sender is classified as `unverified_channel`. Any sensitive action is auto-denied with a notice that no guardian has been configured. This prevents unverified senders from self-approving actions. |
+| **Fail-closed no-identity** | When `senderExternalUserId` is absent but a guardian binding exists for the channel, the actor is classified as `unverified_channel`. Unknown actors cannot bypass guardian enforcement by omitting identity data. |
 | **Guardian-only approval** | Non-guardian senders cannot approve their own pending actions. Only the verified guardian can approve or deny. |
 | **Expired approval auto-deny** | If a guardian approval request expires (30-minute TTL) without a decision, the action is auto-denied when the non-guardian sender next interacts. |
 
