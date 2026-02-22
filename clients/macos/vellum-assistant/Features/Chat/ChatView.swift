@@ -495,10 +495,20 @@ struct ChatView: View {
                     let hasPendingConfirmation = lastVisible?.confirmation?.state == .pending
                     let hasActiveToolCall = lastVisible?.toolCalls.contains(where: { !$0.isComplete }) == true
                     if isSending && !(lastVisible?.isStreaming == true) && !hasPendingConfirmation && !hasActiveToolCall {
-                        RunningIndicator(
-                            label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
-                            showIcon: false
-                        )
+                        HStack(alignment: .top, spacing: VSpacing.sm) {
+                            Image(nsImage: appearance.chatAvatarImage)
+                                .interpolation(.none)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 28, height: 28)
+                                .clipShape(Circle())
+                                .padding(.top, 2)
+
+                            RunningIndicator(
+                                label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
+                                showIcon: false
+                            )
+                        }
                         .frame(maxWidth: 520, alignment: .leading)
                         .id("thinking-indicator")
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
