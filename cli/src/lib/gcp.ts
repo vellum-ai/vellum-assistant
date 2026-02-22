@@ -554,6 +554,7 @@ export async function hatchGcp(
 
     const sshUser = userInfo().username;
     const bearerToken = randomBytes(32).toString("hex");
+    const hatchedBy = process.env.VELLUM_HATCHED_BY;
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     if (!anthropicApiKey) {
       console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
@@ -585,7 +586,7 @@ export async function hatchGcp(
         "--boot-disk-size=50GB",
         "--boot-disk-type=pd-standard",
         `--metadata-from-file=startup-script=${startupScriptPath}`,
-        `--labels=species=${species},vellum-assistant=true`,
+        `--labels=species=${species},vellum-assistant=true${hatchedBy ? `,hatched-by=${hatchedBy.toLowerCase().replace(/[^a-z0-9_-]/g, "_")}` : ""}`,
         "--tags=vellum-assistant",
         "--no-service-account",
         "--no-scopes",
