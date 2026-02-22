@@ -549,6 +549,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             var archived = archivedSessionIds
             archived.remove(sessionId)
             archivedSessionIds = archived
+            // Clear any persisted hidden-timestamp so the thread isn't
+            // re-hidden on restart when no new activity has arrived yet.
+            clearHiddenSession(sessionId)
         }
 
         log.info("Unarchived thread \(id)")
