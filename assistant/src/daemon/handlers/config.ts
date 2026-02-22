@@ -848,14 +848,21 @@ export async function handleToolPermissionSimulate(
 
     const workingDir = msg.workingDir ?? process.cwd();
 
-    // Build policy context from optional principal fields
-    const policyContext = msg.principalKind
+    // Build policy context from optional principal / execution-target fields
+    const hasPrincipal = !!msg.principalKind;
+    const hasTarget = !!msg.executionTarget;
+    const policyContext = (hasPrincipal || hasTarget)
       ? {
-          principal: {
-            kind: msg.principalKind as 'core' | 'skill' | 'task',
-            id: msg.principalId,
-            version: msg.principalVersion,
-          },
+          ...(hasPrincipal && {
+            principal: {
+              kind: msg.principalKind as 'core' | 'skill' | 'task',
+              id: msg.principalId,
+              version: msg.principalVersion,
+            },
+          }),
+          ...(hasTarget && {
+            executionTarget: msg.executionTarget as 'host' | 'sandbox',
+          }),
         }
       : undefined;
 
