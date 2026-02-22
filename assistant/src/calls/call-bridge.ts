@@ -120,6 +120,12 @@ async function handleInstruction(
   callSessionId: string,
   userText: string,
 ): Promise<CallBridgeResult> {
+  // Empty text (e.g. attachment-only messages) should not be relayed —
+  // fall through to normal processing so attachments are handled.
+  if (!userText.trim()) {
+    return { handled: false, reason: 'empty_instruction_text' };
+  }
+
   const result = await relayInstruction({ callSessionId, instructionText: userText });
 
   if (!result.ok) {
