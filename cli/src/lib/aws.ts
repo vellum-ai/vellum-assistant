@@ -224,6 +224,7 @@ export async function launchInstance(
   userDataPath: string,
   species: string,
   region: string,
+  hatchedBy?: string,
 ): Promise<string> {
   const blockDeviceMappings = JSON.stringify([
     {
@@ -231,14 +232,18 @@ export async function launchInstance(
       Ebs: { VolumeSize: 50, VolumeType: "gp3" },
     },
   ]);
+  const tags = [
+    { Key: "Name", Value: name },
+    { Key: "vellum-assistant", Value: "true" },
+    { Key: "species", Value: species },
+  ];
+  if (hatchedBy) {
+    tags.push({ Key: "hatched-by", Value: hatchedBy });
+  }
   const tagSpecifications = JSON.stringify([
     {
       ResourceType: "instance",
-      Tags: [
-        { Key: "Name", Value: name },
-        { Key: "vellum-assistant", Value: "true" },
-        { Key: "species", Value: species },
-      ],
+      Tags: tags,
     },
   ]);
 
@@ -398,6 +403,7 @@ export async function hatchAws(
 
     const sshUser = userInfo().username;
     const bearerToken = randomBytes(32).toString("hex");
+    const hatchedBy = process.env.VELLUM_HATCHED_BY;
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     if (!anthropicApiKey) {
       console.error("Error: ANTHROPIC_API_KEY environment variable is not set.");
@@ -442,6 +448,7 @@ export async function hatchAws(
         startupScriptPath,
         species,
         region,
+        hatchedBy,
       );
     } finally {
       try {
