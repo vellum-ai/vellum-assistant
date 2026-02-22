@@ -192,6 +192,14 @@ struct ChatBubble: View {
                 // trailing tool-chip to overlap long text content.
                 .fixedSize(horizontal: false, vertical: true)
                 .contextMenu {}
+                .overlay(alignment: .topTrailing) {
+                    if !isUser && !shouldShowBubble && hasOverflowActions {
+                        overflowMenuButton
+                            .opacity(showOverflowMenu ? 1 : 0)
+                            .animation(VAnimation.fast, value: showOverflowMenu)
+                            .offset(x: 24 + VSpacing.sm)
+                    }
+                }
 
             }
 
