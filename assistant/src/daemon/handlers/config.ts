@@ -832,7 +832,7 @@ export async function handleTelegramConfig(
         success: true,
         hasBotToken,
         botUsername,
-        connected: hasBotToken,
+        connected: hasBotToken && hasWebhookSecret,
         hasWebhookSecret,
       });
     } else if (msg.action === 'set') {
@@ -918,6 +918,19 @@ export async function handleTelegramConfig(
         if (secretStored) {
           upsertCredentialMetadata('telegram', 'webhook_secret', {});
           hasWebhookSecret = true;
+        } else {
+          // Roll back bot token to avoid partial configuration
+          deleteSecureKey('credential:telegram:bot_token');
+          deleteCredentialMetadata('telegram', 'bot_token');
+          ctx.send(socket, {
+            type: 'telegram_config_response',
+            success: false,
+            hasBotToken: false,
+            connected: false,
+            hasWebhookSecret: false,
+            error: 'Failed to store webhook secret',
+          });
+          return;
         }
       }
 
@@ -936,6 +949,19 @@ export async function handleTelegramConfig(
         triggerGatewayReconcile(effectiveUrl);
       }
     } else if (msg.action === 'clear') {
+      // Deregister the Telegram webhook before deleting credentials.
+      // The gateway reconcile short-circuits when credentials are absent,
+      // so we must call the Telegram API directly while the token is still
+      // available.
+      const botToken = getSecureKey('credential:telegram:bot_token');
+      if (botToken) {
+        try {
+          await fetch(`https://api.telegram.org/bot${botToken}/deleteWebhook`);
+        } catch (err) {
+          log.warn({ err }, 'Failed to deregister Telegram webhook (proceeding with credential cleanup)');
+        }
+      }
+
       deleteSecureKey('credential:telegram:bot_token');
       deleteCredentialMetadata('telegram', 'bot_token');
       deleteSecureKey('credential:telegram:webhook_secret');

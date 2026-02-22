@@ -489,4 +489,129 @@ describe('Telegram config handler', () => {
     expect(res.error).toContain('Failed to validate bot token');
     expect(res.error).toContain('ECONNREFUSED');
   });
+
+  test('get action reports connected only when both bot_token and webhook_secret exist', async () => {
+    // Only bot_token, no webhook_secret — should NOT be connected
+    secureKeyStore['credential:telegram:bot_token'] = 'test-bot-token';
+
+    const { ctx, sent } = createTestContext();
+    await handleTelegramConfig(
+      { type: 'telegram_config', action: 'get' },
+      {} as net.Socket,
+      ctx,
+    );
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; hasBotToken: boolean; connected: boolean; hasWebhookSecret: boolean };
+    expect(res.success).toBe(true);
+    expect(res.hasBotToken).toBe(true);
+    expect(res.hasWebhookSecret).toBe(false);
+    expect(res.connected).toBe(false);
+  });
+
+  test('set action rolls back bot token when webhook secret storage fails', async () => {
+    // Let bot token storage succeed but webhook secret storage fail
+    setSecureKeyOverride = (account: string, value: string) => {
+      if (account === 'credential:telegram:webhook_secret') return false;
+      secureKeyStore[account] = value;
+      return true;
+    };
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('api.telegram.org') && urlStr.includes('/getMe')) {
+        return new Response(JSON.stringify({
+          ok: true,
+          result: { id: 123456, is_bot: true, first_name: 'TestBot', username: 'test_bot' },
+        }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TelegramConfigRequest = {
+      type: 'telegram_config',
+      action: 'set',
+      botToken: '123456:valid-token',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTelegramConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; hasBotToken: boolean; connected: boolean; hasWebhookSecret: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toBe('Failed to store webhook secret');
+    expect(res.hasBotToken).toBe(false);
+    expect(res.connected).toBe(false);
+    expect(res.hasWebhookSecret).toBe(false);
+
+    // Bot token should have been rolled back
+    expect(secureKeyStore['credential:telegram:bot_token']).toBeUndefined();
+    // Metadata should have been cleaned up
+    expect(credentialMetadataStore.find((m) => m.service === 'telegram' && m.field === 'bot_token')).toBeUndefined();
+  });
+
+  test('clear action deregisters webhook before deleting credentials', async () => {
+    secureKeyStore['credential:telegram:bot_token'] = 'test-bot-token';
+    secureKeyStore['credential:telegram:webhook_secret'] = 'test-webhook-secret';
+    credentialMetadataStore.push({ service: 'telegram', field: 'bot_token', accountInfo: 'my_test_bot' });
+    credentialMetadataStore.push({ service: 'telegram', field: 'webhook_secret' });
+
+    let deleteWebhookCalled = false;
+    let deleteWebhookUrl = '';
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('/deleteWebhook')) {
+        deleteWebhookCalled = true;
+        deleteWebhookUrl = urlStr;
+        return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const { ctx, sent } = createTestContext();
+    await handleTelegramConfig(
+      { type: 'telegram_config', action: 'clear' },
+      {} as net.Socket,
+      ctx,
+    );
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean };
+    expect(res.success).toBe(true);
+
+    // deleteWebhook should have been called with the bot token
+    expect(deleteWebhookCalled).toBe(true);
+    expect(deleteWebhookUrl).toContain('test-bot-token');
+
+    // Credentials should still be cleaned up
+    expect(secureKeyStore['credential:telegram:bot_token']).toBeUndefined();
+    expect(secureKeyStore['credential:telegram:webhook_secret']).toBeUndefined();
+  });
+
+  test('clear action proceeds even when webhook deregistration fails', async () => {
+    secureKeyStore['credential:telegram:bot_token'] = 'test-bot-token';
+    secureKeyStore['credential:telegram:webhook_secret'] = 'test-webhook-secret';
+
+    globalThis.fetch = (async (_url: string | URL | Request) => {
+      throw new Error('Network error');
+    }) as unknown as typeof fetch;
+
+    const { ctx, sent } = createTestContext();
+    await handleTelegramConfig(
+      { type: 'telegram_config', action: 'clear' },
+      {} as net.Socket,
+      ctx,
+    );
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; hasBotToken: boolean; connected: boolean };
+    expect(res.success).toBe(true);
+    expect(res.hasBotToken).toBe(false);
+    expect(res.connected).toBe(false);
+
+    // Credentials should still be cleaned up despite webhook deregistration failure
+    expect(secureKeyStore['credential:telegram:bot_token']).toBeUndefined();
+    expect(secureKeyStore['credential:telegram:webhook_secret']).toBeUndefined();
+  });
 });
