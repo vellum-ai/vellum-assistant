@@ -45,6 +45,8 @@ cp .env.example .env
 | `OLLAMA_API_KEY` | No | — | API key for authenticated Ollama deployments |
 | `OLLAMA_BASE_URL` | No | `http://127.0.0.1:11434/v1` | Ollama base URL |
 | `RUNTIME_HTTP_PORT` | No | — | Enable the HTTP server (required for gateway/web) |
+| `RUNTIME_GATEWAY_ORIGIN_SECRET` | No | — | Dedicated secret for the `X-Gateway-Origin` proof header on `/channels/inbound`. When not set, falls back to the bearer token. Both gateway and runtime must share the same value. |
+| `CHANNEL_APPROVALS_ENABLED` | No | `false` | Enable interactive approval UX for channel sessions (prompts, callbacks, reminders). Guardian actor-role enforcement runs regardless of this flag. |
 | `VELLUM_DAEMON_SOCKET` | No | `~/.vellum/vellum.sock` | Override the daemon socket path |
 
 ## Usage
@@ -181,7 +183,7 @@ Guardian enforcement (actor-role resolution, fail-closed denial for unknown acto
 | **Fail-closed no-binding** | When no guardian binding exists for a channel, the sender is classified as `unverified_channel`. Any sensitive action is auto-denied with a notice that no guardian has been configured. This prevents unverified senders from self-approving actions. |
 | **Fail-closed no-identity** | When `senderExternalUserId` is absent but a guardian binding exists for the channel, the actor is classified as `unverified_channel`. Unknown actors cannot bypass guardian enforcement by omitting identity data. |
 | **Guardian-only approval** | Non-guardian senders cannot approve their own pending actions. Only the verified guardian can approve or deny. |
-| **Expired approval auto-deny** | If a guardian approval request expires (30-minute TTL) without a decision, the action is auto-denied when the non-guardian sender next interacts. |
+| **Expired approval auto-deny** | A proactive sweep runs every 60 seconds to find expired guardian approval requests (30-minute TTL). Expired approvals are auto-denied, and both the requester and guardian are notified. If a non-guardian interacts before the sweep runs, the expiry is also detected reactively. |
 
 ### Gateway-Origin Ingress Contract
 
@@ -215,6 +217,10 @@ Response type: `twilio_config_response` with `success`, `hasCredentials`, option
 
 Each assistant is assigned a single Twilio phone number that is shared between voice calls and SMS. The number is stored in the assistant's config at `sms.phoneNumber` and used as the `From` for outbound SMS via the gateway's `/deliver/sms` endpoint. The same credentials (Account SID, Auth Token) are used for both voice and SMS operations.
 
+### Assistant-Scoped Guardian State
+
+Guardian bindings, verification challenges, and approval requests are all scoped to an `(assistantId, channel)` pair. The `assistantId` parameter flows through `handleChannelInbound`, `validateAndConsumeChallenge`, `isGuardian`, `getGuardianBinding`, and `createApprovalRequest`. This means each assistant has its own independent guardian binding per channel -- verifying as guardian on one assistant does not grant guardian status on another.
+
 ### Channel-Aware Guardian Challenges
 
 The channel guardian service generates verification challenge instructions with channel-appropriate wording. The `channelLabel()` function maps `sourceChannel` values to human-readable labels (e.g., `"telegram"` -> `"Telegram"`, `"sms"` -> `"SMS"`), so challenge prompts reference the correct channel name.
@@ -247,6 +253,15 @@ docker run --rm -p 3001:3001 \
 The image runs as non-root user `assistant` (uid 1001) and exposes port `3001`.
 
 ## Troubleshooting
+
+### Guardian and gateway-origin issues
+
+| Symptom | Cause | Resolution |
+|---------|-------|------------|
+| 403 `GATEWAY_ORIGIN_REQUIRED` on `/channels/inbound` | Missing or invalid `X-Gateway-Origin` header | Ensure `RUNTIME_GATEWAY_ORIGIN_SECRET` is set to the same value on both gateway and runtime. If not using a dedicated secret, ensure the bearer token (`RUNTIME_BEARER_TOKEN` or `~/.vellum/http-token`) is shared. |
+| Non-guardian actions silently denied | No guardian binding for the channel. The system is fail-closed. | Run the guardian verification flow from the desktop UI to bind a guardian. |
+| Guardian approval expired | The 30-minute TTL elapsed. The proactive sweep auto-denied the approval and notified both parties. | The requester must re-trigger the action. |
+| `forceStrictSideEffects` unexpectedly active | The sender is classified as `non-guardian` or `unverified_channel` | Verify the sender's `externalUserId` matches the guardian binding, or set up a guardian binding for the channel. |
 
 ### Invalid RRULE set expressions
 

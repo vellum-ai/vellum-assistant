@@ -39,6 +39,7 @@ bun run dev
 | `GATEWAY_RUNTIME_PROXY_ENABLED` | No | `false` | Enable runtime proxy for non-Telegram requests |
 | `GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH` | No | `true` | Require bearer auth for proxied requests |
 | `RUNTIME_BEARER_TOKEN` | No | `~/.vellum/http-token` (if present) | Bearer token used by gateway when forwarding requests to assistant runtime internal endpoints (Twilio/OAuth/proxy upstream). |
+| `RUNTIME_GATEWAY_ORIGIN_SECRET` | No | Falls back to `RUNTIME_BEARER_TOKEN` | Dedicated secret sent as the `X-Gateway-Origin` header on `/channels/inbound` requests to prove gateway origin. When not set, the gateway falls back to sending `RUNTIME_BEARER_TOKEN` as the origin proof. Both gateway and runtime must share the same value. |
 | `RUNTIME_PROXY_BEARER_TOKEN` | Conditional | — | Bearer token for proxy auth (required when proxy + auth enabled) |
 | `GATEWAY_SHUTDOWN_DRAIN_MS` | No | `5000` | Graceful shutdown drain window in milliseconds |
 | `GATEWAY_RUNTIME_TIMEOUT_MS` | No | `30000` | Timeout for runtime HTTP calls (ms) |
@@ -352,5 +353,5 @@ See [`benchmarking/gateway/README.md`](../benchmarking/gateway/README.md) for lo
 | `/guardian_verify` command gets no reply | The verification message did not reach the runtime, or the challenge expired | Ensure the gateway is running, the bot token is valid, and the Telegram webhook is registered. Challenges expire after 10 minutes -- generate a new one via the desktop UI. |
 | Non-guardian actions auto-denied with "no guardian configured" | No guardian binding exists for the channel. The system is fail-closed: without a guardian, all sensitive actions are denied. | Set up a guardian by running the verification flow from the desktop UI. |
 | Approval prompt not delivered to guardian | The `replyCallbackUrl` may be unreachable, or the guardian's chat ID is stale | Verify `GATEWAY_INTERNAL_BASE_URL` is set correctly (especially in containerized deployments). Re-verify the guardian if the chat ID has changed. |
-| Guardian approval expired | The 30-minute TTL elapsed without a decision | The approval is auto-denied. The non-guardian user must re-trigger the action. |
+| Guardian approval expired | The 30-minute TTL elapsed without a decision. A proactive sweep (every 60s) auto-denied the approval and notified both the requester and guardian. | The non-guardian user must re-trigger the action. |
 | "Only the verified guardian can approve or deny" | A non-guardian sender attempted to respond to a guardian approval prompt | Only the guardian whose `externalUserId` matches the approval request can approve or deny. |
