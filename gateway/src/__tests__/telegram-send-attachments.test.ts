@@ -310,6 +310,42 @@ describe("sendTelegramAttachments", () => {
     expect(telegramCall.url).toContain("sendDocument");
   });
 
+  test("full-metadata payload still works (backward compatibility)", async () => {
+    const calls: string[] = [];
+
+    mockFetch(async (url: string) => {
+      calls.push(url);
+      if (url.includes("/attachments/att-full")) {
+        return new Response(
+          JSON.stringify({
+            id: "att-full",
+            filename: "photo.jpg",
+            mimeType: "image/jpeg",
+            sizeBytes: 100,
+            kind: "generated_image",
+            data: "/9j/4AAQ",
+          }),
+        );
+      }
+      return new Response(JSON.stringify(telegramOk));
+    });
+
+    const config = makeConfig();
+    const meta: RuntimeAttachmentMeta = {
+      id: "att-full",
+      filename: "photo.jpg",
+      mimeType: "image/jpeg",
+      sizeBytes: 100,
+      kind: "generated_image",
+    };
+
+    await sendTelegramAttachments(config, "chat-1", "assistant-a", [meta]);
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toContain("/attachments/att-full");
+    expect(calls[1]).toContain("sendPhoto");
+  });
+
   test("continues sending remaining attachments on individual failure", async () => {
     const calls: string[] = [];
 

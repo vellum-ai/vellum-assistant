@@ -69,10 +69,12 @@ export async function sendTelegramAttachments(
         : await downloadAttachmentById(config, meta.id);
 
       // Hydrate missing metadata from the downloaded payload so that
-      // ID-only attachment payloads work correctly.
+      // ID-only attachment payloads work correctly. Explicit meta fields
+      // take precedence over downloaded values.
       const mimeType = meta.mimeType ?? payload.mimeType ?? "application/octet-stream";
       const filename = meta.filename ?? payload.filename ?? meta.id;
-      const sizeBytes = meta.sizeBytes ?? payload.sizeBytes ?? Math.ceil((payload.data.length * 3) / 4);
+      const buffer = Buffer.from(payload.data, "base64");
+      const sizeBytes = meta.sizeBytes ?? payload.sizeBytes ?? buffer.length;
 
       // Check size after hydration for ID-only payloads where size was unknown.
       if (sizeBytes > config.maxAttachmentBytes) {
@@ -81,7 +83,6 @@ export async function sendTelegramAttachments(
         continue;
       }
 
-      const buffer = Buffer.from(payload.data, "base64");
       const blob = new Blob([buffer], { type: mimeType });
 
       const form = new FormData();
@@ -98,13 +99,14 @@ export async function sendTelegramAttachments(
 
       log.debug({ chatId, attachmentId: meta.id, filename }, "Attachment sent to Telegram");
     } catch (err) {
-      log.error({ err, attachmentId: meta.id, filename: meta.filename }, "Failed to send attachment to Telegram");
-      failures.push(meta.filename ?? meta.id);
+      const displayName = meta.filename ?? meta.id;
+      log.error({ err, attachmentId: meta.id, filename: displayName }, "Failed to send attachment to Telegram");
+      failures.push(displayName);
     }
   }
 
   if (failures.length > 0) {
-    const notice = `⚠️ ${failures.length} attachment(s) could not be delivered: ${failures.join(", ")}`;
+    const notice = `\u26a0\ufe0f ${failures.length} attachment(s) could not be delivered: ${failures.join(", ")}`;
     try {
       await sendTelegramReply(config, chatId, notice);
     } catch (err) {
