@@ -153,7 +153,7 @@ export async function commitAppChange(message: string): Promise<void> {
  */
 export async function getAppHistory(appId: string, limit = 50): Promise<AppVersion[]> {
   validateAppId(appId);
-  const safeLimit = Math.max(1, Math.min(Math.floor(limit), 500));
+  const safeLimit = Math.max(1, Math.min(Math.floor(limit) || 50, 500));
   const appsDir = getAppsDir();
   const gitService = getWorkspaceGitService(appsDir);
 
