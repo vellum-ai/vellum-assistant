@@ -41,16 +41,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CLIENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIST_DIR="$SCRIPT_DIR/dist"
 
-# ── Generate xcodeproj ────────────────────────────────────────────────
-# Always regenerate from project.yml so the xcodeproj is never stale.
-if command -v xcodegen >/dev/null 2>&1; then
-    echo "Regenerating xcodeproj from project.yml..."
-    (cd "$SCRIPT_DIR" && xcodegen --quiet)
-else
-    echo "ERROR: xcodegen not found. Install with: brew install xcodegen"
-    exit 1
-fi
-
 # ── Configuration ──────────────────────────────────────────────────────
 SCHEME="VellumAssistantIOS"
 PROJECT="$SCRIPT_DIR/vellum-assistant-ios.xcodeproj"
@@ -69,29 +59,41 @@ CMD="${1:-build}"
 
 # ── Commands ───────────────────────────────────────────────────────────
 case "$CMD" in
-    test)
-        echo "Running iOS tests..."
-        xcodebuild test \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
-            -configuration Debug \
-            CODE_SIGNING_ALLOWED=NO
-        exit $?
-        ;;
     clean)
         echo "Cleaning..."
         rm -rf "$DIST_DIR" "$CLIENTS_DIR/.build"
         echo "Done."
         exit 0
         ;;
-    build|release)
+    build|release|test)
         ;;
     *)
         echo "Usage: $0 [build|release|test|clean]"
         exit 1
         ;;
 esac
+
+# ── Generate xcodeproj ────────────────────────────────────────────────
+# Always regenerate from project.yml so the xcodeproj is never stale.
+if command -v xcodegen >/dev/null 2>&1; then
+    echo "Regenerating xcodeproj from project.yml..."
+    (cd "$SCRIPT_DIR" && xcodegen --quiet)
+else
+    echo "ERROR: xcodegen not found. Install with: brew install xcodegen"
+    exit 1
+fi
+
+# ── Run command ───────────────────────────────────────────────────────
+if [ "$CMD" = "test" ]; then
+    echo "Running iOS tests..."
+    xcodebuild test \
+        -project "$PROJECT" \
+        -scheme "$SCHEME" \
+        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        -configuration Debug \
+        CODE_SIGNING_ALLOWED=NO
+    exit $?
+fi
 
 mkdir -p "$DIST_DIR"
 
