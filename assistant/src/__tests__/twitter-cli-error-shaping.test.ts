@@ -39,13 +39,13 @@ function buildErrorPayload(err: unknown): Record<string, unknown> | null {
     return payload;
   }
 
-  if (err instanceof Error && meta.suggestAlternative !== undefined) {
+  if (err instanceof Error && (meta.pathUsed !== undefined || meta.suggestAlternative !== undefined || meta.oauthError !== undefined)) {
     const payload: Record<string, unknown> = {
       ok: false,
       error: err.message,
     };
     if (meta.pathUsed !== undefined) payload.pathUsed = meta.pathUsed;
-    payload.suggestAlternative = meta.suggestAlternative;
+    if (meta.suggestAlternative !== undefined) payload.suggestAlternative = meta.suggestAlternative;
     if (meta.oauthError !== undefined) payload.oauthError = meta.oauthError;
     return payload;
   }
@@ -133,6 +133,41 @@ describe('CLI error shaping', () => {
       pathUsed: 'auto',
       suggestAlternative: 'browser',
       oauthError: 'Twitter API error (401)',
+    });
+  });
+
+  test('auto-mode error with pathUsed and oauthError but no suggestAlternative preserves metadata', () => {
+    // This is the scenario flagged by Codex: routedPostTweet in auto mode tries
+    // OAuth (fails), then browser (fails with non-SessionExpiredError). The thrown
+    // error has pathUsed and oauthError but no suggestAlternative.
+    const err = Object.assign(
+      new Error('Browser automation failed: element not found'),
+      {
+        pathUsed: 'auto' as const,
+        oauthError: 'Twitter API error (401)',
+      },
+    );
+    const payload = buildErrorPayload(err);
+
+    expect(payload).toEqual({
+      ok: false,
+      error: 'Browser automation failed: element not found',
+      pathUsed: 'auto',
+      oauthError: 'Twitter API error (401)',
+    });
+  });
+
+  test('error with only pathUsed (no oauthError or suggestAlternative) preserves metadata', () => {
+    const err = Object.assign(
+      new Error('Something went wrong'),
+      { pathUsed: 'browser' as const },
+    );
+    const payload = buildErrorPayload(err);
+
+    expect(payload).toEqual({
+      ok: false,
+      error: 'Something went wrong',
+      pathUsed: 'browser',
     });
   });
 
