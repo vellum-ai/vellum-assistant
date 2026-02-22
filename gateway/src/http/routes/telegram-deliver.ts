@@ -91,14 +91,14 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
 
     // Validate approval payload shape when present.
     if (approval !== undefined) {
+      if (approval === null || typeof approval !== "object" || Array.isArray(approval)) {
+        return Response.json({ error: "approval must be an object" }, { status: 400 });
+      }
       if (!text) {
         return Response.json(
           { error: "text is required when approval is present" },
           { status: 400 },
         );
-      }
-      if (approval === null || typeof approval !== "object" || Array.isArray(approval)) {
-        return Response.json({ error: "approval must be an object" }, { status: 400 });
       }
       if (!approval.runId || typeof approval.runId !== "string") {
         return Response.json({ error: "approval.runId is required" }, { status: 400 });
