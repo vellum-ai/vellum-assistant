@@ -1,6 +1,6 @@
-Plan a feature end-to-end, create GitHub issues on the project board, swarm-execute them in parallel onto a feature branch, sweep for review feedback, address it, and present the final PR for manual review.
+Plan a feature end-to-end, create GitHub issues on the project board, execute milestones sequentially with per-milestone review gates onto a feature branch, and present the final PR for manual review.
 
-Unlike `/blitz`, this command does NOT merge directly to main. Instead, it creates a **feature branch**, merges all milestone PRs into that branch, and at the end opens a single PR from the feature branch into main for you to review before merging.
+Unlike `/blitz`, this command does NOT merge directly to main. Instead, it creates a **feature branch** and processes milestones **one at a time** — each milestone is executed, merged into the feature branch, and then recursively swept for review feedback until all feedback (including transitive feedback) is exhausted before moving to the next milestone. After all milestones are complete, a final sweep runs on the entire feature branch. Only then is a single PR from the feature branch into main created for you to review before merging.
 
 The user passed: `$ARGUMENTS`
 
@@ -57,24 +57,19 @@ When presenting the plan for approval, also show:
 - The feature branch name
 - Note: "All milestone PRs will target the feature branch `<name>`. A final PR into main will be created at the end for your review."
 
-## Phase 3: Populate TODO.md
+## Phase 3: Prepare Milestone List
 
-Read and follow `.claude/phases/populate-todo.md`.
+Do NOT use `.claude/phases/populate-todo.md` here. Instead, maintain an internal ordered list of milestones from the plan (M1, M2, ..., MN) with their titles and GitHub issue numbers. These milestones will be executed **one at a time** in Phase 4 — do NOT write them all to TODO.md at once.
 
-## Phase 4: Swarm (Feature Branch Mode)
+## Phase 4: Execute Milestones with Review Gates
 
-This works like the standard swarm but with a critical difference: **all PRs target the feature branch, not main**.
+Process milestones **one at a time** (sequentially). For each milestone, execute it, merge its PR into the feature branch, then run a recursive sweep to exhaust all feedback before moving to the next milestone. This ensures each milestone is fully reviewed before the next one starts.
 
-For each task being handed off:
+The safe-blitz only considers a milestone "done" when its PR AND all transitive feedback PRs have been fully reviewed with no remaining change requests.
 
-1. Create a worktree **from the feature branch** (not main):
+### Agent prompt template
 
-```bash
-.claude/worktree create swarm/<namespace>/task-<counter> origin/<feature-branch-name>
-```
-
-2. Create a `TaskCreate` entry for tracking.
-3. Spawn a `general-purpose` agent via the `Task` tool. The prompt must include:
+The following prompt template is used for both milestone tasks and feedback tasks:
 
 ```
 You are working on a single task in an isolated git worktree.
@@ -111,40 +106,83 @@ For "Address the feedback on <PR URL>" tasks:
 - Read the review comments on the referenced PR to understand what changes are requested.
 - Implement the requested fixes in your worktree (on a new branch — this will become a new PR).
 - Follow the same PR creation and merge workflow above (targeting the feature branch).
+- After creating the followup PR, leave a paper trail on the original PR:
+  1. Comment on the original PR: `gh pr comment <original-PR-number> --body "Addressed in <new-PR-URL>"`
+  2. Resolve all bot review threads: `.claude/gh-review resolve-threads <original-PR-number> "Addressed in <new-PR-URL>"`
+
+For "Fix CI failures from merged PR <PR URL> (run: <run URL>)" tasks:
+- Open the failed run URL and read the logs to understand what failed.
+- Read the referenced PR's diff (`gh pr diff <number>`) to understand what changes were introduced.
+- Diagnose the root cause of the CI failure.
+- Implement the fix in your worktree (on a new branch — this will become a new PR).
+- Follow the same PR creation and merge workflow above.
+- In the new PR body, reference the original PR and the failed run.
 ```
 
-### When an agent finishes
+### For each milestone (in order):
+
+#### 4a. Add to TODO.md and execute
+
+1. Prepend this single milestone item to `.private/TODO.md` (preserve existing items) with the namespace prefix:
+   ```
+   - [<namespace>] M<N>: <title> (#<issue-number>)
+   ```
+2. Create a worktree **from the feature branch** (not main):
+   ```bash
+   .claude/worktree create swarm/<namespace>/task-<counter> origin/<feature-branch-name>
+   ```
+3. Create a `TaskCreate` entry for tracking.
+4. Spawn a `general-purpose` agent via the `Task` tool using the agent prompt template above.
+
+#### 4b. When the milestone agent finishes
 
 1. Read its completion message.
 2. Update tracking files (read fresh each time, write back carefully):
    - Remove the completed item from .private/TODO.md.
    - Append the PR link to .private/UNREVIEWED_PRS.md.
 3. Mark the TaskCreate entry as completed.
-4. Increment the **completed count**.
-5. Remove the worktree: `.claude/worktree remove swarm/<namespace>/task-<counter> --delete-branch`.
-6. **Report to the user**: show the completed item, the PR link, a summary of what changed, and which files were modified. Don't abbreviate.
-7. Remove the item from the in-flight list.
-8. Pull the latest **feature branch** (not main):
+4. Remove the worktree: `.claude/worktree remove swarm/<namespace>/task-<counter> --delete-branch`.
+5. **Report to the user**: show the completed item, the PR link, a summary of what changed, and which files were modified. Don't abbreviate.
+6. Pull the latest **feature branch** (not main):
+   ```bash
+   git fetch origin <feature-branch-name>
+   ```
 
-```bash
-git fetch origin <feature-branch-name>
-```
+#### 4c. Per-milestone recursive sweep
 
-9. **After each milestone task completes and its PR merges**, update the corresponding GitHub issue. Skip this for non-milestone tasks (e.g., "Address the feedback on ..." items):
+Run the recursive sweep (`.claude/phases/sweep.md`) with `--namespace <namespace>`. **Skip the entry pause** — treat as `--auto` for per-milestone sweeps. The user-facing pause only applies to the final sweep in Phase 5.
 
-```bash
-.claude/gh-project set-status <issue-number> done
-gh issue close <issue-number>
-```
+When the sweep says "back to the Swarm phase," run the swarm workflow (`.claude/commands/swarm.md`) with these modifications:
+- Pass `--namespace <namespace>` so only namespaced feedback items are processed.
+- Pass the `--workers` count (or default: 12).
+- All agents must use `--base <feature-branch-name>` (not main).
+- Create worktrees from the feature branch: `.claude/worktree create swarm/<namespace>/task-<counter> origin/<feature-branch-name>`.
 
-10. **If the user has NOT signaled stop AND the max-tasks limit has NOT been reached**: pick the next task and spawn a new agent.
-11. **If the user HAS signaled stop OR the max-tasks limit has been reached**: don't spawn. Once all in-flight agents finish, proceed to shutdown.
+Since milestones are added to TODO.md one at a time (and removed when executed), the only namespaced items in TODO.md during the sweep are feedback items for the current milestone. The swarm will process those and nothing else.
 
-## Phase 5: Recursive Sweep
+When the sweep says "final phase," proceed to step 4d.
 
-Read and follow `.claude/phases/sweep.md`. When it says "back to the Swarm phase", return to Phase 4 above. When it says "final phase", proceed to Phase 6.
+#### 4d. Close the milestone and proceed
 
-This phase runs a recursive loop: check reviews → swarm to address feedback → check reviews on the new feedback PRs → repeat. PRs created to address feedback are themselves tracked in UNREVIEWED_PRS.md and must be reviewed before the blitz is considered done. The blitz only exits the sweep when there are no namespaced TODO items AND no namespaced PRs pending review.
+1. Set the milestone's GitHub issue status to "Done" and close it:
+   ```bash
+   .claude/gh-project set-status <issue-number> done
+   gh issue close <issue-number>
+   ```
+2. Move to the next milestone and repeat from step 4a. Continue until all milestones are processed.
+
+## Phase 5: Final Feature Branch Sweep
+
+After all milestones are merged and their individual reviews are clean, run one final recursive sweep on the entire feature branch.
+
+Read and follow `.claude/phases/sweep.md` with `--namespace <namespace>`. Unless `--auto` was passed, this is where the user-facing pause happens: **"All milestones complete. Run final sweep for review feedback?"**
+
+This final sweep catches:
+- Any cross-milestone issues that individual per-milestone sweeps missed
+- CI failures that only manifest when multiple milestones are combined
+- Any remaining unreviewed PRs from any milestone
+
+When the sweep says "back to the Swarm phase," run swarm as described in Phase 4c. When the sweep says "final phase," proceed to Phase 6.
 
 ## Phase 6: Create Final PR (Feature Branch -> Main)
 
