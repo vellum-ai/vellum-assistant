@@ -52,6 +52,19 @@ function hashSecret(secret: string): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * Build a human-readable channel label for use in guardian challenge
+ * instructions. Avoids hardcoding "Telegram" so SMS and future
+ * channels get appropriate wording.
+ */
+function channelLabel(channel: string): string {
+  switch (channel) {
+    case 'telegram': return 'Telegram';
+    case 'sms': return 'SMS';
+    default: return channel;
+  }
+}
+
+/**
  * Create a new verification challenge for a guardian candidate.
  *
  * Generates a random secret, hashes it (SHA-256), and stores the
@@ -77,10 +90,12 @@ export function createVerificationChallenge(
     createdBySessionId: sessionId,
   });
 
+  const label = channelLabel(channel);
+
   return {
     challengeId,
     secret,
-    instruction: `Send \`/guardian_verify ${secret}\` to your bot from your Telegram account within 10 minutes.`,
+    instruction: `Send \`/guardian_verify ${secret}\` to your bot via ${label} within 10 minutes.`,
   };
 }
 

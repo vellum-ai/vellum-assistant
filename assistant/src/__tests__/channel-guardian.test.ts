@@ -313,6 +313,20 @@ describe('guardian service challenge validation', () => {
     expect(result.instruction).toContain(result.secret);
   });
 
+  test('createVerificationChallenge instruction mentions Telegram for telegram channel', () => {
+    const result = createVerificationChallenge('asst-1', 'telegram');
+    expect(result.instruction).toContain('via Telegram');
+    expect(result.instruction).not.toContain('via SMS');
+  });
+
+  test('createVerificationChallenge instruction mentions SMS for sms channel', () => {
+    const result = createVerificationChallenge('asst-1', 'sms');
+    expect(result.instruction).toContain('via SMS');
+    expect(result.instruction).not.toContain('via Telegram');
+    expect(result.instruction).toContain('/guardian_verify');
+    expect(result.instruction).toContain(result.secret);
+  });
+
   test('validateAndConsumeChallenge succeeds with correct secret', () => {
     const { secret } = createVerificationChallenge('asst-1', 'telegram');
 
@@ -409,6 +423,65 @@ describe('guardian service challenge validation', () => {
     expect(result2.success).toBe(false);
   });
 
+  test('validateAndConsumeChallenge succeeds with sms channel', () => {
+    const { secret } = createVerificationChallenge('asst-1', 'sms');
+
+    const result = validateAndConsumeChallenge(
+      'asst-1',
+      'sms',
+      secret,
+      'phone-user-1',
+      'sms-chat-1',
+    );
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.bindingId).toBeDefined();
+    }
+
+    // Verify the binding was created for the sms channel
+    const binding = getActiveBinding('asst-1', 'sms');
+    expect(binding).not.toBeNull();
+    expect(binding!.guardianExternalUserId).toBe('phone-user-1');
+    expect(binding!.guardianDeliveryChatId).toBe('sms-chat-1');
+    expect(binding!.channel).toBe('sms');
+  });
+
+  test('sms and telegram guardian challenges are independent', () => {
+    const telegramChallenge = createVerificationChallenge('asst-1', 'telegram');
+    const smsChallenge = createVerificationChallenge('asst-1', 'sms');
+
+    // Validate SMS challenge against telegram channel should fail
+    const crossResult = validateAndConsumeChallenge(
+      'asst-1',
+      'telegram',
+      smsChallenge.secret,
+      'user-1',
+      'chat-1',
+    );
+    expect(crossResult.success).toBe(false);
+
+    // Validate SMS challenge against correct channel should succeed
+    const smsResult = validateAndConsumeChallenge(
+      'asst-1',
+      'sms',
+      smsChallenge.secret,
+      'user-1',
+      'chat-1',
+    );
+    expect(smsResult.success).toBe(true);
+
+    // Telegram challenge should still be valid
+    const telegramResult = validateAndConsumeChallenge(
+      'asst-1',
+      'telegram',
+      telegramChallenge.secret,
+      'user-2',
+      'chat-2',
+    );
+    expect(telegramResult.success).toBe(true);
+  });
+
   test('validateAndConsumeChallenge revokes existing binding before creating new one', () => {
     // Create initial guardian binding
     createBinding({
@@ -498,6 +571,20 @@ describe('guardian identity check', () => {
   test('getGuardianBinding returns null when no binding exists', () => {
     const binding = getGuardianBinding('asst-1', 'telegram');
     expect(binding).toBeNull();
+  });
+
+  test('isGuardian works for sms channel', () => {
+    createBinding({
+      assistantId: 'asst-1',
+      channel: 'sms',
+      guardianExternalUserId: 'phone-user-1',
+      guardianDeliveryChatId: 'sms-chat-1',
+    });
+
+    expect(isGuardian('asst-1', 'sms', 'phone-user-1')).toBe(true);
+    expect(isGuardian('asst-1', 'sms', 'phone-user-2')).toBe(false);
+    // Telegram guardian should not match sms channel
+    expect(isGuardian('asst-1', 'telegram', 'phone-user-1')).toBe(false);
   });
 
   test('serviceRevokeBinding revokes the active binding', () => {
@@ -682,6 +769,51 @@ describe('guardian approval request CRUD', () => {
     expect(found2).not.toBeNull();
     expect(found1!.toolName).toBe('shell');
     expect(found2!.toolName).toBe('browser');
+  });
+
+  test('createApprovalRequest works for sms channel', () => {
+    const request = createApprovalRequest({
+      runId: 'run-sms-1',
+      conversationId: 'conv-sms-1',
+      channel: 'sms',
+      requesterExternalUserId: 'phone-user-99',
+      requesterChatId: 'sms-chat-99',
+      guardianExternalUserId: 'phone-user-42',
+      guardianChatId: 'sms-chat-42',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    expect(request.id).toBeDefined();
+    expect(request.runId).toBe('run-sms-1');
+    expect(request.channel).toBe('sms');
+    expect(request.status).toBe('pending');
+
+    const found = getPendingApprovalForRun('run-sms-1');
+    expect(found).not.toBeNull();
+    expect(found!.channel).toBe('sms');
+  });
+
+  test('getPendingApprovalByGuardianChat works for sms channel', () => {
+    createApprovalRequest({
+      runId: 'run-sms-2',
+      conversationId: 'conv-sms-2',
+      channel: 'sms',
+      requesterExternalUserId: 'phone-user-99',
+      requesterChatId: 'sms-chat-99',
+      guardianExternalUserId: 'phone-user-42',
+      guardianChatId: 'sms-chat-42',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    const found = getPendingApprovalByGuardianChat('sms', 'sms-chat-42');
+    expect(found).not.toBeNull();
+    expect(found!.channel).toBe('sms');
+
+    // Should not find it under a different channel
+    const notFound = getPendingApprovalByGuardianChat('telegram', 'sms-chat-42');
+    expect(notFound).toBeNull();
   });
 
   test('createApprovalRequest with optional fields omitted defaults to null', () => {

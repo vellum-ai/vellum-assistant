@@ -1147,6 +1147,305 @@ describe('sourceChannel passed to orchestrator.startRun', () => {
 // 14. Plain-text fallback surfacing for non-rich channels (WS-E)
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 15. SMS channel approval decisions
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('SMS channel approval decisions', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  function makeSmsInboundRequest(overrides: Record<string, unknown> = {}): Request {
+    const body = {
+      sourceChannel: 'sms',
+      externalChatId: 'sms-chat-123',
+      externalMessageId: `msg-${Date.now()}-${Math.random()}`,
+      content: 'hello',
+      replyCallbackUrl: 'https://gateway.test/deliver',
+      ...overrides,
+    };
+    return new Request('http://localhost/channels/inbound', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  test('plain-text "yes" via SMS triggers approve_once decision', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Establish the conversation via SMS
+    const initReq = makeSmsInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[events.length - 1]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    const req = makeSmsInboundRequest({ content: 'yes' });
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('decision_applied');
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+
+    deliverSpy.mockRestore();
+  });
+
+  test('plain-text "no" via SMS triggers reject decision', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const initReq = makeSmsInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[events.length - 1]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    const req = makeSmsInboundRequest({ content: 'no' });
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('decision_applied');
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'deny');
+
+    deliverSpy.mockRestore();
+  });
+
+  test('non-decision SMS message during pending approval triggers reminder with plain-text fallback', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+    const replySpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const initReq = makeSmsInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[events.length - 1]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    const req = makeSmsInboundRequest({ content: 'what is happening?' });
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('reminder_sent');
+
+    // SMS is a non-rich channel so the delivered text should include plain-text fallback
+    expect(deliverSpy).toHaveBeenCalled();
+    const callArgs = deliverSpy.mock.calls[0];
+    const deliveredText = callArgs[2] as string;
+    expect(deliveredText).toContain("I'm still waiting");
+    expect(deliveredText).toContain('Reply "yes"');
+
+    deliverSpy.mockRestore();
+    replySpy.mockRestore();
+  });
+
+  test('sourceChannel "sms" is passed to orchestrator.startRun', async () => {
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const mockRun = {
+      id: 'run-sms-channel-test',
+      conversationId: 'conv-1',
+      messageId: 'user-msg-sms',
+      status: 'completed' as const,
+      pendingConfirmation: null,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const orchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => ({ ...mockRun, status: 'completed' as const })),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    const req = makeSmsInboundRequest({ content: 'test sms channel pass-through' });
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+
+    // Wait for the background async to fire
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    expect(orchestrator.startRun).toHaveBeenCalled();
+    const startRunArgs = (orchestrator.startRun as ReturnType<typeof mock>).mock.calls[0];
+    const options = startRunArgs[3] as { sourceChannel?: string } | undefined;
+    expect(options).toBeDefined();
+    expect(options!.sourceChannel).toBe('sms');
+
+    deliverSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 16. SMS guardian verify intercept
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('SMS guardian verify intercept', () => {
+  test('/guardian_verify command works with sourceChannel sms', async () => {
+    // Set up a guardian verification challenge for SMS
+    const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
+    const { secret } = createVerificationChallenge('self', 'sms');
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const req = new Request('http://localhost/channels/inbound', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'sms',
+        externalChatId: 'sms-chat-verify',
+        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
+        content: `/guardian_verify ${secret}`,
+        senderExternalUserId: 'sms-user-42',
+        replyCallbackUrl: 'https://gateway.test/deliver',
+      }),
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.guardianVerification).toBe('verified');
+
+    // Verify the reply was delivered
+    expect(deliverSpy).toHaveBeenCalled();
+    const replyArgs = deliverSpy.mock.calls[0];
+    const replyPayload = replyArgs[1] as { chatId: string; text: string };
+    expect(replyPayload.chatId).toBe('sms-chat-verify');
+    expect(replyPayload.text).toContain('Guardian verified successfully');
+
+    deliverSpy.mockRestore();
+  });
+
+  test('/guardian_verify with invalid token returns failed via SMS', async () => {
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const req = new Request('http://localhost/channels/inbound', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'sms',
+        externalChatId: 'sms-chat-verify-fail',
+        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
+        content: '/guardian_verify invalid-token-here',
+        senderExternalUserId: 'sms-user-43',
+        replyCallbackUrl: 'https://gateway.test/deliver',
+      }),
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.guardianVerification).toBe('failed');
+
+    expect(deliverSpy).toHaveBeenCalled();
+    const replyArgs = deliverSpy.mock.calls[0];
+    const replyPayload = replyArgs[1] as { chatId: string; text: string };
+    expect(replyPayload.text).toContain('Verification failed');
+
+    deliverSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 17. SMS non-guardian actor gating
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('SMS non-guardian actor gating', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('non-guardian SMS actor gets stricter controls when guardian binding exists', async () => {
+    // Create a guardian binding for the sms channel
+    const { createBinding } = await import('../memory/channel-guardian-store.js');
+    createBinding({
+      assistantId: 'self',
+      channel: 'sms',
+      guardianExternalUserId: 'sms-guardian-user',
+      guardianDeliveryChatId: 'sms-guardian-chat',
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+
+    const mockRun = {
+      id: 'run-sms-nongrd',
+      conversationId: 'conv-1',
+      messageId: 'user-msg-sms-nongrd',
+      status: 'running' as const,
+      pendingConfirmation: null,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const orchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => ({ ...mockRun, status: 'completed' as const })),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    // Send message from a NON-guardian sms user
+    const req = new Request('http://localhost/channels/inbound', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'sms',
+        externalChatId: 'sms-other-chat',
+        externalMessageId: `msg-${Date.now()}-${Math.random()}`,
+        content: 'do something',
+        senderExternalUserId: 'sms-other-user',
+        replyCallbackUrl: 'https://gateway.test/deliver',
+      }),
+    });
+
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+
+    // Wait for the background async to fire
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    // startRun should have been called with forceStrictSideEffects for non-guardian
+    expect(orchestrator.startRun).toHaveBeenCalled();
+    const startRunArgs = (orchestrator.startRun as ReturnType<typeof mock>).mock.calls[0];
+    const options = startRunArgs[3] as { forceStrictSideEffects?: boolean; sourceChannel?: string } | undefined;
+    expect(options).toBeDefined();
+    expect(options!.forceStrictSideEffects).toBe(true);
+    expect(options!.sourceChannel).toBe('sms');
+
+    deliverSpy.mockRestore();
+    approvalSpy.mockRestore();
+  });
+});
+
 describe('plain-text fallback surfacing for non-rich channels', () => {
   beforeEach(() => {
     process.env.CHANNEL_APPROVALS_ENABLED = 'true';
