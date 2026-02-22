@@ -6,7 +6,7 @@
  *   running → needs_secret       → running → completed | failed
  */
 
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { messageRuns } from './schema.js';
@@ -215,6 +215,59 @@ export function failRun(runId: string, error: string): void {
     .where(eq(messageRuns.id, runId))
     .run();
 }
+
+// ---------------------------------------------------------------------------
+// Pending-confirmation lookups
+// ---------------------------------------------------------------------------
+
+/** Summary of a run awaiting confirmation, used by channel approval flows. */
+export interface PendingRunInfo {
+  runId: string;
+  /** The prompter-level request ID stored inside PendingConfirmation.toolUseId. */
+  requestId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  riskLevel: string;
+}
+
+/**
+ * Find all runs in `needs_confirmation` state for a given conversation.
+ *
+ * Returns structured info for each pending run so channel adapters can
+ * render approval prompts and route decisions without reaching into
+ * raw DB rows.
+ */
+export function getPendingConfirmationsByConversation(conversationId: string): PendingRunInfo[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(messageRuns)
+    .where(
+      and(
+        eq(messageRuns.conversationId, conversationId),
+        eq(messageRuns.status, 'needs_confirmation'),
+      ),
+    )
+    .all();
+
+  const results: PendingRunInfo[] = [];
+  for (const row of rows) {
+    const run = rowToRun(row);
+    if (!run.pendingConfirmation) continue;
+    results.push({
+      runId: run.id,
+      requestId: run.pendingConfirmation.toolUseId,
+      toolName: run.pendingConfirmation.toolName,
+      input: run.pendingConfirmation.input,
+      riskLevel: run.pendingConfirmation.riskLevel,
+    });
+  }
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// Orphan recovery
+// ---------------------------------------------------------------------------
 
 /**
  * Mark all non-terminal runs as failed.
