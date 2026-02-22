@@ -318,6 +318,16 @@ export interface AddTrustRule {
   pattern: string;
   scope: string;
   decision: 'allow' | 'deny' | 'ask';
+  /** When true, the rule also covers high-risk invocations. */
+  allowHighRisk?: boolean;
+  /** Principal kind that this rule applies to (e.g. 'core', 'skill', 'task'). */
+  principalKind?: 'core' | 'skill' | 'task';
+  /** Skill/task ID when principalKind is 'skill' or 'task'. */
+  principalId?: string;
+  /** Content-hash of the skill source for version pinning. */
+  principalVersion?: string;
+  /** Execution target override for this rule. */
+  executionTarget?: 'host' | 'sandbox';
 }
 
 export interface TrustRulesList {

@@ -27,6 +27,16 @@ public struct IPCAddTrustRule: Codable, Sendable {
     public let pattern: String
     public let scope: String
     public let decision: String
+    /// When true, the rule also covers high-risk invocations.
+    public let allowHighRisk: Bool?
+    /// Principal kind that this rule applies to (e.g. 'core', 'skill', 'task').
+    public let principalKind: String?
+    /// Skill/task ID when principalKind is 'skill' or 'task'.
+    public let principalId: String?
+    /// Content-hash of the skill source for version pinning.
+    public let principalVersion: String?
+    /// Execution target override for this rule.
+    public let executionTarget: String?
 }
 
 public struct IPCAgentHeartbeatAlert: Codable, Sendable {

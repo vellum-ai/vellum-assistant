@@ -218,6 +218,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     pattern: 'git *',
     scope: '/projects/my-app',
     decision: 'allow',
+    allowHighRisk: true,
+    principalKind: 'skill',
+    principalId: 'my-skill',
+    principalVersion: 'sha256:abc123',
+    executionTarget: 'host',
   },
   trust_rules_list: {
     type: 'trust_rules_list',

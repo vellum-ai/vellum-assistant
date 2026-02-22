@@ -318,8 +318,13 @@ exports[`IPC message snapshots ClientMessage types suggestion_request serializes
 
 exports[`IPC message snapshots ClientMessage types add_trust_rule serializes to expected JSON 1`] = `
 {
+  "allowHighRisk": true,
   "decision": "allow",
+  "executionTarget": "host",
   "pattern": "git *",
+  "principalId": "my-skill",
+  "principalKind": "skill",
+  "principalVersion": "sha256:abc123",
   "scope": "/projects/my-app",
   "toolName": "bash",
   "type": "add_trust_rule",
