@@ -97,14 +97,14 @@ export class RunOrchestrator {
       throw new Error('Session is already processing a message');
     }
 
-    // Apply run-level overrides to the session's memory policy before the
-    // agent loop starts. The policy is read lazily at tool execution time.
-    if (options?.forceStrictSideEffects) {
-      session.memoryPolicy = {
-        ...session.memoryPolicy,
-        strictSideEffects: true,
-      };
-    }
+    // Always set strictSideEffects explicitly so that cached sessions from
+    // a previous guardian run are reset. Without this, a non-guardian run
+    // that set strictSideEffects=true would leave the flag on for a
+    // subsequent guardian run on the same conversation.
+    session.memoryPolicy = {
+      ...session.memoryPolicy,
+      strictSideEffects: options?.forceStrictSideEffects ?? false,
+    };
 
     const attachments = attachmentIds
       ? this.deps.resolveAttachments(attachmentIds)

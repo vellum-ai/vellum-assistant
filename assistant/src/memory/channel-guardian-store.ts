@@ -8,7 +8,7 @@
  * requests track per-run guardian approval decisions.
  */
 
-import { and, eq, gt } from 'drizzle-orm';
+import { and, desc, eq, gt } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import {
@@ -370,6 +370,7 @@ export function getPendingApprovalByGuardianChat(
   guardianChatId: string,
 ): GuardianApprovalRequest | null {
   const db = getDb();
+  const now = Date.now();
 
   const row = db
     .select()
@@ -379,8 +380,10 @@ export function getPendingApprovalByGuardianChat(
         eq(channelGuardianApprovalRequests.channel, channel),
         eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
         eq(channelGuardianApprovalRequests.status, 'pending'),
+        gt(channelGuardianApprovalRequests.expiresAt, now),
       ),
     )
+    .orderBy(desc(channelGuardianApprovalRequests.createdAt))
     .get();
 
   return row ? rowToApprovalRequest(row) : null;
