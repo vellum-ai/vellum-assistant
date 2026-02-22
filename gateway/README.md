@@ -69,7 +69,7 @@ v1 uses deterministic settings-based routing (no database):
 
 ## Setting up the Telegram webhook
 
-Webhook registration is now handled automatically by the gateway. On startup, the gateway reconciles the Telegram webhook by comparing the current registration against `${INGRESS_PUBLIC_BASE_URL}/webhooks/telegram`. If the URL, secret, or allowed updates differ, the gateway re-registers the webhook automatically. This also runs whenever credentials change (e.g., tunnel restart, secret rotation).
+Webhook registration is now handled automatically by the gateway. On startup, the gateway reconciles the Telegram webhook by registering it at `${INGRESS_PUBLIC_BASE_URL}/webhooks/telegram` with the configured secret and allowed updates. This also runs whenever the credential watcher detects changes to the bot token or webhook secret (e.g., secret rotation). If the ingress URL changes (e.g., tunnel restart), a gateway restart is required to pick up the new URL.
 
 For manual setup (or reference), register the webhook with Telegram using the `setWebhook` API method. Pass:
 - `url` — your gateway URL, e.g. `https://your-host/webhooks/telegram`
