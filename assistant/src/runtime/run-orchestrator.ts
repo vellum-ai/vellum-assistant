@@ -97,14 +97,17 @@ export class RunOrchestrator {
       throw new Error('Session is already processing a message');
     }
 
-    // Always set strictSideEffects explicitly so that cached sessions from
-    // a previous guardian run are reset. Without this, a non-guardian run
-    // that set strictSideEffects=true would leave the flag on for a
-    // subsequent guardian run on the same conversation.
-    session.memoryPolicy = {
-      ...session.memoryPolicy,
-      strictSideEffects: options?.forceStrictSideEffects ?? false,
-    };
+    // Only override strictSideEffects when the caller explicitly requests it
+    // (e.g. guardian-gated channels forcing strict mode on for non-guardian
+    // actors). When not provided, preserve the session's existing memory
+    // policy — this avoids clobbering conversation-level defaults such as
+    // private-thread policies derived in server.ts.
+    if (options?.forceStrictSideEffects !== undefined) {
+      session.memoryPolicy = {
+        ...session.memoryPolicy,
+        strictSideEffects: options.forceStrictSideEffects,
+      };
+    }
 
     const attachments = attachmentIds
       ? this.deps.resolveAttachments(attachmentIds)
