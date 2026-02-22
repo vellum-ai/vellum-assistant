@@ -516,7 +516,8 @@ public final class SettingsStore: ObservableObject {
 
     func refreshTelegramStatus() {
         do {
-            try daemonClient?.sendTelegramConfig(action: "get")
+            guard let daemonClient else { return }
+            try daemonClient.sendTelegramConfig(action: "get")
         } catch {
             log.error("Failed to send Telegram config get: \(error)")
         }
@@ -528,16 +529,21 @@ public final class SettingsStore: ObservableObject {
         telegramSaveInProgress = true
         telegramError = nil
         do {
-            try daemonClient?.sendTelegramConfig(action: "set", botToken: trimmed)
+            guard let daemonClient else {
+                telegramSaveInProgress = false
+                return
+            }
+            try daemonClient.sendTelegramConfig(action: "set", botToken: trimmed)
         } catch {
             telegramSaveInProgress = false
-            log.error("Failed to send Telegram config set: \(error)")
+            telegramError = "Failed to save: \(error.localizedDescription)"
         }
     }
 
     func clearTelegramCredentials() {
         do {
-            try daemonClient?.sendTelegramConfig(action: "clear")
+            guard let daemonClient else { return }
+            try daemonClient.sendTelegramConfig(action: "clear")
         } catch {
             log.error("Failed to send Telegram config clear: \(error)")
         }
