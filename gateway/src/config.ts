@@ -14,6 +14,7 @@ export type RoutingEntry = {
 export type GatewayConfig = {
   assistantRuntimeBaseUrl: string;
   defaultAssistantId: string | undefined;
+  gatewayInternalBaseUrl: string;
   logFile: LogFileConfig;
   maxAttachmentBytes: number;
   maxAttachmentConcurrency: number;
@@ -122,6 +123,9 @@ export function loadConfig(): GatewayConfig {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("GATEWAY_PORT must be a valid port number");
   }
+
+  const gatewayInternalBaseUrl =
+    process.env.GATEWAY_INTERNAL_BASE_URL || `http://127.0.0.1:${port}`;
 
   const proxyEnabledRaw = process.env.GATEWAY_RUNTIME_PROXY_ENABLED;
   if (proxyEnabledRaw !== undefined && proxyEnabledRaw !== "true" && proxyEnabledRaw !== "false") {
@@ -243,6 +247,7 @@ export function loadConfig(): GatewayConfig {
     {
       telegramApiBaseUrl,
       assistantRuntimeBaseUrl,
+      gatewayInternalBaseUrl,
       routingEntryCount: routingEntries.length,
       unmappedPolicy,
       hasDefaultAssistant: !!defaultAssistantId,
@@ -259,6 +264,7 @@ export function loadConfig(): GatewayConfig {
   return {
     assistantRuntimeBaseUrl,
     defaultAssistantId,
+    gatewayInternalBaseUrl,
     logFile,
     maxAttachmentBytes,
     maxAttachmentConcurrency,
