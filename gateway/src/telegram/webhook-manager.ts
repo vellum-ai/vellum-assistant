@@ -11,7 +11,7 @@ interface WebhookInfo {
   /** Telegram does not return the secret itself, but we can detect a mismatch by re-setting. */
 }
 
-const ALLOWED_UPDATES = ["message", "edited_message"];
+const ALLOWED_UPDATES = ["message", "edited_message", "callback_query"];
 
 /**
  * Reconciles the Telegram webhook registration against the expected state

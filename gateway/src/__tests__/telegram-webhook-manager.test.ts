@@ -78,7 +78,7 @@ describe("reconcileTelegramWebhook", () => {
     expect(calls[1].method).toBe("setWebhook");
     expect((calls[1].body as any).url).toBe("https://example.ngrok.io/webhooks/telegram");
     expect((calls[1].body as any).secret_token).toBe("test-webhook-secret");
-    expect((calls[1].body as any).allowed_updates).toEqual(["message", "edited_message"]);
+    expect((calls[1].body as any).allowed_updates).toEqual(["message", "edited_message", "callback_query"]);
   });
 
   test("always calls setWebhook even when URL already matches (secret may have rotated)", async () => {
