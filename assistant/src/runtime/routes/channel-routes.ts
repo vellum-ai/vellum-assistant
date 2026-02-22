@@ -169,6 +169,7 @@ export async function handleChannelInbound(
   processMessage?: MessageProcessor,
   bearerToken?: string,
   runOrchestrator?: RunOrchestrator,
+  assistantId: string = 'self',
 ): Promise<Response> {
   // Reject requests that lack valid gateway-origin proof. This ensures
   // channel inbound messages can only arrive via the gateway (which
@@ -285,7 +286,7 @@ export async function handleChannelInbound(
       if (original) break;
       if (attempt < EDIT_LOOKUP_RETRIES) {
         log.info(
-          { assistantId: "self", sourceMessageId, attempt: attempt + 1, maxAttempts: EDIT_LOOKUP_RETRIES },
+          { assistantId, sourceMessageId, attempt: attempt + 1, maxAttempts: EDIT_LOOKUP_RETRIES },
           'Original message not linked yet, retrying edit lookup',
         );
         await new Promise((resolve) => setTimeout(resolve, EDIT_LOOKUP_DELAY_MS));
@@ -295,12 +296,12 @@ export async function handleChannelInbound(
     if (original) {
       conversationStore.updateMessageContent(original.messageId, content ?? '');
       log.info(
-        { assistantId: "self", sourceMessageId, messageId: original.messageId },
+        { assistantId, sourceMessageId, messageId: original.messageId },
         'Updated message content from edited_message',
       );
     } else {
       log.warn(
-        { assistantId: "self", sourceChannel, externalChatId, sourceMessageId },
+        { assistantId, sourceChannel, externalChatId, sourceMessageId },
         'Could not find original message for edit after retries, ignoring',
       );
     }
@@ -351,7 +352,7 @@ export async function handleChannelInbound(
     const token = trimmedContent.slice('/guardian_verify '.length).trim();
     if (token.length > 0) {
       const verifyResult = validateAndConsumeChallenge(
-        'self',
+        assistantId,
         sourceChannel,
         token,
         body.senderExternalUserId,
@@ -386,9 +387,9 @@ export async function handleChannelInbound(
   // side-effect controls and their approvals route to the guardian's chat.
   let guardianCtx: GuardianContext = { actorRole: 'guardian' };
   if (isChannelApprovalsEnabled() && body.senderExternalUserId) {
-    const senderIsGuardian = isGuardian('self', sourceChannel, body.senderExternalUserId);
+    const senderIsGuardian = isGuardian(assistantId, sourceChannel, body.senderExternalUserId);
     if (!senderIsGuardian) {
-      const binding = getGuardianBinding('self', sourceChannel);
+      const binding = getGuardianBinding(assistantId, sourceChannel);
       if (binding) {
         const requesterLabel = body.senderUsername
           ? `@${body.senderUsername}`
@@ -431,6 +432,7 @@ export async function handleChannelInbound(
       bearerToken,
       orchestrator: runOrchestrator,
       guardianCtx,
+      assistantId,
     });
 
     if (approvalResult.handled) {
@@ -503,6 +505,7 @@ export async function handleChannelInbound(
         replyCallbackUrl,
         bearerToken,
         guardianCtx,
+        assistantId,
       });
     } else {
       // Fire-and-forget: process the message and deliver the reply in the background.
@@ -610,6 +613,7 @@ interface ApprovalProcessingParams {
   replyCallbackUrl: string;
   bearerToken?: string;
   guardianCtx: GuardianContext;
+  assistantId: string;
 }
 
 /**
@@ -636,6 +640,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
     replyCallbackUrl,
     bearerToken,
     guardianCtx,
+    assistantId,
   } = params;
 
   const isNonGuardian = guardianCtx.actorRole === 'non-guardian';
@@ -691,6 +696,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
             const approvalReqRecord = createApprovalRequest({
               runId: run.id,
               conversationId,
+              assistantId,
               channel: sourceChannel,
               requesterExternalUserId: guardianCtx.requesterExternalUserId ?? '',
               requesterChatId: guardianCtx.requesterChatId ?? externalChatId,
@@ -857,6 +863,7 @@ interface ApprovalInterceptionParams {
   bearerToken?: string;
   orchestrator: RunOrchestrator;
   guardianCtx: GuardianContext;
+  assistantId: string;
 }
 
 interface ApprovalInterceptionResult {

@@ -992,6 +992,10 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_approval_run ON channel_guardian_approval_requests(run_id, status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_approval_status ON channel_guardian_approval_requests(status)`);
 
+  // Migration: add assistant_id column to scope approval requests by assistant.
+  // Existing rows default to 'self' for backward compatibility.
+  try { database.run(/*sql*/ `ALTER TABLE channel_guardian_approval_requests ADD COLUMN assistant_id TEXT NOT NULL DEFAULT 'self'`); } catch { /* already exists */ }
+
   // ── Channel Guardian Verification Rate Limits ─────────────────────
 
   database.run(/*sql*/ `

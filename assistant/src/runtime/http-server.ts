@@ -616,7 +616,7 @@ export class RuntimeHttpServer {
     const assistantId = match[1];
     const endpoint = match[2];
     log.warn({ endpoint, assistantId }, '[deprecated] /v1/assistants/:assistantId/... route used; migrate to /v1/...');
-    return this.dispatchEndpoint(endpoint, req, url);
+    return this.dispatchEndpoint(endpoint, req, url, assistantId);
   }
 
   /**
@@ -628,6 +628,7 @@ export class RuntimeHttpServer {
     endpoint: string,
     req: Request,
     url: URL,
+    assistantId: string = 'self',
   ): Promise<Response> {
     try {
       if (endpoint === 'health' && req.method === 'GET') {
@@ -736,7 +737,7 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator);
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {

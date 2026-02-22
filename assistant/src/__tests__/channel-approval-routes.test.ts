@@ -2613,3 +2613,174 @@ describe('final reply idempotency — no duplicate delivery', () => {
     deliverSpy.mockRestore();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 26. Assistant-scoped guardian verification via handleChannelInbound
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('assistant-scoped guardian verification via handleChannelInbound', () => {
+  test('/guardian_verify uses the threaded assistantId (default: self)', async () => {
+    const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
+    const { secret } = createVerificationChallenge('self', 'telegram');
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const req = makeInboundRequest({
+      content: `/guardian_verify ${secret}`,
+      senderExternalUserId: 'user-default-asst',
+    });
+
+    // No assistantId passed => defaults to 'self'
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token');
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.guardianVerification).toBe('verified');
+
+    deliverSpy.mockRestore();
+  });
+
+  test('/guardian_verify with explicit assistantId resolves against that assistant', async () => {
+    const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
+    const { getGuardianBinding } = await import('../runtime/channel-guardian-service.js');
+
+    // Create a challenge for asst-route-X
+    const { secret } = createVerificationChallenge('asst-route-X', 'telegram');
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const req = makeInboundRequest({
+      content: `/guardian_verify ${secret}`,
+      senderExternalUserId: 'user-for-asst-x',
+    });
+
+    // Pass assistantId = 'asst-route-X'
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', undefined, 'asst-route-X');
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.guardianVerification).toBe('verified');
+
+    // Binding should exist for asst-route-X, not for 'self'
+    const bindingX = getGuardianBinding('asst-route-X', 'telegram');
+    expect(bindingX).not.toBeNull();
+    expect(bindingX!.guardianExternalUserId).toBe('user-for-asst-x');
+
+    deliverSpy.mockRestore();
+  });
+
+  test('cross-assistant challenge verification fails', async () => {
+    const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
+
+    // Create challenge for asst-A
+    const { secret } = createVerificationChallenge('asst-A-cross', 'telegram');
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const req = makeInboundRequest({
+      content: `/guardian_verify ${secret}`,
+      senderExternalUserId: 'user-cross-test',
+    });
+
+    // Try to verify using asst-B — should fail because the challenge is for asst-A
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', undefined, 'asst-B-cross');
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.guardianVerification).toBe('failed');
+
+    deliverSpy.mockRestore();
+  });
+
+  test('actor role resolution uses threaded assistantId', async () => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+
+    // Create guardian binding for asst-role-X
+    createBinding({
+      assistantId: 'asst-role-X',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-role-user',
+      guardianDeliveryChatId: 'guardian-role-chat',
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+
+    const orchestrator = makeSensitiveOrchestrator({ runId: 'run-role-scoped', terminalStatus: 'completed' });
+
+    // Non-guardian user sending to asst-role-X should be recognized as non-guardian
+    const req = makeInboundRequest({
+      content: 'do something dangerous',
+      senderExternalUserId: 'non-guardian-role-user',
+    });
+
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator, 'asst-role-X');
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    // The approval prompt should have been sent to the guardian's chat
+    expect(approvalSpy).toHaveBeenCalled();
+    const approvalArgs = approvalSpy.mock.calls[0];
+    expect(approvalArgs[1]).toBe('guardian-role-chat');
+
+    deliverSpy.mockRestore();
+    approvalSpy.mockRestore();
+  });
+
+  test('same user is guardian for one assistant but not another', async () => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+
+    // user-multi is guardian for asst-M1 but not asst-M2
+    createBinding({
+      assistantId: 'asst-M1',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-multi',
+      guardianDeliveryChatId: 'chat-multi',
+    });
+    createBinding({
+      assistantId: 'asst-M2',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-other-guardian',
+      guardianDeliveryChatId: 'chat-other-guardian',
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+
+    // For asst-M1: user-multi is the guardian, so should get standard self-approval
+    const orch1 = makeSensitiveOrchestrator({ runId: 'run-m1', terminalStatus: 'completed' });
+    const req1 = makeInboundRequest({
+      content: 'dangerous action',
+      senderExternalUserId: 'user-multi',
+    });
+
+    await handleChannelInbound(req1, noopProcessMessage, 'token', orch1, 'asst-M1');
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    // For asst-M1, user-multi is guardian — approval prompt to own chat (standard flow)
+    expect(approvalSpy).toHaveBeenCalled();
+    const m1ApprovalArgs = approvalSpy.mock.calls[0];
+    // Should be sent to user-multi's own chat (chat-123 from makeInboundRequest default)
+    expect(m1ApprovalArgs[1]).toBe('chat-123');
+
+    approvalSpy.mockClear();
+    deliverSpy.mockClear();
+
+    // For asst-M2: user-multi is NOT the guardian, so approval should route to asst-M2's guardian
+    const orch2 = makeSensitiveOrchestrator({ runId: 'run-m2', terminalStatus: 'completed' });
+    const req2 = makeInboundRequest({
+      content: 'another dangerous action',
+      senderExternalUserId: 'user-multi',
+    });
+
+    await handleChannelInbound(req2, noopProcessMessage, 'token', orch2, 'asst-M2');
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    // For asst-M2, user-multi is non-guardian — approval should go to user-other-guardian's chat
+    expect(approvalSpy).toHaveBeenCalled();
+    const m2ApprovalArgs = approvalSpy.mock.calls[0];
+    expect(m2ApprovalArgs[1]).toBe('chat-other-guardian');
+
+    deliverSpy.mockRestore();
+    approvalSpy.mockRestore();
+  });
+});
