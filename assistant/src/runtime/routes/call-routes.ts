@@ -165,6 +165,10 @@ export async function handleInstructionCall(req: Request, callSessionId: string)
     return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
   }
 
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+  }
+
   const result = await relayInstruction({
     callSessionId,
     instructionText: body.instruction ?? '',
