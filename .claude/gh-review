@@ -63,7 +63,7 @@ cmd_resolve_threads() {
   thread_ids=$(echo "$threads_json" | jq -r '
     .data.repository.pullRequest.reviewThreads.nodes[]
     | select(.isResolved == false)
-    | select(.comments.nodes[0].author.login == "chatgpt-codex-connector[bot]" or .comments.nodes[0].author.login == "devin-ai-integration[bot]")
+    | select(.comments.nodes[0].author.login == "chatgpt-codex-connector[bot]" or .comments.nodes[0].author.login == "chatgpt-codex-connector" or .comments.nodes[0].author.login == "devin-ai-integration[bot]" or .comments.nodes[0].author.login == "devin-ai-integration")
     | .id
   ')
 
