@@ -1,6 +1,6 @@
 import { mkdir, stat, readFile, writeFile, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
-import { X509Certificate } from 'node:crypto';
+import { X509Certificate, createPrivateKey } from 'node:crypto';
 import { getRootDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 
@@ -43,11 +43,11 @@ function computeFingerprint(cert: X509Certificate): string {
 
 /**
  * Check whether an existing cert+key pair is valid:
- * - Both files exist
+ * - All three files exist (cert, key, fingerprint)
  * - Cert is parseable as X509
  * - Cert is not expired
  * - Fingerprint file exists and matches the cert
- * - Key corresponds to the cert (modulus check via OpenSSL)
+ * - Private key is valid and matches the certificate
  */
 async function isExistingCertValid(): Promise<boolean> {
   const certPath = getTlsCertPath();
@@ -66,8 +66,9 @@ async function isExistingCertValid(): Promise<boolean> {
   }
 
   try {
-    const [certPem, storedFp] = await Promise.all([
+    const [certPem, keyPem, storedFp] = await Promise.all([
       readFile(certPath, 'utf-8'),
+      readFile(keyPath, 'utf-8'),
       readFile(fpPath, 'utf-8'),
     ]);
 
@@ -84,6 +85,15 @@ async function isExistingCertValid(): Promise<boolean> {
     const actualFp = computeFingerprint(x509);
     if (actualFp !== storedFp.trim()) {
       log.info('TLS fingerprint mismatch, will regenerate');
+      return false;
+    }
+
+    // Verify the private key is valid and matches the certificate's public key.
+    // This catches corrupted key files or cert/key mismatches that would cause
+    // tls.createServer() to fail at runtime.
+    const privateKey = createPrivateKey(keyPem);
+    if (!x509.checkPrivateKey(privateKey)) {
+      log.info('TLS private key does not match certificate, will regenerate');
       return false;
     }
 
