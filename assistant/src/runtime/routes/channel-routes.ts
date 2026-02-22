@@ -598,7 +598,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
 
             // Persist the guardian approval request so we can look it up when
             // the guardian responds from their chat.
-            createApprovalRequest({
+            const approvalReqRecord = createApprovalRequest({
               runId: run.id,
               conversationId,
               channel: sourceChannel,
@@ -623,6 +623,9 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
               guardianNotified = true;
             } catch (err) {
               log.error({ err, runId: run.id }, 'Failed to deliver guardian approval prompt');
+              // Cancel the stale approval record so the requester is not
+              // permanently blocked by an approval the guardian never saw.
+              updateApprovalDecision(approvalReqRecord.id, { status: 'cancelled' });
             }
 
             // Only notify the requester if the guardian prompt was actually delivered
