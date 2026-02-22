@@ -40,13 +40,15 @@ function buildSignatureUrlCandidates(req: Request, config: GatewayConfig): strin
     firstHeaderValue(req.headers.get("x-original-proto"));
   const forwardedHost =
     firstHeaderValue(req.headers.get("x-forwarded-host")) ??
-    firstHeaderValue(req.headers.get("x-original-host")) ??
-    firstHeaderValue(req.headers.get("host"));
+    firstHeaderValue(req.headers.get("x-original-host"));
   if (forwardedProto && forwardedHost) {
     addBase(`${forwardedProto}://${forwardedHost}`);
   }
 
-  if (candidates.length === 0) {
+  // Always include the raw request URL as the final fallback candidate so
+  // valid signatures are not rejected when the other candidates are stale or
+  // incorrectly reconstructed (e.g. mixed proxy/tunnel setups).
+  if (!candidates.includes(req.url)) {
     candidates.push(req.url);
   }
 

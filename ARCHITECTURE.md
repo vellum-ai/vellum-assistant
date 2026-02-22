@@ -3724,8 +3724,8 @@ All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhoo
 
 For **inbound Twilio signature validation** at the gateway, URL reconstruction now supports multiple candidates in order:
 1. `config.ingressPublicBaseUrl` (if configured)
-2. Forwarded public URL headers from the tunnel/proxy (`X-Forwarded-Proto` + `X-Forwarded-Host`, with `X-Original-*`/`Host` fallbacks)
-3. Raw request URL fallback when no public candidates are available
+2. Forwarded public URL headers from the tunnel/proxy (`X-Forwarded-Proto` + `X-Forwarded-Host`/`X-Original-Host` fallbacks)
+3. Raw request URL (always included as the final fallback)
 
 This makes ingress URL updates smoother in local tunnel workflows because Twilio webhooks can continue validating even before a gateway restart.
 
