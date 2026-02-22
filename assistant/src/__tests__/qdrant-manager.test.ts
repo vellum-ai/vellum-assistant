@@ -169,7 +169,7 @@ describe('QdrantManager', () => {
       const pidPath = join(testDataDir, 'qdrant', 'qdrant.pid');
 
       // Binary that stays alive. We'll stop it before readyz times out.
-      placeFakeBinary('#!/bin/sh\nsleep 300');
+      placeFakeBinary('#!/bin/sh\nexec sleep 300');
 
       const port = getTestPort();
       const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}` });
@@ -198,7 +198,7 @@ describe('QdrantManager', () => {
       const pidPath = join(testDataDir, 'qdrant', 'qdrant.pid');
 
       // Binary that ignores SIGTERM
-      placeFakeBinary('#!/bin/sh\ntrap "" TERM\nsleep 300');
+      placeFakeBinary('#!/bin/sh\ntrap "" TERM\nexec sleep 300');
 
       const port = getTestPort();
       const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}` });
@@ -227,7 +227,7 @@ describe('QdrantManager', () => {
       const pidPath = join(testDataDir, 'qdrant', 'qdrant.pid');
 
       // Binary that stays alive but never serves readyz
-      placeFakeBinary('#!/bin/sh\nsleep 300');
+      placeFakeBinary('#!/bin/sh\nexec sleep 300');
 
       const port = getTestPort();
       const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}` });
