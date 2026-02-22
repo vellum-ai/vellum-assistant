@@ -510,8 +510,20 @@ struct ChatView: View {
                         // still sending, the assistant hasn't started responding
                         // yet. Return an empty slice so stale tool calls from
                         // the prior turn don't suppress the thinking indicator.
+                        // However, if the user queued a follow-up while the
+                        // assistant is still processing (assistant messages
+                        // exist after the most recent turn-starting user
+                        // message), fall through to the lastTurnStart logic
+                        // so active tool calls remain visible.
                         if isSending, let last = displayMessages.last, last.role == .user {
-                            return displayMessages[displayMessages.endIndex...]
+                            let hasAssistantAfterLastUser = displayMessages.indices.reversed().contains(where: { idx in
+                                displayMessages[idx].role == .user
+                                    && displayMessages.index(after: idx) < displayMessages.endIndex
+                                    && displayMessages[displayMessages.index(after: idx)].role != .user
+                            })
+                            if !hasAssistantAfterLastUser {
+                                return displayMessages[displayMessages.endIndex...]
+                            }
                         }
                         // Find the boundary of the current assistant turn by
                         // locating the last user message that is followed by at
