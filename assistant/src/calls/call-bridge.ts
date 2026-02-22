@@ -74,6 +74,12 @@ async function handleAnswer(
   pendingQuestion: { id: string; questionText: string },
   userText: string,
 ): Promise<CallBridgeResult> {
+  // Empty text (e.g. attachment-only messages) should not be consumed as
+  // an answer — fall through to normal processing so attachments are handled.
+  if (!userText.trim()) {
+    return { handled: false, reason: 'empty_answer_text' };
+  }
+
   const orchestrator = getCallOrchestrator(callSessionId);
   if (!orchestrator) {
     // The call may have ended between the question being asked and the

@@ -72,4 +72,33 @@ describe("callTelegramApi transport error redaction", () => {
     expect(thrown?.message).not.toContain(tgToken);
     expect(thrown?.message).toContain("[REDACTED]");
   });
+
+  test("redacts bot token ending with hyphen", async () => {
+    // Tokens can end with `-` which is a non-word character; \b boundaries
+    // would fail to match the trailing `-`, leaking part of the token.
+    const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz01234567-"].join("");
+
+    globalThis.fetch = mock(async () => {
+      const err = new Error("Connection refused") as Error & {
+        path?: string;
+        code?: string;
+      };
+      err.path = `https://api.telegram.org/bot${tgToken}/sendMessage`;
+      err.code = "ConnectionRefused";
+      throw err;
+    }) as unknown as typeof fetch;
+
+    const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0 });
+
+    let thrown: Error | null = null;
+    try {
+      await callTelegramApi(config, "sendMessage", { chat_id: "1", text: "hello" });
+    } catch (err) {
+      thrown = err as Error;
+    }
+
+    expect(thrown).toBeDefined();
+    expect(thrown?.message).not.toContain(tgToken);
+    expect(thrown?.message).toContain("[REDACTED]");
+  });
 });

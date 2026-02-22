@@ -460,6 +460,8 @@ describe('Ingress reconcile trigger in handleIngressConfig', () => {
     // When no URL and no env fallback, effectiveUrl is undefined so
     // the reconcile body should send empty string (clears the gateway's URL)
     expect(reconcileCalls).toHaveLength(1);
+    const body = JSON.parse(reconcileCalls[0]!.body);
+    expect(body.ingressPublicBaseUrl).toBe('');
   });
 
   // ── Disable flow ────────────────────────────────────────────────────────

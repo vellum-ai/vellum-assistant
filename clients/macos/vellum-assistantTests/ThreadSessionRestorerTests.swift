@@ -73,6 +73,10 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
         hiddenSessionTimestamps.removeValue(forKey: sessionId)
     }
 
+    func clearHiddenSessionMonitor(_ sessionId: String) {
+        hiddenSessionIds.remove(sessionId)
+    }
+
     func restoreLastActiveThread() {
         // no-op for tests
     }

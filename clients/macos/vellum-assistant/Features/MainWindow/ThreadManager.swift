@@ -608,7 +608,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         var hidden = hiddenSessionTimestamps
         hidden.removeValue(forKey: sessionId)
         hiddenSessionTimestamps = hidden
-        // Also clear the in-memory tracker so the monitor task stops watching
+        clearHiddenSessionMonitor(sessionId)
+    }
+
+    /// Clear only the in-memory hidden-session tracker (monitor task) without
+    /// touching the persisted timestamp. Used when a session should stay hidden
+    /// across restarts but the monitor is no longer needed (e.g. the session
+    /// restorer already re-created the thread as archived).
+    func clearHiddenSessionMonitor(_ sessionId: String) {
         hiddenSessions.removeValue(forKey: sessionId)
         if hiddenSessions.isEmpty {
             hiddenSessionMonitorTask?.cancel()

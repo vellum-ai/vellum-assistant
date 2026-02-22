@@ -25,6 +25,10 @@ protocol ThreadRestorerDelegate: AnyObject {
     /// Remove a session from the hidden-sessions tracker (called when the
     /// session restorer re-creates the thread on daemon reconnect).
     func clearHiddenSession(_ sessionId: String)
+    /// Clear only the in-memory hidden-session monitor without removing the
+    /// persisted timestamp. Used when a session should stay hidden across
+    /// restarts but the monitor is no longer needed.
+    func clearHiddenSessionMonitor(_ sessionId: String)
 }
 
 /// Handles daemon session restoration: fetching the session list on connect,
@@ -114,12 +118,19 @@ final class ThreadSessionRestorer {
             // re-appears as visible.
             let isHidden = delegate.isSessionHidden(session.id, updatedAt: session.updatedAt)
 
-            // Now that the hidden check is done, clear the in-memory monitor
-            // so the hidden-session monitor task stops watching for this session.
-            // The persisted timestamp was already handled by isSessionHidden above
-            // (it auto-clears when new activity is detected).
+            // Clean up hidden-session tracking now that the thread is being
+            // re-created by the session restorer.
             if delegate.isSessionHidden(session.id) {
-                delegate.clearHiddenSession(session.id)
+                if isHidden {
+                    // Session should stay hidden (no new activity) — only stop the
+                    // in-memory monitor. Preserve the persisted timestamp so the
+                    // thread remains hidden across future app restarts.
+                    delegate.clearHiddenSessionMonitor(session.id)
+                } else {
+                    // New activity detected — fully clear hidden state (both
+                    // in-memory and persisted) so the thread re-appears as visible.
+                    delegate.clearHiddenSession(session.id)
+                }
             }
 
             let kind: ThreadKind = session.threadType == "private" ? .private : .standard
