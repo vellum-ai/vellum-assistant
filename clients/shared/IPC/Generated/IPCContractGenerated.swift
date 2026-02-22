@@ -1714,6 +1714,23 @@ public struct IPCTaskSubmit: Codable, Sendable {
     public let source: String?
 }
 
+public struct IPCTelegramConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let botToken: String?
+}
+
+public struct IPCTelegramConfigResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let hasBotToken: Bool
+    public let botUsername: String?
+    public let connected: Bool
+    public let hasWebhookSecret: Bool
+    public let lastError: String?
+    public let error: String?
+}
+
 public struct IPCToolInputDelta: Codable, Sendable {
     public let type: String
     public let toolName: String

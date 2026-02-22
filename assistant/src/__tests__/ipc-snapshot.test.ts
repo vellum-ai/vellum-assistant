@@ -378,6 +378,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'twitter_integration_config',
     action: 'get',
   },
+  telegram_config: {
+    type: 'telegram_config',
+    action: 'get',
+  },
   twitter_auth_start: {
     type: 'twitter_auth_start',
   },
@@ -1207,6 +1211,14 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     managedAvailable: false,
     localClientConfigured: true,
     connected: false,
+  },
+  telegram_config_response: {
+    type: 'telegram_config_response',
+    success: true,
+    hasBotToken: true,
+    botUsername: 'my_test_bot',
+    connected: true,
+    hasWebhookSecret: true,
   },
   twitter_auth_result: {
     type: 'twitter_auth_result',

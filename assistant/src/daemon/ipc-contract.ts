@@ -537,6 +537,23 @@ export interface TwitterIntegrationConfigRequest {
   strategy?: string;
 }
 
+export interface TelegramConfigRequest {
+  type: 'telegram_config';
+  action: 'get' | 'set' | 'clear';
+  botToken?: string;  // Only for action: 'set'
+}
+
+export interface TelegramConfigResponse {
+  type: 'telegram_config_response';
+  success: boolean;
+  hasBotToken: boolean;
+  botUsername?: string;
+  connected: boolean;
+  hasWebhookSecret: boolean;
+  lastError?: string;
+  error?: string;
+}
+
 export interface TwitterIntegrationConfigResponse {
   type: 'twitter_integration_config_response';
   success: boolean;
@@ -1021,6 +1038,7 @@ export type ClientMessage =
   | IngressConfigRequest
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
+  | TelegramConfigRequest
   | TwitterAuthStartRequest
   | TwitterAuthStatusRequest
   | SessionsClearRequest
@@ -2359,6 +2377,7 @@ export type ServerMessage =
   | IngressConfigResponse
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse
+  | TelegramConfigResponse
   | TwitterAuthResult
   | TwitterAuthStatusResponse
   | OpenUrl

@@ -2439,3 +2439,21 @@ exports[`IPC message snapshots ServerMessage types app_restore_response serializ
   "type": "app_restore_response",
 }
 `;
+
+exports[`IPC message snapshots ClientMessage types telegram_config serializes to expected JSON 1`] = `
+{
+  "action": "get",
+  "type": "telegram_config",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types telegram_config_response serializes to expected JSON 1`] = `
+{
+  "botUsername": "my_test_bot",
+  "connected": true,
+  "hasBotToken": true,
+  "hasWebhookSecret": true,
+  "success": true,
+  "type": "telegram_config_response",
+}
+`;
