@@ -23,6 +23,7 @@ import type {
   IngressConfigRequest,
   VercelApiConfigRequest,
   TwitterIntegrationConfigRequest,
+  ToolPermissionSimulateRequest,
 } from '../ipc-protocol.js';
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
@@ -789,6 +790,18 @@ export function handleEnvVarsRequest(socket: net.Socket, ctx: HandlerContext): v
   ctx.send(socket, { type: 'env_vars_response', vars });
 }
 
+export function handleToolPermissionSimulate(
+  _msg: ToolPermissionSimulateRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  ctx.send(socket, {
+    type: 'tool_permission_simulate_response',
+    success: false,
+    error: 'Not implemented',
+  });
+}
+
 export const configHandlers = defineHandlers({
   model_get: (_msg, socket, ctx) => handleModelGet(socket, ctx),
   model_set: handleModelSet,
@@ -809,4 +822,5 @@ export const configHandlers = defineHandlers({
   vercel_api_config: handleVercelApiConfig,
   twitter_integration_config: handleTwitterIntegrationConfig,
   env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
+  tool_permission_simulate: handleToolPermissionSimulate,
 });
