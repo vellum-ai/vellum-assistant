@@ -73,6 +73,36 @@ describe("callTelegramApi transport error redaction", () => {
     expect(thrown?.message).toContain("[REDACTED]");
   });
 
+  test("redacts bot token preceded by hyphen delimiter", async () => {
+    // Tokens embedded after a hyphen (e.g., diagnostic strings like
+    // "error-123456789:...") must still be redacted.
+    const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
+
+    globalThis.fetch = mock(async () => {
+      const err = new Error("Connection refused") as Error & {
+        path?: string;
+        code?: string;
+      };
+      // Simulate a diagnostic string where the token is preceded by a hyphen
+      err.path = `prefix-${tgToken}/sendMessage`;
+      err.code = "ConnectionRefused";
+      throw err;
+    }) as unknown as typeof fetch;
+
+    const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0 });
+
+    let thrown: Error | null = null;
+    try {
+      await callTelegramApi(config, "sendMessage", { chat_id: "1", text: "hello" });
+    } catch (err) {
+      thrown = err as Error;
+    }
+
+    expect(thrown).toBeDefined();
+    expect(thrown?.message).not.toContain(tgToken);
+    expect(thrown?.message).toContain("[REDACTED]");
+  });
+
   test("redacts bot token ending with hyphen", async () => {
     // Tokens can end with `-` which is a non-word character; \b boundaries
     // would fail to match the trailing `-`, leaking part of the token.

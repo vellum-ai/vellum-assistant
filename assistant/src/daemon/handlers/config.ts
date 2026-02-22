@@ -50,7 +50,7 @@ function getOriginalIngressEnv(): string | undefined {
 }
 
 const TELEGRAM_BOT_TOKEN_IN_URL_PATTERN = /\/bot\d{8,10}:[A-Za-z0-9_-]{30,120}\//g;
-const TELEGRAM_BOT_TOKEN_PATTERN = /(?<![A-Za-z0-9_-])\d{8,10}:[A-Za-z0-9_-]{30,120}(?![A-Za-z0-9_-])/g;
+const TELEGRAM_BOT_TOKEN_PATTERN = /(?<![A-Za-z0-9_])\d{8,10}:[A-Za-z0-9_-]{30,120}(?![A-Za-z0-9_])/g;
 
 function redactTelegramBotTokens(value: string): string {
   return value
