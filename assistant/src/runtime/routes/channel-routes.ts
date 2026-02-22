@@ -373,11 +373,12 @@ export async function handleChannelInbound(
       });
     }
 
-    // When a callback-only payload (no text content, no attachments) was not
-    // handled by approval interception, it's a stale button press with no
-    // pending approval. Return early instead of falling through to normal
-    // message processing, which would start a run with empty user content.
-    if (hasCallbackData && trimmedContent.length === 0 && !hasAttachments) {
+    // When a callback payload was not handled by approval interception, it's
+    // a stale button press with no pending approval. Return early regardless
+    // of whether content/attachments are present — callback payloads always
+    // have non-empty content (normalize.ts sets message.content to cbq.data),
+    // so checking for empty content alone would miss stale callbacks.
+    if (hasCallbackData) {
       return Response.json({
         accepted: true,
         duplicate: false,
@@ -954,16 +955,9 @@ async function handleApprovalInterception(
 
     const result = handleChannelDecision(conversationId, decision, orchestrator);
 
-    if (result.applied) {
-      // Deliver the run's result back to the channel once the decision is applied.
-      // The run will resume in the background; deliver whatever assistant reply
-      // is available now (there may not be one yet if the run is still processing).
-      try {
-        await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
-      } catch (err) {
-        log.error({ err, conversationId }, 'Failed to deliver post-decision reply');
-      }
-    }
+    // The decision is applied; the final reply will be delivered by the
+    // terminal run completion path in processChannelMessageWithApprovals.
+    // No immediate reply is sent here to avoid duplicate messages.
 
     return { handled: true, type: 'decision_applied' };
   }
