@@ -348,6 +348,7 @@ struct TwilioSettingsSection: View {
         } catch {
             isLoadingNumbers = false
             errorMessage = "Failed to connect to daemon"
+            restoreDefaultHandler()
         }
     }
 
@@ -386,6 +387,7 @@ struct TwilioSettingsSection: View {
             isProvisioning = false
             showProvisionSheet = false
             errorMessage = "Failed to connect to daemon"
+            restoreDefaultHandler()
         }
     }
 
@@ -414,6 +416,7 @@ struct TwilioSettingsSection: View {
             isAssigning = false
             assigningNumber = nil
             errorMessage = "Failed to connect to daemon"
+            restoreDefaultHandler()
         }
     }
 }
