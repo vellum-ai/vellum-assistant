@@ -60,17 +60,25 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
 // MARK: - Helpers
 
 /// Build an IPCSessionListResponse via JSON round-trip.
-private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int, threadType: String?)]) -> SessionListResponseMessage {
+private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int, threadType: String?, channelBinding: [String: Any]?)]) -> SessionListResponseMessage {
     let sessionDicts = sessions.map { session -> [String: Any] in
         var dict: [String: Any] = ["id": session.id, "title": session.title, "updatedAt": session.updatedAt]
         if let threadType = session.threadType {
             dict["threadType"] = threadType
+        }
+        if let channelBinding = session.channelBinding {
+            dict["channelBinding"] = channelBinding
         }
         return dict
     }
     let dict: [String: Any] = ["type": "session_list_response", "sessions": sessionDicts]
     let data = try! JSONSerialization.data(withJSONObject: dict)
     return try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
+}
+
+/// Convenience overload with threadType but no channelBinding.
+private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int, threadType: String?)]) -> SessionListResponseMessage {
+    makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, $0.threadType, nil) })
 }
 
 /// Convenience overload without threadType for existing tests.
@@ -425,5 +433,59 @@ struct ThreadSessionRestorerTests {
 
         #expect(delegate.threads.count == 1)
         #expect(delegate.threads[0].kind == .standard)
+    }
+
+    // MARK: - Channel Binding Filtering
+
+    @Test @MainActor
+    func telegramBoundSessionIsExcludedFromRestore() {
+        let dc = DaemonClient()
+        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let delegate = MockThreadRestorerDelegate(daemonClient: dc)
+        restorer.delegate = delegate
+
+        let defaultThread = ThreadModel()
+        delegate.threads = [defaultThread]
+        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+
+        let response = makeSessionListResponse(sessions: [
+            (id: "s1", title: "Telegram Chat", updatedAt: 2000, threadType: nil,
+             channelBinding: ["sourceChannel": "telegram", "externalChatId": "123456"]),
+        ])
+        restorer.handleSessionListResponse(response)
+
+        // Telegram-bound session filtered out; empty default removed; new thread created
+        #expect(delegate.threads.count == 1)
+        #expect(delegate.threads[0].kind == .standard)
+        #expect(delegate.threads[0].sessionId == nil)
+        #expect(delegate.createThreadCallCount == 1)
+    }
+
+    @Test @MainActor
+    func mixedDesktopAndTelegramRestoresOnlyDesktop() {
+        let dc = DaemonClient()
+        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let delegate = MockThreadRestorerDelegate(daemonClient: dc)
+        restorer.delegate = delegate
+
+        let defaultThread = ThreadModel()
+        delegate.threads = [defaultThread]
+        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+
+        let response = makeSessionListResponse(sessions: [
+            (id: "s1", title: "Desktop Chat", updatedAt: 3000, threadType: nil, channelBinding: nil),
+            (id: "s2", title: "Telegram Chat", updatedAt: 2000, threadType: nil,
+             channelBinding: ["sourceChannel": "telegram", "externalChatId": "789"]),
+            (id: "s3", title: "Another Desktop Chat", updatedAt: 1000, threadType: nil, channelBinding: nil),
+        ])
+        restorer.handleSessionListResponse(response)
+
+        // Only the two desktop sessions should be restored
+        #expect(delegate.threads.count == 2)
+        #expect(delegate.threads[0].sessionId == "s1")
+        #expect(delegate.threads[0].title == "Desktop Chat")
+        #expect(delegate.threads[1].sessionId == "s3")
+        #expect(delegate.threads[1].title == "Another Desktop Chat")
+        #expect(delegate.createThreadCallCount == 0)
     }
 }
