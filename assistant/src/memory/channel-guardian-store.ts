@@ -221,6 +221,19 @@ export function createChallenge(params: {
   const db = getDb();
   const now = Date.now();
 
+  // Revoke any prior pending challenges for the same (assistantId, channel)
+  // to close the replay window — only the latest challenge should be valid.
+  db.update(channelGuardianVerificationChallenges)
+    .set({ status: 'revoked', updatedAt: now })
+    .where(
+      and(
+        eq(channelGuardianVerificationChallenges.assistantId, params.assistantId),
+        eq(channelGuardianVerificationChallenges.channel, params.channel),
+        eq(channelGuardianVerificationChallenges.status, 'pending'),
+      ),
+    )
+    .run();
+
   const row = {
     id: params.id,
     assistantId: params.assistantId,
@@ -331,6 +344,7 @@ export function createApprovalRequest(params: {
 
 export function getPendingApprovalForRun(runId: string): GuardianApprovalRequest | null {
   const db = getDb();
+  const now = Date.now();
 
   const row = db
     .select()
@@ -339,6 +353,7 @@ export function getPendingApprovalForRun(runId: string): GuardianApprovalRequest
       and(
         eq(channelGuardianApprovalRequests.runId, runId),
         eq(channelGuardianApprovalRequests.status, 'pending'),
+        gt(channelGuardianApprovalRequests.expiresAt, now),
       ),
     )
     .get();
