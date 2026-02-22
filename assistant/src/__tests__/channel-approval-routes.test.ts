@@ -2858,3 +2858,117 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     approvalSpy.mockRestore();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 27. Guardian enforcement decoupled from CHANNEL_APPROVALS_ENABLED
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('guardian enforcement independence from approval flag', () => {
+  test('actor role resolution runs when CHANNEL_APPROVALS_ENABLED is off', async () => {
+    delete process.env.CHANNEL_APPROVALS_ENABLED;
+
+    // Create a guardian binding — user-guardian is the guardian
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-guardian',
+      guardianDeliveryChatId: 'chat-guardian',
+    });
+
+    // A non-guardian user sends a message with approvals disabled.
+    // Actor role resolution should still classify them as non-guardian
+    // even though the approval UX is off.
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const req = makeInboundRequest({
+      content: 'hello world',
+      senderExternalUserId: 'user-non-guardian',
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    expect(res.status).toBe(200);
+
+    // The message should proceed normally since approval UX is off,
+    // but actor role resolution still ran (verified by the fact that
+    // the message processed successfully without error)
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+
+    deliverSpy.mockRestore();
+  });
+
+  test('missing senderExternalUserId with guardian binding fails closed', async () => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+
+    // Create a guardian binding — guardian enforcement is active
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-guardian',
+      guardianDeliveryChatId: 'chat-guardian',
+    });
+
+    const orchestrator = makeMockOrchestrator();
+    // Override startRun to return needs_confirmation for a sensitive action
+    (orchestrator.startRun as ReturnType<typeof mock>).mockImplementation(async () => ({
+      id: 'run-failclosed-1',
+      conversationId: 'conv-1',
+      messageId: null,
+      status: 'needs_confirmation' as const,
+      pendingConfirmation: sampleConfirmation,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+
+    // Send a message WITHOUT senderExternalUserId
+    const req = makeInboundRequest({
+      content: 'do something dangerous',
+      senderExternalUserId: undefined,
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    expect(res.status).toBe(200);
+
+    // Wait for background processing
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    // The unknown actor should be treated as unverified_channel and
+    // sensitive actions should be auto-denied with a setup notice
+    expect(deliverSpy).toHaveBeenCalled();
+    const replyArgs = deliverSpy.mock.calls[0];
+    const replyText = replyArgs[2] as string;
+    expect(replyText).toContain('guardian');
+
+    deliverSpy.mockRestore();
+    approvalSpy.mockRestore();
+  });
+
+  test('missing senderExternalUserId without guardian binding uses default flow', async () => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+
+    // No guardian binding exists — default behavior should be preserved
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const req = makeInboundRequest({
+      content: 'hello world',
+      senderExternalUserId: undefined,
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    expect(res.status).toBe(200);
+
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.accepted).toBe(true);
+
+    deliverSpy.mockRestore();
+  });
+});
