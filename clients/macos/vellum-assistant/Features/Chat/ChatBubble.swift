@@ -634,15 +634,7 @@ struct ChatBubble: View {
                     i < message.toolCalls.count ? message.toolCalls[i] : nil
                 }
                 if !calls.isEmpty && calls.allSatisfy({ $0.isComplete }) && !hideToolCalls {
-                    VStack(alignment: .leading, spacing: 0) {
-                        UsedToolsList(toolCalls: calls, isExpanded: $stepsExpanded)
-                        if stepsExpanded {
-                            StepsSection(toolCalls: calls)
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                        }
-                    }
-                    .animation(VAnimation.fast, value: stepsExpanded)
-                    .padding(.top, VSpacing.xxs)
+                    InlineToolCallGroup(toolCalls: calls)
                 }
             case .surface(let i):
                 if i < message.inlineSurfaces.count,
@@ -650,6 +642,12 @@ struct ChatBubble: View {
                     InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction)
                 }
             }
+        }
+
+        // Show permission chip that would otherwise be hidden when trailingStatus is suppressed
+        if let confirmation = decidedConfirmation {
+            compactPermissionChip(confirmation)
+                .padding(.top, VSpacing.xxs)
         }
 
         // Attachments are not part of contentOrder but must still be rendered
@@ -1067,4 +1065,25 @@ struct ChatBubble: View {
         return parsed
     }
 
+}
+
+// MARK: - Inline Tool Call Group (owns its own expand state)
+
+/// Each inline tool-call group in interleaved content gets its own expand/collapse
+/// state so groups can be expanded independently.
+private struct InlineToolCallGroup: View {
+    let toolCalls: [ToolCallData]
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            UsedToolsList(toolCalls: toolCalls, isExpanded: $isExpanded)
+            if isExpanded {
+                InlineToolDetails(toolCalls: toolCalls)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(VAnimation.fast, value: isExpanded)
+        .padding(.top, VSpacing.xxs)
+    }
 }

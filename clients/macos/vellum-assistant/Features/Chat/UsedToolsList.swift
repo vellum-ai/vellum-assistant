@@ -74,6 +74,196 @@ struct StepsSection: View {
     }
 }
 
+// MARK: - Inline tool details (shows detail content directly, no header row)
+
+/// Used by interleaved content rendering. The pill chip already serves as the
+/// header, so this view skips the `UsedToolsRow` header and directly shows the
+/// detail content (technical details, output, screenshots, sub-steps).
+struct InlineToolDetails: View {
+    let toolCalls: [ToolCallData]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
+                ToolCallDetailContent(toolCall: toolCall)
+
+                if index < toolCalls.count - 1 {
+                    Divider()
+                }
+            }
+        }
+        .padding(.top, VSpacing.xs)
+    }
+}
+
+// MARK: - Shared detail content (used by both UsedToolsRow and InlineToolDetails)
+
+private struct ToolCallDetailContent: View {
+    let toolCall: ToolCallData
+
+    @State private var isImageHovered = false
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Technical details
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Technical details")
+                    .font(VFont.small)
+                    .foregroundColor(VColor.textMuted)
+                    .textCase(.uppercase)
+
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(toolCall.friendlyName)
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textSecondary)
+                    if !toolCall.inputFull.isEmpty {
+                        Text(toolCall.inputFull)
+                            .font(VFont.monoSmall)
+                            .foregroundColor(VColor.textSecondary)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+            .padding(.horizontal, VSpacing.md)
+
+            // Claude Code sub-steps (if any)
+            if !toolCall.claudeCodeSteps.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Sub-steps")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                        .textCase(.uppercase)
+
+                    ClaudeCodeProgressView(
+                        steps: toolCall.claudeCodeSteps,
+                        isRunning: false
+                    )
+                }
+                .padding(.horizontal, VSpacing.md)
+            }
+
+            // Screenshot — use CGImage + displayScale for pixel-perfect Retina rendering
+            if let img = toolCall.cachedImage,
+               let cgImage = img.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                Image(decorative: cgImage, scale: displayScale)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .padding(.horizontal, VSpacing.md)
+                    .onTapGesture(count: 2) { openImageInPreview(img) }
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() }
+                        else { NSCursor.pop() }
+                        isImageHovered = hovering
+                    }
+                    .onDisappear { if isImageHovered { NSCursor.pop(); isImageHovered = false } }
+            } else if let img = toolCall.cachedImage {
+                Image(nsImage: img)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .padding(.horizontal, VSpacing.md)
+                    .onTapGesture(count: 2) { openImageInPreview(img) }
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() }
+                        else { NSCursor.pop() }
+                        isImageHovered = hovering
+                    }
+                    .onDisappear { if isImageHovered { NSCursor.pop(); isImageHovered = false } }
+            }
+
+            // Output
+            if let result = toolCall.result, !result.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Output")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                        .textCase(.uppercase)
+
+                    ZStack(alignment: .topTrailing) {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(Array(result.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
+                                    Text(line)
+                                        .font(VFont.monoSmall)
+                                        .foregroundColor(diffLineColor(line, result: result, isError: toolCall.isError))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                            .textSelection(.enabled)
+                        }
+                        .frame(maxHeight: 200)
+                        .padding(VSpacing.sm)
+                        .background(VColor.background.opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .stroke(VColor.surfaceBorder, lineWidth: 0.5)
+                        )
+
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(result, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(VColor.textMuted)
+                                .frame(width: 24, height: 24)
+                                .background(VColor.backgroundSubtle)
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(VSpacing.xs)
+                        .accessibilityLabel("Copy output")
+                    }
+                }
+                .padding(.horizontal, VSpacing.md)
+            }
+        }
+        .padding(.bottom, VSpacing.sm)
+    }
+
+    private func openImageInPreview(_ image: NSImage) {
+        let path = toolCall.inputFull.components(separatedBy: "\n").first ?? ""
+        if !path.isEmpty && FileManager.default.fileExists(atPath: path) {
+            openInPreview(URL(fileURLWithPath: path))
+            return
+        }
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:]) else { return }
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vellum-preview-\(UUID().uuidString).png")
+        do {
+            try png.write(to: tempURL)
+            openInPreview(tempURL)
+        } catch {}
+    }
+
+    private func openInPreview(_ url: URL) {
+        let previewURL = URL(fileURLWithPath: "/System/Applications/Preview.app")
+        NSWorkspace.shared.open(
+            [url],
+            withApplicationAt: previewURL,
+            configuration: NSWorkspace.OpenConfiguration()
+        )
+    }
+
+    private func diffLineColor(_ line: String, result: String, isError: Bool) -> Color {
+        if isError { return VColor.error }
+        let isDiff = result.contains("@@") && result.contains("---") && result.contains("+++")
+        guard isDiff else { return VColor.textSecondary }
+        if line.hasPrefix("+") { return Emerald._400 }
+        if line.hasPrefix("-") { return Rose._400 }
+        if line.hasPrefix("@@") { return VColor.textMuted }
+        return VColor.textSecondary
+    }
+}
+
 // MARK: - Individual row
 
 private struct UsedToolsRow: View {
@@ -81,8 +271,6 @@ private struct UsedToolsRow: View {
 
     @State private var isExpanded = false
     @State private var isHovered = false
-    @State private var isImageHovered = false
-    @Environment(\.displayScale) private var displayScale
 
     private var hasDetails: Bool {
         !toolCall.inputFull.isEmpty ||
@@ -144,174 +332,14 @@ private struct UsedToolsRow: View {
 
             // Expanded detail section
             if isExpanded {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: 0) {
                     Divider().padding(.horizontal, VSpacing.sm)
-
-                    // Technical details
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Technical details")
-                            .font(VFont.small)
-                            .foregroundColor(VColor.textMuted)
-                            .textCase(.uppercase)
-
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text(toolCall.friendlyName)
-                                .font(VFont.captionMedium)
-                                .foregroundColor(VColor.textSecondary)
-                            if !toolCall.inputFull.isEmpty {
-                                Text(toolCall.inputFull)
-                                    .font(VFont.monoSmall)
-                                    .foregroundColor(VColor.textSecondary)
-                                    .textSelection(.enabled)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, VSpacing.md)
-
-                    // Claude Code sub-steps (if any)
-                    if !toolCall.claudeCodeSteps.isEmpty {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Sub-steps")
-                                .font(VFont.small)
-                                .foregroundColor(VColor.textMuted)
-                                .textCase(.uppercase)
-
-                            ClaudeCodeProgressView(
-                                steps: toolCall.claudeCodeSteps,
-                                isRunning: false
-                            )
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                    }
-
-                    // Screenshot — use CGImage + displayScale for pixel-perfect Retina rendering
-                    if let img = toolCall.cachedImage,
-                       let cgImage = img.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                        Image(decorative: cgImage, scale: displayScale)
-                            .resizable()
-                            .interpolation(.high)
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .padding(.horizontal, VSpacing.md)
-                            .onTapGesture(count: 2) { openImageInPreview(img) }
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() }
-                                else { NSCursor.pop() }
-                                isImageHovered = hovering
-                            }
-                            .onDisappear { if isImageHovered { NSCursor.pop(); isImageHovered = false } }
-                    } else if let img = toolCall.cachedImage {
-                        Image(nsImage: img)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .padding(.horizontal, VSpacing.md)
-                            .onTapGesture(count: 2) { openImageInPreview(img) }
-                            .onHover { hovering in
-                                if hovering { NSCursor.pointingHand.push() }
-                                else { NSCursor.pop() }
-                                isImageHovered = hovering
-                            }
-                            .onDisappear { if isImageHovered { NSCursor.pop(); isImageHovered = false } }
-                    }
-
-                    // Output
-                    if let result = toolCall.result, !result.isEmpty {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Output")
-                                .font(VFont.small)
-                                .foregroundColor(VColor.textMuted)
-                                .textCase(.uppercase)
-
-                            ZStack(alignment: .topTrailing) {
-                                ScrollView {
-                                    VStack(alignment: .leading, spacing: 0) {
-                                        ForEach(Array(result.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
-                                            Text(line)
-                                                .font(VFont.monoSmall)
-                                                .foregroundColor(diffLineColor(line, result: result, isError: toolCall.isError))
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
-                                    }
-                                    .textSelection(.enabled)
-                                }
-                                .frame(maxHeight: 200)
-                                .padding(VSpacing.sm)
-                                .background(VColor.background.opacity(0.6))
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: VRadius.sm)
-                                        .stroke(VColor.surfaceBorder, lineWidth: 0.5)
-                                )
-
-                                Button {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(result, forType: .string)
-                                } label: {
-                                    Image(systemName: "doc.on.doc")
-                                        .font(.system(size: 10, weight: .medium))
-                                        .foregroundColor(VColor.textMuted)
-                                        .frame(width: 24, height: 24)
-                                        .background(VColor.backgroundSubtle)
-                                        .clipShape(RoundedRectangle(cornerRadius: VRadius.xs))
-                                }
-                                .buttonStyle(.plain)
-                                .padding(VSpacing.xs)
-                                .accessibilityLabel("Copy output")
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                    }
+                    ToolCallDetailContent(toolCall: toolCall)
                 }
-                .padding(.bottom, VSpacing.sm)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .animation(VAnimation.fast, value: isExpanded)
-    }
-
-    /// Open the image in Preview.app. Tries the original file path first; falls
-    /// back to writing the NSImage to a temp file when the path is unavailable.
-    private func openImageInPreview(_ image: NSImage) {
-        // Try opening the original file if inputFull points to a real file
-        let path = toolCall.inputFull.components(separatedBy: "\n").first ?? ""
-        if !path.isEmpty && FileManager.default.fileExists(atPath: path) {
-            openInPreview(URL(fileURLWithPath: path))
-            return
-        }
-        // Fallback: write cached image to a temp file and open it
-        guard let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:]) else { return }
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vellum-preview-\(UUID().uuidString).png")
-        do {
-            try png.write(to: tempURL)
-            openInPreview(tempURL)
-        } catch {
-            // Not critical — silently fail
-        }
-    }
-
-    private func openInPreview(_ url: URL) {
-        let previewURL = URL(fileURLWithPath: "/System/Applications/Preview.app")
-        NSWorkspace.shared.open(
-            [url],
-            withApplicationAt: previewURL,
-            configuration: NSWorkspace.OpenConfiguration()
-        )
-    }
-
-    private func diffLineColor(_ line: String, result: String, isError: Bool) -> Color {
-        if isError { return VColor.error }
-        let isDiff = result.contains("@@") && result.contains("---") && result.contains("+++")
-        guard isDiff else { return VColor.textSecondary }
-        if line.hasPrefix("+") { return Emerald._400 }
-        if line.hasPrefix("-") { return Rose._400 }
-        if line.hasPrefix("@@") { return VColor.textMuted }
-        return VColor.textSecondary
     }
 
     private func formatDuration(_ s: TimeInterval) -> String {
