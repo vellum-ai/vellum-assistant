@@ -272,7 +272,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         XCTAssertEqual(trustRuleMsg?.toolName, "host_bash")
         XCTAssertEqual(trustRuleMsg?.pattern, "echo *")
         XCTAssertEqual(trustRuleMsg?.scope, "project")
-        XCTAssertEqual(trustRuleMsg?.decision, "always_allow")
+        XCTAssertEqual(trustRuleMsg?.decision, "allow")
         XCTAssertEqual(trustRuleMsg?.executionTarget, "host")
         XCTAssertEqual(trustRuleMsg?.principalKind, "skill")
         XCTAssertEqual(trustRuleMsg?.principalId, "my-skill")
@@ -295,7 +295,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
         let trustRuleMsg = sentMessages[0] as? AddTrustRuleMessage
         XCTAssertNotNil(trustRuleMsg)
-        XCTAssertEqual(trustRuleMsg?.decision, "always_allow_high_risk")
+        XCTAssertEqual(trustRuleMsg?.decision, "allow")
         XCTAssertEqual(trustRuleMsg?.allowHighRisk, true)
     }
 
@@ -311,7 +311,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
         let trustRuleMsg = sentMessages[0] as? AddTrustRuleMessage
         XCTAssertNotNil(trustRuleMsg)
-        XCTAssertEqual(trustRuleMsg?.decision, "always_allow")
+        XCTAssertEqual(trustRuleMsg?.decision, "allow")
         XCTAssertNil(trustRuleMsg?.allowHighRisk)
     }
 
