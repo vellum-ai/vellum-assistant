@@ -63,9 +63,11 @@ beforeEach(() => {
   process.env.BASE_DATA_DIR = testDir;
   logCalls.length = 0;
   execFileSyncMock.mockReset();
-  // Default: execFileSync throws (credential not found in keychain)
+  // Default: execFileSync throws with exit code 44 (errSecItemNotFound)
   execFileSyncMock.mockImplementation(() => {
-    throw new Error("not found");
+    const err = new Error("not found") as Error & { status: number };
+    err.status = 44;
+    throw err;
   });
 });
 
@@ -109,6 +111,10 @@ describe("readTelegramCredentials: encrypted store only (existing behavior)", ()
 });
 
 describe("readTelegramCredentials: keychain on macOS", () => {
+  beforeEach(() => {
+    Object.defineProperty(process, "platform", { value: "darwin", writable: true });
+  });
+
   test("returns credentials from keychain when available on macOS", () => {
     writeMetadata([
       { service: "telegram", field: "bot_token" },
@@ -197,6 +203,10 @@ describe("readTelegramCredentials: neither backend has credentials", () => {
 });
 
 describe("readKeychainCredential", () => {
+  beforeEach(() => {
+    Object.defineProperty(process, "platform", { value: "darwin", writable: true });
+  });
+
   test("returns credential value from keychain on macOS", () => {
     execFileSyncMock.mockImplementation(() => "my-secret-value\n");
 
@@ -204,11 +214,25 @@ describe("readKeychainCredential", () => {
     expect(result).toBe("my-secret-value");
   });
 
-  test("returns undefined when keychain throws", () => {
+  test("returns undefined when keychain item not found (exit code 44)", () => {
     execFileSyncMock.mockImplementation(() => {
-      throw new Error("security: SecKeychainSearchCopyNext: The specified item could not be found");
+      const err = new Error("security: SecKeychainSearchCopyNext: The specified item could not be found") as Error & { status: number };
+      err.status = 44;
+      throw err;
     });
 
+    const result = readKeychainCredential("credential:telegram:bot_token");
+    expect(result).toBeUndefined();
+  });
+
+  test("returns undefined for transient keychain errors (non-44 exit code)", () => {
+    execFileSyncMock.mockImplementation(() => {
+      const err = new Error("security: The user name or passphrase you entered is not correct.") as Error & { status: number };
+      err.status = 51;
+      throw err;
+    });
+
+    // Should still return undefined (graceful fallback), but logs a warning
     const result = readKeychainCredential("credential:telegram:bot_token");
     expect(result).toBeUndefined();
   });
@@ -235,6 +259,10 @@ describe("readKeychainCredential", () => {
 });
 
 describe("log output: no plaintext secrets", () => {
+  beforeEach(() => {
+    Object.defineProperty(process, "platform", { value: "darwin", writable: true });
+  });
+
   test("log messages never contain secret values", () => {
     writeMetadata([
       { service: "telegram", field: "bot_token" },

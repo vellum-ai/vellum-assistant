@@ -127,6 +127,11 @@ export function getMetadataPath(): string {
  * Read a single credential from the macOS Keychain.
  * Returns `undefined` on non-macOS platforms, when the credential
  * doesn't exist, or on any error.
+ *
+ * Exit code 44 from `security` means errSecItemNotFound — the credential
+ * genuinely doesn't exist. Other non-zero exit codes indicate transient
+ * errors (locked keychain, timeout, etc.) and are logged as warnings so
+ * operators have visibility into keychain health.
  */
 export function readKeychainCredential(account: string): string | undefined {
   if (process.platform !== "darwin") return undefined;
@@ -146,7 +151,12 @@ export function readKeychainCredential(account: string): string | undefined {
     if (!value) return undefined;
     log.debug({ account }, "Credential found in keychain");
     return value;
-  } catch {
+  } catch (err: unknown) {
+    // Exit code 44 = errSecItemNotFound — credential genuinely missing
+    const exitCode = (err as { status?: number }).status;
+    if (exitCode !== 44) {
+      log.warn({ account, exitCode }, "Keychain lookup failed with unexpected error");
+    }
     return undefined;
   }
 }
