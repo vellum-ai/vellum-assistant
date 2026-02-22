@@ -549,6 +549,21 @@ export interface TelegramConfigResponse {
   error?: string;
 }
 
+export interface GuardianVerificationRequest {
+  type: 'guardian_verification';
+  action: 'create_challenge';
+  channel?: string;  // Defaults to 'telegram'
+  sessionId?: string;
+}
+
+export interface GuardianVerificationResponse {
+  type: 'guardian_verification_response';
+  success: boolean;
+  secret?: string;
+  instruction?: string;
+  error?: string;
+}
+
 export interface TwitterIntegrationConfigResponse {
   type: 'twitter_integration_config_response';
   success: boolean;
@@ -1032,6 +1047,7 @@ export type ClientMessage =
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
   | TelegramConfigRequest
+  | GuardianVerificationRequest
   | TwitterAuthStartRequest
   | TwitterAuthStatusRequest
   | SessionsClearRequest
@@ -2396,6 +2412,7 @@ export type ServerMessage =
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse
   | TelegramConfigResponse
+  | GuardianVerificationResponse
   | TwitterAuthResult
   | TwitterAuthStatusResponse
   | OpenUrl

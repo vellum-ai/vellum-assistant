@@ -15,6 +15,7 @@ import { getLogger } from '../../util/logger.js';
 import {
   getGuardianBinding,
   isGuardian,
+  validateAndConsumeChallenge,
 } from '../channel-guardian-service.js';
 import {
   createApprovalRequest,
@@ -276,6 +277,46 @@ export async function handleChannelInbound(
     : undefined;
 
   const replyCallbackUrl = body.replyCallbackUrl;
+
+  // ── Guardian verification command intercept ──
+  // Handled before normal message processing so it never enters the agent loop.
+  if (
+    !result.duplicate &&
+    trimmedContent.startsWith('/guardian-verify ') &&
+    replyCallbackUrl &&
+    body.senderExternalUserId
+  ) {
+    const token = trimmedContent.slice('/guardian-verify '.length).trim();
+    if (token.length > 0) {
+      const verifyResult = validateAndConsumeChallenge(
+        'self',
+        sourceChannel,
+        token,
+        body.senderExternalUserId,
+        externalChatId,
+      );
+
+      const replyText = verifyResult.success
+        ? 'Guardian verified successfully. Your identity is now linked to this bot.'
+        : 'Verification failed. The code may be invalid or expired.';
+
+      try {
+        await deliverChannelReply(replyCallbackUrl, {
+          chatId: externalChatId,
+          text: replyText,
+        }, bearerToken);
+      } catch (err) {
+        log.error({ err, externalChatId }, 'Failed to deliver guardian verification reply');
+      }
+
+      return Response.json({
+        accepted: true,
+        duplicate: false,
+        eventId: result.eventId,
+        guardianVerification: verifyResult.success ? 'verified' : 'failed',
+      });
+    }
+  }
 
   // ── Actor role resolution ──
   // Determine whether the sender is the guardian for this channel.

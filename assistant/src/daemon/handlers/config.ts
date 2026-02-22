@@ -28,8 +28,10 @@ import type {
   VercelApiConfigRequest,
   TwitterIntegrationConfigRequest,
   TelegramConfigRequest,
+  GuardianVerificationRequest,
   ToolPermissionSimulateRequest,
 } from '../ipc-protocol.js';
+import { createVerificationChallenge } from '../../runtime/channel-guardian-service.js';
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
 
@@ -1089,6 +1091,44 @@ export async function handleTelegramConfig(
   }
 }
 
+export function handleGuardianVerification(
+  msg: GuardianVerificationRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    if (msg.action !== 'create_challenge') {
+      ctx.send(socket, {
+        type: 'guardian_verification_response',
+        success: false,
+        error: `Unknown action: ${String(msg.action)}`,
+      });
+      return;
+    }
+
+    // In single-assistant mode, 'self' is the canonical assistant ID used
+    // by channel routes when validating challenges on the inbound path.
+    const assistantId = 'self';
+    const channel = msg.channel ?? 'telegram';
+    const result = createVerificationChallenge(assistantId, channel, msg.sessionId);
+
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: true,
+      secret: result.secret,
+      instruction: result.instruction,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to handle guardian verification');
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: false,
+      error: message,
+    });
+  }
+}
+
 export function handleEnvVarsRequest(socket: net.Socket, ctx: HandlerContext): void {
   const vars: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -1220,6 +1260,7 @@ export const configHandlers = defineHandlers({
   vercel_api_config: handleVercelApiConfig,
   twitter_integration_config: handleTwitterIntegrationConfig,
   telegram_config: handleTelegramConfig,
+  guardian_verification: handleGuardianVerification,
   env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
   tool_permission_simulate: handleToolPermissionSimulate,
   tool_names_list: (_msg, socket, ctx) => handleToolNamesList(socket, ctx),
