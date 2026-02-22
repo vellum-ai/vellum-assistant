@@ -98,6 +98,9 @@ struct SettingsPanel: View {
             ingressUrlText = store.ingressPublicBaseUrl
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
+            if testerModel == nil, let dc = daemonClient {
+                testerModel = ToolPermissionTesterModel(daemonClient: dc)
+            }
         }
         .onDisappear {
             daemonClient?.onIntegrationListResponse = nil
@@ -1074,8 +1077,8 @@ struct SettingsPanel: View {
             }
 
             // PERMISSION SIMULATOR section
-            if let dc = daemonClient {
-                ToolPermissionTesterView(model: ensureTesterModel(dc))
+            if let model = testerModel {
+                ToolPermissionTesterView(model: model)
             }
 
             // PRIVACY & SECURITY section
@@ -1371,16 +1374,6 @@ struct SettingsPanel: View {
                 }
             }
         }
-    }
-
-    // MARK: - Tester Model
-
-    /// Lazily create and cache the tester model so it survives re-renders.
-    private func ensureTesterModel(_ dc: DaemonClient) -> ToolPermissionTesterModel {
-        if let existing = testerModel { return existing }
-        let model = ToolPermissionTesterModel(daemonClient: dc)
-        DispatchQueue.main.async { testerModel = model }
-        return model
     }
 
     // MARK: - Privacy Bullet
