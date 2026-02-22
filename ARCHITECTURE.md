@@ -3538,11 +3538,10 @@ The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-clos
 On startup, the gateway automatically reconciles the Telegram webhook registration:
 
 1. Reads `INGRESS_PUBLIC_BASE_URL` and Telegram credentials (bot token, webhook secret)
-2. Calls `getWebhookInfo` to check the current registration
-3. Compares the URL, secret, and allowed updates against the expected values
-4. If any differ, calls `setWebhook` to update the registration
+2. Calls `getWebhookInfo` to log the current registration state
+3. Unconditionally calls `setWebhook` with the expected URL, secret, and allowed updates (idempotent — Telegram does not expose the current secret via `getWebhookInfo`, so a compare-then-set approach would miss secret rotations)
 
-This also runs when the credential watcher detects changes to Telegram credentials. Manual webhook registration is no longer required.
+This also runs when the credential watcher detects changes to Telegram credentials. If the ingress URL changes (e.g., tunnel restart), a gateway restart is required. Manual webhook registration is no longer required.
 
 ### Routing Auto-Configuration
 

@@ -47,7 +47,7 @@ Save this value for the next steps.
 
 Manual webhook registration is no longer required. The gateway automatically reconciles the Telegram webhook on startup and whenever credentials change. It compares the current webhook URL against `${INGRESS_PUBLIC_BASE_URL}/webhooks/telegram` and updates it if needed, including the webhook secret and allowed updates.
 
-If the ingress URL or webhook secret changes (e.g., tunnel restart, secret rotation), the gateway will detect the drift and re-register the webhook automatically.
+If the webhook secret changes (e.g., secret rotation), the gateway's credential watcher detects the change and re-registers the webhook automatically. If the ingress URL changes (e.g., tunnel restart), a gateway restart is required to pick up the new URL and re-register.
 
 You can skip directly to storing credentials.
 
@@ -96,7 +96,7 @@ Summarize what was done:
 - Credentials stored securely in the vault
 - Routing configuration validated
 
-The gateway automatically detects credentials from the vault, reconciles the Telegram webhook registration, and begins accepting Telegram webhooks shortly. In single-assistant mode, routing is automatically configured — no manual environment variable configuration or webhook registration is needed. If the ingress URL or secret changes later, the gateway will automatically re-register the webhook.
+The gateway automatically detects credentials from the vault, reconciles the Telegram webhook registration, and begins accepting Telegram webhooks shortly. In single-assistant mode, routing is automatically configured — no manual environment variable configuration or webhook registration is needed. If the webhook secret changes later, the gateway's credential watcher will automatically re-register the webhook. If the ingress URL changes (e.g., tunnel restart), a gateway restart is required to pick up the new URL.
 
 ## Bot-Account Limitations
 

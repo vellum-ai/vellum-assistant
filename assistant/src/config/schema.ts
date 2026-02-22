@@ -1334,6 +1334,7 @@ export const AssistantConfigSchema = z.object({
     },
   }),
   ingress: IngressConfigSchema.default({
+    enabled: false,
     publicBaseUrl: '',
   }),
 }).superRefine((config, ctx) => {
