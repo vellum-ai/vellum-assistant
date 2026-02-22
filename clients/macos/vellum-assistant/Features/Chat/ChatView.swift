@@ -497,13 +497,22 @@ struct ChatView: View {
                     // We scope to messages after the last user message that
                     // started an assistant turn so that stale incomplete tool
                     // calls from earlier turns (e.g. after daemon errors) don't
-                    // permanently suppress the thinking indicator. We skip
-                    // trailing user messages (queued follow-ups sent while
-                    // isSending) so they don't shrink the slice to empty and
-                    // incorrectly hide active tool calls. We still scan beyond
-                    // lastVisible because confirmation messages are inserted
-                    // after the assistant message that owns the tool call.
+                    // permanently suppress the thinking indicator. When the
+                    // user just sent a message and the assistant hasn't started
+                    // responding yet (last message is .user while isSending),
+                    // we return an empty slice so stale tool calls from the
+                    // prior turn don't suppress the thinking indicator. We
+                    // still scan beyond lastVisible because confirmation
+                    // messages are inserted after the assistant message that
+                    // owns the tool call.
                     let currentTurnMessages: ArraySlice<ChatMessage> = {
+                        // When the very last message is from the user and we're
+                        // still sending, the assistant hasn't started responding
+                        // yet. Return an empty slice so stale tool calls from
+                        // the prior turn don't suppress the thinking indicator.
+                        if isSending, let last = displayMessages.last, last.role == .user {
+                            return displayMessages[displayMessages.endIndex...]
+                        }
                         // Find the boundary of the current assistant turn by
                         // locating the last user message that is followed by at
                         // least one non-user message. This ignores queued user
