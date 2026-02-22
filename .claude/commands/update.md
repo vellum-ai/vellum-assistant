@@ -10,6 +10,7 @@ Pull the latest changes from main, restart the backend daemon, rebuild/launch th
    pkill -x "vellum-assistant" || true
    vellum daemon stop || true
    pkill -f "dev:proxy" || true
+   pkill -f "gateway/src/index" || true
    lsof -ti :7830 | xargs kill -9 2>/dev/null || true
    ```
 

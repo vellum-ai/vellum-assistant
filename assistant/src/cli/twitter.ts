@@ -84,14 +84,15 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    // For routed errors with suggestAlternative, emit structured JSON
-    if (err instanceof Error && meta.suggestAlternative !== undefined) {
+    // For routed errors with any router metadata, emit structured JSON
+    // so callers can see dual-path diagnostics (pathUsed, oauthError, etc.)
+    if (err instanceof Error && (meta.pathUsed !== undefined || meta.suggestAlternative !== undefined || meta.oauthError !== undefined)) {
       const payload: Record<string, unknown> = {
         ok: false,
         error: err.message,
       };
       if (meta.pathUsed !== undefined) payload.pathUsed = meta.pathUsed;
-      payload.suggestAlternative = meta.suggestAlternative;
+      if (meta.suggestAlternative !== undefined) payload.suggestAlternative = meta.suggestAlternative;
       if (meta.oauthError !== undefined) payload.oauthError = meta.oauthError;
       output(payload, getJson(cmd));
       process.exitCode = 1;

@@ -1047,25 +1047,29 @@ export const SkillsConfigSchema = z.object({
   allowBundled: z.array(z.string()).nullable().default(null),
 });
 
-export const IngressConfigSchema = z.object({
+const IngressBaseSchema = z.object({
   enabled: z
     .boolean({ error: 'ingress.enabled must be a boolean' })
     .optional(),
   publicBaseUrl: z
     .string({ error: 'ingress.publicBaseUrl must be a string' })
     .default(''),
-}).transform((val) => ({
-  ...val,
-  // Backward compatibility: if `enabled` was never explicitly set (undefined),
-  // infer it from whether a publicBaseUrl is configured. Existing users who
-  // have a URL but predate the `enabled` field should not have their webhooks
-  // silently disabled on upgrade.
-  //
-  // When publicBaseUrl is empty and enabled is unset, leave enabled as
-  // undefined so getPublicBaseUrl() can still fall through to the
-  // INGRESS_PUBLIC_BASE_URL env-var fallback (env-only setups).
-  enabled: val.enabled ?? (val.publicBaseUrl ? true : undefined),
-}));
+});
+
+export const IngressConfigSchema = IngressBaseSchema
+  .default({ publicBaseUrl: '' })
+  .transform((val) => ({
+    ...val,
+    // Backward compatibility: if `enabled` was never explicitly set (undefined),
+    // infer it from whether a publicBaseUrl is configured. Existing users who
+    // have a URL but predate the `enabled` field should not have their webhooks
+    // silently disabled on upgrade.
+    //
+    // When publicBaseUrl is empty and enabled is unset, leave enabled as
+    // undefined so getPublicBaseUrl() can still fall through to the
+    // INGRESS_PUBLIC_BASE_URL env-var fallback (env-only setups).
+    enabled: val.enabled ?? (val.publicBaseUrl ? true : undefined),
+  }));
 
 export const AssistantConfigSchema = z.object({
   provider: z
@@ -1324,9 +1328,9 @@ export const AssistantConfigSchema = z.object({
       elevenlabs: {
         voiceId: '',
         voiceModelId: 'turbo_v2_5',
+        speed: 1.0,
         stability: 0.5,
         similarityBoost: 0.75,
-        style: 0.0,
         useSpeakerBoost: true,
         agentId: '',
         apiBaseUrl: 'https://api.elevenlabs.io',
@@ -1337,9 +1341,7 @@ export const AssistantConfigSchema = z.object({
       allowPerCallOverride: true,
     },
   }),
-  ingress: IngressConfigSchema.default({
-    publicBaseUrl: '',
-  }),
+  ingress: IngressConfigSchema,
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
     ctx.addIssue({

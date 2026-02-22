@@ -502,9 +502,13 @@ export function handleIngressConfig(
       const isEnabled = (ingress.enabled as boolean | undefined) ?? (value ? true : false);
       if (value && isEnabled) {
         process.env.INGRESS_PUBLIC_BASE_URL = value;
-      } else if (ORIGINAL_INGRESS_ENV !== undefined) {
+      } else if (isEnabled && ORIGINAL_INGRESS_ENV !== undefined) {
+        // Ingress is enabled but the user cleared the URL — fall back to the
+        // env var that was present when the process started.
         process.env.INGRESS_PUBLIC_BASE_URL = ORIGINAL_INGRESS_ENV;
       } else {
+        // Ingress is disabled or no URL is configured and no startup env var
+        // exists — remove the env var so the gateway stops accepting webhooks.
         delete process.env.INGRESS_PUBLIC_BASE_URL;
       }
 
