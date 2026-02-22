@@ -1336,7 +1336,7 @@ let expirySweepTimer: ReturnType<typeof setInterval> | null = null;
  */
 export function sweepExpiredGuardianApprovals(
   orchestrator: RunOrchestrator,
-  replyCallbackUrl: string,
+  gatewayBaseUrl: string,
   bearerToken?: string,
 ): void {
   const expired = getExpiredPendingApprovals();
@@ -1351,8 +1351,11 @@ export function sweepExpiredGuardianApprovals(
     };
     handleChannelDecision(approval.conversationId, expiredDecision, orchestrator);
 
+    // Construct the per-channel delivery URL from the approval's channel
+    const deliverUrl = `${gatewayBaseUrl}/deliver/${approval.channel}`;
+
     // Notify the requester that the approval expired
-    deliverChannelReply(replyCallbackUrl, {
+    deliverChannelReply(deliverUrl, {
       chatId: approval.requesterChatId,
       text: `Your guardian approval request for "${approval.toolName}" has expired and the action has been denied. Please try again.`,
     }, bearerToken).catch((err) => {
@@ -1360,7 +1363,7 @@ export function sweepExpiredGuardianApprovals(
     });
 
     // Notify the guardian that the approval expired
-    deliverChannelReply(replyCallbackUrl, {
+    deliverChannelReply(deliverUrl, {
       chatId: approval.guardianChatId,
       text: `The approval request for "${approval.toolName}" from user ${approval.requesterExternalUserId} has expired and was automatically denied.`,
     }, bearerToken).catch((err) => {
@@ -1380,13 +1383,13 @@ export function sweepExpiredGuardianApprovals(
  */
 export function startGuardianExpirySweep(
   orchestrator: RunOrchestrator,
-  replyCallbackUrl: string,
+  gatewayBaseUrl: string,
   bearerToken?: string,
 ): void {
   if (expirySweepTimer) return;
   expirySweepTimer = setInterval(() => {
     try {
-      sweepExpiredGuardianApprovals(orchestrator, replyCallbackUrl, bearerToken);
+      sweepExpiredGuardianApprovals(orchestrator, gatewayBaseUrl, bearerToken);
     } catch (err) {
       log.error({ err }, 'Guardian expiry sweep failed');
     }
