@@ -23,6 +23,9 @@ struct ToolPermissionTesterView: View {
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+        .onAppear {
+            model.fetchToolNames()
+        }
     }
 
     // MARK: - Form Fields
