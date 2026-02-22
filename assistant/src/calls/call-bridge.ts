@@ -28,6 +28,8 @@ const log = getLogger('call-bridge');
 export interface CallBridgeResult {
   handled: boolean;
   reason?: string;
+  /** User-facing text persisted in-thread by the bridge (success ack or failure notice). */
+  userFacingText?: string;
 }
 
 /**
@@ -125,14 +127,24 @@ async function handleInstruction(
       { conversationId, callSessionId, error: result.error },
       'Instruction relay failed via bridge',
     );
-    return { handled: false, reason: 'instruction_relay_failed' };
+
+    const failureText = 'Failed to relay instruction to the active call.';
+    conversationStore.addMessage(
+      conversationId,
+      'assistant',
+      JSON.stringify([{ type: 'text', text: failureText }]),
+    );
+
+    // Consumed: caller should NOT fall through to the agent loop
+    return { handled: true, reason: 'instruction_relay_failed', userFacingText: failureText };
   }
 
   // Persist a concise acknowledgement so the user sees confirmation
+  const ackText = 'Instruction relayed to active call.';
   conversationStore.addMessage(
     conversationId,
     'assistant',
-    JSON.stringify([{ type: 'text', text: 'Instruction relayed to active call.' }]),
+    JSON.stringify([{ type: 'text', text: ackText }]),
   );
 
   log.info(
@@ -140,5 +152,5 @@ async function handleInstruction(
     'User message routed as call instruction via bridge',
   );
 
-  return { handled: true };
+  return { handled: true, userFacingText: ackText };
 }

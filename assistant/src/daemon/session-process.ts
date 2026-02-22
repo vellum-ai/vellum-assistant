@@ -208,6 +208,9 @@ async function routeOrProcess(
       session.abortController = null;
       session.currentRequestId = undefined;
       log.info({ conversationId: session.conversationId, userMessageId }, 'Queued message consumed by call bridge, skipping agent loop');
+      if (bridgeResult.userFacingText) {
+        next.onEvent({ type: 'assistant_text_delta', text: bridgeResult.userFacingText });
+      }
       next.onEvent({ type: 'message_complete', sessionId: session.conversationId });
       // runAgentLoop never ran so its finally block won't drain — continue manually
       drainQueue(session);
@@ -303,6 +306,9 @@ export async function processMessage(
       session.abortController = null;
       session.currentRequestId = undefined;
       log.info({ conversationId: session.conversationId, userMessageId }, 'IPC message consumed by call bridge, skipping agent loop');
+      if (bridgeResult.userFacingText) {
+        onEvent({ type: 'assistant_text_delta', text: bridgeResult.userFacingText });
+      }
       onEvent({ type: 'message_complete', sessionId: session.conversationId });
       // runAgentLoop never ran so its finally block won't drain — continue manually
       drainQueue(session);

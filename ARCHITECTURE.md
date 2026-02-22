@@ -3767,7 +3767,10 @@ The bridge function `tryRouteCallMessage()` applies the following decision logic
 
 1. **Question emission**: When the LLM emits `[ASK_USER: question]`, the orchestrator creates a pending question in SQLite, fires the question notifier, and transitions to `waiting_on_user` state.
 2. **In-thread display**: The Session's registered question notifier callback persists an assistant message in the conversation thread (via `conversationStore.addMessage()`) and emits `assistant_text_delta` + `message_complete` events to connected clients.
-3. **Auto-consumption**: When the user sends their next message in the same thread, `DaemonServer.processMessage()` and `DaemonServer.persistAndProcessMessage()` call `tryRouteCallMessage()` before launching the agent loop. If there is an active call with a pending question and the orchestrator is in `waiting_on_user` state, the message is routed directly to the orchestrator and the agent loop is skipped.
+3. **Auto-consumption**: `tryRouteCallMessage()` is checked before the agent loop in two entrypoints:
+   - **HTTP path**: `DaemonServer.processMessage()` / `persistAndProcessMessage()` in the daemon server.
+   - **IPC/session path**: `processMessage()` (direct) and `routeOrProcess()` (queued) in `session-process.ts`.
+   In both paths, if the bridge consumes the message the agent loop is skipped. Any `userFacingText` returned by the bridge is emitted as `assistant_text_delta` + `message_complete` so the chat UI shows a live acknowledgement or failure notice.
 4. **Orchestrator resume**: The orchestrator receives the answer via `handleUserAnswer()`, injects `[USER_ANSWERED: answer]` into the LLM context, and resumes the conversation with the callee.
 
 #### Instruction path detail
@@ -3777,18 +3780,19 @@ When no pending question exists but a call is active, the user's message is trea
 1. The bridge calls `relayInstruction()` which validates the call is active and delegates to `handleUserInstruction()` on the orchestrator.
 2. The orchestrator appends `[USER_INSTRUCTION: text]` to its conversation history. The system prompt tells the model to treat this marker as high-priority steering input.
 3. A confirmation message ("Instruction relayed to active call.") is persisted in the conversation thread.
+4. **Failure handling**: If `relayInstruction()` fails (no active orchestrator, terminal session, etc.), a failure notice ("Failed to relay instruction to the active call.") is persisted and the message is still consumed (`handled: true`) so the caller does not fall through to the normal agent loop. The bridge returns `reason: 'instruction_relay_failed'` so callers can distinguish success from failure.
 
 The instruction path is also available via HTTP at `POST /v1/calls/:callSessionId/instruction` for programmatic access (see Runtime HTTP Endpoints).
 
 #### Bridge result reasons
 
-The bridge returns a `{ handled: boolean; reason?: string }` result so callers can determine whether the message was consumed:
+The bridge returns a `{ handled: boolean; reason?: string; userFacingText?: string }` result so callers can determine whether the message was consumed:
 - `no_active_call` — no non-terminal call session exists for this conversation
 - `no_pending_question` — call is active but no question is pending (only returned in legacy answer-only path; current bridge falls through to instruction)
 - `orchestrator_not_found` — the orchestrator was destroyed (call ended between question and answer)
 - `orchestrator_not_waiting` — the orchestrator is not in `waiting_on_user` state
 - `orchestrator_rejected` — the orchestrator's `handleUserAnswer()` returned false
-- `instruction_relay_failed` — the instruction could not be relayed to the orchestrator
+- `instruction_relay_failed` — the instruction could not be relayed to the orchestrator; message is still consumed (`handled: true`) with a failure notice persisted in-thread
 
 ### SQLite Tables
 

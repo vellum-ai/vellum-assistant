@@ -186,7 +186,7 @@ describe('call-bridge', () => {
     expect(result.reason).toBe('no_active_call');
   });
 
-  test('returns instruction_relay_failed when call exists but no orchestrator and no pending question', async () => {
+  test('returns instruction_relay_failed (consumed) when call exists but no orchestrator and no pending question', async () => {
     ensureConversation('conv-no-orch');
     createCallSession({
       conversationId: 'conv-no-orch',
@@ -195,8 +195,9 @@ describe('call-bridge', () => {
       toNumber: '+15552222222',
     });
     const result = await tryRouteCallMessage('conv-no-orch', 'some instruction');
-    expect(result.handled).toBe(false);
+    expect(result.handled).toBe(true);
     expect(result.reason).toBe('instruction_relay_failed');
+    expect(result.userFacingText).toBe('Failed to relay instruction to the active call.');
   });
 
   test('returns handled:false when orchestrator is not found (call still active but no orchestrator)', async () => {
@@ -314,6 +315,7 @@ describe('call-bridge', () => {
 
     const result = await tryRouteCallMessage('conv-instruct', 'Please ask about pricing');
     expect(result.handled).toBe(true);
+    expect(result.userFacingText).toBe('Instruction relayed to active call.');
 
     // Verify acknowledgement was persisted
     const msgs = getMessagesForConversation('conv-instruct');
@@ -366,7 +368,7 @@ describe('call-bridge', () => {
     orchestrator.destroy();
   });
 
-  test('instruction relay fails gracefully when call has no orchestrator', async () => {
+  test('instruction relay failure persists notice and is consumed (handled:true)', async () => {
     ensureConversation('conv-no-orch-instruct');
     createCallSession({
       conversationId: 'conv-no-orch-instruct',
@@ -375,10 +377,17 @@ describe('call-bridge', () => {
       toNumber: '+15552222222',
     });
 
-    // No orchestrator registered — relay should fail
+    // No orchestrator registered — relay should fail but still be consumed
     const result = await tryRouteCallMessage('conv-no-orch-instruct', 'Change the topic');
-    expect(result.handled).toBe(false);
+    expect(result.handled).toBe(true);
     expect(result.reason).toBe('instruction_relay_failed');
+    expect(result.userFacingText).toBe('Failed to relay instruction to the active call.');
+
+    // Verify failure notice was persisted in-thread
+    const msgs = getMessagesForConversation('conv-no-orch-instruct');
+    const failMsg = msgs.find((m) => m.content.includes('Failed to relay'));
+    expect(failMsg).toBeDefined();
+    expect(failMsg!.role).toBe('assistant');
   });
 
   // ── Call question notifier ──────────────────────────────────────
