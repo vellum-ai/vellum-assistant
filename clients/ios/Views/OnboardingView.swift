@@ -186,6 +186,8 @@ struct DaemonSetupStep: View {
                 }
                 UserDefaults.standard.set(hostname, forKey: UserDefaultsKeys.daemonHostname)
                 UserDefaults.standard.set(portInt, forKey: UserDefaultsKeys.daemonPort)
+                // iOS always uses TLS for TCP connections
+                UserDefaults.standard.set(true, forKey: UserDefaultsKeys.daemonTLSEnabled)
                 if sessionToken.isEmpty {
                     _ = APIKeyManager.shared.deleteAPIKey(provider: "daemon-token")
                     UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.legacyDaemonToken)

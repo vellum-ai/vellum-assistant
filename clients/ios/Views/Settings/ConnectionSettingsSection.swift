@@ -47,7 +47,6 @@ struct APIKeySection: View {
 
 struct DaemonConnectionSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
-    @AppStorage(UserDefaultsKeys.daemonTLSEnabled) private var tlsEnabled: Bool = false
     @State private var daemonHostname: String = ""
     @State private var daemonPort: String = ""
     @State private var sessionToken: String = ""
@@ -83,8 +82,6 @@ struct DaemonConnectionSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Toggle("Use TLS", isOn: $tlsEnabled)
-
             Button("Update") {
                 guard let port = Int(daemonPort), port > 0, port <= 65535 else {
                     alertMessage = "Port must be a valid number between 1 and 65535"
@@ -93,6 +90,8 @@ struct DaemonConnectionSection: View {
                 }
                 UserDefaults.standard.set(daemonHostname, forKey: UserDefaultsKeys.daemonHostname)
                 UserDefaults.standard.set(port, forKey: UserDefaultsKeys.daemonPort)
+                // iOS always uses TLS for TCP connections
+                UserDefaults.standard.set(true, forKey: UserDefaultsKeys.daemonTLSEnabled)
                 if sessionToken.isEmpty {
                     _ = APIKeyManager.shared.deleteAPIKey(provider: "daemon-token")
                     UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.legacyDaemonToken)
