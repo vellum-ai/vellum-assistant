@@ -62,6 +62,7 @@ import {
   handleChannelInbound,
   isChannelApprovalsEnabled,
   sweepExpiredGuardianApprovals,
+  verifyGatewayOrigin,
   _setTestPollMaxWait,
 } from '../runtime/routes/channel-routes.js';
 import * as gatewayClient from '../runtime/gateway-client.js';
@@ -2970,5 +2971,52 @@ describe('guardian enforcement independence from approval flag', () => {
     expect(body.accepted).toBe(true);
 
     deliverSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 28. Gateway-origin proof hardening — dedicated secret support
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('verifyGatewayOrigin with dedicated gateway-origin secret', () => {
+  function makeReqWithHeader(value?: string): Request {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (value !== undefined) {
+      headers['X-Gateway-Origin'] = value;
+    }
+    return new Request('http://localhost/channels/inbound', {
+      method: 'POST',
+      headers,
+      body: '{}',
+    });
+  }
+
+  test('returns true when no secrets configured (local dev)', () => {
+    expect(verifyGatewayOrigin(makeReqWithHeader(), undefined, undefined)).toBe(true);
+  });
+
+  test('falls back to bearerToken when no dedicated secret is set', () => {
+    expect(verifyGatewayOrigin(makeReqWithHeader('my-bearer'), 'my-bearer', undefined)).toBe(true);
+    expect(verifyGatewayOrigin(makeReqWithHeader('wrong'), 'my-bearer', undefined)).toBe(false);
+    expect(verifyGatewayOrigin(makeReqWithHeader(), 'my-bearer', undefined)).toBe(false);
+  });
+
+  test('uses dedicated secret when set, ignoring bearer token', () => {
+    // Dedicated secret matches — should pass even if bearer token differs
+    expect(verifyGatewayOrigin(makeReqWithHeader('dedicated-secret'), 'bearer-token', 'dedicated-secret')).toBe(true);
+    // Bearer token matches but dedicated secret doesn't — should fail
+    expect(verifyGatewayOrigin(makeReqWithHeader('bearer-token'), 'bearer-token', 'dedicated-secret')).toBe(false);
+  });
+
+  test('validates dedicated secret even when bearer token is not configured', () => {
+    // No bearer token but dedicated secret is set — should validate against it
+    expect(verifyGatewayOrigin(makeReqWithHeader('my-secret'), undefined, 'my-secret')).toBe(true);
+    expect(verifyGatewayOrigin(makeReqWithHeader('wrong'), undefined, 'my-secret')).toBe(false);
+  });
+
+  test('rejects missing header when any secret is configured', () => {
+    expect(verifyGatewayOrigin(makeReqWithHeader(), 'bearer', undefined)).toBe(false);
+    expect(verifyGatewayOrigin(makeReqWithHeader(), undefined, 'secret')).toBe(false);
+    expect(verifyGatewayOrigin(makeReqWithHeader(), 'bearer', 'secret')).toBe(false);
   });
 });

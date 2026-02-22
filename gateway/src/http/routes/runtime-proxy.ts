@@ -99,9 +99,11 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     // Add the runtime's bearer token so the upstream accepts the request
     if (config.runtimeBearerToken) {
       reqHeaders.set("authorization", `Bearer ${config.runtimeBearerToken}`);
-      // Attach gateway-origin proof so the runtime can distinguish
-      // gateway-forwarded requests from direct external calls.
-      reqHeaders.set(GATEWAY_ORIGIN_HEADER, config.runtimeBearerToken);
+    }
+    // Attach gateway-origin proof using the dedicated secret (falls back
+    // to runtimeBearerToken via config when not explicitly configured).
+    if (config.runtimeGatewayOriginSecret) {
+      reqHeaders.set(GATEWAY_ORIGIN_HEADER, config.runtimeGatewayOriginSecret);
     }
 
     if (config.runtimeProxyBearerToken) {

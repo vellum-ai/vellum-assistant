@@ -737,7 +737,8 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId);
+        const gatewayOriginSecret = process.env.RUNTIME_GATEWAY_ORIGIN_SECRET || undefined;
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId, gatewayOriginSecret);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {

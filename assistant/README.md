@@ -167,10 +167,11 @@ Guardian enforcement (actor-role resolution, fail-closed denial for unknown acto
 
 ### Gateway-Origin Ingress Contract
 
-The `/channels/inbound` endpoint requires a valid `X-Gateway-Origin` header that matches the configured bearer token. This ensures channel messages can only be submitted via the gateway (which performs webhook-level verification) and not via direct HTTP calls that bypass signature checks.
+The `/channels/inbound` endpoint requires a valid `X-Gateway-Origin` header to prove the request originated from the gateway. This ensures channel messages can only arrive via the gateway (which performs webhook-level verification) and not via direct HTTP calls that bypass signature checks.
 
-- **With bearer token configured:** Requests must include `X-Gateway-Origin` with the shared secret. Missing or invalid values return `403 GATEWAY_ORIGIN_REQUIRED`.
-- **Without bearer token:** Gateway-origin validation is skipped (local dev without auth).
+- **Dedicated secret (`RUNTIME_GATEWAY_ORIGIN_SECRET`):** When set, this is the expected value for the `X-Gateway-Origin` header. Both the gateway and the runtime must share this secret.
+- **Bearer token fallback:** When `RUNTIME_GATEWAY_ORIGIN_SECRET` is not set, the runtime falls back to validating against the bearer token for backward compatibility.
+- **Without any secret:** When neither a dedicated secret nor a bearer token is configured (local dev), gateway-origin validation is skipped entirely.
 - **Auth layer order:** Bearer token authentication (`Authorization` header) is checked first. Gateway-origin validation runs inside the handler.
 
 ## Twilio Setup Primitive

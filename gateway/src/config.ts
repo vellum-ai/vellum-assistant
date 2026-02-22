@@ -23,6 +23,8 @@ export type GatewayConfig = {
   routingEntries: RoutingEntry[];
   /** Bearer token sent to the assistant runtime on gateway-to-runtime calls. */
   runtimeBearerToken: string | undefined;
+  /** Dedicated secret for the X-Gateway-Origin proof header. Falls back to runtimeBearerToken when not set. */
+  runtimeGatewayOriginSecret: string | undefined;
   runtimeInitialBackoffMs: number;
   runtimeMaxRetries: number;
   runtimeProxyBearerToken: string | undefined;
@@ -162,6 +164,11 @@ export function loadConfig(): GatewayConfig {
   const runtimeProxyBearerToken =
     process.env.RUNTIME_PROXY_BEARER_TOKEN || runtimeTokenFromFile;
 
+  // Dedicated gateway-origin secret. Falls back to runtimeBearerToken for
+  // backward compatibility so existing deployments continue working.
+  const runtimeGatewayOriginSecret =
+    process.env.RUNTIME_GATEWAY_ORIGIN_SECRET || runtimeBearerToken;
+
   const MAX_TIMEOUT_MS = 2_147_483_647; // 2^31 - 1, max safe setTimeout delay
 
   const shutdownDrainMsRaw = process.env.GATEWAY_SHUTDOWN_DRAIN_MS || "5000";
@@ -300,6 +307,7 @@ export function loadConfig(): GatewayConfig {
     port,
     routingEntries,
     runtimeBearerToken,
+    runtimeGatewayOriginSecret,
     runtimeInitialBackoffMs,
     runtimeMaxRetries,
     runtimeProxyBearerToken,

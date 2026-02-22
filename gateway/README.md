@@ -339,7 +339,7 @@ See [`benchmarking/gateway/README.md`](../benchmarking/gateway/README.md) for lo
 | "No route configured" replies | Add a routing entry or set `GATEWAY_UNMAPPED_POLICY=default` with a default assistant |
 | Runtime errors | Is `ASSISTANT_RUNTIME_BASE_URL` reachable? Check runtime logs. |
 | No reply from assistant | Is the assistant runtime processing messages? Check for `RUNTIME_HTTP_PORT` env var. |
-| 403 `GATEWAY_ORIGIN_REQUIRED` on channel inbound | The runtime rejected the request because it lacks a valid `X-Gateway-Origin` header. Ensure `RUNTIME_BEARER_TOKEN` (or the `~/.vellum/http-token` file) is set so the gateway and runtime share the same secret. |
+| 403 `GATEWAY_ORIGIN_REQUIRED` on channel inbound | The runtime rejected the request because it lacks a valid `X-Gateway-Origin` header. Ensure `RUNTIME_GATEWAY_ORIGIN_SECRET` (or `RUNTIME_BEARER_TOKEN` / `~/.vellum/http-token` as fallback) is set on both the gateway and runtime so they share the same secret. |
 
 ### Guardian-Specific Troubleshooting
 

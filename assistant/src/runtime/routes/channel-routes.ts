@@ -53,27 +53,34 @@ const log = getLogger('runtime-http');
 
 /**
  * Header name used by the gateway to prove a request originated from it.
- * The gateway sets this to the shared bearer token; the runtime validates
- * it using constant-time comparison. Requests to `/channels/inbound`
- * that lack a valid gateway-origin proof are rejected with 403.
+ * The gateway sends a dedicated gateway-origin secret (or the bearer token
+ * as fallback). The runtime validates it using constant-time comparison.
+ * Requests to `/channels/inbound` that lack a valid proof are rejected with 403.
  */
 export const GATEWAY_ORIGIN_HEADER = 'X-Gateway-Origin';
 
 /**
  * Validate that the request carries a valid gateway-origin proof.
- * Returns true when the header value matches the expected bearer token
- * using constant-time comparison to prevent timing attacks.
+ * Uses constant-time comparison to prevent timing attacks.
  *
- * When no bearer token is configured (e.g., local dev without auth),
- * gateway-origin validation is skipped — the server is already
- * unauthenticated, so there is no shared secret to verify against.
+ * The `gatewayOriginSecret` parameter is the dedicated secret configured
+ * via `RUNTIME_GATEWAY_ORIGIN_SECRET`. When set, only this value is
+ * accepted. When not set, the function falls back to `bearerToken` for
+ * backward compatibility. When neither is configured (local dev), validation
+ * is skipped entirely.
  */
-export function verifyGatewayOrigin(req: Request, bearerToken?: string): boolean {
-  if (!bearerToken) return true; // No shared secret configured — skip validation
+export function verifyGatewayOrigin(
+  req: Request,
+  bearerToken?: string,
+  gatewayOriginSecret?: string,
+): boolean {
+  // Determine the expected secret: prefer dedicated secret, fall back to bearer token
+  const expectedSecret = gatewayOriginSecret ?? bearerToken;
+  if (!expectedSecret) return true; // No shared secret configured — skip validation
   const provided = req.headers.get(GATEWAY_ORIGIN_HEADER);
   if (!provided) return false;
   const a = Buffer.from(provided);
-  const b = Buffer.from(bearerToken);
+  const b = Buffer.from(expectedSecret);
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
 }
@@ -170,11 +177,12 @@ export async function handleChannelInbound(
   bearerToken?: string,
   runOrchestrator?: RunOrchestrator,
   assistantId: string = 'self',
+  gatewayOriginSecret?: string,
 ): Promise<Response> {
   // Reject requests that lack valid gateway-origin proof. This ensures
   // channel inbound messages can only arrive via the gateway (which
   // performs webhook-level verification) and not via direct HTTP calls.
-  if (!verifyGatewayOrigin(req, bearerToken)) {
+  if (!verifyGatewayOrigin(req, bearerToken, gatewayOriginSecret)) {
     log.warn('Rejected channel inbound request: missing or invalid gateway-origin proof');
     return Response.json(
       { error: 'Forbidden: missing gateway-origin proof', code: 'GATEWAY_ORIGIN_REQUIRED' },
