@@ -1480,6 +1480,20 @@ extension IPCUpdateTrustRule {
     }
 }
 
+/// Simulate a tool permission check without executing the tool.
+/// Backed by generated `IPCToolPermissionSimulateRequest`.
+public typealias ToolPermissionSimulateMessage = IPCToolPermissionSimulateRequest
+
+extension IPCToolPermissionSimulateRequest {
+    public init(toolName: String, input: [String: AnyCodable], workingDir: String? = nil, isInteractive: Bool? = nil, forcePromptSideEffects: Bool? = nil, principalKind: String? = nil, principalId: String? = nil, principalVersion: String? = nil, executionTarget: String? = nil) {
+        self.init(type: "tool_permission_simulate", toolName: toolName, input: input, workingDir: workingDir, isInteractive: isInteractive, forcePromptSideEffects: forcePromptSideEffects, principalKind: principalKind, principalId: principalId, principalVersion: principalVersion, executionTarget: executionTarget)
+    }
+}
+
+/// Response from a tool permission simulation.
+/// Backed by generated `IPCToolPermissionSimulateResponse`.
+public typealias ToolPermissionSimulateResponseMessage = IPCToolPermissionSimulateResponse
+
 /// Response from opening and scanning a .vellumapp bundle.
 /// Backed by generated `IPCOpenBundleResponse`.
 public typealias OpenBundleResponseMessage = IPCOpenBundleResponse
@@ -1940,6 +1954,7 @@ public enum ServerMessage: Decodable, Sendable {
     case watchCompleteRequest(WatchCompleteRequestMessage)
     case traceEvent(TraceEventMessage)
     case trustRulesListResponse(TrustRulesListResponseMessage)
+    case toolPermissionSimulateResponse(ToolPermissionSimulateResponseMessage)
     case acceptStarterBundleResponse(IPCAcceptStarterBundleResponse)
     case remindersListResponse(RemindersListResponseMessage)
     case schedulesListResponse(SchedulesListResponseMessage)
@@ -2162,6 +2177,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "trust_rules_list_response":
             let message = try TrustRulesListResponseMessage(from: decoder)
             self = .trustRulesListResponse(message)
+        case "tool_permission_simulate_response":
+            let message = try ToolPermissionSimulateResponseMessage(from: decoder)
+            self = .toolPermissionSimulateResponse(message)
         case "accept_starter_bundle_response":
             let message = try IPCAcceptStarterBundleResponse(from: decoder)
             self = .acceptStarterBundleResponse(message)
