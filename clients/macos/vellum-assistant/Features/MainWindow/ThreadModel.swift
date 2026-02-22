@@ -18,9 +18,9 @@ struct ThreadModel: Identifiable, Hashable {
     var lastInteractedAt: Date
     var kind: ThreadKind
 
-    // MARK: - Channel Binding (external conversation sync)
+    // MARK: - Channel Binding
 
-    /// The source channel for externally-synced threads (e.g. "telegram").
+    /// The source channel for channel-bound threads (e.g. "telegram").
     var sourceChannel: String?
     /// Display name of the external user who initiated the conversation.
     var displayName: String?
