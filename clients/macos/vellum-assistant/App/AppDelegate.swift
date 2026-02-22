@@ -375,6 +375,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // No assistants left — tear down fully and show onboarding
+        // Clean up ~/.vellum directory now that no assistants need it.
+        // The CLI skips this when VELLUM_DESKTOP_APP is set (to avoid
+        // removing data that other lockfile assistants might still need),
+        // so the desktop app is responsible for cleaning up when the last
+        // assistant is retired.
+        let vellumDirBase: URL
+        if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
+            vellumDirBase = URL(fileURLWithPath: baseDir)
+        } else {
+            vellumDirBase = FileManager.default.homeDirectoryForCurrentUser
+        }
+        let vellumDir = vellumDirBase.appendingPathComponent(".vellum")
+        try? FileManager.default.removeItem(at: vellumDir)
+
         OnboardingState.clearPersistedState()
 
         mainWindow?.close()
