@@ -838,3 +838,145 @@ describe('terminal state check before markProcessed', () => {
     deliverSpy.mockRestore();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 10. No immediate reply after approval decision (WS-A)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('no immediate reply after approval decision', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('deliverChannelReply is NOT called from interception after decision is applied', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Establish the conversation
+    const initReq = makeInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    // Create a pending run
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    // Clear the spy to only track calls from the decision path
+    deliverSpy.mockClear();
+
+    // Send a callback decision
+    const req = makeInboundRequest({
+      content: '',
+      callbackData: `apr:${run.id}:approve_once`,
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.approval).toBe('decision_applied');
+
+    // The interception handler should NOT have called deliverChannelReply.
+    // The reply should only come from the terminal run completion path.
+    expect(deliverSpy).not.toHaveBeenCalled();
+
+    deliverSpy.mockRestore();
+  });
+
+  test('plain-text decision also does not trigger immediate reply', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Establish the conversation
+    const initReq = makeInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    deliverSpy.mockClear();
+
+    // Send a plain-text approval
+    const req = makeInboundRequest({ content: 'approve' });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.approval).toBe('decision_applied');
+    expect(deliverSpy).not.toHaveBeenCalled();
+
+    deliverSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 11. Stale callback with no pending approval returns stale_ignored (WS-B)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('stale callback handling', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('callback with no pending approval returns stale_ignored and does not start a run', async () => {
+    const orchestrator = makeMockOrchestrator();
+
+    // No pending run/approval — send a stale callback
+    const req = makeInboundRequest({
+      content: '',
+      callbackData: 'apr:stale-run:approve_once',
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('stale_ignored');
+
+    // startRun should NOT have been called — the stale callback must not
+    // enter processChannelMessageWithApprovals or processChannelMessageInBackground
+    expect(orchestrator.startRun).not.toHaveBeenCalled();
+  });
+
+  test('callback with non-empty content but no pending approval returns stale_ignored', async () => {
+    const orchestrator = makeMockOrchestrator();
+
+    // Simulate what normalize.ts does: callbackData present AND content is
+    // set to the callback data value (non-empty). Without the fix, this
+    // would fall through to normal processing because the old guard only
+    // checked for empty content.
+    const req = makeInboundRequest({
+      content: 'apr:stale-run:approve_once',
+      callbackData: 'apr:stale-run:approve_once',
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('stale_ignored');
+    expect(orchestrator.startRun).not.toHaveBeenCalled();
+  });
+
+  test('non-callback message without pending approval proceeds to normal processing', async () => {
+    const orchestrator = makeMockOrchestrator();
+
+    // Regular text message (no callbackData) should proceed normally
+    const req = makeInboundRequest({ content: 'hello world' });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    // No approval field — normal processing
+    expect(body.approval).toBeUndefined();
+  });
+});
