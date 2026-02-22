@@ -127,12 +127,6 @@ export async function retire(): Promise<void> {
   const source = parseSource();
   const cloud = resolveCloud(entry);
 
-  // Remove the lockfile entry first so it is cleaned up even if the
-  // cloud-side deletion times out or fails (the desktop app enforces a
-  // timeout that can kill this process mid-flight).
-  removeAssistantEntry(name);
-  console.log(`Removed ${name} from config.`);
-
   if (cloud === "gcp") {
     const project = entry.project;
     const zone = entry.zone;
@@ -156,4 +150,7 @@ export async function retire(): Promise<void> {
     console.error(`Error: Unknown cloud type '${cloud}'.`);
     process.exit(1);
   }
+
+  removeAssistantEntry(name);
+  console.log(`Removed ${name} from config.`);
 }
