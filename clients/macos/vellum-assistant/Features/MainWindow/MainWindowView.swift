@@ -459,17 +459,10 @@ struct MainWindowView: View {
 
                     Divider().background(VColor.surfaceBorder)
 
-                    // Content area with sidebar drawer overlay.
-                    // On panel routes the sidebar pushes content via leading padding
-                    // so the panel view is never obscured. On chat routes the sidebar
-                    // floats as an overlay.
+                    // Content area with sidebar pushing content
                     ZStack(alignment: .leading) {
                         let sidebarVisible = sidebarOpen && windowState.layoutConfig.left.visible
-                        let sidebarPushesContent: Bool = {
-                            if case .panel = windowState.selection { return true }
-                            return false
-                        }()
-                        let sidebarInset = sidebarVisible && sidebarPushesContent
+                        let sidebarInset = sidebarVisible
                             ? threadDrawerWidth + VSpacing.xs : 0
 
                         chatContentView(geometry: geometry)
@@ -477,22 +470,10 @@ struct MainWindowView: View {
 
                         // Sidebar drawer
                         if sidebarVisible {
-                            // Click-outside-to-dismiss scrim (overlay mode only)
-                            if !sidebarPushesContent {
-                                Color.clear
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        withAnimation(.easeInOut(duration: 0.35)) {
-                                            sidebarOpen = false
-                                        }
-                                    }
-                            }
                             HStack(spacing: 0) {
                                 sidebarView
                                 drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
                             }
-                            .shadow(color: sidebarPushesContent ? .clear : .black.opacity(0.2),
-                                    radius: 8, x: 2, y: 0)
                             .transition(.move(edge: .leading))
                             .animation(nil, value: threadDrawerWidth)
                         }
@@ -839,9 +820,6 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "plus.circle", label: "New chat") {
                 windowState.selection = nil
                 threadManager.createThread()
-                withAnimation(.easeInOut(duration: 0.35)) {
-                    sidebarOpen = false
-                }
             }
 
             Spacer().frame(height: VSpacing.lg)
