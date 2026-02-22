@@ -71,6 +71,17 @@ export async function handleMoveSync(req: Request): Promise<Response> {
   db.transaction(() => {
     deleteConversationKey(conversationKey);
     externalConversationStore.deleteBindingByChannelChat(sourceChannel, externalChatId);
+
+    // If the target conversation already had a different chat bound, remove
+    // that stale conversation-key so inbound messages on the old chat no
+    // longer route to the target conversation.
+    const existingTargetBinding = externalConversationStore.getBindingByConversation(newConversationId);
+    if (existingTargetBinding &&
+        (existingTargetBinding.sourceChannel !== sourceChannel || existingTargetBinding.externalChatId !== externalChatId)) {
+      const oldTargetKey = `${existingTargetBinding.sourceChannel}:${existingTargetBinding.externalChatId}`;
+      deleteConversationKey(oldTargetKey);
+    }
+
     setConversationKey(conversationKey, newConversationId);
     externalConversationStore.upsertOutboundBinding({
       conversationId: newConversationId,

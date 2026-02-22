@@ -375,4 +375,41 @@ describe('channel sync arbitration', () => {
       expect(keyMapping!.conversationId).toBe(convB);
     });
   });
+
+  describe('move-sync cleans up target conversation stale key', () => {
+    test('old target binding conversation key is removed when moving to a conversation that already has a binding', async () => {
+      const convA = uuid();
+      const convB = uuid();
+      const uniqueChatIdA = `stale-key-a-${uuid()}`;
+      const uniqueChatIdB = `stale-key-b-${uuid()}`;
+
+      // conv-A owns chat-A, conv-B owns chat-B
+      createBinding(convA, 'telegram', uniqueChatIdA);
+      createBinding(convB, 'telegram', uniqueChatIdB);
+
+      // Create conversation key mappings for both chats
+      getOrCreateConversation(`telegram:${uniqueChatIdA}`);
+      getOrCreateConversation(`telegram:${uniqueChatIdB}`);
+
+      // Move chat-A to conv-B (which already has a binding for chat-B)
+      const req = makeJsonRequest({
+        sourceChannel: 'telegram',
+        externalChatId: uniqueChatIdA,
+        newConversationId: convB,
+      });
+
+      const resp = await handleMoveSync(req);
+      expect(resp.status).toBe(200);
+
+      // The stale conversation key for chat-B should be cleaned up so
+      // inbound messages on chat-B no longer route to conv-B.
+      const staleKeyMapping = getConversationByKey(`telegram:${uniqueChatIdB}`);
+      expect(staleKeyMapping).toBeNull();
+
+      // chat-A's key should now point to conv-B
+      const chatAKeyMapping = getConversationByKey(`telegram:${uniqueChatIdA}`);
+      expect(chatAKeyMapping).not.toBeNull();
+      expect(chatAKeyMapping!.conversationId).toBe(convB);
+    });
+  });
 });
