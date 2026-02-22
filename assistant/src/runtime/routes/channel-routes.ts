@@ -548,9 +548,10 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
 const RUN_POLL_INTERVAL_MS = 500;
 const RUN_POLL_MAX_WAIT_MS = 300_000; // 5 minutes
 
-/** Post-decision delivery poll: shorter window since the run should finish quickly after a decision. */
+/** Post-decision delivery poll: uses the same budget as the main poll since
+ *  this is the only delivery path for late approvals after the main poll exits. */
 const POST_DECISION_POLL_INTERVAL_MS = 500;
-const POST_DECISION_POLL_MAX_WAIT_MS = 30_000; // 30 seconds
+const POST_DECISION_POLL_MAX_WAIT_MS = RUN_POLL_MAX_WAIT_MS;
 
 interface ApprovalProcessingParams {
   orchestrator: RunOrchestrator;
@@ -732,9 +733,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
       }
 
       // Only mark processed and deliver the final reply when the run has
-      // actually reached a terminal state. If the poll loop timed out while
-      // the run is still in progress, leave the event unprocessed so it can
-      // be retried or dead-lettered.
+      // actually reached a terminal state.
       const finalRun = orchestrator.getRun(run.id);
       const isTerminal = finalRun?.status === 'completed' || finalRun?.status === 'failed';
 
@@ -760,19 +759,31 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
             updateApprovalDecision(approvalReq.id, { status: outcomeStatus });
           }
         }
-      } else {
-        // The run is still alive (likely waiting for an approval decision) but
-        // the poll window has elapsed. Mark the event as processed rather than
-        // failed — the run will resume when the user clicks approve/reject,
-        // and `handleApprovalInterception` will deliver the reply via its own
+      } else if (finalRun?.status === 'needs_confirmation') {
+        // The run is waiting for an approval decision but the poll window has
+        // elapsed. Mark the event as processed rather than failed — the run
+        // will resume when the user clicks approve/reject, and
+        // `handleApprovalInterception` will deliver the reply via its own
         // post-decision poll. Marking it failed would cause the generic retry
         // sweep to replay through `processMessage`, which throws "Session is
         // already processing a message" and dead-letters a valid conversation.
         log.warn(
-          { runId: run.id, status: finalRun?.status, conversationId },
-          'Approval-path poll loop timed out before run reached terminal state; marking event as processed',
+          { runId: run.id, status: finalRun.status, conversationId },
+          'Approval-path poll loop timed out while run awaits approval decision; marking event as processed',
         );
         channelDeliveryStore.markProcessed(eventId);
+      } else {
+        // The run is in a non-terminal, non-approval state (e.g. running,
+        // needs_secret, or disappeared). Record a processing failure so the
+        // retry/dead-letter machinery can handle it.
+        const timeoutErr = new Error(
+          `Approval poll timeout: run did not reach terminal state within ${RUN_POLL_MAX_WAIT_MS}ms (status: ${finalRun?.status ?? 'null'})`,
+        );
+        log.warn(
+          { runId: run.id, status: finalRun?.status, conversationId },
+          'Approval-path poll loop timed out before run reached terminal state',
+        );
+        channelDeliveryStore.recordProcessingFailure(eventId, timeoutErr);
       }
     } catch (err) {
       log.error({ err, conversationId }, 'Approval-aware channel message processing failed');
