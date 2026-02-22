@@ -792,8 +792,12 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
 
         channelDeliveryStore.markProcessed(eventId);
 
-        // Deliver the final assistant reply to the requester's chat
-        await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+        // Deliver the final assistant reply exactly once. The post-decision
+        // poll in schedulePostDecisionDelivery races with this path; the
+        // claimRunDelivery guard ensures only the winner sends the reply.
+        if (channelDeliveryStore.claimRunDelivery(run.id)) {
+          await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+        }
 
         // If this was a non-guardian run that went through guardian approval,
         // also notify the guardian's chat about the outcome.
@@ -1153,8 +1157,8 @@ async function handleApprovalInterception(
     // Schedule a background poll for run terminal state and deliver the reply.
     // This handles the case where the original poll in
     // processChannelMessageWithApprovals has already exited due to timeout.
-    // If the original poll is still running and delivers first, the duplicate
-    // delivery is acceptable (gateway deduplicates or user sees a repeat).
+    // The claimRunDelivery guard ensures at-most-once delivery when both
+    // pollers race to terminal state.
     if (result.applied && result.runId) {
       schedulePostDecisionDelivery(
         orchestrator,
@@ -1201,9 +1205,9 @@ async function handleApprovalInterception(
  * handles the case where the original poll in `processChannelMessageWithApprovals`
  * has already exited due to the 5-minute timeout.
  *
- * If the original poll already delivered the reply, delivering it again is
- * acceptable — the gateway will deduplicate or the user sees a duplicate
- * (better than seeing nothing).
+ * Uses the same `claimRunDelivery` guard as the main poll to guarantee
+ * at-most-once delivery: whichever poller reaches terminal state first
+ * claims the delivery, and the other silently skips it.
  */
 function schedulePostDecisionDelivery(
   orchestrator: RunOrchestrator,
@@ -1221,7 +1225,9 @@ function schedulePostDecisionDelivery(
         const current = orchestrator.getRun(runId);
         if (!current) break;
         if (current.status === 'completed' || current.status === 'failed') {
-          await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+          if (channelDeliveryStore.claimRunDelivery(runId)) {
+            await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+          }
           return;
         }
       }
