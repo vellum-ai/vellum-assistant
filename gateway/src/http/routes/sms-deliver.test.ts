@@ -200,6 +200,45 @@ describe("/deliver/sms", () => {
     expect(body.error).toBe("SMS delivery failed");
   });
 
+  it("accepts { chatId, text } and sends Twilio request to chatId", async () => {
+    const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+    globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      fetchCalls.push({ url: urlStr, init: init ?? {} });
+      return new Response(JSON.stringify({ sid: "SM-sent" }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const handler = createSmsDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+    );
+    const req = makeRequest({ chatId: "+15559876543", text: "hello via chatId" }, {});
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Verify the Twilio Messages API was called with chatId as the To number
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].url).toContain("AC-test-sid/Messages.json");
+    const sentBody = fetchCalls[0].init.body as string;
+    const sentParams = new URLSearchParams(sentBody);
+    expect(sentParams.get("To")).toBe("+15559876543");
+    expect(sentParams.get("Body")).toBe("hello via chatId");
+  });
+
+  it("prefers 'to' over 'chatId' when both are provided", async () => {
+    mockTwilioApi();
+    const handler = createSmsDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+    );
+    const req = makeRequest({ to: "+15551111111", chatId: "+15552222222", text: "both fields" }, {});
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+  });
+
   it("sends correct Twilio API request", async () => {
     const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
     globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {

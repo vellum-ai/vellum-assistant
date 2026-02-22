@@ -759,12 +759,17 @@ export function buildSchema(): Record<string, unknown> {
         },
         SmsDeliverRequest: {
           type: "object",
-          required: ["to", "text"],
-          description: "Request to deliver an SMS message via Twilio.",
+          required: ["text"],
+          description: "Request to deliver an SMS message via Twilio. Provide either `to` or `chatId` (alias) as the recipient phone number.",
           properties: {
             to: { type: "string", description: "Recipient phone number in E.164 format" },
+            chatId: { type: "string", description: "Alias for `to` — recipient phone number in E.164 format. Used by the runtime channel callback payload." },
             text: { type: "string", description: "Text content to send", minLength: 1 },
           },
+          anyOf: [
+            { required: ["to"] },
+            { required: ["chatId"] },
+          ],
         },
         TelegramUpdate: {
           type: "object",

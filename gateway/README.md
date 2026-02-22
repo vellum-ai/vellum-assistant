@@ -120,7 +120,7 @@ The `/deliver/sms` endpoint requires the same fail-closed bearer auth as `/deliv
 
 The endpoint also requires `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_PHONE_NUMBER` to be configured. If any are missing, requests return `503 SMS integration not configured`.
 
-Outbound SMS is sent via the Twilio Messages API using the configured `TWILIO_PHONE_NUMBER` as the `From` number. The request body is `{ to: string, text: string }`.
+Outbound SMS is sent via the Twilio Messages API using the configured `TWILIO_PHONE_NUMBER` as the `From` number. The request body accepts either `{ to, text }` or `{ chatId, text }` — `chatId` is an alias for `to`, allowing the runtime channel callback (which sends `{ chatId, text }`) to work without translation. When both `to` and `chatId` are provided, `to` takes precedence.
 
 ## Callback Query Handling
 
