@@ -3,6 +3,21 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AssistantCli")
 
+/// Thread-safe one-shot flag for ensuring a continuation is resumed exactly once.
+private final class OnceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var set = false
+
+    /// Returns `true` the first time it's called; `false` on every subsequent call.
+    func trySet() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if set { return false }
+        set = true
+        return true
+    }
+}
+
 /// Manages all daemon lifecycle operations through the bundled CLI binary.
 ///
 /// This is the single entry point for hatching, stopping, and retiring the
@@ -161,17 +176,11 @@ final class AssistantCli {
             }
             proc.environment = env
 
-            var resumed = false
-            let lock = NSLock()
+            let once = OnceFlag()
 
             // Timeout: terminate the process if it takes too long
             let timeoutItem = DispatchWorkItem { [weak proc] in
-                lock.lock()
-                let alreadyResumed = resumed
-                if !alreadyResumed { resumed = true }
-                lock.unlock()
-
-                if !alreadyResumed {
+                if once.trySet() {
                     proc?.terminate()
                     continuation.resume(throwing: CLIError.executionFailed("Retire timed out after 60 seconds"))
                 }
@@ -180,12 +189,7 @@ final class AssistantCli {
 
             proc.terminationHandler = { finished in
                 timeoutItem.cancel()
-                lock.lock()
-                let alreadyResumed = resumed
-                if !alreadyResumed { resumed = true }
-                lock.unlock()
-
-                guard !alreadyResumed else { return }
+                guard once.trySet() else { return }
 
                 let stderrData = stderrPipe.fileHandleForReading.availableData
                 let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
@@ -196,12 +200,7 @@ final class AssistantCli {
                 try proc.run()
             } catch {
                 timeoutItem.cancel()
-                lock.lock()
-                let alreadyResumed = resumed
-                if !alreadyResumed { resumed = true }
-                lock.unlock()
-
-                if !alreadyResumed {
+                if once.trySet() {
                     continuation.resume(throwing: CLIError.executionFailed("Failed to launch retire: \(error.localizedDescription)"))
                 }
             }
