@@ -520,16 +520,7 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
 
   await startLocalDaemon();
 
-  // The desktop app communicates with the daemon directly via Unix socket,
-  // so the HTTP gateway is only needed for non-desktop (CLI) usage.
-  let runtimeUrl: string;
-
-  if (process.env.VELLUM_DESKTOP_APP) {
-    // No gateway needed — the macOS app uses DaemonClient over the Unix socket.
-    runtimeUrl = "local";
-  } else {
-    runtimeUrl = await startGateway();
-  }
+  const runtimeUrl = await startGateway();
 
   const baseDataDir = join(process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? userInfo().homedir), ".vellum");
   const localEntry: AssistantEntry = {
