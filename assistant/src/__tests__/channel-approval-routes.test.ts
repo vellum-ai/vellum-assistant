@@ -52,8 +52,11 @@ import * as conversationStore from '../memory/conversation-store.js';
 import {
   createBinding,
   createApprovalRequest,
+  getAllPendingApprovalsByGuardianChat,
+  getPendingApprovalByRunAndGuardianChat,
   getPendingApprovalForRun,
   getUnresolvedApprovalForRun,
+  updateApprovalDecision,
 } from '../memory/channel-guardian-store.js';
 import type { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { handleChannelInbound, isChannelApprovalsEnabled } from '../runtime/routes/channel-routes.js';
@@ -2019,5 +2022,578 @@ describe('guardian delivery failure → denial', () => {
 
     deliverSpy.mockRestore();
     approvalSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 21. Scoped guardian decision lookup — multiple pending approvals (WS-3)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('scoped guardian decision lookup — multiple pending approvals', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('callback for older run resolves correctly when multiple approvals are pending', async () => {
+    // Set up a guardian binding
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-multi',
+      guardianDeliveryChatId: 'guardian-chat-multi',
+    });
+
+    // Create two conversations and runs with pending approvals
+    ensureConversation('conv-older');
+    const olderRun = createRun('conv-older');
+    setRunConfirmation(olderRun.id, sampleConfirmation);
+
+    ensureConversation('conv-newer');
+    const newerRun = createRun('conv-newer');
+    setRunConfirmation(newerRun.id, sampleConfirmation);
+
+    // Create guardian approval requests for both runs — same guardian chat
+    createApprovalRequest({
+      runId: olderRun.id,
+      conversationId: 'conv-older',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-a',
+      requesterChatId: 'chat-requester-a',
+      guardianExternalUserId: 'guardian-multi',
+      guardianChatId: 'guardian-chat-multi',
+      toolName: 'shell',
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+
+    createApprovalRequest({
+      runId: newerRun.id,
+      conversationId: 'conv-newer',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-b',
+      requesterChatId: 'chat-requester-b',
+      guardianExternalUserId: 'guardian-multi',
+      guardianChatId: 'guardian-chat-multi',
+      toolName: 'shell',
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const orchestrator = makeMockOrchestrator();
+
+    // Guardian sends a callback button targeting the OLDER run specifically
+    const req = makeInboundRequest({
+      sourceChannel: 'telegram',
+      externalChatId: 'guardian-chat-multi',
+      senderExternalUserId: 'guardian-multi',
+      content: '',
+      callbackData: `apr:${olderRun.id}:approve_once`,
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('guardian_decision_applied');
+
+    // The older approval should now be resolved ('approved')
+    const olderResolved = getPendingApprovalForRun(olderRun.id);
+    expect(olderResolved).toBeNull(); // no longer pending
+
+    // The newer approval should still be pending
+    const newerPending = getPendingApprovalForRun(newerRun.id);
+    expect(newerPending).not.toBeNull();
+    expect(newerPending!.status).toBe('pending');
+
+    // The orchestrator should have been called with the OLDER run's conversation
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(olderRun.id, 'allow');
+
+    // Requester A should have been notified
+    const notifyCalls = deliverSpy.mock.calls.filter(
+      (call) => typeof call[1] === 'object' &&
+        (call[1] as { chatId?: string }).chatId === 'chat-requester-a' &&
+        (call[1] as { text?: string }).text?.includes('approved by the guardian'),
+    );
+    expect(notifyCalls.length).toBeGreaterThanOrEqual(1);
+
+    deliverSpy.mockRestore();
+  });
+
+  test('scoped lookup by (runId, channel, guardianChatId) returns correct approval', () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-scope',
+      guardianDeliveryChatId: 'guardian-chat-scope',
+    });
+
+    ensureConversation('conv-scope-1');
+    const run1 = createRun('conv-scope-1');
+    setRunConfirmation(run1.id, sampleConfirmation);
+
+    ensureConversation('conv-scope-2');
+    const run2 = createRun('conv-scope-2');
+    setRunConfirmation(run2.id, sampleConfirmation);
+
+    createApprovalRequest({
+      runId: run1.id,
+      conversationId: 'conv-scope-1',
+      channel: 'telegram',
+      requesterExternalUserId: 'req-1',
+      requesterChatId: 'chat-req-1',
+      guardianExternalUserId: 'guardian-scope',
+      guardianChatId: 'guardian-chat-scope',
+      toolName: 'shell',
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+
+    createApprovalRequest({
+      runId: run2.id,
+      conversationId: 'conv-scope-2',
+      channel: 'telegram',
+      requesterExternalUserId: 'req-2',
+      requesterChatId: 'chat-req-2',
+      guardianExternalUserId: 'guardian-scope',
+      guardianChatId: 'guardian-chat-scope',
+      toolName: 'shell',
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+
+    // Scoped lookup for run1 returns the correct approval
+    const result1 = getPendingApprovalByRunAndGuardianChat(
+      run1.id, 'telegram', 'guardian-chat-scope',
+    );
+    expect(result1).not.toBeNull();
+    expect(result1!.runId).toBe(run1.id);
+    expect(result1!.conversationId).toBe('conv-scope-1');
+
+    // Scoped lookup for run2 returns the correct approval
+    const result2 = getPendingApprovalByRunAndGuardianChat(
+      run2.id, 'telegram', 'guardian-chat-scope',
+    );
+    expect(result2).not.toBeNull();
+    expect(result2!.runId).toBe(run2.id);
+    expect(result2!.conversationId).toBe('conv-scope-2');
+
+    // Scoped lookup for a non-existent run returns null
+    const result3 = getPendingApprovalByRunAndGuardianChat(
+      'nonexistent-run', 'telegram', 'guardian-chat-scope',
+    );
+    expect(result3).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 22. Ambiguous plain-text decision with multiple pending requests (WS-3)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('ambiguous plain-text guardian decision with multiple pending approvals', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('plain-text "approve" with multiple pending approvals requires disambiguation', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-disambig',
+      guardianDeliveryChatId: 'guardian-chat-disambig',
+    });
+
+    // Create two pending approvals in the same guardian chat
+    ensureConversation('conv-disambig-1');
+    const run1 = createRun('conv-disambig-1');
+    setRunConfirmation(run1.id, sampleConfirmation);
+
+    ensureConversation('conv-disambig-2');
+    const run2 = createRun('conv-disambig-2');
+    setRunConfirmation(run2.id, sampleConfirmation);
+
+    createApprovalRequest({
+      runId: run1.id,
+      conversationId: 'conv-disambig-1',
+      channel: 'telegram',
+      requesterExternalUserId: 'req-d1',
+      requesterChatId: 'chat-req-d1',
+      guardianExternalUserId: 'guardian-disambig',
+      guardianChatId: 'guardian-chat-disambig',
+      toolName: 'shell',
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+
+    createApprovalRequest({
+      runId: run2.id,
+      conversationId: 'conv-disambig-2',
+      channel: 'telegram',
+      requesterExternalUserId: 'req-d2',
+      requesterChatId: 'chat-req-d2',
+      guardianExternalUserId: 'guardian-disambig',
+      guardianChatId: 'guardian-chat-disambig',
+      toolName: 'shell',
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const orchestrator = makeMockOrchestrator();
+
+    // Guardian sends plain-text "approve" — ambiguous since 2 requests are pending
+    const req = makeInboundRequest({
+      sourceChannel: 'telegram',
+      externalChatId: 'guardian-chat-disambig',
+      senderExternalUserId: 'guardian-disambig',
+      content: 'approve',
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('guardian_decision_applied');
+
+    // submitDecision should NOT have been called — the plain-text decision was
+    // rejected due to ambiguity
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    // Both approvals should still be pending
+    const pending1 = getPendingApprovalForRun(run1.id);
+    const pending2 = getPendingApprovalForRun(run2.id);
+    expect(pending1).not.toBeNull();
+    expect(pending2).not.toBeNull();
+
+    // The disambiguation message should have been sent
+    const disambigCalls = deliverSpy.mock.calls.filter(
+      (call) => typeof call[1] === 'object' &&
+        (call[1] as { text?: string }).text?.includes('pending approval requests'),
+    );
+    expect(disambigCalls.length).toBeGreaterThanOrEqual(1);
+
+    deliverSpy.mockRestore();
+  });
+
+  test('plain-text "approve" with single pending approval works normally', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-single',
+      guardianDeliveryChatId: 'guardian-chat-single',
+    });
+
+    ensureConversation('conv-single-1');
+    const run1 = createRun('conv-single-1');
+    setRunConfirmation(run1.id, sampleConfirmation);
+
+    createApprovalRequest({
+      runId: run1.id,
+      conversationId: 'conv-single-1',
+      channel: 'telegram',
+      requesterExternalUserId: 'req-s1',
+      requesterChatId: 'chat-req-s1',
+      guardianExternalUserId: 'guardian-single',
+      guardianChatId: 'guardian-chat-single',
+      toolName: 'shell',
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const orchestrator = makeMockOrchestrator();
+
+    // Guardian sends plain-text "approve" — only one request, so no ambiguity
+    const req = makeInboundRequest({
+      sourceChannel: 'telegram',
+      externalChatId: 'guardian-chat-single',
+      senderExternalUserId: 'guardian-single',
+      content: 'approve',
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('guardian_decision_applied');
+
+    // submitDecision SHOULD have been called — single pending approval
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run1.id, 'allow');
+
+    // The approval should now be resolved
+    const resolved = getPendingApprovalForRun(run1.id);
+    expect(resolved).toBeNull();
+
+    deliverSpy.mockRestore();
+  });
+
+  test('callback button works even with multiple pending approvals (uses scoped lookup)', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-btn-multi',
+      guardianDeliveryChatId: 'guardian-chat-btn-multi',
+    });
+
+    ensureConversation('conv-btn-1');
+    const run1 = createRun('conv-btn-1');
+    setRunConfirmation(run1.id, sampleConfirmation);
+
+    ensureConversation('conv-btn-2');
+    const run2 = createRun('conv-btn-2');
+    setRunConfirmation(run2.id, sampleConfirmation);
+
+    createApprovalRequest({
+      runId: run1.id,
+      conversationId: 'conv-btn-1',
+      channel: 'telegram',
+      requesterExternalUserId: 'req-btn-1',
+      requesterChatId: 'chat-req-btn-1',
+      guardianExternalUserId: 'guardian-btn-multi',
+      guardianChatId: 'guardian-chat-btn-multi',
+      toolName: 'shell',
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+
+    createApprovalRequest({
+      runId: run2.id,
+      conversationId: 'conv-btn-2',
+      channel: 'telegram',
+      requesterExternalUserId: 'req-btn-2',
+      requesterChatId: 'chat-req-btn-2',
+      guardianExternalUserId: 'guardian-btn-multi',
+      guardianChatId: 'guardian-chat-btn-multi',
+      toolName: 'shell',
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const orchestrator = makeMockOrchestrator();
+
+    // Guardian uses callback button for run2 specifically
+    const req = makeInboundRequest({
+      sourceChannel: 'telegram',
+      externalChatId: 'guardian-chat-btn-multi',
+      senderExternalUserId: 'guardian-btn-multi',
+      content: '',
+      callbackData: `apr:${run2.id}:reject`,
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('guardian_decision_applied');
+
+    // submitDecision should have been called for run2 (reject)
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run2.id, 'deny');
+
+    // run1 should still be pending
+    const pending1 = getPendingApprovalForRun(run1.id);
+    expect(pending1).not.toBeNull();
+
+    // run2 should be resolved
+    const pending2 = getPendingApprovalForRun(run2.id);
+    expect(pending2).toBeNull();
+
+    deliverSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 23. Expired guardian approval auto-denies proactively (WS-3)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('expired guardian approval auto-denies proactively', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('expired approval is auto-denied when requester sends follow-up', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-expiry',
+      guardianDeliveryChatId: 'guardian-chat-expiry',
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+
+    ensureConversation('conv-expiry-manual');
+    const run = createRun('conv-expiry-manual');
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    // Create an approval request that has ALREADY expired
+    createApprovalRequest({
+      runId: run.id,
+      conversationId: 'conv-expiry-manual',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-expiry',
+      requesterChatId: 'chat-requester-expiry',
+      guardianExternalUserId: 'guardian-expiry',
+      guardianChatId: 'guardian-chat-expiry',
+      toolName: 'shell',
+      expiresAt: Date.now() - 1000, // already expired
+    });
+
+    // The approval should be detectable as unresolved but NOT as pending
+    // (since it's expired)
+    const pendingCheck = getPendingApprovalForRun(run.id);
+    expect(pendingCheck).toBeNull(); // expired, so not returned by time-filtered query
+
+    const unresolvedCheck = getUnresolvedApprovalForRun(run.id);
+    expect(unresolvedCheck).not.toBeNull(); // still status='pending' in DB
+    expect(unresolvedCheck!.status).toBe('pending');
+
+    const orchestrator = makeMockOrchestrator();
+
+    // We need to establish the conversation mapping for the requester's chat
+    // so that recordInbound returns the correct conversationId.
+    const db = getDb();
+    const now = Date.now();
+    try {
+      db.run(`INSERT INTO conversation_keys (id, conversation_key, conversation_id, created_at)
+        VALUES ('ck-setup-expiry', 'telegram:chat-requester-expiry', 'conv-expiry-manual', ${now})`);
+    } catch { /* already exists */ }
+
+    deliverSpy.mockClear();
+
+    // When the requester sends a follow-up, the expired-but-unresolved
+    // approval should be auto-denied via the interception path
+    const reqFromRequester = makeInboundRequest({
+      sourceChannel: 'telegram',
+      externalChatId: 'chat-requester-expiry',
+      senderExternalUserId: 'requester-expiry',
+      content: 'what happened?',
+    });
+
+    const res = await handleChannelInbound(reqFromRequester, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('decision_applied');
+
+    // The orchestrator should have denied the run
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'deny');
+
+    // The approval should now be marked as 'expired' (not 'pending')
+    const afterExpiry = getUnresolvedApprovalForRun(run.id);
+    expect(afterExpiry).toBeNull(); // status changed from 'pending'
+
+    // The requester should have received the expiry notice
+    const expiryCalls = deliverSpy.mock.calls.filter(
+      (call) => typeof call[1] === 'object' &&
+        (call[1] as { text?: string }).text?.includes('expired'),
+    );
+    expect(expiryCalls.length).toBeGreaterThanOrEqual(1);
+
+    deliverSpy.mockRestore();
+    approvalSpy.mockRestore();
+  });
+
+  test('getExpiredPendingApprovals returns expired but still-pending approvals', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-timer',
+      guardianDeliveryChatId: 'guardian-chat-timer',
+    });
+
+    ensureConversation('conv-timer');
+    const run = createRun('conv-timer');
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    // Create an approval request with a very short TTL (already expired)
+    const approval = createApprovalRequest({
+      runId: run.id,
+      conversationId: 'conv-timer',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-timer',
+      requesterChatId: 'chat-requester-timer',
+      guardianExternalUserId: 'guardian-timer',
+      guardianChatId: 'guardian-chat-timer',
+      toolName: 'shell',
+      expiresAt: Date.now() - 100, // already expired
+    });
+
+    // The approval should be unresolved (status='pending') but not returned
+    // by getPendingApprovalForRun (time-filtered)
+    const unresolved = getUnresolvedApprovalForRun(run.id);
+    expect(unresolved).not.toBeNull();
+    expect(unresolved!.status).toBe('pending');
+
+    const pending = getPendingApprovalForRun(run.id);
+    expect(pending).toBeNull();
+
+    // getExpiredPendingApprovals should find it
+    const { getExpiredPendingApprovals } = await import('../memory/channel-guardian-store.js');
+    const expired = getExpiredPendingApprovals();
+    const matchingExpired = expired.filter((a) => a.runId === run.id);
+    expect(matchingExpired.length).toBe(1);
+    expect(matchingExpired[0].id).toBe(approval.id);
+
+    // After marking it expired, it should no longer appear
+    updateApprovalDecision(approval.id, { status: 'expired' });
+    const afterUpdate = getUnresolvedApprovalForRun(run.id);
+    expect(afterUpdate).toBeNull();
+  });
+
+  test('getAllPendingApprovalsByGuardianChat returns all pending approvals', () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-all',
+      guardianDeliveryChatId: 'guardian-chat-all',
+    });
+
+    ensureConversation('conv-all-1');
+    const run1 = createRun('conv-all-1');
+    setRunConfirmation(run1.id, sampleConfirmation);
+
+    ensureConversation('conv-all-2');
+    const run2 = createRun('conv-all-2');
+    setRunConfirmation(run2.id, sampleConfirmation);
+
+    ensureConversation('conv-all-3');
+    const run3 = createRun('conv-all-3');
+    setRunConfirmation(run3.id, sampleConfirmation);
+
+    createApprovalRequest({
+      runId: run1.id,
+      conversationId: 'conv-all-1',
+      channel: 'telegram',
+      requesterExternalUserId: 'req-all-1',
+      requesterChatId: 'chat-req-all-1',
+      guardianExternalUserId: 'guardian-all',
+      guardianChatId: 'guardian-chat-all',
+      toolName: 'shell',
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+
+    createApprovalRequest({
+      runId: run2.id,
+      conversationId: 'conv-all-2',
+      channel: 'telegram',
+      requesterExternalUserId: 'req-all-2',
+      requesterChatId: 'chat-req-all-2',
+      guardianExternalUserId: 'guardian-all',
+      guardianChatId: 'guardian-chat-all',
+      toolName: 'shell',
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+
+    // Third approval for a different channel — should NOT be returned
+    createApprovalRequest({
+      runId: run3.id,
+      conversationId: 'conv-all-3',
+      channel: 'sms',
+      requesterExternalUserId: 'req-all-3',
+      requesterChatId: 'chat-req-all-3',
+      guardianExternalUserId: 'guardian-all',
+      guardianChatId: 'guardian-chat-all',
+      toolName: 'shell',
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+
+    const allPending = getAllPendingApprovalsByGuardianChat('telegram', 'guardian-chat-all');
+    expect(allPending.length).toBe(2);
+    const runIds = allPending.map((a) => a.runId);
+    expect(runIds).toContain(run1.id);
+    expect(runIds).toContain(run2.id);
   });
 });
