@@ -41,6 +41,15 @@ export function upsertBinding(input: UpsertBindingInput): void {
   const db = getDb();
   const now = Date.now();
 
+  // If a stale binding exists for this (sourceChannel, externalChatId) under a
+  // different conversationId, remove it first so the unique index is not violated.
+  const existing = getBindingByChannelChat(input.sourceChannel, input.externalChatId);
+  if (existing && existing.conversationId !== input.conversationId) {
+    db.delete(externalConversationBindings)
+      .where(eq(externalConversationBindings.conversationId, existing.conversationId))
+      .run();
+  }
+
   db.insert(externalConversationBindings)
     .values({
       conversationId: input.conversationId,
@@ -80,6 +89,15 @@ export function upsertOutboundBinding(input: {
 }): void {
   const db = getDb();
   const now = Date.now();
+
+  // If a stale binding exists for this (sourceChannel, externalChatId) under a
+  // different conversationId, remove it first so the unique index is not violated.
+  const existing = getBindingByChannelChat(input.sourceChannel, input.externalChatId);
+  if (existing && existing.conversationId !== input.conversationId) {
+    db.delete(externalConversationBindings)
+      .where(eq(externalConversationBindings.conversationId, existing.conversationId))
+      .run();
+  }
 
   db.insert(externalConversationBindings)
     .values({

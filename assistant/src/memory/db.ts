@@ -1825,7 +1825,7 @@ function migrateExtConvBindingsChannelChatUnique(database: ReturnType<typeof dri
           SELECT rowid,
                  ROW_NUMBER() OVER (
                    PARTITION BY source_channel, external_chat_id
-                   ORDER BY updated_at DESC, created_at DESC
+                   ORDER BY updated_at DESC, created_at DESC, rowid DESC
                  ) AS rn
           FROM external_conversation_bindings
         )
