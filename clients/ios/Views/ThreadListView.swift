@@ -6,8 +6,10 @@ import VellumAssistantShared
 // MARK: - ThreadListView
 
 struct ThreadListView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var store: IOSThreadStore
     @State private var navigationPath: [UUID] = []
+    @State private var selectedThreadId: UUID?
     @State private var searchText: String = ""
     @State private var renamingThreadId: UUID?
     @State private var renameText: String = ""
@@ -36,32 +38,60 @@ struct ThreadListView: View {
     }
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
-            threadList
-                .navigationDestination(for: UUID.self) { threadId in
-                    if let thread = store.threads.first(where: { $0.id == threadId }) {
-                        ThreadChatView(
-                            viewModel: store.viewModel(for: threadId),
-                            threadTitle: thread.title
-                        )
-                        .onAppear {
-                            store.loadHistoryIfNeeded(for: threadId)
-                            store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
-                        }
-                        .onOpenURL { _ in
-                            DispatchQueue.main.async {
-                                store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
-                            }
-                        }
+        if horizontalSizeClass == .regular {
+            NavigationSplitView {
+                threadList
+            } detail: {
+                detailView
+            }
+        } else {
+            NavigationStack(path: $navigationPath) {
+                threadList
+                    .navigationDestination(for: UUID.self) { threadId in
+                        threadDetailContent(for: threadId)
                     }
+            }
+        }
+    }
+
+    // MARK: - Detail Views
+
+    @ViewBuilder
+    private func threadDetailContent(for threadId: UUID) -> some View {
+        if let thread = store.threads.first(where: { $0.id == threadId }) {
+            ThreadChatView(
+                viewModel: store.viewModel(for: threadId),
+                threadTitle: thread.title
+            )
+            .onAppear {
+                store.loadHistoryIfNeeded(for: threadId)
+                store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
+            }
+            .onOpenURL { _ in
+                DispatchQueue.main.async {
+                    store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
                 }
+            }
+        } else {
+            Text("Select a chat")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var detailView: some View {
+        if let selectedId = selectedThreadId {
+            threadDetailContent(for: selectedId)
+        } else {
+            Text("Select a chat")
+                .foregroundStyle(.secondary)
         }
     }
 
     // MARK: - Thread List
 
     private var threadList: some View {
-        List {
+        List(selection: horizontalSizeClass == .regular ? $selectedThreadId : nil) {
             ForEach(filteredActiveThreads) { thread in
                 NavigationLink(value: thread.id) {
                     threadRow(thread)
@@ -121,7 +151,11 @@ struct ThreadListView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     let thread = store.newThread()
-                    navigationPath = [thread.id]
+                    if horizontalSizeClass == .regular {
+                        selectedThreadId = thread.id
+                    } else {
+                        navigationPath = [thread.id]
+                    }
                 } label: {
                     Image(systemName: "square.and.pencil")
                 }
