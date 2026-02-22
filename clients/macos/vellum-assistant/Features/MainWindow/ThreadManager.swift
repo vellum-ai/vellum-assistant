@@ -256,22 +256,32 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
 
     /// Hide a synced thread locally without removing the server-side binding.
-    /// The thread's channel fields are cleared so it no longer appears synced,
-    /// but the runtime binding remains intact so the next inbound message
-    /// re-creates the thread in the UI.
+    /// Removes the thread from the UI entirely (without adding to archivedSessionIds)
+    /// so the session restorer can re-create it when the next inbound message arrives.
     func hideLocalThread(id: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
         let thread = threads[index]
         let sourceChannel = thread.sourceChannel ?? "?"
         let externalChatId = thread.externalChatId ?? "?"
 
-        // Clear local channel fields only — runtime binding stays intact
-        threads[index].sourceChannel = nil
-        threads[index].externalChatId = nil
-        threads[index].displayName = nil
-        threads[index].username = nil
+        // Stop any active generation and remove the view model
+        chatViewModels[id]?.stopGenerating()
+        chatViewModels.removeValue(forKey: id)
 
-        archiveThread(id: id)
+        // Remove the thread from the array — deliberately not adding to
+        // archivedSessionIds so the session restorer will re-create the
+        // thread when the next inbound message arrives.
+        threads.remove(at: index)
+
+        // If the removed thread was active, select an adjacent thread or create a new one
+        if activeThreadId == id {
+            let visible = visibleThreads
+            if !visible.isEmpty {
+                activeThreadId = visible.first?.id
+            } else {
+                createThread()
+            }
+        }
 
         log.info("Hid local thread \(id) (\(sourceChannel):\(externalChatId)), runtime binding preserved")
     }
