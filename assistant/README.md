@@ -131,6 +131,24 @@ When the assistant needs tool-use confirmation during a channel session (e.g., T
 3. **Decision** — The user's decision is mapped to the permission system (`allow` or `deny`) and applied to the pending run. For `approve_always`, a trust rule is persisted so future invocations of the same tool are auto-approved.
 4. **Reminder** — If the user sends a non-decision message while an approval is pending, a reminder prompt is re-sent with the approval buttons.
 
+### Delivery Semantics
+
+**Single final output guarantee (deliver-once guard):** Both the main poll (`processChannelMessageWithApprovals`) and the post-decision poll (`schedulePostDecisionDelivery`) race to deliver the final assistant reply when a run reaches terminal state. The `claimRunDelivery()` function in `channel-delivery-store.ts` ensures at-most-one delivery per run using an in-memory `Set<string>`. The first caller to claim the run ID proceeds with delivery; the other silently skips. This guard is sufficient because both racing pollers execute within the same process.
+
+**Stale callback blocking:** When inbound callback data (e.g., a Telegram button press) does not match any pending approval, the runtime returns `stale_ignored` and does not process the payload as a regular message. This prevents stale button presses from old approval prompts from triggering unrelated agent loops.
+
+### Prompt Delivery Failure Policy (Fail-Closed)
+
+All approval prompt delivery paths use a **fail-closed** policy -- if the prompt cannot be delivered, the run is auto-denied rather than left in a silent wait state:
+
+- **Standard (self-approval) prompt:** If `deliverApprovalPrompt()` fails, the run is immediately auto-denied via `handleChannelDecision(reject)`. No silent `needs_confirmation` hang.
+- **Guardian-routed prompt:** If the approval prompt cannot be delivered to the guardian's chat, the guardian approval record is marked `denied`, the underlying run is rejected, and the requester is notified that the action was denied because the prompt could not reach the guardian.
+- **Unverified channel (no guardian binding):** Sensitive actions are auto-denied immediately without attempting prompt delivery. The requester is notified that no guardian has been configured.
+
+### Plain-Text Fallback for Non-Rich Channels
+
+Channels that do not support rich inline approval UI (e.g., inline keyboards) receive plain-text instructions embedded in the message body. The `channelSupportsRichApprovalUI()` check determines whether to send the structured `promptText` (for rich channels like Telegram) or the `plainTextFallback` string (for all other channels, e.g., SMS). The fallback text includes instructions like "Reply yes/no/always" so the user can respond via text.
+
 ### Key modules
 
 | File | Purpose |

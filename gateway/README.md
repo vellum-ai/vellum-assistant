@@ -132,6 +132,10 @@ The gateway normalizes Telegram `callback_query` updates (inline button clicks) 
 
 These fields are forwarded to the runtime in the `/channels/inbound` payload alongside the standard `externalChatId`, `externalMessageId`, and sender metadata. The runtime uses `callbackData` to route the click to the appropriate approval handler.
 
+**Normalization constraints:** Only DM-only (`private` chat type) callback queries are processed. Group and channel callbacks are dropped and acknowledged with `answerCallbackQuery` so the Telegram button spinner clears. Callback queries with no `data` field or no associated `message` are also dropped.
+
+**Stale callback blocking:** When the runtime receives `callbackData` that does not match any pending approval (e.g., a button from an old prompt), it returns `stale_ignored` and does not process the payload as a regular message. This is enforced regardless of whether the callback has non-empty content. The gateway acknowledges all callback queries via `answerCallbackQuery` to clear the button spinner.
+
 ## Approval Buttons and Inline Keyboard
 
 The `/deliver/telegram` endpoint accepts an optional `approval` field in the request body. When present, the gateway renders Telegram inline keyboard buttons below the message text.
@@ -157,7 +161,7 @@ The `/deliver/telegram` endpoint accepts an optional `approval` field in the req
 
 **Inline keyboard format:** Each action is rendered as a single-button row. The callback data uses the compact format `apr:<runId>:<action>` (e.g., `apr:run-uuid:approve_once`) so the runtime can parse it back when the button is clicked.
 
-**Fallback behavior:** For non-Telegram channels that do not support inline keyboards, the `plainTextFallback` string is included in the prompt text, providing plain-text instructions for the user to type their decision.
+**Fallback behavior:** For non-Telegram channels that do not support inline keyboards, the runtime substitutes the `plainTextFallback` string for the structured `promptText` before calling the delivery endpoint. The fallback includes plain-text instructions (e.g., "Reply yes/no/always") so the user can respond via text. The `channelSupportsRichApprovalUI()` function in the runtime determines which format to use; currently only `telegram` is classified as a rich channel.
 
 ## Public Ingress Routes
 
