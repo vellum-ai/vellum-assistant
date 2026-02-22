@@ -1115,7 +1115,8 @@ private struct SidebarSubheader: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 20)
             .padding(.trailing, VSpacing.md)
-            .padding(.vertical, 20)
+            .padding(.top, VSpacing.md)
+            .padding(.bottom, VSpacing.md)
     }
 }
 
