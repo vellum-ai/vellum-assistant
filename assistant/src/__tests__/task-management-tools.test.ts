@@ -381,7 +381,7 @@ describe('work-item resolveWorkItem', () => {
 
   test('disambiguates by status', () => {
     const task = createTask({ title: 'T', template: 't' });
-    const item1 = createWorkItem({ taskId: task.id, title: 'Same' });
+    const _item1 = createWorkItem({ taskId: task.id, title: 'Same' });
     const item2 = createWorkItem({ taskId: task.id, title: 'Same' });
     updateWorkItem(item2.id, { status: 'running' });
     const result = resolveWorkItem({ title: 'Same', status: 'running' });
@@ -762,7 +762,7 @@ describe('executeTaskListAdd tool', () => {
   });
 
   test('detects duplicates and reuses existing by default (reuse_existing)', async () => {
-    const task = createTask({ title: 'T', template: 't' });
+    const _task = createTask({ title: 'T', template: 't' });
     await executeTaskListAdd({ title: 'Dup Item' }, ctx);
     const result = await executeTaskListAdd({ title: 'Dup Item' }, ctx);
     expect(result.isError).toBe(false);

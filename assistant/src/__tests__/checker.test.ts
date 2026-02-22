@@ -57,7 +57,7 @@ mock.module('../config/loader.js', () => ({
 }));
 
 import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions, _resetLegacyDeprecationWarning } from '../permissions/checker.js';
-import { RiskLevel, type PolicyContext } from '../permissions/types.js';
+import { RiskLevel } from '../permissions/types.js';
 import { addRule, clearCache, findHighestPriorityRule } from '../permissions/trust-store.js';
 import { getDefaultRuleTemplates } from '../permissions/defaults.js';
 import { registerTool, getTool } from '../tools/registry.js';

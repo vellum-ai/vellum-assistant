@@ -111,7 +111,7 @@ mock.module('../tools/credentials/metadata-store.js', () => ({
 }));
 
 // Mock fetch for Telegram getMe API validation
-let fetchMock: ((url: string | URL | Request) => Promise<Response>) | null = null;
+let _fetchMock: ((url: string | URL | Request) => Promise<Response>) | null = null;
 const originalFetch = globalThis.fetch;
 
 import { handleTelegramConfig } from '../daemon/handlers/config.js';
@@ -152,7 +152,7 @@ describe('Telegram config handler', () => {
     setSecureKeyOverride = null;
     credentialMetadataStore = [];
     deletedMetadata.length = 0;
-    fetchMock = null;
+    _fetchMock = null;
     globalThis.fetch = originalFetch;
   });
 

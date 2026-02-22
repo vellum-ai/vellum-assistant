@@ -314,7 +314,7 @@ describe('channel-delivery-store', () => {
   test('getRetryableEvents returns failed events past their backoff', () => {
     const r1 = recordInbound('telegram', 'chat-1', 'msg-1');
     const r2 = recordInbound('telegram', 'chat-1', 'msg-2');
-    const r3 = recordInbound('telegram', 'chat-1', 'msg-3');
+    const _r3 = recordInbound('telegram', 'chat-1', 'msg-3');
 
     // r1: failed with past retry_after
     const err = new Error('request timeout');
@@ -363,7 +363,7 @@ describe('channel-delivery-store', () => {
 
   test('getDeadLetterEvents returns dead-lettered events', () => {
     const r1 = recordInbound('telegram', 'chat-1', 'msg-1');
-    const r2 = recordInbound('telegram', 'chat-1', 'msg-2');
+    const _r2 = recordInbound('telegram', 'chat-1', 'msg-2');
 
     // r1: dead-letter via fatal error
     recordProcessingFailure(r1.eventId, { status: 400, message: 'invalid' });

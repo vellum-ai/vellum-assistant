@@ -109,6 +109,7 @@ export interface ToolContext {
     input: Record<string, unknown>;
     riskLevel: string;
     executionTarget?: ExecutionTarget;
+    principal?: string;
   }) => Promise<{ decision: 'allow' | 'deny' }>;
   /** Prompt the user for a secret value via native SecureField UI. */
   requestSecret?: (params: {
@@ -131,6 +132,8 @@ export interface ToolContext {
   forcePromptSideEffects?: boolean;
   /** Approval callback for proxy policy decisions that require user confirmation. */
   proxyApprovalCallback?: import('./network/script-proxy/types.js').ProxyApprovalCallback;
+  /** Optional principal identifier propagated to sub-tool confirmation flows. */
+  principal?: string;
 }
 
 export interface DiffInfo {
