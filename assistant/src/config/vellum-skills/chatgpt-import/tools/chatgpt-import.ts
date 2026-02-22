@@ -275,6 +275,7 @@ function extractLocalFile(buffer: Buffer, offset: number, cdCompressedSize: numb
   if (compressionMethod === 0) {
     return fileData.toString('utf-8');
   } else if (compressionMethod === 8) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { inflateRawSync } = require('node:zlib') as typeof import('node:zlib');
     return inflateRawSync(fileData).toString('utf-8');
   } else {

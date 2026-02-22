@@ -747,6 +747,21 @@ public struct IPCGetSigningIdentityResponse: Codable, Sendable {
     public let error: String?
 }
 
+public struct IPCGuardianVerificationRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let channel: String?
+    public let sessionId: String?
+}
+
+public struct IPCGuardianVerificationResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let secret: String?
+    public let instruction: String?
+    public let error: String?
+}
+
 public struct IPCHistoryRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String

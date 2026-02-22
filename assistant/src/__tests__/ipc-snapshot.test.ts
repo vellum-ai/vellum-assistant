@@ -378,6 +378,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'telegram_config',
     action: 'get',
   },
+  guardian_verification: {
+    type: 'guardian_verification',
+    action: 'create_challenge',
+    channel: 'telegram',
+    sessionId: 'sess-001',
+  },
   twitter_auth_start: {
     type: 'twitter_auth_start',
   },
@@ -553,12 +559,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   tool_names_list: {
     type: 'tool_names_list',
-  },
-  guardian_verification: {
-    type: 'guardian_verification',
-    action: 'create_challenge',
-    channel: 'telegram',
-    sessionId: 'sess-001',
   },
 };
 
@@ -1218,6 +1218,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     connected: true,
     hasWebhookSecret: true,
   },
+  guardian_verification_response: {
+    type: 'guardian_verification_response',
+    success: true,
+    secret: 'verify-secret-123',
+    instruction: 'Send this code to the Telegram bot',
+  },
   twitter_auth_result: {
     type: 'twitter_auth_result',
     success: true,
@@ -1591,12 +1597,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   tool_names_list_response: {
     type: 'tool_names_list_response',
     names: ['bash', 'file_read', 'file_write'],
-  },
-  guardian_verification_response: {
-    type: 'guardian_verification_response',
-    success: true,
-    secret: 'VERIFY-ABC123',
-    instruction: 'Send this code to the bot',
   },
 };
 

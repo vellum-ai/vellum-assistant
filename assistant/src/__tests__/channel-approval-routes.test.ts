@@ -227,7 +227,7 @@ describe('inbound callback metadata triggers decision handling', () => {
     // First, send a normal message to establish the conversation.
     const initReq = makeInboundRequest({ content: 'init' });
     const initRes = await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
-    const initBody = await initRes.json() as { conversationId?: string; eventId?: string; accepted?: boolean };
+    const _initBody = await initRes.json() as { conversationId?: string; eventId?: string; accepted?: boolean };
 
     // Now we need to find the actual conversationId that was created.
     // Check the channel_inbound_events table.
@@ -722,7 +722,7 @@ describe('terminal state check before markProcessed', () => {
     };
 
     // getRun always returns 'running' — the run never completes within the poll
-    const orchestrator = {
+    const _orchestrator = {
       submitDecision: mock(() => 'applied' as const),
       getRun: mock(() => ({ ...mockRun, status: 'running' as const })),
       startRun: mock(async () => mockRun),

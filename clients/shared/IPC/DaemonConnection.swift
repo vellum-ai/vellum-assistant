@@ -1,6 +1,9 @@
 import Foundation
 import Network
 import os
+#if os(iOS)
+import CryptoKit
+#endif
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DaemonClient")
 
@@ -77,13 +80,13 @@ extension DaemonClient {
             port = configPort
         }
 
-        // iOS always enforces TLS for TCP connections
+        // iOS always enforces TLS for TCP connections with certificate pinning
         log.info("Connecting to daemon at \(hostname):\(port) (tls=true)")
         endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(hostname),
             port: NWEndpoint.Port(integerLiteral: port)
         )
-        parameters = .tls
+        parameters = Self.makePinnedTLSParameters(hostname: hostname, port: port)
         #else
         #error("DaemonClient is only supported on macOS and iOS")
         #endif
@@ -288,6 +291,51 @@ extension DaemonClient {
                 continuation.resume(throwing: error)
             }
         }
+    }
+    #endif
+
+    // MARK: - TLS Certificate Pinning (iOS)
+
+    #if os(iOS)
+    /// Create NWParameters with TLS and optional certificate pinning.
+    /// If a fingerprint is stored for this host:port, the TLS verify block
+    /// compares the server's leaf certificate SHA-256 against the stored value.
+    /// If no fingerprint is stored, accepts any valid TLS connection (TOFU model).
+    static func makePinnedTLSParameters(hostname: String, port: UInt16) -> NWParameters {
+        let fpKey = "daemon_fingerprint:\(hostname):\(port)"
+        let storedFingerprint = UserDefaults.standard.string(forKey: fpKey)
+
+        let tlsOptions = NWProtocolTLS.Options()
+
+        sec_protocol_options_set_verify_block(
+            tlsOptions.securityProtocolOptions,
+            { metadata, trust, completionHandler in
+                // If no fingerprint stored, accept any cert (first connection / TOFU)
+                guard let expected = storedFingerprint, !expected.isEmpty else {
+                    completionHandler(true)
+                    return
+                }
+
+                // Extract the leaf certificate
+                let secTrust = sec_trust_copy_ref(trust).takeRetainedValue()
+                guard SecTrustGetCertificateCount(secTrust) > 0,
+                      let leafCert = SecTrustCopyCertificateChain(secTrust) as? [SecCertificate],
+                      let cert = leafCert.first else {
+                    completionHandler(false)
+                    return
+                }
+
+                // Compute SHA-256 fingerprint of the DER-encoded certificate
+                let certData = SecCertificateCopyData(cert) as Data
+                let hash = SHA256.hash(data: certData)
+                let fingerprint = hash.compactMap { String(format: "%02x", $0) }.joined()
+
+                completionHandler(fingerprint == expected)
+            },
+            .main
+        )
+
+        return NWParameters(tls: tlsOptions)
     }
     #endif
 

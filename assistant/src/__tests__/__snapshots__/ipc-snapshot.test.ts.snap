@@ -594,6 +594,15 @@ exports[`IPC message snapshots ClientMessage types telegram_config serializes to
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types guardian_verification serializes to expected JSON 1`] = `
+{
+  "action": "create_challenge",
+  "channel": "telegram",
+  "sessionId": "sess-001",
+  "type": "guardian_verification",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types twitter_auth_start serializes to expected JSON 1`] = `
 {
   "type": "twitter_auth_start",
@@ -889,15 +898,6 @@ exports[`IPC message snapshots ClientMessage types tool_permission_simulate seri
 exports[`IPC message snapshots ClientMessage types tool_names_list serializes to expected JSON 1`] = `
 {
   "type": "tool_names_list",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types guardian_verification serializes to expected JSON 1`] = `
-{
-  "action": "create_challenge",
-  "channel": "telegram",
-  "sessionId": "sess-001",
-  "type": "guardian_verification",
 }
 `;
 
@@ -1920,6 +1920,15 @@ exports[`IPC message snapshots ServerMessage types telegram_config_response seri
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types guardian_verification_response serializes to expected JSON 1`] = `
+{
+  "instruction": "Send this code to the Telegram bot",
+  "secret": "verify-secret-123",
+  "success": true,
+  "type": "guardian_verification_response",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types twitter_auth_result serializes to expected JSON 1`] = `
 {
   "accountInfo": "@vellum_test",
@@ -2472,14 +2481,5 @@ exports[`IPC message snapshots ServerMessage types tool_names_list_response seri
     "file_write",
   ],
   "type": "tool_names_list_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types guardian_verification_response serializes to expected JSON 1`] = `
-{
-  "instruction": "Send this code to the bot",
-  "secret": "VERIFY-ABC123",
-  "success": true,
-  "type": "guardian_verification_response",
 }
 `;

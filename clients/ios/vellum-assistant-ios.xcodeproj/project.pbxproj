@@ -15,6 +15,7 @@
 		31D0C2CC725EE57E9F593A72 /* ChatTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51A38AEC9FF8D2DC8C62800C /* ChatTabView.swift */; };
 		5412498DD7C6C6B4CF7477CE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24A722220881E67C353DFE12 /* AppDelegate.swift */; };
 		5923262CDB1AEBE0C2118808 /* IOSThreadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CFCCFEF68D99FFDAC92204 /* IOSThreadStore.swift */; };
+		59457CBF1DEB60A8C299B7DA /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89D67321AD99D3E3C4399DF0 /* QRScannerView.swift */; };
 		5C6DE39F8210A78D484071A4 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43C31D43ED8346DA9D2FC500 /* SceneDelegate.swift */; };
 		6419DA2F54DB6F703BD1DF3B /* VellumAssistantApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736A766CE9C9D8326A1EBDA5 /* VellumAssistantApp.swift */; };
 		70294FBE9E2A2B4F05A54BF0 /* ThreadLifecycleIOSTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB54EB0319A569FD1CF4B13B /* ThreadLifecycleIOSTests.swift */; };
@@ -41,6 +42,7 @@
 		CDE68996EC77DAA45CF933A2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F835A2D424DED22906123993 /* ContentView.swift */; };
 		E82000F70C38CD07957C2F0F /* PermissionRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3099C4A4B1BEA0FFD8F46692 /* PermissionRowView.swift */; };
 		EAC778C46C68008399873E3E /* ChatTranscriptFormatterIOSTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDED15E4C12EADF58BD0CA16 /* ChatTranscriptFormatterIOSTests.swift */; };
+		EC4B5B7BB9057BCDF63474B4 /* QRPairingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75ADAEA6F825C35354C0A2E6 /* QRPairingSheet.swift */; };
 		F6E66C2F942C26A210459312 /* IntegrationsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8029FFBAC7A74E1EADB0F0B8 /* IntegrationsSection.swift */; };
 /* End PBXBuildFile section */
 
@@ -58,10 +60,12 @@
 		51A38AEC9FF8D2DC8C62800C /* ChatTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTabView.swift; sourceTree = "<group>"; };
 		6469D4E238ADC7A9CCCD3F0E /* IdentityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityView.swift; sourceTree = "<group>"; };
 		736A766CE9C9D8326A1EBDA5 /* VellumAssistantApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VellumAssistantApp.swift; sourceTree = "<group>"; };
+		75ADAEA6F825C35354C0A2E6 /* QRPairingSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRPairingSheet.swift; sourceTree = "<group>"; };
 		7A76C5B0E7B697B57063BC75 /* clients */ = {isa = PBXFileReference; lastKnownFileType = folder; name = clients; path = ..; sourceTree = SOURCE_ROOT; };
 		7BFF3D4B4A9D5E1C99AD1ADB /* TitleGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitleGenerator.swift; sourceTree = "<group>"; };
 		8029FFBAC7A74E1EADB0F0B8 /* IntegrationsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationsSection.swift; sourceTree = "<group>"; };
 		8303637A9FF05FBAB7BFB714 /* vellum-assistant-ios.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "vellum-assistant-ios.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		89D67321AD99D3E3C4399DF0 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		907F415E8AE00310C58BD65D /* TrustRulesSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustRulesSection.swift; sourceTree = "<group>"; };
 		97E0B2314721CE2B9E778D16 /* ThreadListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadListView.swift; sourceTree = "<group>"; };
 		AE61E2C6D294D559BDDB2003 /* ConnectionSettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionSettingsSection.swift; sourceTree = "<group>"; };
@@ -125,6 +129,7 @@
 				EFA3496A6F3D741B4690BB86 /* LoginView.swift */,
 				DA6DA4FDE9AA57C723CC06AA /* MessageMediaEmbedsView.swift */,
 				EEAAA98AE5EB03645C49AA68 /* OnboardingView.swift */,
+				89D67321AD99D3E3C4399DF0 /* QRScannerView.swift */,
 				BA17A2DA662CD75C73E4726C /* SettingsView.swift */,
 				97E0B2314721CE2B9E778D16 /* ThreadListView.swift */,
 				505C277A9ED9027CA064DB10 /* WorkspaceFileSheet.swift */,
@@ -194,6 +199,7 @@
 				AE61E2C6D294D559BDDB2003 /* ConnectionSettingsSection.swift */,
 				8029FFBAC7A74E1EADB0F0B8 /* IntegrationsSection.swift */,
 				3099C4A4B1BEA0FFD8F46692 /* PermissionRowView.swift */,
+				75ADAEA6F825C35354C0A2E6 /* QRPairingSheet.swift */,
 				3483675C469B0B8354AC5D8D /* RemindersSection.swift */,
 				2CA6B4E578A6F678E49599B9 /* SchedulesSection.swift */,
 				907F415E8AE00310C58BD65D /* TrustRulesSection.swift */,
@@ -313,6 +319,8 @@
 				831E2260278404A3AA07ECCB /* MessageMediaEmbedsView.swift in Sources */,
 				B61091E975453A5D9A073D5B /* OnboardingView.swift in Sources */,
 				E82000F70C38CD07957C2F0F /* PermissionRowView.swift in Sources */,
+				EC4B5B7BB9057BCDF63474B4 /* QRPairingSheet.swift in Sources */,
+				59457CBF1DEB60A8C299B7DA /* QRScannerView.swift in Sources */,
 				C4305A05FD834E67C287D60B /* RemindersSection.swift in Sources */,
 				5C6DE39F8210A78D484071A4 /* SceneDelegate.swift in Sources */,
 				786CB3EF2E6BD4A20821168F /* SchedulesSection.swift in Sources */,
