@@ -26,10 +26,12 @@ const NOISE_TOKENS = new Set([
   'http', 'https', 'github', 'gitlab', 'www', 'com', 'org',
 ]);
 
-// Matches full URLs (http(s)://...) and scheme-less bare domain URLs
-// (e.g. github.com/org/repo/pull/123) so embedded path segments like
-// "pull", "issue", "ticket" don't leak into relevance scoring.
-const URL_PATTERN = /https?:\/\/[^\s)>\]]+|[a-z0-9-]+\.[a-z]{2,}\/[^\s)>\]]*/gi;
+// Matches full URLs (http(s)://...) and scheme-less bare domain URLs for known
+// code hosting sites (e.g. github.com/org/repo/pull/123) so embedded path
+// segments like "pull", "issue", "ticket" don't leak into relevance scoring.
+// The scheme-less branch is restricted to known hosting domains to avoid
+// stripping dotted identifiers like "index.ts/runtime".
+const URL_PATTERN = /https?:\/\/[^\s)>\]]+|(?:github|gitlab|bitbucket)\.(?:com|org|io)\/[^\s)>\]]*/gi;
 
 function tokenizeForConflictRelevance(input: string): Set<string> {
   const stripped = input.replace(URL_PATTERN, ' ');

@@ -59,6 +59,18 @@ describe('tokenizeForConflictRelevance hardening', () => {
     expect(relevance).toBeLessThanOrEqual(0.5);
   });
 
+  test('preserves dotted identifiers that look like file paths', () => {
+    const relevance = computeConflictRelevance(
+      'Use index.ts/runtime parser',
+      {
+        existingStatement: 'Keep index.ts/runtime approach.',
+        candidateStatement: 'Switch to config.ts/runtime approach.',
+      },
+    );
+    // File-like identifiers should NOT be stripped as URLs
+    expect(relevance).toBeGreaterThan(0);
+  });
+
   test('still computes meaningful relevance for real content tokens', () => {
     const relevance = computeConflictRelevance(
       'Should I use React for frontend?',
