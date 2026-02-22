@@ -184,7 +184,30 @@ export function handleAddTrustRule(
   _ctx: HandlerContext,
 ): void {
   try {
-    addRule(msg.toolName, msg.pattern, msg.scope, msg.decision);
+    // Forward optional metadata fields when present so the persisted rule
+    // captures principal-scoping, high-risk coverage, and execution target.
+    const hasMetadata = msg.allowHighRisk != null
+      || msg.principalKind != null
+      || msg.principalId != null
+      || msg.principalVersion != null
+      || msg.executionTarget != null;
+
+    addRule(
+      msg.toolName,
+      msg.pattern,
+      msg.scope,
+      msg.decision,
+      undefined, // priority — use default
+      hasMetadata
+        ? {
+            allowHighRisk: msg.allowHighRisk,
+            principalKind: msg.principalKind,
+            principalId: msg.principalId,
+            principalVersion: msg.principalVersion,
+            executionTarget: msg.executionTarget,
+          }
+        : undefined,
+    );
     log.info({ toolName: msg.toolName, pattern: msg.pattern, scope: msg.scope, decision: msg.decision }, 'Trust rule added via client');
   } catch (err) {
     log.error({ err, toolName: msg.toolName, pattern: msg.pattern, scope: msg.scope }, 'Failed to add trust rule via client');
