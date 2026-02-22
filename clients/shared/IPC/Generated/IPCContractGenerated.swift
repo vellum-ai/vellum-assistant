@@ -349,6 +349,15 @@ public struct IPCCardSurfaceDataMetadata: Codable, Sendable {
     public let value: String
 }
 
+/// Channel binding metadata exposed in session/conversation list APIs.
+public struct IPCChannelBinding: Codable, Sendable {
+    public let sourceChannel: String
+    public let externalChatId: String
+    public let externalUserId: String?
+    public let displayName: String?
+    public let username: String?
+}
+
 public struct IPCConfirmationRequest: Codable, Sendable {
     public let type: String
     public let requestId: String
@@ -1314,6 +1323,8 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     public let title: String
     public let updatedAt: Int
     public let threadType: String?
+    /// Channel binding metadata exposed in session/conversation list APIs.
+    public let channelBinding: IPCChannelBinding?
 }
 
 public struct IPCSessionsClearRequest: Codable, Sendable {
