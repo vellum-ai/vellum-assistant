@@ -200,7 +200,9 @@ export async function handleAddTrustRule(
   }
 
   try {
-    addRule(confirmation.toolName, pattern, scope, decision);
+    addRule(confirmation.toolName, pattern, scope, decision, undefined, {
+      executionTarget: confirmation.executionTarget,
+    });
     log.info(
       { tool: confirmation.toolName, pattern, scope, decision, runId },
       'Trust rule added via HTTP (bound to pending confirmation)',

@@ -228,6 +228,22 @@ function loadFromDisk(): TrustRule[] {
         log.info({ ruleCount: rules.length }, 'Migrated v2 trust rules to v3 (principal fields)');
       } else if (data.version === TRUST_FILE_VERSION) {
         rules = rawRules;
+
+        // Strip legacy principal-scoped fields from persisted v3 rules.
+        // Before the principal concept was removed, rules could carry
+        // principalKind/principalId/principalVersion which acted as scope
+        // constraints. Now that matching ignores those fields, leaving them
+        // on loaded rules would silently widen their scope to global
+        // wildcards. Stripping them and re-saving prevents scope escalation.
+        for (const rule of rules) {
+          const r = rule as Record<string, unknown>;
+          if ('principalKind' in r || 'principalId' in r || 'principalVersion' in r) {
+            delete r.principalKind;
+            delete r.principalId;
+            delete r.principalVersion;
+            needsSave = true;
+          }
+        }
       } else if (data.version !== 1) {
         log.warn({ version: data.version }, 'Unknown trust file version, applying defaults in-memory only');
         // Apply default deny rules in-memory so the assistant is still
