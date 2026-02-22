@@ -46,9 +46,45 @@ If the webhook secret changes (e.g., secret rotation), the gateway's credential 
 
 ### Step 4: Register Bot Commands
 
-Send the `telegram_config` IPC message with `action: "set_commands"` to register the `/new` command. The daemon handles token retrieval from secure storage internally — you do not need to retrieve it yourself.
+Send the `telegram_config` IPC message with `action: "set_commands"` to register the `/new` and `/guardian-verify` commands:
 
-### Step 5: Validate Routing Configuration
+```json
+{
+  "type": "telegram_config",
+  "action": "set_commands",
+  "commands": [
+    { "command": "new", "description": "Start a new conversation" },
+    { "command": "guardian_verify", "description": "Verify your guardian identity" }
+  ]
+}
+```
+
+The daemon handles token retrieval from secure storage internally — you do not need to retrieve it yourself.
+
+### Step 5: Verify Guardian Identity
+
+Now link the user's Telegram account as the trusted guardian for this bot. Tell the user: "Now let's verify your guardian identity. This links your Telegram account as the trusted guardian for this bot."
+
+1. Send the `guardian_verification` IPC message with `action: "create_challenge"` to generate a verification challenge:
+
+```json
+{
+  "type": "guardian_verification",
+  "action": "create_challenge"
+}
+```
+
+2. The daemon returns a `guardian_verification_response` with `success: true`, `secret`, and `instruction`. Display the instruction to the user. It will look like: "Send `/guardian-verify <secret>` to your bot from your Telegram account within 10 minutes."
+
+3. Wait for the user to confirm they have sent the command. The verification happens automatically when the bot receives the `/guardian-verify` message — the channel inbound handler validates the token and creates the guardian binding.
+
+4. If the user confirms success: "Guardian verified! Your Telegram account is now the trusted guardian for this bot."
+
+5. If the user reports failure or the challenge times out (10 minutes): "The verification code may have expired. Let's generate a new one." Then repeat from substep 1.
+
+**Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 6 without blocking.
+
+### Step 6: Validate Routing Configuration
 
 Verify that the gateway routing is configured to deliver inbound messages to the assistant:
 
@@ -57,12 +93,13 @@ Verify that the gateway routing is configured to deliver inbound messages to the
 
 If routing is misconfigured, inbound Telegram messages will be rejected and the gateway will send a visible notice to the chat explaining the issue (rate-limited to once per 5 minutes per chat).
 
-### Step 6: Report Success
+### Step 7: Report Success
 
 Summarize what was done:
 - Bot verified and credentials stored securely via daemon
 - Webhook registration: handled automatically by the gateway
-- Bot commands registered: /new
+- Bot commands registered: /new, /guardian_verify
+- Guardian identity verified (if completed)
 - Routing configuration validated
 
 The gateway automatically detects credentials from the vault, reconciles the Telegram webhook registration, and begins accepting Telegram webhooks shortly. In single-assistant mode, routing is automatically configured — no manual environment variable configuration or webhook registration is needed. If the webhook secret changes later, the gateway's credential watcher will automatically re-register the webhook. If the ingress URL changes (e.g., tunnel restart), the assistant daemon triggers an immediate internal reconcile so the webhook re-registers automatically without a gateway restart.
@@ -94,4 +131,5 @@ The following steps still require **manual** action:
 |------|---------|
 | Bot token from @BotFather | User must create a bot and provide the token via secure prompt |
 | Bot command registration | Registered via the setup skill (Step 4 above) |
+| Guardian verification | User sends `/guardian-verify <secret>` to the bot (Step 5 above) |
 | Multi-assistant routing | Requires manual `GATEWAY_ASSISTANT_ROUTING_JSON` configuration |
