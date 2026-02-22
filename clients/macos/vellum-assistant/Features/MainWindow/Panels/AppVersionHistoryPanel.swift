@@ -17,6 +17,7 @@ struct AppVersionHistoryPanel: View {
     @State private var isRestoring = false
     @State private var restoreError: String?
     @State private var pendingDiffCommitHash: String?
+    @State private var fetchHistoryId: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -254,6 +255,8 @@ struct AppVersionHistoryPanel: View {
     // MARK: - Data Fetching
 
     private func fetchHistory() {
+        let currentId = UUID()
+        fetchHistoryId = currentId
         isLoading = true
         daemonClient.onAppHistoryResponse = { response in
             if response.appId == appId {
@@ -269,6 +272,7 @@ struct AppVersionHistoryPanel: View {
         // Timeout: daemon sends a generic error on failure, not app_history_response,
         // so the spinner would get stuck without this fallback.
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+            guard fetchHistoryId == currentId else { return }
             if isLoading {
                 isLoading = false
             }
