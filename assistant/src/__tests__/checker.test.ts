@@ -4423,15 +4423,16 @@ describe('integration regressions (PR 11)', () => {
     test('allowlist option patterns are valid for rule matching', async () => {
       clearCache();
 
-      // Generate allowlist options for a command
-      const options = await generateAllowlistOptions('bash', { command: 'npm install express' });
+      // Use a medium-risk command (unknown program) so the allow decision
+      // actually depends on the trust rule, not low-risk auto-allow.
+      const options = await generateAllowlistOptions('bash', { command: 'mycli install express' });
 
       // Each non-exact option pattern should work as a trust rule
       for (const option of options) {
         if (option.pattern.startsWith('action:')) {
           clearCache();
           addRule('bash', option.pattern, 'everywhere', 'allow');
-          const result = await check('bash', { command: 'npm install express' }, '/tmp');
+          const result = await check('bash', { command: 'mycli install express' }, '/tmp');
           expect(result.decision).toBe('allow');
         }
       }
