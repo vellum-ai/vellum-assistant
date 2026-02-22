@@ -68,9 +68,21 @@ ngrok config check
 If not authenticated:
 
 1. Tell the user: "You need an ngrok account to create tunnels. If you don't have one, sign up at https://dashboard.ngrok.com/signup — it's free."
-2. Once they have an account, ask them to paste their auth token directly in chat. They can find it at https://dashboard.ngrok.com/get-started/your-authtoken.
+2. Once they have an account, use `credential_store` to securely collect their auth token. **Never ask the user to paste the token directly in chat.**
 
-3. Once the user provides the token, configure ngrok with it immediately:
+   Use `credential_store` with:
+   - action: `prompt`
+   - service: `ngrok`
+   - field: `authtoken`
+   - label: `ngrok Auth Token`
+   - description: `Get your auth token from https://dashboard.ngrok.com/get-started/your-authtoken`
+   - usage_description: `ngrok authentication token for creating public tunnels`
+
+3. Once the credential is stored, retrieve it and configure ngrok:
+```
+credential_store action=get service=ngrok field=authtoken
+```
+Then use the retrieved value:
 ```bash
 ngrok config add-authtoken <token>
 ```
