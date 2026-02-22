@@ -69,7 +69,8 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.lastError = "previous error"
         model.lastResult = SimulationResult(
             decision: "allow", riskLevel: "low", reason: "test",
-            matchedRuleId: nil, promptPayload: nil
+            matchedRuleId: nil, promptPayload: nil,
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: "", snapshotPrincipalKind: "", snapshotPrincipalId: "", snapshotPrincipalVersion: ""
         )
 
         model.toolName = "host_bash"
@@ -211,7 +212,8 @@ final class ToolPermissionTesterModelTests: XCTestCase {
     func testAllowOnce_setsLocalOverrideLabel() {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
-            matchedRuleId: nil, promptPayload: nil
+            matchedRuleId: nil, promptPayload: nil,
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: "", snapshotPrincipalKind: "", snapshotPrincipalId: "", snapshotPrincipalVersion: ""
         )
 
         model.allowOnce()
@@ -229,7 +231,8 @@ final class ToolPermissionTesterModelTests: XCTestCase {
     func testDenyOnce_setsLocalOverrideLabel() {
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
-            matchedRuleId: nil, promptPayload: nil
+            matchedRuleId: nil, promptPayload: nil,
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: "", snapshotPrincipalKind: "", snapshotPrincipalId: "", snapshotPrincipalVersion: ""
         )
 
         model.denyOnce()
@@ -253,7 +256,8 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.principalVersion = "v1"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
-            matchedRuleId: nil, promptPayload: nil
+            matchedRuleId: nil, promptPayload: nil,
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: "", snapshotPrincipalKind: "", snapshotPrincipalId: "", snapshotPrincipalVersion: ""
         )
 
         model.alwaysAllow(pattern: "echo *", scope: "project")
@@ -282,7 +286,8 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.inputJSON = "{}"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "high", reason: "dangerous",
-            matchedRuleId: nil, promptPayload: nil
+            matchedRuleId: nil, promptPayload: nil,
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: "", snapshotPrincipalKind: "", snapshotPrincipalId: "", snapshotPrincipalVersion: ""
         )
 
         model.alwaysAllow(pattern: "rm -rf *", scope: "global")
@@ -298,7 +303,8 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.inputJSON = "{}"
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "medium", reason: "test",
-            matchedRuleId: nil, promptPayload: nil
+            matchedRuleId: nil, promptPayload: nil,
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: "", snapshotPrincipalKind: "", snapshotPrincipalId: "", snapshotPrincipalVersion: ""
         )
 
         model.alwaysAllow(pattern: "echo *", scope: "project")
@@ -316,7 +322,8 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.principalKind = ""
         model.lastResult = SimulationResult(
             decision: "prompt", riskLevel: "low", reason: "test",
-            matchedRuleId: nil, promptPayload: nil
+            matchedRuleId: nil, promptPayload: nil,
+            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: "", snapshotPrincipalKind: "", snapshotPrincipalId: "", snapshotPrincipalVersion: ""
         )
 
         model.alwaysAllow(pattern: "*", scope: "global")

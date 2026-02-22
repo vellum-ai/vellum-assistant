@@ -347,14 +347,17 @@ extension MainWindowView {
                            externalChatId: externalChatId,
                            excludingThread: thread.id
                        ) {
-                        threadManager.activeThreadId = canonical.id
+                        threadManager.continueInSyncedThread(
+                            targetThreadId: canonical.id,
+                            sourceThreadId: thread.id
+                        )
                     }
                 } : nil,
                 onMoveSyncHere: syncConflict != nil ? {
                     if let thread = threadManager.activeThread,
                        let sourceChannel = thread.sourceChannel,
                        let externalChatId = thread.externalChatId {
-                        threadManager.moveSyncHere(
+                        threadManager.moveSyncHereAndResend(
                             threadId: thread.id,
                             sourceChannel: sourceChannel,
                             externalChatId: externalChatId

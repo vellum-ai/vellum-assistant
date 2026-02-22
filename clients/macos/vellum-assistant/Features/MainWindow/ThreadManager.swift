@@ -430,6 +430,109 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         })
     }
 
+    /// Switch to the canonical synced thread, carrying over any draft text and
+    /// attachments from the source thread's composer so the user doesn't lose work.
+    func continueInSyncedThread(targetThreadId: UUID, sourceThreadId: UUID) {
+        guard let sourceVM = chatViewModels[sourceThreadId],
+              let targetVM = chatViewModels[targetThreadId] else {
+            // Fallback: just switch threads without draft carryover
+            activeThreadId = targetThreadId
+            return
+        }
+
+        // Capture draft state from source composer
+        let draftText = sourceVM.inputText
+        let draftAttachments = sourceVM.pendingAttachments
+
+        // Clear the source composer so it doesn't look like unsaved state
+        sourceVM.inputText = ""
+        sourceVM.pendingAttachments = []
+
+        // Switch to the target thread
+        activeThreadId = targetThreadId
+
+        // Place the draft in the target composer
+        if !draftText.isEmpty {
+            targetVM.inputText = draftText
+        }
+        if !draftAttachments.isEmpty {
+            targetVM.pendingAttachments = draftAttachments
+        }
+
+        log.info("Continued in synced thread \(targetThreadId), carried draft (\(draftText.count) chars, \(draftAttachments.count) attachments)")
+    }
+
+    /// Move sync ownership to this thread and automatically resend any pending
+    /// draft text once the move succeeds. If the composer is empty, falls back
+    /// to a plain moveSyncHere without auto-send.
+    func moveSyncHereAndResend(threadId: UUID, sourceChannel: String, externalChatId: String) {
+        guard let vm = chatViewModels[threadId] else {
+            log.warning("Cannot move-sync-and-resend: no view model for thread \(threadId)")
+            return
+        }
+
+        // Capture the draft that should be resent after the move succeeds
+        let draftText = vm.inputText
+        let draftAttachments = vm.pendingAttachments
+
+        guard let targetIndex = threads.firstIndex(where: { $0.id == threadId }),
+              let sessionId = threads[targetIndex].sessionId else {
+            log.warning("Cannot move sync: thread \(threadId) not found or has no session")
+            return
+        }
+
+        Task { @MainActor in
+            let success = await daemonClient.moveChannelSync(
+                sourceChannel: sourceChannel,
+                externalChatId: externalChatId,
+                newConversationId: sessionId
+            )
+
+            if success {
+                // Capture metadata from old owner before clearing
+                let oldOwner = threads.first(where: {
+                    $0.sourceChannel == sourceChannel &&
+                    $0.externalChatId == externalChatId &&
+                    $0.id != threadId
+                })
+                let oldDisplayName = oldOwner?.displayName
+                let oldUsername = oldOwner?.username
+
+                // Clear old owner's binding
+                for i in threads.indices {
+                    if threads[i].sourceChannel == sourceChannel &&
+                       threads[i].externalChatId == externalChatId &&
+                       threads[i].id != threadId {
+                        threads[i].sourceChannel = nil
+                        threads[i].externalChatId = nil
+                        threads[i].displayName = nil
+                        threads[i].username = nil
+                    }
+                }
+
+                // Set the new thread as synced, preserving display metadata
+                if let idx = threads.firstIndex(where: { $0.id == threadId }) {
+                    threads[idx].sourceChannel = sourceChannel
+                    threads[idx].externalChatId = externalChatId
+                    threads[idx].displayName = threads[idx].displayName ?? oldDisplayName
+                    threads[idx].username = threads[idx].username ?? oldUsername
+                }
+
+                log.info("Moved sync to thread \(threadId) for \(sourceChannel):\(externalChatId)")
+
+                // Auto-resend the draft message now that ownership has moved
+                if !draftText.isEmpty {
+                    vm.inputText = draftText
+                    vm.pendingAttachments = draftAttachments
+                    vm.sendMessage()
+                    log.info("Auto-resent draft after move-sync (\(draftText.count) chars)")
+                }
+            } else {
+                log.error("Failed to move sync to thread \(threadId)")
+            }
+        }
+    }
+
     func unarchiveThread(id: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
 

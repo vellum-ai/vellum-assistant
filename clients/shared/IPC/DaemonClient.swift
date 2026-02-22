@@ -495,6 +495,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Used in tests to avoid needing a live NWConnection.
     internal var sendOverride: ((Any) throws -> Void)?
 
+    /// Closure that, when set, replaces the real moveChannelSync HTTP call.
+    /// Used in tests to simulate success/failure without a live HTTP server.
+    internal var moveChannelSyncOverride: ((String, String, String) async -> Bool)?
+
     /// Send a message to the daemon.
     /// Encodes the message as JSON, appends a newline, and writes to the connection.
     /// Throws `SendError.notConnected` when the connection is nil so callers can
@@ -1189,6 +1193,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Calls the runtime's POST /v1/channels/move-sync endpoint to
     /// atomically transfer the binding from the current owner to the new conversation.
     public func moveChannelSync(sourceChannel: String, externalChatId: String, newConversationId: String) async -> Bool {
+        if let override = moveChannelSyncOverride {
+            return await override(sourceChannel, externalChatId, newConversationId)
+        }
         let baseURL: String
         let bearerToken: String?
 
