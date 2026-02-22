@@ -16,6 +16,7 @@ struct AppVersionHistoryPanel: View {
     @State private var restoreConfirmVersion: IPCAppHistoryResponseVersion?
     @State private var isRestoring = false
     @State private var restoreError: String?
+    @State private var pendingDiffCommitHash: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -192,7 +193,7 @@ struct AppVersionHistoryPanel: View {
 
                 Spacer()
 
-                if !isRestoring {
+                if !isRestoring && version.commitHash != versions.first?.commitHash {
                     VButton(label: "Restore", icon: "arrow.counterclockwise", style: .ghost) {
                         restoreConfirmVersion = version
                     }
@@ -265,12 +266,20 @@ struct AppVersionHistoryPanel: View {
         } catch {
             isLoading = false
         }
+        // Timeout: daemon sends a generic error on failure, not app_history_response,
+        // so the spinner would get stuck without this fallback.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+            if isLoading {
+                isLoading = false
+            }
+        }
     }
 
     private func selectVersion(_ version: IPCAppHistoryResponseVersion) {
         selectedVersion = version
         isDiffLoading = true
         diffText = nil
+        pendingDiffCommitHash = version.commitHash
 
         // Find the previous version to diff against
         guard let index = versions.firstIndex(where: { $0.commitHash == version.commitHash }),
@@ -282,7 +291,9 @@ struct AppVersionHistoryPanel: View {
         }
         let previousVersion = versions[index + 1]
 
+        let expectedHash = version.commitHash
         daemonClient.onAppDiffResponse = { response in
+            guard pendingDiffCommitHash == expectedHash else { return }
             if response.appId == appId {
                 diffText = response.diff
                 isDiffLoading = false
