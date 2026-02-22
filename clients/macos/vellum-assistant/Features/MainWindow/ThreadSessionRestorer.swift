@@ -11,6 +11,8 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 protocol ThreadRestorerDelegate: AnyObject {
     var threads: [ThreadModel] { get set }
     var restoreRecentThreads: Bool { get }
+    var isLoadingMoreThreads: Bool { get }
+    var hasMoreThreads: Bool { get set }
     func chatViewModel(for threadId: UUID) -> ChatViewModel?
     func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID)
     func removeChatViewModel(for threadId: UUID)
@@ -19,6 +21,7 @@ protocol ThreadRestorerDelegate: AnyObject {
     func createThread()
     func isSessionArchived(_ sessionId: String) -> Bool
     func restoreLastActiveThread()
+    func appendThreads(from response: SessionListResponseMessage)
 }
 
 /// Handles daemon session restoration: fetching the session list on connect,
@@ -85,6 +88,13 @@ final class ThreadSessionRestorer {
 
     func handleSessionListResponse(_ response: SessionListResponseMessage) {
         guard let delegate else { return }
+
+        // If ThreadManager is waiting for a "load more" response, route there.
+        if delegate.isLoadingMoreThreads {
+            delegate.appendThreads(from: response)
+            return
+        }
+
         guard delegate.restoreRecentThreads else {
             delegate.restoreLastActiveThread()
             return
@@ -147,7 +157,8 @@ final class ThreadSessionRestorer {
             delegate.createThread()
         }
 
-        log.info("Restored \(restoredThreads.count) threads from daemon")
+        delegate.hasMoreThreads = response.hasMore ?? false
+        log.info("Restored \(restoredThreads.count) threads from daemon (hasMore: \(response.hasMore ?? false))")
         delegate.restoreLastActiveThread()
     }
 

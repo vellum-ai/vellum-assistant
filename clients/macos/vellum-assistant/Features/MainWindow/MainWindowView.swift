@@ -870,6 +870,30 @@ struct MainWindowView: View {
                                 return threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
                             } isTargeted: { _ in }
                     }
+
+                    if threadManager.hasMoreThreads {
+                        Button {
+                            threadManager.loadMoreThreads()
+                        } label: {
+                            if threadManager.isLoadingMoreThreads {
+                                HStack(spacing: VSpacing.xs) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Loading...")
+                                        .font(VFont.caption)
+                                        .foregroundColor(VColor.textMuted)
+                                }
+                            } else {
+                                Text("Load more")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textSecondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, VSpacing.sm)
+                        .disabled(threadManager.isLoadingMoreThreads)
+                    }
                 }
             }
             .scrollClipDisabled()

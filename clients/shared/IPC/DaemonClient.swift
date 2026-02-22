@@ -860,8 +860,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     // MARK: - Sessions
 
     /// Request the list of past sessions from the daemon.
-    public func sendSessionList() throws {
-        try send(SessionListRequestMessage())
+    public func sendSessionList(offset: Int? = nil, limit: Int? = nil) throws {
+        try send(SessionListRequestMessage(offset: offset, limit: limit))
     }
 
     /// Request message history for a specific session.
