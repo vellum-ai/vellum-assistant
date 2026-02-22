@@ -37,7 +37,15 @@ import {
   listIncomingPhoneNumbers,
   searchAvailableNumbers,
   provisionPhoneNumber,
+  updatePhoneNumberWebhooks,
 } from '../../calls/twilio-rest.js';
+import {
+  getPublicBaseUrl,
+  getTwilioVoiceWebhookUrl,
+  getTwilioStatusCallbackUrl,
+  getTwilioSmsWebhookUrl,
+  type IngressConfig,
+} from '../../inbound/public-ingress-urls.js';
 import { createVerificationChallenge, getGuardianBinding, revokeBinding as revokeGuardianBinding } from '../../runtime/channel-guardian-service.js';
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
@@ -1233,6 +1241,45 @@ export async function handleTwilioConfig(
       // Purchase the first available number
       const purchased = await provisionPhoneNumber(accountSid, authToken, available[0].phoneNumber);
 
+      // Auto-assign: persist the purchased number in secure storage and config
+      // (same persistence as assign_number for consistency)
+      const phoneStored = setSecureKey('credential:twilio:phone_number', purchased.phoneNumber);
+      if (!phoneStored) {
+        log.warn('Failed to store provisioned phone number in secure storage');
+      }
+
+      const raw = loadRawConfig();
+      const sms = (raw?.sms ?? {}) as Record<string, unknown>;
+      sms.phoneNumber = purchased.phoneNumber;
+
+      const wasSuppressed = ctx.suppressConfigReload;
+      ctx.setSuppressConfigReload(true);
+      try {
+        saveRawConfig({ ...raw, sms });
+      } catch (err) {
+        ctx.setSuppressConfigReload(wasSuppressed);
+        throw err;
+      }
+      ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
+
+      // Best-effort webhook configuration — non-fatal so the number is
+      // still usable even if ingress isn't configured yet.
+      try {
+        const ingressConfig: IngressConfig = loadRawConfig();
+        const voiceUrl = getTwilioVoiceWebhookUrl(ingressConfig, '{{CallSid}}');
+        const statusCallbackUrl = getTwilioStatusCallbackUrl(ingressConfig);
+        const smsUrl = getTwilioSmsWebhookUrl(ingressConfig);
+        await updatePhoneNumberWebhooks(accountSid, authToken, purchased.phoneNumber, {
+          voiceUrl,
+          statusCallbackUrl,
+          smsUrl,
+        });
+        log.info({ phoneNumber: purchased.phoneNumber }, 'Twilio webhooks configured for provisioned number');
+      } catch (webhookErr) {
+        const webhookMsg = webhookErr instanceof Error ? webhookErr.message : String(webhookErr);
+        log.warn({ err: webhookErr, phoneNumber: purchased.phoneNumber }, `Webhook configuration skipped: ${webhookMsg}`);
+      }
+
       ctx.send(socket, {
         type: 'twilio_config_response',
         success: true,
@@ -1277,6 +1324,27 @@ export async function handleTwilioConfig(
         throw err;
       }
       ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
+
+      // Best-effort webhook configuration when credentials are available
+      if (hasTwilioCredentials()) {
+        try {
+          const acctSid = getSecureKey('credential:twilio:account_sid')!;
+          const acctToken = getSecureKey('credential:twilio:auth_token')!;
+          const ingressConfig: IngressConfig = loadRawConfig();
+          const voiceUrl = getTwilioVoiceWebhookUrl(ingressConfig, '{{CallSid}}');
+          const statusCallbackUrl = getTwilioStatusCallbackUrl(ingressConfig);
+          const smsUrl = getTwilioSmsWebhookUrl(ingressConfig);
+          await updatePhoneNumberWebhooks(acctSid, acctToken, msg.phoneNumber, {
+            voiceUrl,
+            statusCallbackUrl,
+            smsUrl,
+          });
+          log.info({ phoneNumber: msg.phoneNumber }, 'Twilio webhooks configured for assigned number');
+        } catch (webhookErr) {
+          const webhookMsg = webhookErr instanceof Error ? webhookErr.message : String(webhookErr);
+          log.warn({ err: webhookErr, phoneNumber: msg.phoneNumber }, `Webhook configuration skipped: ${webhookMsg}`);
+        }
+      }
 
       ctx.send(socket, {
         type: 'twilio_config_response',

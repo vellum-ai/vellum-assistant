@@ -154,3 +154,73 @@ export async function provisionPhoneNumber(
     capabilities: { voice: data.capabilities.voice, sms: data.capabilities.sms },
   };
 }
+
+export interface WebhookUrls {
+  voiceUrl: string;
+  statusCallbackUrl: string;
+  smsUrl: string;
+}
+
+/**
+ * Update the webhook URLs on a Twilio IncomingPhoneNumber.
+ *
+ * Configures voice webhook, voice status callback, and SMS webhook so
+ * that Twilio routes inbound calls and messages to the assistant's
+ * gateway endpoints.
+ */
+export async function updatePhoneNumberWebhooks(
+  accountSid: string,
+  authToken: string,
+  phoneNumber: string,
+  webhooks: WebhookUrls,
+): Promise<void> {
+  // First, find the SID for this phone number
+  const listRes = await fetch(
+    `${twilioBaseUrl(accountSid)}/IncomingPhoneNumbers.json?PhoneNumber=${encodeURIComponent(phoneNumber)}`,
+    {
+      method: 'GET',
+      headers: { Authorization: twilioAuthHeader(accountSid, authToken) },
+    },
+  );
+
+  if (!listRes.ok) {
+    const text = await listRes.text();
+    throw new Error(`Twilio API error ${listRes.status} looking up phone number: ${text}`);
+  }
+
+  const listData = (await listRes.json()) as {
+    incoming_phone_numbers: Array<{ sid: string; phone_number: string }>;
+  };
+
+  const match = listData.incoming_phone_numbers.find((n) => n.phone_number === phoneNumber);
+  if (!match) {
+    throw new Error(`Phone number ${phoneNumber} not found on Twilio account ${accountSid}`);
+  }
+
+  // Update the phone number's webhook configuration
+  const body = new URLSearchParams({
+    VoiceUrl: webhooks.voiceUrl,
+    VoiceMethod: 'POST',
+    StatusCallback: webhooks.statusCallbackUrl,
+    StatusCallbackMethod: 'POST',
+    SmsUrl: webhooks.smsUrl,
+    SmsMethod: 'POST',
+  });
+
+  const updateRes = await fetch(
+    `${twilioBaseUrl(accountSid)}/IncomingPhoneNumbers/${match.sid}.json`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: twilioAuthHeader(accountSid, authToken),
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: body.toString(),
+    },
+  );
+
+  if (!updateRes.ok) {
+    const text = await updateRes.text();
+    throw new Error(`Twilio API error ${updateRes.status} updating webhooks: ${text}`);
+  }
+}

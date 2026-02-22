@@ -204,8 +204,8 @@ The daemon handles `twilio_config` messages with the following actions:
 | `get` | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned) |
 | `set_credentials` | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file). Credentials are retrieved from the credential store internally. |
 | `clear_credentials` | Removes stored Account SID, Auth Token, and phone number from secure storage. |
-| `provision_number` | Purchases a new phone number via the Twilio API. Accepts optional `areaCode` and `country` (ISO 3166-1 alpha-2, default `US`). Returns the purchased number but does not assign it — call `assign_number` separately to persist it. |
-| `assign_number` | Assigns an existing Twilio phone number (E.164 format) to the assistant |
+| `provision_number` | Purchases a new phone number via the Twilio API. Accepts optional `areaCode` and `country` (ISO 3166-1 alpha-2, default `US`). Auto-assigns the number to the assistant (persists to config and secure storage) and configures Twilio webhooks (voice, status callback, SMS) when a public ingress URL is available. |
+| `assign_number` | Assigns an existing Twilio phone number (E.164 format) to the assistant and auto-configures webhooks when ingress is available |
 | `list_numbers` | Lists all incoming phone numbers on the Twilio account with their capabilities (voice, SMS) |
 
 Response type: `twilio_config_response` with `success`, `hasCredentials`, optional `phoneNumber`, optional `numbers` array, and optional `error`.
