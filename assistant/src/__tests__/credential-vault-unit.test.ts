@@ -1,0 +1,775 @@
+import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
+import { mkdirSync, rmSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomBytes } from 'node:crypto';
+
+// ---------------------------------------------------------------------------
+// Mock logger
+// ---------------------------------------------------------------------------
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => new Proxy({} as Record<string, unknown>, {
+    get: () => () => {},
+  }),
+}));
+
+// ---------------------------------------------------------------------------
+// Use encrypted backend (no keychain) with a temp store path
+// ---------------------------------------------------------------------------
+
+import { _overrideDeps, _resetDeps } from '../security/keychain.js';
+
+_overrideDeps({
+  isMacOS: () => false,
+  isLinux: () => false,
+  execFileSync: (() => '') as unknown as typeof import('node:child_process').execFileSync,
+});
+
+import { _resetBackend } from '../security/secure-keys.js';
+import { _setStorePath } from '../security/encrypted-store.js';
+
+const TEST_DIR = join(tmpdir(), `vellum-credvault-unit-${randomBytes(4).toString('hex')}`);
+const STORE_PATH = join(TEST_DIR, 'keys.enc');
+
+// ---------------------------------------------------------------------------
+// Mock registry to avoid double-registration
+// ---------------------------------------------------------------------------
+
+mock.module('../tools/registry.js', () => ({
+  registerTool: () => {},
+}));
+
+// ---------------------------------------------------------------------------
+// Imports under test
+// ---------------------------------------------------------------------------
+
+import { CredentialBroker } from '../tools/credentials/broker.js';
+import { upsertCredentialMetadata, _setMetadataPath } from '../tools/credentials/metadata-store.js';
+import { setSecureKey, getSecureKey } from '../security/secure-keys.js';
+import { credentialStoreTool } from '../tools/credentials/vault.js';
+import type { ToolContext } from '../tools/types.js';
+
+const _ctx: ToolContext = {
+  workingDir: '/tmp',
+  sessionId: 'test-session',
+  conversationId: 'test-conv',
+};
+
+afterAll(() => {
+  _resetDeps();
+  mock.restore();
+  if (existsSync(TEST_DIR)) {
+    rmSync(TEST_DIR, { recursive: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 1. Broker — Transient (one-time) credential injection and consumption
+// ---------------------------------------------------------------------------
+
+describe('CredentialBroker transient credentials', () => {
+  let broker: CredentialBroker;
+
+  beforeEach(() => {
+    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    mkdirSync(TEST_DIR, { recursive: true });
+    _setStorePath(STORE_PATH);
+    _resetBackend();
+    _setMetadataPath(join(TEST_DIR, 'metadata.json'));
+    broker = new CredentialBroker();
+  });
+
+  afterEach(() => {
+    _setMetadataPath(null);
+    _setStorePath(null);
+    _resetBackend();
+  });
+
+  test('consume returns transient value and deletes it', () => {
+    upsertCredentialMetadata('svc', 'key', { allowedTools: ['tool1'] });
+    broker.injectTransient('svc', 'key', 'one-time-secret');
+
+    const auth = broker.authorize({ service: 'svc', field: 'key', toolName: 'tool1' });
+    expect(auth.authorized).toBe(true);
+    if (!auth.authorized) return;
+
+    const result = broker.consume(auth.token.tokenId);
+    expect(result.success).toBe(true);
+    expect(result.value).toBe('one-time-secret');
+    expect(result.storageKey).toBe('credential:svc:key');
+
+    // Second authorize + consume should NOT have the transient value
+    const auth2 = broker.authorize({ service: 'svc', field: 'key', toolName: 'tool1' });
+    if (!auth2.authorized) return;
+    const result2 = broker.consume(auth2.token.tokenId);
+    expect(result2.success).toBe(true);
+    // No transient value — falls back to storage key only
+    expect(result2.value).toBeUndefined();
+  });
+
+  test('browserFill uses transient value when available', async () => {
+    upsertCredentialMetadata('github', 'token', { allowedTools: ['browser_fill_credential'] });
+    broker.injectTransient('github', 'token', 'transient-ghp-123');
+
+    let filledValue: string | undefined;
+    const result = await broker.browserFill({
+      service: 'github',
+      field: 'token',
+      toolName: 'browser_fill_credential',
+      fill: async (v) => { filledValue = v; },
+    });
+
+    expect(result.success).toBe(true);
+    expect(filledValue).toBe('transient-ghp-123');
+  });
+
+  test('browserFill consumes transient value — second fill falls back to stored', async () => {
+    upsertCredentialMetadata('github', 'token', { allowedTools: ['browser_fill_credential'] });
+    setSecureKey('credential:github:token', 'stored-value');
+    broker.injectTransient('github', 'token', 'transient-value');
+
+    // First fill uses transient
+    let filled1: string | undefined;
+    await broker.browserFill({
+      service: 'github',
+      field: 'token',
+      toolName: 'browser_fill_credential',
+      fill: async (v) => { filled1 = v; },
+    });
+    expect(filled1).toBe('transient-value');
+
+    // Second fill falls back to stored value
+    let filled2: string | undefined;
+    await broker.browserFill({
+      service: 'github',
+      field: 'token',
+      toolName: 'browser_fill_credential',
+      fill: async (v) => { filled2 = v; },
+    });
+    expect(filled2).toBe('stored-value');
+  });
+
+  test('browserFill preserves transient value on fill failure', async () => {
+    upsertCredentialMetadata('github', 'token', { allowedTools: ['browser_fill_credential'] });
+    broker.injectTransient('github', 'token', 'transient-preserved');
+
+    // First fill fails
+    const result1 = await broker.browserFill({
+      service: 'github',
+      field: 'token',
+      toolName: 'browser_fill_credential',
+      fill: async () => { throw new Error('Playwright timeout'); },
+    });
+    expect(result1.success).toBe(false);
+
+    // Second fill should still have the transient value
+    let filled: string | undefined;
+    const result2 = await broker.browserFill({
+      service: 'github',
+      field: 'token',
+      toolName: 'browser_fill_credential',
+      fill: async (v) => { filled = v; },
+    });
+    expect(result2.success).toBe(true);
+    expect(filled).toBe('transient-preserved');
+  });
+
+  test('serverUse uses transient value when available', async () => {
+    upsertCredentialMetadata('vercel', 'api_token', { allowedTools: ['deploy'] });
+    broker.injectTransient('vercel', 'api_token', 'transient-vercel-tok');
+
+    const result = await broker.serverUse({
+      service: 'vercel',
+      field: 'api_token',
+      toolName: 'deploy',
+      execute: async (v) => {
+        expect(v).toBe('transient-vercel-tok');
+        return 'deployed';
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe('deployed');
+  });
+
+  test('serverUse consumes transient — subsequent call has no value without stored key', async () => {
+    upsertCredentialMetadata('vercel', 'api_token', { allowedTools: ['deploy'] });
+    // Only transient, no stored value
+    broker.injectTransient('vercel', 'api_token', 'transient-only');
+
+    await broker.serverUse({
+      service: 'vercel',
+      field: 'api_token',
+      toolName: 'deploy',
+      execute: async () => 'ok',
+    });
+
+    // Second call: no transient, no stored value
+    const result = await broker.serverUse({
+      service: 'vercel',
+      field: 'api_token',
+      toolName: 'deploy',
+      execute: async () => { throw new Error('should not be called'); },
+    });
+    expect(result.success).toBe(false);
+    expect(result.reason).toContain('no stored value');
+  });
+
+  test('injectTransient replaces previous transient for same key', () => {
+    upsertCredentialMetadata('svc', 'key', { allowedTools: ['t'] });
+    broker.injectTransient('svc', 'key', 'first');
+    broker.injectTransient('svc', 'key', 'second');
+
+    const auth = broker.authorize({ service: 'svc', field: 'key', toolName: 't' });
+    if (!auth.authorized) return;
+    const result = broker.consume(auth.token.tokenId);
+    expect(result.value).toBe('second');
+  });
+
+  test('transient value for one credential does not affect another', () => {
+    upsertCredentialMetadata('svcA', 'key', { allowedTools: ['t'] });
+    upsertCredentialMetadata('svcB', 'key', { allowedTools: ['t'] });
+    broker.injectTransient('svcA', 'key', 'val-a');
+
+    // svcB should not have a transient value — consume returns storageKey only
+    const authB = broker.authorize({ service: 'svcB', field: 'key', toolName: 't' });
+    if (!authB.authorized) return;
+    const resultB = broker.consume(authB.token.tokenId);
+    expect(resultB.success).toBe(true);
+    expect(resultB.value).toBeUndefined();
+
+    // svcA should have the transient
+    const authA = broker.authorize({ service: 'svcA', field: 'key', toolName: 't' });
+    if (!authA.authorized) return;
+    const resultA = broker.consume(authA.token.tokenId);
+    expect(resultA.value).toBe('val-a');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2. Vault — unknown action handling
+// ---------------------------------------------------------------------------
+
+describe('credential_store tool — unknown action', () => {
+  beforeEach(() => {
+    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    mkdirSync(TEST_DIR, { recursive: true });
+    _setStorePath(STORE_PATH);
+    _resetBackend();
+    _setMetadataPath(join(TEST_DIR, 'metadata.json'));
+  });
+
+  afterEach(() => {
+    _setMetadataPath(null);
+    _setStorePath(null);
+    _resetBackend();
+  });
+
+  test('returns error for unknown action', async () => {
+    const result = await credentialStoreTool.execute({ action: 'unknown_action' }, _ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('unknown action');
+    expect(result.content).toContain('unknown_action');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3. Vault — prompt action edge cases
+// ---------------------------------------------------------------------------
+
+describe('credential_store tool — prompt action', () => {
+  beforeEach(() => {
+    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    mkdirSync(TEST_DIR, { recursive: true });
+    _setStorePath(STORE_PATH);
+    _resetBackend();
+    _setMetadataPath(join(TEST_DIR, 'metadata.json'));
+  });
+
+  afterEach(() => {
+    _setMetadataPath(null);
+    _setStorePath(null);
+    _resetBackend();
+  });
+
+  test('returns error when requestSecret is not available', async () => {
+    const result = await credentialStoreTool.execute(
+      { action: 'prompt', service: 'svc', field: 'key', label: 'API Key' },
+      _ctx, // no requestSecret
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('not available');
+  });
+
+  test('returns error when service is missing for prompt', async () => {
+    const result = await credentialStoreTool.execute(
+      { action: 'prompt', field: 'key' },
+      _ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('service is required');
+  });
+
+  test('returns error when field is missing for prompt', async () => {
+    const result = await credentialStoreTool.execute(
+      { action: 'prompt', service: 'svc' },
+      _ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('field is required');
+  });
+
+  test('handles user cancellation (null value)', async () => {
+    const ctxWithPrompt: ToolContext = {
+      ..._ctx,
+      requestSecret: async () => ({ value: null as unknown as string, delivery: 'store' as const }),
+    };
+    const result = await credentialStoreTool.execute(
+      { action: 'prompt', service: 'svc', field: 'key', label: 'Test' },
+      ctxWithPrompt,
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('cancelled');
+  });
+
+  test('stores credential when user provides value via prompt', async () => {
+    const ctxWithPrompt: ToolContext = {
+      ..._ctx,
+      requestSecret: async () => ({ value: 'prompt-secret-val', delivery: 'store' as const }),
+    };
+    const result = await credentialStoreTool.execute(
+      { action: 'prompt', service: 'test-prompt', field: 'api_key', label: 'API Key' },
+      ctxWithPrompt,
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('test-prompt/api_key');
+    expect(result.content).not.toContain('prompt-secret-val');
+
+    // Verify stored
+    expect(getSecureKey('credential:test-prompt:api_key')).toBe('prompt-secret-val');
+  });
+
+  test('prompt with policy fields persists metadata', async () => {
+    const ctxWithPrompt: ToolContext = {
+      ..._ctx,
+      requestSecret: async () => ({ value: 'prompt-val', delivery: 'store' as const }),
+    };
+    const result = await credentialStoreTool.execute({
+      action: 'prompt',
+      service: 'github',
+      field: 'token',
+      label: 'GitHub Token',
+      allowed_tools: ['browser_fill_credential'],
+      allowed_domains: ['github.com'],
+      usage_description: 'GitHub login',
+    }, ctxWithPrompt);
+    expect(result.isError).toBe(false);
+
+    const { getCredentialMetadata } = await import('../tools/credentials/metadata-store.js');
+    const meta = getCredentialMetadata('github', 'token');
+    expect(meta).toBeDefined();
+    expect(meta!.allowedTools).toEqual(['browser_fill_credential']);
+    expect(meta!.allowedDomains).toEqual(['github.com']);
+    expect(meta!.usageDescription).toBe('GitHub login');
+  });
+
+  test('prompt rejects invalid policy input', async () => {
+    const ctxWithPrompt: ToolContext = {
+      ..._ctx,
+      requestSecret: async () => ({ value: 'val', delivery: 'store' as const }),
+    };
+    const result = await credentialStoreTool.execute({
+      action: 'prompt',
+      service: 'svc',
+      field: 'key',
+      label: 'Test',
+      allowed_tools: 'not-an-array',
+    }, ctxWithPrompt);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('allowed_tools must be an array');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. Vault — oauth2_connect error paths
+// ---------------------------------------------------------------------------
+
+describe('credential_store tool — oauth2_connect error paths', () => {
+  beforeEach(() => {
+    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    mkdirSync(TEST_DIR, { recursive: true });
+    _setStorePath(STORE_PATH);
+    _resetBackend();
+    _setMetadataPath(join(TEST_DIR, 'metadata.json'));
+  });
+
+  afterEach(() => {
+    _setMetadataPath(null);
+    _setStorePath(null);
+    _resetBackend();
+  });
+
+  test('requires service parameter', async () => {
+    const result = await credentialStoreTool.execute(
+      { action: 'oauth2_connect' },
+      _ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('service is required');
+  });
+
+  test('requires auth_url for unknown service', async () => {
+    const result = await credentialStoreTool.execute(
+      { action: 'oauth2_connect', service: 'custom-svc', token_url: 'https://t', scopes: ['read'] },
+      _ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('auth_url is required');
+  });
+
+  test('requires token_url for unknown service', async () => {
+    const result = await credentialStoreTool.execute(
+      { action: 'oauth2_connect', service: 'custom-svc', auth_url: 'https://a', scopes: ['read'] },
+      _ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('token_url is required');
+  });
+
+  test('requires scopes for unknown service', async () => {
+    const result = await credentialStoreTool.execute(
+      { action: 'oauth2_connect', service: 'custom-svc', auth_url: 'https://a', token_url: 'https://t' },
+      _ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('scopes is required');
+  });
+
+  test('requires client_id', async () => {
+    const result = await credentialStoreTool.execute({
+      action: 'oauth2_connect',
+      service: 'custom-svc',
+      auth_url: 'https://auth.example.com',
+      token_url: 'https://token.example.com',
+      scopes: ['read'],
+    }, _ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('client_id is required');
+  });
+
+  test('requires interactive context', async () => {
+    const result = await credentialStoreTool.execute({
+      action: 'oauth2_connect',
+      service: 'custom-svc',
+      auth_url: 'https://auth.example.com',
+      token_url: 'https://token.example.com',
+      scopes: ['read'],
+      client_id: 'test-client-id',
+    }, { ..._ctx, isInteractive: false });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('interactive client session');
+  });
+
+  test('resolves gmail alias to integration:gmail', async () => {
+    // Even with alias resolution, missing client_id should still fail
+    const result = await credentialStoreTool.execute({
+      action: 'oauth2_connect',
+      service: 'gmail',
+    }, _ctx);
+    expect(result.isError).toBe(true);
+    // Should NOT require auth_url/token_url/scopes — those are well-known for gmail
+    // Should fail on client_id since none is stored
+    expect(result.content).toContain('client_id is required');
+  });
+
+  test('resolves slack alias to integration:slack', async () => {
+    const result = await credentialStoreTool.execute({
+      action: 'oauth2_connect',
+      service: 'slack',
+    }, _ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('client_id is required');
+  });
+
+  test('uses stored client_id from secure storage', async () => {
+    // Store a client_id for the service
+    setSecureKey('credential:integration:gmail:client_id', 'stored-client-id-123');
+
+    const result = await credentialStoreTool.execute({
+      action: 'oauth2_connect',
+      service: 'gmail',
+    }, { ..._ctx, isInteractive: false });
+
+    // Should pass client_id check but fail on interactive check
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('interactive client session');
+    // Does NOT contain client_id error
+    expect(result.content).not.toContain('client_id is required');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. Vault — store action validation edge cases
+// ---------------------------------------------------------------------------
+
+describe('credential_store tool — store validation edge cases', () => {
+  beforeEach(() => {
+    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    mkdirSync(TEST_DIR, { recursive: true });
+    _setStorePath(STORE_PATH);
+    _resetBackend();
+    _setMetadataPath(join(TEST_DIR, 'metadata.json'));
+  });
+
+  afterEach(() => {
+    _setMetadataPath(null);
+    _setStorePath(null);
+    _resetBackend();
+  });
+
+  test('rejects alias that is not a string', async () => {
+    const result = await credentialStoreTool.execute({
+      action: 'store',
+      service: 'svc',
+      field: 'key',
+      value: 'val',
+      alias: 42,
+    }, _ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('alias must be a string');
+  });
+
+  test('rejects injection_templates that is not an array', async () => {
+    const result = await credentialStoreTool.execute({
+      action: 'store',
+      service: 'svc',
+      field: 'key',
+      value: 'val',
+      injection_templates: 'not-an-array',
+    }, _ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('injection_templates must be an array');
+  });
+
+  test('rejects template with invalid injectionType', async () => {
+    const result = await credentialStoreTool.execute({
+      action: 'store',
+      service: 'svc',
+      field: 'key',
+      value: 'val',
+      injection_templates: [
+        { hostPattern: '*.example.com', injectionType: 'cookie' },
+      ],
+    }, _ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("injectionType must be 'header' or 'query'");
+  });
+
+  test('rejects template with empty hostPattern', async () => {
+    const result = await credentialStoreTool.execute({
+      action: 'store',
+      service: 'svc',
+      field: 'key',
+      value: 'val',
+      injection_templates: [
+        { hostPattern: '  ', injectionType: 'header', headerName: 'Authorization' },
+      ],
+    }, _ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('hostPattern must be a non-empty string');
+  });
+
+  test('rejects template with non-string valuePrefix', async () => {
+    const result = await credentialStoreTool.execute({
+      action: 'store',
+      service: 'svc',
+      field: 'key',
+      value: 'val',
+      injection_templates: [
+        { hostPattern: '*.example.com', injectionType: 'header', headerName: 'Auth', valuePrefix: 42 },
+      ],
+    }, _ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('valuePrefix must be a string');
+  });
+
+  test('reports multiple template errors at once', async () => {
+    const result = await credentialStoreTool.execute({
+      action: 'store',
+      service: 'svc',
+      field: 'key',
+      value: 'val',
+      injection_templates: [
+        { hostPattern: '', injectionType: 'header', headerName: 'X-Key' },
+        { hostPattern: '*.example.com', injectionType: 'query' }, // missing queryParamName
+      ],
+    }, _ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('hostPattern');
+    expect(result.content).toContain('queryParamName');
+  });
+
+  test('delete removes both secret and metadata', async () => {
+    await credentialStoreTool.execute({
+      action: 'store', service: 'del-test', field: 'key', value: 'secret',
+    }, _ctx);
+
+    // Verify stored
+    expect(getSecureKey('credential:del-test:key')).toBe('secret');
+    const { getCredentialMetadata } = await import('../tools/credentials/metadata-store.js');
+    expect(getCredentialMetadata('del-test', 'key')).toBeDefined();
+
+    // Delete
+    const result = await credentialStoreTool.execute({
+      action: 'delete', service: 'del-test', field: 'key',
+    }, _ctx);
+    expect(result.isError).toBe(false);
+
+    // Both should be gone
+    expect(getSecureKey('credential:del-test:key')).toBeUndefined();
+    expect(getCredentialMetadata('del-test', 'key')).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. Vault — tool definition schema
+// ---------------------------------------------------------------------------
+
+describe('credential_store tool — tool definition', () => {
+  test('tool name and category are correct', () => {
+    expect(credentialStoreTool.name).toBe('credential_store');
+    expect(credentialStoreTool.category).toBe('credentials');
+  });
+
+  test('getDefinition returns valid schema with required action', () => {
+    const def = credentialStoreTool.getDefinition();
+    expect(def.name).toBe('credential_store');
+    expect(def.input_schema.type).toBe('object');
+    expect(def.input_schema.required).toContain('action');
+    expect(def.input_schema.properties.action.enum).toEqual(
+      ['store', 'list', 'delete', 'prompt', 'oauth2_connect'],
+    );
+  });
+
+  test('getDefinition includes injection_templates schema', () => {
+    const def = credentialStoreTool.getDefinition();
+    const templates = def.input_schema.properties.injection_templates;
+    expect(templates).toBeDefined();
+    expect(templates.type).toBe('array');
+    expect(templates.items.properties.hostPattern).toBeDefined();
+    expect(templates.items.properties.injectionType.enum).toEqual(['header', 'query']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Broker — serverUseById with transient not supported
+//    (transient is scoped to authorize+consume and browserFill/serverUse)
+// ---------------------------------------------------------------------------
+
+describe('CredentialBroker — serverUseById edge cases', () => {
+  let broker: CredentialBroker;
+
+  beforeEach(() => {
+    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    mkdirSync(TEST_DIR, { recursive: true });
+    _setStorePath(STORE_PATH);
+    _resetBackend();
+    _setMetadataPath(join(TEST_DIR, 'metadata.json'));
+    broker = new CredentialBroker();
+  });
+
+  afterEach(() => {
+    _setMetadataPath(null);
+    _setStorePath(null);
+    _resetBackend();
+  });
+
+  test('serverUseById with multiple injection templates returns all', () => {
+    const meta = upsertCredentialMetadata('multi', 'api_key', {
+      allowedTools: ['proxy'],
+      injectionTemplates: [
+        { hostPattern: '*.fal.ai', injectionType: 'header', headerName: 'Authorization', valuePrefix: 'Key ' },
+        { hostPattern: 'gateway.fal.ai', injectionType: 'header', headerName: 'X-Fal-Key' },
+      ],
+    });
+    setSecureKey('credential:multi:api_key', 'multi-secret');
+
+    const result = broker.serverUseById({
+      credentialId: meta.credentialId,
+      requestingTool: 'proxy',
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.injectionTemplates).toHaveLength(2);
+    expect(result.injectionTemplates[0].hostPattern).toBe('*.fal.ai');
+    expect(result.injectionTemplates[1].hostPattern).toBe('gateway.fal.ai');
+    // No secret value in result
+    expect(JSON.stringify(result)).not.toContain('multi-secret');
+  });
+
+  test('serverUseById verifies secret exists in storage (fail-closed)', () => {
+    const meta = upsertCredentialMetadata('fal', 'api_key', {
+      allowedTools: ['proxy'],
+    });
+    // No setSecureKey — metadata exists but value doesn't
+
+    const result = broker.serverUseById({
+      credentialId: meta.credentialId,
+      requestingTool: 'proxy',
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.reason).toContain('no stored value');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Broker — revokeAll clears transient values indirectly via token cleanup
+// ---------------------------------------------------------------------------
+
+describe('CredentialBroker — revokeAll', () => {
+  let broker: CredentialBroker;
+
+  beforeEach(() => {
+    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    mkdirSync(TEST_DIR, { recursive: true });
+    _setStorePath(STORE_PATH);
+    _resetBackend();
+    _setMetadataPath(join(TEST_DIR, 'metadata.json'));
+    broker = new CredentialBroker();
+  });
+
+  afterEach(() => {
+    _setMetadataPath(null);
+    _setStorePath(null);
+    _resetBackend();
+  });
+
+  test('revokeAll clears all tokens and subsequent consume fails', () => {
+    upsertCredentialMetadata('svc', 'key', { allowedTools: ['t1', 't2'] });
+    const a1 = broker.authorize({ service: 'svc', field: 'key', toolName: 't1' });
+    const a2 = broker.authorize({ service: 'svc', field: 'key', toolName: 't2' });
+    expect(broker.activeTokenCount).toBe(2);
+
+    broker.revokeAll();
+    expect(broker.activeTokenCount).toBe(0);
+
+    if (a1.authorized) {
+      const r = broker.consume(a1.token.tokenId);
+      expect(r.success).toBe(false);
+    }
+    if (a2.authorized) {
+      const r = broker.consume(a2.token.tokenId);
+      expect(r.success).toBe(false);
+    }
+  });
+
+  test('revokeAll on empty broker is a no-op', () => {
+    expect(broker.activeTokenCount).toBe(0);
+    broker.revokeAll();
+    expect(broker.activeTokenCount).toBe(0);
+  });
+});
