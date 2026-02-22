@@ -75,9 +75,7 @@ struct HomeBaseView: View {
         }
         .task(id: clientProvider.isConnected) {
             guard clientProvider.isConnected else { return }
-            if viewModel.response == nil {
-                await viewModel.fetch(client: clientProvider.client)
-            }
+            await viewModel.fetch(client: clientProvider.client)
         }
     }
 

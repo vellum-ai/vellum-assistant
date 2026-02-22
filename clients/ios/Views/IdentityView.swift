@@ -110,9 +110,7 @@ struct IdentityView: View {
         }
         .task(id: clientProvider.isConnected) {
             guard clientProvider.isConnected else { return }
-            if viewModel.identity == nil {
-                await viewModel.fetchAll(client: clientProvider.client)
-            }
+            await viewModel.fetchAll(client: clientProvider.client)
         }
         .sheet(item: $viewingFile) { file in
             WorkspaceFileSheet(
