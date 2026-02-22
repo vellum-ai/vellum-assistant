@@ -185,6 +185,8 @@ graph TB
         GW_TWILIO_STATUS["Twilio Status Webhook<br/>/webhooks/twilio/status"]
         GW_TWILIO_CONNECT["Twilio Connect-Action<br/>/webhooks/twilio/connect-action"]
         GW_TWILIO_RELAY["Twilio Relay WS<br/>/webhooks/twilio/relay<br/>(bidirectional proxy)"]
+        GW_SMS_WEBHOOK["Twilio SMS Webhook<br/>/webhooks/twilio/sms<br/>(HMAC-SHA1 validated)"]
+        GW_SMS_DELIVER["SMS Deliver<br/>/deliver/sms<br/>(internal, from runtime)"]
         GW_OAUTH["OAuth Callback<br/>/webhooks/oauth/callback"]
         GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
         GW_PROBES["/healthz + /readyz<br/>k8s liveness/readiness"]
@@ -316,11 +318,16 @@ graph TB
     GW_TG_DELIVER --> GW_REPLY
     GW_TG_DELIVER --> GW_ATTACH
 
-    %% Gateway flow — Twilio webhooks
+    %% Gateway flow — Twilio voice webhooks
     GW_TWILIO_VOICE -->|"HTTP"| HTTP_SERVER
     GW_TWILIO_STATUS -->|"HTTP"| HTTP_SERVER
     GW_TWILIO_CONNECT -->|"HTTP"| HTTP_SERVER
     GW_TWILIO_RELAY -->|"WebSocket proxy"| HTTP_SERVER
+
+    %% Gateway flow — SMS channel (Twilio SMS webhook → gateway → runtime → gateway → Twilio Messages API)
+    GW_SMS_WEBHOOK -->|"normalize + MessageSid dedup<br/>+ route resolver"| GW_FORWARD
+    HTTP_SERVER -->|"POST /deliver/sms<br/>(via gatewayInternalBaseUrl)"| GW_SMS_DELIVER
+    GW_SMS_DELIVER -->|"Twilio Messages API<br/>(text-only, no MMS in v1)"| GW_SMS_WEBHOOK
 
     %% Gateway flow — OAuth callback
     GW_OAUTH -->|"forward code + state"| HTTP_SERVER
@@ -409,6 +416,26 @@ graph TB
 - Session runtime assembly injects both `<channel_onboarding_playbook>` and `<onboarding_mode>` context before provider calls, then strips both from persisted conversation history.
 - Daemon startup runs `ensurePrebuiltHomeBaseSeeded()` to provision one idempotent prebuilt Home Base app in `~/.vellum/workspace/data/apps`.
 - Home Base onboarding buttons relay prefilled natural-language prompts to the main assistant; permission setup remains user-initiated and hatch + first-conversation flows avoid proactive permission asks.
+
+### SMS Channel (Twilio)
+
+The SMS channel provides text-only messaging via Twilio, sharing the same telephony provider as voice calls. It follows the same ingress/egress pattern as Telegram but uses Twilio's HMAC-SHA1 signature validation instead of a secret header.
+
+**Ingress** (`POST /webhooks/twilio/sms`):
+1. Twilio delivers an inbound SMS as a form-encoded POST to the gateway.
+2. The gateway validates the `X-Twilio-Signature` header using HMAC-SHA1 with the Twilio Auth Token against the canonical request URL (reconstructed from `INGRESS_PUBLIC_BASE_URL` when behind a tunnel).
+3. The payload is normalized into a `GatewayInboundEventV1` with `sourceChannel: "sms"` and `externalChatId` set to the sender's phone number (E.164).
+4. `MessageSid` deduplication prevents reprocessing retried webhooks.
+5. The event is forwarded to the runtime via `POST /channels/inbound`, including SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
+
+**Egress** (`POST /deliver/sms`):
+1. The runtime calls the gateway's `/deliver/sms` endpoint with `{ to, text }`.
+2. The gateway authenticates the request via bearer token (same fail-closed model as `/deliver/telegram`).
+3. The gateway sends the SMS via the Twilio Messages API using the configured `TWILIO_PHONE_NUMBER` as the `From` number.
+
+**Setup**: Twilio credentials (Account SID, Auth Token) and phone number are managed via the `twilio_config` IPC contract and the `twilio-setup` skill. A single phone number is shared across voice and SMS for each assistant.
+
+**Limitations (v1)**: Text-only — MMS (media attachments) is deferred to a future release.
 
 ---
 

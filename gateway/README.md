@@ -1,6 +1,6 @@
 # Vellum Gateway
 
-Standalone service that serves as the public ingress boundary for all external webhooks and callbacks. It owns Telegram integration end-to-end, routes Twilio voice webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime.
+Standalone service that serves as the public ingress boundary for all external webhooks and callbacks. It owns Telegram integration end-to-end, routes Twilio voice and SMS webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime.
 
 ## Architecture
 
@@ -49,6 +49,10 @@ bun run dev
 | `GATEWAY_MAX_ATTACHMENT_BYTES` | No | `20971520` | Max single attachment size (oversized are skipped) |
 | `GATEWAY_MAX_ATTACHMENT_CONCURRENCY` | No | `3` | Max concurrent attachment download/upload operations |
 | `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS` | No | `false` | Dev-only: skip bearer auth on `/deliver/telegram` when no token is configured |
+| `TWILIO_ACCOUNT_SID` | No | — | Twilio Account SID for sending outbound SMS via the Messages API |
+| `TWILIO_AUTH_TOKEN` | No | — | Twilio Auth Token for HMAC-SHA1 webhook signature validation and outbound SMS |
+| `TWILIO_PHONE_NUMBER` | No | — | Twilio phone number (E.164) used as the `From` for outbound SMS |
+| `GATEWAY_SMS_DELIVER_AUTH_BYPASS` | No | `false` | Dev-only: skip bearer auth on `/deliver/sms` when no token is configured |
 
 ## Routing
 
@@ -90,6 +94,33 @@ The `/deliver/telegram` endpoint requires bearer auth by default (fail-closed). 
 | No bearer token configured + bypass not set | 503 Service Not Configured |
 
 This ensures that misconfiguration cannot expose an unauthenticated public message-send surface. In production, always configure `RUNTIME_PROXY_BEARER_TOKEN`. The `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS` flag is intended for local development only.
+
+## SMS Ingress (Twilio)
+
+The `/webhooks/twilio/sms` endpoint receives inbound SMS messages from Twilio. On each request:
+
+1. **Signature validation** — The `X-Twilio-Signature` header is validated using HMAC-SHA1 with the `TWILIO_AUTH_TOKEN`. When behind a tunnel or reverse proxy, the gateway reconstructs the canonical request URL from `INGRESS_PUBLIC_BASE_URL` for validation.
+2. **MessageSid dedup** — Each `MessageSid` is tracked in an in-memory dedup cache. Duplicate webhook deliveries (Twilio retries) are silently accepted without re-forwarding.
+3. **Normalization** — The form-encoded Twilio payload is normalized into a `GatewayInboundEventV1` with `sourceChannel: "sms"`. The sender's phone number (`From`) is used as both `externalChatId` and `externalUserId`.
+4. **Routing** — The same routing resolver used for Telegram (chat_id -> user_id -> default/reject) determines the target assistant.
+5. **Forwarding** — The event is forwarded to the runtime via `POST /channels/inbound` with SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
+
+SMS is text-only in v1 — MMS (media attachments) is deferred.
+
+## SMS Deliver Endpoint Security
+
+The `/deliver/sms` endpoint requires the same fail-closed bearer auth as `/deliver/telegram`:
+
+| Condition | Result |
+|-----------|--------|
+| Bearer token configured + valid `Authorization` header | Request allowed |
+| Bearer token configured + missing/invalid `Authorization` header | 401 Unauthorized |
+| No bearer token configured + `GATEWAY_SMS_DELIVER_AUTH_BYPASS=true` | Request allowed (dev-only) |
+| No bearer token configured + bypass not set | 503 Service Not Configured |
+
+The endpoint also requires `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_PHONE_NUMBER` to be configured. If any are missing, requests return `503 SMS integration not configured`.
+
+Outbound SMS is sent via the Twilio Messages API using the configured `TWILIO_PHONE_NUMBER` as the `From` number. The request body is `{ to: string, text: string }`.
 
 ## Callback Query Handling
 
@@ -140,6 +171,8 @@ The gateway serves as the single public ingress point for all external callbacks
 | `/webhooks/twilio/status` | POST | Twilio status callback (validated via HMAC-SHA1 signature) |
 | `/webhooks/twilio/connect-action` | POST | Twilio connect-action callback (validated via HMAC-SHA1 signature) |
 | `/webhooks/twilio/relay` | WS | Twilio ConversationRelay WebSocket (bidirectional proxy to runtime, requires `callSessionId` query param) |
+| `/webhooks/twilio/sms` | POST | Twilio SMS webhook — validates X-Twilio-Signature (HMAC-SHA1), normalizes into `GatewayInboundEventV1` with `sourceChannel: "sms"`, deduplicates by `MessageSid`, and forwards to runtime |
+| `/deliver/sms` | POST | Internal endpoint for the assistant runtime to deliver outbound SMS messages via the Twilio Messages API |
 | `/webhooks/oauth/callback` | GET | OAuth2 callback endpoint — receives authorization codes from OAuth providers (Google, Slack, etc.) and forwards them to the assistant runtime |
 | `/healthz` | GET | Liveness probe |
 | `/readyz` | GET | Readiness probe |

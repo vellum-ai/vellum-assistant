@@ -152,6 +152,33 @@ CHANNEL_APPROVALS_ENABLED=true
 
 When disabled (the default), channel messages follow the standard fire-and-forget processing path without approval interception.
 
+## Twilio Setup Primitive
+
+Twilio is the shared telephony provider for both voice calls and SMS messaging. Configuration is managed through the `twilio_config` IPC contract and the `twilio-setup` skill.
+
+### `twilio_config` IPC Contract
+
+The daemon handles `twilio_config` messages with the following actions:
+
+| Action | Description |
+|--------|-------------|
+| `get` | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned) |
+| `set_credentials` | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file). Credentials are retrieved from the credential store internally. |
+| `clear_credentials` | Removes stored Account SID, Auth Token, and phone number assignment |
+| `provision_number` | Provisions a new phone number via the Twilio API. Accepts optional `areaCode` and `country` (ISO 3166-1 alpha-2, default `US`). Auto-assigns the provisioned number. |
+| `assign_number` | Assigns an existing Twilio phone number (E.164 format) to the assistant |
+| `list_numbers` | Lists all incoming phone numbers on the Twilio account with their capabilities (voice, SMS) |
+
+Response type: `twilio_config_response` with `success`, `hasCredentials`, optional `phoneNumber`, optional `numbers` array, and optional `error`.
+
+### Single-Number-Per-Assistant Model
+
+Each assistant is assigned a single Twilio phone number that is shared between voice calls and SMS. The number is stored in the assistant's config at `sms.phoneNumber` and used as the `From` for outbound SMS via the gateway's `/deliver/sms` endpoint. The same credentials (Account SID, Auth Token) are used for both voice and SMS operations.
+
+### Channel-Aware Guardian Challenges
+
+The channel guardian service generates verification challenge instructions with channel-appropriate wording. The `channelLabel()` function maps `sourceChannel` values to human-readable labels (e.g., `"telegram"` -> `"Telegram"`, `"sms"` -> `"SMS"`), so challenge prompts reference the correct channel name.
+
 ## Database
 
 SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments (with FTS5), memory items, entities, reminders, and recurrence schedules (cron + RRULE).
