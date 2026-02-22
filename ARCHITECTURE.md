@@ -3483,20 +3483,41 @@ The avatar evolves during onboarding based on conversation and identity choices.
 
 ## Ingress Boundary Architecture — Gateway-Only Public Ingress
 
-All public-facing HTTP callbacks (Twilio webhooks, OAuth authorization callbacks, Telegram webhooks) terminate at the gateway, which validates and forwards them to the assistant runtime. The runtime HTTP server is not directly exposed to the internet.
+All external webhook endpoints (Telegram, Twilio, OAuth, future channels) are handled exclusively by the gateway. The runtime never exposes webhook ingress. The runtime-proxy explicitly blocks forwarding of `/webhooks/*` paths.
+
+This boundary is enforced at three layers:
+
+1. **Gateway routing:** The gateway's `fetch()` handler matches `/webhooks/*` paths to dedicated handlers before the runtime-proxy fallthrough. Webhook traffic is validated (signature checks, payload limits) and forwarded to internal runtime endpoints.
+2. **Runtime-proxy guard:** The runtime-proxy handler rejects any `/webhooks/*` path with a 404, preventing accidental forwarding of webhook traffic to the runtime even if a new webhook path is added to the gateway without a dedicated handler.
+3. **Runtime server:** The runtime HTTP server does not register any `/webhooks/telegram` routes. Direct Twilio webhook routes (`/webhooks/twilio/*`) return 410 with a `GATEWAY_ONLY` error code, and relay WebSocket upgrades are restricted to private network peers.
 
 ```
 Internet
   |
-  +-- Twilio ----------> Gateway POST /webhooks/twilio/*    --> Runtime /v1/calls/*
-  +-- OAuth Provider ---> Gateway GET  /webhooks/oauth/callback --> Runtime /v1/oauth/callback
-  +-- Telegram --------> Gateway POST /webhooks/telegram    --> Runtime /v1/assistants/:id/channels/inbound
+  +-- Twilio ----------> Gateway POST /webhooks/twilio/*    --> Runtime /v1/internal/twilio/*
+  +-- OAuth Provider ---> Gateway GET  /webhooks/oauth/callback --> Runtime /v1/internal/oauth/callback
+  +-- Telegram --------> Gateway POST /webhooks/telegram    --> Runtime /v1/channels/inbound
   |
   +-- Tunnel (ngrok, Cloudflare, etc.)
        |
        v
      Gateway (http://127.0.0.1:7830)
+       |
+       +-- Runtime proxy /v1/* --> Runtime (http://127.0.0.1:7821)
+       +-- /webhooks/* --> BLOCKED (404, never forwarded to runtime)
 ```
+
+### Channel Sync Lifecycle
+
+Channel bindings (e.g., Telegram chat to conversation) follow a four-phase lifecycle:
+
+1. **Bind** — An inbound message from an external channel (e.g., Telegram chat) arrives at the gateway, which normalizes it and forwards it to the runtime's `/v1/channels/inbound` endpoint. The runtime creates or reuses a conversation, establishing the channel binding (`sourceChannel` metadata on the conversation).
+
+2. **Sync** — Subsequent messages on the same external chat are routed to the same conversation via the channel binding. Replies from the assistant are delivered back through the gateway's `/deliver/telegram` endpoint, which sends them to the Telegram API. The binding ensures bidirectional message flow stays in sync.
+
+3. **Delete** — When a conversation is deleted (via the UI or API), the channel binding is removed. Future messages from the same external chat will create a new conversation.
+
+4. **Resurrection** — If a message arrives on an external chat whose conversation was previously deleted, the channel inbound handler treats it as a new conversation and establishes a fresh binding. The external chat ID is reused, but the conversation is new. This prevents orphaned external chats from losing the ability to communicate.
 
 ### Configuration
 
