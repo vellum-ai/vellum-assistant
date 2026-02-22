@@ -422,7 +422,7 @@ export async function check(
 
   if (permissionsMode === 'legacy' && !_legacyDeprecationWarned) {
     _legacyDeprecationWarned = true;
-    getLogger().warn('Permissions mode "legacy" is deprecated and will be removed in a future release. Switch to "workspace" (default) or "strict".');
+    getLogger('checker').warn('Permissions mode "legacy" is deprecated and will be removed in a future release. Switch to "workspace" (default) or "strict".');
   }
 
   if (permissionsMode === 'strict' && !matchedRule) {
