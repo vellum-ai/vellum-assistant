@@ -1304,6 +1304,7 @@ graph LR
         C9["ping"]
         C10["ipc_blob_probe<br/>probeId, nonceSha256"]
         C11["work_items_list / work_item_get<br/>work_item_create / work_item_update<br/>work_item_complete / work_item_run_task<br/>(planned)"]
+        C12["tool_permission_simulate<br/>toolName, input, workingDir?,<br/>isInteractive?, forcePromptSideEffects?,<br/>principalKind?, executionTarget?"]
     end
 
     SOCKET["Unix Socket<br/>~/.vellum/vellum.sock<br/>───────────────<br/>Newline-delimited JSON<br/>Max 96MB per message<br/>Ping/pong every 30s<br/>Auto-reconnect<br/>1s → 30s backoff"]
@@ -1331,6 +1332,7 @@ graph LR
         S18["session_info<br/>sessionId, title,<br/>correlationId?, threadType?"]
         S19["session_list_response<br/>sessions[]: id, title,<br/>updatedAt, threadType?"]
         S20["work_item_status_changed<br/>workItemId, newStatus<br/>(planned push)"]
+        S21["tool_permission_simulate_response<br/>decision, riskLevel, reason?,<br/>promptPayload?, matchedRuleId?"]
     end
 
     C0 --> SOCKET
@@ -1345,6 +1347,7 @@ graph LR
     C9 --> SOCKET
     C10 --> SOCKET
     C11 --> SOCKET
+    C12 --> SOCKET
 
     SOCKET --> S0
     SOCKET --> S1
@@ -1367,6 +1370,7 @@ graph LR
     SOCKET --> S18
     SOCKET --> S19
     SOCKET --> S20
+    SOCKET --> S21
 ```
 
 ---
@@ -2082,6 +2086,20 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 | `assistant/src/skills/path-classifier.ts` | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection |
 | `assistant/src/config/schema.ts` | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict` / `legacy`) |
 | `assistant/src/tools/executor.ts` | `ToolExecutor` — orchestrates risk classification, permission check, and execution |
+| `assistant/src/daemon/handlers/config.ts` | `handleToolPermissionSimulate()` — dry-run simulation handler |
+
+### Permission Simulation (Tool Permission Tester)
+
+The `tool_permission_simulate` IPC message lets clients dry-run a tool invocation through the full permission evaluation pipeline without actually executing the tool or mutating daemon state. The macOS Settings panel exposes this as a "Tool Permission Tester" UI.
+
+**Simulation semantics:**
+
+- The request specifies `toolName`, `input`, and optional context overrides (`workingDir`, `isInteractive`, `forcePromptSideEffects`, `principalKind`, `executionTarget`).
+- The daemon runs `classifyRisk()` and `check()` against the live trust rules, then returns the decision (`allow`, `deny`, or `prompt`), risk level, reason, matched rule ID, and (when decision is `prompt`) the full `promptPayload` with allowlist/scope options.
+- **Simulation-only allow/deny**: A simulated `allow` or `deny` decision does not persist any state. No trust rules are created or modified.
+- **Always-allow persistence**: When the tester UI's "Always Allow" action is used, the client sends a separate `add_trust_rule` message that persists the rule to `trust.json`, identical to the existing confirmation flow.
+- **Private-thread override**: When `forcePromptSideEffects` is true, side-effect tools that would normally be auto-allowed are promoted to `prompt`.
+- **Non-interactive override**: When `isInteractive` is false, `prompt` decisions are converted to `deny` (no client available to approve).
 
 ---
 

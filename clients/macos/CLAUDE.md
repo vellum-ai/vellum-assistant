@@ -45,7 +45,7 @@ All UI and feature code lives in `Features/`, organized by domain:
 | `MainWindow/` | MainWindowView shell, ThreadTabBar, NavigationToolbar, ThreadManager, 6 side panels |
 | `Onboarding/` | Multi-step first-launch flow (OnboardingFlowView → OnboardingState) |
 | `Session/` | Session overlay UI for computer-use task execution |
-| `Settings/` | API key entry, hotkey config, permission status |
+| `Settings/` | API key entry, hotkey config, permission status, tool permission tester |
 | `Ambient/` | Background screen monitoring UI |
 | `Voice/` | Voice input UI (VoiceTranscriptionWindow) |
 | `MenuBar/` | NSStatusItem and popover lifecycle |
