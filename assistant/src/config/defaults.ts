@@ -247,7 +247,6 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     },
     model: undefined,
     callerIdentity: {
-      defaultMode: 'assistant_number' as const,
       allowPerCallOverride: true,
     },
   },
