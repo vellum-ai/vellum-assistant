@@ -54,6 +54,35 @@ export function overlapRatio(left: Set<string>, right: Set<string>): number {
   return overlap / Math.max(left.size, right.size);
 }
 
+/**
+ * Tokenize for statement-to-statement coherence checking.
+ * Uses a lower minimum token length (>= 3) than `tokenizeForConflictRelevance`
+ * to preserve short technical terms like "vim", "css", "git", "npm", etc.
+ */
+function tokenizeForCoherence(input: string): Set<string> {
+  const stripped = input.replace(URL_PATTERN, ' ');
+  const tokens = stripped
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3)
+    .filter((token) => !/^\d+$/.test(token))
+    .filter((token) => !NOISE_TOKENS.has(token));
+  return new Set(tokens);
+}
+
+/**
+ * Check whether two conflict statements have topical coherence.
+ * Returns true if the statements share at least one meaningful token.
+ * Uses a permissive tokenizer (>= 3 chars) to avoid dropping short
+ * technical terms like "vim", "css", "git", etc.
+ */
+export function areStatementsCoherent(statementA: string, statementB: string): boolean {
+  const tokensA = tokenizeForCoherence(statementA);
+  const tokensB = tokenizeForCoherence(statementB);
+  return overlapRatio(tokensA, tokensB) > 0;
+}
+
 // Action verbs that signal the user is making a deliberate choice.
 const ACTION_CUES = new Set([
   'keep', 'use', 'prefer', 'go', 'pick', 'choose', 'take', 'want', 'select',

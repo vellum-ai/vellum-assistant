@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { computeConflictRelevance, tokenizeForConflictRelevance, overlapRatio } from '../memory/conflict-intent.js';
+import { areStatementsCoherent, computeConflictRelevance, tokenizeForConflictRelevance, overlapRatio } from '../memory/conflict-intent.js';
 
 describe('tokenizeForConflictRelevance hardening', () => {
   test('excludes numeric-only tokens from relevance', () => {
@@ -84,46 +84,58 @@ describe('tokenizeForConflictRelevance hardening', () => {
   });
 });
 
-describe('statement coherence (overlap between conflict statements)', () => {
-  test('unrelated statements have zero overlap', () => {
-    const existingTokens = tokenizeForConflictRelevance(
+describe('statement coherence (areStatementsCoherent)', () => {
+  test('unrelated statements are incoherent', () => {
+    expect(areStatementsCoherent(
       'The default model for the summarize CLI is google/gemini-3-flash-preview.',
-    );
-    const candidateTokens = tokenizeForConflictRelevance(
       "User's favorite color is blue.",
-    );
-    expect(overlapRatio(existingTokens, candidateTokens)).toBe(0);
+    )).toBe(false);
   });
 
-  test('related statements have non-zero overlap', () => {
-    const existingTokens = tokenizeForConflictRelevance(
+  test('related statements are coherent', () => {
+    expect(areStatementsCoherent(
       "User's favorite color is blue.",
-    );
-    const candidateTokens = tokenizeForConflictRelevance(
       "User's favorite color is green.",
-    );
-    // Should share tokens like "favorite", "color"
-    expect(overlapRatio(existingTokens, candidateTokens)).toBeGreaterThan(0);
+    )).toBe(true);
   });
 
-  test('topically similar preferences have overlap', () => {
-    const existingTokens = tokenizeForConflictRelevance(
+  test('topically similar preferences are coherent', () => {
+    expect(areStatementsCoherent(
       'Use React for frontend work.',
-    );
-    const candidateTokens = tokenizeForConflictRelevance(
       'Use Vue for frontend work.',
-    );
-    // Should share "frontend", "work"
-    expect(overlapRatio(existingTokens, candidateTokens)).toBeGreaterThan(0);
+    )).toBe(true);
   });
 
-  test('completely disjoint technical topics have zero overlap', () => {
-    const existingTokens = tokenizeForConflictRelevance(
+  test('completely disjoint technical topics are incoherent', () => {
+    expect(areStatementsCoherent(
       'Always use PostgreSQL for database storage.',
-    );
-    const candidateTokens = tokenizeForConflictRelevance(
       'The preferred terminal font is JetBrains Mono.',
-    );
-    expect(overlapRatio(existingTokens, candidateTokens)).toBe(0);
+    )).toBe(false);
+  });
+
+  test('short technical terms (3 chars) are preserved for coherence', () => {
+    // "vim" and "css" are 3 chars — should not be filtered
+    expect(areStatementsCoherent(
+      'Use Vim for editing.',
+      'Use Emacs instead of Vim.',
+    )).toBe(true);
+
+    expect(areStatementsCoherent(
+      'Use CSS grid for layouts.',
+      'Use CSS flexbox for layouts.',
+    )).toBe(true);
+
+    expect(areStatementsCoherent(
+      'Use npm for installs.',
+      'Use npm with --legacy-peer-deps.',
+    )).toBe(true);
+  });
+
+  test('short terms with no shared context are still incoherent', () => {
+    // No shared tokens at all — completely different topics
+    expect(areStatementsCoherent(
+      'Vim is the preferred editor.',
+      'CSS grid handles page layouts.',
+    )).toBe(false);
   });
 });

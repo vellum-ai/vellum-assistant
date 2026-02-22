@@ -822,7 +822,7 @@ describe('Session conflict soft gate', () => {
       id: 'conflict-incoherent',
       input: {
         status: 'dismissed',
-        resolutionNote: 'Dismissed by conflict policy (transient/non-durable).',
+        resolutionNote: 'Dismissed by conflict policy (incoherent — zero statement overlap).',
       },
     }]);
   });

@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
-import { tokenizeForConflictRelevance, overlapRatio } from './conflict-intent.js';
+import { areStatementsCoherent } from './conflict-intent.js';
 import { isConflictKindEligible, isStatementConflictEligible } from './conflict-policy.js';
 import { createOrUpdatePendingConflict } from './conflict-store.js';
 import { getDb } from './db.js';
@@ -82,9 +82,7 @@ export async function checkContradictions(newItemId: string): Promise<void> {
     }
 
     // Skip pairs with zero topical overlap — they are not real contradictions
-    const existingTokens = tokenizeForConflictRelevance(existing.statement);
-    const newTokens = tokenizeForConflictRelevance(newItem.statement);
-    if (overlapRatio(existingTokens, newTokens) === 0) {
+    if (!areStatementsCoherent(existing.statement, newItem.statement)) {
       log.debug(
         { existingId: existing.id, newId: newItem.id },
         'Skipping candidate — zero statement overlap (incoherent pair)',
