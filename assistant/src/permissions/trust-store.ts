@@ -28,12 +28,21 @@ let cachedStarterBundleAccepted: boolean | null = null;
  */
 const compiledPatterns = new Map<string, Minimatch>();
 
-/** Get or compile a Minimatch object for the given pattern. */
-function getCompiledPattern(pattern: string): Minimatch {
+/** Get or compile a Minimatch object for the given pattern. Returns null if the pattern is invalid. */
+function getCompiledPattern(pattern: string): Minimatch | null {
   let compiled = compiledPatterns.get(pattern);
   if (!compiled) {
-    compiled = new Minimatch(pattern);
-    compiledPatterns.set(pattern, compiled);
+    if (typeof pattern !== 'string') {
+      log.warn({ pattern }, 'Cannot compile non-string pattern');
+      return null;
+    }
+    try {
+      compiled = new Minimatch(pattern);
+      compiledPatterns.set(pattern, compiled);
+    } catch (err) {
+      log.warn({ pattern, err }, 'Failed to compile pattern');
+      return null;
+    }
   }
   return compiled;
 }
@@ -42,8 +51,16 @@ function getCompiledPattern(pattern: string): Minimatch {
 function rebuildPatternCache(rules: TrustRule[]): void {
   compiledPatterns.clear();
   for (const rule of rules) {
+    if (typeof rule.pattern !== 'string') {
+      log.warn({ ruleId: rule.id, pattern: rule.pattern }, 'Skipping rule with non-string pattern during cache rebuild');
+      continue;
+    }
     if (!compiledPatterns.has(rule.pattern)) {
-      compiledPatterns.set(rule.pattern, new Minimatch(rule.pattern));
+      try {
+        compiledPatterns.set(rule.pattern, new Minimatch(rule.pattern));
+      } catch (err) {
+        log.warn({ ruleId: rule.id, pattern: rule.pattern, err }, 'Skipping rule with invalid pattern during cache rebuild');
+      }
     }
   }
 }
@@ -391,7 +408,8 @@ function findRuleByDecision(tool: string, command: string, scope: string, decisi
   for (const rule of rules) {
     if (rule.tool !== tool) continue;
     if (rule.decision !== decision) continue;
-    if (!getCompiledPattern(rule.pattern).match(command)) continue;
+    const compiled = getCompiledPattern(rule.pattern);
+    if (!compiled || !compiled.match(command)) continue;
     if (!matchesScope(rule.scope, scope)) continue;
     return rule;
   }
@@ -436,6 +454,7 @@ export function findHighestPriorityRule(tool: string, commands: string[], scope:
     if (!matchesScope(rule.scope, scope)) continue;
     if (!matchesExecutionTarget(rule, ctx)) continue;
     const compiled = getCompiledPattern(rule.pattern);
+    if (!compiled) continue;
     for (const command of commands) {
       if (compiled.match(command)) {
         return rule;
