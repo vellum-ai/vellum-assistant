@@ -78,6 +78,9 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
   const dedupCache = new DedupCache();
 
   return async (req: Request): Promise<Response> => {
+    const traceId = req.headers.get("x-trace-id") ?? undefined;
+    const tlog = traceId ? log.child({ traceId }) : log;
+
     if (req.method !== "POST") {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
@@ -85,13 +88,13 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
     // Payload size guard
     const contentLength = req.headers.get("content-length");
     if (contentLength && Number(contentLength) > config.maxWebhookPayloadBytes) {
-      log.warn({ contentLength }, "Webhook payload too large");
+      tlog.warn({ contentLength }, "Webhook payload too large");
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
 
     // Verify webhook secret
     if (!config.telegramWebhookSecret || !verifyWebhookSecret(req.headers, config.telegramWebhookSecret)) {
-      log.warn("Telegram webhook request failed secret verification");
+      tlog.warn("Telegram webhook request failed secret verification");
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -103,7 +106,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
     }
 
     if (Buffer.byteLength(rawBody) > config.maxWebhookPayloadBytes) {
-      log.warn({ bodyLength: Buffer.byteLength(rawBody) }, "Webhook payload too large");
+      tlog.warn({ bodyLength: Buffer.byteLength(rawBody) }, "Webhook payload too large");
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
 
@@ -122,14 +125,14 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       if (!reserved) {
         const cached = dedupCache.get(updateId);
         if (cached) {
-          log.info({ updateId }, "Duplicate update_id, returning cached response");
+          tlog.info({ updateId }, "Duplicate update_id, returning cached response");
           return new Response(cached.body, {
             status: cached.status,
             headers: { "content-type": "application/json" },
           });
         }
         // Still being processed by the first handler — ask Telegram to retry
-        log.info({ updateId }, "Duplicate update_id while still processing, returning 503");
+        tlog.info({ updateId }, "Duplicate update_id while still processing, returning 503");
         return new Response(JSON.stringify({ error: "Processing in progress" }), {
           status: 503,
           headers: { "content-type": "application/json", "Retry-After": "1" },
@@ -155,6 +158,16 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       return respond({ ok: true });
     }
 
+    tlog.info(
+      {
+        source: "telegram",
+        chatId: normalized.message.externalChatId,
+        messageId: normalized.message.externalMessageId,
+        updateId,
+      },
+      "Webhook received",
+    );
+
     // Handle /new command — reset conversation before it reaches the runtime
     if (normalized.message.content.trim() === "/new") {
       const routing = resolveAssistant(
@@ -164,7 +177,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       );
 
       if (isRejection(routing)) {
-        log.warn(
+        tlog.warn(
           { chatId: normalized.message.externalChatId, reason: routing.reason },
           "Routing rejected /new command",
         );
@@ -174,7 +187,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
             normalized.message.externalChatId,
             "\u26a0\ufe0f This message could not be routed to an assistant. Please check your gateway routing configuration.",
           ).catch((err) => {
-            log.error({ err, chatId: normalized.message.externalChatId }, "Failed to send /new routing rejection notice");
+            tlog.error({ err, chatId: normalized.message.externalChatId }, "Failed to send /new routing rejection notice");
           });
         }
       } else {
@@ -186,12 +199,12 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
             normalized.message.externalChatId,
           );
           sendTelegramReply(config, normalized.message.externalChatId, "Starting a new conversation!").catch((err) => {
-            log.error({ err }, "Failed to send /new confirmation");
+            tlog.error({ err }, "Failed to send /new confirmation");
           });
         } catch (err) {
-          log.error({ err }, "Failed to reset conversation");
+          tlog.error({ err }, "Failed to reset conversation");
           sendTelegramReply(config, normalized.message.externalChatId, "Failed to reset conversation. Please try again.").catch((replyErr) => {
-            log.error({ err: replyErr }, "Failed to send /new error reply");
+            tlog.error({ err: replyErr }, "Failed to send /new error reply");
           });
         }
       }
@@ -221,7 +234,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         // Filter oversized attachments
         const eligible = eventAttachments.filter((att) => {
           if (att.fileSize !== undefined && att.fileSize > config.maxAttachmentBytes) {
-            log.warn(
+            tlog.warn(
               { fileId: att.fileId, fileSize: att.fileSize, limit: config.maxAttachmentBytes },
               "Skipping oversized attachment",
             );
@@ -250,7 +263,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
             if (result.status === 'fulfilled') {
               attachmentIds.push(result.value.id);
             } else if (result.reason instanceof AttachmentValidationError) {
-              log.warn({ err: result.reason }, "Skipping attachment with validation error");
+              tlog.warn({ err: result.reason }, "Skipping attachment with validation error");
             } else {
               // Transient failure — propagate so the webhook returns 500 and
               // Telegram retries the update delivery.
@@ -262,7 +275,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         // Transient attachment failure — return 500 so Telegram retries.
         // Use Response.json() instead of respond() to bypass the dedup cache,
         // otherwise the cached 500 prevents Telegram retries from being processed.
-        log.error({ err }, "Attachment processing failed with transient error");
+        tlog.error({ err }, "Attachment processing failed with transient error");
         if (updateId !== undefined) dedupCache.unreserve(updateId);
         return Response.json({ error: "Attachment processing failed" }, { status: 500 });
       }
@@ -275,10 +288,11 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         attachmentIds,
         transportMetadata: buildTelegramTransportMetadata(),
         replyCallbackUrl: `${config.gatewayInternalBaseUrl}/deliver/telegram`,
+        traceId,
       });
 
       if (result.rejected) {
-        log.warn(
+        tlog.warn(
           { chatId, reason: result.rejectionReason },
           "Routing rejected inbound Telegram message",
         );
@@ -288,19 +302,21 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
             chatId,
             "\u26a0\ufe0f This message could not be routed to an assistant. Please check your gateway routing configuration.",
           ).catch((err) => {
-            log.error({ err, chatId }, "Failed to send routing rejection notice");
+            tlog.error({ err, chatId }, "Failed to send routing rejection notice");
           });
         }
         return respond({ ok: true });
       }
 
       if (!result.forwarded) {
-        log.error({ updateId: payload.update_id }, "Failed to forward inbound event");
+        tlog.error({ updateId: payload.update_id }, "Failed to forward inbound event");
         if (updateId !== undefined) dedupCache.unreserve(updateId);
         return Response.json({ error: "Internal error" }, { status: 500 });
       }
+
+      tlog.info({ status: "forwarded" }, "Forwarded to runtime");
     } catch (err) {
-      log.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
+      tlog.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
       if (updateId !== undefined) dedupCache.unreserve(updateId);
       return Response.json({ error: "Internal error" }, { status: 500 });
     }

@@ -63,12 +63,22 @@ export type RuntimeInboundResponse = {
   };
 };
 
+export type ForwardOptions = {
+  traceId?: string;
+};
+
 export async function forwardToRuntime(
   config: GatewayConfig,
   assistantId: string,
   payload: RuntimeInboundPayload,
+  options?: ForwardOptions,
 ): Promise<RuntimeInboundResponse> {
   const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/channels/inbound`;
+
+  const extraHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  if (options?.traceId) {
+    extraHeaders["X-Trace-Id"] = options.traceId;
+  }
 
   let lastError: Error | null = null;
 
@@ -82,7 +92,7 @@ export async function forwardToRuntime(
     try {
       const response = await fetch(url, {
         method: "POST",
-        headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
+        headers: runtimeHeaders(config, extraHeaders),
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(config.runtimeTimeoutMs),
       });

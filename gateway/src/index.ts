@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { loadConfig } from "./config.js";
 import { CredentialWatcher } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
@@ -15,6 +16,10 @@ import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 
 const log = getLogger("main");
+
+function generateTraceId(): string {
+  return randomBytes(8).toString("hex");
+}
 
 let draining = false;
 
@@ -62,8 +67,15 @@ function main() {
         return Response.json({ status: "ok" });
       }
 
+      // Attach a trace ID to every non-healthcheck request for
+      // end-to-end correlation across webhook → runtime → reply.
+      const traceId = generateTraceId();
+      const headers = new Headers(req.headers);
+      headers.set("x-trace-id", traceId);
+      const tracedReq = new Request(req, { headers });
+
       if (url.pathname === "/internal/telegram/reconcile") {
-        return handleTelegramReconcile(req);
+        return handleTelegramReconcile(tracedReq);
       }
 
       if (url.pathname === "/webhooks/telegram") {
@@ -73,7 +85,7 @@ function main() {
             { status: 503 },
           );
         }
-        return handleTelegramWebhook(req);
+        return handleTelegramWebhook(tracedReq);
       }
 
       if (url.pathname === "/deliver/telegram") {
@@ -83,43 +95,43 @@ function main() {
             { status: 503 },
           );
         }
-        return handleTelegramDeliver(req);
+        return handleTelegramDeliver(tracedReq);
       }
 
       if (
         url.pathname === "/webhooks/twilio/voice" ||
         url.pathname === "/v1/calls/twilio/voice-webhook"
       ) {
-        return handleTwilioVoiceWebhook(req);
+        return handleTwilioVoiceWebhook(tracedReq);
       }
 
       if (
         url.pathname === "/webhooks/twilio/status" ||
         url.pathname === "/v1/calls/twilio/status"
       ) {
-        return handleTwilioStatusWebhook(req);
+        return handleTwilioStatusWebhook(tracedReq);
       }
 
       if (
         url.pathname === "/webhooks/twilio/connect-action" ||
         url.pathname === "/v1/calls/twilio/connect-action"
       ) {
-        return handleTwilioConnectActionWebhook(req);
+        return handleTwilioConnectActionWebhook(tracedReq);
       }
 
       if (url.pathname === "/webhooks/twilio/relay" || url.pathname === "/v1/calls/relay") {
-        const upgradeResult = handleTwilioRelayWs(req, server);
+        const upgradeResult = handleTwilioRelayWs(tracedReq, server);
         if (upgradeResult !== undefined) return upgradeResult;
         // If upgrade was handled, Bun doesn't need a response
         return undefined as unknown as Response;
       }
 
-      if (url.pathname === "/webhooks/oauth/callback" && req.method === "GET") {
-        return handleOAuthCallback(req);
+      if (url.pathname === "/webhooks/oauth/callback" && tracedReq.method === "GET") {
+        return handleOAuthCallback(tracedReq);
       }
 
       if (handleRuntimeProxy) {
-        return handleRuntimeProxy(req);
+        return handleRuntimeProxy(tracedReq);
       }
 
       return Response.json({ error: "Not found", source: "gateway" }, { status: 404 });
