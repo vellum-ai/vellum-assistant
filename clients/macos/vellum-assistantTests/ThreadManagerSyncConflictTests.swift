@@ -229,6 +229,68 @@ final class ThreadManagerSyncConflictTests: XCTestCase {
         XCTAssertEqual(nonOwnerVM.inputText, "")
     }
 
+    func testMoveSyncHereAndResendSendsAttachmentOnlyDraft() {
+        // Owner thread currently owns "telegram:chat-123"
+        let (ownerThread, _) = createSyncedThread(title: "Owner Thread")
+        // Non-owner is a plain thread (no sync binding) that wants to take over
+        let nonOwnerThread = ThreadModel(
+            title: "Non-Owner",
+            sessionId: "session-nonowner"
+        )
+        let nonOwnerVM = threadManager.makeViewModel()
+        nonOwnerVM.sessionId = nonOwnerThread.sessionId
+        nonOwnerVM.isHistoryLoaded = true
+        threadManager.threads.insert(nonOwnerThread, at: 0)
+        threadManager.setChatViewModel(nonOwnerVM, for: nonOwnerThread.id)
+
+        threadManager.activeThreadId = nonOwnerThread.id
+        // No text — only an attachment
+        let attachment = ChatAttachment(
+            id: "att-1",
+            filename: "photo.jpg",
+            mimeType: "image/jpeg",
+            data: "base64data",
+            thumbnailData: nil,
+            dataLength: 42,
+            thumbnailImage: nil
+        )
+        nonOwnerVM.pendingAttachments = [attachment]
+
+        // Mock moveChannelSync to succeed
+        daemonClient.moveChannelSyncOverride = { _, _, _ in true }
+
+        threadManager.moveSyncHereAndResend(
+            threadId: nonOwnerThread.id,
+            sourceChannel: "telegram",
+            externalChatId: "chat-123"
+        )
+
+        // Wait for the async Task to complete
+        let expectation = XCTestExpectation(description: "move-sync completes")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+
+        // Verify: non-owner thread now has sync binding
+        let updatedNonOwner = threadManager.threads.first(where: { $0.id == nonOwnerThread.id })!
+        XCTAssertEqual(updatedNonOwner.sourceChannel, "telegram")
+        XCTAssertEqual(updatedNonOwner.externalChatId, "chat-123")
+
+        // Verify: old owner lost sync binding
+        let updatedOwner = threadManager.threads.first(where: { $0.id == ownerThread.id })!
+        XCTAssertNil(updatedOwner.sourceChannel)
+        XCTAssertNil(updatedOwner.externalChatId)
+
+        // Verify: a user message was auto-sent (attachment-only draft triggers send)
+        XCTAssertTrue(nonOwnerVM.messages.contains(where: { $0.role == .user }),
+                      "Attachment-only draft should have been auto-sent after move-sync success")
+
+        // Verify: composer was cleared by sendMessage
+        XCTAssertTrue(nonOwnerVM.pendingAttachments.isEmpty,
+                      "Pending attachments should be cleared after auto-send")
+    }
+
     func testMoveSyncHereAndResendDoesNotSendOnFailure() {
         let (_, _) = createSyncedThread(title: "Owner Thread")
         let (nonOwnerThread, nonOwnerVM) = createSyncedThread(

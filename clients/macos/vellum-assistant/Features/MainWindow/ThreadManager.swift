@@ -521,11 +521,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 log.info("Moved sync to thread \(threadId) for \(sourceChannel):\(externalChatId)")
 
                 // Auto-resend the draft message now that ownership has moved
-                if !draftText.isEmpty {
+                if !draftText.isEmpty || !draftAttachments.isEmpty {
                     vm.inputText = draftText
                     vm.pendingAttachments = draftAttachments
                     vm.sendMessage()
-                    log.info("Auto-resent draft after move-sync (\(draftText.count) chars)")
+                    log.info("Auto-resent draft after move-sync (\(draftText.count) chars, \(draftAttachments.count) attachments)")
                 }
             } else {
                 log.error("Failed to move sync to thread \(threadId)")
