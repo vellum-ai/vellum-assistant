@@ -305,13 +305,14 @@ graph TB
     GW_VERIFY --> GW_NORMALIZE
     GW_NORMALIZE --> GW_ROUTE
     GW_ROUTE --> GW_FORWARD
-    GW_FORWARD -->|"HTTP"| HTTP_SERVER
+    GW_FORWARD -->|"HTTP + replyCallbackUrl"| HTTP_SERVER
     HTTP_SERVER -->|"channels/inbound transport<br/>channelId + hints + uxBrief"| PLAYBOOK_MGR
     GW_REPLY -->|"Telegram API"| GW_WEBHOOK
     GW_ATTACH -->|"download from runtime<br/>+ upload to Telegram"| GW_WEBHOOK
 
     %% Gateway flow — Telegram deliver (runtime → gateway → Telegram)
-    HTTP_SERVER -->|"POST /deliver/telegram"| GW_TG_DELIVER
+    %% replyCallbackUrl is built from gatewayInternalBaseUrl (GATEWAY_INTERNAL_BASE_URL env var)
+    HTTP_SERVER -->|"POST /deliver/telegram<br/>(via gatewayInternalBaseUrl)"| GW_TG_DELIVER
     GW_TG_DELIVER --> GW_REPLY
     GW_TG_DELIVER --> GW_ATTACH
 
@@ -736,7 +737,7 @@ graph TB
 
     subgraph "Read Path (Memory Recall)"
         QUERY["Recall Query Builder<br/>User request + compacted context summary"]
-        CONFLICT_GATE["Soft Conflict Gate<br/>resolve pending conflicts from user turn<br/>relevance + cooldown ask-once behavior"]
+        CONFLICT_GATE["Soft Conflict Gate<br/>dismiss non-actionable conflicts (kind + statement policy)<br/>resolve pending conflicts from user turn<br/>relevance + cooldown + configurable ask behavior"]
         PROFILE_BUILD["Dynamic Profile Compiler<br/>active trusted profile memories<br/>user_confirmed > user_reported > assistant_inferred"]
         PROFILE_INJECT["Inject profile context block<br/>into runtime user tail<br/>(strict token cap)"]
         BUDGET["Dynamic Recall Budget<br/>computeRecallBudget()<br/>from prompt headroom"]
@@ -836,6 +837,9 @@ graph TB
 | `memory.conflicts.reaskCooldownTurns` | `3` | Minimum turn distance before re-asking the same conflict clarification. |
 | `memory.conflicts.resolverLlmTimeoutMs` | `12000` | Timeout bound for clarification resolver LLM fallback. |
 | `memory.conflicts.relevanceThreshold` | `0.3` | Similarity threshold for deciding whether a pending conflict is relevant to the current request. |
+| `memory.conflicts.gateMode` | `'soft'` | Conflict gate strategy. Currently only `'soft'` is supported (asks the user inline). |
+| `memory.conflicts.askOnIrrelevantTurns` | `false` | When `true`, soft-inject irrelevant conflict clarifications into every turn. When `false` (default), only ask when the conflict is topically relevant. |
+| `memory.conflicts.conflictableKinds` | `['preference', 'profile', 'constraint', 'instruction', 'style']` | Memory item kinds eligible for conflict detection. Items with kinds outside this list are auto-dismissed. |
 | `memory.profile.enabled` | `true` | Enable dynamic profile compilation from active trusted profile/preference/constraint/instruction memories. |
 | `memory.profile.maxInjectTokens` | `800` | Hard token cap enforced by `ProfileCompiler` when generating the runtime profile block. |
 
@@ -869,7 +873,8 @@ graph TB
 stateDiagram-v2
     [*] --> ActiveItems : extract_items/check_contradictions
     ActiveItems --> PendingConflict : ambiguous_contradiction\n(candidate -> pending_clarification)
-    PendingConflict --> PendingConflict : soft gate ask once\n(reask cooldown + relevance)
+    PendingConflict --> PendingConflict : soft gate ask\n(reask cooldown + relevance + askOnIrrelevantTurns)
+    PendingConflict --> Dismissed : non-actionable\n(kind policy + transient statement filter)
     PendingConflict --> ResolvedKeepExisting : clarification resolver\n+ applyConflictResolution
     PendingConflict --> ResolvedKeepCandidate : clarification resolver\n+ applyConflictResolution
     PendingConflict --> ResolvedMerge : clarification resolver\n+ applyConflictResolution
@@ -1861,7 +1866,7 @@ graph TB
 
 ## Permission and Trust Security Model
 
-The permission system controls which tool actions the agent can execute without explicit user approval. It supports two operating modes, principal-aware trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
+The permission system controls which tool actions the agent can execute without explicit user approval. It supports three operating modes (`workspace`, `strict`, and `legacy`), principal-aware trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
 
 ### Permission Evaluation Flow
 
@@ -1883,30 +1888,41 @@ graph TB
 
     NO_MATCH -->|"tool.origin === 'skill'"| PROMPT_SKILL["decision: prompt<br/>Skill tools always ask"]
     NO_MATCH -->|"strict mode"| PROMPT_STRICT["decision: prompt<br/>No implicit auto-allow"]
-    NO_MATCH -->|"legacy mode (non-default)"| RISK_FALLBACK{"Risk level?"}
+    NO_MATCH -->|"workspace mode (default)"| WS_CHECK{"Workspace-scoped<br/>invocation?"}
+    WS_CHECK -->|"yes"| AUTO_WS["decision: allow<br/>Workspace-scoped auto-allow"]
+    WS_CHECK -->|"no"| RISK_FALLBACK_WS{"Risk level?"}
+    RISK_FALLBACK_WS -->|"Low"| AUTO_WS_LOW["decision: allow<br/>Low risk auto-allow"]
+    RISK_FALLBACK_WS -->|"Medium"| PROMPT_WS_MED["decision: prompt"]
+    RISK_FALLBACK_WS -->|"High"| PROMPT_WS_HIGH["decision: prompt"]
+    NO_MATCH -->|"legacy mode"| RISK_FALLBACK{"Risk level?"}
     RISK_FALLBACK -->|"Low"| AUTO_LOW["decision: allow<br/>Low risk auto-allow"]
     RISK_FALLBACK -->|"Medium"| PROMPT_MED["decision: prompt"]
     RISK_FALLBACK -->|"High"| PROMPT_HIGH2["decision: prompt"]
 ```
 
-### Strict Mode vs Legacy Mode
+### Permission Modes: Workspace, Strict, and Legacy
 
-The `permissions.mode` config option (`legacy` or `strict`) controls the default behavior when no trust rule matches a tool invocation.
+The `permissions.mode` config option (`workspace`, `strict`, or `legacy`) controls the default behavior when no trust rule matches a tool invocation. The default is `workspace`.
 
-| Behavior | Legacy mode | Strict mode (default) |
-|---|---|---|
-| Low-risk tools with no matching rule | Auto-allowed | Prompted |
-| Medium-risk tools with no matching rule | Prompted | Prompted |
-| High-risk tools with no matching rule | Prompted | Prompted |
-| `skill_load` with no matching rule | Auto-allowed (low risk) | Prompted (explicit rule required) |
-| `skill_load` with system default rule | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
-| `browser_*` skill tools with system default rules | Auto-allowed (priority 100 allow rules) | Auto-allowed (priority 100 allow rules) |
-| Skill-origin tools with no matching rule | Prompted | Prompted |
-| Allow rules for non-high-risk tools | Auto-allowed | Auto-allowed |
-| Allow rules with `allowHighRisk: true` | Auto-allowed (even high risk) | Auto-allowed (even high risk) |
-| Deny rules | Blocked | Blocked |
+| Behavior | Workspace mode (default) | Strict mode | Legacy mode (deprecated) |
+|---|---|---|---|
+| Workspace-scoped ops with no matching rule | Auto-allowed | Prompted | Auto-allowed (low risk) |
+| Non-workspace low-risk tools with no matching rule | Auto-allowed | Prompted | Auto-allowed |
+| Medium-risk tools with no matching rule | Prompted | Prompted | Prompted |
+| High-risk tools with no matching rule | Prompted | Prompted | Prompted |
+| `skill_load` with no matching rule | Prompted | Prompted | Auto-allowed (low risk) |
+| `skill_load` with system default rule | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
+| `browser_*` skill tools with system default rules | Auto-allowed (priority 100 allow rules) | Auto-allowed (priority 100 allow rules) | Auto-allowed (priority 100 allow rules) |
+| Skill-origin tools with no matching rule | Prompted | Prompted | Prompted |
+| Allow rules for non-high-risk tools | Auto-allowed | Auto-allowed | Auto-allowed |
+| Allow rules with `allowHighRisk: true` | Auto-allowed (even high risk) | Auto-allowed (even high risk) | Auto-allowed (even high risk) |
+| Deny rules | Blocked | Blocked | Blocked |
 
-Strict mode is designed for security-conscious deployments where every tool action must have an explicit matching rule in the trust store. It eliminates implicit auto-allow for any risk level, ensuring the user has consciously approved each class of tool usage.
+**Workspace mode** (default) auto-allows operations scoped to the workspace (file reads/writes/edits within the workspace directory, sandboxed bash) without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow.
+
+**Strict mode** is designed for security-conscious deployments where every tool action must have an explicit matching rule in the trust store. It eliminates implicit auto-allow for any risk level, ensuring the user has consciously approved each class of tool usage.
+
+**Legacy mode** (deprecated) auto-allows all low-risk tools regardless of scope. It is deprecated and will be removed in a future release. A one-time runtime warning is emitted when legacy mode is active. Users should migrate to `workspace` (default) or `strict`.
 
 ### Trust Rules (v3 Schema)
 
@@ -2015,6 +2031,21 @@ In addition to the opt-in starter bundle, the permission system seeds unconditio
 
 These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both strict and legacy modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
 
+### Shell Command Identity and Allowlist Options
+
+For `bash` and `host_bash` tool invocations, the permission system uses parser-derived action keys (via `shell-identity.ts`) instead of raw whitespace-split patterns. This produces more meaningful allowlist options that reflect the actual command structure.
+
+**Candidate building** (`buildShellCommandCandidates`): The shell parser (`tools/terminal/parser.ts`) produces segments and operators. `analyzeShellCommand()` extracts segments, operators, opaque-construct flags, and dangerous patterns. `deriveShellActionKeys()` then classifies the command:
+
+- **Simple action** (optional setup-prefix segments like `cd`, `export`, `pushd` + exactly one action segment): Produces hierarchical `action:` keys. For example, `cd /repo && gh pr view 5525 --json title` yields candidates: the full original command text (`cd /repo && gh pr view 5525 --json title`), and action keys `action:gh pr view`, `action:gh pr`, `action:gh` (narrowest to broadest, max depth 3).
+- **Complex command** (pipelines with `|`, or multiple non-prefix action segments): Only the full original command text is returned as a candidate — no action keys.
+
+**Allowlist option ranking** (`buildShellAllowlistOptions`): For simple actions, the prompt offers options ordered from most specific to broadest: the full original command text (exact match), then action keys from deepest to shallowest. For complex commands, only the full original command text is offered. This prevents over-generalization of pipelines into permissive rules.
+
+**Trust rule pattern format**: Action keys use the `action:` prefix in trust rules (e.g., `action:gh pr view`). The trust store matches these via `findHighestPriorityRule()` against the candidate list produced by `buildShellCommandCandidates()`.
+
+**Scope ordering**: Scope options for all tools (including shell) are ordered from narrowest to broadest: project > parent directories > everywhere. The macOS chat UI uses a two-step flow for persistent rules: the user first selects the allowlist pattern, then selects the scope. This explicit scope selection replaces any silent auto-selection, ensuring the user always knows where the rule will apply.
+
 ### Prompt UX
 
 When a permission prompt is sent to the client (via `confirmation_request` IPC message), it includes:
@@ -2043,12 +2074,13 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 |---|---|
 | `assistant/src/permissions/types.ts` | `TrustRule`, `PolicyContext`, `ToolPrincipal`, `RiskLevel`, `UserDecision` types |
 | `assistant/src/permissions/checker.ts` | `classifyRisk()`, `check()`, `buildCommandCandidates()`, allowlist/scope generation |
+| `assistant/src/permissions/shell-identity.ts` | `analyzeShellCommand()`, `deriveShellActionKeys()`, `buildShellCommandCandidates()`, `buildShellAllowlistOptions()` — parser-based shell command identity and action key derivation |
 | `assistant/src/permissions/trust-store.ts` | Rule persistence, `findHighestPriorityRule()`, principal/version matching, starter bundle |
 | `assistant/src/permissions/prompter.ts` | IPC prompt flow: `confirmation_request` → `confirmation_response` |
 | `assistant/src/permissions/defaults.ts` | Default rule templates (system ask rules for host tools, CU, etc.) |
 | `assistant/src/skills/version-hash.ts` | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files |
 | `assistant/src/skills/path-classifier.ts` | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection |
-| `assistant/src/config/schema.ts` | `PermissionsConfigSchema` — `permissions.mode` (`legacy` / `strict`) |
+| `assistant/src/config/schema.ts` | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict` / `legacy`) |
 | `assistant/src/tools/executor.ts` | `ToolExecutor` — orchestrates risk classification, permission check, and execution |
 
 ---
@@ -2464,7 +2496,7 @@ sequenceDiagram
 
 ### Twitter Integration Architecture
 
-Twitter uses a standalone OAuth2 flow separate from the unified messaging layer. The OAuth2 flow handles identity verification only (confirming the user's Twitter account). Posting is done exclusively via Chrome DevTools Protocol (CDP).
+Twitter uses a standalone OAuth2 flow separate from the unified messaging layer. It supports a dual-path operation architecture: an **OAuth path** that calls X API v2 directly for posting and replying, and a **Browser path** that uses Chrome DevTools Protocol (CDP) for all operations including read-only ones. A strategy router (`router.ts`) selects the appropriate path based on user preference and capability.
 
 #### Twitter OAuth2 Flow
 
@@ -2502,6 +2534,35 @@ sequenceDiagram
     IPC->>UI: show connected state
 ```
 
+#### Dual-Path Operation Architecture
+
+The strategy router (`router.ts`) determines whether to use the OAuth or browser path for each operation. The preferred strategy is read from the `twitterOperationStrategy` config field (default: `auto`).
+
+```mermaid
+flowchart TD
+    CLI["vellum x post / reply"] --> Router["Strategy Router (router.ts)"]
+    Router --> StratCheck{Preferred strategy?}
+
+    StratCheck -->|oauth| OAuthOnly["OAuth Client (oauth-client.ts)"]
+    OAuthOnly --> XAPI["X API v2 POST /tweets"]
+
+    StratCheck -->|browser| BrowserOnly["Browser Client (client.ts)"]
+    BrowserOnly --> CDP["Chrome CDP GraphQL mutation"]
+
+    StratCheck -->|auto| AutoCheck{"OAuth available &\noperation supported?"}
+    AutoCheck -->|yes| TryOAuth["Try OAuth Client"]
+    TryOAuth -->|success| XAPI
+    TryOAuth -->|failure| Fallback["Fallback to Browser Client"]
+    Fallback --> CDP
+    AutoCheck -->|no| BrowserOnly
+```
+
+- **`auto`** (default): Checks `oauthIsAvailable()` (access token stored) and `oauthSupportsOperation()` (currently `post` and `reply`). If both pass, tries OAuth first. On OAuth failure, falls back to browser. If OAuth is not available or the operation is unsupported, uses browser directly.
+- **`oauth`**: Uses OAuth exclusively. Fails with an actionable error if credentials are not configured.
+- **`browser`**: Uses CDP exclusively. Fails with an actionable error if the browser session has expired.
+
+The strategy is persisted in the Vellum config file as `twitterOperationStrategy` and can be changed via `vellum x strategy set <oauth|browser|auto>`.
+
 #### Twitter OAuth2 Specifics
 
 | Aspect | Detail |
@@ -2531,17 +2592,31 @@ When the OAuth2 flow completes, the handler stores credential metadata at `integ
 }
 ```
 
-#### Twitter CDP Posting Path
+#### Twitter Operation Paths
 
-The `vellum x post` CLI command is the sole posting mechanism. It connects to Chrome via CDP (`localhost:9222`), finds an authenticated x.com tab, and executes a `CreateTweet` GraphQL mutation through the browser's session cookies. It does not use OAuth2 tokens for posting. Session management is handled by Ride Shotgun recordings (`vellum x refresh`).
+**OAuth path** (`oauth-client.ts`): The `oauthPostTweet` function calls X API v2 (`POST https://api.x.com/2/tweets`) with a Bearer token obtained via `withValidToken('integration:twitter', ...)`. The token manager handles automatic refresh if the stored token is expired. Supports `post` and `reply` (by including `reply.in_reply_to_tweet_id` in the request body). All other operations (timeline, search, etc.) throw `UnsupportedOAuthOperationError` and are not available via this path.
+
+**Browser path** (`client.ts`): Connects to Chrome via CDP (`localhost:9222`), finds an authenticated x.com tab, and executes GraphQL mutations/queries through the browser's session cookies. Supports all operations including read-only ones (timeline, search, home, notifications, bookmarks, likes, followers, following, media). Session management is handled by Ride Shotgun recordings (`vellum x refresh`).
 
 #### Available Twitter Tools
 
-| Tool | Mechanism | Description |
-|------|-----------|-------------|
-| `twitter_post` | CDP | Post a tweet. Available via the `X` bundled skill (`vellum x post`). |
+| Tool / Command | Mechanism | Description |
+|----------------|-----------|-------------|
+| `vellum x post` | Strategy router (OAuth or CDP) | Post a tweet. Uses the configured strategy (`auto` by default). |
+| `vellum x reply` | Strategy router (OAuth or CDP) | Reply to a tweet. Uses the configured strategy (`auto` by default). |
+| `vellum x timeline` | CDP | Fetch a user's recent tweets. Browser path only. |
+| `vellum x search` | CDP | Search tweets. Browser path only. |
+| `vellum x home` | CDP | Fetch home timeline. Browser path only. |
+| `vellum x notifications` | CDP | Fetch notifications. Browser path only. |
+| `vellum x bookmarks` | CDP | Fetch bookmarks. Browser path only. |
+| `vellum x likes` | CDP | Fetch a user's liked tweets. Browser path only. |
+| `vellum x followers` | CDP | Fetch a user's followers. Browser path only. |
+| `vellum x following` | CDP | Fetch who a user follows. Browser path only. |
+| `vellum x media` | CDP | Fetch a user's media tweets. Browser path only. |
+| `vellum x strategy` | Config | Get or set the operation strategy (`oauth`, `browser`, `auto`). |
+| `vellum x status` | IPC + local | Check browser session, OAuth connection, and strategy status. |
 
-Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`) are requested during the auth flow for identity verification. Posting is handled exclusively via CDP, not through the OAuth2 tokens.
+Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`) are requested during the auth flow. The `post` and `reply` operations use these tokens when the OAuth path is selected. Read operations require the browser path.
 
 ### Key Design Decisions
 
@@ -2550,7 +2625,8 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | PKCE by default, optional client_secret | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh |
 | Gateway callback transport | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments. |
 | Unified `MessagingProvider` interface | All platforms implement the same contract; generic tools work immediately for new providers |
-| Twitter outside unified messaging | Twitter is a broadcast platform (post-only), not a conversation platform — it doesn't fit the `MessagingProvider` contract |
+| Twitter outside unified messaging | Twitter is a broadcast/read platform, not a conversation platform — it doesn't fit the `MessagingProvider` contract |
+| Dual-path Twitter strategy | OAuth is more reliable for posting (no browser session dependency) but only supports post/reply. Browser path supports all operations. `auto` strategy gives the best of both: OAuth when possible, browser as fallback. User can override via `vellum x strategy set`. |
 | Provider auto-selection | If only one provider is connected, tools skip the `platform` parameter — seamless single-platform UX |
 | Token expiry in credential metadata | Reuses existing `CredentialMetadata` store; `expiresAt` field enables proactive refresh with 5min buffer |
 | Confidence scores on medium-risk tools | LLM self-reports confidence (0-1); enables future trust calibration without blocking execution |
@@ -2575,9 +2651,11 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | `assistant/src/watcher/providers/slack.ts` | Slack watcher for DMs, mentions, thread replies |
 | `assistant/src/watcher/providers/gmail.ts` | Gmail watcher using History API |
 | `assistant/src/daemon/handlers/twitter-auth.ts` | Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`) |
-| `assistant/src/twitter/client.ts` | Twitter CDP client: GraphQL mutations via Chrome DevTools Protocol |
+| `assistant/src/twitter/client.ts` | Twitter CDP client: GraphQL mutations/queries via Chrome DevTools Protocol |
+| `assistant/src/twitter/oauth-client.ts` | OAuth-backed Twitter client: X API v2 post/reply via stored tokens using `withValidToken()` |
+| `assistant/src/twitter/router.ts` | Strategy router: selects OAuth or browser path based on `twitterOperationStrategy` config |
 | `assistant/src/twitter/session.ts` | Twitter browser session persistence (cookie import/export) |
-| `assistant/src/cli/twitter.ts` | `vellum x` CLI command group (post, refresh, status, login, logout) |
+| `assistant/src/cli/twitter.ts` | `vellum x` CLI command group (post, reply, strategy, refresh, status, login, logout, and read operations) |
 | `assistant/src/config/bundled-skills/twitter/SKILL.md` | X (Twitter) bundled skill instructions |
 
 ---
@@ -3440,6 +3518,7 @@ Telegram messages follow three paths through the system:
 Inbound (user → assistant):
   Telegram → Gateway POST /webhooks/telegram → verify secret → normalize → route
     → Runtime POST /v1/assistants/:id/channels/inbound
+    (replyCallbackUrl = ${gatewayInternalBaseUrl}/deliver/telegram)
 
 Outbound reply (assistant → user, triggered by inbound):
   Runtime callback → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage/sendPhoto/sendDocument
@@ -3448,7 +3527,11 @@ Outbound proactive (assistant → user, initiated by messaging provider):
   Runtime messaging provider → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage
 ```
 
+The `replyCallbackUrl` included in the inbound forward is built from the `gatewayInternalBaseUrl` config field, which defaults to `http://127.0.0.1:${GATEWAY_PORT}` and can be overridden via the `GATEWAY_INTERNAL_BASE_URL` environment variable. This allows distributed deployments where the gateway and runtime are not co-located (e.g., separate containers or hosts).
+
 The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-closed). If no bearer token is configured and the dev-only bypass flag (`GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS`) is not set, the endpoint returns 503 rather than allowing unauthenticated access.
+
+**Bot-account limitations:** The Telegram Bot API only supports sending messages to chats that have previously interacted with the bot. Bots cannot enumerate chats, read message history, or search messages. A future MTProto user-account session track may lift some of these restrictions.
 
 ### Webhook Reconciliation
 
@@ -3715,6 +3798,19 @@ Call behavior is controlled via the `calls` config block in the assistant config
 | `calls.voice.fallbackToStandardOnError` | boolean | `true` | When an ElevenLabs mode is active, automatically fall back to standard Twilio TTS if ElevenLabs config is invalid or mode is restricted (e.g., `elevenlabs_agent` guard). When `false`, errors return HTTP 500 (invalid config) or 501 (restricted mode) instead of falling back. |
 | `calls.voice.elevenlabs.voiceId` | string | `''` | ElevenLabs voice ID, used by `twilio_elevenlabs_tts` mode. |
 | `calls.voice.elevenlabs.agentId` | string | `''` | ElevenLabs agent ID, used by `elevenlabs_agent` mode. |
+
+### Caller Identity Resolution
+
+When a call is initiated, the system resolves the caller identity (which phone number to show as the caller ID). By default, the assistant's Twilio number is used (`assistant_number` mode). Users can opt into `user_number` mode, which uses their own verified phone number. The identity mode is validated against Twilio's eligible caller IDs before the call is placed. The resolved identity mode and source are persisted in the `call_sessions` table for auditability.
+
+The resolution is performed by `resolveCallerIdentity()` in `call-domain.ts`:
+
+1. **Per-call override** — If `callerIdentityMode` is provided in the call input and `calls.callerIdentity.allowPerCallOverride` is enabled, the requested mode is used (source: `per_call_override`).
+2. **Config default** — Otherwise, the configured `calls.callerIdentity.defaultMode` is used (source: `config_default`).
+3. **User number lookup** — For `user_number` mode, the number is resolved from (in priority order): `calls.callerIdentity.userNumber` config (source: `user_config`), `TWILIO_USER_PHONE_NUMBER` environment variable (source: `env_var`), or the `credential:twilio:user_phone_number` secure key (source: `secure_key`).
+4. **Eligibility check** — User numbers are verified against the Twilio API to confirm they can be used as an outbound caller ID.
+
+Both the resolved mode and source are logged at info level on success, and rejections are logged at warn level.
 
 ### Voice Quality Profile Resolution
 

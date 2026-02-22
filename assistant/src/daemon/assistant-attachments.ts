@@ -320,8 +320,10 @@ export function drainDirectiveDisplayBuffer(buffer: string): DirectiveDisplayDra
       // streaming mode more data may arrive in the next chunk — eagerly
       // trimming would merge words across the directive boundary.
       const nextChar = buffer[end + 2];
-      if (emitText.endsWith('\n') && (nextChar === '\n' || nextChar === '\r')) {
-        emitText = emitText.slice(0, -1);
+      if (emitText.endsWith('\r\n') && nextChar === '\r') {
+        emitText = emitText.slice(0, -2); // trim full \r\n
+      } else if (emitText.endsWith('\n') && (nextChar === '\n' || nextChar === '\r')) {
+        emitText = emitText.slice(0, -1); // trim \n
       }
     }
 

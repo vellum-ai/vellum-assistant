@@ -7,10 +7,19 @@ const VALID_SECRET_ACTIONS = ['redact', 'warn', 'block', 'prompt'] as const;
 const VALID_MEMORY_EMBEDDING_PROVIDERS = ['auto', 'local', 'openai', 'gemini', 'ollama'] as const;
 const VALID_SANDBOX_BACKENDS = ['native', 'docker'] as const;
 const VALID_DOCKER_NETWORKS = ['none', 'bridge'] as const;
-const VALID_PERMISSIONS_MODES = ['legacy', 'strict'] as const;
+const VALID_PERMISSIONS_MODES = ['legacy', 'strict', 'workspace'] as const;
 const VALID_CALL_PROVIDERS = ['twilio'] as const;
 const VALID_CALL_VOICE_MODES = ['twilio_standard', 'twilio_elevenlabs_tts', 'elevenlabs_agent'] as const;
+export const VALID_CALLER_IDENTITY_MODES = ['assistant_number', 'user_number'] as const;
 const VALID_CALL_TRANSCRIPTION_PROVIDERS = ['Deepgram', 'Google'] as const;
+const VALID_MEMORY_ITEM_KINDS = [
+  'preference', 'profile', 'project', 'decision', 'todo',
+  'fact', 'constraint', 'relationship', 'event', 'opinion', 'instruction', 'style',
+] as const;
+
+const DEFAULT_CONFLICTABLE_KINDS = [
+  'preference', 'profile', 'constraint', 'instruction', 'style',
+] as const;
 
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
@@ -128,7 +137,7 @@ export const PermissionsConfigSchema = z.object({
     .enum(VALID_PERMISSIONS_MODES, {
       error: `permissions.mode must be one of: ${VALID_PERMISSIONS_MODES.join(', ')}`,
     })
-    .default('strict'),
+    .default('workspace'),
 });
 
 export const AuditLogConfigSchema = z.object({
@@ -550,6 +559,17 @@ export const MemoryConflictsConfigSchema = z.object({
     .min(0, 'memory.conflicts.relevanceThreshold must be >= 0')
     .max(1, 'memory.conflicts.relevanceThreshold must be <= 1')
     .default(0.3),
+  askOnIrrelevantTurns: z
+    .boolean({ error: 'memory.conflicts.askOnIrrelevantTurns must be a boolean' })
+    .default(false),
+  conflictableKinds: z
+    .array(
+      z.enum(VALID_MEMORY_ITEM_KINDS, {
+        error: `memory.conflicts.conflictableKinds entries must be one of: ${VALID_MEMORY_ITEM_KINDS.join(', ')}`,
+      }),
+    )
+    .nonempty({ message: 'memory.conflicts.conflictableKinds must not be empty' })
+    .default([...DEFAULT_CONFLICTABLE_KINDS]),
 });
 
 export const MemoryProfileConfigSchema = z.object({
@@ -669,6 +689,8 @@ export const MemoryConfigSchema = z.object({
     reaskCooldownTurns: 3,
     resolverLlmTimeoutMs: 12000,
     relevanceThreshold: 0.3,
+    askOnIrrelevantTurns: false,
+    conflictableKinds: ['preference', 'profile', 'constraint', 'instruction', 'style'],
   }),
   profile: MemoryProfileConfigSchema.default({
     enabled: true,
@@ -956,6 +978,20 @@ export const CallsVoiceConfigSchema = z.object({
   }),
 });
 
+export const CallerIdentityConfigSchema = z.object({
+  defaultMode: z
+    .enum(VALID_CALLER_IDENTITY_MODES, {
+      error: `calls.callerIdentity.defaultMode must be one of: ${VALID_CALLER_IDENTITY_MODES.join(', ')}`,
+    })
+    .default('assistant_number'),
+  allowPerCallOverride: z
+    .boolean({ error: 'calls.callerIdentity.allowPerCallOverride must be a boolean' })
+    .default(true),
+  userNumber: z
+    .string({ error: 'calls.callerIdentity.userNumber must be a string' })
+    .optional(),
+});
+
 export const CallsConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'calls.enabled must be a boolean' })
@@ -1004,6 +1040,10 @@ export const CallsConfigSchema = z.object({
   model: z
     .string({ error: 'calls.model must be a string' })
     .optional(),
+  callerIdentity: CallerIdentityConfigSchema.default({
+    defaultMode: 'assistant_number',
+    allowPerCallOverride: true,
+  }),
 });
 
 export const SkillsConfigSchema = z.object({
@@ -1160,6 +1200,8 @@ export const AssistantConfigSchema = z.object({
       reaskCooldownTurns: 3,
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
+      askOnIrrelevantTurns: false,
+      conflictableKinds: ['preference', 'profile', 'constraint', 'instruction', 'style'],
     },
     profile: {
       enabled: true,
@@ -1200,7 +1242,7 @@ export const AssistantConfigSchema = z.object({
     blockIngress: true,
   }),
   permissions: PermissionsConfigSchema.default({
-    mode: 'strict',
+    mode: 'workspace',
   }),
   auditLog: AuditLogConfigSchema.default({
     retentionDays: 0,
@@ -1286,6 +1328,10 @@ export const AssistantConfigSchema = z.object({
         registerCallTimeoutMs: 5000,
       },
     },
+    callerIdentity: {
+      defaultMode: 'assistant_number',
+      allowPerCallOverride: true,
+    },
   }),
   ingress: IngressConfigSchema.default({
     enabled: false,
@@ -1353,4 +1399,5 @@ export type CallsDisclosureConfig = z.infer<typeof CallsDisclosureConfigSchema>;
 export type CallsSafetyConfig = z.infer<typeof CallsSafetyConfigSchema>;
 export type CallsVoiceConfig = z.infer<typeof CallsVoiceConfigSchema>;
 export type CallsElevenLabsConfig = z.infer<typeof CallsElevenLabsConfigSchema>;
+export type CallerIdentityConfig = z.infer<typeof CallerIdentityConfigSchema>;
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;

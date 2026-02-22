@@ -704,6 +704,8 @@ export function buildSchema(): Record<string, unknown> {
         },
         RuntimeAttachmentMeta: {
           type: "object",
+          required: ["id"],
+          description: "Attachment metadata. Only `id` is required; missing fields are hydrated from the downloaded attachment data.",
           properties: {
             id: { type: "string" },
             filename: { type: "string" },

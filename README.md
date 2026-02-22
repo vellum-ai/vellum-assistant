@@ -211,15 +211,19 @@ Connect Gmail and Slack via the Settings UI or `integration_connect` IPC message
 
 ### Twitter (X)
 
-Twitter integration has two components: an OAuth2 identity flow and a CDP-based posting path.
+Twitter integration supports two operation paths: **OAuth** (X API v2) and **Browser** (CDP). A strategy router selects which path is used for each operation.
 
-- **OAuth2 PKCE flow** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The daemon runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. This flow is used for **identity verification only** (`GET /2/users/me`) — it confirms the user's Twitter account and stores credentials in the vault, but is not used for posting. Connect via the Settings UI or `twitter_auth_start` IPC message.
+- **OAuth path**: Uses stored OAuth2 tokens via `withValidToken('integration:twitter', ...)` to call the X API v2 directly. Supports `post` and `reply`. Most reliable when developer credentials are configured — no browser session needed for these operations.
 
-- **Browser session posting** (CDP): The `vellum x post` CLI command posts via Chrome DevTools Protocol, executing GraphQL mutations through an authenticated x.com browser tab. This is the **only posting mechanism**. Session cookies are captured via Ride Shotgun (`vellum x refresh`).
+- **Browser path** (CDP): Uses Chrome DevTools Protocol to execute operations through an authenticated x.com browser tab. Supports all operations including read-only ones (timeline, search, home, notifications, bookmarks, likes, followers, following, media). Quick to start — no developer credentials needed. Session cookies are captured via Ride Shotgun (`vellum x refresh`).
 
-**Available tool**: `twitter_post` — posts a tweet via CDP. OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`) are requested during the auth flow, but posting is handled exclusively through the browser session.
+- **Strategy selection**: `vellum x strategy set <oauth|browser|auto>` controls which path is used. Default is `auto`, which prefers OAuth when credentials are available and the operation is supported, then falls back to browser. The strategy is persisted in config as `twitterOperationStrategy`.
 
-**Setup**: Store your Twitter app's Client ID via the credential vault (`credential:integration:twitter:oauth_client_id`). Optionally store a Client Secret. Initiate the OAuth2 flow from the Settings UI to verify your identity. For posting, ensure Chrome is running with remote debugging enabled and an authenticated x.com tab.
+**OAuth2 PKCE setup** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The daemon runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. The flow verifies the user's identity (`GET /2/users/me`) and stores tokens in the vault for use by both identity verification and the OAuth operation path. Connect via the Settings UI or `twitter_auth_start` IPC message.
+
+**Available tools**: `twitter_post` — posts a tweet via the strategy router (OAuth or CDP depending on configuration). Read operations (timeline, search, etc.) use the browser path.
+
+**Setup**: For OAuth posting, store your Twitter app's Client ID via the credential vault (`credential:integration:twitter:oauth_client_id`), optionally store a Client Secret, and initiate the OAuth2 flow from the Settings UI. For browser operations, ensure Chrome is running with remote debugging enabled and an authenticated x.com tab.
 
 ## Dynamic Skill Authoring
 
@@ -302,13 +306,28 @@ All `browser_*` tools are declared as low-risk. The system seeds default trust r
 
 The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Permission behavior is configured via `permissions.mode`:
 
+| Mode | Default? | Behavior |
+|---|---|---|
+| `workspace` | Yes | Workspace-scoped operations (file reads/writes/edits within workspace, sandboxed bash) are auto-allowed without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow. |
+| `strict` | No | Every tool invocation without an explicit matching trust rule prompts the user. No implicit auto-allow for any risk level. |
+| `legacy` (deprecated) | No | Low-risk tools auto-allowed, medium/high prompted. **Deprecated — will be removed in a future release.** |
+
+To switch modes:
+
 ```bash
-# Default — ALL tools require an explicit trust rule, no implicit auto-allow
+# Workspace mode (default) — workspace-scoped ops auto-allowed, others follow risk-based policy
+vellum config set permissions.mode '"workspace"'
+
+# Strict — ALL tools require an explicit trust rule, no implicit auto-allow
 vellum config set permissions.mode '"strict"'
 
-# Legacy — low-risk tools auto-allowed, medium/high prompted
+# Legacy — low-risk tools auto-allowed, medium/high prompted (deprecated)
 vellum config set permissions.mode '"legacy"'
 ```
+
+> **Note:** Legacy mode is deprecated. If your config uses `permissions.mode: "legacy"`, switch to `workspace` or `strict`. A runtime warning is emitted on first use.
+
+Existing users with `permissions.mode: "strict"` or `permissions.mode: "legacy"` explicitly in their config will continue to use those modes unchanged.
 
 ### Trust rules
 
@@ -318,6 +337,23 @@ User approval decisions are persisted as trust rules in `~/.vellum/protected/tru
 - **Principal binding**: Rules can target specific skills (`principalId`) and even specific versions (`principalVersion`) via content hashing.
 - **Execution target binding**: Rules can be scoped to `sandbox` or `host` execution contexts.
 - **High-risk override**: Rules with `allowHighRisk: true` auto-allow even high-risk tool invocations.
+
+### Shell command allowlist options
+
+When you approve a shell command (`host_bash` or `bash`), the permission prompt offers parser-derived allowlist options based on the command's structure. The shell parser extracts "action keys" — hierarchical identifiers that represent the command family — instead of using whitespace-split patterns.
+
+For example, `cd /repo && gh pr view 5525 --json title` generates these allowlist options:
+
+- `cd /repo && gh pr view 5525 --json title` — the full original command text (exactly what will be approved)
+- `gh pr view *` — any `gh pr view` command (trust rule pattern: `action:gh pr view`)
+- `gh pr *` — any `gh pr` command (trust rule pattern: `action:gh pr`)
+- `gh *` — any `gh` command (trust rule pattern: `action:gh`)
+
+Setup prefixes (`cd`, `export`, `pushd`, etc.) are stripped before deriving action keys for the broader pattern options, but the exact option always uses the full original command text.
+
+**Compound commands** (with `&&`, `||`, `|`) that contain multiple non-prefix actions only offer an exact-command option — no broad action-family patterns. This prevents a complex pipeline from being over-generalized into a permissive rule.
+
+**Scope ordering**: When persisting a rule, scope options are always ordered from narrowest to broadest: project > parent directories > everywhere. The macOS app shows an explicit scope picker (two-step flow: select pattern, then select scope) so users always see where the rule will apply.
 
 ### Version-bound skill approvals
 

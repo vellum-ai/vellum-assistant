@@ -4,7 +4,10 @@ import { Cron } from 'croner';
 import { getDb } from '../memory/db.js';
 import { scheduleJobs, scheduleRuns } from '../memory/schema.js';
 import { computeNextRunAt as computeNextRunAtEngine, isValidScheduleExpression } from './recurrence-engine.js';
+import { getLogger } from '../util/logger.js';
 import type { ScheduleSyntax } from './recurrence-types.js';
+
+const logger = getLogger('schedule-store');
 
 export interface ScheduleJob {
   id: string;
@@ -216,9 +219,15 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
         expression: row.cronExpression,
         timezone: row.timezone,
       });
-    } catch {
-      // Finite schedule with no future runs — still claim the current due
-      // run but disable the schedule so it doesn't fire again.
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes('no upcoming runs')) {
+        // Log but don't abort — one bad schedule shouldn't block everything
+        logger.warn({ err, scheduleId: row.id }, 'Failed to compute next run for schedule');
+        continue;
+      }
+      // Expired schedules fire their final pending due run then auto-disable,
+      // ensuring no due run is silently dropped.
       newNextRunAt = null;
       exhausted = true;
     }

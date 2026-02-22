@@ -14,6 +14,7 @@ struct AgentPanelContent: View {
     @State private var selectedTab: SkillsTab = .installed
     @State private var expandedSkillId: String?
     @State private var selectedSkillSlug: String?
+    @State private var selectedInstalledSkillId: String?
     @State private var skillToDelete: SkillInfo?
 
     private enum SkillsTab {
@@ -54,22 +55,22 @@ struct AgentPanelContent: View {
         }
         .onChange(of: skillsManager.skills.map(\.id)) {
             onSkillsChanged?()
+            if let selectedId = selectedInstalledSkillId,
+               !skillsManager.skills.contains(where: { $0.id == selectedId }) {
+                selectedInstalledSkillId = nil
+            }
         }
-        .alert("Delete Skill", isPresented: Binding(
-            get: { skillToDelete != nil },
-            set: { if !$0 { skillToDelete = nil } }
-        )) {
-            Button("Cancel", role: .cancel) { skillToDelete = nil }
-            Button("Delete", role: .destructive) {
-                if let skill = skillToDelete {
+        .sheet(item: $skillToDelete) { skill in
+            SkillDeleteConfirmView(
+                skillName: skill.name,
+                onDelete: {
                     skillsManager.uninstallSkill(id: skill.id)
                     skillToDelete = nil
+                },
+                onCancel: {
+                    skillToDelete = nil
                 }
-            }
-        } message: {
-            if let skill = skillToDelete {
-                Text("Are you sure you want to delete \"\(skill.name)\"? This will remove it from ~/.vellum/workspace/skills/.")
-            }
+            )
         }
     }
 
@@ -701,7 +702,10 @@ struct AgentPanelContent: View {
 
     @ViewBuilder
     private var skillsContent: some View {
-        if skillsManager.isLoading {
+        if let selectedId = selectedInstalledSkillId,
+           let skill = userSkills.first(where: { $0.id == selectedId }) {
+            installedSkillDetailView(skill)
+        } else if skillsManager.isLoading {
             HStack {
                 Spacer()
                 ProgressView()
@@ -725,9 +729,7 @@ struct AgentPanelContent: View {
     }
 
     private func skillCard(_ skill: SkillInfo) -> some View {
-        let isExpanded = expandedSkillId == skill.id
-
-        return VStack(alignment: .leading, spacing: VSpacing.sm) {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(alignment: .top, spacing: VSpacing.md) {
                 HStack(spacing: VSpacing.md) {
                     skillIcon(skill.emoji)
@@ -754,29 +756,8 @@ struct AgentPanelContent: View {
 
                 Spacer(minLength: VSpacing.lg)
 
-                VStack(alignment: .trailing, spacing: VSpacing.sm) {
-                    VButton(label: "Use", icon: "bolt.fill", style: .primary) {
-                        onInvokeSkill?(skill)
-                    }
-
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: isExpanded ? "Hide" : "View", icon: isExpanded ? "chevron.up" : "chevron.down", style: .ghost) {
-                            withAnimation(VAnimation.standard) {
-                                if isExpanded {
-                                    expandedSkillId = nil
-                                } else {
-                                    expandedSkillId = skill.id
-                                    skillsManager.fetchSkillBody(skillId: skill.id)
-                                }
-                            }
-                        }
-
-                        if skill.source == "managed" {
-                            VButton(label: "Delete", icon: "trash", style: .danger) {
-                                skillToDelete = skill
-                            }
-                        }
-                    }
+                VButton(label: "Use", icon: "bolt.fill", style: .primary) {
+                    onInvokeSkill?(skill)
                 }
             }
 
@@ -799,31 +780,109 @@ struct AgentPanelContent: View {
                 Spacer(minLength: 0)
             }
             .padding(.leading, 24 + VSpacing.md)
-
-            if isExpanded {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text(skill.description)
-                            .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        skillBody(for: skill.id)
-                    }
-                    .padding(VSpacing.lg)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: 300)
-                .background(VColor.backgroundSubtle)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
-                )
-            }
         }
         .padding(VSpacing.lg)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(VAnimation.standard) {
+                selectedInstalledSkillId = skill.id
+                skillsManager.fetchSkillBody(skillId: skill.id)
+            }
+        }
         .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Installed Skill Detail View
+
+    @ViewBuilder
+    private func installedSkillDetailView(_ skill: SkillInfo) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            // Back button
+            Button(action: {
+                withAnimation(VAnimation.standard) {
+                    selectedInstalledSkillId = nil
+                }
+            }) {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Installed Skills")
+                        .font(VFont.caption)
+                }
+                .foregroundColor(VColor.textMuted)
+            }
+            .buttonStyle(.plain)
+
+            // Title row
+            HStack(spacing: VSpacing.sm) {
+                skillIcon(skill.emoji)
+
+                Text(skill.name)
+                    .font(VFont.cardTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                if skill.updateAvailable {
+                    Text("UPDATE")
+                        .font(VFont.small)
+                        .foregroundColor(Amber._500)
+                }
+            }
+
+            // Description
+            if !skill.description.isEmpty {
+                Text(skill.description)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Meta info
+            HStack(spacing: VSpacing.lg) {
+                skillMetaItem(icon: "checkmark.circle.fill", value: "Installed", color: VColor.success)
+                skillMetaItem(icon: "shippingbox", value: sourceLabel(skill.source))
+
+                if let installedVersion = skill.installedVersion, !installedVersion.isEmpty {
+                    skillMetaItem(icon: "tag", value: "v\(installedVersion)")
+                }
+
+                if skill.updateAvailable {
+                    if let latestVersion = skill.latestVersion, !latestVersion.isEmpty {
+                        skillMetaItem(icon: "arrow.up.circle", value: "v\(latestVersion) available", color: Amber._500)
+                    } else {
+                        skillMetaItem(icon: "arrow.up.circle", value: "Update available", color: Amber._500)
+                    }
+                }
+            }
+
+            // Skill body content
+            ScrollView {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    skillBody(for: skill.id)
+                }
+                .padding(VSpacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 300)
+            .background(VColor.surfaceSubtle)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
+
+            // Action buttons
+            HStack(spacing: VSpacing.md) {
+                VButton(label: "Use", icon: "bolt.fill", style: .primary, isFullWidth: true) {
+                    onInvokeSkill?(skill)
+                }
+
+                if skill.source == "managed" {
+                    VButton(label: "Delete", icon: "trash", style: .danger) {
+                        skillToDelete = skill
+                    }
+                }
+            }
+        }
     }
 
     private func sourceLabel(_ source: String) -> String {

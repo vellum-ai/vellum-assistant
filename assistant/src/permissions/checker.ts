@@ -5,10 +5,21 @@ import { resolveSkillSelector } from '../config/skills.js';
 import { computeSkillVersionHash } from '../skills/version-hash.js';
 import { getTool } from '../tools/registry.js';
 import { getConfig } from '../config/loader.js';
+import { getLogger } from '../util/logger.js';
 import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
 import { normalizeFilePath, isSkillSourcePath } from '../skills/path-classifier.js';
+import { isWorkspaceScopedInvocation } from './workspace-policy.js';
+import { buildShellCommandCandidates, buildShellAllowlistOptions, type ParsedCommand } from './shell-identity.js';
+
+// Ensures the legacy mode deprecation warning fires at most once per process.
+let _legacyDeprecationWarned = false;
+
+/** @internal — exposed only for tests to reset the one-time warning flag. */
+export function _resetLegacyDeprecationWarning(): void {
+  _legacyDeprecationWarned = false;
+}
 
 // Low-risk shell programs that are read-only / informational
 const LOW_RISK_PROGRAMS = new Set([
@@ -143,9 +154,9 @@ function escapeMinimatchLiteral(value: string): string {
   return value.replace(/([\\*?[\]{}()!+@|])/g, '\\$1');
 }
 
-function buildCommandCandidates(toolName: string, input: Record<string, unknown>, workingDir: string): string[] {
+async function buildCommandCandidates(toolName: string, input: Record<string, unknown>, workingDir: string, preParsed?: ParsedCommand): Promise<string[]> {
   if (toolName === 'bash' || toolName === 'host_bash') {
-    return [getStringField(input, 'command')];
+    return buildShellCommandCandidates(getStringField(input, 'command'), preParsed);
   }
 
   if (toolName === 'skill_load') {
@@ -233,7 +244,7 @@ function buildCommandCandidates(toolName: string, input: Record<string, unknown>
   return [...new Set(candidates)];
 }
 
-export async function classifyRisk(toolName: string, input: Record<string, unknown>, workingDir?: string): Promise<RiskLevel> {
+export async function classifyRisk(toolName: string, input: Record<string, unknown>, workingDir?: string, preParsed?: ParsedCommand): Promise<RiskLevel> {
   if (toolName === 'file_read') return RiskLevel.Low;
   if (toolName === 'file_write' || toolName === 'file_edit') {
     const filePath = getStringField(input, 'path', 'file_path');
@@ -273,7 +284,7 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
     const command = (input.command as string) ?? '';
     if (!command.trim()) return RiskLevel.Low;
 
-    const parsed = await parse(command);
+    const parsed = preParsed ?? await parse(command);
 
     // Dangerous patterns → High
     if (parsed.dangerousPatterns.length > 0) return RiskLevel.High;
@@ -341,10 +352,19 @@ export async function check(
   workingDir: string,
   policyContext?: PolicyContext,
 ): Promise<PermissionCheckResult> {
-  const risk = await classifyRisk(toolName, input, workingDir);
+  // For shell tools, parse once and share the result to avoid duplicate tree-sitter work.
+  let shellParsed: ParsedCommand | undefined;
+  if (toolName === 'bash' || toolName === 'host_bash') {
+    const command = ((input.command as string) ?? '').trim();
+    if (command) {
+      shellParsed = await parse(command);
+    }
+  }
+
+  const risk = await classifyRisk(toolName, input, workingDir, shellParsed);
 
   // Build command string candidates for rule matching
-  const commandCandidates = buildCommandCandidates(toolName, input, workingDir);
+  const commandCandidates = await buildCommandCandidates(toolName, input, workingDir, shellParsed);
 
   // Find the highest-priority matching rule across all candidates
   const matchedRule = findHighestPriorityRule(toolName, commandCandidates, workingDir, policyContext);
@@ -399,8 +419,26 @@ export async function check(
   // agent new capabilities, so in strict mode users must approve each
   // skill load via an exact-version or wildcard trust rule.
   const permissionsMode = getConfig().permissions.mode;
+
+  if (permissionsMode === 'legacy' && !_legacyDeprecationWarned) {
+    _legacyDeprecationWarned = true;
+    getLogger('checker').warn('Permissions mode "legacy" is deprecated and will be removed in a future release. Switch to "workspace" (default) or "strict".');
+  }
+
   if (permissionsMode === 'strict' && !matchedRule) {
     return { decision: 'prompt', reason: `Strict mode: no matching rule, requires approval` };
+  }
+
+  // Workspace mode: auto-allow workspace-scoped operations that don't have
+  // an explicit rule. Non-workspace operations fall through to risk-based policy.
+  if (permissionsMode === 'workspace' && !matchedRule) {
+    // When sandbox is disabled, bash runs on the host — don't auto-allow
+    const sandboxEnabled = getConfig().sandbox.enabled;
+    if (toolName === 'bash' && !sandboxEnabled) {
+      // Fall through to risk-based policy below
+    } else if (isWorkspaceScopedInvocation(toolName, input, workingDir)) {
+      return { decision: 'allow', reason: 'Workspace mode: workspace-scoped operation auto-allowed' };
+    }
   }
 
   // Auto-allow low-risk bundled skill tools even without explicit trust rules.
@@ -448,38 +486,10 @@ function friendlyHostname(url: URL): string {
   return url.hostname.replace(/^www\./, '');
 }
 
-export function generateAllowlistOptions(toolName: string, input: Record<string, unknown>): AllowlistOption[] {
+export async function generateAllowlistOptions(toolName: string, input: Record<string, unknown>): Promise<AllowlistOption[]> {
   if (toolName === 'bash' || toolName === 'host_bash') {
     const command = ((input.command as string) ?? '').trim();
-    const parts = command.split(/\s+/);
-    const program = parts[0] ?? command;
-    const options: AllowlistOption[] = [];
-
-    // Exact match
-    options.push({ label: command, description: 'This exact command', pattern: command });
-
-    if (parts.length >= 2) {
-      // Subcommand wildcard: "npm install *"
-      const sub = parts.slice(0, -1).join(' ');
-      options.push({
-        label: `${sub} *`,
-        description: `Any "${sub}" command`,
-        pattern: `${sub} *`,
-      });
-    }
-
-    if (parts.length >= 1) {
-      // Program wildcard: "npm *"
-      options.push({ label: `${program} *`, description: `Any ${program} command`, pattern: `${program} *` });
-    }
-
-    // Deduplicate
-    const seen = new Set<string>();
-    return options.filter((o) => {
-      if (seen.has(o.pattern)) return false;
-      seen.add(o.pattern);
-      return true;
-    });
+    return buildShellAllowlistOptions(command);
   }
 
   if (
@@ -626,11 +636,5 @@ export function generateScopeOptions(workingDir: string, toolName?: string): Sco
   // Everywhere
   options.push({ label: 'everywhere', scope: 'everywhere' });
 
-  if (!toolName?.startsWith('host_')) {
-    return options;
-  }
-
-  const everywhere = options.find((option) => option.scope === 'everywhere');
-  const scoped = options.filter((option) => option.scope !== 'everywhere');
-  return everywhere ? [everywhere, ...scoped] : options;
+  return options;
 }

@@ -40,10 +40,10 @@ export type RuntimeInboundPayload = {
 
 export type RuntimeAttachmentMeta = {
   id: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  kind: string;
+  filename?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  kind?: string;
 };
 
 export type RuntimeAttachmentPayload = RuntimeAttachmentMeta & {

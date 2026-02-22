@@ -108,17 +108,9 @@ struct IdentityView: View {
             }
             .navigationTitle("Identity")
         }
-        .task {
-            if clientProvider.isConnected {
-                await viewModel.fetchAll(client: clientProvider.client)
-            }
-        }
-        .onChange(of: clientProvider.isConnected) { _, connected in
-            if connected {
-                Task {
-                    await viewModel.fetchAll(client: clientProvider.client)
-                }
-            }
+        .task(id: clientProvider.isConnected) {
+            guard clientProvider.isConnected else { return }
+            await viewModel.fetchAll(client: clientProvider.client)
         }
         .sheet(item: $viewingFile) { file in
             WorkspaceFileSheet(

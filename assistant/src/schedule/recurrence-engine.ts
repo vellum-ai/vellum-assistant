@@ -11,8 +11,24 @@ export interface ScheduleSpec {
 const SUPPORTED_RRULE_PREFIXES = ['DTSTART', 'RRULE:', 'RDATE', 'EXDATE', 'EXRULE'];
 
 function normalizeRruleExpression(expression: string): string {
-  // Handle escaped newlines from JSON transport
-  return expression.replace(/\\n/g, '\n').trim();
+  // Handle escaped newlines from JSON transport, then uppercase property name
+  // prefixes (before the first ';' or ':') on each line so rrulestr() receives
+  // the canonical uppercase form regardless of what the caller provided. We
+  // stop at the earliest delimiter to preserve case-sensitive parameter values
+  // such as timezone names in DTSTART;TZID=America/New_York:...
+  return expression
+    .replace(/\\n/g, '\n')
+    .trim()
+    .split(/\r?\n/)
+    .map(line => {
+      const colonIdx = line.indexOf(':');
+      const semiIdx = line.indexOf(';');
+      if (colonIdx === -1 && semiIdx === -1) return line;
+      // Uppercase only the property name (before the first ';' or ':')
+      const nameEnd = semiIdx !== -1 && (colonIdx === -1 || semiIdx < colonIdx) ? semiIdx : colonIdx;
+      return line.slice(0, nameEnd).toUpperCase() + line.slice(nameEnd);
+    })
+    .join('\n');
 }
 
 function parseRruleLines(expression: string): string[] {
@@ -129,6 +145,14 @@ export function computeNextRunAt(spec: ScheduleSpec, nowMs?: number): number {
       : rrulestr(normalized, { tzid });
     const next = parsed.after(new Date(now));
     if (!next) {
+      // When after() (exclusive) returns null the rule may still have a
+      // terminal occurrence that lands exactly on `now` — e.g. COUNT=1 or the
+      // final UNTIL instance.  Treat that as "due right now" so claimDueSchedules
+      // doesn't silently skip the last run.
+      const exactMatch = parsed.before(new Date(now), true);
+      if (exactMatch && exactMatch.getTime() === now) {
+        return now;
+      }
       throw new Error(`RRULE expression has no upcoming runs after ${new Date(now).toISOString()}`);
     }
     return next.getTime();

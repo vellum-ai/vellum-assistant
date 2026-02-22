@@ -1515,6 +1515,25 @@ describe('ToolExecutor forcePromptSideEffects enforcement', () => {
     expect(promptCalled).toBe(false);
   });
 
+  // ── Workspace mode + forcePromptSideEffects interaction ──────────
+
+  test('workspace mode allow → prompt promotion still works for side-effect tools in private threads', async () => {
+    // Simulate workspace mode returning 'allow' for a workspace-scoped file_write
+    checkResultOverride = { decision: 'allow', reason: 'Workspace mode: workspace-scoped operation auto-allowed' };
+
+    const executor = new ToolExecutor(makeTrackingPrompter());
+    const result = await executor.execute(
+      'file_write',
+      { path: '/tmp/project/test.txt', content: 'data' },
+      makeContext({ forcePromptSideEffects: true }),
+    );
+
+    expect(result.isError).toBe(false);
+    // file_write is a side-effect tool, so forcePromptSideEffects must promote
+    // the workspace mode allow → prompt, requiring explicit user approval
+    expect(promptCalled).toBe(true);
+  });
+
   // ── Action-aware mixed-action tools (PR fix5) ──────────
 
   test('account_manage create forces prompt in private thread', async () => {
@@ -2051,5 +2070,50 @@ describe('ToolExecutor persistent-allow lifecycle', () => {
     expect(pattern).toBe('file_write:*');
     expect(scope).toBe('everywhere');
     expect(decision).toBe('allow');
+  });
+});
+
+describe('integration regressions — prompt payload (PR 11)', () => {
+  beforeEach(() => {
+    fakeToolResult = { content: 'ok', isError: false };
+    checkResultOverride = undefined;
+    checkFnOverride = undefined;
+    getToolOverride = undefined;
+  });
+
+  test('shell command prompt payload includes allowlist and scope options', async () => {
+    checkResultOverride = { decision: 'prompt', reason: 'Medium risk: requires approval' };
+
+    let capturedAllowlist: any[] | undefined;
+    let capturedScopes: any[] | undefined;
+    const prompter = {
+      prompt: async (
+        _toolName: string, _input: Record<string, unknown>, _riskLevel: string,
+        allowlistOptions: any[], scopeOptions: any[],
+      ) => {
+        capturedAllowlist = allowlistOptions;
+        capturedScopes = scopeOptions;
+        return { decision: 'allow' as const };
+      },
+      resolveConfirmation: () => {},
+      updateSender: () => {},
+      dispose: () => {},
+    } as unknown as PermissionPrompter;
+
+    const executor = new ToolExecutor(prompter);
+    await executor.execute('bash', { command: 'npm install' }, makeContext());
+
+    // Verify that the prompter received allowlist options
+    expect(capturedAllowlist).toBeDefined();
+    expect(capturedAllowlist!.length).toBeGreaterThan(0);
+    // The mock returns [{label: 'exact', description: 'exact', pattern: 'exact'}]
+    expect(capturedAllowlist![0]).toHaveProperty('pattern');
+    expect(capturedAllowlist![0]).toHaveProperty('label');
+    expect(capturedAllowlist![0]).toHaveProperty('description');
+
+    // Verify scope options are also passed
+    expect(capturedScopes).toBeDefined();
+    expect(capturedScopes!.length).toBeGreaterThan(0);
+    expect(capturedScopes![0]).toHaveProperty('scope');
   });
 });

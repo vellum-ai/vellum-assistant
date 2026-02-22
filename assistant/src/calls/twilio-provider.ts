@@ -131,6 +131,97 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
     return data.status;
   }
 
+  // ── Caller ID eligibility ───────────────────────────────────────────
+
+  /**
+   * Check whether a phone number can be used as an outbound caller ID
+   * by the current Twilio account. A number is eligible if it appears as
+   * either an Incoming Phone Number (owned) or an Outgoing Caller ID
+   * (verified) on the account.
+   */
+  async checkCallerIdEligibility(
+    phoneNumber: string,
+  ): Promise<{ eligible: boolean; reason?: string }> {
+    const { accountSid, authToken } = this.getCredentials();
+    const encodedNumber = encodeURIComponent(phoneNumber);
+
+    let incomingOk = false;
+    let outgoingOk = false;
+
+    // Check incoming phone numbers (owned by this account)
+    const incomingRes = await fetch(
+      `${this.baseUrl(accountSid)}/IncomingPhoneNumbers.json?PhoneNumber=${encodedNumber}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: this.authHeader(accountSid, authToken),
+        },
+      },
+    );
+
+    if (incomingRes.ok) {
+      incomingOk = true;
+      const incomingData = (await incomingRes.json()) as {
+        incoming_phone_numbers: unknown[];
+      };
+      if (incomingData.incoming_phone_numbers.length > 0) {
+        log.info({ phoneNumber }, 'Number found in IncomingPhoneNumbers — eligible as caller ID');
+        return { eligible: true };
+      }
+    } else {
+      log.warn(
+        { status: incomingRes.status, phoneNumber },
+        'Failed to query IncomingPhoneNumbers — falling through to OutgoingCallerIds',
+      );
+    }
+
+    // Check outgoing caller IDs (verified with this account)
+    const outgoingRes = await fetch(
+      `${this.baseUrl(accountSid)}/OutgoingCallerIds.json?PhoneNumber=${encodedNumber}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: this.authHeader(accountSid, authToken),
+        },
+      },
+    );
+
+    if (outgoingRes.ok) {
+      outgoingOk = true;
+      const outgoingData = (await outgoingRes.json()) as {
+        outgoing_caller_ids: unknown[];
+      };
+      if (outgoingData.outgoing_caller_ids.length > 0) {
+        log.info({ phoneNumber }, 'Number found in OutgoingCallerIds — eligible as caller ID');
+        return { eligible: true };
+      }
+    } else {
+      log.warn(
+        { status: outgoingRes.status, phoneNumber },
+        'Failed to query OutgoingCallerIds',
+      );
+    }
+
+    // If any API call failed, the eligibility check is inconclusive —
+    // propagate as an error rather than returning a false negative.
+    if (!incomingOk || !outgoingOk) {
+      const failedEndpoints = [
+        ...(!incomingOk ? [`IncomingPhoneNumbers: ${incomingRes.status}`] : []),
+        ...(!outgoingOk ? [`OutgoingCallerIds: ${outgoingRes.status}`] : []),
+      ].join(', ');
+      throw new Error(
+        `Unable to verify caller ID eligibility for ${phoneNumber}: Twilio API error (${failedEndpoints}). The number may be eligible but could not be confirmed. Please check your Twilio credentials and try again.`,
+      );
+    }
+
+    log.info({ phoneNumber }, 'Number not found in either IncomingPhoneNumbers or OutgoingCallerIds');
+    return {
+      eligible: false,
+      reason:
+        'Number is not owned by or verified with your Twilio account. To use this number as caller ID, either: (1) add it as an Incoming Phone Number, or (2) verify it as an Outgoing Caller ID in the Twilio Console.',
+    };
+  }
+
   // ── Webhook signature verification ──────────────────────────────────
 
   /**

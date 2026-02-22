@@ -9,11 +9,12 @@
 
 import { startCall, getCallStatus, cancelCall, answerCall } from '../../calls/call-domain.js';
 import { getConfig } from '../../config/loader.js';
+import { VALID_CALLER_IDENTITY_MODES } from '../../config/schema.js';
 
 /**
  * POST /v1/calls/start
  *
- * Body: { phoneNumber: string; task: string; context?: string; conversationId: string }
+ * Body: { phoneNumber: string; task: string; context?: string; conversationId: string; callerIdentityMode?: 'assistant_number' | 'user_number' }
  */
 export async function handleStartCall(req: Request): Promise<Response> {
   if (!getConfig().calls.enabled) {
@@ -28,6 +29,7 @@ export async function handleStartCall(req: Request): Promise<Response> {
     task?: string;
     context?: string;
     conversationId?: string;
+    callerIdentityMode?: 'assistant_number' | 'user_number';
   };
   try {
     body = await req.json() as typeof body;
@@ -39,11 +41,20 @@ export async function handleStartCall(req: Request): Promise<Response> {
     return Response.json({ error: 'conversationId is required' }, { status: 400 });
   }
 
+  if (body.callerIdentityMode != null &&
+      !(VALID_CALLER_IDENTITY_MODES as readonly string[]).includes(body.callerIdentityMode as string)) {
+    return Response.json(
+      { error: `Invalid callerIdentityMode: "${body.callerIdentityMode}". Must be one of: ${VALID_CALLER_IDENTITY_MODES.join(', ')}` },
+      { status: 400 },
+    );
+  }
+
   const result = await startCall({
     phoneNumber: body.phoneNumber ?? '',
     task: body.task ?? '',
     context: body.context,
     conversationId: body.conversationId,
+    callerIdentityMode: body.callerIdentityMode,
   });
 
   if (!result.ok) {
@@ -56,6 +67,7 @@ export async function handleStartCall(req: Request): Promise<Response> {
     status: result.session.status,
     toNumber: result.session.toNumber,
     fromNumber: result.session.fromNumber,
+    callerIdentityMode: result.callerIdentityMode,
   }, { status: 201 });
 }
 

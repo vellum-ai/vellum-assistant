@@ -439,9 +439,15 @@ final class ComputerUseSession: ObservableObject {
                         return await buildObservation(executionResult: executionResult, executionError: executionError)
                     } else {
                         log.error("\(browserName) restart failed — continuing with limited AX tree")
+                        // frontApp was terminated, so activate whatever is currently frontmost
+                        if let currentFront = NSWorkspace.shared.frontmostApplication {
+                            currentFront.activate()
+                        }
                     }
                 } else {
                     log.info("User declined \(browserName) restart — continuing with limited AX tree")
+                    // Reactivate the original app so subsequent HID events target the correct window
+                    frontApp.activate()
                 }
             }
             didChromeAccessibilityCheck = true

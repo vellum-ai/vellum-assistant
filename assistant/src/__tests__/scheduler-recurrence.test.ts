@@ -156,7 +156,7 @@ describe('scheduler RRULE execution', () => {
     expect(runs.length).toBeGreaterThanOrEqual(1);
   });
 
-  test('ended RRULE (UNTIL in past) is not repeatedly claimed', async () => {
+  test('expired RRULE fires one final due run then is disabled', async () => {
     const endedExpr = buildEndedRrule();
 
     // Insert directly via raw SQL because createSchedule would throw when
@@ -167,7 +167,7 @@ describe('scheduler RRULE execution', () => {
     getRawDb().run(
       `INSERT INTO cron_jobs (id, name, enabled, cron_expression, schedule_syntax, timezone, message, next_run_at, last_run_at, last_status, retry_count, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, 'Ended RRULE', 1, endedExpr, 'rrule', null, 'Should not fire', now - 1000, null, null, 0, 'agent', now, now],
+      [id, 'Ended RRULE', 1, endedExpr, 'rrule', null, 'Final expired run', now - 1000, null, null, 0, 'agent', now, now],
     );
 
     const processedMessages: string[] = [];
@@ -175,16 +175,35 @@ describe('scheduler RRULE execution', () => {
       processedMessages.push(message);
     };
 
-    const scheduler = startScheduler(processMessage, () => {}, () => {});
+    // First tick: the expired schedule should fire its final due run
+    const scheduler1 = startScheduler(processMessage, () => {}, () => {});
     await new Promise(resolve => setTimeout(resolve, 500));
-    scheduler.stop();
+    scheduler1.stop();
 
-    // The ended RRULE should NOT have fired
-    expect(processedMessages).not.toContain('Should not fire');
+    // The message IS delivered once
+    expect(processedMessages).toContain('Final expired run');
 
-    // No runs should have been created
+    // One run record IS created with status 'ok'
     const runs = getScheduleRuns(id);
-    expect(runs.length).toBe(0);
+    expect(runs.length).toBe(1);
+    expect(runs[0].status).toBe('ok');
+
+    // After firing, the schedule is disabled with nextRunAt=0
+    const afterSchedule = getSchedule(id);
+    expect(afterSchedule).not.toBeNull();
+    expect(afterSchedule!.enabled).toBe(false);
+    expect(afterSchedule!.nextRunAt).toBe(0);
+
+    // Second tick: the disabled schedule must NOT fire again
+    processedMessages.length = 0;
+    const scheduler2 = startScheduler(processMessage, () => {}, () => {});
+    await new Promise(resolve => setTimeout(resolve, 500));
+    scheduler2.stop();
+
+    expect(processedMessages).not.toContain('Final expired run');
+    // No additional runs
+    const runsAfter = getScheduleRuns(id);
+    expect(runsAfter.length).toBe(1);
   });
 
   test('existing cron schedule behavior is unchanged', async () => {
@@ -299,6 +318,88 @@ describe('scheduler RRULE execution', () => {
     expect(runs[0].status).toBe('ok');
   });
 
+  test('EXRULE schedule skips excluded occurrence and advances to next valid date', async () => {
+    // RRULE: every minute from a known dtstart
+    // EXRULE: every 2nd minute from the same dtstart (excludes offsets 0, 2, 4, ...)
+    //
+    // DTSTART is set to 59 minutes ago (floored to minute) so the first
+    // occurrence after "now" without EXRULE would be at offset 60 (even).
+    // With EXRULE active, offset 60 is excluded and the scheduler must
+    // advance to offset 61 (odd). Using 59 minutes (not 60) is critical:
+    // at 60 minutes the first post-now occurrence is offset 61 (odd), which
+    // would pass the parity check even if EXRULE were completely ignored.
+    //
+    // We mock Date.now() so the scheduler's internal clock matches the test
+    // baseline exactly, making the test fully deterministic regardless of
+    // when it runs.
+    const realNow = new Date();
+    const frozenNow = new Date(realNow);
+    frozenNow.setUTCSeconds(30);
+    frozenNow.setUTCMilliseconds(0);
+
+    const originalDateNow = Date.now;
+    Date.now = () => frozenNow.getTime();
+
+    try {
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const pastDate = new Date(frozenNow.getTime() - 59 * 60_000);
+      pastDate.setUTCSeconds(0);
+      pastDate.setUTCMilliseconds(0);
+      const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}00Z`;
+
+      const expression = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1\nEXRULE:FREQ=MINUTELY;INTERVAL=2`;
+
+      // Compute what the next occurrence would be WITHOUT EXRULE — this should
+      // be at an even offset that EXRULE must exclude.
+      const withoutExrule = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1`;
+      const { computeNextRunAt } = await import('../schedule/recurrence-engine.js');
+      const nextWithoutExrule = computeNextRunAt(
+        { syntax: 'rrule', expression: withoutExrule },
+        frozenNow.getTime(),
+      );
+      const offsetWithout = Math.round((nextWithoutExrule - pastDate.getTime()) / 60_000);
+      // Sanity: the without-EXRULE occurrence must be even (would be excluded)
+      expect(offsetWithout % 2).toBe(0);
+
+      const schedule = createSchedule({
+        name: 'EXRULE scheduler test',
+        cronExpression: expression,
+        message: 'EXRULE scheduler fire',
+        syntax: 'rrule',
+        expression,
+      });
+
+      forceScheduleDue(schedule.id);
+
+      const processedMessages: string[] = [];
+      const processMessage = async (_conversationId: string, message: string) => {
+        processedMessages.push(message);
+      };
+
+      const scheduler = startScheduler(processMessage, () => {}, () => {});
+      await new Promise(resolve => setTimeout(resolve, 500));
+      scheduler.stop();
+
+      // The schedule should have fired
+      expect(processedMessages).toContain('EXRULE scheduler fire');
+
+      const after = getSchedule(schedule.id);
+      expect(after).not.toBeNull();
+      expect(after!.lastRunAt).not.toBeNull();
+      expect(after!.nextRunAt).toBeGreaterThan(frozenNow.getTime() - 5000);
+
+      // nextRunAt must NOT equal the without-EXRULE occurrence (which is excluded)
+      expect(after!.nextRunAt).not.toBe(nextWithoutExrule);
+
+      // nextRunAt must land on an odd-minute offset from dtstart
+      const dtstartMs = pastDate.getTime();
+      const minuteOffset = Math.round((after!.nextRunAt - dtstartMs) / 60_000);
+      expect(minuteOffset % 2).toBe(1);
+    } finally {
+      Date.now = originalDateNow;
+    }
+  });
+
   test('RRULE schedule advances nextRunAt after firing', async () => {
     const rruleExpr = buildEveryMinuteRrule();
     const schedule = createSchedule({
@@ -322,8 +423,8 @@ describe('scheduler RRULE execution', () => {
     expect(after).not.toBeNull();
     // nextRunAt must have moved forward from the forced-due value
     expect(after!.nextRunAt).toBeGreaterThan(forcedDueAt);
-    // It should be at or near the original computed value (within a few seconds tolerance)
-    expect(Math.abs(after!.nextRunAt - originalNextRunAt)).toBeLessThan(5000);
+    // After claiming, MINUTELY recurrence advances nextRunAt by ~60s, so allow up to 65s tolerance
+    expect(Math.abs(after!.nextRunAt - originalNextRunAt)).toBeLessThan(65000);
     expect(after!.lastRunAt).not.toBeNull();
   });
 });

@@ -117,6 +117,8 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       reaskCooldownTurns: 3,
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
+      askOnIrrelevantTurns: false,
+      conflictableKinds: ['preference', 'profile', 'constraint', 'instruction', 'style'],
     },
     profile: {
       enabled: true,
@@ -159,7 +161,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     blockIngress: true,
   },
   permissions: {
-    mode: 'strict',
+    mode: 'workspace',
   },
   auditLog: {
     retentionDays: 0,
@@ -244,6 +246,10 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       },
     },
     model: undefined,
+    callerIdentity: {
+      defaultMode: 'assistant_number' as const,
+      allowPerCallOverride: true,
+    },
   },
   ingress: {
     enabled: false,

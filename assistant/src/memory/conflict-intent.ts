@@ -22,12 +22,21 @@ export function computeConflictRelevance(
   );
 }
 
+const NOISE_TOKENS = new Set([
+  'http', 'https', 'github', 'gitlab', 'www', 'com', 'org',
+]);
+
+const URL_PATTERN = /https?:\/\/[^\s)>\]]+/gi;
+
 function tokenizeForConflictRelevance(input: string): Set<string> {
-  const tokens = input
+  const stripped = input.replace(URL_PATTERN, ' ');
+  const tokens = stripped
     .toLowerCase()
     .split(/[^a-z0-9]+/g)
     .map((token) => token.trim())
-    .filter((token) => token.length >= 4);
+    .filter((token) => token.length >= 4)
+    .filter((token) => !/^\d+$/.test(token))
+    .filter((token) => !NOISE_TOKENS.has(token));
   return new Set(tokens);
 }
 

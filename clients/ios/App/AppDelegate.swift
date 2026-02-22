@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import Combine
 import UIKit
 import UserNotifications
 import VellumAssistantShared
@@ -9,12 +10,22 @@ import VellumAssistantShared
 @MainActor
 final class ClientProvider: ObservableObject {
     @Published var client: any DaemonClientProtocol
-    /// Flipped to `true` after a successful `connect()` call; sections observe
-    /// this to trigger data reloads once the daemon is reachable.
+    /// Mirrors the daemon client's `isConnected` state so views can observe a
+    /// single source of truth. Automatically synced via Combine when the
+    /// underlying client is a `DaemonClient`.
     @Published var isConnected: Bool = false
 
     init(client: any DaemonClientProtocol) {
         self.client = client
+        if let daemon = client as? DaemonClient {
+            // Bridge DaemonClient's @Published isConnected to our own.
+            // Both types are @MainActor so the publisher already emits on the
+            // main actor — no receive(on:) needed. assign(to:) writes directly
+            // through the @Published property wrapper, firing objectWillChange
+            // synchronously so SwiftUI picks up the change immediately.
+            daemon.$isConnected
+                .assign(to: &$isConnected)
+        }
     }
 }
 

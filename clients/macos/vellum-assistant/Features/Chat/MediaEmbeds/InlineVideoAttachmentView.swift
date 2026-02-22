@@ -291,8 +291,21 @@ struct InlineVideoAttachmentView: View {
         isSaving = true
         if let sourceURL = cachedFileURL {
             Task.detached {
-                try? FileManager.default.removeItem(at: destURL)
-                try? FileManager.default.copyItem(at: sourceURL, to: destURL)
+                do {
+                    // Copy to a temp location first, then atomically replace the destination so the
+                    // original file is never removed before we have a working replacement in hand.
+                    let tempURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent(UUID().uuidString)
+                        .appendingPathExtension(destURL.pathExtension)
+                    try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+                    if FileManager.default.fileExists(atPath: destURL.path) {
+                        _ = try FileManager.default.replaceItemAt(destURL, withItemAt: tempURL)
+                    } else {
+                        try FileManager.default.moveItem(at: tempURL, to: destURL)
+                    }
+                } catch {
+                    print("Failed to save video: \(error)")
+                }
                 await MainActor.run { isSaving = false }
             }
         } else if attachment.isLazyLoad {

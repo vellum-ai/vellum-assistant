@@ -52,7 +52,7 @@ describe("reconcileTelegramWebhook", () => {
   test("calls setWebhook when URL does not match", async () => {
     const calls: { method: string; body: unknown }[] = [];
 
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
+    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push({ method: "getWebhookInfo", body: null });
@@ -63,8 +63,7 @@ describe("reconcileTelegramWebhook", () => {
         });
       }
       if (url.includes("/setWebhook")) {
-        const req = typeof input === "object" && "json" in input ? input : null;
-        const body = req ? await (req as Request).json() : null;
+        const body = init?.body ? JSON.parse(init.body as string) : null;
         calls.push({ method: "setWebhook", body });
         return makeTelegramResponse(true);
       }
@@ -111,7 +110,7 @@ describe("reconcileTelegramWebhook", () => {
   test("normalizes trailing slash on ingress base URL", async () => {
     const calls: { method: string; body: unknown }[] = [];
 
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
+    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push({ method: "getWebhookInfo", body: null });
@@ -122,8 +121,7 @@ describe("reconcileTelegramWebhook", () => {
         });
       }
       if (url.includes("/setWebhook")) {
-        const req = typeof input === "object" && "json" in input ? input : null;
-        const body = req ? await (req as Request).json() : null;
+        const body = init?.body ? JSON.parse(init.body as string) : null;
         calls.push({ method: "setWebhook", body });
         return makeTelegramResponse(true);
       }

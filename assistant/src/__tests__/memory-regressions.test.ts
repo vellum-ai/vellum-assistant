@@ -1216,6 +1216,105 @@ describe('Memory regressions', () => {
     }
   });
 
+  test('background conflict resolver dismisses transient/non-durable conflicts without LLM call', async () => {
+    const db = getDb();
+    const now = 1_700_001_500_000;
+    const originalConflictsEnabled = TEST_CONFIG.memory.conflicts.enabled;
+    TEST_CONFIG.memory.conflicts.enabled = true;
+
+    try {
+      db.insert(conversations).values({
+        id: 'conv-conflicts-transient',
+        title: null,
+        createdAt: now,
+        updatedAt: now,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalEstimatedCost: 0,
+        contextSummary: null,
+        contextCompactedMessageCount: 0,
+        contextCompactedAt: null,
+      }).run();
+
+      db.insert(messages).values({
+        id: 'msg-conflicts-transient',
+        conversationId: 'conv-conflicts-transient',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: 'Keep the new one instead.' }]),
+        createdAt: now + 1,
+      }).run();
+
+      // Create a transient conflict: PR tracking statements should be dismissed
+      db.insert(memoryItems).values([
+        {
+          id: 'item-conflict-existing-transient',
+          kind: 'preference',
+          subject: 'pr-tracking',
+          statement: 'Currently tracking PR #42 for review.',
+          status: 'active',
+          confidence: 0.8,
+          fingerprint: 'fp-conflict-existing-transient',
+          verificationState: 'assistant_inferred',
+          scopeId: 'scope-conflicts-transient',
+          firstSeenAt: now - 10_000,
+          lastSeenAt: now - 5_000,
+          validFrom: now - 10_000,
+          invalidAt: null,
+        },
+        {
+          id: 'item-conflict-candidate-transient',
+          kind: 'preference',
+          subject: 'pr-tracking',
+          statement: 'Currently tracking PR #99 for review.',
+          status: 'pending_clarification',
+          confidence: 0.8,
+          fingerprint: 'fp-conflict-candidate-transient',
+          verificationState: 'assistant_inferred',
+          scopeId: 'scope-conflicts-transient',
+          firstSeenAt: now - 9_000,
+          lastSeenAt: now - 4_000,
+          validFrom: now - 9_000,
+          invalidAt: null,
+        },
+      ]).run();
+
+      const conflict = createOrUpdatePendingConflict({
+        scopeId: 'scope-conflicts-transient',
+        existingItemId: 'item-conflict-existing-transient',
+        candidateItemId: 'item-conflict-candidate-transient',
+        relationship: 'ambiguous_contradiction',
+      });
+      db.update(memoryItemConflicts)
+        .set({ createdAt: now, updatedAt: now })
+        .where(eq(memoryItemConflicts.id, conflict.id))
+        .run();
+
+      enqueueResolvePendingConflictsForMessageJob('msg-conflicts-transient', 'scope-conflicts-transient');
+      const processed = await runMemoryJobsOnce();
+      expect(processed).toBe(1);
+
+      const updatedConflict = getConflictById(conflict.id);
+      expect(updatedConflict?.status).toBe('dismissed');
+      expect(updatedConflict?.resolutionNote).toContain('conflict policy');
+
+      // Memory items should remain untouched (no LLM resolution was attempted)
+      const existing = db
+        .select()
+        .from(memoryItems)
+        .where(eq(memoryItems.id, 'item-conflict-existing-transient'))
+        .get();
+      const candidate = db
+        .select()
+        .from(memoryItems)
+        .where(eq(memoryItems.id, 'item-conflict-candidate-transient'))
+        .get();
+      expect(existing?.status).toBe('active');
+      expect(candidate?.status).toBe('pending_clarification');
+    } finally {
+      TEST_CONFIG.memory.conflicts.enabled = originalConflictsEnabled;
+    }
+  });
+
   test('cleanup job enqueue is deduped and retention overrides upgrade payload', () => {
     const db = getDb();
 

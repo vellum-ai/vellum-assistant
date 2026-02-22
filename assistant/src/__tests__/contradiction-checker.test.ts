@@ -51,9 +51,18 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+let mockConflictableKinds: string[] = [
+  'preference', 'profile', 'constraint', 'instruction', 'style',
+];
+
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
     apiKeys: { anthropic: 'test-key' },
+    memory: {
+      conflicts: {
+        conflictableKinds: mockConflictableKinds,
+      },
+    },
   }),
 }));
 
@@ -67,6 +76,9 @@ beforeAll(() => {
 
 beforeEach(() => {
   classifyCallCount = 0;
+  mockConflictableKinds = [
+    'preference', 'profile', 'constraint', 'instruction', 'style',
+  ];
   const db = getDb();
   db.run('DELETE FROM memory_item_conflicts');
   db.run('DELETE FROM memory_item_sources');
@@ -88,12 +100,13 @@ function insertMemoryItem(params: {
   statement: string;
   scopeId?: string;
   status?: 'active' | 'pending_clarification';
+  kind?: string;
 }): void {
   const now = Date.now();
   const db = getDb();
   db.insert(memoryItems).values({
     id: params.id,
-    kind: 'preference',
+    kind: params.kind ?? 'preference',
     subject: 'framework preference',
     statement: params.statement,
     status: params.status ?? 'active',
@@ -212,5 +225,90 @@ describe('checkContradictions', () => {
     expect(classifyCallCount).toBe(0);
     expect(candidate?.status).toBe('active');
     expect(conflicts).toHaveLength(0);
+  });
+
+  test('project kind ambiguous contradiction does not generate pending conflict with default config', async () => {
+    nextRelationship = 'ambiguous_contradiction';
+    nextExplanation = 'Project items may conflict but are not durable.';
+
+    insertMemoryItem({
+      id: 'item-existing-project',
+      statement: 'The backend uses Node.js.',
+      kind: 'project',
+    });
+    insertMemoryItem({
+      id: 'item-candidate-project',
+      statement: 'The backend uses Deno.',
+      kind: 'project',
+    });
+
+    await checkContradictions('item-candidate-project');
+
+    expect(classifyCallCount).toBe(0);
+    const db = getDb();
+    const conflicts = db.select().from(memoryItemConflicts).all();
+    expect(conflicts).toHaveLength(0);
+  });
+
+  test('skips classification when item kind is not in conflictableKinds', async () => {
+    mockConflictableKinds = ['instruction', 'style'];
+    nextRelationship = 'ambiguous_contradiction';
+
+    insertMemoryItem({
+      id: 'item-existing-ineligible',
+      statement: 'User prefers React for frontend work.',
+    });
+    insertMemoryItem({
+      id: 'item-candidate-ineligible',
+      statement: 'User prefers Vue for frontend work.',
+    });
+
+    await checkContradictions('item-candidate-ineligible');
+
+    expect(classifyCallCount).toBe(0);
+    const db = getDb();
+    const conflicts = db.select().from(memoryItemConflicts).all();
+    expect(conflicts).toHaveLength(0);
+  });
+
+  test('skips classification when candidate statement contains PR-tracking content', async () => {
+    nextRelationship = 'ambiguous_contradiction';
+
+    insertMemoryItem({
+      id: 'item-existing-pr-tracking',
+      statement: 'Track PR #5526 for review.',
+    });
+    insertMemoryItem({
+      id: 'item-candidate-pr-tracking',
+      statement: 'Track PR #5525 for review.',
+    });
+
+    await checkContradictions('item-candidate-pr-tracking');
+
+    expect(classifyCallCount).toBe(0);
+    const db = getDb();
+    const conflicts = db.select().from(memoryItemConflicts).all();
+    expect(conflicts).toHaveLength(0);
+  });
+
+  test('durable preference contradiction still runs normal flow', async () => {
+    nextRelationship = 'ambiguous_contradiction';
+    nextExplanation = 'Both are valid preferences that conflict.';
+
+    insertMemoryItem({
+      id: 'item-existing-durable',
+      statement: 'User prefers React for frontend work.',
+    });
+    insertMemoryItem({
+      id: 'item-candidate-durable',
+      statement: 'User prefers Vue for frontend work.',
+    });
+
+    await checkContradictions('item-candidate-durable');
+
+    expect(classifyCallCount).toBe(1);
+    const db = getDb();
+    const conflicts = db.select().from(memoryItemConflicts).all();
+    expect(conflicts).toHaveLength(1);
   });
 });

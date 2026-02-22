@@ -9,6 +9,7 @@ import {
   applyConflictResolution,
   listPendingConflictDetails,
   markConflictAsked,
+  resolveConflict,
 } from '../memory/conflict-store.js';
 import type { PendingConflictDetail } from '../memory/conflict-store.js';
 import { resolveConflictClarification } from '../memory/clarification-resolver.js';
@@ -17,6 +18,7 @@ import {
   looksLikeClarificationReply,
   shouldAttemptConflictResolution,
 } from '../memory/conflict-intent.js';
+import { isConflictKindPairEligible, isStatementConflictEligible } from '../memory/conflict-policy.js';
 
 export interface ConflictGateDecision {
   question: string;
@@ -35,6 +37,8 @@ export class ConflictGate {
       relevanceThreshold: number;
       reaskCooldownTurns: number;
       resolverLlmTimeoutMs: number;
+      askOnIrrelevantTurns: boolean;
+      conflictableKinds: readonly string[];
     },
     scopeId = 'default',
   ): Promise<ConflictGateDecision | null> {
@@ -44,8 +48,22 @@ export class ConflictGate {
     const threshold = conflictConfig.relevanceThreshold;
     const cooldownTurns = Math.max(1, conflictConfig.reaskCooldownTurns);
     const pendingBeforeResolve = listPendingConflictDetails(scopeId, 50);
+
+    // Dismiss non-actionable conflicts (kind or statement policy)
+    const dismissedIds = new Set<string>();
+    for (const conflict of pendingBeforeResolve) {
+      if (!this.isConflictActionable(conflict, conflictConfig.conflictableKinds)) {
+        resolveConflict(conflict.id, {
+          status: 'dismissed',
+          resolutionNote: 'Dismissed by conflict policy (transient/non-durable).',
+        });
+        dismissedIds.add(conflict.id);
+      }
+    }
+
+    const actionablePending = pendingBeforeResolve.filter((c) => !dismissedIds.has(c.id));
     const clarificationReply = looksLikeClarificationReply(userMessage);
-    const candidatesBeforeResolve = pendingBeforeResolve.filter((conflict) => {
+    const candidatesBeforeResolve = actionablePending.filter((conflict) => {
       const relevance = computeConflictRelevance(userMessage, conflict);
       return shouldAttemptConflictResolution({
         clarificationReply,
@@ -66,16 +84,29 @@ export class ConflictGate {
       conflict,
       relevance: computeConflictRelevance(userMessage, conflict),
     }));
+    // Try relevant conflicts first
     const askable = scored
       .filter((entry) => entry.relevance >= threshold)
       .find((entry) => this.shouldAsk(entry.conflict.id, cooldownTurns));
-    if (!askable) return null;
 
-    this.lastAskedTurn.set(askable.conflict.id, this.turnCounter);
-    markConflictAsked(askable.conflict.id);
+    // If no relevant conflict to ask and askOnIrrelevantTurns is enabled, try ones
+    // below the threshold (including zero-relevance). Zero-relevance conflicts are
+    // surfaced but not tracked as asked, preventing wasRecentlyAsked from triggering
+    // heuristic resolution on subsequent unrelated turns.
+    const candidateToAsk = askable
+      ?? (conflictConfig.askOnIrrelevantTurns
+        ? scored.find((entry) => entry.relevance < threshold && this.shouldAsk(entry.conflict.id, cooldownTurns))
+        : undefined);
+
+    if (!candidateToAsk) return null;
+
+    if (askable || candidateToAsk.relevance > 0) {
+      this.lastAskedTurn.set(candidateToAsk.conflict.id, this.turnCounter);
+      markConflictAsked(candidateToAsk.conflict.id);
+    }
     return {
-      question: askable.conflict.clarificationQuestion ?? buildFallbackConflictQuestion(askable.conflict),
-      relevant: true,
+      question: candidateToAsk.conflict.clarificationQuestion ?? buildFallbackConflictQuestion(candidateToAsk.conflict),
+      relevant: candidateToAsk.relevance >= threshold,
     };
   }
 
@@ -114,6 +145,22 @@ export class ConflictGate {
     const lastAsked = this.lastAskedTurn.get(conflictId);
     if (lastAsked === undefined) return false;
     return this.turnCounter - lastAsked <= cooldownTurns;
+  }
+
+  private isConflictActionable(
+    conflict: PendingConflictDetail,
+    conflictableKinds: readonly string[],
+  ): boolean {
+    if (!isConflictKindPairEligible(conflict.existingKind, conflict.candidateKind, { conflictableKinds })) {
+      return false;
+    }
+    if (!isStatementConflictEligible(conflict.existingKind, conflict.existingStatement, { conflictableKinds })) {
+      return false;
+    }
+    if (!isStatementConflictEligible(conflict.candidateKind, conflict.candidateStatement, { conflictableKinds })) {
+      return false;
+    }
+    return true;
   }
 }
 

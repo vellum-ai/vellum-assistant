@@ -435,27 +435,29 @@ describe('claimDueSchedules', () => {
   });
 
   test('claims exhausted RRULE schedule and disables it', () => {
-    // COUNT=1 means only one occurrence — the DTSTART itself
-    const rrule = 'DTSTART:20250101T000000Z\nRRULE:FREQ=DAILY;COUNT=1';
-    const job = createSchedule({
-      name: 'Finite RRULE',
-      cronExpression: rrule,
-      message: 'one-shot',
-      syntax: 'rrule',
-      expression: rrule,
-    });
-
-    // Force the schedule to be due (past the only occurrence)
-    getRawDb().run('UPDATE cron_jobs SET next_run_at = ? WHERE id = ?', [Date.now() - 1000, job.id]);
+    // COUNT=1 with a past DTSTART means the single occurrence has already
+    // passed, so computeNextRunAt returns null — triggering the exhaustion path.
+    // We insert directly via SQL because createSchedule validates that at least
+    // one future run exists, which would reject an already-exhausted schedule.
+    const yesterday = new Date(Date.now() - 86_400_000);
+    const dtstart = yesterday.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const rrule = `DTSTART:${dtstart}\nRRULE:FREQ=DAILY;COUNT=1`;
+    const id = 'exhausted-rrule-test';
+    const now = Date.now();
+    getRawDb().run(
+      `INSERT INTO cron_jobs (id, name, enabled, cron_expression, schedule_syntax, message, next_run_at, retry_count, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, 'Finite RRULE', 1, rrule, 'rrule', 'one-shot', now - 1000, 0, 'agent', now, now],
+    );
 
     const claimed = claimDueSchedules(Date.now());
     expect(claimed.length).toBe(1);
-    expect(claimed[0].id).toBe(job.id);
+    expect(claimed[0].id).toBe(id);
     expect(claimed[0].enabled).toBe(false);
     expect(claimed[0].nextRunAt).toBe(0);
 
     // Verify the schedule is disabled in the DB
-    const persisted = getSchedule(job.id);
+    const persisted = getSchedule(id);
     expect(persisted!.enabled).toBe(false);
 
     // A subsequent claim should not pick it up

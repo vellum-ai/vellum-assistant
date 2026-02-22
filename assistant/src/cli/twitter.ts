@@ -13,7 +13,6 @@ import {
   clearSession,
 } from '../twitter/session.js';
 import {
-  postTweet,
   getUserByScreenName,
   getUserTweets,
   getTweetDetail,
@@ -27,6 +26,7 @@ import {
   getUserMedia,
   SessionExpiredError,
 } from '../twitter/client.js';
+import { routedPostTweet } from '../twitter/router.js';
 import { getSocketPath, readSessionToken } from '../util/platform.js';
 import {
   serialize,
@@ -172,25 +172,93 @@ export function registerTwitterCommand(program: Command): void {
     });
 
   // =========================================================================
-  // status — check session status
+  // status — check session status + OAuth and strategy info
   // =========================================================================
   tw.command('status')
-    .description('Check if a Twitter session is active')
-    .action((_opts: unknown, cmd: Command) => {
+    .description('Check Twitter session, OAuth, and strategy status')
+    .action(async (_opts: unknown, cmd: Command) => {
       const session = loadSession();
-      if (session) {
-        output(
-          {
-            ok: true,
-            loggedIn: true,
+      const browserInfo: Record<string, unknown> = session
+        ? {
+            browserSessionActive: true,
             cookieCount: session.cookies.length,
             importedAt: session.importedAt,
             recordingId: session.recordingId,
-          },
-          getJson(cmd),
-        );
-      } else {
-        output({ ok: true, loggedIn: false }, getJson(cmd));
+          }
+        : { browserSessionActive: false };
+
+      // Query daemon for OAuth / strategy config
+      let oauthInfo: Record<string, unknown> = {};
+      try {
+        const daemonResponse = await sendDaemonMessage({
+          type: 'twitter_integration_config',
+          action: 'get',
+        } as import('../daemon/ipc-protocol.js').ClientMessage, 'twitter_integration_config_response');
+        const r = daemonResponse as Record<string, unknown>;
+        oauthInfo = {
+          oauthConnected: r.connected ?? false,
+          oauthAccount: r.accountInfo ?? undefined,
+          preferredStrategy: r.strategy ?? 'auto',
+        };
+      } catch {
+        // Daemon may not be running; report what we can from the local session
+        oauthInfo = {
+          oauthConnected: undefined,
+          oauthAccount: undefined,
+          preferredStrategy: undefined,
+        };
+      }
+
+      output(
+        {
+          ok: true,
+          loggedIn: !!session,
+          ...browserInfo,
+          ...oauthInfo,
+        },
+        getJson(cmd),
+      );
+    });
+
+  // =========================================================================
+  // strategy — get or set the Twitter operation strategy
+  // =========================================================================
+  const strategyCli = tw.command('strategy')
+    .description('Get or set the Twitter operation strategy (oauth, browser, auto)')
+    .action(async (_opts: unknown, cmd: Command) => {
+      const json = getJson(cmd);
+      try {
+        const daemonResponse = await sendDaemonMessage({
+          type: 'twitter_integration_config',
+          action: 'get_strategy',
+        } as import('../daemon/ipc-protocol.js').ClientMessage, 'twitter_integration_config_response');
+        const r = daemonResponse as Record<string, unknown>;
+        output({ ok: true, strategy: r.strategy ?? 'auto' }, json);
+      } catch (err) {
+        outputError(err instanceof Error ? err.message : String(err));
+      }
+    });
+
+  strategyCli.command('set')
+    .description('Set the Twitter operation strategy')
+    .argument('<value>', 'Strategy value: oauth, browser, or auto')
+    .action(async (value: string, _opts: unknown, cmd: Command) => {
+      const json = getJson(cmd);
+      try {
+        const daemonResponse = await sendDaemonMessage({
+          type: 'twitter_integration_config',
+          action: 'set_strategy',
+          strategy: value,
+        } as import('../daemon/ipc-protocol.js').ClientMessage, 'twitter_integration_config_response');
+        const r = daemonResponse as Record<string, unknown>;
+        if (r.success) {
+          output({ ok: true, strategy: r.strategy }, json);
+        } else {
+          output({ ok: false, error: r.error ?? 'Failed to set strategy' }, json);
+          process.exitCode = 1;
+        }
+      } catch (err) {
+        outputError(err instanceof Error ? err.message : String(err));
       }
     });
 
@@ -202,11 +270,12 @@ export function registerTwitterCommand(program: Command): void {
     .argument('<text>', 'Tweet text')
     .action(async (text: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
-        const result = await postTweet(text);
+        const { result, pathUsed } = await routedPostTweet(text);
         return {
           tweetId: result.tweetId,
           text: result.text,
           url: result.url,
+          pathUsed,
         };
       });
     });
@@ -226,12 +295,13 @@ export function registerTwitterCommand(program: Command): void {
           throw new Error(`Could not extract tweet ID from: ${tweetUrl}`);
         }
         const inReplyToTweetId = idMatch[1];
-        const result = await postTweet(text, { inReplyToTweetId });
+        const { result, pathUsed } = await routedPostTweet(text, { inReplyToTweetId });
         return {
           tweetId: result.tweetId,
           text: result.text,
           url: result.url,
           inReplyToTweetId,
+          pathUsed,
         };
       });
     });
@@ -380,6 +450,83 @@ export function registerTwitterCommand(program: Command): void {
         return { user, tweets };
       });
     });
+}
+
+// ---------------------------------------------------------------------------
+// Daemon IPC helper — send a message and wait for the first response
+// ---------------------------------------------------------------------------
+
+function sendDaemonMessage(
+  message: import('../daemon/ipc-protocol.js').ClientMessage,
+  expectedResponseType: string,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const socketPath = getSocketPath();
+    const sessionToken = readSessionToken();
+    const socket = net.createConnection(socketPath);
+    const parser = createMessageParser();
+
+    const timeoutHandle = setTimeout(() => {
+      socket.destroy();
+      reject(new Error('Daemon request timed out after 10s'));
+    }, 10_000);
+    timeoutHandle.unref();
+
+    let authenticated = !sessionToken;
+    let messageSent = false;
+
+    const sendPayload = () => {
+      if (messageSent) return;
+      messageSent = true;
+      socket.write(serialize(message));
+    };
+
+    socket.on('error', (err) => {
+      clearTimeout(timeoutHandle);
+      reject(new Error(`Cannot connect to daemon: ${err.message}. Is the daemon running?`));
+    });
+
+    socket.on('data', (chunk) => {
+      const messages = parser.feed(chunk.toString('utf-8'));
+      for (const msg of messages) {
+        const m = msg as unknown as Record<string, unknown>;
+
+        if (!authenticated && m.type === 'auth_result') {
+          if ((m as { success: boolean }).success) {
+            authenticated = true;
+            sendPayload();
+          } else {
+            clearTimeout(timeoutHandle);
+            socket.destroy();
+            reject(new Error('Daemon authentication failed'));
+          }
+          continue;
+        }
+
+        // Only resolve on the expected response type; skip everything else
+        if (m.type === expectedResponseType) {
+          clearTimeout(timeoutHandle);
+          socket.destroy();
+          resolve(m);
+          return;
+        }
+        // Skip all other message types (auth_result, daemon_status, pong, session_info, tasks_changed, etc.)
+      }
+    });
+
+    socket.on('connect', () => {
+      if (sessionToken) {
+        socket.write(
+          serialize({
+            type: 'auth',
+            token: sessionToken,
+          } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
+        );
+      } else {
+        sendPayload();
+      }
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------

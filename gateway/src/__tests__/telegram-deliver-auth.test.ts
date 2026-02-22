@@ -45,7 +45,7 @@ afterEach(() => {
 
 function mockTelegramApi() {
   globalThis.fetch = mock(async () => {
-    return new Response(JSON.stringify({ ok: true }), {
+    return new Response(JSON.stringify({ ok: true, result: {} }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });

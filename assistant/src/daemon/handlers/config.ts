@@ -546,6 +546,7 @@ export function handleTwitterIntegrationConfig(
     if (msg.action === 'get') {
       const raw = loadRawConfig();
       const mode = (raw.twitterIntegrationMode as 'local_byo' | 'managed' | undefined) ?? 'local_byo';
+      const strategy = (raw.twitterOperationStrategy as 'oauth' | 'browser' | 'auto' | undefined) ?? 'auto';
       const localClientConfigured = !!getSecureKey('credential:integration:twitter:oauth_client_id');
       const connected = !!getSecureKey('credential:integration:twitter:access_token');
       const meta = getCredentialMetadata('integration:twitter', 'access_token');
@@ -557,6 +558,43 @@ export function handleTwitterIntegrationConfig(
         localClientConfigured,
         connected,
         accountInfo: meta?.accountInfo ?? undefined,
+        strategy,
+      });
+    } else if (msg.action === 'get_strategy') {
+      const raw = loadRawConfig();
+      const strategy = (raw.twitterOperationStrategy as 'oauth' | 'browser' | 'auto' | undefined) ?? 'auto';
+      ctx.send(socket, {
+        type: 'twitter_integration_config_response',
+        success: true,
+        managedAvailable: false,
+        localClientConfigured: !!getSecureKey('credential:integration:twitter:oauth_client_id'),
+        connected: !!getSecureKey('credential:integration:twitter:access_token'),
+        strategy,
+      });
+    } else if (msg.action === 'set_strategy') {
+      const valid = ['oauth', 'browser', 'auto'];
+      const value = msg.strategy;
+      if (!value || !valid.includes(value)) {
+        ctx.send(socket, {
+          type: 'twitter_integration_config_response',
+          success: false,
+          managedAvailable: false,
+          localClientConfigured: false,
+          connected: false,
+          error: `Invalid strategy value: ${String(value)}. Must be one of: ${valid.join(', ')}`,
+        });
+        return;
+      }
+      const raw = loadRawConfig();
+      raw.twitterOperationStrategy = value;
+      saveRawConfig(raw);
+      ctx.send(socket, {
+        type: 'twitter_integration_config_response',
+        success: true,
+        managedAvailable: false,
+        localClientConfigured: !!getSecureKey('credential:integration:twitter:oauth_client_id'),
+        connected: !!getSecureKey('credential:integration:twitter:access_token'),
+        strategy: value as 'oauth' | 'browser' | 'auto',
       });
     } else if (msg.action === 'set_mode') {
       const raw = loadRawConfig();

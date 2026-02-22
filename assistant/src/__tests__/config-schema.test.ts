@@ -139,12 +139,35 @@ describe('AssistantConfigSchema', () => {
       reaskCooldownTurns: 3,
       resolverLlmTimeoutMs: 12000,
       relevanceThreshold: 0.3,
+      askOnIrrelevantTurns: false,
+      conflictableKinds: ['preference', 'profile', 'constraint', 'instruction', 'style'],
     });
   });
 
   test('rejects invalid memory.conflicts.relevanceThreshold', () => {
     const result = AssistantConfigSchema.safeParse({
       memory: { conflicts: { relevanceThreshold: 2 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects invalid memory.conflicts.askOnIrrelevantTurns', () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { conflicts: { askOnIrrelevantTurns: 123 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects invalid memory.conflicts.conflictableKinds entry', () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { conflicts: { conflictableKinds: ['invalid_kind'] } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('rejects empty memory.conflicts.conflictableKinds', () => {
+    const result = AssistantConfigSchema.safeParse({
+      memory: { conflicts: { conflictableKinds: [] } },
     });
     expect(result.success).toBe(false);
   });
@@ -474,9 +497,9 @@ describe('AssistantConfigSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  test('defaults permissions.mode to strict', () => {
+  test('defaults permissions.mode to workspace', () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.permissions).toEqual({ mode: 'strict' });
+    expect(result.permissions).toEqual({ mode: 'workspace' });
   });
 
   test('accepts explicit permissions.mode strict', () => {
@@ -491,6 +514,13 @@ describe('AssistantConfigSchema', () => {
       permissions: { mode: 'legacy' },
     });
     expect(result.permissions.mode).toBe('legacy');
+  });
+
+  test('accepts explicit permissions.mode workspace', () => {
+    const result = AssistantConfigSchema.parse({
+      permissions: { mode: 'workspace' },
+    });
+    expect(result.permissions.mode).toBe('workspace');
   });
 
   test('rejects invalid permissions.mode', () => {
@@ -672,6 +702,10 @@ describe('AssistantConfigSchema', () => {
           apiBaseUrl: 'https://api.elevenlabs.io',
           registerCallTimeoutMs: 5000,
         },
+      },
+      callerIdentity: {
+        defaultMode: 'assistant_number',
+        allowPerCallOverride: true,
       },
     });
   });
@@ -862,6 +896,68 @@ describe('AssistantConfigSchema', () => {
   test('calls.model is undefined by default', () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.calls.model).toBeUndefined();
+  });
+
+  // ── Caller identity config ────────────────────────────────────────
+
+  test('applies calls.callerIdentity defaults', () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.calls.callerIdentity).toEqual({
+      defaultMode: 'assistant_number',
+      allowPerCallOverride: true,
+    });
+  });
+
+  test('accepts valid calls.callerIdentity overrides', () => {
+    const result = AssistantConfigSchema.parse({
+      calls: {
+        callerIdentity: {
+          defaultMode: 'user_number',
+          allowPerCallOverride: false,
+          userNumber: '+14155559999',
+        },
+      },
+    });
+    expect(result.calls.callerIdentity.defaultMode).toBe('user_number');
+    expect(result.calls.callerIdentity.allowPerCallOverride).toBe(false);
+    expect(result.calls.callerIdentity.userNumber).toBe('+14155559999');
+  });
+
+  test('accepts partial calls.callerIdentity with defaults for missing fields', () => {
+    const result = AssistantConfigSchema.parse({
+      calls: {
+        callerIdentity: { defaultMode: 'user_number' },
+      },
+    });
+    expect(result.calls.callerIdentity.defaultMode).toBe('user_number');
+    expect(result.calls.callerIdentity.allowPerCallOverride).toBe(true);
+    expect(result.calls.callerIdentity.userNumber).toBeUndefined();
+  });
+
+  test('rejects invalid calls.callerIdentity.defaultMode', () => {
+    const result = AssistantConfigSchema.safeParse({
+      calls: { callerIdentity: { defaultMode: 'custom_number' } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map(i => i.message);
+      expect(msgs.some(m => m.includes('calls.callerIdentity.defaultMode'))).toBe(true);
+    }
+  });
+
+  test('rejects non-boolean calls.callerIdentity.allowPerCallOverride', () => {
+    const result = AssistantConfigSchema.safeParse({
+      calls: { callerIdentity: { allowPerCallOverride: 'yes' } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test('default behavior unchanged when callerIdentity omitted', () => {
+    const result = AssistantConfigSchema.parse({
+      calls: { enabled: true },
+    });
+    expect(result.calls.callerIdentity.defaultMode).toBe('assistant_number');
+    expect(result.calls.callerIdentity.allowPerCallOverride).toBe(true);
   });
 });
 
@@ -1197,10 +1293,10 @@ describe('loadConfig with schema validation', () => {
     expect(config.auditLog.retentionDays).toBe(0);
   });
 
-  test('defaults permissions.mode to strict when not specified', () => {
+  test('defaults permissions.mode to workspace when not specified', () => {
     writeConfig({});
     const config = loadConfig();
-    expect(config.permissions).toEqual({ mode: 'strict' });
+    expect(config.permissions).toEqual({ mode: 'workspace' });
   });
 
   test('loads explicit permissions.mode strict', () => {
@@ -1212,7 +1308,7 @@ describe('loadConfig with schema validation', () => {
   test('falls back for invalid permissions.mode', () => {
     writeConfig({ permissions: { mode: 'yolo' } });
     const config = loadConfig();
-    expect(config.permissions.mode).toBe('strict');
+    expect(config.permissions.mode).toBe('workspace');
   });
 
   test('does not mutate default apiKeys when fallback config is overridden by env keys', () => {
@@ -1272,6 +1368,10 @@ describe('loadConfig with schema validation', () => {
     expect(config.calls.voice.transcriptionProvider).toBe('Deepgram');
     expect(config.calls.voice.elevenlabs.voiceId).toBe('');
     expect(config.calls.model).toBeUndefined();
+    expect(config.calls.callerIdentity).toEqual({
+      defaultMode: 'assistant_number',
+      allowPerCallOverride: true,
+    });
   });
 });
 

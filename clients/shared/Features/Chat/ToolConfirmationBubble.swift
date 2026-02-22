@@ -38,7 +38,7 @@ public struct ToolConfirmationBubble: View {
     }
 
     private var needsScopeChoice: Bool {
-        confirmation.scopeOptions.count > 1
+        !confirmation.scopeOptions.isEmpty
     }
 
     private var isDecided: Bool {
@@ -495,14 +495,10 @@ public struct ToolConfirmationBubble: View {
                         itemCount: confirmation.scopeOptions.count
                     )
                 } else {
+                    // No scope options available — fall back to one-time allow
                     showAlwaysAllowMenu = false
                     popoverKeyboardModel = nil
-                    let scope = confirmation.scopeOptions.first?.scope ?? ""
-                    if !scope.isEmpty {
-                        onAlwaysAllow(confirmation.requestId, option.pattern, scope, alwaysAllowDecision)
-                    } else {
-                        onAllow()
-                    }
+                    onAllow()
                 }
             }
         } else if showScopePickerMenu {
@@ -597,12 +593,8 @@ public struct ToolConfirmationBubble: View {
                 itemCount: confirmation.scopeOptions.count
             )
         } else {
-            let scope = confirmation.scopeOptions.first?.scope ?? ""
-            if !scope.isEmpty {
-                onAlwaysAllow(confirmation.requestId, pattern, scope, alwaysAllowDecision)
-            } else {
-                onAllow()
-            }
+            // No scope options — fall back to one-time allow
+            onAllow()
         }
     }
 
@@ -711,7 +703,8 @@ public struct ToolConfirmationBubble: View {
                     // Pattern selection step
                     ForEach(Array(confirmation.allowlistOptions.enumerated()), id: \.element.pattern) { index, option in
                         AlwaysAllowRow(
-                            label: option.description,
+                            title: option.label,
+                            subtitle: option.description,
                             isKeyboardSelected: popoverKeyboardModel?.mode == .patterns && popoverKeyboardModel?.selectedIndex == index
                         ) {
                             if option.pattern.isEmpty {
@@ -725,14 +718,10 @@ public struct ToolConfirmationBubble: View {
                                     itemCount: confirmation.scopeOptions.count
                                 )
                             } else {
+                                // No scope options available — fall back to one-time allow
                                 showAlwaysAllowMenu = false
                                 popoverKeyboardModel = nil
-                                let scope = confirmation.scopeOptions.first?.scope ?? ""
-                                if !scope.isEmpty {
-                                    onAlwaysAllow(confirmation.requestId, option.pattern, scope, alwaysAllowDecision)
-                                } else {
-                                    onAllow()
-                                }
+                                onAllow()
                             }
                         }
 
@@ -824,7 +813,8 @@ public struct ToolConfirmationBubble: View {
 // MARK: - Always Allow Row
 
 private struct AlwaysAllowRow: View {
-    let label: String
+    let title: String
+    let subtitle: String
     var isKeyboardSelected: Bool = false
     let action: () -> Void
 
@@ -832,21 +822,28 @@ private struct AlwaysAllowRow: View {
 
     var body: some View {
         Button(action: action) {
-            Text(label)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, VSpacing.sm)
-                .padding(.horizontal, VSpacing.sm)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .fill(isHovered || isKeyboardSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(isKeyboardSelected ? VColor.accent : .clear, lineWidth: 2)
-                )
-                .contentShape(Rectangle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(VFont.monoSmall)
+                    .foregroundColor(VColor.textPrimary)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, VSpacing.sm)
+            .padding(.horizontal, VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(isHovered || isKeyboardSelected ? VColor.surfaceBorder.opacity(0.5) : .clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .stroke(isKeyboardSelected ? VColor.accent : .clear, lineWidth: 2)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         #if os(macOS)
