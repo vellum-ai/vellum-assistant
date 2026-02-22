@@ -155,7 +155,21 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         normalized.sender.externalUserId,
       );
 
-      if (!isRejection(routing)) {
+      if (isRejection(routing)) {
+        log.warn(
+          { chatId: normalized.message.externalChatId, reason: routing.reason },
+          "Routing rejected /new command",
+        );
+        if (shouldSendRejectionNotice(normalized.message.externalChatId)) {
+          sendTelegramReply(
+            config,
+            normalized.message.externalChatId,
+            "\u26a0\ufe0f This message could not be routed to an assistant. Please check your gateway routing configuration.",
+          ).catch((err) => {
+            log.error({ err, chatId: normalized.message.externalChatId }, "Failed to send /new routing rejection notice");
+          });
+        }
+      } else {
         try {
           await resetConversation(
             config,
@@ -252,7 +266,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       const result = await handleInbound(config, normalized, {
         attachmentIds,
         transportMetadata: buildTelegramTransportMetadata(),
-        replyCallbackUrl: `http://127.0.0.1:${config.port}/deliver/telegram`,
+        replyCallbackUrl: `${config.gatewayInternalBaseUrl}/deliver/telegram`,
       });
 
       if (result.rejected) {
