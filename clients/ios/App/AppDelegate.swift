@@ -43,11 +43,12 @@ final class ClientProvider: ObservableObject {
         if let daemon = client as? DaemonClient {
             // Bridge DaemonClient's @Published isConnected to our own.
             // Both types are @MainActor so the publisher already emits on the
-            // main actor — no receive(on:) needed. Using assign(to:on:) returns
-            // an AnyCancellable we can store and cancel on rebuild, ensuring only
-            // one subscription is active at a time.
+            // main actor — no receive(on:) needed. Using sink with [weak self]
+            // to avoid a retain cycle (assign(to:on:) holds a strong ref).
             isConnectedSubscription = daemon.$isConnected
-                .assign(to: \.isConnected, on: self)
+                .sink { [weak self] value in
+                    self?.isConnected = value
+                }
         }
     }
 }
