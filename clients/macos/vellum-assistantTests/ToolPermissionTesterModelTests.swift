@@ -262,7 +262,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
             matchedRuleId: nil, promptPayload: nil
         )
 
-        model.alwaysAllow(pattern: "echo *", scope: "project", decision: "always_allow")
+        model.alwaysAllow(pattern: "echo *", scope: "project")
 
         // Should have sent AddTrustRuleMessage + ToolPermissionSimulateMessage (re-simulate)
         XCTAssertEqual(sentMessages.count, 2)
@@ -291,7 +291,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
             matchedRuleId: nil, promptPayload: nil
         )
 
-        model.alwaysAllow(pattern: "rm -rf *", scope: "global", decision: "always_allow")
+        model.alwaysAllow(pattern: "rm -rf *", scope: "global")
 
         let trustRuleMsg = sentMessages[0] as? AddTrustRuleMessage
         XCTAssertNotNil(trustRuleMsg)
@@ -307,7 +307,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
             matchedRuleId: nil, promptPayload: nil
         )
 
-        model.alwaysAllow(pattern: "echo *", scope: "project", decision: "always_allow")
+        model.alwaysAllow(pattern: "echo *", scope: "project")
 
         let trustRuleMsg = sentMessages[0] as? AddTrustRuleMessage
         XCTAssertNotNil(trustRuleMsg)
@@ -325,7 +325,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
             matchedRuleId: nil, promptPayload: nil
         )
 
-        model.alwaysAllow(pattern: "*", scope: "global", decision: "always_allow")
+        model.alwaysAllow(pattern: "*", scope: "global")
 
         let trustRuleMsg = sentMessages[0] as? AddTrustRuleMessage
         XCTAssertNotNil(trustRuleMsg)
