@@ -58,7 +58,10 @@ export function getHttpRetryDelay(
     const parsed = parseRetryAfterMs(retryAfter);
     if (parsed !== undefined) return parsed;
   }
-  return computeRetryDelay(attempt, baseDelayMs);
+  // Enforce a minimum floor of baseDelayMs when Retry-After is missing.
+  // computeRetryDelay uses equal jitter (cap/2 + random*cap/2) which can
+  // dip to ~500ms on attempt 0 — too aggressive for 429 rate limits.
+  return Math.max(baseDelayMs, computeRetryDelay(attempt, baseDelayMs));
 }
 
 /**
