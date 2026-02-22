@@ -573,6 +573,7 @@ export interface GuardianVerificationRequest {
   action: 'create_challenge' | 'status' | 'revoke';
   channel?: string;  // Defaults to 'telegram'
   sessionId?: string;
+  assistantId?: string;  // Defaults to 'self'
 }
 
 export interface GuardianVerificationResponse {

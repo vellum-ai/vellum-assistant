@@ -1003,3 +1003,186 @@ describe('guardian service rate limiting', () => {
     expect(result.success).toBe(true);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 8. Assistant-scoped guardian resolution
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('assistant-scoped guardian resolution', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('isGuardian resolves independently per assistantId', () => {
+    // Create guardian binding for asst-A on telegram
+    createBinding({
+      assistantId: 'asst-A',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-alpha',
+      guardianDeliveryChatId: 'chat-alpha',
+    });
+    // Create guardian binding for asst-B on telegram with a different user
+    createBinding({
+      assistantId: 'asst-B',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-beta',
+      guardianDeliveryChatId: 'chat-beta',
+    });
+
+    // user-alpha is guardian for asst-A but not asst-B
+    expect(isGuardian('asst-A', 'telegram', 'user-alpha')).toBe(true);
+    expect(isGuardian('asst-B', 'telegram', 'user-alpha')).toBe(false);
+
+    // user-beta is guardian for asst-B but not asst-A
+    expect(isGuardian('asst-B', 'telegram', 'user-beta')).toBe(true);
+    expect(isGuardian('asst-A', 'telegram', 'user-beta')).toBe(false);
+  });
+
+  test('getGuardianBinding returns different bindings for different assistants', () => {
+    createBinding({
+      assistantId: 'asst-A',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-alpha',
+      guardianDeliveryChatId: 'chat-alpha',
+    });
+    createBinding({
+      assistantId: 'asst-B',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-beta',
+      guardianDeliveryChatId: 'chat-beta',
+    });
+
+    const bindingA = getGuardianBinding('asst-A', 'telegram');
+    const bindingB = getGuardianBinding('asst-B', 'telegram');
+
+    expect(bindingA).not.toBeNull();
+    expect(bindingB).not.toBeNull();
+    expect(bindingA!.guardianExternalUserId).toBe('user-alpha');
+    expect(bindingB!.guardianExternalUserId).toBe('user-beta');
+  });
+
+  test('revoking binding for one assistant does not affect another', () => {
+    createBinding({
+      assistantId: 'asst-A',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-alpha',
+      guardianDeliveryChatId: 'chat-alpha',
+    });
+    createBinding({
+      assistantId: 'asst-B',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-beta',
+      guardianDeliveryChatId: 'chat-beta',
+    });
+
+    serviceRevokeBinding('asst-A', 'telegram');
+
+    expect(getGuardianBinding('asst-A', 'telegram')).toBeNull();
+    expect(getGuardianBinding('asst-B', 'telegram')).not.toBeNull();
+  });
+
+  test('validateAndConsumeChallenge scoped to assistantId', () => {
+    // Create challenge for asst-A
+    const { secret: secretA } = createVerificationChallenge('asst-A', 'telegram');
+    // Create challenge for asst-B
+    const { secret: secretB } = createVerificationChallenge('asst-B', 'telegram');
+
+    // Attempting to consume asst-A challenge with asst-B should fail
+    const crossResult = validateAndConsumeChallenge(
+      'asst-B', 'telegram', secretA, 'user-1', 'chat-1',
+    );
+    expect(crossResult.success).toBe(false);
+
+    // Consuming with correct assistantId should succeed
+    const resultA = validateAndConsumeChallenge(
+      'asst-A', 'telegram', secretA, 'user-1', 'chat-1',
+    );
+    expect(resultA.success).toBe(true);
+
+    const resultB = validateAndConsumeChallenge(
+      'asst-B', 'telegram', secretB, 'user-2', 'chat-2',
+    );
+    expect(resultB.success).toBe(true);
+
+    // Verify bindings are scoped correctly
+    const bindingA = getGuardianBinding('asst-A', 'telegram');
+    const bindingB = getGuardianBinding('asst-B', 'telegram');
+    expect(bindingA!.guardianExternalUserId).toBe('user-1');
+    expect(bindingB!.guardianExternalUserId).toBe('user-2');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 9. Assistant-scoped approval request lookups
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('assistant-scoped approval request lookups', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('createApprovalRequest stores assistantId and defaults to self', () => {
+    const reqWithoutId = createApprovalRequest({
+      runId: 'run-1',
+      conversationId: 'conv-1',
+      channel: 'telegram',
+      requesterExternalUserId: 'user-99',
+      requesterChatId: 'chat-99',
+      guardianExternalUserId: 'user-42',
+      guardianChatId: 'chat-42',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+    expect(reqWithoutId.assistantId).toBe('self');
+
+    const reqWithId = createApprovalRequest({
+      runId: 'run-2',
+      conversationId: 'conv-2',
+      assistantId: 'asst-A',
+      channel: 'telegram',
+      requesterExternalUserId: 'user-99',
+      requesterChatId: 'chat-99',
+      guardianExternalUserId: 'user-42',
+      guardianChatId: 'chat-42',
+      toolName: 'browser',
+      expiresAt: Date.now() + 300_000,
+    });
+    expect(reqWithId.assistantId).toBe('asst-A');
+  });
+
+  test('approval requests from different assistants are independent', () => {
+    createApprovalRequest({
+      runId: 'run-A',
+      conversationId: 'conv-A',
+      assistantId: 'asst-A',
+      channel: 'telegram',
+      requesterExternalUserId: 'user-99',
+      requesterChatId: 'chat-99',
+      guardianExternalUserId: 'user-42',
+      guardianChatId: 'chat-42',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+    createApprovalRequest({
+      runId: 'run-B',
+      conversationId: 'conv-B',
+      assistantId: 'asst-B',
+      channel: 'telegram',
+      requesterExternalUserId: 'user-88',
+      requesterChatId: 'chat-88',
+      guardianExternalUserId: 'user-42',
+      guardianChatId: 'chat-42',
+      toolName: 'browser',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    const foundA = getPendingApprovalForRun('run-A');
+    const foundB = getPendingApprovalForRun('run-B');
+    expect(foundA).not.toBeNull();
+    expect(foundB).not.toBeNull();
+    expect(foundA!.assistantId).toBe('asst-A');
+    expect(foundB!.assistantId).toBe('asst-B');
+    expect(foundA!.toolName).toBe('shell');
+    expect(foundB!.toolName).toBe('browser');
+  });
+});

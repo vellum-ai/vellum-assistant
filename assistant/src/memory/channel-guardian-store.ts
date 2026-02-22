@@ -58,6 +58,7 @@ export interface GuardianApprovalRequest {
   id: string;
   runId: string;
   conversationId: string;
+  assistantId: string;
   channel: string;
   requesterExternalUserId: string;
   requesterChatId: string;
@@ -114,6 +115,7 @@ function rowToApprovalRequest(row: typeof channelGuardianApprovalRequests.$infer
     id: row.id,
     runId: row.runId,
     conversationId: row.conversationId,
+    assistantId: row.assistantId,
     channel: row.channel,
     requesterExternalUserId: row.requesterExternalUserId,
     requesterChatId: row.requesterChatId,
@@ -305,6 +307,7 @@ export function consumeChallenge(
 export function createApprovalRequest(params: {
   runId: string;
   conversationId: string;
+  assistantId?: string;
   channel: string;
   requesterExternalUserId: string;
   requesterChatId: string;
@@ -323,6 +326,7 @@ export function createApprovalRequest(params: {
     id,
     runId: params.runId,
     conversationId: params.conversationId,
+    assistantId: params.assistantId ?? 'self',
     channel: params.channel,
     requesterExternalUserId: params.requesterExternalUserId,
     requesterChatId: params.requesterChatId,

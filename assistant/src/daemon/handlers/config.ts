@@ -1331,9 +1331,9 @@ export function handleGuardianVerification(
   ctx: HandlerContext,
 ): void {
   try {
-    // In single-assistant mode, 'self' is the canonical assistant ID used
-    // by channel routes when validating challenges on the inbound path.
-    const assistantId = 'self';
+    // Use the assistant ID from the request when available; fall back to
+    // 'self' for backward compatibility with single-assistant mode.
+    const assistantId = msg.assistantId ?? 'self';
     const channel = msg.channel ?? 'telegram';
 
     if (msg.action === 'create_challenge') {
