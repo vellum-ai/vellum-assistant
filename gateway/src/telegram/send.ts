@@ -8,6 +8,9 @@ const log = getLogger("telegram-send");
 
 const TELEGRAM_MAX_MESSAGE_LEN = 4000;
 
+/** Telegram Bot API enforces a 1-64 byte limit on InlineKeyboardButton callback_data. */
+export const TELEGRAM_MAX_CALLBACK_DATA_BYTES = 64;
+
 const IMAGE_MIME_PREFIXES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
 function splitText(text: string): string[] {
@@ -33,12 +36,20 @@ export function buildInlineKeyboard(
   approval: ApprovalPayload,
 ): { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } {
   return {
-    inline_keyboard: approval.actions.map((action) => [
-      {
-        text: action.label,
-        callback_data: `apr:${approval.runId}:${action.id}`,
-      },
-    ]),
+    inline_keyboard: approval.actions.map((action) => {
+      const callbackData = `apr:${approval.runId}:${action.id}`;
+      if (Buffer.byteLength(callbackData) > TELEGRAM_MAX_CALLBACK_DATA_BYTES) {
+        throw new Error(
+          `callback_data for action "${action.id}" is ${Buffer.byteLength(callbackData)} bytes, exceeding Telegram's ${TELEGRAM_MAX_CALLBACK_DATA_BYTES}-byte limit`,
+        );
+      }
+      return [
+        {
+          text: action.label,
+          callback_data: callbackData,
+        },
+      ];
+    }),
   };
 }
 

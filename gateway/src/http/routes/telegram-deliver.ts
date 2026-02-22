@@ -91,6 +91,12 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
 
     // Validate approval payload shape when present.
     if (approval !== undefined) {
+      if (!text) {
+        return Response.json(
+          { error: "text is required when approval is present" },
+          { status: 400 },
+        );
+      }
       if (approval === null || typeof approval !== "object" || Array.isArray(approval)) {
         return Response.json({ error: "approval must be an object" }, { status: 400 });
       }
@@ -112,6 +118,16 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
         }
         if (!action.label || typeof action.label !== "string") {
           return Response.json({ error: "each approval action must have a label" }, { status: 400 });
+        }
+        // Telegram enforces a 1-64 byte limit on callback_data. Validate
+        // the would-be value up front so callers get a clear 400 instead of
+        // a downstream Telegram API failure surfaced as a 502.
+        const callbackData = `apr:${approval.runId}:${action.id}`;
+        if (Buffer.byteLength(callbackData) > 64) {
+          return Response.json(
+            { error: `callback_data for action "${action.id}" exceeds Telegram's 64-byte limit` },
+            { status: 400 },
+          );
         }
       }
     }

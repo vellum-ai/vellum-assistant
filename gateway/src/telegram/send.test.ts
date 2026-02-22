@@ -95,6 +95,31 @@ describe("buildInlineKeyboard", () => {
     const result = buildInlineKeyboard(approval);
     expect(result.inline_keyboard[0][0].callback_data).toBe("apr:abc-def:my_action");
   });
+
+  it("throws when callback_data exceeds 64 bytes", () => {
+    const approval: ApprovalPayload = {
+      runId: "r".repeat(60),
+      requestId: "req",
+      actions: [{ id: "action", label: "Go" }],
+      plainTextFallback: "go",
+    };
+    expect(() => buildInlineKeyboard(approval)).toThrow("64-byte limit");
+  });
+
+  it("accepts callback_data exactly at 64 bytes", () => {
+    // "apr:" = 4 bytes, ":" = 1 byte, so runId + actionId = 59 bytes
+    const runId = "r".repeat(50);
+    const actionId = "a".repeat(9);
+    const approval: ApprovalPayload = {
+      runId,
+      requestId: "req",
+      actions: [{ id: actionId, label: "Go" }],
+      plainTextFallback: "go",
+    };
+    expect(Buffer.byteLength(`apr:${runId}:${actionId}`)).toBe(64);
+    const result = buildInlineKeyboard(approval);
+    expect(result.inline_keyboard[0][0].callback_data).toBe(`apr:${runId}:${actionId}`);
+  });
 });
 
 describe("sendTelegramReply", () => {

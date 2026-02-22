@@ -370,4 +370,64 @@ describe("telegram-deliver approval validation", () => {
     const args = sendTelegramReplyCalls[0];
     expect(args[3]).toBeUndefined();
   });
+
+  it("returns 400 when approval is present but text is missing", async () => {
+    const res = await handler(
+      makeRequest({
+        chatId: "123",
+        attachments: [{ id: "att-1" }],
+        approval: {
+          runId: "run-1",
+          requestId: "req-1",
+          actions: [{ id: "ok", label: "OK" }],
+          plainTextFallback: "ok",
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("text is required when approval is present");
+  });
+
+  it("returns 400 when callback_data would exceed 64 bytes", async () => {
+    // "apr:" (4 bytes) + runId + ":" (1 byte) + actionId must stay <= 64
+    // A 60-char runId + short action id will exceed the limit.
+    const longRunId = "r".repeat(60);
+    const res = await handler(
+      makeRequest({
+        chatId: "123",
+        text: "Approve?",
+        approval: {
+          runId: longRunId,
+          requestId: "req-1",
+          actions: [{ id: "ok", label: "OK" }],
+          plainTextFallback: "ok",
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("64-byte limit");
+  });
+
+  it("accepts callback_data exactly at 64 bytes", async () => {
+    // "apr:" = 4 bytes, ":" separator = 1 byte, so runId + actionId = 59 bytes
+    const runId = "r".repeat(50);
+    const actionId = "a".repeat(9);
+    const res = await handler(
+      makeRequest({
+        chatId: "123",
+        text: "Approve?",
+        approval: {
+          runId,
+          requestId: "req-1",
+          actions: [{ id: actionId, label: "OK" }],
+          plainTextFallback: "ok",
+        },
+      }),
+    );
+    // Verify the callback_data is exactly 64 bytes
+    expect(Buffer.byteLength(`apr:${runId}:${actionId}`)).toBe(64);
+    expect(res.status).toBe(200);
+  });
 });
