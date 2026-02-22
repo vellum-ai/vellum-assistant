@@ -8,7 +8,7 @@
  * requests track per-run guardian approval decisions.
  */
 
-import { and, desc, eq, gt } from 'drizzle-orm';
+import { and, desc, eq, gt, lte } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import {
@@ -410,6 +410,87 @@ export function getPendingApprovalByGuardianChat(
     .get();
 
   return row ? rowToApprovalRequest(row) : null;
+}
+
+/**
+ * Scoped lookup: find a pending guardian approval request by (runId, guardianChatId, channel).
+ * Used for callback decisions where the runId is known, to avoid ambiguity when
+ * multiple approvals are pending in the same guardian chat.
+ */
+export function getPendingApprovalByRunAndGuardianChat(
+  runId: string,
+  channel: string,
+  guardianChatId: string,
+): GuardianApprovalRequest | null {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(
+      and(
+        eq(channelGuardianApprovalRequests.runId, runId),
+        eq(channelGuardianApprovalRequests.channel, channel),
+        eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
+        eq(channelGuardianApprovalRequests.status, 'pending'),
+        gt(channelGuardianApprovalRequests.expiresAt, now),
+      ),
+    )
+    .get();
+
+  return row ? rowToApprovalRequest(row) : null;
+}
+
+/**
+ * Return all pending (non-expired) guardian approval requests for a given
+ * guardian chat. Used to detect ambiguity when a plain-text decision arrives
+ * and multiple approvals are pending.
+ */
+export function getAllPendingApprovalsByGuardianChat(
+  channel: string,
+  guardianChatId: string,
+): GuardianApprovalRequest[] {
+  const db = getDb();
+  const now = Date.now();
+
+  const rows = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(
+      and(
+        eq(channelGuardianApprovalRequests.channel, channel),
+        eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
+        eq(channelGuardianApprovalRequests.status, 'pending'),
+        gt(channelGuardianApprovalRequests.expiresAt, now),
+      ),
+    )
+    .orderBy(desc(channelGuardianApprovalRequests.createdAt))
+    .all();
+
+  return rows.map(rowToApprovalRequest);
+}
+
+/**
+ * Find all pending approval requests that have expired (expiresAt <= now).
+ * Used by the proactive expiry sweep to auto-deny timed-out approvals.
+ */
+export function getExpiredPendingApprovals(): GuardianApprovalRequest[] {
+  const db = getDb();
+  const now = Date.now();
+
+  const rows = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(
+      and(
+        eq(channelGuardianApprovalRequests.status, 'pending'),
+        lte(channelGuardianApprovalRequests.expiresAt, now),
+      ),
+    )
+    .all();
+
+  return rows.map(rowToApprovalRequest);
 }
 
 export function updateApprovalDecision(
