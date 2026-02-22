@@ -199,7 +199,8 @@ struct ChatView: View {
         let base: CGFloat = VSpacing.sm + VSpacing.md + topPad + bottomPad + contentHeight + buttonRow
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
         let error: CGFloat = (sessionError == nil && errorText != nil) ? 36 : 0
-        return base + attachments + error
+        let syncNote: CGFloat = syncedChannelLabel != nil ? 18 : 0
+        return base + attachments + error + syncNote
     }
 
     private func modelPickerView(for message: ChatMessage) -> some View {
