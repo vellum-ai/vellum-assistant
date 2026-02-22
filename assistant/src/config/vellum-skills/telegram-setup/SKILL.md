@@ -20,16 +20,15 @@ You are helping your user connect a Telegram bot to the Vellum Assistant gateway
 ### Step 1: Collect the Bot Token Securely
 
 Collect the bot token through the secure credential prompt:
-- Call `credential_store` with `action: "prompt"`, `service: "telegram"`, `field: "bot_token"`, and `prompt: "Enter your Telegram bot token from @BotFather"`.
+- Call `credential_store` with `action: "prompt"`, `service: "telegram"`, `field: "bot_token"`, `label: "Telegram Bot Token"`, `description: "Enter the bot token you received from @BotFather"`, and `placeholder: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"`.
 
-The token is stored securely and is never exposed in plaintext chat.
+The token is collected securely via a system-level prompt and is never exposed in plaintext chat.
 
 ### Step 2: Configure via Daemon
 
-After the token is stored, retrieve it and pass it to the daemon's `telegram_config` handler which validates, stores, and configures everything in one step:
+After the token is collected, send it to the daemon's `telegram_config` handler which validates, stores, and configures everything in one step:
 
-1. Call `credential_store` with `action: "retrieve"`, `service: "telegram"`, `field: "bot_token"` to get the stored token.
-2. Send the `telegram_config` IPC message with `action: "set"` and `botToken: <retrieved token>`.
+- Send the `telegram_config` IPC message with `action: "set"`. The daemon retrieves the token from the credential store internally — you do not need to retrieve it yourself.
 
 The daemon's `telegram_config set` handler automatically:
 - Validates the token by calling the Telegram `getMe` API
@@ -47,20 +46,7 @@ If the webhook secret changes (e.g., secret rotation), the gateway's credential 
 
 ### Step 4: Register Bot Commands
 
-Use `credential_store` with `action: "retrieve"`, `service: "telegram"`, `field: "bot_token"` to get the token, then use `evaluate_typescript_code` to register the `/new` command:
-
-```typescript
-export default async (input: { token: string }) => {
-  const res = await fetch(`https://api.telegram.org/bot${input.token}/setMyCommands`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      commands: [{ command: 'new', description: 'Start a new conversation' }],
-    }),
-  });
-  return res.json();
-};
-```
+Send the `telegram_config` IPC message with `action: "set_commands"` to register the `/new` command. The daemon handles token retrieval from secure storage internally — you do not need to retrieve it yourself.
 
 ### Step 5: Validate Routing Configuration
 
