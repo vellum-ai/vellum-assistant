@@ -523,22 +523,34 @@ export interface VerificationRateLimit {
   channel: string;
   actorExternalUserId: string;
   actorChatId: string;
+  /** Individual attempt timestamps (epoch-ms) within the sliding window. */
+  attemptTimestamps: number[];
+  /** Derived count of attempts currently inside the window (convenience). */
   invalidAttempts: number;
-  windowStartedAt: number;
   lockedUntil: number | null;
   createdAt: number;
   updatedAt: number;
 }
 
+function parseTimestamps(json: string): number[] {
+  try {
+    const arr = JSON.parse(json);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
 function rowToRateLimit(row: typeof channelGuardianRateLimits.$inferSelect): VerificationRateLimit {
+  const timestamps = parseTimestamps(row.attemptTimestampsJson);
   return {
     id: row.id,
     assistantId: row.assistantId,
     channel: row.channel,
     actorExternalUserId: row.actorExternalUserId,
     actorChatId: row.actorChatId,
-    invalidAttempts: row.invalidAttempts,
-    windowStartedAt: row.windowStartedAt,
+    attemptTimestamps: timestamps,
+    invalidAttempts: timestamps.length,
     lockedUntil: row.lockedUntil,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -572,9 +584,13 @@ export function getRateLimit(
 }
 
 /**
- * Record an invalid verification attempt. Creates the rate-limit row if
- * it does not yet exist, or increments the counter within the current
- * throttling window.
+ * Record an invalid verification attempt using a true sliding window.
+ *
+ * Each individual attempt timestamp is stored; on every new attempt we
+ * discard timestamps older than `windowMs`, append the current one, and
+ * check whether the count exceeds `maxAttempts`. This avoids the
+ * inactivity-timeout pitfall where attempts spaced just under the window
+ * accumulate indefinitely.
  */
 export function recordInvalidAttempt(
   assistantId: string,
@@ -587,22 +603,23 @@ export function recordInvalidAttempt(
 ): VerificationRateLimit {
   const db = getDb();
   const now = Date.now();
+  const cutoff = now - windowMs;
 
   const existing = getRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
 
   if (existing) {
-    // Rolling window: reset the counter only when enough time has elapsed
-    // since the last attempt (updatedAt), not since a fixed window start.
-    // This prevents timing attacks that split attempts around a fixed boundary.
-    const windowExpired = now - existing.updatedAt > windowMs;
-    const newAttempts = windowExpired ? 1 : existing.invalidAttempts + 1;
-    const newWindowStart = windowExpired ? now : existing.windowStartedAt;
-    const newLockedUntil = newAttempts >= maxAttempts ? now + lockoutMs : existing.lockedUntil;
+    // Keep only timestamps within the sliding window, then add the new one
+    const recentTimestamps = existing.attemptTimestamps.filter((ts) => ts > cutoff);
+    recentTimestamps.push(now);
+
+    const newLockedUntil =
+      recentTimestamps.length >= maxAttempts ? now + lockoutMs : existing.lockedUntil;
+
+    const timestampsJson = JSON.stringify(recentTimestamps);
 
     db.update(channelGuardianRateLimits)
       .set({
-        invalidAttempts: newAttempts,
-        windowStartedAt: newWindowStart,
+        attemptTimestampsJson: timestampsJson,
         lockedUntil: newLockedUntil,
         updatedAt: now,
       })
@@ -611,8 +628,8 @@ export function recordInvalidAttempt(
 
     return {
       ...existing,
-      invalidAttempts: newAttempts,
-      windowStartedAt: newWindowStart,
+      attemptTimestamps: recentTimestamps,
+      invalidAttempts: recentTimestamps.length,
       lockedUntil: newLockedUntil,
       updatedAt: now,
     };
@@ -620,6 +637,7 @@ export function recordInvalidAttempt(
 
   // First attempt — create the row
   const id = uuid();
+  const timestamps = [now];
   const lockedUntil = 1 >= maxAttempts ? now + lockoutMs : null;
   const row = {
     id,
@@ -627,8 +645,7 @@ export function recordInvalidAttempt(
     channel,
     actorExternalUserId,
     actorChatId,
-    invalidAttempts: 1,
-    windowStartedAt: now,
+    attemptTimestampsJson: JSON.stringify(timestamps),
     lockedUntil,
     createdAt: now,
     updatedAt: now,
@@ -654,9 +671,8 @@ export function resetRateLimit(
 
   db.update(channelGuardianRateLimits)
     .set({
-      invalidAttempts: 0,
+      attemptTimestampsJson: '[]',
       lockedUntil: null,
-      windowStartedAt: now,
       updatedAt: now,
     })
     .where(
