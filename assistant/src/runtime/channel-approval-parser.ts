@@ -12,7 +12,7 @@ import type { ApprovalAction, ApprovalDecisionResult } from './channel-approval-
 // Phrase → action mapping
 // ---------------------------------------------------------------------------
 
-const APPROVE_ONCE_PHRASES = ['yes', 'approve', 'allow', 'go ahead'];
+const APPROVE_ONCE_PHRASES = ['yes', 'approve', 'approve once', 'allow', 'go ahead'];
 const APPROVE_ALWAYS_PHRASES = ['always', 'approve always', 'allow always'];
 const REJECT_PHRASES = ['no', 'reject', 'deny', 'cancel'];
 
