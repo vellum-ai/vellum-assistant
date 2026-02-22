@@ -3555,7 +3555,7 @@ The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-clos
 
 ### Telegram Credential Flow
 
-Telegram bot tokens are never stored in plaintext config files — they always live in secure storage (macOS Keychain or the encrypted file fallback).
+In desktop deployments, Telegram bot tokens are stored in secure storage (macOS Keychain or the encrypted file fallback) and never in plaintext config files. When deploying the gateway standalone, operators may also supply credentials via environment variables (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`).
 
 ```
 Settings UI (macOS)
