@@ -90,7 +90,7 @@ struct TwilioSettingsSection: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will remove your Twilio Account SID, Auth Token, and phone number assignment. Voice calls and SMS will stop working until reconfigured.")
+            Text("This will remove your Twilio Account SID and Auth Token. Your phone number assignment will be preserved. Voice calls and SMS will stop working until credentials are reconfigured.")
         }
         .onAppear { loadStatus() }
         .onChange(of: clientProvider.isConnected) { _, connected in

@@ -49,16 +49,18 @@ If credentials are not yet stored, guide the user through Twilio account setup:
 - Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "account_sid"`, `label: "Twilio Account SID"`, `description: "Enter your Account SID from the Twilio Console dashboard"`, and `placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`.
 - Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard"`, and `placeholder: "your_auth_token"`.
 
-After both credentials are collected, store them via the daemon:
+After both credentials are collected, retrieve them from secure storage and pass them to the daemon:
 
 ```json
 {
   "type": "twilio_config",
-  "action": "set_credentials"
+  "action": "set_credentials",
+  "accountSid": "<value from credential_store for twilio/account_sid>",
+  "authToken": "<value from credential_store for twilio/auth_token>"
 }
 ```
 
-The daemon retrieves the credentials from secure storage internally — you do not need to pass them in the message. If credentials are invalid, the daemon returns an error. Tell the user and ask them to re-enter via the secure prompt.
+Both `accountSid` and `authToken` are required — the daemon validates the credentials against the Twilio API before storing them. If credentials are invalid, the daemon returns an error. Tell the user and ask them to re-enter via the secure prompt.
 
 ## Step 3: Get a Phone Number
 
@@ -185,7 +187,7 @@ If the user wants to disconnect Twilio, send:
 }
 ```
 
-This removes the stored Account SID, Auth Token, and phone number assignment. Both voice calls and SMS will stop working until credentials are reconfigured.
+This removes the stored Account SID and Auth Token. Your phone number assignment will be preserved. Voice calls and SMS will stop working until credentials are reconfigured.
 
 ## Troubleshooting
 
