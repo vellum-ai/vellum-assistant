@@ -452,12 +452,12 @@ public struct ToolConfirmationBubble: View {
             // Down arrow
             popoverKeyboardModel?.moveDown()
             return nil
-        case 36, 76:
-            // Return / numpad Enter — activate selected row
+        case 36, 76 where event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty:
+            // Plain Return / numpad Enter — activate selected row (modified Enter passes through)
             activatePopoverSelection()
             return nil
-        case 53:
-            // Escape — back or close
+        case 53 where event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty:
+            // Plain Escape — back or close (modified Escape passes through)
             handlePopoverEscape()
             return nil
         default:
