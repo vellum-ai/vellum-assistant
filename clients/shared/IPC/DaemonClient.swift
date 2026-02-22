@@ -61,17 +61,22 @@ func readSessionToken(environment: [String: String]? = nil) -> String? {
     return token
 }
 
+#endif
+
 /// Resolve the runtime HTTP bearer token path.
 /// Uses BASE_DATA_DIR when set to match daemon root resolution.
+/// Available on all platforms since HTTP transport is used on both macOS and iOS.
 func resolveHttpTokenPath(environment: [String: String]? = nil) -> String {
     let env = environment ?? ProcessInfo.processInfo.environment
     if let baseDir = env["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
-        return expandHomePath(baseDir) + "/.vellum/http-token"
+        let resolved = baseDir.hasPrefix("~/") ? NSHomeDirectory() + "/" + String(baseDir.dropFirst(2)) : baseDir
+        return resolved + "/.vellum/http-token"
     }
     return NSHomeDirectory() + "/.vellum/http-token"
 }
 
 /// Read the runtime HTTP bearer token from disk.
+/// Available on all platforms since HTTP transport is used on both macOS and iOS.
 func readHttpToken(environment: [String: String]? = nil) -> String? {
     let tokenPath = resolveHttpTokenPath(environment: environment)
     let data: Data
@@ -88,8 +93,6 @@ func readHttpToken(environment: [String: String]? = nil) -> String? {
     }
     return token
 }
-
-#endif
 
 /// Protocol for daemon client communication, enabling dependency injection and testing.
 @MainActor
