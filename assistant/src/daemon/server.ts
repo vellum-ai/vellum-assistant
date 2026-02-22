@@ -1150,7 +1150,7 @@ export class DaemonServer {
     // Now that the processing lock is held, check the call-answer bridge.
     let bridgeHandled = false;
     try {
-      const bridgeResult = await tryRouteCallMessage(conversationId, content, messageId);
+      const bridgeResult = await tryRouteCallMessage(conversationId, resolvedContent, messageId);
       bridgeHandled = bridgeResult.handled;
     } catch (err) {
       log.warn({ err, conversationId }, 'Call bridge check failed (non-fatal), proceeding with agent loop');

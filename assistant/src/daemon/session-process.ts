@@ -50,6 +50,8 @@ export interface ProcessSessionContext {
   readonly conversationId: string;
   messages: Message[];
   processing: boolean;
+  abortController: AbortController | null;
+  currentRequestId?: string;
   readonly queue: MessageQueue;
   readonly traceEmitter: TraceEmitter;
   currentActiveSurfaceId?: string;
@@ -203,6 +205,8 @@ async function routeOrProcess(
     if (bridgeResult.handled) {
       session.preactivatedSkillIds = undefined;
       session.processing = false;
+      session.abortController = null;
+      session.currentRequestId = undefined;
       log.info({ conversationId: session.conversationId, userMessageId }, 'Queued message consumed by call bridge, skipping agent loop');
       next.onEvent({ type: 'message_complete', sessionId: session.conversationId });
       // runAgentLoop never ran so its finally block won't drain — continue manually
@@ -296,8 +300,12 @@ export async function processMessage(
     if (bridgeResult.handled) {
       session.preactivatedSkillIds = undefined;
       session.processing = false;
+      session.abortController = null;
+      session.currentRequestId = undefined;
       log.info({ conversationId: session.conversationId, userMessageId }, 'IPC message consumed by call bridge, skipping agent loop');
       onEvent({ type: 'message_complete', sessionId: session.conversationId });
+      // runAgentLoop never ran so its finally block won't drain — continue manually
+      drainQueue(session);
       return userMessageId;
     }
   } catch (err) {
