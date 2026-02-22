@@ -193,7 +193,7 @@ struct ChatBubble: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .contextMenu {}
                 .overlay(alignment: .topTrailing) {
-                    if !isUser && !shouldShowBubble && hasOverflowActions {
+                    if !isUser && !shouldShowBubble && !hasInterleavedContent && hasOverflowActions {
                         overflowMenuButton
                             .opacity(showOverflowMenu ? 1 : 0)
                             .animation(VAnimation.fast, value: showOverflowMenu)
