@@ -36,6 +36,7 @@ const makeConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
   maxAttachmentConcurrency: 3,
   twilioAuthToken: undefined,
   ingressPublicBaseUrl: undefined,
+  gatewayInternalBaseUrl: "http://127.0.0.1:7830",
   ...overrides,
 });
 
