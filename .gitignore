@@ -61,6 +61,7 @@ yarn-error.log*
 DerivedData/
 **/Library/Logs/CoreSimulator/
 .build-ios/
+clients/ios/vellum-assistant-ios.xcodeproj/
 
 # drizzle
 web/drizzle/

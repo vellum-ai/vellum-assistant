@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/vellum-gateway",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "type": "module",
   "scripts": {
     "dev": "bun run --watch src/index.ts",

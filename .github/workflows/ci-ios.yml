@@ -20,6 +20,9 @@ jobs:
       - name: Select Xcode 16.2
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
       - name: Build for simulator
         working-directory: clients/ios
         run: ./build.sh

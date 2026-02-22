@@ -225,6 +225,35 @@ if [ -f "$SCRIPT_DIR/cli-bin/vellum-cli" ]; then
     fi
 fi
 
+# Auto-build gateway binary if missing or stale (source changed) and bun is available
+GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
+GATEWAY_BIN_NEEDS_BUILD=false
+if [ -d "$GATEWAY_SRC_DIR/src" ] && command -v bun &>/dev/null; then
+    if [ ! -f "$SCRIPT_DIR/gateway-bin/vellum-gateway" ]; then
+        GATEWAY_BIN_NEEDS_BUILD=true
+    elif [ -n "$(find "$GATEWAY_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/gateway-bin/vellum-gateway" -print -quit 2>/dev/null)" ]; then
+        GATEWAY_BIN_NEEDS_BUILD=true
+    elif [ "$GATEWAY_SRC_DIR/package.json" -nt "$SCRIPT_DIR/gateway-bin/vellum-gateway" ] || \
+         [ "$GATEWAY_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/gateway-bin/vellum-gateway" ]; then
+        GATEWAY_BIN_NEEDS_BUILD=true
+    fi
+fi
+if [ "$GATEWAY_BIN_NEEDS_BUILD" = true ]; then
+    echo "Building gateway binary from source..."
+    mkdir -p "$SCRIPT_DIR/gateway-bin"
+    (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
+    bun build --compile "$GATEWAY_SRC_DIR/src/index.ts" --outfile "$SCRIPT_DIR/gateway-bin/vellum-gateway"
+    chmod +x "$SCRIPT_DIR/gateway-bin/vellum-gateway"
+    echo "Gateway binary built: $SCRIPT_DIR/gateway-bin/vellum-gateway"
+fi
+
+# Also rebuild if gateway binary changed or newly added
+if [ -f "$SCRIPT_DIR/gateway-bin/vellum-gateway" ]; then
+    if [ ! -f "$MACOS_DIR/vellum-gateway" ] || [ "$SCRIPT_DIR/gateway-bin/vellum-gateway" -nt "$MACOS_DIR/vellum-gateway" ]; then
+        NEEDS_REBUILD=true
+    fi
+fi
+
 # Ensure .app bundle structure exists
 FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
@@ -258,6 +287,16 @@ if [ "$NEEDS_REBUILD" = true ]; then
         chmod +x "$MACOS_DIR/vellum-cli"
     else
         echo "No CLI binary at $CLI_BIN — skipping (dev mode)"
+    fi
+
+    # Copy bundled gateway binary (if available — built by CI or locally)
+    GATEWAY_BIN="$SCRIPT_DIR/gateway-bin/vellum-gateway"
+    if [ -f "$GATEWAY_BIN" ]; then
+        echo "Bundling gateway binary..."
+        cp "$GATEWAY_BIN" "$MACOS_DIR/vellum-gateway"
+        chmod +x "$MACOS_DIR/vellum-gateway"
+    else
+        echo "No gateway binary at $GATEWAY_BIN — skipping (dev mode)"
     fi
 
 else
@@ -451,6 +490,16 @@ if [ -f "$MACOS_DIR/vellum-cli" ]; then
     fi
     codesign "${CLI_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-cli"
     echo "CLI binary signed"
+fi
+
+# Sign gateway binary
+if [ -f "$MACOS_DIR/vellum-gateway" ]; then
+    GATEWAY_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+        GATEWAY_SIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+    codesign "${GATEWAY_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-gateway"
+    echo "Gateway binary signed"
 fi
 
 # Sign daemon binary with its own entitlements (JIT, network)

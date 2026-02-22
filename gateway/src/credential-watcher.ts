@@ -1,7 +1,7 @@
 /**
  * Watches the assistant's credential metadata file for changes and
- * triggers a callback when Telegram credentials are added, updated,
- * or removed.
+ * triggers a callback when Telegram or Twilio credentials are added,
+ * updated, or removed.
  *
  * Uses fs.watch() on the metadata file with debouncing to avoid
  * rapid re-reads from atomic rename writes.
@@ -13,22 +13,32 @@ import { getLogger } from "./logger.js";
 import {
   getMetadataPath,
   readTelegramCredentials,
+  readTwilioCredentials,
   type TelegramCredentials,
+  type TwilioCredentials,
 } from "./credential-reader.js";
 
 const log = getLogger("credential-watcher");
 
 const DEBOUNCE_MS = 500;
 
-export type CredentialChangeCallback = (
-  credentials: TelegramCredentials | null,
-) => void;
+export type CredentialChangeEvent = {
+  telegramCredentials: TelegramCredentials | null;
+  telegramChanged: boolean;
+  twilioCredentials: TwilioCredentials | null;
+  twilioChanged: boolean;
+};
+
+export type CredentialChangeCallback = (event: CredentialChangeEvent) => void;
 
 export class CredentialWatcher {
   private watcher: FSWatcher | null = null;
+  private watchingDirectory = false;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastBotToken: string | undefined;
   private lastWebhookSecret: string | undefined;
+  private lastTwilioAccountSid: string | undefined;
+  private lastTwilioAuthToken: string | undefined;
   private callback: CredentialChangeCallback;
   private metadataPath: string;
 
@@ -40,14 +50,15 @@ export class CredentialWatcher {
   start(): void {
     this.pollOnce();
 
-    const watchTarget = existsSync(this.metadataPath)
-      ? this.metadataPath
-      : dirname(this.metadataPath);
+    this.watchingDirectory = !existsSync(this.metadataPath);
+    const watchTarget = this.watchingDirectory
+      ? dirname(this.metadataPath)
+      : this.metadataPath;
 
     try {
       this.watcher = watch(watchTarget, { persistent: false }, (_event, filename) => {
         if (
-          watchTarget !== this.metadataPath &&
+          this.watchingDirectory &&
           filename !== "metadata.json"
         ) {
           return;
@@ -80,11 +91,7 @@ export class CredentialWatcher {
       this.debounceTimer = null;
       this.pollOnce();
 
-      if (
-        !this.watcher ||
-        (existsSync(this.metadataPath) &&
-          this.watcher.ref === undefined)
-      ) {
+      if (this.watchingDirectory && existsSync(this.metadataPath)) {
         this.upgradeWatcher();
       }
     }, DEBOUNCE_MS);
@@ -106,6 +113,7 @@ export class CredentialWatcher {
           this.scheduleCheck();
         },
       );
+      this.watchingDirectory = false;
       log.debug("Upgraded watcher to metadata file");
     } catch (err) {
       log.warn({ err }, "Failed to upgrade credential file watcher");
@@ -113,26 +121,49 @@ export class CredentialWatcher {
   }
 
   private pollOnce(): void {
-    const credentials = readTelegramCredentials();
+    const telegramCredentials = readTelegramCredentials();
+    const twilioCredentials = readTwilioCredentials();
 
-    const newBotToken = credentials?.botToken;
-    const newWebhookSecret = credentials?.webhookSecret;
+    const newBotToken = telegramCredentials?.botToken;
+    const newWebhookSecret = telegramCredentials?.webhookSecret;
+    const newTwilioAccountSid = twilioCredentials?.accountSid;
+    const newTwilioAuthToken = twilioCredentials?.authToken;
 
-    if (
-      newBotToken === this.lastBotToken &&
-      newWebhookSecret === this.lastWebhookSecret
-    ) {
+    const telegramChanged =
+      newBotToken !== this.lastBotToken ||
+      newWebhookSecret !== this.lastWebhookSecret;
+
+    const twilioChanged =
+      newTwilioAccountSid !== this.lastTwilioAccountSid ||
+      newTwilioAuthToken !== this.lastTwilioAuthToken;
+
+    if (!telegramChanged && !twilioChanged) {
       return;
     }
 
     this.lastBotToken = newBotToken;
     this.lastWebhookSecret = newWebhookSecret;
+    this.lastTwilioAccountSid = newTwilioAccountSid;
+    this.lastTwilioAuthToken = newTwilioAuthToken;
 
-    log.info(
-      { hasCredentials: !!credentials },
-      "Telegram credentials changed",
-    );
+    if (telegramChanged) {
+      log.info(
+        { hasCredentials: !!telegramCredentials },
+        "Telegram credentials changed",
+      );
+    }
+    if (twilioChanged) {
+      log.info(
+        { hasCredentials: !!twilioCredentials },
+        "Twilio credentials changed",
+      );
+    }
 
-    this.callback(credentials);
+    this.callback({
+      telegramCredentials,
+      telegramChanged,
+      twilioCredentials,
+      twilioChanged,
+    });
   }
 }

@@ -41,6 +41,9 @@ import {
   handleChannelDeliveryAck,
   handleListDeadLetters,
   handleReplayDeadLetters,
+  isChannelApprovalsEnabled,
+  startGuardianExpirySweep,
+  stopGuardianExpirySweep,
 } from './routes/channel-routes.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
@@ -92,6 +95,15 @@ const log = getLogger('runtime-http');
 
 const DEFAULT_PORT = 7821;
 const DEFAULT_HOSTNAME = '127.0.0.1';
+
+/** Resolve the gateway base URL for internal delivery callbacks. */
+function getGatewayBaseUrl(): string {
+  if (process.env.GATEWAY_INTERNAL_BASE_URL) {
+    return process.env.GATEWAY_INTERNAL_BASE_URL.replace(/\/+$/, '');
+  }
+  const port = Number(process.env.GATEWAY_PORT) || 7830;
+  return `http://127.0.0.1:${port}`;
+}
 
 /** Global hard cap on request body size (50 MB). Bun rejects larger payloads before they reach handlers. */
 const MAX_REQUEST_BODY_BYTES = 50 * 1024 * 1024;
@@ -399,6 +411,12 @@ export class RuntimeHttpServer {
       }, 30_000);
     }
 
+    // Start proactive guardian approval expiry sweep when approvals are enabled
+    if (isChannelApprovalsEnabled() && this.runOrchestrator) {
+      startGuardianExpirySweep(this.runOrchestrator, getGatewayBaseUrl(), this.bearerToken);
+      log.info('Guardian approval expiry sweep started');
+    }
+
     // Startup guard: log gateway-only mode warnings
     log.info('Running in gateway-only ingress mode. Direct webhook routes disabled.');
     if (!isLoopbackHost(this.hostname)) {
@@ -409,6 +427,7 @@ export class RuntimeHttpServer {
   }
 
   async stop(): Promise<void> {
+    stopGuardianExpirySweep();
     if (this.retrySweepTimer) {
       clearInterval(this.retrySweepTimer);
       this.retrySweepTimer = null;

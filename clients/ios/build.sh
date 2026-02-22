@@ -16,11 +16,13 @@ set -euo pipefail
 #   DISPLAY_VERSION   Override CFBundleShortVersionString (default: from Package.swift)
 #   BUILD_VERSION     Override CFBundleVersion (default: 1)
 #
+# Prerequisites:
+#   xcodegen (brew install xcodegen) — the xcodeproj is generated on-the-fly
+#
 # Migration notes:
 #   - Use `open clients/ios/vellum-assistant-ios.xcodeproj` (not Package.swift)
 #   - After switching: rm -rf ~/Library/Developer/Xcode/DerivedData/*vellum*
 #   - `swift build --product vellum-assistant-ios` no longer works — use xcodebuild
-#   - XcodeGen only needed when project structure changes: cd ios && xcodegen
 
 # ── DEVELOPER_DIR ──────────────────────────────────────────────────────
 if [ -z "${DEVELOPER_DIR:-}" ]; then
@@ -57,29 +59,41 @@ CMD="${1:-build}"
 
 # ── Commands ───────────────────────────────────────────────────────────
 case "$CMD" in
-    test)
-        echo "Running iOS tests..."
-        xcodebuild test \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
-            -configuration Debug \
-            CODE_SIGNING_ALLOWED=NO
-        exit $?
-        ;;
     clean)
         echo "Cleaning..."
         rm -rf "$DIST_DIR" "$CLIENTS_DIR/.build"
         echo "Done."
         exit 0
         ;;
-    build|release)
+    build|release|test)
         ;;
     *)
         echo "Usage: $0 [build|release|test|clean]"
         exit 1
         ;;
 esac
+
+# ── Generate xcodeproj ────────────────────────────────────────────────
+# Always regenerate from project.yml so the xcodeproj is never stale.
+if command -v xcodegen >/dev/null 2>&1; then
+    echo "Regenerating xcodeproj from project.yml..."
+    (cd "$SCRIPT_DIR" && xcodegen --quiet)
+else
+    echo "ERROR: xcodegen not found. Install with: brew install xcodegen"
+    exit 1
+fi
+
+# ── Run command ───────────────────────────────────────────────────────
+if [ "$CMD" = "test" ]; then
+    echo "Running iOS tests..."
+    xcodebuild test \
+        -project "$PROJECT" \
+        -scheme "$SCHEME" \
+        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        -configuration Debug \
+        CODE_SIGNING_ALLOWED=NO
+    exit $?
+fi
 
 mkdir -p "$DIST_DIR"
 

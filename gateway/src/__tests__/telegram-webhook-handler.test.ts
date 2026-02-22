@@ -85,7 +85,7 @@ function extractHeaders(input: string | URL | Request, init?: RequestInit): Reco
     headers.forEach((v, k) => { result[k] = v; });
   } else if (headers && typeof headers === "object" && !Array.isArray(headers)) {
     for (const [k, v] of Object.entries(headers)) {
-      result[k] = v;
+      result[k.toLowerCase()] = v;
     }
   }
   return result;

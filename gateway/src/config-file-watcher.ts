@@ -1,0 +1,175 @@
+/**
+ * Watches ~/.vellum/workspace/config.json for changes to ingress URL
+ * and SMS phone number. Uses the same fs.watch() + debounce pattern
+ * as CredentialWatcher.
+ */
+
+import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
+import { dirname, join } from "node:path";
+import { getLogger } from "./logger.js";
+import { getRootDir } from "./credential-reader.js";
+
+const log = getLogger("config-file-watcher");
+
+const DEBOUNCE_MS = 500;
+const CONFIG_FILENAME = "config.json";
+
+export type ConfigChangeEvent = {
+  ingressPublicBaseUrl: string | undefined;
+  ingressChanged: boolean;
+  smsPhoneNumber: string | undefined;
+  smsPhoneNumberChanged: boolean;
+};
+
+export type ConfigChangeCallback = (event: ConfigChangeEvent) => void;
+
+function getConfigPath(): string {
+  return join(getRootDir(), "workspace", CONFIG_FILENAME);
+}
+
+function readConfigFile(path: string): { ingressPublicBaseUrl?: string; smsPhoneNumber?: string } {
+  try {
+    if (!existsSync(path)) return {};
+
+    const raw = readFileSync(path, "utf-8");
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== "object") return {};
+
+    const ingressPublicBaseUrl =
+      data.ingress && typeof data.ingress.publicBaseUrl === "string"
+        ? data.ingress.publicBaseUrl || undefined
+        : undefined;
+
+    const smsPhoneNumber =
+      data.sms && typeof data.sms.phoneNumber === "string"
+        ? data.sms.phoneNumber || undefined
+        : undefined;
+
+    return { ingressPublicBaseUrl, smsPhoneNumber };
+  } catch (err) {
+    log.debug({ err }, "Failed to read config file");
+    return {};
+  }
+}
+
+export class ConfigFileWatcher {
+  private watcher: FSWatcher | null = null;
+  private watchingDirectory = false;
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastIngressPublicBaseUrl: string | undefined;
+  private lastSmsPhoneNumber: string | undefined;
+  private callback: ConfigChangeCallback;
+  private configPath: string;
+
+  constructor(callback: ConfigChangeCallback) {
+    this.callback = callback;
+    this.configPath = getConfigPath();
+  }
+
+  start(): void {
+    this.pollOnce();
+
+    this.watchingDirectory = !existsSync(this.configPath);
+    const watchTarget = this.watchingDirectory
+      ? dirname(this.configPath)
+      : this.configPath;
+
+    try {
+      this.watcher = watch(watchTarget, { persistent: false }, (_event, filename) => {
+        if (
+          this.watchingDirectory &&
+          filename !== CONFIG_FILENAME
+        ) {
+          return;
+        }
+        this.scheduleCheck();
+      });
+
+      log.info({ path: watchTarget }, "Watching for config file changes");
+    } catch (err) {
+      log.warn({ err, path: watchTarget }, "Failed to start config file watcher");
+    }
+  }
+
+  stop(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    if (this.watcher) {
+      this.watcher.close();
+      this.watcher = null;
+    }
+  }
+
+  private scheduleCheck(): void {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+    }
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = null;
+      this.pollOnce();
+
+      if (this.watchingDirectory && existsSync(this.configPath)) {
+        this.upgradeWatcher();
+      }
+    }, DEBOUNCE_MS);
+  }
+
+  private upgradeWatcher(): void {
+    if (this.watcher) {
+      this.watcher.close();
+      this.watcher = null;
+    }
+
+    if (!existsSync(this.configPath)) return;
+
+    try {
+      this.watcher = watch(
+        this.configPath,
+        { persistent: false },
+        () => {
+          this.scheduleCheck();
+        },
+      );
+      this.watchingDirectory = false;
+      log.debug("Upgraded watcher to config file");
+    } catch (err) {
+      log.warn({ err }, "Failed to upgrade config file watcher");
+    }
+  }
+
+  private pollOnce(): void {
+    const { ingressPublicBaseUrl, smsPhoneNumber } = readConfigFile(this.configPath);
+
+    const ingressChanged = ingressPublicBaseUrl !== this.lastIngressPublicBaseUrl;
+    const smsPhoneNumberChanged = smsPhoneNumber !== this.lastSmsPhoneNumber;
+
+    if (!ingressChanged && !smsPhoneNumberChanged) {
+      return;
+    }
+
+    this.lastIngressPublicBaseUrl = ingressPublicBaseUrl;
+    this.lastSmsPhoneNumber = smsPhoneNumber;
+
+    if (ingressChanged) {
+      log.info(
+        { ingressPublicBaseUrl },
+        "Ingress URL updated from config file",
+      );
+    }
+    if (smsPhoneNumberChanged) {
+      log.info(
+        { smsPhoneNumber },
+        "SMS phone number updated",
+      );
+    }
+
+    this.callback({
+      ingressPublicBaseUrl,
+      ingressChanged,
+      smsPhoneNumber,
+      smsPhoneNumberChanged,
+    });
+  }
+}

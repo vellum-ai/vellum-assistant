@@ -188,6 +188,11 @@ export type TelegramCredentials = {
   webhookSecret: string;
 };
 
+export type TwilioCredentials = {
+  accountSid: string;
+  authToken: string;
+};
+
 /**
  * Read a credential by trying keychain first (on macOS), then encrypted store.
  */
@@ -244,6 +249,52 @@ export function readTelegramCredentials(): TelegramCredentials | null {
     return { botToken, webhookSecret };
   } catch (err) {
     log.debug({ err }, "Failed to read Telegram credentials");
+    return null;
+  }
+}
+
+/**
+ * Check the credential metadata file for Twilio credentials and read
+ * them from secure storage (keychain on macOS, then encrypted store).
+ *
+ * Returns `null` if:
+ * - The metadata file doesn't exist or can't be parsed
+ * - Twilio account_sid or auth_token entries are missing from metadata
+ * - The actual secret values can't be read from any backend
+ */
+export function readTwilioCredentials(): TwilioCredentials | null {
+  try {
+    const metadataPath = getMetadataPath();
+    if (!existsSync(metadataPath)) return null;
+
+    const raw = readFileSync(metadataPath, "utf-8");
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.credentials)) return null;
+
+    const hasAccountSid = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "twilio" && c.field === "account_sid",
+    );
+    const hasAuthToken = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "twilio" && c.field === "auth_token",
+    );
+
+    if (!hasAccountSid || !hasAuthToken) return null;
+
+    const accountSid = readCredentialWithFallback("credential:twilio:account_sid");
+    const authToken = readCredentialWithFallback("credential:twilio:auth_token");
+
+    if (!accountSid || !authToken) {
+      log.warn(
+        "Twilio credential metadata exists but secrets could not be read from any backend",
+      );
+      return null;
+    }
+
+    return { accountSid, authToken };
+  } catch (err) {
+    log.debug({ err }, "Failed to read Twilio credentials");
     return null;
   }
 }

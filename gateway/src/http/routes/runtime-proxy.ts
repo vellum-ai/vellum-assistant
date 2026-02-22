@@ -1,6 +1,7 @@
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
 import { validateBearerToken } from "../auth/bearer.js";
+import { GATEWAY_ORIGIN_HEADER } from "../../runtime/client.js";
 
 const log = getLogger("runtime-proxy");
 
@@ -98,6 +99,9 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     // Add the runtime's bearer token so the upstream accepts the request
     if (config.runtimeBearerToken) {
       reqHeaders.set("authorization", `Bearer ${config.runtimeBearerToken}`);
+      // Attach gateway-origin proof so the runtime can distinguish
+      // gateway-forwarded requests from direct external calls.
+      reqHeaders.set(GATEWAY_ORIGIN_HEADER, config.runtimeBearerToken);
     }
 
     if (config.runtimeProxyBearerToken) {

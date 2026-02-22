@@ -6,6 +6,7 @@ import { dirname, join } from "path";
 
 import { loadAllAssistants, loadLatestAssistant } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
+import { stopProcessByPidFile } from "./process.js";
 
 const _require = createRequire(import.meta.url);
 
@@ -49,9 +50,16 @@ function resolveGatewayDir(): string {
     return override;
   }
 
+  // Source tree: cli/src/lib/ → ../../.. → repo root → gateway/
   const sourceDir = join(import.meta.dir, "..", "..", "..", "gateway");
   if (isGatewaySourceDir(sourceDir)) {
     return sourceDir;
+  }
+
+  // Compiled binary: gateway/ bundled adjacent to the CLI executable.
+  const binGateway = join(dirname(process.execPath), "gateway");
+  if (isGatewaySourceDir(binGateway)) {
+    return binGateway;
   }
 
   const cwdSourceDir = findGatewaySourceFromCwd();
@@ -338,4 +346,19 @@ export async function startGateway(): Promise<string> {
 
   console.log("✅ Gateway started\n");
   return publicUrl || `http://localhost:${GATEWAY_PORT}`;
+}
+
+/**
+ * Stop any locally-running daemon and gateway processes and clean up
+ * PID/socket files. Called when hatch fails partway through so we don't
+ * leave orphaned processes with no lock file entry.
+ */
+export async function stopLocalProcesses(): Promise<void> {
+  const vellumDir = join(homedir(), ".vellum");
+  const daemonPidFile = join(vellumDir, "vellum.pid");
+  const socketFile = join(vellumDir, "vellum.sock");
+  await stopProcessByPidFile(daemonPidFile, "daemon", [socketFile]);
+
+  const gatewayPidFile = join(vellumDir, "gateway.pid");
+  await stopProcessByPidFile(gatewayPidFile, "gateway");
 }
