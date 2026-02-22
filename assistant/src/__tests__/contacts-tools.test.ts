@@ -32,9 +32,9 @@ mock.module('../config/loader.js', () => ({
 import type { Database } from 'bun:sqlite';
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import type { ToolContext } from '../tools/types.js';
-import { executeContactUpsert } from '../tools/contacts/contact-upsert.js';
-import { executeContactSearch } from '../tools/contacts/contact-search.js';
-import { executeContactMerge } from '../tools/contacts/contact-merge.js';
+import { executeContactUpsert } from '../config/bundled-skills/contacts/tools/contact-upsert.js';
+import { executeContactSearch } from '../config/bundled-skills/contacts/tools/contact-search.js';
+import { executeContactMerge } from '../config/bundled-skills/contacts/tools/contact-merge.js';
 
 initializeDb();
 
