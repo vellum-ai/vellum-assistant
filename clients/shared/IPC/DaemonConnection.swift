@@ -302,7 +302,7 @@ extension DaemonClient {
     /// compares the server's leaf certificate SHA-256 against the stored value.
     /// If no fingerprint is stored, accepts any valid TLS connection (TOFU model).
     static func makePinnedTLSParameters(hostname: String, port: UInt16) -> NWParameters {
-        let fpKey = UserDefaultsKeys.daemonCertFingerprint(host: hostname, port: port)
+        let fpKey = "daemon_fingerprint:\(hostname):\(port)"
         let storedFingerprint = UserDefaults.standard.string(forKey: fpKey)
 
         let tlsOptions = NWProtocolTLS.Options()

@@ -4,9 +4,9 @@ import Foundation
 /// Detects the local IPv4 address for LAN communication.
 /// Prefers en0 (Wi-Fi) > en1 > first non-loopback IPv4, matching the
 /// Node.js `network-info.ts` helper's precedence.
-enum NetworkInterfaceResolver {
+public enum NetworkInterfaceResolver {
     /// Returns the best local IPv4 address, or nil if none found.
-    static func getLocalIPv4() -> String? {
+    public static func getLocalIPv4() -> String? {
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else {
             return nil

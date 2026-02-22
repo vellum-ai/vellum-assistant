@@ -3,13 +3,13 @@ import CoreImage
 import AppKit
 
 /// Generates QR code images from string data using CoreImage.
-enum QRCodeGenerator {
+public enum QRCodeGenerator {
     /// Generate a QR code NSImage from a string payload.
     /// - Parameters:
     ///   - string: The data to encode in the QR code.
     ///   - size: The desired output size in points (QR codes are square).
     /// - Returns: An NSImage of the QR code, or nil if generation fails.
-    static func generate(from string: String, size: CGFloat = 200) -> NSImage? {
+    public static func generate(from string: String, size: CGFloat = 200) -> NSImage? {
         guard let data = string.data(using: .utf8),
               let filter = CIFilter(name: "CIQRCodeGenerator") else {
             return nil
