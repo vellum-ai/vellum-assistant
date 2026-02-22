@@ -2,7 +2,7 @@
  * Route handlers for channel inbound messages, delivery acks, and
  * conversation deletion.
  */
-import { deleteConversationKey, setConversationKey } from '../../memory/conversation-key-store.js';
+import { deleteConversationKey, getConversationByKey, setConversationKey } from '../../memory/conversation-key-store.js';
 import { getDb } from '../../memory/db.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
@@ -79,7 +79,14 @@ export async function handleMoveSync(req: Request): Promise<Response> {
     if (existingTargetBinding &&
         (existingTargetBinding.sourceChannel !== sourceChannel || existingTargetBinding.externalChatId !== externalChatId)) {
       const oldTargetKey = `${existingTargetBinding.sourceChannel}:${existingTargetBinding.externalChatId}`;
-      deleteConversationKey(oldTargetKey);
+      // Only delete the old key if it currently maps to the conversation we
+      // are moving into.  Another conversation may have since claimed the key
+      // (e.g. via getOrCreateConversation on inbound traffic), and deleting it
+      // would break routing for that unrelated conversation.
+      const oldTargetMapping = getConversationByKey(oldTargetKey);
+      if (oldTargetMapping && oldTargetMapping.conversationId === newConversationId) {
+        deleteConversationKey(oldTargetKey);
+      }
     }
 
     setConversationKey(conversationKey, newConversationId);

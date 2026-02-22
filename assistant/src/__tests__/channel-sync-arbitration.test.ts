@@ -78,7 +78,7 @@ import { v4 as uuid } from 'uuid';
 import { getDb } from '../memory/db.js';
 import { conversations } from '../memory/schema.js';
 import * as externalConversationStore from '../memory/external-conversation-store.js';
-import { getOrCreateConversation, deleteConversationKey, getConversationByKey } from '../memory/conversation-key-store.js';
+import { getOrCreateConversation, deleteConversationKey, getConversationByKey, setConversationKey } from '../memory/conversation-key-store.js';
 import { telegramBotMessagingProvider } from '../messaging/providers/telegram-bot/adapter.js';
 import { handleMoveSync, handleDeleteConversation } from '../runtime/routes/channel-routes.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
@@ -407,6 +407,54 @@ describe('channel sync arbitration', () => {
       expect(staleKeyMapping).toBeNull();
 
       // chat-A's key should now point to conv-B
+      const chatAKeyMapping = getConversationByKey(`telegram:${uniqueChatIdA}`);
+      expect(chatAKeyMapping).not.toBeNull();
+      expect(chatAKeyMapping!.conversationId).toBe(convB);
+    });
+  });
+
+  describe('move-sync preserves conversation key claimed by another conversation', () => {
+    test('does not delete old target key if another conversation has claimed it', async () => {
+      const convA = uuid();
+      const convB = uuid();
+      const convC = uuid();
+      const uniqueChatIdA = `claimed-key-a-${uuid()}`;
+      const uniqueChatIdB = `claimed-key-b-${uuid()}`;
+
+      // conv-A owns chat-A, conv-B owns chat-B via external binding
+      createBinding(convA, 'telegram', uniqueChatIdA);
+      createBinding(convB, 'telegram', uniqueChatIdB);
+      ensureConversation(convC);
+
+      // Create conversation key mappings for both chats
+      getOrCreateConversation(`telegram:${uniqueChatIdA}`);
+      getOrCreateConversation(`telegram:${uniqueChatIdB}`);
+
+      // Simulate another conversation (conv-C) claiming chat-B's key via
+      // inbound traffic before the move-sync happens.  This can occur when
+      // the binding and conversation_keys tables diverge.
+      const chatBKey = `telegram:${uniqueChatIdB}`;
+      deleteConversationKey(chatBKey);
+      setConversationKey(chatBKey, convC);
+
+      // Move chat-A to conv-B — conv-B's external binding still points to
+      // chat-B, but the conversation_keys entry for chat-B now belongs to
+      // conv-C.  The guard should prevent deleting conv-C's key.
+      const req = makeJsonRequest({
+        sourceChannel: 'telegram',
+        externalChatId: uniqueChatIdA,
+        newConversationId: convB,
+      });
+
+      const resp = await handleMoveSync(req);
+      expect(resp.status).toBe(200);
+
+      // The conversation key for chat-B must still point to conv-C
+      const chatBKeyMapping = getConversationByKey(chatBKey);
+      expect(chatBKeyMapping).not.toBeNull();
+      expect(chatBKeyMapping!.conversationId).toBe(convC);
+
+      // chat-A's key should point to conv-B
       const chatAKeyMapping = getConversationByKey(`telegram:${uniqueChatIdA}`);
       expect(chatAKeyMapping).not.toBeNull();
       expect(chatAKeyMapping!.conversationId).toBe(convB);
