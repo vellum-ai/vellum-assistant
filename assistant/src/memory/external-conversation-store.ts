@@ -7,7 +7,7 @@
  * list APIs.
  */
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { getDb } from './db.js';
 import { externalConversationBindings } from './schema.js';
 
@@ -200,18 +200,14 @@ export function getBindingsForConversations(
   const db = getDb();
   const result = new Map<string, ExternalConversationBinding>();
 
-  // Query all bindings and filter in-memory since SQLite doesn't have
-  // efficient IN() with drizzle for large lists
   const all = db
     .select()
     .from(externalConversationBindings)
+    .where(inArray(externalConversationBindings.conversationId, conversationIds))
     .all();
 
-  const idSet = new Set(conversationIds);
   for (const row of all) {
-    if (idSet.has(row.conversationId)) {
-      result.set(row.conversationId, row);
-    }
+    result.set(row.conversationId, row);
   }
 
   return result;
