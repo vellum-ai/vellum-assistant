@@ -140,7 +140,32 @@ export function handleChannelDecision(
 }
 
 // ---------------------------------------------------------------------------
-// 4. Reminder prompt for non-decision messages
+// 4. Guardian-aware approval prompt
+// ---------------------------------------------------------------------------
+
+/**
+ * Build an approval prompt that includes context about which non-guardian
+ * user is requesting the action. Sent to the guardian's chat so they
+ * can approve or deny on behalf of the requester.
+ */
+export function buildGuardianApprovalPrompt(
+  info: PendingRunInfo,
+  requesterIdentifier: string,
+): ChannelApprovalPrompt {
+  const promptText =
+    `User ${requesterIdentifier} is requesting to run "${info.toolName}". Approve or deny?`;
+
+  // Guardian approvals are always one-time decisions — "approve always"
+  // doesn't make sense when the guardian is approving on behalf of someone else.
+  const actions = DEFAULT_APPROVAL_ACTIONS.filter((a) => a.id !== 'approve_always');
+
+  const plainTextFallback = `${promptText}\n\nReply "yes" to approve or "no" to reject.`;
+
+  return { promptText, actions, plainTextFallback };
+}
+
+// ---------------------------------------------------------------------------
+// 5. Reminder prompt for non-decision messages
 // ---------------------------------------------------------------------------
 
 /**

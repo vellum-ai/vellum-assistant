@@ -346,6 +346,31 @@ export function getPendingApprovalForRun(runId: string): GuardianApprovalRequest
   return row ? rowToApprovalRequest(row) : null;
 }
 
+/**
+ * Find a pending guardian approval request by the guardian's chat ID.
+ * Used when the guardian sends a decision from their chat.
+ */
+export function getPendingApprovalByGuardianChat(
+  channel: string,
+  guardianChatId: string,
+): GuardianApprovalRequest | null {
+  const db = getDb();
+
+  const row = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(
+      and(
+        eq(channelGuardianApprovalRequests.channel, channel),
+        eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
+        eq(channelGuardianApprovalRequests.status, 'pending'),
+      ),
+    )
+    .get();
+
+  return row ? rowToApprovalRequest(row) : null;
+}
+
 export function updateApprovalDecision(
   id: string,
   decision: { status: ApprovalRequestStatus; decidedByExternalUserId?: string },

@@ -3570,14 +3570,18 @@ Runtime detects needs_confirmation
 
 **Plain-text fallback:** When no button click is detected (e.g., non-Telegram channels or user typing a reply), the text parser matches approval phrases case-insensitively: `yes`, `approve`, `allow`, `go ahead` (approve once), `always`, `approve always`, `allow always` (approve always), `no`, `reject`, `deny`, `cancel` (reject). If the user sends a non-decision message while an approval is pending, a reminder prompt is re-sent with the approval buttons.
 
+**Guardian-aware routing:** When a guardian binding exists for the channel, the approval flow resolves the sender's actor role (`guardian` vs `non-guardian`). Non-guardian actors have `forceStrictSideEffects` set on the session so all side-effect tools trigger approval prompts regardless of existing allow rules. Approval prompts for non-guardian actions are routed to the guardian's delivery chat (not the requester's chat), and a `channelGuardianApprovalRequest` record is created. When the guardian approves or denies, the decision is applied to the underlying run and the requester's chat is notified of the outcome. Guardian actors follow the standard approval flow.
+
 **Key modules:**
 
 | Module | Purpose |
 |--------|---------|
-| `assistant/src/runtime/channel-approvals.ts` | Orchestration: detect pending confirmations, build prompts, apply decisions, build reminders |
+| `assistant/src/runtime/channel-approvals.ts` | Orchestration: detect pending confirmations, build prompts (including guardian-aware prompts), apply decisions, build reminders |
 | `assistant/src/runtime/channel-approval-parser.ts` | Plain-text decision parser (phrase matching) |
 | `assistant/src/runtime/channel-approval-types.ts` | Shared types: actions, prompts, UI metadata, decisions |
-| `assistant/src/runtime/routes/channel-routes.ts` | Integration point: approval interception in the channel inbound handler |
+| `assistant/src/runtime/routes/channel-routes.ts` | Integration point: approval interception, actor role resolution, guardian approval routing |
+| `assistant/src/runtime/channel-guardian-service.ts` | Guardian binding lookups: `isGuardian()`, `getGuardianBinding()` |
+| `assistant/src/memory/channel-guardian-store.ts` | CRUD for guardian approval requests: `createApprovalRequest()`, `getPendingApprovalByGuardianChat()`, `updateApprovalDecision()` |
 | `assistant/src/runtime/gateway-client.ts` | `deliverApprovalPrompt()` — sends approval payload to gateway |
 | `gateway/src/telegram/send.ts` | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons |
 | `gateway/src/telegram/normalize.ts` | `callback_query` normalization into `GatewayInboundEventV1` |

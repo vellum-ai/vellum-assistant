@@ -12,11 +12,22 @@ import { renderHistoryContent } from '../../daemon/handlers.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
+import {
+  getGuardianBinding,
+  isGuardian,
+} from '../channel-guardian-service.js';
+import {
+  createApprovalRequest,
+  getPendingApprovalByGuardianChat,
+  getPendingApprovalForRun,
+  updateApprovalDecision,
+} from '../../memory/channel-guardian-store.js';
 import { deliverChannelReply, deliverApprovalPrompt } from '../gateway-client.js';
 import { parseApprovalDecision } from '../channel-approval-parser.js';
 import {
   getChannelApprovalPrompt,
   buildApprovalUIMetadata,
+  buildGuardianApprovalPrompt,
   handleChannelDecision,
   buildReminderPrompt,
 } from '../channel-approvals.js';
@@ -28,6 +39,29 @@ import type {
 } from '../http-types.js';
 
 const log = getLogger('runtime-http');
+
+// ---------------------------------------------------------------------------
+// Actor role
+// ---------------------------------------------------------------------------
+
+export type ActorRole = 'guardian' | 'non-guardian';
+
+export interface GuardianContext {
+  actorRole: ActorRole;
+  /** The guardian's delivery chat ID (from the guardian binding). */
+  guardianChatId?: string;
+  /** The guardian's external user ID. */
+  guardianExternalUserId?: string;
+  /** Display identifier for the requester (username or external user ID). */
+  requesterIdentifier?: string;
+  /** The requester's external user ID. */
+  requesterExternalUserId?: string;
+  /** The requester's chat ID. */
+  requesterChatId?: string;
+}
+
+/** Guardian approval request expiry (30 minutes). */
+const GUARDIAN_APPROVAL_TTL_MS = 30 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Feature flag
@@ -243,6 +277,31 @@ export async function handleChannelInbound(
 
   const replyCallbackUrl = body.replyCallbackUrl;
 
+  // ── Actor role resolution ──
+  // Determine whether the sender is the guardian for this channel.
+  // When a guardian binding exists, non-guardian actors get stricter
+  // side-effect controls and their approvals route to the guardian's chat.
+  let guardianCtx: GuardianContext = { actorRole: 'guardian' };
+  if (isChannelApprovalsEnabled() && body.senderExternalUserId) {
+    const senderIsGuardian = isGuardian('self', sourceChannel, body.senderExternalUserId);
+    if (!senderIsGuardian) {
+      const binding = getGuardianBinding('self', sourceChannel);
+      if (binding) {
+        const requesterLabel = body.senderUsername
+          ? `@${body.senderUsername}`
+          : body.senderExternalUserId;
+        guardianCtx = {
+          actorRole: 'non-guardian',
+          guardianChatId: binding.guardianDeliveryChatId,
+          guardianExternalUserId: binding.guardianExternalUserId,
+          requesterIdentifier: requesterLabel,
+          requesterExternalUserId: body.senderExternalUserId,
+          requesterChatId: externalChatId,
+        };
+      }
+    }
+  }
+
   // ── Approval interception (gated behind feature flag) ──
   if (
     isChannelApprovalsEnabled() &&
@@ -255,9 +314,12 @@ export async function handleChannelInbound(
       callbackData: body.callbackData,
       content: trimmedContent,
       externalChatId,
+      sourceChannel,
+      senderExternalUserId: body.senderExternalUserId,
       replyCallbackUrl,
       bearerToken,
       orchestrator: runOrchestrator,
+      guardianCtx,
     });
 
     if (approvalResult.handled) {
@@ -312,8 +374,10 @@ export async function handleChannelInbound(
         content: content ?? '',
         attachmentIds: hasAttachments ? attachmentIds : undefined,
         externalChatId,
+        sourceChannel,
         replyCallbackUrl,
         bearerToken,
+        guardianCtx,
       });
     } else {
       // Fire-and-forget: process the message and deliver the reply in the background.
@@ -412,8 +476,10 @@ interface ApprovalProcessingParams {
   content: string;
   attachmentIds?: string[];
   externalChatId: string;
+  sourceChannel: string;
   replyCallbackUrl: string;
   bearerToken?: string;
+  guardianCtx: GuardianContext;
 }
 
 /**
@@ -421,6 +487,12 @@ interface ApprovalProcessingParams {
  * `confirmation_request` events are intercepted and written to the
  * runs store. Polls the run until it reaches a terminal state,
  * sending approval prompts when `needs_confirmation` is detected.
+ *
+ * When the actor is a non-guardian:
+ * - `forceStrictSideEffects` is set on the run so all side-effect tools
+ *   trigger the confirmation flow
+ * - Approval prompts are routed to the guardian's chat
+ * - A `channelGuardianApprovalRequest` record is created
  */
 function processChannelMessageWithApprovals(params: ApprovalProcessingParams): void {
   const {
@@ -430,13 +502,22 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
     content,
     attachmentIds,
     externalChatId,
+    sourceChannel,
     replyCallbackUrl,
     bearerToken,
+    guardianCtx,
   } = params;
+
+  const isNonGuardian = guardianCtx.actorRole === 'non-guardian';
 
   (async () => {
     try {
-      const run = await orchestrator.startRun(conversationId, content, attachmentIds);
+      const run = await orchestrator.startRun(
+        conversationId,
+        content,
+        attachmentIds,
+        isNonGuardian ? { forceStrictSideEffects: true } : undefined,
+      );
 
       // Poll the run until it reaches a terminal state, delivering approval
       // prompts when it transitions to needs_confirmation.
@@ -450,11 +531,47 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
         if (!current) break;
 
         if (current.status === 'needs_confirmation' && lastStatus !== 'needs_confirmation') {
-          // Run just transitioned to needs_confirmation — send approval prompt
-          const prompt = getChannelApprovalPrompt(conversationId);
-          if (prompt) {
-            const pending = getPendingConfirmationsByConversation(conversationId);
-            if (pending.length > 0) {
+          const pending = getPendingConfirmationsByConversation(conversationId);
+
+          if (isNonGuardian && guardianCtx.guardianChatId && pending.length > 0) {
+            // Non-guardian actor: route the approval prompt to the guardian's chat
+            const guardianPrompt = buildGuardianApprovalPrompt(
+              pending[0],
+              guardianCtx.requesterIdentifier ?? 'Unknown user',
+            );
+            const uiMetadata = buildApprovalUIMetadata(guardianPrompt, pending[0]);
+
+            // Persist the guardian approval request so we can look it up when
+            // the guardian responds from their chat.
+            createApprovalRequest({
+              runId: run.id,
+              conversationId,
+              channel: sourceChannel,
+              requesterExternalUserId: guardianCtx.requesterExternalUserId ?? '',
+              requesterChatId: guardianCtx.requesterChatId ?? externalChatId,
+              guardianExternalUserId: guardianCtx.guardianExternalUserId ?? '',
+              guardianChatId: guardianCtx.guardianChatId,
+              toolName: pending[0].toolName,
+              riskLevel: pending[0].riskLevel,
+              expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
+            });
+
+            try {
+              await deliverApprovalPrompt(
+                replyCallbackUrl,
+                guardianCtx.guardianChatId,
+                guardianPrompt.promptText,
+                uiMetadata,
+                bearerToken,
+              );
+            } catch (err) {
+              log.error({ err, runId: run.id }, 'Failed to deliver guardian approval prompt');
+            }
+          } else {
+            // Guardian actor or no guardian binding: standard approval prompt
+            // sent to the requester's own chat.
+            const prompt = getChannelApprovalPrompt(conversationId);
+            if (prompt && pending.length > 0) {
               const uiMetadata = buildApprovalUIMetadata(prompt, pending[0]);
               try {
                 await deliverApprovalPrompt(
@@ -494,8 +611,19 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
 
         channelDeliveryStore.markProcessed(eventId);
 
-        // Deliver the final assistant reply
+        // Deliver the final assistant reply to the requester's chat
         await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+
+        // If this was a non-guardian run that went through guardian approval,
+        // also notify the guardian's chat about the outcome.
+        if (isNonGuardian && guardianCtx.guardianChatId) {
+          const approvalReq = getPendingApprovalForRun(run.id);
+          if (approvalReq) {
+            // The approval was resolved (run completed or failed) — mark it
+            const outcomeStatus = finalRun?.status === 'completed' ? 'approved' as const : 'denied' as const;
+            updateApprovalDecision(approvalReq.id, { status: outcomeStatus });
+          }
+        }
       } else {
         log.warn(
           { runId: run.id, status: finalRun?.status, conversationId },
@@ -518,14 +646,17 @@ interface ApprovalInterceptionParams {
   callbackData?: string;
   content: string;
   externalChatId: string;
+  sourceChannel: string;
+  senderExternalUserId?: string;
   replyCallbackUrl: string;
   bearerToken?: string;
   orchestrator: RunOrchestrator;
+  guardianCtx: GuardianContext;
 }
 
 interface ApprovalInterceptionResult {
   handled: boolean;
-  type?: 'decision_applied' | 'reminder_sent';
+  type?: 'decision_applied' | 'reminder_sent' | 'guardian_decision_applied';
 }
 
 /**
@@ -534,6 +665,9 @@ interface ApprovalInterceptionResult {
  * Returns `{ handled: true }` when the message was consumed by the approval
  * flow (either as a decision or a reminder), so the caller should NOT proceed
  * to normal message processing.
+ *
+ * When the sender is a guardian responding from their chat, also checks for
+ * pending guardian approval requests and routes the decision accordingly.
  */
 async function handleApprovalInterception(
   params: ApprovalInterceptionParams,
@@ -543,11 +677,103 @@ async function handleApprovalInterception(
     callbackData,
     content,
     externalChatId,
+    sourceChannel,
+    senderExternalUserId,
     replyCallbackUrl,
     bearerToken,
     orchestrator,
+    guardianCtx,
   } = params;
 
+  // ── Guardian approval decision path ──
+  // When the sender is the guardian and there's a pending guardian approval
+  // request targeting this chat, the message might be a decision on behalf
+  // of a non-guardian requester.
+  if (
+    guardianCtx.actorRole === 'guardian' &&
+    senderExternalUserId
+  ) {
+    const guardianApproval = getPendingApprovalByGuardianChat(sourceChannel, externalChatId);
+    if (guardianApproval) {
+      let decision: ApprovalDecisionResult | null = null;
+
+      if (callbackData) {
+        decision = parseCallbackData(callbackData);
+      }
+      if (!decision && content) {
+        decision = parseApprovalDecision(content);
+      }
+
+      if (decision) {
+        // Validate run ID from callback matches the guardian approval's run
+        if (decision.runId && decision.runId !== guardianApproval.runId) {
+          log.warn(
+            { externalChatId, callbackRunId: decision.runId, approvalRunId: guardianApproval.runId },
+            'Callback run ID does not match guardian approval run, ignoring stale button press',
+          );
+          return { handled: true, type: 'guardian_decision_applied' };
+        }
+
+        // Apply the decision to the underlying run using the requester's
+        // conversation context
+        const result = handleChannelDecision(
+          guardianApproval.conversationId,
+          decision,
+          orchestrator,
+        );
+
+        // Update the guardian approval request record
+        const approvalStatus = decision.action === 'reject' ? 'denied' as const : 'approved' as const;
+        updateApprovalDecision(guardianApproval.id, {
+          status: approvalStatus,
+          decidedByExternalUserId: senderExternalUserId,
+        });
+
+        if (result.applied) {
+          // Notify the requester's chat about the outcome
+          const outcomeText = decision.action === 'reject'
+            ? 'Your request was denied by the guardian.'
+            : 'Your request was approved by the guardian.';
+          try {
+            await deliverChannelReply(replyCallbackUrl, {
+              chatId: guardianApproval.requesterChatId,
+              text: outcomeText,
+            }, bearerToken);
+          } catch (err) {
+            log.error({ err, conversationId: guardianApproval.conversationId }, 'Failed to notify requester of guardian decision');
+          }
+        }
+
+        return { handled: true, type: 'guardian_decision_applied' };
+      }
+
+      // Non-decision message from guardian while approval is pending — remind them
+      const pendingInfo = getPendingConfirmationsByConversation(guardianApproval.conversationId);
+      if (pendingInfo.length > 0) {
+        const guardianPrompt = buildGuardianApprovalPrompt(
+          pendingInfo[0],
+          `user ${guardianApproval.requesterExternalUserId}`,
+        );
+        const reminder = buildReminderPrompt(guardianPrompt);
+        const uiMetadata = buildApprovalUIMetadata(reminder, pendingInfo[0]);
+        try {
+          await deliverApprovalPrompt(
+            replyCallbackUrl,
+            externalChatId,
+            reminder.promptText,
+            uiMetadata,
+            bearerToken,
+          );
+        } catch (err) {
+          log.error({ err, conversationId: guardianApproval.conversationId }, 'Failed to deliver guardian approval reminder');
+        }
+      }
+
+      return { handled: true, type: 'reminder_sent' };
+    }
+  }
+
+  // ── Standard approval interception (existing flow) ──
   const pendingPrompt = getChannelApprovalPrompt(conversationId);
   if (!pendingPrompt) return { handled: false };
 

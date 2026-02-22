@@ -46,6 +46,16 @@ export interface RunOrchestratorDeps {
   }>;
 }
 
+export interface RunStartOptions {
+  /**
+   * When true, forces `strictSideEffects` on the session's memory policy
+   * so that all side-effect tools trigger the approval/confirmation flow,
+   * even if existing allow rules would normally auto-approve them.
+   * Used for non-guardian actors in guardian-gated channels.
+   */
+  forceStrictSideEffects?: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Orchestrator
 // ---------------------------------------------------------------------------
@@ -73,6 +83,7 @@ export class RunOrchestrator {
     conversationId: string,
     content: string,
     attachmentIds?: string[],
+    options?: RunStartOptions,
   ): Promise<Run> {
     // Block inbound content that contains secrets — mirrors the IPC check in sessions.ts
     const ingressCheck = checkIngressForSecrets(content);
@@ -84,6 +95,15 @@ export class RunOrchestrator {
 
     if (session.isProcessing()) {
       throw new Error('Session is already processing a message');
+    }
+
+    // Apply run-level overrides to the session's memory policy before the
+    // agent loop starts. The policy is read lazily at tool execution time.
+    if (options?.forceStrictSideEffects) {
+      session.memoryPolicy = {
+        ...session.memoryPolicy,
+        strictSideEffects: true,
+      };
     }
 
     const attachments = attachmentIds
