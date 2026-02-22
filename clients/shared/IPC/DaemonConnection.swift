@@ -248,10 +248,14 @@ extension DaemonClient {
     /// allowing the connection to be marked as ready.
     /// If no token is configured, marks the connection as authenticated immediately.
     func authenticateIfNeeded() async throws {
-        // Re-read from Keychain on each call to pick up runtime changes.
+        // Re-read hostname/port from UserDefaults to match connect()'s resolution logic,
+        // so the token lookup key matches the actual connection target.
+        let resolvedHostname = UserDefaults.standard.string(forKey: "daemon_hostname").flatMap { $0.isEmpty ? nil : $0 } ?? config.hostname
+        let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
+        let resolvedPort: UInt16 = (rawPort > 0 && rawPort <= 65535) ? UInt16(rawPort) : config.port
         // Check host-specific key first (QR pairing), fall back to bare key (single-Mac compat),
         // then legacy UserDefaults migration — same precedence as DaemonConfig.fromUserDefaults().
-        let hostSpecificProvider = "daemon-token:\(config.hostname):\(config.port)"
+        let hostSpecificProvider = "daemon-token:\(resolvedHostname):\(resolvedPort)"
         let tokenFromKeychain = APIKeyManager.shared.getAPIKey(provider: hostSpecificProvider)
             ?? APIKeyManager.shared.getAPIKey(provider: "daemon-token")
             ?? DaemonConfig.migrateAuthToken()
