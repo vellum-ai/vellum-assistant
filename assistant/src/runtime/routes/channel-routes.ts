@@ -32,6 +32,7 @@ import {
   buildGuardianApprovalPrompt,
   handleChannelDecision,
   buildReminderPrompt,
+  channelSupportsRichApprovalUI,
 } from '../channel-approvals.js';
 import type { ApprovalAction, ApprovalDecisionResult } from '../channel-approval-types.js';
 import type { RunOrchestrator } from '../run-orchestrator.js';
@@ -64,6 +65,20 @@ export interface GuardianContext {
 
 /** Guardian approval request expiry (30 minutes). */
 const GUARDIAN_APPROVAL_TTL_MS = 30 * 60 * 1000;
+
+/**
+ * Return the effective prompt text for an approval prompt, appending the
+ * plainTextFallback instructions when the channel does not support rich
+ * inline approval UI (e.g. Telegram inline keyboards).
+ */
+function effectivePromptText(
+  promptText: string,
+  plainTextFallback: string,
+  channel: string,
+): string {
+  if (channelSupportsRichApprovalUI(channel)) return promptText;
+  return `${promptText}\n\n${plainTextFallback}`;
+}
 
 // ---------------------------------------------------------------------------
 // Feature flag
@@ -617,10 +632,15 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
 
             let guardianNotified = false;
             try {
+              const guardianText = effectivePromptText(
+                guardianPrompt.promptText,
+                guardianPrompt.plainTextFallback,
+                sourceChannel,
+              );
               await deliverApprovalPrompt(
                 replyCallbackUrl,
                 guardianCtx.guardianChatId,
-                guardianPrompt.promptText,
+                guardianText,
                 uiMetadata,
                 bearerToken,
               );
@@ -650,10 +670,15 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
             if (prompt && pending.length > 0) {
               const uiMetadata = buildApprovalUIMetadata(prompt, pending[0]);
               try {
+                const promptTextForChannel = effectivePromptText(
+                  prompt.promptText,
+                  prompt.plainTextFallback,
+                  sourceChannel,
+                );
                 await deliverApprovalPrompt(
                   replyCallbackUrl,
                   externalChatId,
-                  prompt.promptText,
+                  promptTextForChannel,
                   uiMetadata,
                   bearerToken,
                 );
@@ -866,10 +891,15 @@ async function handleApprovalInterception(
         const reminder = buildReminderPrompt(guardianPrompt);
         const uiMetadata = buildApprovalUIMetadata(reminder, pendingInfo[0]);
         try {
+          const reminderText = effectivePromptText(
+            reminder.promptText,
+            reminder.plainTextFallback,
+            sourceChannel,
+          );
           await deliverApprovalPrompt(
             replyCallbackUrl,
             externalChatId,
-            reminder.promptText,
+            reminderText,
             uiMetadata,
             bearerToken,
           );
@@ -975,10 +1005,15 @@ async function handleApprovalInterception(
   if (pending.length > 0) {
     const uiMetadata = buildApprovalUIMetadata(reminder, pending[0]);
     try {
+      const reminderText = effectivePromptText(
+        reminder.promptText,
+        reminder.plainTextFallback,
+        sourceChannel,
+      );
       await deliverApprovalPrompt(
         replyCallbackUrl,
         externalChatId,
-        reminder.promptText,
+        reminderText,
         uiMetadata,
         bearerToken,
       );

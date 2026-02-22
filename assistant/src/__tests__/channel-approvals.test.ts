@@ -41,6 +41,7 @@ import {
   buildApprovalUIMetadata,
   handleChannelDecision,
   buildReminderPrompt,
+  channelSupportsRichApprovalUI,
 } from '../runtime/channel-approvals.js';
 import type { ApprovalDecisionResult, ChannelApprovalPrompt } from '../runtime/channel-approval-types.js';
 import * as trustStore from '../permissions/trust-store.js';
@@ -493,5 +494,28 @@ describe('buildReminderPrompt', () => {
     const originalText = original.promptText;
     buildReminderPrompt(original);
     expect(original.promptText).toBe(originalText);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 5. channelSupportsRichApprovalUI
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('channelSupportsRichApprovalUI', () => {
+  test('returns true for telegram', () => {
+    expect(channelSupportsRichApprovalUI('telegram')).toBe(true);
+  });
+
+  test('returns false for http-api', () => {
+    expect(channelSupportsRichApprovalUI('http-api')).toBe(false);
+  });
+
+  test('returns false for sms', () => {
+    expect(channelSupportsRichApprovalUI('sms')).toBe(false);
+  });
+
+  test('returns false for unknown channels', () => {
+    expect(channelSupportsRichApprovalUI('slack')).toBe(false);
+    expect(channelSupportsRichApprovalUI('')).toBe(false);
   });
 });

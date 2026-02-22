@@ -62,10 +62,28 @@ function ensureConversation(conversationId: string): void {
   }
 }
 
+function ensureMessage(messageId: string, conversationId: string): void {
+  const { getDb } = require('../memory/db.js');
+  const db = getDb();
+  const { messages } = require('../memory/schema.js');
+  try {
+    db.insert(messages).values({
+      id: messageId,
+      conversationId,
+      role: 'user',
+      content: 'test',
+      createdAt: Date.now(),
+    }).run();
+  } catch {
+    // already exists
+  }
+}
+
 function resetTables(): void {
   const { getDb } = require('../memory/db.js');
   const db = getDb();
   db.run('DELETE FROM message_runs');
+  db.run('DELETE FROM messages');
   db.run('DELETE FROM conversations');
 }
 
@@ -198,6 +216,7 @@ describe('getPendingConfirmationsByConversation', () => {
 
   test('returns empty array when no runs need confirmation', () => {
     ensureConversation('conv-1');
+    ensureMessage('msg-1', 'conv-1');
     createRun('conv-1', 'msg-1');
     const result = getPendingConfirmationsByConversation('conv-1');
     expect(result).toEqual([]);
@@ -205,6 +224,7 @@ describe('getPendingConfirmationsByConversation', () => {
 
   test('returns pending confirmation for a run needing confirmation', () => {
     ensureConversation('conv-1');
+    ensureMessage('msg-1', 'conv-1');
     const run = createRun('conv-1', 'msg-1');
     setRunConfirmation(run.id, sampleConfirmation);
 
@@ -220,6 +240,8 @@ describe('getPendingConfirmationsByConversation', () => {
   test('only returns runs for the specified conversation', () => {
     ensureConversation('conv-1');
     ensureConversation('conv-2');
+    ensureMessage('msg-1', 'conv-1');
+    ensureMessage('msg-2', 'conv-2');
 
     const run1 = createRun('conv-1', 'msg-1');
     const run2 = createRun('conv-2', 'msg-2');
@@ -237,6 +259,8 @@ describe('getPendingConfirmationsByConversation', () => {
 
   test('returns multiple pending runs for the same conversation', () => {
     ensureConversation('conv-1');
+    ensureMessage('msg-1', 'conv-1');
+    ensureMessage('msg-2', 'conv-1');
 
     const run1 = createRun('conv-1', 'msg-1');
     const run2 = createRun('conv-1', 'msg-2');
@@ -253,6 +277,9 @@ describe('getPendingConfirmationsByConversation', () => {
 
   test('excludes completed and failed runs', () => {
     ensureConversation('conv-1');
+    ensureMessage('msg-1', 'conv-1');
+    ensureMessage('msg-2', 'conv-1');
+    ensureMessage('msg-3', 'conv-1');
 
     const run1 = createRun('conv-1', 'msg-1');
     const run2 = createRun('conv-1', 'msg-2');

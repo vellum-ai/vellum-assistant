@@ -165,7 +165,28 @@ export function buildGuardianApprovalPrompt(
 }
 
 // ---------------------------------------------------------------------------
-// 5. Reminder prompt for non-decision messages
+// 5. Channel UI capability check
+// ---------------------------------------------------------------------------
+
+/**
+ * Channels known to support rich inline approval UI (e.g. inline keyboards).
+ * All other channels fall back to plain-text instructions embedded in the
+ * message body.
+ */
+const RICH_APPROVAL_CHANNELS: ReadonlySet<string> = new Set(['telegram']);
+
+/**
+ * Returns true when the given channel supports rich approval UI such as
+ * inline buttons / keyboards. For channels that return false, the
+ * plainTextFallback instructions should be appended to the message body
+ * so the user sees how to approve or reject via text.
+ */
+export function channelSupportsRichApprovalUI(channel: string): boolean {
+  return RICH_APPROVAL_CHANNELS.has(channel);
+}
+
+// ---------------------------------------------------------------------------
+// 6. Reminder prompt for non-decision messages
 // ---------------------------------------------------------------------------
 
 /**

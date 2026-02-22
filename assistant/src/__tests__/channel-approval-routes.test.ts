@@ -1142,3 +1142,90 @@ describe('sourceChannel passed to orchestrator.startRun', () => {
     deliverSpy.mockRestore();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 14. Plain-text fallback surfacing for non-rich channels (WS-E)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('plain-text fallback surfacing for non-rich channels', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('reminder prompt includes plainTextFallback for non-rich channel (http-api)', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+    const replySpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Establish the conversation using http-api (non-rich channel)
+    const initReq = makeInboundRequest({ content: 'init', sourceChannel: 'http-api' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    // Send a non-decision message to trigger a reminder
+    const req = makeInboundRequest({ content: 'what is happening?', sourceChannel: 'http-api' });
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('reminder_sent');
+
+    // The delivered text should include the plainTextFallback instructions
+    expect(deliverSpy).toHaveBeenCalled();
+    const callArgs = deliverSpy.mock.calls[0];
+    const deliveredText = callArgs[2] as string;
+    // For non-rich channels, the text should contain both the reminder prefix
+    // AND the plainTextFallback instructions (e.g. "Reply yes to approve")
+    expect(deliveredText).toContain("I'm still waiting");
+    expect(deliveredText).toContain('Reply "yes"');
+
+    deliverSpy.mockRestore();
+    replySpy.mockRestore();
+  });
+
+  test('reminder prompt does NOT include plainTextFallback for telegram (rich channel)', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+    const replySpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Establish the conversation using telegram (rich channel)
+    const initReq = makeInboundRequest({ content: 'init', sourceChannel: 'telegram' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    // Send a non-decision message to trigger a reminder
+    const req = makeInboundRequest({ content: 'what is happening?', sourceChannel: 'telegram' });
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('reminder_sent');
+
+    // For rich channels (telegram), the delivered text should be just the
+    // promptText (with reminder prefix) — NOT the plainTextFallback.
+    expect(deliverSpy).toHaveBeenCalled();
+    const callArgs = deliverSpy.mock.calls[0];
+    const deliveredText = callArgs[2] as string;
+    expect(deliveredText).toContain("I'm still waiting");
+    // The raw promptText does not contain "Reply" instructions — those are
+    // only in the plainTextFallback.
+    expect(deliveredText).not.toContain('Reply "yes"');
+
+    deliverSpy.mockRestore();
+    replySpy.mockRestore();
+  });
+});
