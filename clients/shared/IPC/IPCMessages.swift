@@ -1798,8 +1798,8 @@ public typealias VercelApiConfigResponseMessage = IPCVercelApiConfigResponse
 public typealias TelegramConfigRequestMessage = IPCTelegramConfigRequest
 
 extension IPCTelegramConfigRequest {
-    public init(action: String, botToken: String? = nil) {
-        self.init(type: "telegram_config", action: action, botToken: botToken)
+    public init(action: String, botToken: String? = nil, commands: [IPCTelegramConfigRequestCommand]? = nil) {
+        self.init(type: "telegram_config", action: action, botToken: botToken, commands: commands)
     }
 }
 

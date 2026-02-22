@@ -836,7 +836,9 @@ export async function handleTelegramConfig(
         hasWebhookSecret,
       });
     } else if (msg.action === 'set') {
-      // Resolve token: prefer explicit msg.botToken, fall back to secure storage
+      // Resolve token: prefer explicit msg.botToken, fall back to secure storage.
+      // Track provenance so we only rollback tokens that were freshly provided.
+      const isNewToken = !!msg.botToken;
       const botToken = msg.botToken || getSecureKey('credential:telegram:bot_token');
       if (!botToken) {
         ctx.send(socket, {
@@ -921,13 +923,17 @@ export async function handleTelegramConfig(
           upsertCredentialMetadata('telegram', 'webhook_secret', {});
           hasWebhookSecret = true;
         } else {
-          // Roll back bot token to avoid partial configuration
-          deleteSecureKey('credential:telegram:bot_token');
-          deleteCredentialMetadata('telegram', 'bot_token');
+          // Only roll back the bot token if it was freshly provided.
+          // When the token came from secure storage it was already valid
+          // configuration; deleting it would destroy working state.
+          if (isNewToken) {
+            deleteSecureKey('credential:telegram:bot_token');
+            deleteCredentialMetadata('telegram', 'bot_token');
+          }
           ctx.send(socket, {
             type: 'telegram_config_response',
             success: false,
-            hasBotToken: false,
+            hasBotToken: !isNewToken,
             connected: false,
             hasWebhookSecret: false,
             error: 'Failed to store webhook secret',
