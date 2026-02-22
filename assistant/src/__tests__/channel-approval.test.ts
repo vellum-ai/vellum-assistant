@@ -48,8 +48,10 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 
 function ensureConversation(conversationId: string): void {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getDb } = require('../memory/db.js');
   const db = getDb();
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { conversations } = require('../memory/schema.js');
   try {
     db.insert(conversations).values({
@@ -63,6 +65,7 @@ function ensureConversation(conversationId: string): void {
 }
 
 function resetTables(): void {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getDb } = require('../memory/db.js');
   const db = getDb();
   db.run('DELETE FROM message_runs');
@@ -255,8 +258,8 @@ describe('getPendingConfirmationsByConversation', () => {
     ensureConversation('conv-1');
 
     const run1 = createRun('conv-1', 'msg-1');
-    const run2 = createRun('conv-1', 'msg-2');
-    const run3 = createRun('conv-1', 'msg-3');
+    const _run2 = createRun('conv-1', 'msg-2');
+    const _run3 = createRun('conv-1', 'msg-3');
 
     setRunConfirmation(run1.id, sampleConfirmation);
     // run2 stays in 'running' state
