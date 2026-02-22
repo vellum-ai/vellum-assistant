@@ -1,4 +1,3 @@
-import { spawn as spawnChild } from "child_process";
 import { randomBytes } from "crypto";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir, userInfo } from "os";
@@ -606,33 +605,14 @@ export async function retireInstance(
 
   console.log(`\u{1F5D1}\ufe0f  Terminating AWS instance ${name} (${instanceId})\n`);
 
-  const child = spawnChild(
-    "aws",
-    [
-      "ec2",
-      "terminate-instances",
-      "--instance-ids",
-      instanceId,
-      "--region",
-      region,
-    ],
-    { stdio: "inherit" },
-  );
-
-  await new Promise<void>((resolve, reject) => {
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(
-          new Error(
-            `aws ec2 terminate-instances exited with code ${code}`,
-          ),
-        );
-      }
-    });
-    child.on("error", reject);
-  });
+  await exec("aws", [
+    "ec2",
+    "terminate-instances",
+    "--instance-ids",
+    instanceId,
+    "--region",
+    region,
+  ]);
 
   console.log(`\u2705 Instance ${name} (${instanceId}) terminated.`);
 }
