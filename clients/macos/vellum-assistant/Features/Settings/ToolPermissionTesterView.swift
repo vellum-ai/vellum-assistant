@@ -229,8 +229,8 @@ struct ToolPermissionTesterView: View {
                             isKeyboardActive: false,
                             onAllow: { model.allowOnce() },
                             onDeny: { model.denyOnce() },
-                            onAlwaysAllow: { _, pattern, scope, decision in
-                                model.alwaysAllow(pattern: pattern, scope: scope, decision: decision)
+                            onAlwaysAllow: { _, pattern, scope, _ in
+                                model.alwaysAllow(pattern: pattern, scope: scope)
                             }
                         )
 

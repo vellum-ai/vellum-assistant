@@ -116,7 +116,7 @@ final class ToolPermissionTesterModel: ObservableObject {
     ///
     /// Forwards the simulation's metadata (execution target, principal) so the
     /// persisted rule matches the context that was being tested.
-    func alwaysAllow(pattern: String, scope: String, decision: String) {
+    func alwaysAllow(pattern: String, scope: String) {
         guard let dc = daemonClient as? DaemonClient else {
             lastError = "Cannot add trust rule: daemon client unavailable"
             return
