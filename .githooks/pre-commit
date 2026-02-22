@@ -57,8 +57,10 @@ declare -a PATTERNS=(
 )
 
 # Ignore deterministic checksum/hash fixtures that are not credentials.
+# Also ignore Swift/TS function-parameter declarations (e.g. `clientSecret: String?`).
 declare -a SAFE_LINE_PATTERNS=(
     "[A-Za-z0-9_\"']*(sha256|SHA256|checksum|digest|hash|nonceSha256|observedNonceSha256)[A-Za-z0-9_\"']*[[:space:]]*[:=][[:space:]]*['\"][a-fA-F0-9]{32,}['\"]"
+    "client[Ss]ecret:[[:space:]]*(String|client[Ss]ecret)"
 )
 
 matches_safe_line_pattern() {
@@ -114,6 +116,8 @@ if [ "${1:-}" = "--self-test" ]; then
     # False-positive lines that must NOT match (plain identifiers, not secrets)
     SAFE_CACHE_KEY_LINE='redis.get("user_session_key_prefix")'
     SAFE_CLIENT_SECRET_DOC='- **PKCE or client_secret flows** — Desktop apps use PKCE by default (S256).'
+    SAFE_SWIFT_PARAM_LINE='public init(action: String, mode: String? = nil, clientId: String? = nil, clientSecret: String? = nil)'
+    SAFE_SWIFT_CALL_LINE='self.init(type: "twitter_integration_config", action: action, clientSecret: clientSecret, strategy: strategy)'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -197,6 +201,14 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_CLIENT_SECRET_DOC"; then
         echo -e "${RED}Self-test failed:${NC} client_secret in documentation context still matches"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_PARAM_LINE" && ! matches_safe_line_pattern "$SAFE_SWIFT_PARAM_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} Swift clientSecret param false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_CALL_LINE" && ! matches_safe_line_pattern "$SAFE_SWIFT_CALL_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} Swift clientSecret call-site false positive"
         exit 1
     fi
     if ! matches_secret_pattern "$REAL_CLIENT_SECRET_LINE"; then
