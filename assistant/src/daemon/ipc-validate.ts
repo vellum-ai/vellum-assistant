@@ -150,6 +150,23 @@ const HIGH_RISK_VALIDATORS: Record<string, PropertyValidator> = {
     return null;
   },
 
+  add_trust_rule: (obj) => {
+    if (typeof obj.toolName !== 'string' || obj.toolName === '') {
+      return 'add_trust_rule requires a non-empty string "toolName"';
+    }
+    if (typeof obj.pattern !== 'string') {
+      return 'add_trust_rule requires a string "pattern"';
+    }
+    if (typeof obj.scope !== 'string') {
+      return 'add_trust_rule requires a string "scope"';
+    }
+    const validDecisions = ['allow', 'deny', 'ask'];
+    if (typeof obj.decision !== 'string' || !validDecisions.includes(obj.decision)) {
+      return `add_trust_rule "decision" must be one of: ${validDecisions.join(', ')}`;
+    }
+    return null;
+  },
+
   ui_surface_action: (obj) => {
     if (typeof obj.sessionId !== 'string' || obj.sessionId === '') {
       return 'ui_surface_action requires a non-empty string "sessionId"';

@@ -295,6 +295,55 @@ describe('IPC Validate', () => {
       if (!result.valid) expect(result.reason).toContain('non-empty string "actionId"');
     });
 
+    // ─── High-risk: add_trust_rule ──────────────────────────────────────
+
+    test('accepts valid add_trust_rule', () => {
+      const result = validateClientMessage({
+        type: 'add_trust_rule',
+        toolName: 'Bash',
+        pattern: '*',
+        scope: 'global',
+        decision: 'allow',
+      });
+      expect(result.valid).toBe(true);
+    });
+
+    test('accepts all valid add_trust_rule decisions', () => {
+      for (const decision of ['allow', 'deny', 'ask']) {
+        const result = validateClientMessage({
+          type: 'add_trust_rule',
+          toolName: 'Bash',
+          pattern: '*',
+          scope: 'global',
+          decision,
+        });
+        expect(result.valid).toBe(true);
+      }
+    });
+
+    test('rejects add_trust_rule without toolName', () => {
+      const result = validateClientMessage({
+        type: 'add_trust_rule',
+        pattern: '*',
+        scope: 'global',
+        decision: 'allow',
+      });
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('non-empty string "toolName"');
+    });
+
+    test('rejects add_trust_rule with invalid decision', () => {
+      const result = validateClientMessage({
+        type: 'add_trust_rule',
+        toolName: 'Bash',
+        pattern: '*',
+        scope: 'global',
+        decision: 'always_allow',
+      });
+      expect(result.valid).toBe(false);
+      if (!result.valid) expect(result.reason).toContain('"decision" must be one of');
+    });
+
     // ─── Extra properties are tolerated ─────────────────────────────────
 
     test('allows extra properties on known types', () => {
@@ -335,6 +384,7 @@ describe('IPC Validate', () => {
       secret_response: { requestId: 'r1' },
       ui_surface_action: { sessionId: 's1', surfaceId: 'sf1', actionId: 'a1' },
       ipc_blob_probe: { probeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', nonceSha256: 'abc123' },
+      add_trust_rule: { toolName: 'Bash', pattern: '*', scope: 'global', decision: 'allow' },
       document_save: { surfaceId: 'doc1', conversationId: 'c1', title: 'Doc', content: 'text', wordCount: 1 },
       document_load: { surfaceId: 'doc1' },
       document_list: {},
