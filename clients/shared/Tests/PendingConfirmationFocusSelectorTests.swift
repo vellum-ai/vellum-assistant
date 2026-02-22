@@ -6,13 +6,13 @@ struct PendingConfirmationFocusSelectorTests {
 
     // MARK: - Helpers
 
-    private func makeConfirmationMessage(requestId: String, state: ToolConfirmationState) -> ChatMessage {
+    private func makeConfirmationMessage(requestId: String, state: ToolConfirmationState, toolName: String = "host_bash") -> ChatMessage {
         ChatMessage(
             role: .assistant,
             text: "",
             confirmation: ToolConfirmationData(
                 requestId: requestId,
-                toolName: "host_bash",
+                toolName: toolName,
                 input: [:],
                 riskLevel: "medium",
                 state: state
@@ -71,5 +71,37 @@ struct PendingConfirmationFocusSelectorTests {
         ]
         let result = PendingConfirmationFocusSelector.activeRequestId(from: messages)
         #expect(result == "req-4")
+    }
+
+    @Test("Skips pending system permission requests")
+    func skipsSystemPermissionRequests() {
+        let messages = [
+            makeConfirmationMessage(requestId: "req-perm", state: .pending, toolName: "request_system_permission"),
+            makeConfirmationMessage(requestId: "req-bash", state: .pending),
+        ]
+        let result = PendingConfirmationFocusSelector.activeRequestId(from: messages)
+        #expect(result == "req-bash")
+    }
+
+    @Test("Returns nil when only system permission requests are pending")
+    func onlySystemPermissionsPending() {
+        let messages = [
+            makeConfirmationMessage(requestId: "req-perm-1", state: .pending, toolName: "request_system_permission"),
+            makeConfirmationMessage(requestId: "req-perm-2", state: .pending, toolName: "request_system_permission"),
+        ]
+        let result = PendingConfirmationFocusSelector.activeRequestId(from: messages)
+        #expect(result == nil)
+    }
+
+    @Test("System permission before tool confirmation does not block focus handoff")
+    func systemPermissionDoesNotBlockFocusHandoff() {
+        let messages = [
+            makeConfirmationMessage(requestId: "req-1", state: .approved),
+            makeConfirmationMessage(requestId: "req-perm", state: .pending, toolName: "request_system_permission"),
+            makeConfirmationMessage(requestId: "req-3", state: .pending),
+            makeConfirmationMessage(requestId: "req-4", state: .pending),
+        ]
+        let result = PendingConfirmationFocusSelector.activeRequestId(from: messages)
+        #expect(result == "req-3")
     }
 }
