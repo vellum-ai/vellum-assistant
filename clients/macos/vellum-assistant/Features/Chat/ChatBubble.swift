@@ -276,8 +276,9 @@ struct ChatBubble: View {
         /// True when there is at least one tool call that hasn't finished yet.
         let hasActuallyRunningTool = !hideToolCalls && message.toolCalls.contains(where: { !$0.isComplete })
         /// All individual tool calls done but message still streaming (model generating next tool call).
+        /// Hide once text is being streamed so the user doesn't see "Thinking" alongside the response.
         let toolsCompleteButStillStreaming = !hideToolCalls && !message.toolCalls.isEmpty
-            && message.toolCalls.allSatisfy({ $0.isComplete }) && message.isStreaming
+            && message.toolCalls.allSatisfy({ $0.isComplete }) && message.isStreaming && !hasText
         let hasInProgressTools = !message.toolCalls.isEmpty && !hideToolCalls && !allToolCallsComplete
         let hasPermission = decidedConfirmation != nil
         let hasStreamingCode = message.isStreaming && message.streamingCodePreview != nil && !(message.streamingCodePreview?.isEmpty ?? true)
