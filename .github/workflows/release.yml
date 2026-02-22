@@ -429,7 +429,7 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, build-macos]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos]
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App token
@@ -578,8 +578,9 @@ jobs:
        needs.publish-npm.result == 'failure' ||
        needs.publish-meta.result == 'failure' ||
        needs.build-macos.result == 'failure' ||
-       needs.release.result == 'failure')
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, release]
+       needs.release.result == 'failure' ||
+       needs.update-platform.result == 'failure')
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, release, update-platform]
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack of release failure
