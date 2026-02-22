@@ -986,6 +986,23 @@ describe('Permission Checker', () => {
       expect(options.some(o => o.pattern === 'action:ls')).toBe(true);
     });
 
+    test('shell allowlist exact option includes full command with setup prefixes', async () => {
+      const options = await generateAllowlistOptions('bash', { command: 'cd /tmp && rm -rf build' });
+      // The exact option must use the full command text, not just the primary segment
+      expect(options[0]).toEqual({
+        label: 'cd /tmp && rm -rf build',
+        description: 'This exact command',
+        pattern: 'cd /tmp && rm -rf build',
+      });
+    });
+
+    test('shell allowlist exact option includes full command with export prefix', async () => {
+      const options = await generateAllowlistOptions('bash', { command: 'export PATH="/usr/bin:$PATH" && npm install' });
+      expect(options[0].label).toBe('export PATH="/usr/bin:$PATH" && npm install');
+      expect(options[0].pattern).toBe('export PATH="/usr/bin:$PATH" && npm install');
+      expect(options[0].description).toBe('This exact command');
+    });
+
     test('file_write: generates prefixed file, ancestor directory wildcards, and tool wildcard', async () => {
       const options = await generateAllowlistOptions('file_write', { path: '/home/user/project/file.ts' });
       expect(options).toHaveLength(5);

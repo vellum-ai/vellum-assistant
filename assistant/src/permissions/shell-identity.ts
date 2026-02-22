@@ -182,9 +182,8 @@ export async function buildShellAllowlistOptions(command: string): Promise<Allow
 
   const options: AllowlistOption[] = [];
 
-  // Exact canonical primary command
-  const canonical = actionResult.primarySegment.command;
-  options.push({ label: canonical, description: 'This exact command', pattern: canonical });
+  // Full original command text — "this exact command" means exactly what the user approved
+  options.push({ label: trimmed, description: 'This exact command', pattern: trimmed });
 
   // Action keys from narrowest to broadest
   for (const actionKey of actionResult.keys) {
