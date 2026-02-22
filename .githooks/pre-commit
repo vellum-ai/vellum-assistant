@@ -60,7 +60,7 @@ declare -a PATTERNS=(
 # Also ignore Swift/TS function-parameter declarations (e.g. `clientSecret: String?`).
 declare -a SAFE_LINE_PATTERNS=(
     "[A-Za-z0-9_\"']*(sha256|SHA256|checksum|digest|hash|nonceSha256|observedNonceSha256)[A-Za-z0-9_\"']*[[:space:]]*[:=][[:space:]]*['\"][a-fA-F0-9]{32,}['\"]"
-    "client[Ss]ecret:[[:space:]]*(String|client[Ss]ecret)"
+    "client[Ss]ecret:[[:space:]]*(String[?]?[[:space:]]*([,)]|=[[:space:]]*nil)|client[Ss]ecret[[:space:]]*[,)])"
 )
 
 matches_safe_line_pattern() {
@@ -112,6 +112,9 @@ if [ "${1:-}" = "--self-test" ]; then
 
     # Real client_secret assignment (must match)
     REAL_CLIENT_SECRET_LINE='client_secret = "abcdef123456"'
+
+    # Typed assignment with a string literal — must NOT be whitelisted
+    DANGEROUS_TYPED_SECRET='let clientSecret: String = "real_secret_value_1234"'
 
     # False-positive lines that must NOT match (plain identifiers, not secrets)
     SAFE_CACHE_KEY_LINE='redis.get("user_session_key_prefix")'
@@ -213,6 +216,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if ! matches_secret_pattern "$REAL_CLIENT_SECRET_LINE"; then
         echo -e "${RED}Self-test failed:${NC} real client_secret assignment did not match"
+        exit 1
+    fi
+    if matches_secret_pattern "$DANGEROUS_TYPED_SECRET" && matches_safe_line_pattern "$DANGEROUS_TYPED_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} typed clientSecret assignment incorrectly whitelisted"
         exit 1
     fi
 
