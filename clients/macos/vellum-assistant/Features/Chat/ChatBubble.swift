@@ -82,6 +82,14 @@ struct ChatBubble: View {
             .overlay {
                 bubbleBorderOverlay
             }
+            .overlay(alignment: isUser ? .topLeading : .topTrailing) {
+                if hasOverflowActions {
+                    overflowMenuButton
+                        .opacity(showOverflowMenu ? 1 : 0)
+                        .animation(VAnimation.fast, value: showOverflowMenu)
+                        .offset(x: isUser ? -(24 + VSpacing.sm) : (24 + VSpacing.sm))
+                }
+            }
             .frame(maxWidth: 520, alignment: isUser ? .trailing : .leading)
     }
 
@@ -141,12 +149,6 @@ struct ChatBubble: View {
                         .padding(.top, 2)
                 }
 
-                if isUser && hasOverflowActions {
-                    overflowMenuButton
-                        .opacity(showOverflowMenu ? 1 : 0)
-                        .animation(VAnimation.fast, value: showOverflowMenu)
-                }
-
                 VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
                     if !isUser && hasInterleavedContent {
                         interleavedContent
@@ -191,11 +193,6 @@ struct ChatBubble: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .contextMenu {}
 
-                if !isUser && hasOverflowActions {
-                    overflowMenuButton
-                        .opacity(showOverflowMenu ? 1 : 0)
-                        .animation(VAnimation.fast, value: showOverflowMenu)
-                }
             }
 
             if !isUser { Spacer(minLength: 0) }
