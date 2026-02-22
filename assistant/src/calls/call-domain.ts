@@ -64,6 +64,11 @@ export type AnswerCallInput = {
   answer: string;
 };
 
+export type RelayInstructionInput = {
+  callSessionId: string;
+  instructionText: string;
+};
+
 // ── Caller identity resolution ───────────────────────────────────────
 
 export type CallerIdentitySource = 'per_call_override' | 'implicit_default' | 'user_config' | 'secure_key' | 'env_var';
@@ -389,4 +394,37 @@ export async function answerCall(input: AnswerCallInput): Promise<{ ok: true; qu
   answerPendingQuestion(question.id, answer);
 
   return { ok: true, questionId: question.id };
+}
+
+/**
+ * Relay a user instruction to an active call's orchestrator.
+ * Validates that the call is active and the instruction is non-empty
+ * before injecting it into the orchestrator's conversation history.
+ */
+export async function relayInstruction(input: RelayInstructionInput): Promise<{ ok: true } | CallError> {
+  const { callSessionId, instructionText } = input;
+
+  if (!instructionText || typeof instructionText !== 'string' || instructionText.trim().length === 0) {
+    return { ok: false, error: 'instructionText is required and must be a non-empty string', status: 400 };
+  }
+
+  const session = getCallSession(callSessionId);
+  if (!session) {
+    return { ok: false, error: `No call session found with ID ${callSessionId}`, status: 404 };
+  }
+
+  if (session.status === 'completed' || session.status === 'failed' || session.status === 'cancelled') {
+    return { ok: false, error: `Call session ${callSessionId} is not active (status: ${session.status})`, status: 409 };
+  }
+
+  const orchestrator = getCallOrchestrator(callSessionId);
+  if (!orchestrator) {
+    return { ok: false, error: 'No active orchestrator for this call', status: 409 };
+  }
+
+  await orchestrator.handleUserInstruction(instructionText);
+
+  log.info({ callSessionId }, 'User instruction relayed to orchestrator');
+
+  return { ok: true };
 }
