@@ -66,7 +66,7 @@ export type AnswerCallInput = {
 
 // ── Caller identity resolution ───────────────────────────────────────
 
-export type CallerIdentitySource = 'per_call_override' | 'config_default' | 'twilio_config' | 'user_config' | 'secure_key' | 'env_var';
+export type CallerIdentitySource = 'per_call_override' | 'implicit_default' | 'user_config' | 'secure_key' | 'env_var';
 
 export type CallerIdentityResult =
   | { ok: true; mode: 'assistant_number' | 'user_number'; fromNumber: string; source: CallerIdentitySource }
@@ -75,9 +75,12 @@ export type CallerIdentityResult =
 /**
  * Resolve which phone number to use as the caller ID for an outbound call.
  *
+ * Policy: implicit calls (no explicit mode) always use `assistant_number`.
+ * `user_number` is only used when explicitly requested per call.
+ *
  * - If `requestedMode` is provided and per-call overrides are allowed, use it.
  * - If `requestedMode` is provided but overrides are disabled, return an error.
- * - Otherwise fall through to the configured default mode.
+ * - Otherwise, always use `assistant_number` (implicit default).
  *
  * For `assistant_number`: uses the Twilio phone number from `getTwilioConfig()`.
  *   No eligibility check is performed — this is a fast path.
@@ -104,14 +107,15 @@ export async function resolveCallerIdentity(
     mode = requestedMode;
     source = 'per_call_override';
   } else {
-    mode = identityConfig.defaultMode;
-    source = 'config_default';
+    // Implicit calls always use assistant_number regardless of config
+    mode = 'assistant_number';
+    source = 'implicit_default';
   }
 
   if (mode === 'assistant_number') {
     const twilioConfig = getTwilioConfig();
-    log.info({ mode, source: 'twilio_config', fromNumber: twilioConfig.phoneNumber }, 'Resolved caller identity');
-    return { ok: true, mode, fromNumber: twilioConfig.phoneNumber, source: 'twilio_config' };
+    log.info({ mode, source, fromNumber: twilioConfig.phoneNumber }, 'Resolved caller identity');
+    return { ok: true, mode, fromNumber: twilioConfig.phoneNumber, source };
   }
 
   // user_number mode: resolve from config or secure key, tracking where the number came from

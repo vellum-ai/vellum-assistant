@@ -39,7 +39,6 @@ const mockCallsConfig = {
   disclosure: { enabled: false, text: '' },
   safety: { denyCategories: [] },
   callerIdentity: {
-    defaultMode: 'assistant_number' as const,
     allowPerCallOverride: true,
   },
 };

@@ -979,11 +979,6 @@ export const CallsVoiceConfigSchema = z.object({
 });
 
 export const CallerIdentityConfigSchema = z.object({
-  defaultMode: z
-    .enum(VALID_CALLER_IDENTITY_MODES, {
-      error: `calls.callerIdentity.defaultMode must be one of: ${VALID_CALLER_IDENTITY_MODES.join(', ')}`,
-    })
-    .default('assistant_number'),
   allowPerCallOverride: z
     .boolean({ error: 'calls.callerIdentity.allowPerCallOverride must be a boolean' })
     .default(true),
@@ -1041,7 +1036,6 @@ export const CallsConfigSchema = z.object({
     .string({ error: 'calls.model must be a string' })
     .optional(),
   callerIdentity: CallerIdentityConfigSchema.default({
-    defaultMode: 'assistant_number',
     allowPerCallOverride: true,
   }),
 });
@@ -1336,7 +1330,6 @@ export const AssistantConfigSchema = z.object({
       },
     },
     callerIdentity: {
-      defaultMode: 'assistant_number',
       allowPerCallOverride: true,
     },
   }),

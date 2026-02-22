@@ -704,7 +704,6 @@ describe('AssistantConfigSchema', () => {
         },
       },
       callerIdentity: {
-        defaultMode: 'assistant_number',
         allowPerCallOverride: true,
       },
     });
@@ -903,7 +902,6 @@ describe('AssistantConfigSchema', () => {
   test('applies calls.callerIdentity defaults', () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.calls.callerIdentity).toEqual({
-      defaultMode: 'assistant_number',
       allowPerCallOverride: true,
     });
   });
@@ -912,37 +910,25 @@ describe('AssistantConfigSchema', () => {
     const result = AssistantConfigSchema.parse({
       calls: {
         callerIdentity: {
-          defaultMode: 'user_number',
           allowPerCallOverride: false,
           userNumber: '+14155559999',
         },
       },
     });
-    expect(result.calls.callerIdentity.defaultMode).toBe('user_number');
     expect(result.calls.callerIdentity.allowPerCallOverride).toBe(false);
     expect(result.calls.callerIdentity.userNumber).toBe('+14155559999');
   });
 
-  test('accepts partial calls.callerIdentity with defaults for missing fields', () => {
+  test('legacy defaultMode field is silently stripped by schema', () => {
+    // Backward compatibility: existing configs with defaultMode should parse
+    // without error — Zod strips unrecognized keys by default.
     const result = AssistantConfigSchema.parse({
       calls: {
-        callerIdentity: { defaultMode: 'user_number' },
+        callerIdentity: { defaultMode: 'user_number', allowPerCallOverride: true },
       },
     });
-    expect(result.calls.callerIdentity.defaultMode).toBe('user_number');
+    expect((result.calls.callerIdentity as Record<string, unknown>).defaultMode).toBeUndefined();
     expect(result.calls.callerIdentity.allowPerCallOverride).toBe(true);
-    expect(result.calls.callerIdentity.userNumber).toBeUndefined();
-  });
-
-  test('rejects invalid calls.callerIdentity.defaultMode', () => {
-    const result = AssistantConfigSchema.safeParse({
-      calls: { callerIdentity: { defaultMode: 'custom_number' } },
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map(i => i.message);
-      expect(msgs.some(m => m.includes('calls.callerIdentity.defaultMode'))).toBe(true);
-    }
   });
 
   test('rejects non-boolean calls.callerIdentity.allowPerCallOverride', () => {
@@ -956,7 +942,6 @@ describe('AssistantConfigSchema', () => {
     const result = AssistantConfigSchema.parse({
       calls: { enabled: true },
     });
-    expect(result.calls.callerIdentity.defaultMode).toBe('assistant_number');
     expect(result.calls.callerIdentity.allowPerCallOverride).toBe(true);
   });
 });
@@ -1369,7 +1354,6 @@ describe('loadConfig with schema validation', () => {
     expect(config.calls.voice.elevenlabs.voiceId).toBe('');
     expect(config.calls.model).toBeUndefined();
     expect(config.calls.callerIdentity).toEqual({
-      defaultMode: 'assistant_number',
       allowPerCallOverride: true,
     });
   });

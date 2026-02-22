@@ -3801,13 +3801,13 @@ Call behavior is controlled via the `calls` config block in the assistant config
 
 ### Caller Identity Resolution
 
-When a call is initiated, the system resolves the caller identity (which phone number to show as the caller ID). By default, the assistant's Twilio number is used (`assistant_number` mode). Users can opt into `user_number` mode, which uses their own verified phone number. The identity mode is validated against Twilio's eligible caller IDs before the call is placed. The resolved identity mode and source are persisted in the `call_sessions` table for auditability.
+When a call is initiated, the system resolves the caller identity (which phone number to show as the caller ID). **Implicit calls (no explicit `callerIdentityMode`) always use `assistant_number`** — the assistant's Twilio number. `user_number` mode is only used when explicitly requested per call. The identity mode is validated against Twilio's eligible caller IDs before the call is placed. The resolved identity mode and source are persisted in the `call_sessions` table for auditability.
 
 The resolution is performed by `resolveCallerIdentity()` in `call-domain.ts`:
 
 1. **Per-call override** — If `callerIdentityMode` is provided in the call input and `calls.callerIdentity.allowPerCallOverride` is enabled, the requested mode is used (source: `per_call_override`).
-2. **Config default** — Otherwise, the configured `calls.callerIdentity.defaultMode` is used (source: `config_default`).
-3. **User number lookup** — For `user_number` mode, the number is resolved from (in priority order): `calls.callerIdentity.userNumber` config (source: `user_config`), `TWILIO_USER_PHONE_NUMBER` environment variable (source: `env_var`), or the `credential:twilio:user_phone_number` secure key (source: `secure_key`).
+2. **Implicit default** — Otherwise, `assistant_number` is always used (source: `implicit_default`). There is no configurable default mode — this is a strict policy.
+3. **User number lookup** — For `user_number` mode (explicit only), the number is resolved from (in priority order): `calls.callerIdentity.userNumber` config (source: `user_config`), `TWILIO_USER_PHONE_NUMBER` environment variable (source: `env_var`), or the `credential:twilio:user_phone_number` secure key (source: `secure_key`).
 4. **Eligibility check** — User numbers are verified against the Twilio API to confirm they can be used as an outbound caller ID.
 
 Both the resolved mode and source are logged at info level on success, and rejections are logged at warn level.
