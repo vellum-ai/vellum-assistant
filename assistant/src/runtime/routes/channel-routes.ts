@@ -2,7 +2,7 @@
  * Route handlers for channel inbound messages, delivery acks, and
  * conversation deletion.
  */
-import { deleteConversationKey } from '../../memory/conversation-key-store.js';
+import { deleteConversationKey, setConversationKey } from '../../memory/conversation-key-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
@@ -39,6 +39,45 @@ export async function handleDeleteConversation(req: Request): Promise<Response> 
   externalConversationStore.deleteBindingByChannelChat(sourceChannel, externalChatId);
 
   return Response.json({ ok: true });
+}
+
+export async function handleMoveSync(req: Request): Promise<Response> {
+  const body = await req.json() as {
+    sourceChannel?: string;
+    externalChatId?: string;
+    newConversationId?: string;
+  };
+
+  const { sourceChannel, externalChatId, newConversationId } = body;
+
+  if (!sourceChannel || typeof sourceChannel !== 'string') {
+    return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
+  }
+  if (!externalChatId || typeof externalChatId !== 'string') {
+    return Response.json({ error: 'externalChatId is required' }, { status: 400 });
+  }
+  if (!newConversationId || typeof newConversationId !== 'string') {
+    return Response.json({ error: 'newConversationId is required' }, { status: 400 });
+  }
+
+  // Get current owner
+  const currentBinding = externalConversationStore.getBindingByChannelChat(sourceChannel, externalChatId);
+  const previousOwner = currentBinding?.conversationId ?? null;
+
+  // Delete old mappings
+  const conversationKey = `${sourceChannel}:${externalChatId}`;
+  deleteConversationKey(conversationKey);
+  externalConversationStore.deleteBindingByChannelChat(sourceChannel, externalChatId);
+
+  // Create new mappings
+  setConversationKey(conversationKey, newConversationId);
+  externalConversationStore.upsertOutboundBinding({
+    conversationId: newConversationId,
+    sourceChannel,
+    externalChatId,
+  });
+
+  return Response.json({ ok: true, previousOwner });
 }
 
 export async function handleChannelInbound(

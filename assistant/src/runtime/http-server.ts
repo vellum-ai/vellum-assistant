@@ -37,6 +37,7 @@ import {
 } from './routes/run-routes.js';
 import {
   handleDeleteConversation,
+  handleMoveSync,
   handleChannelInbound,
   handleChannelDeliveryAck,
   handleListDeadLetters,
@@ -713,6 +714,10 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'channels/conversation' && req.method === 'DELETE') {
         return await handleDeleteConversation(req);
+      }
+
+      if (endpoint === 'channels/move-sync' && req.method === 'POST') {
+        return await handleMoveSync(req);
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {

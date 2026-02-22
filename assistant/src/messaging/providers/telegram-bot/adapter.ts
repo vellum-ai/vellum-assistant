@@ -115,6 +115,19 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   },
 
   async sendMessage(_token: string, conversationId: string, text: string, _options?: SendOptions): Promise<SendResult> {
+    // Check for owner conflict before sending
+    if (_options?.senderConversationId) {
+      const existingBinding = externalConversationStore.getBindingByChannelChat('telegram', conversationId);
+      if (existingBinding && existingBinding.conversationId !== _options.senderConversationId) {
+        return {
+          id: '',
+          timestamp: Date.now(),
+          conversationId,
+          conflict: { ownerConversationId: existingBinding.conversationId },
+        };
+      }
+    }
+
     const gatewayUrl = getGatewayUrl();
     const bearerToken = getBearerToken();
 
