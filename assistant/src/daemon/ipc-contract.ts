@@ -2308,7 +2308,7 @@ export interface ToolNamesListResponse {
   /** Sorted list of all registered tool names. */
   names: string[];
   /** Input schemas keyed by tool name. */
-  schemas: Record<string, ToolInputSchema>;
+  schemas?: Record<string, ToolInputSchema>;
 }
 
 export type ServerMessage =

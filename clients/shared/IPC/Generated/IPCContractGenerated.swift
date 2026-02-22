@@ -1758,7 +1758,7 @@ public struct IPCToolNamesListResponse: Codable, Sendable {
     /// Sorted list of all registered tool names.
     public let names: [String]
     /// Input schemas keyed by tool name.
-    public let schemas: [String: AnyCodable]
+    public let schemas: [String: AnyCodable]?
 }
 
 public struct IPCToolOutputChunk: Codable, Sendable {

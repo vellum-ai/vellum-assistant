@@ -117,7 +117,7 @@ final class ToolPermissionTesterModel: ObservableObject {
                 guard let self else { return }
                 self.availableToolNames = response.names
                 // Store raw schemas from the response.
-                self.toolSchemas = Self.extractSchemas(from: response.schemas)
+                self.toolSchemas = Self.extractSchemas(from: response.schemas ?? [:])
                 // Refresh fields if a tool is already selected.
                 if !self.toolName.isEmpty {
                     self.updateFieldsForTool(self.toolName)
