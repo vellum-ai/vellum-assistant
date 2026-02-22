@@ -57,11 +57,13 @@ declare -a PATTERNS=(
 )
 
 # Ignore deterministic checksum/hash fixtures that are not credentials.
-# Also ignore Swift/TS function-parameter declarations (e.g. `clientSecret: String?`).
+# Also ignore Swift/TS function-parameter declarations (e.g. `clientSecret: String?`)
+# and documentation placeholders (e.g. `oauth2ClientSecret: "<optional>"`).
 declare -a SAFE_LINE_PATTERNS=(
     "[A-Za-z0-9_\"']*(sha256|SHA256|checksum|digest|hash|nonceSha256|observedNonceSha256)[A-Za-z0-9_\"']*[[:space:]]*[:=][[:space:]]*['\"][a-fA-F0-9]{32,}['\"]"
     "client[Ss]ecret:[[:space:]]*(String[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil)|client[Ss]ecret[[:space:]]*[,)])"
     "private[_-]?[Kk]ey['\"]?:[[:space:]]*(String|string|Data|data)[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil|=[[:space:]]*['\"]['\"])"
+    "(secret|Secret)['\"]?[[:space:]]*[:=][[:space:]]*['\"]<[^>]+>['\"]"
 )
 
 matches_safe_line_pattern() {
@@ -128,6 +130,7 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_SWIFT_PARAM_LINE='public init(action: String, mode: String? = nil, clientId: String? = nil, clientSecret: String? = nil)'
     SAFE_SWIFT_CALL_LINE='self.init(type: "twitter_integration_config", action: action, clientSecret: clientSecret, strategy: strategy)'
     SAFE_SWIFT_DECL_LINE='public let clientSecret: String?'
+    SAFE_DOC_PLACEHOLDER_LINE='  oauth2ClientSecret: "<optional>",'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -247,6 +250,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_SWIFT_DECL_LINE" && ! matches_safe_line_pattern "$SAFE_SWIFT_DECL_LINE"; then
         echo -e "${RED}Self-test failed:${NC} Swift clientSecret end-of-line declaration false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_DOC_PLACEHOLDER_LINE" && ! matches_safe_line_pattern "$SAFE_DOC_PLACEHOLDER_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} doc placeholder clientSecret false positive"
         exit 1
     fi
 

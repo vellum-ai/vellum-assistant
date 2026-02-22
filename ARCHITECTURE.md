@@ -2573,7 +2573,7 @@ When the OAuth2 flow completes, the handler stores credential metadata at `integ
   allowedDomains: [],
   oauth2TokenUrl: "https://api.x.com/2/oauth2/token",
   oauth2ClientId: "<user's client ID>",
-  oauth2Credentials: "<optional — PKCE used by default>",
+  oauth2ClientSecret: "<optional>",
   grantedScopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
   expiresAt: <epoch ms>
 }
