@@ -836,7 +836,7 @@ graph TB
 | `memory.conflicts.reaskCooldownTurns` | `3` | Minimum turn distance before re-asking the same conflict clarification. |
 | `memory.conflicts.resolverLlmTimeoutMs` | `12000` | Timeout bound for clarification resolver LLM fallback. |
 | `memory.conflicts.relevanceThreshold` | `0.3` | Similarity threshold for deciding whether a pending conflict is relevant to the current request. |
-| `memory.conflicts.gateMode` | `'soft'` | Conflict gate strategy. `'soft'` asks the user inline; gate is skipped for other values. |
+| `memory.conflicts.gateMode` | `'soft'` | Conflict gate strategy. Currently only `'soft'` is supported (asks the user inline). |
 | `memory.conflicts.askOnIrrelevantTurns` | `false` | When `true`, soft-inject irrelevant conflict clarifications into every turn. When `false` (default), only ask when the conflict is topically relevant. |
 | `memory.conflicts.conflictableKinds` | `['preference', 'profile', 'constraint', 'instruction', 'style']` | Memory item kinds eligible for conflict detection. Items with kinds outside this list are auto-dismissed. |
 | `memory.profile.enabled` | `true` | Enable dynamic profile compilation from active trusted profile/preference/constraint/instruction memories. |
