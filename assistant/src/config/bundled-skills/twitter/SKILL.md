@@ -16,7 +16,7 @@ There are two supported ways to connect to X. Both are fully functional; choose 
 OAuth uses the official X API v2. It is the most reliable connection method and does not depend on browser sessions.
 
 - Supports: **post** and **reply**
-- Read-only operations (timeline, search, home, bookmarks, notifications, likes, followers, following, media) are not yet available via OAuth; they use the browser path automatically when the strategy is set to `auto`.
+- Read-only operations (timeline, search, home, bookmarks, notifications, likes, followers, following, media) always use the browser path directly, regardless of the strategy setting.
 - Setup: The user connects OAuth credentials through the Settings UI or the `twitter_auth_start` IPC flow.
 - Set the strategy: `vellum x strategy set oauth`
 
@@ -67,7 +67,7 @@ When a Twitter operation fails, follow these steps:
    - `session_expired` or `SessionExpiredError` — the browser session cookies have expired.
    - `OAuth is not configured` — the user chose OAuth but credentials are not set up.
    - `Twitter API error (401)` — OAuth token may be expired or revoked.
-   - `UnsupportedOAuthOperationError` — the requested operation is not available via OAuth (e.g., timeline, search).
+   - `UnsupportedOAuthOperationError` — the requested write operation is not available via OAuth.
    - `Cannot connect to daemon` — the Vellum daemon is not running.
 
 2. **Explain the likely cause clearly** to the user.
@@ -75,7 +75,7 @@ When a Twitter operation fails, follow these steps:
 3. **Suggest trying the other path as an alternative:**
    - If the browser session expired: suggest setting up OAuth for post/reply operations, or refresh the browser session with `vellum x refresh`.
    - If OAuth failed or is not configured: suggest using the browser path with `vellum x strategy set browser` and `vellum x refresh`.
-   - If the operation is unsupported via OAuth: explain that this specific operation requires the browser path, and run it via browser. No strategy change is needed if the user is on `auto`.
+   - If the operation is unsupported via OAuth: explain that this write operation is not yet supported via OAuth, and suggest using the browser path with `vellum x strategy set browser`.
 
 4. **Offer concrete steps to switch:**
    ```bash
