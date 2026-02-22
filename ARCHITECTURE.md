@@ -433,7 +433,7 @@ The SMS channel provides text-only messaging via Twilio, sharing the same teleph
 2. The gateway authenticates the request via bearer token (same fail-closed model as `/deliver/telegram`).
 3. The gateway sends the SMS via the Twilio Messages API using the configured `TWILIO_PHONE_NUMBER` as the `From` number.
 
-**Setup**: Twilio credentials (Account SID, Auth Token) and phone number are managed via the `twilio_config` IPC contract and the `twilio-setup` skill. A single phone number is shared across voice and SMS for each assistant.
+**Setup**: Twilio credentials (Account SID, Auth Token) and phone number are managed via the `twilio_config` IPC contract and the `twilio-setup` skill. A single phone number is shared across voice and SMS for each assistant. Both `provision_number` and `assign_number` auto-persist the number to config and secure storage, and auto-configure Twilio webhooks (voice URL, status callback, SMS URL) via the Twilio IncomingPhoneNumber API when a public ingress URL is available. Webhook configuration is best-effort — if ingress is not yet set up, the number is still assigned and webhooks can be configured later.
 
 **Limitations (v1)**: Text-only — MMS (media attachments) is deferred to a future release.
 

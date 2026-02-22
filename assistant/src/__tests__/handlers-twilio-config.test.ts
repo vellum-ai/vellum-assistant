@@ -573,6 +573,169 @@ describe('Twilio config handler', () => {
     expect(res.phoneNumber).toBe('+15559999999');
   });
 
+  test('provision_number auto-assigns the purchased number to config and secure storage', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('AvailablePhoneNumbers') && urlStr.includes('Local.json')) {
+        return new Response(JSON.stringify({
+          available_phone_numbers: [{
+            phone_number: '+15559999999',
+            friendly_name: '(555) 999-9999',
+            capabilities: { voice: true, sms: true },
+          }],
+        }), { status: 200 });
+      }
+      if (urlStr.includes('IncomingPhoneNumbers.json') && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          phone_number: '+15559999999',
+          friendly_name: '(555) 999-9999',
+          capabilities: { voice: true, sms: true },
+        }), { status: 201 });
+      }
+      // Webhook lookup (no ingress configured, will fail gracefully)
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'provision_number',
+      country: 'US',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; phoneNumber?: string };
+    expect(res.success).toBe(true);
+    expect(res.phoneNumber).toBe('+15559999999');
+
+    // Verify the number was persisted in secure storage (same as assign_number)
+    expect(secureKeyStore['credential:twilio:phone_number']).toBe('+15559999999');
+
+    // Verify the number was persisted in the config file (same as assign_number)
+    expect((rawConfigStore.sms as Record<string, unknown>)?.phoneNumber).toBe('+15559999999');
+  });
+
+  test('provision_number configures Twilio webhooks when ingress URL is available', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    rawConfigStore = { ingress: { enabled: true, publicBaseUrl: 'https://example.ngrok.io' } };
+
+    const fetchCalls: Array<{ url: string; method: string; body?: string }> = [];
+
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      fetchCalls.push({ url: urlStr, method: init?.method ?? 'GET', body: init?.body?.toString() });
+
+      if (urlStr.includes('AvailablePhoneNumbers') && urlStr.includes('Local.json')) {
+        return new Response(JSON.stringify({
+          available_phone_numbers: [{
+            phone_number: '+15559999999',
+            friendly_name: '(555) 999-9999',
+            capabilities: { voice: true, sms: true },
+          }],
+        }), { status: 200 });
+      }
+      if (urlStr.includes('IncomingPhoneNumbers.json') && init?.method === 'POST'
+          && init?.body?.toString().includes('PhoneNumber')) {
+        return new Response(JSON.stringify({
+          phone_number: '+15559999999',
+          friendly_name: '(555) 999-9999',
+          capabilities: { voice: true, sms: true },
+        }), { status: 201 });
+      }
+      // Webhook number lookup
+      if (urlStr.includes('IncomingPhoneNumbers.json') && urlStr.includes('PhoneNumber=')) {
+        return new Response(JSON.stringify({
+          incoming_phone_numbers: [{ sid: 'PN123abc', phone_number: '+15559999999' }],
+        }), { status: 200 });
+      }
+      // Webhook update
+      if (urlStr.includes('IncomingPhoneNumbers/PN123abc.json') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ sid: 'PN123abc' }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'provision_number',
+      country: 'US',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean };
+    expect(res.success).toBe(true);
+
+    // Find the webhook update call
+    const webhookUpdate = fetchCalls.find((c) =>
+      c.url.includes('IncomingPhoneNumbers/PN123abc.json') && c.method === 'POST',
+    );
+    expect(webhookUpdate).toBeDefined();
+
+    // Verify the webhook URLs contain the expected ingress base URL paths
+    const body = webhookUpdate!.body!;
+    expect(body).toContain('VoiceUrl=');
+    expect(body).toContain('webhooks%2Ftwilio%2Fvoice');
+    expect(body).toContain('StatusCallback=');
+    expect(body).toContain('webhooks%2Ftwilio%2Fstatus');
+    expect(body).toContain('SmsUrl=');
+    expect(body).toContain('webhooks%2Ftwilio%2Fsms');
+  });
+
+  test('provision_number succeeds with clear warning when ingress URL is missing', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    // No ingress config — webhook configuration will be skipped gracefully
+
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('AvailablePhoneNumbers') && urlStr.includes('Local.json')) {
+        return new Response(JSON.stringify({
+          available_phone_numbers: [{
+            phone_number: '+15559999999',
+            friendly_name: '(555) 999-9999',
+            capabilities: { voice: true, sms: true },
+          }],
+        }), { status: 200 });
+      }
+      if (urlStr.includes('IncomingPhoneNumbers.json') && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          phone_number: '+15559999999',
+          friendly_name: '(555) 999-9999',
+          capabilities: { voice: true, sms: true },
+        }), { status: 201 });
+      }
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'provision_number',
+      country: 'US',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    // The provision should still succeed — webhook config failure is non-fatal
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; phoneNumber?: string };
+    expect(res.success).toBe(true);
+    expect(res.phoneNumber).toBe('+15559999999');
+
+    // Number should still be persisted even without webhook setup
+    expect(secureKeyStore['credential:twilio:phone_number']).toBe('+15559999999');
+    expect((rawConfigStore.sms as Record<string, unknown>)?.phoneNumber).toBe('+15559999999');
+  });
+
   test('provision_number returns error when no numbers available', async () => {
     secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
     secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';

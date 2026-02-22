@@ -82,7 +82,14 @@ If the user wants to buy a new number through Twilio, send:
 - `areaCode` is optional — ask the user if they have a preferred area code
 - `country` defaults to `"US"` — ask if they want a different country (ISO 3166-1 alpha-2)
 
-The daemon provisions the number via the Twilio API and automatically assigns it to the assistant. The response includes the new `phoneNumber`.
+The daemon provisions the number via the Twilio API, automatically assigns it to the assistant (persisting to both secure storage and config), and configures Twilio webhooks (voice, status callback, SMS) if a public ingress URL is available. The response includes the new `phoneNumber`. No separate `assign_number` call is needed.
+
+**Webhook auto-configuration:** When `ingress.publicBaseUrl` is configured, the daemon automatically sets the following webhooks on the Twilio phone number:
+- Voice webhook: `{publicBaseUrl}/webhooks/twilio/voice`
+- Voice status callback: `{publicBaseUrl}/webhooks/twilio/status`
+- SMS webhook: `{publicBaseUrl}/webhooks/twilio/sms`
+
+If ingress is not yet configured, webhook setup is skipped gracefully — the number is still assigned and usable once ingress is set up later.
 
 **Trial account note:** Twilio trial accounts come with one free phone number. Check "Active Numbers" in the Twilio Console first before provisioning.
 
@@ -109,7 +116,7 @@ Then assign the chosen number:
 }
 ```
 
-The phone number must be in E.164 format.
+The phone number must be in E.164 format. Like `provision_number`, `assign_number` also auto-configures Twilio webhooks when a public ingress URL is available.
 
 ### Option C: Manual Entry
 
@@ -146,13 +153,13 @@ If not configured, load and run the public-ingress skill:
 skill_load skill=public-ingress
 ```
 
-**Twilio webhook endpoints (handled automatically by the gateway):**
+**Twilio webhook endpoints (auto-configured on provision/assign):**
 - Voice webhook: `{publicBaseUrl}/webhooks/twilio/voice`
 - Voice status callback: `{publicBaseUrl}/webhooks/twilio/status`
 - ConversationRelay WebSocket: `{publicBaseUrl}/webhooks/twilio/relay` (wss://)
 - SMS webhook: `{publicBaseUrl}/webhooks/twilio/sms`
 
-No manual Twilio webhook configuration is needed — webhook URLs are registered dynamically.
+Webhook URLs are automatically configured on the Twilio phone number when `provision_number` or `assign_number` is called with a valid ingress URL. No manual Twilio Console webhook configuration is needed.
 
 ## Step 5: Verify Setup
 
