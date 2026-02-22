@@ -40,6 +40,27 @@ class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
     }
 
     private func setupCamera() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            configureSession()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        self.configureSession()
+                    } else {
+                        self.showPermissionDeniedOverlay()
+                    }
+                }
+            }
+        case .denied, .restricted:
+            showPermissionDeniedOverlay()
+        @unknown default:
+            showPermissionDeniedOverlay()
+        }
+    }
+
+    private func configureSession() {
         let session = AVCaptureSession()
 
         guard let device = AVCaptureDevice.default(for: .video),
@@ -88,7 +109,7 @@ class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
         ])
     }
 
-    func stopScanning() {
+    private func stopScanning() {
         captureSession?.stopRunning()
     }
 

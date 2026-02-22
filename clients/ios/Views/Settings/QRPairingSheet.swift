@@ -20,7 +20,7 @@ struct QRPairingSheet: View {
     }
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             VStack(spacing: VSpacing.xl) {
                 switch phase {
                 case .scanning:
