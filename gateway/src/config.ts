@@ -43,6 +43,15 @@ export type GatewayConfig = {
   telegramWebhookSecret: string | undefined;
   /** Twilio auth token for validating webhook signatures at the gateway boundary. */
   twilioAuthToken: string | undefined;
+  /** Twilio account SID for sending SMS via the Messages API. */
+  twilioAccountSid: string | undefined;
+  /** Twilio phone number (E.164) used as the "From" for outbound SMS. */
+  twilioPhoneNumber: string | undefined;
+  /**
+   * When true, the /deliver/sms endpoint allows unauthenticated access
+   * even when no bearer token is configured. Intended for local development only.
+   */
+  smsDeliverAuthBypass: boolean;
   /** Canonical public ingress base URL, used for webhook signature reconstruction. */
   ingressPublicBaseUrl: string | undefined;
   unmappedPolicy: "reject" | "default";
@@ -230,6 +239,21 @@ export function loadConfig(): GatewayConfig {
   }
 
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN || undefined;
+  const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID || undefined;
+  const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER || undefined;
+
+  const smsDeliverAuthBypassRaw = process.env.GATEWAY_SMS_DELIVER_AUTH_BYPASS;
+  if (
+    smsDeliverAuthBypassRaw !== undefined &&
+    smsDeliverAuthBypassRaw !== "true" &&
+    smsDeliverAuthBypassRaw !== "false"
+  ) {
+    throw new Error(
+      `GATEWAY_SMS_DELIVER_AUTH_BYPASS must be "true" or "false", got "${smsDeliverAuthBypassRaw}"`,
+    );
+  }
+  const smsDeliverAuthBypass = smsDeliverAuthBypassRaw === "true";
+
   const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
 
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
@@ -257,6 +281,9 @@ export function loadConfig(): GatewayConfig {
       runtimeProxyRequireAuth,
       telegramDeliverAuthBypass,
       hasTwilioAuthToken: !!twilioAuthToken,
+      hasTwilioAccountSid: !!twilioAccountSid,
+      hasTwilioPhoneNumber: !!twilioPhoneNumber,
+      smsDeliverAuthBypass,
       ingressPublicBaseUrl,
     },
     "Configuration loaded",
@@ -288,6 +315,9 @@ export function loadConfig(): GatewayConfig {
     telegramTimeoutMs,
     telegramWebhookSecret,
     twilioAuthToken,
+    twilioAccountSid,
+    twilioPhoneNumber,
+    smsDeliverAuthBypass,
     ingressPublicBaseUrl,
     unmappedPolicy,
   };

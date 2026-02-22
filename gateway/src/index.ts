@@ -9,6 +9,8 @@ import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webh
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
 import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
 import { createTwilioRelayWebsocketHandler, getRelayWebsocketHandlers } from "./http/routes/twilio-relay-websocket.js";
+import { createTwilioSmsWebhookHandler } from "./http/routes/twilio-sms-webhook.js";
+import { createSmsDeliverHandler } from "./http/routes/sms-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { getLogger, initLogger } from "./logger.js";
 import { buildSchema } from "./schema.js";
@@ -40,6 +42,8 @@ function main() {
   const handleTwilioStatusWebhook = createTwilioStatusWebhookHandler(config);
   const handleTwilioConnectActionWebhook = createTwilioConnectActionWebhookHandler(config);
   const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config);
+  const handleTwilioSmsWebhook = createTwilioSmsWebhookHandler(config);
+  const handleSmsDeliver = createSmsDeliverHandler(config);
   const handleOAuthCallback = createOAuthCallbackHandler(config);
 
   const handleRuntimeProxy = config.runtimeProxyEnabled
@@ -117,6 +121,14 @@ function main() {
         url.pathname === "/v1/calls/twilio/connect-action"
       ) {
         return handleTwilioConnectActionWebhook(tracedReq);
+      }
+
+      if (url.pathname === "/webhooks/twilio/sms") {
+        return handleTwilioSmsWebhook(tracedReq);
+      }
+
+      if (url.pathname === "/deliver/sms") {
+        return handleSmsDeliver(tracedReq);
       }
 
       if (url.pathname === "/webhooks/twilio/relay" || url.pathname === "/v1/calls/relay") {

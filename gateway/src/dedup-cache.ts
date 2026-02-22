@@ -127,3 +127,63 @@ export class DedupCache {
     }
   }
 }
+
+/**
+ * Simple string-keyed TTL set for deduplication.
+ * Used for SMS MessageSid dedup where we only need to track whether
+ * a message ID has been seen, not cache a full response.
+ */
+export class StringDedupCache {
+  private cache = new Map<string, number>();
+  private readonly ttlMs: number;
+  private readonly maxSize: number;
+
+  constructor(ttlMs = 5 * 60_000, maxSize = 10_000) {
+    this.ttlMs = ttlMs;
+    this.maxSize = maxSize;
+  }
+
+  /**
+   * Returns true if the key has already been seen (within the TTL window).
+   * If not seen, marks it as seen and returns false.
+   */
+  seen(key: string): boolean {
+    const now = Date.now();
+    const expiresAt = this.cache.get(key);
+    if (expiresAt !== undefined) {
+      if (now <= expiresAt) return true;
+      this.cache.delete(key);
+    }
+
+    // Evict expired entries if at capacity
+    if (this.cache.size >= this.maxSize) {
+      this.evictExpired(now);
+    }
+    if (this.cache.size >= this.maxSize) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest !== undefined) {
+        this.cache.delete(oldest);
+      }
+    }
+
+    this.cache.set(key, now + this.ttlMs);
+    return false;
+  }
+
+  get size(): number {
+    return this.cache.size;
+  }
+
+  private evictExpired(now: number): void {
+    let evicted = 0;
+    for (const [key, expiresAt] of this.cache) {
+      if (now > expiresAt) {
+        this.cache.delete(key);
+        evicted++;
+      }
+    }
+    if (evicted > 0) {
+      log.debug({ evicted }, "Evicted expired string dedup cache entries");
+    }
+  }
+}
