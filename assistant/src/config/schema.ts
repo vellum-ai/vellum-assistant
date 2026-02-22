@@ -1060,7 +1060,11 @@ export const IngressConfigSchema = z.object({
   // infer it from whether a publicBaseUrl is configured. Existing users who
   // have a URL but predate the `enabled` field should not have their webhooks
   // silently disabled on upgrade.
-  enabled: val.enabled ?? (val.publicBaseUrl ? true : false),
+  //
+  // When publicBaseUrl is empty and enabled is unset, leave enabled as
+  // undefined so getPublicBaseUrl() can still fall through to the
+  // INGRESS_PUBLIC_BASE_URL env-var fallback (env-only setups).
+  enabled: val.enabled ?? (val.publicBaseUrl ? true : undefined),
 }));
 
 export const AssistantConfigSchema = z.object({
@@ -1334,7 +1338,6 @@ export const AssistantConfigSchema = z.object({
     },
   }),
   ingress: IngressConfigSchema.default({
-    enabled: false,
     publicBaseUrl: '',
   }),
 }).superRefine((config, ctx) => {
