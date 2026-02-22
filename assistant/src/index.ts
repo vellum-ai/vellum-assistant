@@ -62,14 +62,20 @@ const knownCommands = new Set(program.commands.map(cmd => cmd.name()));
 const firstArg = process.argv[2];
 
 if (firstArg && !firstArg.startsWith('-') && !knownCommands.has(firstArg)) {
-  const cliPkgPath = require.resolve('@vellumai/cli/package.json');
-  const cliEntry = join(dirname(cliPkgPath), 'src', 'index.ts');
-  const child = spawn('bun', ['run', cliEntry, ...process.argv.slice(2)], {
-    stdio: 'inherit',
-  });
-  child.on('exit', (code) => {
-    process.exit(code ?? 1);
-  });
+  try {
+    const cliPkgPath = require.resolve('@vellumai/cli/package.json');
+    const cliEntry = join(dirname(cliPkgPath), 'src', 'index.ts');
+    const child = spawn('bun', ['run', cliEntry, ...process.argv.slice(2)], {
+      stdio: 'inherit',
+    });
+    child.on('exit', (code) => {
+      process.exit(code ?? 1);
+    });
+  } catch {
+    console.error(`Unknown command: ${firstArg}`);
+    console.error('Install the full stack with: bun install -g vellum');
+    process.exit(1);
+  }
 } else {
   program.parse();
 }
