@@ -373,6 +373,42 @@ describe('Telegram config handler', () => {
     expect(secureKeyStore['credential:telegram:webhook_secret']).toBe('existing-secret');
   });
 
+  test('set action upserts webhook_secret metadata even when secret already exists', async () => {
+    // Pre-populate webhook secret WITHOUT metadata to simulate lost/corrupted metadata
+    secureKeyStore['credential:telegram:webhook_secret'] = 'existing-secret';
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('api.telegram.org') && urlStr.includes('/getMe')) {
+        return new Response(JSON.stringify({
+          ok: true,
+          result: { id: 123456, is_bot: true, first_name: 'TestBot', username: 'test_bot' },
+        }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TelegramConfigRequest = {
+      type: 'telegram_config',
+      action: 'set',
+      botToken: '123456:valid-token',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTelegramConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean };
+    expect(res.success).toBe(true);
+
+    // Metadata for webhook_secret should have been upserted even though the
+    // secret already existed (self-heal for lost/corrupted metadata)
+    const webhookMeta = credentialMetadataStore.find(
+      (m) => m.service === 'telegram' && m.field === 'webhook_secret',
+    );
+    expect(webhookMeta).toBeDefined();
+  });
+
   test('set action fails when secure storage fails', async () => {
     setSecureKeyOverride = () => false;
 
