@@ -204,6 +204,17 @@ describe('gateway-only ingress enforcement', () => {
       // route matching — confirming no Telegram webhook handler exists.
       expect(res.status).toBe(404);
     });
+
+    test('POST /webhooks/telegram/test returns 404 when authenticated (no handler exists)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/webhooks/telegram/test`, {
+        method: 'POST',
+        headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      // With valid auth, the request passes the auth middleware and reaches
+      // route matching — confirming no Telegram subpath handler exists.
+      expect(res.status).toBe(404);
+    });
   });
 
   // ── Direct Twilio webhook routes blocked in gateway_only mode ──────
