@@ -475,6 +475,8 @@ export function handleIngressConfig(
       ctx.send(socket, { type: 'ingress_config_response', enabled, publicBaseUrl, localGatewayTarget, success: true });
     } else if (msg.action === 'set') {
       const value = (msg.publicBaseUrl ?? '').trim().replace(/\/+$/, '');
+      // Ensure we capture the original env value before any mutation below
+      getOriginalIngressEnv();
       const raw = loadRawConfig();
 
       // Update ingress.publicBaseUrl — this is the single source of truth for
