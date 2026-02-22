@@ -8,6 +8,7 @@ const VALID_MEMORY_EMBEDDING_PROVIDERS = ['auto', 'local', 'openai', 'gemini', '
 const VALID_SANDBOX_BACKENDS = ['native', 'docker'] as const;
 const VALID_DOCKER_NETWORKS = ['none', 'bridge'] as const;
 const VALID_PERMISSIONS_MODES = ['legacy', 'strict', 'workspace'] as const;
+const VALID_SMS_PROVIDERS = ['twilio'] as const;
 const VALID_CALL_PROVIDERS = ['twilio'] as const;
 const VALID_CALL_VOICE_MODES = ['twilio_standard', 'twilio_elevenlabs_tts', 'elevenlabs_agent'] as const;
 export const VALID_CALLER_IDENTITY_MODES = ['assistant_number', 'user_number'] as const;
@@ -1053,6 +1054,20 @@ export const SkillsConfigSchema = z.object({
   allowBundled: z.array(z.string()).nullable().default(null),
 });
 
+export const SmsConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'sms.enabled must be a boolean' })
+    .default(false),
+  provider: z
+    .enum(VALID_SMS_PROVIDERS, {
+      error: `sms.provider must be one of: ${VALID_SMS_PROVIDERS.join(', ')}`,
+    })
+    .default('twilio'),
+  phoneNumber: z
+    .string({ error: 'sms.phoneNumber must be a string' })
+    .default(''),
+});
+
 const IngressBaseSchema = z.object({
   enabled: z
     .boolean({ error: 'ingress.enabled must be a boolean' })
@@ -1348,6 +1363,11 @@ export const AssistantConfigSchema = z.object({
       allowPerCallOverride: true,
     },
   }),
+  sms: SmsConfigSchema.default({
+    enabled: false,
+    provider: 'twilio',
+    phoneNumber: '',
+  }),
   ingress: IngressConfigSchema,
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
@@ -1412,4 +1432,5 @@ export type CallsSafetyConfig = z.infer<typeof CallsSafetyConfigSchema>;
 export type CallsVoiceConfig = z.infer<typeof CallsVoiceConfigSchema>;
 export type CallsElevenLabsConfig = z.infer<typeof CallsElevenLabsConfigSchema>;
 export type CallerIdentityConfig = z.infer<typeof CallerIdentityConfigSchema>;
+export type SmsConfig = z.infer<typeof SmsConfigSchema>;
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;

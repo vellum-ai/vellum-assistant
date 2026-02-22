@@ -1,0 +1,659 @@
+import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import * as net from 'node:net';
+
+const testDir = mkdtempSync(join(tmpdir(), 'handlers-twilio-cfg-test-'));
+
+// Track loadRawConfig / saveRawConfig calls
+let rawConfigStore: Record<string, unknown> = {};
+
+mock.module('../config/loader.js', () => ({
+  getConfig: () => ({}),
+  loadConfig: () => ({}),
+  loadRawConfig: () => ({ ...rawConfigStore }),
+  saveRawConfig: (cfg: Record<string, unknown>) => {
+    rawConfigStore = { ...cfg };
+  },
+  saveConfig: () => {},
+  invalidateConfigCache: () => {},
+}));
+
+mock.module('../util/platform.js', () => ({
+  getRootDir: () => testDir,
+  getDataDir: () => testDir,
+  getIpcBlobDir: () => join(testDir, 'ipc-blobs'),
+  isMacOS: () => process.platform === 'darwin',
+  isLinux: () => process.platform === 'linux',
+  isWindows: () => process.platform === 'win32',
+  getSocketPath: () => join(testDir, 'test.sock'),
+  getPidPath: () => join(testDir, 'test.pid'),
+  getDbPath: () => join(testDir, 'test.db'),
+  getLogPath: () => join(testDir, 'test.log'),
+  ensureDataDir: () => {},
+  readHttpToken: () => undefined,
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    trace: () => {},
+    fatal: () => {},
+    isDebug: () => false,
+    child: () => ({
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+      debug: () => {},
+      isDebug: () => false,
+    }),
+  }),
+}));
+
+// Mock secure key storage
+let secureKeyStore: Record<string, string> = {};
+let setSecureKeyOverride: ((account: string, value: string) => boolean) | null = null;
+
+mock.module('../security/secure-keys.js', () => ({
+  getSecureKey: (account: string) => secureKeyStore[account] ?? undefined,
+  setSecureKey: (account: string, value: string) => {
+    if (setSecureKeyOverride) return setSecureKeyOverride(account, value);
+    secureKeyStore[account] = value;
+    return true;
+  },
+  deleteSecureKey: (account: string) => {
+    if (account in secureKeyStore) {
+      delete secureKeyStore[account];
+      return true;
+    }
+    return false;
+  },
+  listSecureKeys: () => Object.keys(secureKeyStore),
+  getBackendType: () => 'encrypted',
+  isDowngradedFromKeychain: () => false,
+  _resetBackend: () => {},
+  _setBackend: () => {},
+}));
+
+// Mock credential metadata store
+let credentialMetadataStore: Array<{ service: string; field: string; accountInfo?: string }> = [];
+const deletedMetadata: Array<{ service: string; field: string }> = [];
+
+mock.module('../tools/credentials/metadata-store.js', () => ({
+  getCredentialMetadata: (service: string, field: string) =>
+    credentialMetadataStore.find((m) => m.service === service && m.field === field) ?? undefined,
+  upsertCredentialMetadata: (service: string, field: string, policy?: Record<string, unknown>) => {
+    const existing = credentialMetadataStore.find((m) => m.service === service && m.field === field);
+    if (existing) {
+      if (policy?.accountInfo !== undefined) existing.accountInfo = policy.accountInfo as string;
+      return existing;
+    }
+    const record = { service, field, accountInfo: policy?.accountInfo as string | undefined };
+    credentialMetadataStore.push(record);
+    return record;
+  },
+  deleteCredentialMetadata: (service: string, field: string) => {
+    deletedMetadata.push({ service, field });
+    const idx = credentialMetadataStore.findIndex((m) => m.service === service && m.field === field);
+    if (idx !== -1) {
+      credentialMetadataStore.splice(idx, 1);
+      return true;
+    }
+    return false;
+  },
+  listCredentialMetadata: () => credentialMetadataStore,
+  assertMetadataWritable: () => {},
+  _setMetadataPath: () => {},
+}));
+
+// Mock fetch for Twilio API validation
+const originalFetch = globalThis.fetch;
+
+import { handleTwilioConfig } from '../daemon/handlers/config.js';
+import type { HandlerContext } from '../daemon/handlers.js';
+import type {
+  TwilioConfigRequest,
+  ServerMessage,
+} from '../daemon/ipc-contract.js';
+import { DebouncerMap } from '../util/debounce.js';
+
+function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
+  const sent: ServerMessage[] = [];
+  const ctx: HandlerContext = {
+    sessions: new Map(),
+    socketToSession: new Map(),
+    cuSessions: new Map(),
+    socketToCuSession: new Map(),
+    cuObservationParseSequence: new Map(),
+    socketSandboxOverride: new Map(),
+    sharedRequestTimestamps: [],
+    debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
+    suppressConfigReload: false,
+    setSuppressConfigReload: () => {},
+    updateConfigFingerprint: () => {},
+    send: (_socket, msg) => { sent.push(msg); },
+    broadcast: () => {},
+    clearAllSessions: () => 0,
+    getOrCreateSession: () => { throw new Error('not implemented'); },
+    touchSession: () => {},
+  };
+  return { ctx, sent };
+}
+
+describe('Twilio config handler', () => {
+  beforeEach(() => {
+    rawConfigStore = {};
+    secureKeyStore = {};
+    setSecureKeyOverride = null;
+    credentialMetadataStore = [];
+    deletedMetadata.length = 0;
+    globalThis.fetch = originalFetch;
+  });
+
+  // ── get ──────────────────────────────────────────────────────────────
+
+  test('get action returns correct state when not configured', async () => {
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'get',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; hasCredentials: boolean; phoneNumber?: string };
+    expect(res.type).toBe('twilio_config_response');
+    expect(res.success).toBe(true);
+    expect(res.hasCredentials).toBe(false);
+    expect(res.phoneNumber).toBeUndefined();
+  });
+
+  test('get action returns correct state when fully configured', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'auth_token_value';
+    rawConfigStore = { sms: { phoneNumber: '+15551234567' } };
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'get',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; hasCredentials: boolean; phoneNumber?: string };
+    expect(res.type).toBe('twilio_config_response');
+    expect(res.success).toBe(true);
+    expect(res.hasCredentials).toBe(true);
+    expect(res.phoneNumber).toBe('+15551234567');
+  });
+
+  // ── set_credentials ─────────────────────────────────────────────────
+
+  test('set_credentials validates and stores credentials', async () => {
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('api.twilio.com') && urlStr.includes('/Accounts/')) {
+        return new Response(JSON.stringify({
+          sid: 'AC1234567890abcdef1234567890abcdef',
+          friendly_name: 'Test Account',
+          status: 'active',
+        }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'set_credentials',
+      accountSid: 'AC1234567890abcdef1234567890abcdef',
+      authToken: 'test_auth_token',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; hasCredentials: boolean };
+    expect(res.type).toBe('twilio_config_response');
+    expect(res.success).toBe(true);
+    expect(res.hasCredentials).toBe(true);
+
+    // Verify credentials were stored
+    expect(secureKeyStore['credential:twilio:account_sid']).toBe('AC1234567890abcdef1234567890abcdef');
+    expect(secureKeyStore['credential:twilio:auth_token']).toBe('test_auth_token');
+    // Verify metadata was stored
+    expect(credentialMetadataStore.find((m) => m.service === 'twilio' && m.field === 'account_sid')).toBeDefined();
+    expect(credentialMetadataStore.find((m) => m.service === 'twilio' && m.field === 'auth_token')).toBeDefined();
+  });
+
+  test('set_credentials returns error when accountSid is missing', async () => {
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'set_credentials',
+      authToken: 'test_auth_token',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('accountSid and authToken are required');
+  });
+
+  test('set_credentials returns error when authToken is missing', async () => {
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'set_credentials',
+      accountSid: 'AC1234567890abcdef1234567890abcdef',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('accountSid and authToken are required');
+  });
+
+  test('set_credentials returns error when Twilio API rejects credentials', async () => {
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('api.twilio.com') && urlStr.includes('/Accounts/')) {
+        return new Response(JSON.stringify({
+          code: 20003,
+          message: 'Authenticate',
+        }), { status: 401 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'set_credentials',
+      accountSid: 'AC_invalid',
+      authToken: 'bad_token',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Twilio API validation failed');
+
+    // Verify credentials were NOT stored
+    expect(secureKeyStore['credential:twilio:account_sid']).toBeUndefined();
+    expect(secureKeyStore['credential:twilio:auth_token']).toBeUndefined();
+  });
+
+  test('set_credentials handles network error', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error('Network error: ECONNREFUSED');
+    }) as unknown as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'set_credentials',
+      accountSid: 'AC1234567890abcdef1234567890abcdef',
+      authToken: 'test_auth_token',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Failed to validate Twilio credentials');
+    expect(res.error).toContain('ECONNREFUSED');
+  });
+
+  test('set_credentials rolls back account_sid when auth_token storage fails', async () => {
+    setSecureKeyOverride = (account: string, value: string) => {
+      if (account === 'credential:twilio:auth_token') return false;
+      secureKeyStore[account] = value;
+      return true;
+    };
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('api.twilio.com') && urlStr.includes('/Accounts/')) {
+        return new Response(JSON.stringify({ sid: 'AC123', status: 'active' }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'set_credentials',
+      accountSid: 'AC1234567890abcdef1234567890abcdef',
+      authToken: 'test_auth_token',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Failed to store Auth Token');
+
+    // Account SID should have been rolled back
+    expect(secureKeyStore['credential:twilio:account_sid']).toBeUndefined();
+  });
+
+  test('set_credentials fails when account_sid storage fails', async () => {
+    setSecureKeyOverride = () => false;
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('api.twilio.com') && urlStr.includes('/Accounts/')) {
+        return new Response(JSON.stringify({ sid: 'AC123', status: 'active' }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'set_credentials',
+      accountSid: 'AC1234567890abcdef1234567890abcdef',
+      authToken: 'test_auth_token',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Failed to store Account SID');
+  });
+
+  // ── clear_credentials ───────────────────────────────────────────────
+
+  test('clear_credentials removes stored credentials', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    credentialMetadataStore.push({ service: 'twilio', field: 'account_sid' });
+    credentialMetadataStore.push({ service: 'twilio', field: 'auth_token' });
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'clear_credentials',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; hasCredentials: boolean };
+    expect(res.type).toBe('twilio_config_response');
+    expect(res.success).toBe(true);
+    expect(res.hasCredentials).toBe(false);
+
+    // Verify everything was cleaned up
+    expect(secureKeyStore['credential:twilio:account_sid']).toBeUndefined();
+    expect(secureKeyStore['credential:twilio:auth_token']).toBeUndefined();
+    expect(deletedMetadata).toContainEqual({ service: 'twilio', field: 'account_sid' });
+    expect(deletedMetadata).toContainEqual({ service: 'twilio', field: 'auth_token' });
+  });
+
+  test('clear_credentials is idempotent when no credentials exist', async () => {
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'clear_credentials',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; hasCredentials: boolean };
+    expect(res.success).toBe(true);
+    expect(res.hasCredentials).toBe(false);
+  });
+
+  // ── assign_number ───────────────────────────────────────────────────
+
+  test('assign_number persists phone number to config', async () => {
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'assign_number',
+      phoneNumber: '+15551234567',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; phoneNumber?: string };
+    expect(res.type).toBe('twilio_config_response');
+    expect(res.success).toBe(true);
+    expect(res.phoneNumber).toBe('+15551234567');
+
+    // Verify config was persisted
+    expect((rawConfigStore.sms as Record<string, unknown>)?.phoneNumber).toBe('+15551234567');
+  });
+
+  test('assign_number returns error when phoneNumber is missing', async () => {
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'assign_number',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('phoneNumber is required');
+  });
+
+  // ── list_numbers ────────────────────────────────────────────────────
+
+  test('list_numbers returns available numbers', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('IncomingPhoneNumbers.json')) {
+        return new Response(JSON.stringify({
+          incoming_phone_numbers: [
+            {
+              phone_number: '+15551234567',
+              friendly_name: 'My Number',
+              capabilities: { voice: true, sms: true },
+            },
+            {
+              phone_number: '+15559876543',
+              friendly_name: 'Other Number',
+              capabilities: { voice: true, sms: false },
+            },
+          ],
+        }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'list_numbers',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; hasCredentials: boolean; numbers?: Array<{ phoneNumber: string; friendlyName: string; capabilities: { voice: boolean; sms: boolean } }> };
+    expect(res.type).toBe('twilio_config_response');
+    expect(res.success).toBe(true);
+    expect(res.hasCredentials).toBe(true);
+    expect(res.numbers).toHaveLength(2);
+    expect(res.numbers![0].phoneNumber).toBe('+15551234567');
+    expect(res.numbers![0].friendlyName).toBe('My Number');
+    expect(res.numbers![0].capabilities.sms).toBe(true);
+    expect(res.numbers![1].phoneNumber).toBe('+15559876543');
+    expect(res.numbers![1].capabilities.sms).toBe(false);
+  });
+
+  test('list_numbers returns error when no credentials configured', async () => {
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'list_numbers',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Twilio credentials not configured');
+  });
+
+  // ── provision_number ────────────────────────────────────────────────
+
+  test('provision_number searches and provisions a number', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      // Search available numbers
+      if (urlStr.includes('AvailablePhoneNumbers') && urlStr.includes('Local.json')) {
+        return new Response(JSON.stringify({
+          available_phone_numbers: [
+            {
+              phone_number: '+15559999999',
+              friendly_name: '(555) 999-9999',
+              capabilities: { voice: true, sms: true },
+            },
+          ],
+        }), { status: 200 });
+      }
+      // Purchase number
+      if (urlStr.includes('IncomingPhoneNumbers.json') && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          phone_number: '+15559999999',
+          friendly_name: '(555) 999-9999',
+          capabilities: { voice: true, sms: true },
+        }), { status: 201 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'provision_number',
+      country: 'US',
+      areaCode: '555',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; hasCredentials: boolean; phoneNumber?: string };
+    expect(res.type).toBe('twilio_config_response');
+    expect(res.success).toBe(true);
+    expect(res.hasCredentials).toBe(true);
+    expect(res.phoneNumber).toBe('+15559999999');
+  });
+
+  test('provision_number returns error when no numbers available', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('AvailablePhoneNumbers')) {
+        return new Response(JSON.stringify({
+          available_phone_numbers: [],
+        }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'provision_number',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('No available phone numbers found');
+  });
+
+  test('provision_number returns error when no credentials configured', async () => {
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'provision_number',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Twilio credentials not configured');
+  });
+
+  // ── Unknown action ──────────────────────────────────────────────────
+
+  test('unrecognized action returns error response', async () => {
+    const msg = {
+      type: 'twilio_config',
+      action: 'nonexistent_action',
+    } as unknown as TwilioConfigRequest;
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.type).toBe('twilio_config_response');
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Unknown action');
+    expect(res.error).toContain('nonexistent_action');
+  });
+
+  // ── Security ────────────────────────────────────────────────────────
+
+  test('response messages never contain raw credential values', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC_secret_account_sid_12345';
+    secureKeyStore['credential:twilio:auth_token'] = 'secret_auth_token_67890';
+    rawConfigStore = { sms: { phoneNumber: '+15551234567' } };
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'get',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const responseStr = JSON.stringify(sent[0]);
+    // No raw credential values should leak into the response
+    expect(responseStr).not.toContain('AC_secret_account_sid_12345');
+    expect(responseStr).not.toContain('secret_auth_token_67890');
+  });
+});

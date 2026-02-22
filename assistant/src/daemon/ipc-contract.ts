@@ -549,6 +549,25 @@ export interface TelegramConfigResponse {
   error?: string;
 }
 
+export interface TwilioConfigRequest {
+  type: 'twilio_config';
+  action: 'get' | 'set_credentials' | 'clear_credentials' | 'provision_number' | 'assign_number' | 'list_numbers';
+  accountSid?: string;        // Only for action: 'set_credentials'
+  authToken?: string;         // Only for action: 'set_credentials'
+  phoneNumber?: string;       // Only for action: 'assign_number'
+  areaCode?: string;          // Only for action: 'provision_number'
+  country?: string;           // Only for action: 'provision_number' (ISO 3166-1 alpha-2, default 'US')
+}
+
+export interface TwilioConfigResponse {
+  type: 'twilio_config_response';
+  success: boolean;
+  hasCredentials: boolean;
+  phoneNumber?: string;
+  numbers?: Array<{ phoneNumber: string; friendlyName: string; capabilities: { voice: boolean; sms: boolean } }>;
+  error?: string;
+}
+
 export interface GuardianVerificationRequest {
   type: 'guardian_verification';
   action: 'create_challenge';
@@ -1047,6 +1066,7 @@ export type ClientMessage =
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
   | TelegramConfigRequest
+  | TwilioConfigRequest
   | GuardianVerificationRequest
   | TwitterAuthStartRequest
   | TwitterAuthStatusRequest
@@ -2412,6 +2432,7 @@ export type ServerMessage =
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse
   | TelegramConfigResponse
+  | TwilioConfigResponse
   | GuardianVerificationResponse
   | TwitterAuthResult
   | TwitterAuthStatusResponse

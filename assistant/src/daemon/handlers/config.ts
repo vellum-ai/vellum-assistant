@@ -28,9 +28,16 @@ import type {
   VercelApiConfigRequest,
   TwitterIntegrationConfigRequest,
   TelegramConfigRequest,
+  TwilioConfigRequest,
   GuardianVerificationRequest,
   ToolPermissionSimulateRequest,
 } from '../ipc-protocol.js';
+import {
+  hasTwilioCredentials,
+  listIncomingPhoneNumbers,
+  searchAvailableNumbers,
+  provisionPhoneNumber,
+} from '../../calls/twilio-rest.js';
 import { createVerificationChallenge } from '../../runtime/channel-guardian-service.js';
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
@@ -1091,6 +1098,218 @@ export async function handleTelegramConfig(
   }
 }
 
+export async function handleTwilioConfig(
+  msg: TwilioConfigRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    if (msg.action === 'get') {
+      const hasCredentials = hasTwilioCredentials();
+      const raw = loadRawConfig();
+      const sms = (raw?.sms ?? {}) as Record<string, unknown>;
+      const phoneNumber = (sms.phoneNumber as string) ?? '';
+      ctx.send(socket, {
+        type: 'twilio_config_response',
+        success: true,
+        hasCredentials,
+        phoneNumber: phoneNumber || undefined,
+      });
+    } else if (msg.action === 'set_credentials') {
+      if (!msg.accountSid || !msg.authToken) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: hasTwilioCredentials(),
+          error: 'accountSid and authToken are required for set_credentials action',
+        });
+        return;
+      }
+
+      // Validate credentials by calling the Twilio API
+      const authHeader = 'Basic ' + Buffer.from(`${msg.accountSid}:${msg.authToken}`).toString('base64');
+      try {
+        const res = await fetch(
+          `https://api.twilio.com/2010-04-01/Accounts/${msg.accountSid}.json`,
+          {
+            method: 'GET',
+            headers: { Authorization: authHeader },
+          },
+        );
+        if (!res.ok) {
+          const body = await res.text();
+          ctx.send(socket, {
+            type: 'twilio_config_response',
+            success: false,
+            hasCredentials: false,
+            error: `Twilio API validation failed (${res.status}): ${body}`,
+          });
+          return;
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: false,
+          error: `Failed to validate Twilio credentials: ${message}`,
+        });
+        return;
+      }
+
+      // Store credentials securely
+      const sidStored = setSecureKey('credential:twilio:account_sid', msg.accountSid);
+      if (!sidStored) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: false,
+          error: 'Failed to store Account SID in secure storage',
+        });
+        return;
+      }
+
+      const tokenStored = setSecureKey('credential:twilio:auth_token', msg.authToken);
+      if (!tokenStored) {
+        // Roll back the Account SID
+        deleteSecureKey('credential:twilio:account_sid');
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: false,
+          error: 'Failed to store Auth Token in secure storage',
+        });
+        return;
+      }
+
+      upsertCredentialMetadata('twilio', 'account_sid', {});
+      upsertCredentialMetadata('twilio', 'auth_token', {});
+
+      ctx.send(socket, {
+        type: 'twilio_config_response',
+        success: true,
+        hasCredentials: true,
+      });
+    } else if (msg.action === 'clear_credentials') {
+      deleteSecureKey('credential:twilio:account_sid');
+      deleteSecureKey('credential:twilio:auth_token');
+      deleteCredentialMetadata('twilio', 'account_sid');
+      deleteCredentialMetadata('twilio', 'auth_token');
+
+      ctx.send(socket, {
+        type: 'twilio_config_response',
+        success: true,
+        hasCredentials: false,
+      });
+    } else if (msg.action === 'provision_number') {
+      if (!hasTwilioCredentials()) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: false,
+          error: 'Twilio credentials not configured. Set credentials first.',
+        });
+        return;
+      }
+
+      const accountSid = getSecureKey('credential:twilio:account_sid')!;
+      const authToken = getSecureKey('credential:twilio:auth_token')!;
+      const country = msg.country ?? 'US';
+
+      // Search for an available number
+      const available = await searchAvailableNumbers(accountSid, authToken, country, msg.areaCode);
+      if (available.length === 0) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          error: `No available phone numbers found for country=${country}${msg.areaCode ? ` areaCode=${msg.areaCode}` : ''}`,
+        });
+        return;
+      }
+
+      // Purchase the first available number
+      const purchased = await provisionPhoneNumber(accountSid, authToken, available[0].phoneNumber);
+
+      ctx.send(socket, {
+        type: 'twilio_config_response',
+        success: true,
+        hasCredentials: true,
+        phoneNumber: purchased.phoneNumber,
+      });
+    } else if (msg.action === 'assign_number') {
+      if (!msg.phoneNumber) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: hasTwilioCredentials(),
+          error: 'phoneNumber is required for assign_number action',
+        });
+        return;
+      }
+
+      // Persist the phone number in assistant config (non-secret)
+      const raw = loadRawConfig();
+      const sms = (raw?.sms ?? {}) as Record<string, unknown>;
+      sms.phoneNumber = msg.phoneNumber;
+
+      const wasSuppressed = ctx.suppressConfigReload;
+      ctx.setSuppressConfigReload(true);
+      try {
+        saveRawConfig({ ...raw, sms });
+      } catch (err) {
+        ctx.setSuppressConfigReload(wasSuppressed);
+        throw err;
+      }
+      ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
+
+      ctx.send(socket, {
+        type: 'twilio_config_response',
+        success: true,
+        hasCredentials: hasTwilioCredentials(),
+        phoneNumber: msg.phoneNumber,
+      });
+    } else if (msg.action === 'list_numbers') {
+      if (!hasTwilioCredentials()) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: false,
+          error: 'Twilio credentials not configured. Set credentials first.',
+        });
+        return;
+      }
+
+      const accountSid = getSecureKey('credential:twilio:account_sid')!;
+      const authToken = getSecureKey('credential:twilio:auth_token')!;
+      const numbers = await listIncomingPhoneNumbers(accountSid, authToken);
+
+      ctx.send(socket, {
+        type: 'twilio_config_response',
+        success: true,
+        hasCredentials: true,
+        numbers,
+      });
+    } else {
+      ctx.send(socket, {
+        type: 'twilio_config_response',
+        success: false,
+        hasCredentials: hasTwilioCredentials(),
+        error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}`,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to handle Twilio config');
+    ctx.send(socket, {
+      type: 'twilio_config_response',
+      success: false,
+      hasCredentials: hasTwilioCredentials(),
+      error: message,
+    });
+  }
+}
+
 export function handleGuardianVerification(
   msg: GuardianVerificationRequest,
   socket: net.Socket,
@@ -1260,6 +1479,7 @@ export const configHandlers = defineHandlers({
   vercel_api_config: handleVercelApiConfig,
   twitter_integration_config: handleTwitterIntegrationConfig,
   telegram_config: handleTelegramConfig,
+  twilio_config: handleTwilioConfig,
   guardian_verification: handleGuardianVerification,
   env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
   tool_permission_simulate: handleToolPermissionSimulate,

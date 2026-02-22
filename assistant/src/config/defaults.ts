@@ -251,6 +251,11 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       allowPerCallOverride: true,
     },
   },
+  sms: {
+    enabled: false,
+    provider: 'twilio' as const,
+    phoneNumber: '',
+  },
   ingress: {
     enabled: undefined,
     publicBaseUrl: '',

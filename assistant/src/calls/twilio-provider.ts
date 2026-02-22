@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getLogger } from '../util/logger.js';
 import { getSecureKey } from '../security/secure-keys.js';
+import { getTwilioCredentials, twilioAuthHeader, twilioBaseUrl } from './twilio-rest.js';
 import type { VoiceProvider, InitiateCallOptions } from './voice-provider.js';
 
 const log = getLogger('twilio-provider');
@@ -17,22 +18,15 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
   // ── Credential helpers ──────────────────────────────────────────────
 
   private getCredentials(): { accountSid: string; authToken: string } {
-    const accountSid = getSecureKey('credential:twilio:account_sid');
-    const authToken = getSecureKey('credential:twilio:auth_token');
-    if (!accountSid || !authToken) {
-      throw new Error(
-        'Twilio credentials not configured. Set credential:twilio:account_sid and credential:twilio:auth_token via the credential_store tool.',
-      );
-    }
-    return { accountSid, authToken };
+    return getTwilioCredentials();
   }
 
   private authHeader(accountSid: string, authToken: string): string {
-    return 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+    return twilioAuthHeader(accountSid, authToken);
   }
 
   private baseUrl(accountSid: string): string {
-    return `https://api.twilio.com/2010-04-01/Accounts/${accountSid}`;
+    return twilioBaseUrl(accountSid);
   }
 
   // ── VoiceProvider interface ─────────────────────────────────────────
