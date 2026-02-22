@@ -182,6 +182,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `trust_rules_list_response` message.
     public var onTrustRulesListResponse: (([TrustRuleItem]) -> Void)?
 
+    /// Called when the daemon sends a `tool_permission_simulate_response` message.
+    public var onToolPermissionSimulateResponse: ((ToolPermissionSimulateResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `schedules_list_response` message.
     public var onSchedulesListResponse: (([ScheduleItem]) -> Void)?
 
@@ -632,6 +635,25 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             scope: scope,
             decision: decision,
             priority: priority
+        ))
+    }
+
+    // MARK: - Tool Permission Simulation
+
+    /// Simulate a tool permission check without executing the tool.
+    public func sendToolPermissionSimulate(
+        toolName: String,
+        input: [String: AnyCodable],
+        workingDir: String? = nil,
+        isInteractive: Bool? = nil,
+        forcePromptSideEffects: Bool? = nil
+    ) throws {
+        try send(ToolPermissionSimulateMessage(
+            toolName: toolName,
+            input: input,
+            workingDir: workingDir,
+            isInteractive: isInteractive,
+            forcePromptSideEffects: forcePromptSideEffects
         ))
     }
 

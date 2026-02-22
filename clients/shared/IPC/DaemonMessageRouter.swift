@@ -81,6 +81,8 @@ extension DaemonClient {
             onScheduleComplete?(msg)
         case .trustRulesListResponse(let msg):
             onTrustRulesListResponse?(msg.rules)
+        case .toolPermissionSimulateResponse(let msg):
+            onToolPermissionSimulateResponse?(msg)
         case .schedulesListResponse(let msg):
             onSchedulesListResponse?(msg.schedules)
         case .remindersListResponse(let msg):
