@@ -3579,22 +3579,27 @@ The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-clos
 In desktop deployments, Telegram bot tokens are stored in secure storage (macOS Keychain or the encrypted file fallback) and never in plaintext config files. When deploying the gateway standalone, operators may also supply credentials via environment variables (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`).
 
 ```
-Settings UI (macOS)
+Secure credential prompt (credential_store action: "prompt")
   → telegram_config IPC (action: set, botToken)
     → Daemon handler validates token via Telegram getMe API
       → setSecureKey("credential:telegram:bot_token", token)
-      → Auto-generates webhook secret if missing
       → upsertCredentialMetadata("telegram", "bot_token", {accountInfo: username})
+      → Auto-generates webhook secret if missing
+        → setSecureKey("credential:telegram:webhook_secret", secret)
+        → upsertCredentialMetadata("telegram", "webhook_secret", {})
+        → On storage failure: rolls back bot_token + metadata, returns error
+      → If webhook secret already exists: upserts metadata anyway (self-heal)
+      → Triggers gateway webhook reconcile
         → Gateway credential reader picks up new credentials
-          → Webhook reconciliation triggers automatically
+          → Webhook reconciliation registers webhook with Telegram
 ```
 
 The `telegram_config` IPC message supports three actions:
 - **`get`** — returns connection status (`hasBotToken`, `botUsername`, `connected`, `hasWebhookSecret`) without exposing secret values
-- **`set`** — validates the bot token against the Telegram API, stores it in secure storage, auto-generates a webhook secret if none exists, and triggers gateway webhook reconciliation
-- **`clear`** — deletes the bot token and webhook secret from both secure storage and credential metadata, then triggers reconciliation to deregister the webhook
+- **`set`** — validates the bot token against the Telegram API, stores it in secure storage, auto-generates a webhook secret if none exists (with rollback on failure), self-heals webhook_secret metadata if it already exists, and triggers gateway webhook reconciliation
+- **`clear`** — deregisters the webhook by calling Telegram's `deleteWebhook` API directly (while the token is still available), then deletes the bot token and webhook secret from both secure storage and credential metadata, and triggers gateway reconciliation
 
-The gateway reads Telegram credentials via its `credential-reader` module (`gateway/src/credential-reader.ts`), which uses a keychain-first fallback strategy on macOS: it tries the macOS Keychain first (via the `security` CLI), then falls back to the encrypted file store (`~/.vellum/protected/keys.enc`). This mirrors the assistant's own `secure-keys.ts` module. On non-macOS platforms, only the encrypted store is used.
+The gateway reads Telegram credentials via its `credential-reader` module (`gateway/src/credential-reader.ts`), which uses a keychain-first fallback strategy on macOS: it tries the macOS Keychain first (via the `security` CLI), then falls back to the encrypted file store (`~/.vellum/protected/keys.enc`). This mirrors the assistant's own `secure-keys.ts` module. On non-macOS platforms, only the encrypted store is used. The keychain reader discriminates exit code 44 (`errSecItemNotFound` — credential genuinely missing) from other non-zero exit codes (transient errors like locked keychain or timeout), logging the latter as warnings for operator visibility.
 
 ### Webhook Reconciliation
 

@@ -26,8 +26,8 @@ bun run dev
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `TELEGRAM_BOT_TOKEN` | No | — | Bot token from @BotFather (Telegram disabled when unset). When not set as an env var, the gateway reads from the assistant's secure credential store (macOS Keychain first, then encrypted file fallback). |
-| `TELEGRAM_WEBHOOK_SECRET` | No | — | Secret for verifying webhook requests (Telegram disabled when unset). Same fallback behavior as `TELEGRAM_BOT_TOKEN`. |
+| `TELEGRAM_BOT_TOKEN` | No | — | Bot token from @BotFather (Telegram disabled when unset). When not set as an env var, the gateway reads from the assistant's secure credential store via the credential reader fallback chain: macOS Keychain first (via `security` CLI), then encrypted file store (`~/.vellum/protected/keys.enc`). The keychain reader discriminates exit code 44 (`errSecItemNotFound` — credential genuinely missing) from other non-zero exit codes (transient errors), logging the latter as warnings. On non-macOS platforms, only the encrypted store is used. |
+| `TELEGRAM_WEBHOOK_SECRET` | No | — | Secret for verifying webhook requests (Telegram disabled when unset). Same credential reader fallback behavior as `TELEGRAM_BOT_TOKEN`. |
 | `TELEGRAM_API_BASE_URL` | No | `https://api.telegram.org` | Override Telegram API base URL |
 | `ASSISTANT_RUNTIME_BASE_URL` | Yes | — | Base URL of the assistant runtime HTTP server |
 | `GATEWAY_ASSISTANT_ROUTING_JSON` | No | `{}` | JSON mapping of Telegram identities to assistant IDs |
