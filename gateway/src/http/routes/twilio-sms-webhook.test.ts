@@ -8,8 +8,20 @@ const handleInboundMock = mock(() =>
   Promise.resolve({ forwarded: true, rejected: false }),
 );
 
+const resetConversationMock = mock(() => Promise.resolve());
+
+const sendSmsReplyMock = mock(() => Promise.resolve());
+
 mock.module("../../handlers/handle-inbound.js", () => ({
   handleInbound: handleInboundMock,
+}));
+
+mock.module("../../runtime/client.js", () => ({
+  resetConversation: resetConversationMock,
+}));
+
+mock.module("../../twilio/send-sms.js", () => ({
+  sendSmsReply: sendSmsReplyMock,
 }));
 
 // Import after mocks are registered
@@ -90,6 +102,10 @@ describe("twilio-sms-webhook", () => {
     handleInboundMock.mockImplementation(() =>
       Promise.resolve({ forwarded: true, rejected: false }),
     );
+    resetConversationMock.mockClear();
+    resetConversationMock.mockImplementation(() => Promise.resolve());
+    sendSmsReplyMock.mockClear();
+    sendSmsReplyMock.mockImplementation(() => Promise.resolve());
   });
 
   it("rejects GET requests with 405", async () => {
@@ -321,5 +337,86 @@ describe("twilio-sms-webhook", () => {
     });
     const res = await handler(req);
     expect(res.status).toBe(413);
+  });
+
+  it("/new triggers resetConversation and does not forward as normal message", async () => {
+    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    const params = {
+      Body: "/new",
+      From: "+15551234567",
+      To: "+15559876543",
+      MessageSid: "SM-new-cmd",
+    };
+    const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // resetConversation should have been called
+    expect(resetConversationMock).toHaveBeenCalledTimes(1);
+    const [, assistantId, sourceChannel, externalChatId] =
+      resetConversationMock.mock.calls[0] as unknown[];
+    expect(assistantId).toBe("ast-default");
+    expect(sourceChannel).toBe("sms");
+    expect(externalChatId).toBe("+15551234567");
+
+    // Confirmation SMS should have been sent
+    expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
+    const [, to, text] = sendSmsReplyMock.mock.calls[0] as unknown[];
+    expect(to).toBe("+15551234567");
+    expect(text).toBe("Starting a new conversation!");
+
+    // handleInbound should NOT have been called
+    expect(handleInboundMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("/new is case-insensitive and trims whitespace", async () => {
+    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    const params = {
+      Body: "  /NEW  ",
+      From: "+15551234567",
+      To: "+15559876543",
+      MessageSid: "SM-new-case",
+    };
+    const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    expect(resetConversationMock).toHaveBeenCalledTimes(1);
+    expect(handleInboundMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("MMS payload (NumMedia > 0) returns unsupported notice and does not forward", async () => {
+    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    const params = {
+      Body: "Check out this photo",
+      From: "+15551234567",
+      To: "+15559876543",
+      MessageSid: "SM-mms-test",
+      NumMedia: "1",
+      MediaUrl0: "https://api.twilio.com/media/123",
+      MediaContentType0: "image/jpeg",
+    };
+    const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Unsupported notice should have been sent
+    expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
+    const [, to, text] = sendSmsReplyMock.mock.calls[0] as unknown[];
+    expect(to).toBe("+15551234567");
+    expect(typeof text).toBe("string");
+    expect((text as string).toLowerCase()).toContain("not supported");
+
+    // handleInbound should NOT have been called
+    expect(handleInboundMock).toHaveBeenCalledTimes(0);
   });
 });

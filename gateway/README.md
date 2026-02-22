@@ -101,11 +101,13 @@ The `/webhooks/twilio/sms` endpoint receives inbound SMS messages from Twilio. O
 
 1. **Signature validation** — The `X-Twilio-Signature` header is validated using HMAC-SHA1 with the `TWILIO_AUTH_TOKEN`. When behind a tunnel or reverse proxy, the gateway reconstructs the canonical request URL from `INGRESS_PUBLIC_BASE_URL` for validation.
 2. **MessageSid dedup** — Each `MessageSid` is tracked in an in-memory dedup cache. Duplicate webhook deliveries (Twilio retries) are silently accepted without re-forwarding.
-3. **Normalization** — The form-encoded Twilio payload is normalized into a `GatewayInboundEventV1` with `sourceChannel: "sms"`. The sender's phone number (`From`) is used as both `externalChatId` and `externalUserId`.
-4. **Routing** — The same routing resolver used for Telegram (chat_id -> user_id -> default/reject) determines the target assistant.
-5. **Forwarding** — The event is forwarded to the runtime via `POST /channels/inbound` with SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
+3. **MMS detection** — If `NumMedia > 0`, the message contains media attachments. The gateway replies with an unsupported notice ("MMS is not supported yet") and does not forward the payload to the runtime.
+4. **`/new` command** — When the message body is exactly `/new` (case-insensitive, trimmed), the gateway resets the conversation via the runtime API and sends a confirmation SMS. The message is not forwarded to the runtime. This matches the Telegram `/new` command behavior.
+5. **Normalization** — The form-encoded Twilio payload is normalized into a `GatewayInboundEventV1` with `sourceChannel: "sms"`. The sender's phone number (`From`) is used as both `externalChatId` and `externalUserId`.
+6. **Routing** — The same routing resolver used for Telegram (chat_id -> user_id -> default/reject) determines the target assistant.
+7. **Forwarding** — The event is forwarded to the runtime via `POST /channels/inbound` with SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
 
-SMS is text-only in v1 — MMS (media attachments) is deferred.
+SMS is text-only in v1 — MMS payloads are explicitly rejected with a user-facing notice.
 
 ## SMS Deliver Endpoint Security
 

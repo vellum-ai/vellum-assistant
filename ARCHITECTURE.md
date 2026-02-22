@@ -424,9 +424,11 @@ The SMS channel provides text-only messaging via Twilio, sharing the same teleph
 **Ingress** (`POST /webhooks/twilio/sms`):
 1. Twilio delivers an inbound SMS as a form-encoded POST to the gateway.
 2. The gateway validates the `X-Twilio-Signature` header using HMAC-SHA1 with the Twilio Auth Token against the canonical request URL (reconstructed from `INGRESS_PUBLIC_BASE_URL` when behind a tunnel).
-3. The payload is normalized into a `GatewayInboundEventV1` with `sourceChannel: "sms"` and `externalChatId` set to the sender's phone number (E.164).
-4. `MessageSid` deduplication prevents reprocessing retried webhooks.
-5. The event is forwarded to the runtime via `POST /channels/inbound`, including SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
+3. `MessageSid` deduplication prevents reprocessing retried webhooks.
+4. **MMS detection**: If `NumMedia > 0`, the gateway replies with an unsupported notice and does not forward the payload. MMS payloads are explicitly rejected rather than silently dropped.
+5. **`/new` command**: When the message body is exactly `/new` (case-insensitive, trimmed), the gateway resolves routing, calls `resetConversation(...)` on the runtime, and sends a confirmation SMS. The message is not forwarded — matching Telegram `/new` semantics.
+6. The payload is normalized into a `GatewayInboundEventV1` with `sourceChannel: "sms"` and `externalChatId` set to the sender's phone number (E.164).
+7. The event is forwarded to the runtime via `POST /channels/inbound`, including SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
 
 **Egress** (`POST /deliver/sms`):
 1. The runtime calls the gateway's `/deliver/sms` endpoint with `{ to, text }`.
@@ -435,7 +437,7 @@ The SMS channel provides text-only messaging via Twilio, sharing the same teleph
 
 **Setup**: Twilio credentials (Account SID, Auth Token) and phone number are managed via the `twilio_config` IPC contract and the `twilio-setup` skill. A single phone number is shared across voice and SMS for each assistant.
 
-**Limitations (v1)**: Text-only — MMS (media attachments) is deferred to a future release.
+**Limitations (v1)**: Text-only — MMS payloads are explicitly rejected with a user-facing notice rather than silently dropped.
 
 ---
 

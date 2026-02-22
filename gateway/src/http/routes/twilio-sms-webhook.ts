@@ -3,6 +3,8 @@ import { StringDedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
+import { resetConversation } from "../../runtime/client.js";
+import { sendSmsReply } from "../../twilio/send-sms.js";
 import { validateTwilioWebhookRequest } from "../../twilio/validate-webhook.js";
 import type { GatewayInboundEventV1 } from "../../types.js";
 
@@ -90,7 +92,56 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
       "SMS webhook received",
     );
 
+    // --- MMS intercept: detect media attachments and reply with unsupported notice ---
+    const numMedia = parseInt(params.NumMedia || "0", 10);
+    if (numMedia > 0) {
+      tlog.info({ messageSid, numMedia }, "MMS payload detected, replying with unsupported notice");
+      sendSmsReply(config, params.From, "MMS (images, video, and other media) is not supported yet. Please send a text-only message.").catch(
+        (err) => {
+          tlog.error({ err, to: params.From }, "Failed to send MMS unsupported notice");
+        },
+      );
+      dedupCache.mark(messageSid);
+      return Response.json({ ok: true });
+    }
+
     const normalized = normalizeSmsPayload(params);
+
+    // --- /new intercept: reset conversation before it reaches the runtime ---
+    if (normalized.message.content.trim().toLowerCase() === "/new") {
+      const routing = resolveAssistant(
+        config,
+        normalized.message.externalChatId,
+        normalized.sender.externalUserId,
+      );
+
+      if (isRejection(routing)) {
+        tlog.warn(
+          { from: params.From, reason: routing.reason },
+          "Routing rejected /new command",
+        );
+      } else {
+        try {
+          await resetConversation(
+            config,
+            routing.assistantId,
+            normalized.sourceChannel,
+            normalized.message.externalChatId,
+          );
+          sendSmsReply(config, params.From, "Starting a new conversation!").catch((err) => {
+            tlog.error({ err }, "Failed to send /new confirmation");
+          });
+        } catch (err) {
+          tlog.error({ err }, "Failed to reset conversation");
+          sendSmsReply(config, params.From, "Failed to reset conversation. Please try again.").catch((replyErr) => {
+            tlog.error({ err: replyErr }, "Failed to send /new error reply");
+          });
+        }
+      }
+
+      dedupCache.mark(messageSid);
+      return Response.json({ ok: true });
+    }
 
     // Check routing
     const routing = resolveAssistant(
