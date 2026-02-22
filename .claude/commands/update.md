@@ -74,7 +74,8 @@ try:
         for item in assistants:
             if isinstance(item, dict):
                 raw_id = item.get("assistantId")
-                if isinstance(raw_id, str):
+                raw_url = item.get("runtimeUrl")
+                if isinstance(raw_id, str) and isinstance(raw_url, str):
                     aid = raw_id.strip()
                     if aid:
                         valid.append(aid)
@@ -127,8 +128,8 @@ PY
      GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH=false \
      INGRESS_PUBLIC_BASE_URL="$INGRESS_PUBLIC_BASE_URL" \
      TWILIO_AUTH_TOKEN="$TWILIO_AUTH_TOKEN" \
-     GATEWAY_UNMAPPED_POLICY="${GATEWAY_UNMAPPED_POLICY:-}" \
-     GATEWAY_DEFAULT_ASSISTANT_ID="${GATEWAY_DEFAULT_ASSISTANT_ID:-}" \
+     ${GATEWAY_UNMAPPED_POLICY:+GATEWAY_UNMAPPED_POLICY="$GATEWAY_UNMAPPED_POLICY"} \
+     ${GATEWAY_DEFAULT_ASSISTANT_ID:+GATEWAY_DEFAULT_ASSISTANT_ID="$GATEWAY_DEFAULT_ASSISTANT_ID"} \
      bun run dev:proxy \
      > "${HOME}/.vellum/gateway-dev.log" 2>&1 &
    cd ..
