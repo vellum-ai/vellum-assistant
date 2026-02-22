@@ -1249,7 +1249,8 @@ export async function handleTwilioConfig(
           type: 'twilio_config_response',
           success: false,
           hasCredentials: hasTwilioCredentials(),
-          error: 'Failed to store provisioned phone number in secure storage',
+          phoneNumber: purchased.phoneNumber,
+          error: `Phone number ${purchased.phoneNumber} was purchased but could not be saved. Use assign_number to assign it manually.`,
         });
         return;
       }
