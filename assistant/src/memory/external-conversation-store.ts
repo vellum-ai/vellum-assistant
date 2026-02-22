@@ -69,6 +69,41 @@ export function upsertBinding(input: UpsertBindingInput): void {
 }
 
 /**
+ * Upsert an external conversation binding for outbound sends.
+ * Similar to upsertBinding but touches lastOutboundAt instead of lastInboundAt,
+ * and only requires channel identifiers (no sender metadata needed).
+ */
+export function upsertOutboundBinding(input: {
+  conversationId: string;
+  sourceChannel: string;
+  externalChatId: string;
+}): void {
+  const db = getDb();
+  const now = Date.now();
+
+  db.insert(externalConversationBindings)
+    .values({
+      conversationId: input.conversationId,
+      sourceChannel: input.sourceChannel,
+      externalChatId: input.externalChatId,
+      externalUserId: null,
+      displayName: null,
+      username: null,
+      createdAt: now,
+      updatedAt: now,
+      lastOutboundAt: now,
+    })
+    .onConflictDoUpdate({
+      target: externalConversationBindings.conversationId,
+      set: {
+        updatedAt: now,
+        lastOutboundAt: now,
+      },
+    })
+    .run();
+}
+
+/**
  * Look up an external binding by conversation ID.
  */
 export function getBindingByConversation(
@@ -111,6 +146,25 @@ export function deleteBinding(conversationId: string): void {
   const db = getDb();
   db.delete(externalConversationBindings)
     .where(eq(externalConversationBindings.conversationId, conversationId))
+    .run();
+}
+
+/**
+ * Remove an external binding by channel + external chat ID.
+ * Used when disconnecting a synced thread by its channel identifiers.
+ */
+export function deleteBindingByChannelChat(
+  sourceChannel: string,
+  externalChatId: string,
+): void {
+  const db = getDb();
+  db.delete(externalConversationBindings)
+    .where(
+      and(
+        eq(externalConversationBindings.sourceChannel, sourceChannel),
+        eq(externalConversationBindings.externalChatId, externalChatId),
+      ),
+    )
     .run();
 }
 

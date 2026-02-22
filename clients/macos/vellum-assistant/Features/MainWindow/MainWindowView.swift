@@ -802,6 +802,29 @@ struct MainWindowView: View {
             }
         }
         .padding(.horizontal, VSpacing.sm)
+        .contextMenu {
+            if thread.sourceChannel != nil {
+                Button {
+                    threadManager.disconnectSyncedThread(id: thread.id)
+                } label: {
+                    Label("Disconnect Channel", systemImage: "link.badge.minus")
+                }
+            }
+            Button {
+                if thread.isPinned {
+                    threadManager.unpinThread(id: thread.id)
+                } else {
+                    threadManager.pinThread(id: thread.id)
+                }
+            } label: {
+                Label(thread.isPinned ? "Unpin" : "Pin to Top", systemImage: thread.isPinned ? "pin.slash" : "pin")
+            }
+            Button {
+                threadManager.archiveThread(id: thread.id)
+            } label: {
+                Label("Archive", systemImage: "archivebox")
+            }
+        }
         .onHover { hovering in
             if hovering {
                 isHoveredThread = thread.id

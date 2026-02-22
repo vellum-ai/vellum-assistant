@@ -1120,4 +1120,68 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             conversationId: conversationId
         ))
     }
+
+    // MARK: - Channel Management
+
+    /// Delete a channel conversation binding via the runtime HTTP endpoint.
+    /// Removes the conversation key mapping and external binding so the
+    /// sync can be re-established on the next inbound or outbound message.
+    public func deleteChannelConversation(sourceChannel: String, externalChatId: String) async -> Bool {
+        let baseURL: String
+        let bearerToken: String?
+
+        if let httpTransport {
+            baseURL = httpTransport.baseURL
+            bearerToken = httpTransport.bearerToken
+        } else if let port = httpPort {
+            baseURL = "http://localhost:\(port)"
+            let tokenBase: String
+            if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !baseDir.isEmpty {
+                tokenBase = baseDir
+            } else {
+                tokenBase = NSHomeDirectory()
+            }
+            let tokenPath = tokenBase + "/.vellum/http-token"
+            do {
+                bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                log.error("Failed to read HTTP bearer token from \(tokenPath): \(error)")
+                bearerToken = nil
+            }
+        } else {
+            log.warning("Cannot delete channel conversation: no HTTP transport available")
+            return false
+        }
+
+        guard let url = URL(string: "\(baseURL)/v1/channels/conversation") else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+        if let token = bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let body: [String: String] = [
+            "sourceChannel": sourceChannel,
+            "externalChatId": externalChatId,
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+            if http.statusCode == 200 {
+                log.info("Deleted channel conversation \(sourceChannel):\(externalChatId)")
+                return true
+            } else {
+                log.error("Delete channel conversation failed (\(http.statusCode))")
+                return false
+            }
+        } catch {
+            log.error("Delete channel conversation error: \(error.localizedDescription)")
+            return false
+        }
+    }
 }

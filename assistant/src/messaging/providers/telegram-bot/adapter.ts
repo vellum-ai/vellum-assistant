@@ -25,6 +25,8 @@ import type {
 } from '../../provider-types.js';
 import { getSecureKey } from '../../../security/secure-keys.js';
 import { readHttpToken } from '../../../util/platform.js';
+import { getOrCreateConversation } from '../../../memory/conversation-key-store.js';
+import * as externalConversationStore from '../../../memory/external-conversation-store.js';
 import * as telegram from './client.js';
 
 /** Resolve the gateway base URL, preferring GATEWAY_INTERNAL_BASE_URL if set. */
@@ -117,6 +119,22 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     const bearerToken = getBearerToken();
 
     await telegram.sendMessage(gatewayUrl, bearerToken, conversationId, text);
+
+    // Upsert external conversation binding so deleted/reset syncs are
+    // resurrected when an outbound message is sent. This ensures the
+    // conversation key mapping and binding exist for the next inbound.
+    try {
+      const sourceChannel = 'telegram';
+      const conversationKey = `${sourceChannel}:${conversationId}`;
+      const { conversationId: internalId } = getOrCreateConversation(conversationKey);
+      externalConversationStore.upsertOutboundBinding({
+        conversationId: internalId,
+        sourceChannel,
+        externalChatId: conversationId,
+      });
+    } catch {
+      // Best-effort — don't fail the send if binding upsert fails
+    }
 
     return {
       id: `tg-${Date.now()}`,

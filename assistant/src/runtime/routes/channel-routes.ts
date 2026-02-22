@@ -36,6 +36,7 @@ export async function handleDeleteConversation(req: Request): Promise<Response> 
 
   const conversationKey = `${sourceChannel}:${externalChatId}`;
   deleteConversationKey(conversationKey);
+  externalConversationStore.deleteBindingByChannelChat(sourceChannel, externalChatId);
 
   return Response.json({ ok: true });
 }

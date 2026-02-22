@@ -254,6 +254,39 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         log.info("Archived thread \(id)")
     }
 
+    /// Disconnect a synced thread's channel binding and archive it locally.
+    /// Calls the runtime's DELETE /v1/channels/conversation endpoint to
+    /// remove the conversation key mapping and external binding, then
+    /// archives the thread in the UI. Does NOT call any external channel
+    /// delete APIs (e.g. Telegram).
+    func disconnectSyncedThread(id: UUID) {
+        guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
+        let thread = threads[index]
+        guard let sourceChannel = thread.sourceChannel,
+              let externalChatId = thread.externalChatId else {
+            log.warning("Cannot disconnect thread \(id): missing channel binding")
+            return
+        }
+
+        // Fire the HTTP DELETE in the background; archive immediately in the UI
+        Task { @MainActor in
+            let _ = await daemonClient.deleteChannelConversation(
+                sourceChannel: sourceChannel,
+                externalChatId: externalChatId
+            )
+        }
+
+        // Clear channel binding fields so the thread no longer shows as synced
+        threads[index].sourceChannel = nil
+        threads[index].externalChatId = nil
+        threads[index].displayName = nil
+        threads[index].username = nil
+
+        archiveThread(id: id)
+
+        log.info("Disconnected synced thread \(id) (\(sourceChannel):\(externalChatId))")
+    }
+
     func unarchiveThread(id: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
 
