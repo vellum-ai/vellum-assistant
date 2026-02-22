@@ -527,7 +527,10 @@ export function handleIngressConfig(
       // Called unconditionally so the gateway clears its in-memory URL
       // when ingress is disabled, preventing stale re-registration on
       // credential rotation.
-      triggerGatewayReconcile(value && isEnabled ? value : undefined);
+      // Use the effective URL from process.env (which accounts for the
+      // fallback branch above) rather than the raw `value` from the UI.
+      const effectiveUrl = isEnabled ? process.env.INGRESS_PUBLIC_BASE_URL : undefined;
+      triggerGatewayReconcile(effectiveUrl);
     } else {
       ctx.send(socket, { type: 'ingress_config_response', enabled: false, publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
     }
