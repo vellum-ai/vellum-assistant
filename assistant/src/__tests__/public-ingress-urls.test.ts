@@ -77,6 +77,40 @@ describe('getPublicBaseUrl', () => {
     expect(() => getPublicBaseUrl({})).toThrow(/No public base URL configured/);
   });
 
+  test('throws when ingress is explicitly disabled', () => {
+    expect(() => getPublicBaseUrl({
+      ingress: { enabled: false, publicBaseUrl: 'https://example.com' },
+    })).toThrow(/Public ingress is disabled/);
+  });
+
+  test('throws when ingress is explicitly disabled with no URL', () => {
+    expect(() => getPublicBaseUrl({
+      ingress: { enabled: false, publicBaseUrl: '' },
+    })).toThrow(/Public ingress is disabled/);
+  });
+
+  test('returns URL when enabled is undefined (backward compat)', () => {
+    const result = getPublicBaseUrl({
+      ingress: { enabled: undefined, publicBaseUrl: 'https://example.com' },
+    });
+    expect(result).toBe('https://example.com');
+  });
+
+  test('returns URL when enabled is true', () => {
+    const result = getPublicBaseUrl({
+      ingress: { enabled: true, publicBaseUrl: 'https://example.com' },
+    });
+    expect(result).toBe('https://example.com');
+  });
+
+  test('falls back to env var when enabled is undefined and no publicBaseUrl', () => {
+    process.env.INGRESS_PUBLIC_BASE_URL = 'https://env-fallback.example.com';
+    const result = getPublicBaseUrl({
+      ingress: { enabled: undefined, publicBaseUrl: '' },
+    });
+    expect(result).toBe('https://env-fallback.example.com');
+  });
+
   test('normalizes trailing slashes from ingress.publicBaseUrl', () => {
     const result = getPublicBaseUrl({
       ingress: { publicBaseUrl: 'https://example.com///' },

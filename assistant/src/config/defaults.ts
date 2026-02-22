@@ -251,7 +251,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     },
   },
   ingress: {
-    enabled: false,
+    enabled: undefined,
     publicBaseUrl: '',
   },
 };
