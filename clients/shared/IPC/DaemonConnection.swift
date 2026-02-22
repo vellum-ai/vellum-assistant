@@ -53,7 +53,7 @@ extension DaemonClient {
         }
         #elseif os(iOS)
         // HTTP transport is already handled above; only TCP should reach here on iOS.
-        guard case .tcp(let configHostname, let configPort, let configTls, _) = config.transport else {
+        guard case .tcp(let configHostname, let configPort, _, _) = config.transport else {
             log.error("Unexpected transport type on iOS — HTTP should have been handled above")
             isConnecting = false
             return
@@ -77,20 +77,13 @@ extension DaemonClient {
             port = configPort
         }
 
-        // Also re-read TLS setting from UserDefaults on each connect to match hostname/port behaviour
-        let tlsEnabled: Bool
-        if UserDefaults.standard.object(forKey: "daemon_tls_enabled") != nil {
-            tlsEnabled = UserDefaults.standard.bool(forKey: "daemon_tls_enabled")
-        } else {
-            tlsEnabled = configTls
-        }
-
-        log.info("Connecting to daemon at \(hostname):\(port) (tls=\(tlsEnabled))")
+        // iOS always enforces TLS for TCP connections
+        log.info("Connecting to daemon at \(hostname):\(port) (tls=true)")
         endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(hostname),
             port: NWEndpoint.Port(integerLiteral: port)
         )
-        parameters = tlsEnabled ? .tls : .tcp
+        parameters = .tls
         #else
         #error("DaemonClient is only supported on macOS and iOS")
         #endif
