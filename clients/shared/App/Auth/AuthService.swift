@@ -16,7 +16,13 @@ public final class AuthService {
     }()
 
     public var baseURL: String {
-        UserDefaults.standard.string(forKey: "authServiceBaseURL") ?? Self.defaultBaseURL
+        #if DEBUG
+        // Allow overriding the auth service URL via UserDefaults for development/testing.
+        if let override = UserDefaults.standard.string(forKey: "authServiceBaseURL"), !override.isEmpty {
+            return override
+        }
+        #endif
+        return Self.defaultBaseURL
     }
 
     private init() {}

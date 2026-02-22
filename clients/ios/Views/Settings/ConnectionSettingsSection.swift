@@ -99,9 +99,10 @@ struct DaemonConnectionSection: View {
                 } else {
                     _ = APIKeyManager.shared.setAPIKey(sessionToken, provider: "daemon-token")
                 }
-                // Reconnect with the new settings. DaemonClient.connect() re-reads
-                // hostname/port/token from UserDefaults on iOS, so the saved values
-                // above are picked up automatically.
+                // Rebuild the client so the new transport config takes effect,
+                // then reconnect. DaemonClient transport is fixed at init, so
+                // just calling connect() wouldn't pick up hostname/port changes.
+                clientProvider.rebuildClient()
                 Task {
                     try? await clientProvider.client.connect()
                 }

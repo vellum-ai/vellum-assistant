@@ -17,6 +17,19 @@ final class ClientProvider: ObservableObject {
 
     init(client: any DaemonClientProtocol) {
         self.client = client
+        bindCombineBridge()
+    }
+
+    /// Recreate the DaemonClient from current UserDefaults/Keychain settings.
+    /// Call this after QR pairing, cloud provisioning, or Settings changes so the
+    /// new transport configuration takes effect without an app restart.
+    func rebuildClient() {
+        self.client = DaemonClient(config: .fromUserDefaults())
+        self.isConnected = false
+        bindCombineBridge()
+    }
+
+    private func bindCombineBridge() {
         if let daemon = client as? DaemonClient {
             // Bridge DaemonClient's @Published isConnected to our own.
             // Both types are @MainActor so the publisher already emits on the

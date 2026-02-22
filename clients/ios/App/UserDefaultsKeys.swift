@@ -8,5 +8,15 @@ enum UserDefaultsKeys {
     static let appearanceMode = "appearance_mode"
     // Constructed at runtime to avoid pre-commit hook false positive
     static let legacyDaemonToken = ["daemon", "auth", "token"].joined(separator: "_")
+    static let authServiceBaseURL = "authServiceBaseURL"
+
+    // Per-host:port keys for multi-Mac QR pairing support.
+    // Actual keys are namespaced: "daemon_fingerprint:<host>:<port>", etc.
+    static func daemonCertFingerprint(host: String, port: UInt16) -> String {
+        "daemon_fingerprint:\(host):\(port)"
+    }
+    static func daemonHostId(host: String, port: UInt16) -> String {
+        "daemon_host_id:\(host):\(port)"
+    }
 }
 #endif
