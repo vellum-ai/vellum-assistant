@@ -47,6 +47,30 @@ mock.module('../config/loader.js', () => ({
   loadConfig: () => ({}),
 }));
 
+const proxyGetOrStartSession = mock(() => Promise.resolve({
+  session: { id: 'mock-session' },
+}));
+const proxyGetSessionEnv = mock(() => ({
+  HTTP_PROXY: 'http://localhost:9999',
+  HTTPS_PROXY: 'http://localhost:9999',
+}));
+
+mock.module('../tools/network/script-proxy/index.js', () => ({
+  getOrStartSession: proxyGetOrStartSession,
+  getSessionEnv: proxyGetSessionEnv,
+  createSession: () => {},
+  startSession: () => {},
+  stopSession: () => {},
+  getActiveSession: () => null,
+  getSessionsForConversation: () => [],
+  stopAllSessions: () => {},
+  ensureLocalCA: () => {},
+  ensureCombinedCABundle: () => {},
+  issueLeafCert: () => {},
+  getCAPath: () => '',
+  getCombinedCAPath: () => '',
+}));
+
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
 import { parse } from '../tools/terminal/parser.js';
@@ -563,13 +587,27 @@ describe('Docker sandbox backend', () => {
   });
 
   test('constructor rejects sandbox root with newlines', () => {
-    // Path doesn't exist on disk, so realpathSync throws ENOENT before
-    // validatePathSafety runs. The important thing is that it never succeeds.
-    expect(() => new DockerBackend('/tmp/foo\nbar', undefined, 1000, 1000)).toThrow();
+    // Create a real directory with a newline in its name so realpathSync
+    // succeeds and the rejection comes from validatePathSafety, not ENOENT.
+    const nlDir = join(testTmpDir, 'has\nnewline');
+    mkdirSync(nlDir, { recursive: true });
+    try {
+      expect(() => new DockerBackend(nlDir, undefined, 1000, 1000)).toThrow(ToolError);
+    } finally {
+      try { rmSync(nlDir, { recursive: true, force: true }); } catch {}
+    }
   });
 
   test('constructor rejects sandbox root with carriage returns', () => {
-    expect(() => new DockerBackend('/tmp/foo\rbar', undefined, 1000, 1000)).toThrow();
+    // Create a real directory with a carriage return in its name so
+    // realpathSync succeeds and validatePathSafety is what rejects it.
+    const crDir = join(testTmpDir, 'has\rreturn');
+    mkdirSync(crDir, { recursive: true });
+    try {
+      expect(() => new DockerBackend(crDir, undefined, 1000, 1000)).toThrow(ToolError);
+    } finally {
+      try { rmSync(crDir, { recursive: true, force: true }); } catch {}
+    }
   });
 
   test('validates path safety after resolving symlinks', () => {
@@ -649,13 +687,15 @@ describe('Shell tool input validation', () => {
 
   test('default network mode is off', async () => {
     // When network_mode is not specified, it should default to 'off'.
-    // We verify by checking the command runs (without proxy errors).
+    // Verify by checking that the proxy session is never started — the
+    // observable effect of network_mode defaulting to 'off'.
+    proxyGetOrStartSession.mockClear();
     const result = await shellTool.execute(
       { command: 'echo network_default', reason: 'testing' },
       baseContext,
     );
     expect(result.isError).toBe(false);
-    expect(result.content).toContain('network_default');
+    expect(proxyGetOrStartSession).not.toHaveBeenCalled();
   });
 
   test('tool definition includes required schema fields', () => {
