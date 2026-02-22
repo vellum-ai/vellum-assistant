@@ -431,7 +431,7 @@ public struct ToolConfirmationBubble: View {
                 // Plain Tab — move right (modified Tab passes through)
                 keyboardModel?.moveRight()
                 return nil
-            case 36, 76 where mods.isEmpty:
+            case 36 where mods.isEmpty, 76 where mods.isEmpty:
                 // Plain Return / numpad Enter — activate (modified Enter passes through, e.g. Shift+Enter for newline)
                 if let action = keyboardModel?.selectedAction {
                     activateAction(action)
@@ -459,7 +459,7 @@ public struct ToolConfirmationBubble: View {
             // Down arrow
             popoverKeyboardModel?.moveDown()
             return nil
-        case 36, 76 where mods.isEmpty:
+        case 36 where mods.isEmpty, 76 where mods.isEmpty:
             // Plain Return / numpad Enter — activate selected row (modified Enter passes through)
             activatePopoverSelection()
             return nil
