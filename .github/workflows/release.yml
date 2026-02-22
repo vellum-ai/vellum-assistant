@@ -1,17 +1,112 @@
-name: Build and Release macOS App
+name: Release
 
 on:
-  push:
-    branches: [main]
-    paths: [clients/Package.swift]
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 0.3.1)'
+        required: true
 
 concurrency:
-  group: build-release
-  cancel-in-progress: true
+  group: release
+  cancel-in-progress: false
 
 jobs:
+  bump-and-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bump versions and tag
+        run: |
+          VERSION="${{ inputs.version }}"
+
+          # Bump all package.json files
+          for pkg in assistant cli gateway meta; do
+            jq --arg v "$VERSION" '.version = $v' $pkg/package.json > tmp && mv tmp $pkg/package.json
+          done
+
+          # Bump meta-package dependency versions
+          jq --arg v "$VERSION" '
+            .dependencies["@vellumai/assistant"] = $v |
+            .dependencies["@vellumai/cli"] = $v |
+            .dependencies["@vellumai/vellum-gateway"] = $v
+          ' meta/package.json > tmp && mv tmp meta/package.json
+
+          # Bump macOS app version
+          sed -i "s/^let appVersion = .*/let appVersion = \"$VERSION\"/" clients/Package.swift
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Release v$VERSION"
+          git tag "v$VERSION"
+          git push origin main --tags
+
+    outputs:
+      version: ${{ inputs.version }}
+
+  publish-npm:
+    needs: bump-and-tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        package: [assistant, cli, gateway]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      - name: Install and publish
+        run: |
+          cd ${{ matrix.package }}
+          if ! bun install --frozen-lockfile; then
+            echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
+            rm -f bun.lock
+            rm -rf node_modules
+            bun install
+          fi
+          npm publish --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-meta:
+    needs: [bump-and-tag, publish-npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      - name: Publish meta-package
+        run: |
+          cd meta
+          npm publish --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   build-macos:
+    needs: bump-and-tag
     runs-on: macos-14
     defaults:
       run:
@@ -21,8 +116,9 @@ jobs:
       KEYCHAIN_NAME: build.keychain
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
       - name: Select Xcode 16.2
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
@@ -31,12 +127,10 @@ jobs:
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
 
-          # Create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          # Decode and import the .p12 certificate
           echo "${{ secrets.CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
           security import /tmp/certificate.p12 \
             -k "$KEYCHAIN_PATH" \
@@ -45,24 +139,15 @@ jobs:
             -T /usr/bin/security
           rm /tmp/certificate.p12
 
-          # Allow codesign to access the keychain without prompt
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          # Add to search list and set as default
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
           security default-keychain -s "$KEYCHAIN_PATH"
-
-          # Verify the certificate was imported
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
-      - name: Read version from Package.swift
+      - name: Set version
         id: version
         run: |
-          DISPLAY_VERSION=$(sed -n 's/^let appVersion = "\(.*\)"/\1/p' ../Package.swift)
-          if [ -z "$DISPLAY_VERSION" ]; then
-            echo "::error::Could not extract version from clients/Package.swift"
-            exit 1
-          fi
+          DISPLAY_VERSION="${{ needs.bump-and-tag.outputs.version }}"
           BUILD_VERSION=$(date -u +%Y%m%d%H%M)
           echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
@@ -118,6 +203,24 @@ jobs:
           ls -lh ../clients/macos/cli-bin/vellum-cli
           file ../clients/macos/cli-bin/vellum-cli
 
+      - name: Build gateway binary
+        working-directory: gateway
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/index.ts \
+            --outfile ../clients/macos/gateway-bin/vellum-gateway-arm64
+          bun build --compile --target=bun-darwin-x64 src/index.ts \
+            --outfile ../clients/macos/gateway-bin/vellum-gateway-x64
+          lipo -create \
+            ../clients/macos/gateway-bin/vellum-gateway-arm64 \
+            ../clients/macos/gateway-bin/vellum-gateway-x64 \
+            -output ../clients/macos/gateway-bin/vellum-gateway
+          rm ../clients/macos/gateway-bin/vellum-gateway-arm64 ../clients/macos/gateway-bin/vellum-gateway-x64
+          chmod +x ../clients/macos/gateway-bin/vellum-gateway
+          echo "Gateway universal binary built:"
+          ls -lh ../clients/macos/gateway-bin/vellum-gateway
+          file ../clients/macos/gateway-bin/vellum-gateway
+
       - name: Build release .app
         run: |
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
@@ -127,19 +230,14 @@ jobs:
           ./build.sh release
 
           APP_PATH="dist/Vellum.app"
-
-          # Verify the app exists
           ls -la "$APP_PATH"
-
-          # Verify code signature
           codesign --verify --deep --strict "$APP_PATH"
           echo "Code signature verified"
 
       - name: Free disk space
         run: |
-          rm -rf .build daemon-bin cli-bin
-          rm -rf ../../assistant/node_modules ../../cli/node_modules
-          # Clear Xcode caches
+          rm -rf .build daemon-bin cli-bin gateway-bin
+          rm -rf ../../assistant/node_modules ../../cli/node_modules ../../gateway/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
           df -h .
@@ -157,7 +255,6 @@ jobs:
         run: |
           APP_PATH="dist/Vellum.app"
 
-          # Stage the .app and an Applications symlink for the drop target
           DMG_STAGING="build/dmg-staging"
           mkdir -p "$DMG_STAGING"
           cp -R "$APP_PATH" "$DMG_STAGING/"
@@ -166,7 +263,6 @@ jobs:
           echo "Staging directory size:"
           du -sh "$DMG_STAGING"
 
-          # Create styled DMG with background, icon layout, and Applications drop link
           create-dmg \
             --volname "Vellum" \
             --background "build/dmg-background@2x.png" \
@@ -181,7 +277,6 @@ jobs:
             "$DMG_PATH" \
             "$DMG_STAGING/" \
           || {
-            # create-dmg exits 2 on non-fatal warnings (e.g. Finder scripting delays)
             EXIT_CODE=$?
             if [ $EXIT_CODE -eq 2 ] && [ -f "$DMG_PATH" ]; then
               echo "create-dmg exited with warning (code 2), but DMG was created successfully"
@@ -200,7 +295,6 @@ jobs:
             --timestamp \
             "$DMG_PATH"
 
-          # Verify DMG signature
           codesign --verify --verbose "$DMG_PATH"
           echo "DMG signature verified"
 
@@ -217,10 +311,8 @@ jobs:
 
           echo "$NOTARIZE_OUTPUT"
 
-          # Extract the submission ID for log fetching
           SUBMISSION_ID=$(echo "$NOTARIZE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
 
-          # Check for failure: either the command failed or Apple rejected the submission
           if [ "$NOTARIZE_FAILED" = "true" ] || echo "$NOTARIZE_OUTPUT" | grep -q "status: Invalid"; then
             echo "::error::Notarization failed (status: Invalid or command error)"
             if [ -n "$SUBMISSION_ID" ]; then
@@ -238,7 +330,6 @@ jobs:
 
       - name: Staple notarization ticket
         run: |
-          # Apple's CDN can take several minutes to propagate the ticket after notarization
           MAX_ATTEMPTS=15
           WAIT_SECS=60
           for i in $(seq 1 $MAX_ATTEMPTS); do
@@ -257,16 +348,13 @@ jobs:
             fi
             echo "Waiting ${WAIT_SECS}s for CDN propagation..."
             sleep $WAIT_SECS
-            # Increase wait time for subsequent attempts (60, 75, 90, 105, ...)
             WAIT_SECS=$((WAIT_SECS + 15))
           done
 
-          # Verify stapling
           xcrun stapler validate "$DMG_PATH"
           echo "Notarization ticket stapled and validated"
 
       - name: Build ZIP for Sparkle auto-update
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         run: |
           cd dist
           ditto -c -k --keepParent Vellum.app vellum-assistant.zip
@@ -274,7 +362,6 @@ jobs:
           ls -lh vellum-assistant.zip
 
       - name: Install Sparkle sign_update tool
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         run: |
           brew install sparkle
           SPARKLE_BIN=$(find /opt/homebrew/Caskroom/sparkle -name sign_update -type f 2>/dev/null | head -1)
@@ -285,15 +372,12 @@ jobs:
           echo "$(dirname "$SPARKLE_BIN")" >> "$GITHUB_PATH"
 
       - name: Generate appcast.xml
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         env:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}"
           BUILD_VERSION="${{ steps.version.outputs.build_version }}"
 
-          # Sign the ZIP with Sparkle EdDSA key (write to temp file — CLI arg is deprecated)
-          echo "sign_update location: $(which sign_update || echo 'NOT FOUND')"
           ED_KEY_FILE=$(mktemp)
           echo "$SPARKLE_ED_PRIVATE_KEY" > "$ED_KEY_FILE"
           SIGNATURE=$(sign_update dist/vellum-assistant.zip --ed-key-file "$ED_KEY_FILE") || {
@@ -328,7 +412,6 @@ jobs:
           echo "Appcast generated for $REPO"
 
       - name: Upload macOS build artifacts
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
           name: macos-build
@@ -339,13 +422,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload DMG artifact
-        if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
-        uses: actions/upload-artifact@v4
-        with:
-          name: vellum-assistant.dmg
-          path: clients/macos/${{ env.DMG_PATH }}
-
       - name: Cleanup keychain
         if: always()
         run: |
@@ -353,10 +429,7 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
   release:
-    needs: [build-macos]
-    if: >-
-      !cancelled() &&
-      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    needs: [bump-and-tag, build-macos]
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App token
@@ -368,33 +441,21 @@ jobs:
           owner: vellum-ai
           repositories: vellum-assistant,velly
 
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Read version from Package.swift
-        id: version
-        run: |
-          DISPLAY_VERSION=$(sed -n 's/^let appVersion = "\(.*\)"/\1/p' clients/Package.swift)
-          if [ -z "$DISPLAY_VERSION" ]; then
-            echo "::error::Could not extract version from clients/Package.swift"
-            exit 1
-          fi
-          echo "display_version=$DISPLAY_VERSION" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
       - name: Download macOS build artifacts
-        id: download-macos
-        if: needs.build-macos.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: macos-build
           path: macos-artifacts
-        continue-on-error: true
 
       - name: Create GitHub Releases
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          VERSION="${{ steps.version.outputs.display_version }}"
+          VERSION="${{ needs.bump-and-tag.outputs.version }}"
           SHORT_SHA=$(git rev-parse --short HEAD)
           FULL_SHA=$(git rev-parse HEAD)
           TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
@@ -412,7 +473,6 @@ jobs:
             echo "Existing installations will auto-update via Sparkle."
           } > "$NOTES_FILE"
 
-          # Build asset list from macOS build artifacts
           ASSETS=()
           if [ -d "macos-artifacts" ]; then
             DMG=$(find macos-artifacts -name "vellum-assistant.dmg" -type f | head -1)
@@ -421,8 +481,6 @@ jobs:
             [ -n "$DMG" ] && ASSETS+=("$DMG#vellum-assistant.dmg")
             [ -n "$ZIP" ] && ASSETS+=("$ZIP#vellum-assistant.zip")
             [ -n "$APPCAST" ] && ASSETS+=("$APPCAST#appcast.xml")
-          else
-            echo "::warning::macOS build artifacts not available - releasing without macOS app"
           fi
 
           INSTALL_SH="cli/src/adapters/install.sh"
@@ -459,14 +517,72 @@ jobs:
 
           rm -f "$NOTES_FILE"
 
+  update-platform:
+    needs: [bump-and-tag, publish-npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+          owner: vellum-ai
+          repositories: vellum-assistant-platform
+
+      - name: Checkout platform repo
+        uses: actions/checkout@v4
+        with:
+          repository: vellum-ai/vellum-assistant-platform
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Update vel dependency
+        env:
+          NEW_VERSION: ${{ needs.bump-and-tag.outputs.version }}
+        run: |
+          cd vel
+          jq --arg v "$NEW_VERSION" '.dependencies["@vellumai/cli"] = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+          bun install
+
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          NEW_VERSION: ${{ needs.bump-and-tag.outputs.version }}
+        run: |
+          BRANCH="auto/bump-cli-${NEW_VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add vel/package.json vel/bun.lock
+          git commit -m "Bump @vellumai/cli to ${NEW_VERSION} in vel"
+          git push origin "$BRANCH"
+          PR_URL=$(gh pr create \
+            --repo vellum-ai/vellum-assistant-platform \
+            --title "Bump @vellumai/cli to ${NEW_VERSION} in vel" \
+            --body "Auto-generated PR to update @vellumai/cli to ${NEW_VERSION}." \
+            --base main \
+            --head "$BRANCH")
+          sleep 10
+          gh pr merge "$PR_URL" --auto --squash
+
   notify-failure:
     if: >-
       !cancelled() &&
-      (needs.build-macos.result == 'failure' || needs.release.result == 'failure')
-    needs: [build-macos, release]
+      (needs.bump-and-tag.result == 'failure' ||
+       needs.publish-npm.result == 'failure' ||
+       needs.publish-meta.result == 'failure' ||
+       needs.build-macos.result == 'failure' ||
+       needs.release.result == 'failure')
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, release]
     runs-on: ubuntu-latest
     steps:
-      - name: Notify Slack of build failure
+      - name: Notify Slack of release failure
         uses: slackapi/slack-github-action@v2.1.0
         with:
           webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
@@ -478,11 +594,11 @@ jobs:
               - type: header
                 text:
                   type: plain_text
-                  text: "\u274c Build and Release macOS App Failed"
+                  text: "\u274c Release v${{ inputs.version }} Failed"
               - type: section
                 text:
                   type: mrkdwn
-                  text: "*Workflow:* Build and Release macOS App\n*Branch:* `${{ github.ref_name }}`\n*Triggered by:* ${{ github.actor }}"
+                  text: "*Workflow:* Unified Release\n*Version:* `${{ inputs.version }}`\n*Triggered by:* ${{ github.actor }}"
               - type: actions
                 elements:
                   - type: button
