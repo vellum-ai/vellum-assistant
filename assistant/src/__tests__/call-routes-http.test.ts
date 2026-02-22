@@ -556,4 +556,144 @@ describe('runtime call routes — HTTP layer', () => {
 
     await stopServer();
   });
+
+  // ── POST /v1/calls/:id/instruction ────────────────────────────────
+
+  test('POST /v1/calls/:id/instruction returns 400 for malformed JSON', async () => {
+    await startServer();
+    ensureConversation('conv-instr-badjson');
+
+    const session = createCallSession({
+      conversationId: 'conv-instr-badjson',
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15559998888',
+    });
+
+    const res = await fetch(callsUrl(`/${session.id}/instruction`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: 'not-json{{',
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain('Invalid JSON');
+
+    await stopServer();
+  });
+
+  test('POST /v1/calls/:id/instruction returns 400 when instruction is empty', async () => {
+    await startServer();
+    ensureConversation('conv-instr-empty');
+
+    const session = createCallSession({
+      conversationId: 'conv-instr-empty',
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15559998888',
+    });
+
+    const res = await fetch(callsUrl(`/${session.id}/instruction`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: JSON.stringify({ instruction: '' }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain('instructionText');
+
+    await stopServer();
+  });
+
+  test('POST /v1/calls/:id/instruction returns 400 when instruction field is missing', async () => {
+    await startServer();
+    ensureConversation('conv-instr-missing');
+
+    const session = createCallSession({
+      conversationId: 'conv-instr-missing',
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15559998888',
+    });
+
+    const res = await fetch(callsUrl(`/${session.id}/instruction`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain('instructionText');
+
+    await stopServer();
+  });
+
+  test('POST /v1/calls/:id/instruction returns 404 for unknown session', async () => {
+    await startServer();
+
+    const res = await fetch(callsUrl('/nonexistent-id/instruction'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: JSON.stringify({ instruction: 'Speed things up' }),
+    });
+
+    expect(res.status).toBe(404);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain('No call session found');
+
+    await stopServer();
+  });
+
+  test('POST /v1/calls/:id/instruction returns 409 for ended call', async () => {
+    await startServer();
+    ensureConversation('conv-instr-ended');
+
+    const session = createCallSession({
+      conversationId: 'conv-instr-ended',
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15559998888',
+    });
+
+    updateCallSession(session.id, { status: 'completed', endedAt: Date.now() });
+
+    const res = await fetch(callsUrl(`/${session.id}/instruction`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: JSON.stringify({ instruction: 'Speed things up' }),
+    });
+
+    expect(res.status).toBe(409);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain('not active');
+
+    await stopServer();
+  });
+
+  test('POST /v1/calls/:id/instruction returns 409 when no orchestrator', async () => {
+    await startServer();
+    ensureConversation('conv-instr-no-orch');
+
+    const session = createCallSession({
+      conversationId: 'conv-instr-no-orch',
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15559998888',
+    });
+
+    const res = await fetch(callsUrl(`/${session.id}/instruction`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: JSON.stringify({ instruction: 'Speed things up' }),
+    });
+
+    expect(res.status).toBe(409);
+    const body = await res.json() as { error: string };
+    expect(body.error).toContain('orchestrator');
+
+    await stopServer();
+  });
 });

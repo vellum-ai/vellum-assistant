@@ -62,6 +62,7 @@ import {
   handleGetCallStatus,
   handleCancelCall,
   handleAnswerCall,
+  handleInstructionCall,
 } from './routes/call-routes.js';
 import {
   handleVoiceWebhook,
@@ -741,8 +742,8 @@ export class RuntimeHttpServer {
         return await handleStartCall(req);
       }
 
-      // Match calls/:callSessionId and calls/:callSessionId/cancel, calls/:callSessionId/answer
-      const callsMatch = endpoint.match(/^calls\/([^/]+?)(\/cancel|\/answer)?$/);
+      // Match calls/:callSessionId and calls/:callSessionId/cancel, calls/:callSessionId/answer, calls/:callSessionId/instruction
+      const callsMatch = endpoint.match(/^calls\/([^/]+?)(\/cancel|\/answer|\/instruction)?$/);
       if (callsMatch) {
         const callSessionId = callsMatch[1];
         // Skip known sub-paths that are handled elsewhere (twilio, relay)
@@ -752,6 +753,9 @@ export class RuntimeHttpServer {
           }
           if (callsMatch[2] === '/answer' && req.method === 'POST') {
             return await handleAnswerCall(req, callSessionId);
+          }
+          if (callsMatch[2] === '/instruction' && req.method === 'POST') {
+            return await handleInstructionCall(req, callSessionId);
           }
           if (!callsMatch[2] && req.method === 'GET') {
             return handleGetCallStatus(callSessionId);

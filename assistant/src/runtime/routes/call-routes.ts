@@ -5,9 +5,10 @@
  * GET    /v1/calls/:callSessionId      — get call status
  * POST   /v1/calls/:callSessionId/cancel — cancel a call
  * POST   /v1/calls/:callSessionId/answer — answer a pending question
+ * POST   /v1/calls/:callSessionId/instruction — relay an instruction to an active call
  */
 
-import { startCall, getCallStatus, cancelCall, answerCall } from '../../calls/call-domain.js';
+import { startCall, getCallStatus, cancelCall, answerCall, relayInstruction } from '../../calls/call-domain.js';
 import { getConfig } from '../../config/loader.js';
 import { VALID_CALLER_IDENTITY_MODES } from '../../config/schema.js';
 
@@ -149,4 +150,29 @@ export async function handleAnswerCall(req: Request, callSessionId: string): Pro
   }
 
   return Response.json({ ok: true, questionId: result.questionId });
+}
+
+/**
+ * POST /v1/calls/:callSessionId/instruction
+ *
+ * Body: { instruction: string }
+ */
+export async function handleInstructionCall(req: Request, callSessionId: string): Promise<Response> {
+  let body: { instruction?: string };
+  try {
+    body = await req.json() as typeof body;
+  } catch {
+    return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+  }
+
+  const result = await relayInstruction({
+    callSessionId,
+    instructionText: body.instruction ?? '',
+  });
+
+  if (!result.ok) {
+    return Response.json({ error: result.error }, { status: result.status ?? 500 });
+  }
+
+  return Response.json({ ok: true });
 }
