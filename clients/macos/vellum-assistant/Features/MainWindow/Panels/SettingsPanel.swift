@@ -42,6 +42,7 @@ struct SettingsPanel: View {
     @State private var mouseDownMonitor: Any?
     @State private var modelDropdownFrame: CGRect = .zero
     @State private var selectedTab: SettingsTab = .integrations
+    @State private var testerModel: ToolPermissionTesterModel?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -987,6 +988,11 @@ struct SettingsPanel: View {
                 .vCard(background: VColor.surfaceSubtle)
             }
 
+            // PERMISSION SIMULATOR section
+            if let dc = daemonClient {
+                ToolPermissionTesterView(model: ensureTesterModel(dc))
+            }
+
             // PRIVACY & SECURITY section
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("PRIVACY & SECURITY")
@@ -1280,6 +1286,16 @@ struct SettingsPanel: View {
                 }
             }
         }
+    }
+
+    // MARK: - Tester Model
+
+    /// Lazily create and cache the tester model so it survives re-renders.
+    private func ensureTesterModel(_ dc: DaemonClient) -> ToolPermissionTesterModel {
+        if let existing = testerModel { return existing }
+        let model = ToolPermissionTesterModel(daemonClient: dc)
+        DispatchQueue.main.async { testerModel = model }
+        return model
     }
 
     // MARK: - Privacy Bullet
