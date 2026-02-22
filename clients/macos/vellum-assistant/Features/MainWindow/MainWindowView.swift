@@ -558,22 +558,6 @@ struct MainWindowView: View {
                 windowState.persistentThreadId = activeId
             }
             requestHomeBaseDashboardIfNeeded()
-
-            // Show a brief toast when a previously-hidden thread reappears
-            threadManager.onThreadReconnected = { [weak windowState] title in
-                let toastMessage = "Reconnected: \(title)"
-                windowState?.showToast(
-                    message: toastMessage,
-                    style: .success
-                )
-                // Auto-dismiss after 3 seconds, but only if this toast is still showing.
-                // Avoids prematurely dismissing an unrelated toast that appeared in the interim.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak windowState] in
-                    if windowState?.toastInfo?.message == toastMessage {
-                        windowState?.dismissToast()
-                    }
-                }
-            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
@@ -819,14 +803,6 @@ struct MainWindowView: View {
         }
         .padding(.horizontal, VSpacing.sm)
         .contextMenu {
-            if thread.sourceChannel != nil {
-                Button {
-                    threadManager.hideLocalThread(id: thread.id)
-                } label: {
-                    Label("Hide Local Thread", systemImage: "eye.slash")
-                }
-                .help("This does not delete Telegram history. The thread reappears on next message.")
-            }
             Button {
                 if thread.isPinned {
                     threadManager.unpinThread(id: thread.id)

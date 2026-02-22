@@ -13,7 +13,6 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
     var activatedThreadId: UUID?
     var createThreadCallCount = 0
     var archivedSessionIds: Set<String> = []
-    var hiddenSessionTimestamps: [String: Int] = [:]
     private let daemonClient: DaemonClient
 
     init(daemonClient: DaemonClient) {
@@ -51,30 +50,6 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
 
     func isSessionArchived(_ sessionId: String) -> Bool {
         archivedSessionIds.contains(sessionId)
-    }
-
-    var hiddenSessionIds: Set<String> = []
-
-    func isSessionHidden(_ sessionId: String) -> Bool {
-        hiddenSessionIds.contains(sessionId)
-    }
-
-    func isSessionHidden(_ sessionId: String, updatedAt: Int) -> Bool {
-        guard let hideTime = hiddenSessionTimestamps[sessionId] else { return false }
-        if updatedAt > hideTime {
-            hiddenSessionTimestamps.removeValue(forKey: sessionId)
-            return false
-        }
-        return true
-    }
-
-    func clearHiddenSession(_ sessionId: String) {
-        hiddenSessionIds.remove(sessionId)
-        hiddenSessionTimestamps.removeValue(forKey: sessionId)
-    }
-
-    func clearHiddenSessionMonitor(_ sessionId: String) {
-        hiddenSessionIds.remove(sessionId)
     }
 
     func restoreLastActiveThread() {
