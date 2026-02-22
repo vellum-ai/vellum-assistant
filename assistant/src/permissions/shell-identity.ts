@@ -1,6 +1,8 @@
 import { parse, type ParsedCommand, type CommandSegment, type DangerousPattern } from '../tools/terminal/parser.js';
 import type { AllowlistOption } from './types.js';
 
+export type { ParsedCommand };
+
 export interface ShellActionKey {
   /** e.g. "action:gh", "action:gh pr", "action:gh pr view" */
   key: string;
@@ -37,8 +39,8 @@ const MAX_ACTION_KEY_DEPTH = 3;
  * Analyze a shell command using the tree-sitter parser to extract
  * identity information for permission decisions.
  */
-export async function analyzeShellCommand(command: string): Promise<ShellIdentityAnalysis> {
-  const parsed = await parse(command);
+export async function analyzeShellCommand(command: string, preParsed?: ParsedCommand): Promise<ShellIdentityAnalysis> {
+  const parsed = preParsed ?? await parse(command);
 
   const operators: string[] = [];
   for (const seg of parsed.segments) {
@@ -131,11 +133,11 @@ export function deriveShellActionKeys(analysis: ShellIdentityAnalysis): ActionKe
  *
  * Complex commands (pipelines, multi-action chains) only return the raw candidate.
  */
-export async function buildShellCommandCandidates(command: string): Promise<string[]> {
+export async function buildShellCommandCandidates(command: string, preParsed?: ParsedCommand): Promise<string[]> {
   const trimmed = command.trim();
   if (!trimmed) return [trimmed];
 
-  const analysis = await analyzeShellCommand(trimmed);
+  const analysis = await analyzeShellCommand(trimmed, preParsed);
   const actionResult = deriveShellActionKeys(analysis);
 
   const candidates: string[] = [trimmed];

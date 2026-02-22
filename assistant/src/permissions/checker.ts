@@ -11,7 +11,7 @@ import { homedir } from 'node:os';
 import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
 import { normalizeFilePath, isSkillSourcePath } from '../skills/path-classifier.js';
 import { isWorkspaceScopedInvocation } from './workspace-policy.js';
-import { buildShellCommandCandidates, buildShellAllowlistOptions } from './shell-identity.js';
+import { buildShellCommandCandidates, buildShellAllowlistOptions, type ParsedCommand } from './shell-identity.js';
 
 // Ensures the legacy mode deprecation warning fires at most once per process.
 let _legacyDeprecationWarned = false;
@@ -154,9 +154,9 @@ function escapeMinimatchLiteral(value: string): string {
   return value.replace(/([\\*?[\]{}()!+@|])/g, '\\$1');
 }
 
-async function buildCommandCandidates(toolName: string, input: Record<string, unknown>, workingDir: string): Promise<string[]> {
+async function buildCommandCandidates(toolName: string, input: Record<string, unknown>, workingDir: string, preParsed?: ParsedCommand): Promise<string[]> {
   if (toolName === 'bash' || toolName === 'host_bash') {
-    return buildShellCommandCandidates(getStringField(input, 'command'));
+    return buildShellCommandCandidates(getStringField(input, 'command'), preParsed);
   }
 
   if (toolName === 'skill_load') {
@@ -244,7 +244,7 @@ async function buildCommandCandidates(toolName: string, input: Record<string, un
   return [...new Set(candidates)];
 }
 
-export async function classifyRisk(toolName: string, input: Record<string, unknown>, workingDir?: string): Promise<RiskLevel> {
+export async function classifyRisk(toolName: string, input: Record<string, unknown>, workingDir?: string, preParsed?: ParsedCommand): Promise<RiskLevel> {
   if (toolName === 'file_read') return RiskLevel.Low;
   if (toolName === 'file_write' || toolName === 'file_edit') {
     const filePath = getStringField(input, 'path', 'file_path');
@@ -284,7 +284,7 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
     const command = (input.command as string) ?? '';
     if (!command.trim()) return RiskLevel.Low;
 
-    const parsed = await parse(command);
+    const parsed = preParsed ?? await parse(command);
 
     // Dangerous patterns → High
     if (parsed.dangerousPatterns.length > 0) return RiskLevel.High;
@@ -352,10 +352,19 @@ export async function check(
   workingDir: string,
   policyContext?: PolicyContext,
 ): Promise<PermissionCheckResult> {
-  const risk = await classifyRisk(toolName, input, workingDir);
+  // For shell tools, parse once and share the result to avoid duplicate tree-sitter work.
+  let shellParsed: ParsedCommand | undefined;
+  if (toolName === 'bash' || toolName === 'host_bash') {
+    const command = ((input.command as string) ?? '').trim();
+    if (command) {
+      shellParsed = await parse(command);
+    }
+  }
+
+  const risk = await classifyRisk(toolName, input, workingDir, shellParsed);
 
   // Build command string candidates for rule matching
-  const commandCandidates = await buildCommandCandidates(toolName, input, workingDir);
+  const commandCandidates = await buildCommandCandidates(toolName, input, workingDir, shellParsed);
 
   // Find the highest-priority matching rule across all candidates
   const matchedRule = findHighestPriorityRule(toolName, commandCandidates, workingDir, policyContext);
