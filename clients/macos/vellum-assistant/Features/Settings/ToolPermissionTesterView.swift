@@ -210,7 +210,38 @@ struct ToolPermissionTesterView: View {
                         .foregroundColor(VColor.textSecondary)
                 }
 
-                // Local override label
+                // Prompt preview: reuse the ToolConfirmationBubble from chat
+                if result.decision == "prompt",
+                   result.localOverrideLabel == nil,
+                   let payload = result.promptPayload {
+                    let parsed = (try? model.parseInputJSON(model.inputJSON)) ?? [:]
+                    let confirmation = ToolConfirmationData.fromSimulation(
+                        toolName: model.toolName,
+                        input: parsed,
+                        riskLevel: result.riskLevel,
+                        executionTarget: model.executionTarget.isEmpty ? nil : model.executionTarget,
+                        promptPayload: payload
+                    )
+
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        ToolConfirmationBubble(
+                            confirmation: confirmation,
+                            isKeyboardActive: false,
+                            onAllow: { model.allowOnce() },
+                            onDeny: { model.denyOnce() },
+                            onAlwaysAllow: { _, pattern, scope, decision in
+                                model.alwaysAllow(pattern: pattern, scope: scope, decision: decision)
+                            }
+                        )
+
+                        Text("This is a simulation \u{2014} Allow Once and Don\u{2019}t Allow do not affect real permissions.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .italic()
+                    }
+                }
+
+                // Local override label (shown after allowOnce / denyOnce)
                 if let label = result.localOverrideLabel {
                     HStack(spacing: VSpacing.xs) {
                         Image(systemName: "info.circle")
