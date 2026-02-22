@@ -736,7 +736,7 @@ graph TB
 
     subgraph "Read Path (Memory Recall)"
         QUERY["Recall Query Builder<br/>User request + compacted context summary"]
-        CONFLICT_GATE["Soft Conflict Gate<br/>resolve pending conflicts from user turn<br/>relevance + cooldown ask-once behavior"]
+        CONFLICT_GATE["Soft Conflict Gate<br/>dismiss non-actionable conflicts (kind + statement policy)<br/>resolve pending conflicts from user turn<br/>relevance + cooldown + configurable ask behavior"]
         PROFILE_BUILD["Dynamic Profile Compiler<br/>active trusted profile memories<br/>user_confirmed > user_reported > assistant_inferred"]
         PROFILE_INJECT["Inject profile context block<br/>into runtime user tail<br/>(strict token cap)"]
         BUDGET["Dynamic Recall Budget<br/>computeRecallBudget()<br/>from prompt headroom"]
@@ -836,6 +836,9 @@ graph TB
 | `memory.conflicts.reaskCooldownTurns` | `3` | Minimum turn distance before re-asking the same conflict clarification. |
 | `memory.conflicts.resolverLlmTimeoutMs` | `12000` | Timeout bound for clarification resolver LLM fallback. |
 | `memory.conflicts.relevanceThreshold` | `0.3` | Similarity threshold for deciding whether a pending conflict is relevant to the current request. |
+| `memory.conflicts.gateMode` | `'soft'` | Conflict gate strategy. `'soft'` asks the user inline; gate is skipped for other values. |
+| `memory.conflicts.askOnIrrelevantTurns` | `false` | When `true`, soft-inject irrelevant conflict clarifications into every turn. When `false` (default), only ask when the conflict is topically relevant. |
+| `memory.conflicts.conflictableKinds` | `['preference', 'profile', 'constraint', 'instruction', 'style']` | Memory item kinds eligible for conflict detection. Items with kinds outside this list are auto-dismissed. |
 | `memory.profile.enabled` | `true` | Enable dynamic profile compilation from active trusted profile/preference/constraint/instruction memories. |
 | `memory.profile.maxInjectTokens` | `800` | Hard token cap enforced by `ProfileCompiler` when generating the runtime profile block. |
 
@@ -869,7 +872,8 @@ graph TB
 stateDiagram-v2
     [*] --> ActiveItems : extract_items/check_contradictions
     ActiveItems --> PendingConflict : ambiguous_contradiction\n(candidate -> pending_clarification)
-    PendingConflict --> PendingConflict : soft gate ask once\n(reask cooldown + relevance)
+    PendingConflict --> PendingConflict : soft gate ask\n(reask cooldown + relevance + askOnIrrelevantTurns)
+    PendingConflict --> Dismissed : non-actionable\n(kind policy + transient statement filter)
     PendingConflict --> ResolvedKeepExisting : clarification resolver\n+ applyConflictResolution
     PendingConflict --> ResolvedKeepCandidate : clarification resolver\n+ applyConflictResolution
     PendingConflict --> ResolvedMerge : clarification resolver\n+ applyConflictResolution
