@@ -572,7 +572,10 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
         conversationId,
         content,
         attachmentIds,
-        isNonGuardian ? { forceStrictSideEffects: true } : undefined,
+        {
+          ...(isNonGuardian ? { forceStrictSideEffects: true } : {}),
+          sourceChannel,
+        },
       );
 
       // Poll the run until it reaches a terminal state, delivering approval
@@ -698,10 +701,14 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
           }
         }
       } else {
+        const timeoutErr = new Error(
+          `Approval poll timeout: run did not reach terminal state within ${RUN_POLL_MAX_WAIT_MS}ms`,
+        );
         log.warn(
           { runId: run.id, status: finalRun?.status, conversationId },
           'Approval-path poll loop timed out before run reached terminal state',
         );
+        channelDeliveryStore.recordProcessingFailure(eventId, timeoutErr);
       }
     } catch (err) {
       log.error({ err, conversationId }, 'Approval-aware channel message processing failed');

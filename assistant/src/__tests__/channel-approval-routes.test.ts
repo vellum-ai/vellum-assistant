@@ -980,3 +980,165 @@ describe('stale callback handling', () => {
     expect(body.approval).toBeUndefined();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 12. Timeout-to-retry lifecycle (WS-C)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('poll timeout calls recordProcessingFailure', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('records processing failure when run disappears (getRun returns null) before terminal state', async () => {
+    const linkSpy = spyOn(channelDeliveryStore, 'linkMessage').mockImplementation(() => {});
+    const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
+    const failureSpy = spyOn(channelDeliveryStore, 'recordProcessingFailure').mockImplementation(() => {});
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const mockRun = {
+      id: 'run-timeout-1',
+      conversationId: 'conv-1',
+      messageId: 'user-msg-200',
+      status: 'running' as const,
+      pendingConfirmation: null,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    // getRun returns null — run disappeared, poll loop breaks, isTerminal = false
+    const orchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => null),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    const req = makeInboundRequest({ content: 'hello timeout' });
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+
+    // Wait for the background async to complete
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    // recordProcessingFailure should have been called because the run is not terminal
+    expect(failureSpy).toHaveBeenCalled();
+    const failureArgs = failureSpy.mock.calls[0];
+    // First arg is the eventId (string), second is the error
+    expect(typeof failureArgs[0]).toBe('string');
+    expect(failureArgs[1]).toBeInstanceOf(Error);
+    expect((failureArgs[1] as Error).message).toContain('Approval poll timeout');
+    expect((failureArgs[1] as Error).message).toContain('300000');
+
+    // markProcessed should NOT have been called
+    expect(markSpy).not.toHaveBeenCalled();
+
+    linkSpy.mockRestore();
+    markSpy.mockRestore();
+    failureSpy.mockRestore();
+    deliverSpy.mockRestore();
+  });
+
+  test('does NOT call recordProcessingFailure when run reaches terminal state', async () => {
+    const linkSpy = spyOn(channelDeliveryStore, 'linkMessage').mockImplementation(() => {});
+    const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
+    const failureSpy = spyOn(channelDeliveryStore, 'recordProcessingFailure').mockImplementation(() => {});
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const mockRun = {
+      id: 'run-terminal-ok',
+      conversationId: 'conv-1',
+      messageId: 'user-msg-201',
+      status: 'running' as const,
+      pendingConfirmation: null,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    // getRun returns completed — run is terminal
+    const orchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => ({ ...mockRun, status: 'completed' as const })),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    const req = makeInboundRequest({ content: 'hello terminal' });
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+
+    // Wait for the background async to complete
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    // recordProcessingFailure should NOT have been called
+    expect(failureSpy).not.toHaveBeenCalled();
+
+    // markProcessed SHOULD have been called
+    expect(markSpy).toHaveBeenCalled();
+
+    linkSpy.mockRestore();
+    markSpy.mockRestore();
+    failureSpy.mockRestore();
+    deliverSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 13. sourceChannel is passed to orchestrator.startRun (WS-D)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('sourceChannel passed to orchestrator.startRun', () => {
+  beforeEach(() => {
+    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+  });
+
+  test('startRun is called with sourceChannel from inbound event', async () => {
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const mockRun = {
+      id: 'run-channel-test',
+      conversationId: 'conv-1',
+      messageId: 'user-msg-300',
+      status: 'completed' as const,
+      pendingConfirmation: null,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const orchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => ({ ...mockRun, status: 'completed' as const })),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    const req = makeInboundRequest({
+      content: 'test channel pass-through',
+      sourceChannel: 'telegram',
+    });
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+
+    // Wait for the background async to fire
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    // Verify startRun was called with the sourceChannel option
+    expect(orchestrator.startRun).toHaveBeenCalled();
+    const startRunArgs = (orchestrator.startRun as ReturnType<typeof mock>).mock.calls[0];
+    // 4th argument is the options object
+    const options = startRunArgs[3] as { sourceChannel?: string } | undefined;
+    expect(options).toBeDefined();
+    expect(options!.sourceChannel).toBe('telegram');
+
+    deliverSpy.mockRestore();
+  });
+});

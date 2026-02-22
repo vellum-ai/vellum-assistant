@@ -54,6 +54,12 @@ export interface RunStartOptions {
    * Used for non-guardian actors in guardian-gated channels.
    */
   forceStrictSideEffects?: boolean;
+  /**
+   * The originating channel (e.g. 'telegram', 'slack'). When provided,
+   * channel capabilities are resolved for this channel instead of the
+   * default 'http-api'.
+   */
+  sourceChannel?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,9 +123,10 @@ export class RunOrchestrator {
     const messageId = session.persistUserMessage(content, attachments, requestId);
     const run = runsStore.createRun(conversationId, messageId);
 
-    // Runs are always HTTP-originated; set channel capabilities so the attachment
-    // scope heuristic resolves to 'self' rather than 'local-assistant'.
-    session.setChannelCapabilities(resolveChannelCapabilities('http-api'));
+    // Set channel capabilities based on the originating channel so capabilities
+    // (e.g. attachment scope) match the actual transport rather than always
+    // defaulting to 'http-api'.
+    session.setChannelCapabilities(resolveChannelCapabilities(options?.sourceChannel ?? 'http-api'));
 
     // Serialized publish chain so hub subscribers observe events in order.
     let hubChain: Promise<void> = Promise.resolve();

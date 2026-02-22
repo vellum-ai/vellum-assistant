@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterAll, mock, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,6 +30,7 @@ import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { createConversation } from '../memory/conversation-store.js';
 import { createRun, getRun, setRunConfirmation } from '../memory/runs-store.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
+import type { ChannelCapabilities } from '../daemon/session-runtime-assembly.js';
 
 initializeDb();
 
@@ -124,17 +125,17 @@ describe('run failure detection', () => {
   });
 });
 
+afterAll(() => {
+  resetDb();
+  try { rmSync(testDir, { recursive: true, force: true }); } catch { /* best effort */ }
+});
+
 describe('run approval state executionTarget', () => {
   beforeEach(() => {
     const db = getDb();
     db.run('DELETE FROM message_runs');
     db.run('DELETE FROM messages');
     db.run('DELETE FROM conversations');
-  });
-
-  afterAll(() => {
-    resetDb();
-    try { rmSync(testDir, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
   test('stores pending confirmation executionTarget when provided', () => {
@@ -196,5 +197,111 @@ describe('run approval state executionTarget', () => {
     const stored = orchestrator.getRun(run.id);
     expect(stored?.status).toBe('needs_confirmation');
     expect(stored?.pendingConfirmation?.executionTarget).toBe('host');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Channel capability resolution via sourceChannel (WS-D)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('startRun channel capability resolution', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run('DELETE FROM message_runs');
+    db.run('DELETE FROM messages');
+    db.run('DELETE FROM conversations');
+  });
+
+  test('resolves channel capabilities from provided sourceChannel', async () => {
+    const conversation = createConversation('telegram channel test');
+    let capturedCapabilities: ChannelCapabilities | null = null;
+
+    const session = {
+      isProcessing: () => false,
+      persistUserMessage: () => undefined as unknown as string,
+      memoryPolicy: {},
+      setChannelCapabilities: (caps: ChannelCapabilities | null) => {
+        if (caps) capturedCapabilities = caps;
+      },
+      updateClient: () => {},
+      runAgentLoop: async () => {},
+      handleConfirmationResponse: () => {},
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+    });
+
+    await orchestrator.startRun(conversation.id, 'Hello from Telegram', undefined, {
+      sourceChannel: 'telegram',
+    });
+
+    // Wait for the async agent loop to settle
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capturedCapabilities).not.toBeNull();
+    expect(capturedCapabilities!.channel).toBe('telegram');
+    expect(capturedCapabilities!.dashboardCapable).toBe(false);
+  });
+
+  test('defaults to http-api when no sourceChannel is provided', async () => {
+    const conversation = createConversation('http-api default test');
+    let capturedCapabilities: ChannelCapabilities | null = null;
+
+    const session = {
+      isProcessing: () => false,
+      persistUserMessage: () => undefined as unknown as string,
+      memoryPolicy: {},
+      setChannelCapabilities: (caps: ChannelCapabilities | null) => {
+        if (caps) capturedCapabilities = caps;
+      },
+      updateClient: () => {},
+      runAgentLoop: async () => {},
+      handleConfirmationResponse: () => {},
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+    });
+
+    await orchestrator.startRun(conversation.id, 'Hello from HTTP');
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capturedCapabilities).not.toBeNull();
+    expect(capturedCapabilities!.channel).toBe('http-api');
+  });
+
+  test('defaults to http-api when options are provided without sourceChannel', async () => {
+    const conversation = createConversation('options no channel test');
+    let capturedCapabilities: ChannelCapabilities | null = null;
+
+    const session = {
+      isProcessing: () => false,
+      persistUserMessage: () => undefined as unknown as string,
+      memoryPolicy: {},
+      setChannelCapabilities: (caps: ChannelCapabilities | null) => {
+        if (caps) capturedCapabilities = caps;
+      },
+      updateClient: () => {},
+      runAgentLoop: async () => {},
+      handleConfirmationResponse: () => {},
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+    });
+
+    await orchestrator.startRun(conversation.id, 'Hello with options', undefined, {
+      forceStrictSideEffects: true,
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capturedCapabilities).not.toBeNull();
+    expect(capturedCapabilities!.channel).toBe('http-api');
   });
 });
