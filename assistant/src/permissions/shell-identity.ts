@@ -79,6 +79,11 @@ export function deriveShellActionKeys(analysis: ShellIdentityAnalysis): ActionKe
     return { keys: [], isSimpleAction: false };
   }
 
+  // Only && is a valid setup-prefix chain; || and ; change control flow semantics
+  if (operators.some(op => op === '||' || op === ';')) {
+    return { keys: [], isSimpleAction: false };
+  }
+
   // Separate setup-prefix segments from action segments
   const actionSegments: CommandSegment[] = [];
   let foundNonPrefix = false;
