@@ -42,6 +42,9 @@ const baseConfig: GatewayConfig = {
   telegramTimeoutMs: 15000,
   telegramWebhookSecret: undefined,
   twilioAuthToken: undefined,
+  twilioAccountSid: undefined,
+  twilioPhoneNumber: undefined,
+  smsDeliverAuthBypass: false,
   ingressPublicBaseUrl: undefined,
   unmappedPolicy: "reject",
 };

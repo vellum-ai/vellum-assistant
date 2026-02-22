@@ -1,0 +1,230 @@
+import { describe, it, expect, mock, afterEach } from "bun:test";
+import type { GatewayConfig } from "../../config.js";
+import { createSmsDeliverHandler } from "./sms-deliver.js";
+
+// --- Helpers ---------------------------------------------------------------
+
+const TOKEN = "test-deliver-token";
+
+function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
+  return {
+    assistantRuntimeBaseUrl: "http://localhost:7821",
+    defaultAssistantId: undefined,
+    gatewayInternalBaseUrl: "http://127.0.0.1:7830",
+    logFile: { dir: undefined, retentionDays: 30 },
+    maxAttachmentBytes: 20 * 1024 * 1024,
+    maxAttachmentConcurrency: 3,
+    maxWebhookPayloadBytes: 1024 * 1024,
+    port: 7830,
+    routingEntries: [],
+    runtimeBearerToken: undefined,
+    runtimeInitialBackoffMs: 500,
+    runtimeMaxRetries: 2,
+    runtimeProxyBearerToken: TOKEN,
+    runtimeProxyEnabled: false,
+    runtimeProxyRequireAuth: true,
+    runtimeTimeoutMs: 30000,
+    shutdownDrainMs: 5000,
+    telegramApiBaseUrl: "https://api.telegram.org",
+    telegramBotToken: undefined,
+    telegramDeliverAuthBypass: false,
+    telegramInitialBackoffMs: 1000,
+    telegramMaxRetries: 3,
+    telegramTimeoutMs: 15000,
+    telegramWebhookSecret: undefined,
+    twilioAuthToken: "test-twilio-auth",
+    twilioAccountSid: "AC-test-sid",
+    twilioPhoneNumber: "+15551234567",
+    smsDeliverAuthBypass: false,
+    ingressPublicBaseUrl: undefined,
+    unmappedPolicy: "reject",
+    ...overrides,
+  };
+}
+
+function makeRequest(body: unknown, headers?: Record<string, string>): Request {
+  return new Request("http://localhost:7830/deliver/sms", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
+function mockTwilioApi() {
+  globalThis.fetch = mock(async () => {
+    return new Response(JSON.stringify({ sid: "SM-sent" }), {
+      status: 201,
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+}
+
+// --- Tests -----------------------------------------------------------------
+
+describe("/deliver/sms", () => {
+  it("rejects GET requests with 405", async () => {
+    const handler = createSmsDeliverHandler(makeConfig());
+    const req = new Request("http://localhost:7830/deliver/sms", {
+      method: "GET",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(405);
+  });
+
+  it("rejects when no bearer token and bypass not set with 503", async () => {
+    const handler = createSmsDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined }),
+    );
+    const req = makeRequest({ to: "+15559876543", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toBe("Service not configured: bearer token required");
+  });
+
+  it("rejects request without Authorization header with 401", async () => {
+    const handler = createSmsDeliverHandler(makeConfig());
+    const req = makeRequest({ to: "+15559876543", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects request with wrong bearer token with 401", async () => {
+    const handler = createSmsDeliverHandler(makeConfig());
+    const req = makeRequest({ to: "+15559876543", text: "hello" }, {
+      authorization: "Bearer wrong-token",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(401);
+  });
+
+  it("accepts request with correct bearer token", async () => {
+    mockTwilioApi();
+    const handler = createSmsDeliverHandler(makeConfig());
+    const req = makeRequest({ to: "+15559876543", text: "hello" }, {
+      authorization: `Bearer ${TOKEN}`,
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+  });
+
+  it("allows unauthenticated access when bypass flag is set and no token configured", async () => {
+    mockTwilioApi();
+    const handler = createSmsDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+    );
+    const req = makeRequest({ to: "+15559876543", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+  });
+
+  it("returns 503 when Twilio credentials are not configured", async () => {
+    const handler = createSmsDeliverHandler(
+      makeConfig({
+        runtimeProxyBearerToken: undefined,
+        smsDeliverAuthBypass: true,
+        twilioAccountSid: undefined,
+      }),
+    );
+    const req = makeRequest({ to: "+15559876543", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toBe("SMS integration not configured");
+  });
+
+  it("returns 400 when 'to' is missing", async () => {
+    const handler = createSmsDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+    );
+    const req = makeRequest({ text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("to is required");
+  });
+
+  it("returns 400 when 'text' is missing", async () => {
+    const handler = createSmsDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+    );
+    const req = makeRequest({ to: "+15559876543" });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("text is required");
+  });
+
+  it("returns 400 when JSON is invalid", async () => {
+    const handler = createSmsDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+    );
+    const req = new Request("http://localhost:7830/deliver/sms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "not-json",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("Invalid JSON");
+  });
+
+  it("returns 502 when Twilio API fails", async () => {
+    globalThis.fetch = mock(async () => {
+      return new Response(JSON.stringify({ message: "Bad Request" }), {
+        status: 400,
+      });
+    }) as unknown as typeof fetch;
+
+    const handler = createSmsDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+    );
+    const req = makeRequest({ to: "+15559876543", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error).toBe("SMS delivery failed");
+  });
+
+  it("sends correct Twilio API request", async () => {
+    const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+    globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      fetchCalls.push({ url: urlStr, init: init ?? {} });
+      return new Response(JSON.stringify({ sid: "SM-sent" }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const handler = createSmsDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+    );
+    const req = makeRequest({ to: "+15559876543", text: "Test SMS body" });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    // Verify the Twilio Messages API was called correctly
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].url).toContain("AC-test-sid/Messages.json");
+    const sentBody = fetchCalls[0].init.body as string;
+    const sentParams = new URLSearchParams(sentBody);
+    expect(sentParams.get("From")).toBe("+15551234567");
+    expect(sentParams.get("To")).toBe("+15559876543");
+    expect(sentParams.get("Body")).toBe("Test SMS body");
+  });
+});

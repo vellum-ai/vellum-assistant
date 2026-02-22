@@ -7,7 +7,7 @@ export function buildSchema(): Record<string, unknown> {
       title: "Vellum Gateway",
       version: packageJson.version,
       description:
-        "HTTP gateway that bridges external channels (Telegram, etc.) to the Vellum assistant runtime and provides an authenticated reverse proxy.",
+        "HTTP gateway that bridges external channels (Telegram, SMS, etc.) to the Vellum assistant runtime and provides an authenticated reverse proxy.",
     },
     paths: {
       "/healthz": {
@@ -298,6 +298,139 @@ export function buildSchema(): Record<string, unknown> {
             },
             "502": {
               description: "Failed to forward to runtime",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/webhooks/twilio/sms": {
+        post: {
+          summary: "Twilio SMS webhook",
+          description:
+            "Receives inbound Twilio SMS webhooks, validates the X-Twilio-Signature, normalizes the payload into a gateway inbound event with sourceChannel 'sms', and forwards to the assistant runtime.",
+          operationId: "twilioSmsWebhook",
+          security: [{ TwilioSignature: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/x-www-form-urlencoded": {
+                schema: { type: "object", additionalProperties: { type: "string" } },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "SMS accepted",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/SmsOk" },
+                },
+              },
+            },
+            "400": {
+              description: "Missing MessageSid or invalid body",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "403": {
+              description: "Twilio signature validation failed or auth token not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed (only POST accepted)",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "413": {
+              description: "Webhook payload too large",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "500": {
+              description: "Internal error processing inbound SMS",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/deliver/sms": {
+        post: {
+          summary: "SMS delivery (internal)",
+          description:
+            "Internal endpoint called by the assistant runtime to deliver outbound SMS messages via Twilio. Not intended for external use.",
+          operationId: "smsDeliver",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SmsDeliverRequest" },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "SMS delivered",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/SmsOk" },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid JSON or missing required fields",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed (only POST accepted)",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "502": {
+              description: "Failed to deliver message via Twilio Messages API",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "503": {
+              description: "SMS integration not configured",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
@@ -615,6 +748,22 @@ export function buildSchema(): Record<string, unknown> {
           required: ["ok"],
           properties: {
             ok: { type: "boolean" },
+          },
+        },
+        SmsOk: {
+          type: "object",
+          required: ["ok"],
+          properties: {
+            ok: { type: "boolean" },
+          },
+        },
+        SmsDeliverRequest: {
+          type: "object",
+          required: ["to", "text"],
+          description: "Request to deliver an SMS message via Twilio.",
+          properties: {
+            to: { type: "string", description: "Recipient phone number in E.164 format" },
+            text: { type: "string", description: "Text content to send", minLength: 1 },
           },
         },
         TelegramUpdate: {
