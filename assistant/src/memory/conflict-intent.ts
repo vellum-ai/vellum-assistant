@@ -22,12 +22,19 @@ export function computeConflictRelevance(
   );
 }
 
+const NOISE_TOKENS = new Set([
+  'http', 'https', 'github', 'gitlab', 'www', 'com', 'org',
+  'pull', 'issue', 'ticket',
+]);
+
 function tokenizeForConflictRelevance(input: string): Set<string> {
   const tokens = input
     .toLowerCase()
     .split(/[^a-z0-9]+/g)
     .map((token) => token.trim())
-    .filter((token) => token.length >= 4);
+    .filter((token) => token.length >= 4)
+    .filter((token) => !/^\d+$/.test(token))
+    .filter((token) => !NOISE_TOKENS.has(token));
   return new Set(tokens);
 }
 
