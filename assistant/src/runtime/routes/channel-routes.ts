@@ -79,13 +79,19 @@ export async function handleMoveSync(req: Request): Promise<Response> {
     if (existingTargetBinding &&
         (existingTargetBinding.sourceChannel !== sourceChannel || existingTargetBinding.externalChatId !== externalChatId)) {
       const oldTargetKey = `${existingTargetBinding.sourceChannel}:${existingTargetBinding.externalChatId}`;
-      // Only delete the old key if it currently maps to the conversation we
-      // are moving into.  Another conversation may have since claimed the key
-      // (e.g. via getOrCreateConversation on inbound traffic), and deleting it
-      // would break routing for that unrelated conversation.
+      // Delete the old key unless it has been claimed by a different
+      // conversation that has its own active external binding.  Keys auto-
+      // created by getOrCreateConversation produce orphan conversation IDs
+      // (no external binding) and are safe to clean up.  Keys owned by a
+      // real, externally-bound conversation must be preserved.
       const oldTargetMapping = getConversationByKey(oldTargetKey);
-      if (oldTargetMapping && oldTargetMapping.conversationId === newConversationId) {
-        deleteConversationKey(oldTargetKey);
+      if (oldTargetMapping) {
+        const isOwnedByTarget = oldTargetMapping.conversationId === newConversationId;
+        const hasOwnBinding = !isOwnedByTarget &&
+          externalConversationStore.getBindingByConversation(oldTargetMapping.conversationId) !== null;
+        if (!hasOwnBinding) {
+          deleteConversationKey(oldTargetKey);
+        }
       }
     }
 

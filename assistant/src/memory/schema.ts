@@ -590,6 +590,7 @@ export const processedCallbacks = sqliteTable('processed_callbacks', {
 });
 
 // ── External Conversation Bindings ───────────────────────────────────
+// UNIQUE (source_channel, external_chat_id) enforced via idx_ext_conv_bindings_channel_chat_unique in db.ts
 
 export const externalConversationBindings = sqliteTable('external_conversation_bindings', {
   conversationId: text('conversation_id')
