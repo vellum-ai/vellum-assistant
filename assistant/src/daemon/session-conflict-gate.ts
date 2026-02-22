@@ -50,17 +50,20 @@ export class ConflictGate {
     const pendingBeforeResolve = listPendingConflictDetails(scopeId, 50);
 
     // Dismiss non-actionable conflicts (kind or statement policy)
+    const dismissedIds = new Set<string>();
     for (const conflict of pendingBeforeResolve) {
       if (!this.isConflictActionable(conflict, conflictConfig.conflictableKinds)) {
         resolveConflict(conflict.id, {
           status: 'dismissed',
           resolutionNote: 'Dismissed by conflict policy (transient/non-durable).',
         });
+        dismissedIds.add(conflict.id);
       }
     }
 
+    const actionablePending = pendingBeforeResolve.filter((c) => !dismissedIds.has(c.id));
     const clarificationReply = looksLikeClarificationReply(userMessage);
-    const candidatesBeforeResolve = pendingBeforeResolve.filter((conflict) => {
+    const candidatesBeforeResolve = actionablePending.filter((conflict) => {
       const relevance = computeConflictRelevance(userMessage, conflict);
       return shouldAttemptConflictResolution({
         clarificationReply,
