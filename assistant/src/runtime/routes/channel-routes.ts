@@ -77,7 +77,7 @@ function effectivePromptText(
   channel: string,
 ): string {
   if (channelSupportsRichApprovalUI(channel)) return promptText;
-  return `${promptText}\n\n${plainTextFallback}`;
+  return plainTextFallback;
 }
 
 // ---------------------------------------------------------------------------
