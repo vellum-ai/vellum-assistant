@@ -431,11 +431,13 @@ describe('channel sync arbitration', () => {
       getOrCreateConversation(`telegram:${uniqueChatIdB}`);
 
       // Simulate another conversation (conv-C) claiming chat-B's key via
-      // inbound traffic before the move-sync happens.  This can occur when
-      // the binding and conversation_keys tables diverge.
+      // inbound traffic before the move-sync happens.  In a real inbound
+      // flow, getOrCreateConversation + upsertBinding run together, so
+      // conv-C gets both a key mapping and an external binding.
       const chatBKey = `telegram:${uniqueChatIdB}`;
       deleteConversationKey(chatBKey);
       setConversationKey(chatBKey, convC);
+      createBinding(convC, 'telegram', uniqueChatIdB);
 
       // Move chat-A to conv-B — conv-B's external binding still points to
       // chat-B, but the conversation_keys entry for chat-B now belongs to
