@@ -2,6 +2,7 @@ import * as net from 'node:net';
 import { getConfig, loadRawConfig, saveRawConfig } from '../../config/loader.js';
 import { initializeProviders } from '../../providers/registry.js';
 import { addRule, removeRule, updateRule, getAllRules, acceptStarterBundle } from '../../permissions/trust-store.js';
+import { classifyRisk, check } from '../../permissions/checker.js';
 import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression } from '../../schedule/schedule-store.js';
 import { listReminders, cancelReminder } from '../../tools/reminder/reminder-store.js';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
@@ -790,16 +791,62 @@ export function handleEnvVarsRequest(socket: net.Socket, ctx: HandlerContext): v
   ctx.send(socket, { type: 'env_vars_response', vars });
 }
 
-export function handleToolPermissionSimulate(
-  _msg: ToolPermissionSimulateRequest,
+export async function handleToolPermissionSimulate(
+  msg: ToolPermissionSimulateRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
-  ctx.send(socket, {
-    type: 'tool_permission_simulate_response',
-    success: false,
-    error: 'Not implemented',
-  });
+): Promise<void> {
+  try {
+    if (!msg.toolName || typeof msg.toolName !== 'string') {
+      ctx.send(socket, {
+        type: 'tool_permission_simulate_response',
+        success: false,
+        error: 'toolName is required',
+      });
+      return;
+    }
+    if (!msg.input || typeof msg.input !== 'object') {
+      ctx.send(socket, {
+        type: 'tool_permission_simulate_response',
+        success: false,
+        error: 'input is required and must be an object',
+      });
+      return;
+    }
+
+    const workingDir = msg.workingDir ?? process.cwd();
+
+    // Build policy context from optional principal fields
+    const policyContext = msg.principalKind
+      ? {
+          principal: {
+            kind: msg.principalKind as 'core' | 'skill' | 'task',
+            id: msg.principalId,
+            version: msg.principalVersion,
+          },
+        }
+      : undefined;
+
+    const riskLevel = await classifyRisk(msg.toolName, msg.input, workingDir);
+    const result = await check(msg.toolName, msg.input, workingDir, policyContext);
+
+    ctx.send(socket, {
+      type: 'tool_permission_simulate_response',
+      success: true,
+      decision: result.decision,
+      riskLevel,
+      reason: result.reason,
+      matchedRuleId: result.matchedRule?.id,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to simulate tool permission');
+    ctx.send(socket, {
+      type: 'tool_permission_simulate_response',
+      success: false,
+      error: message,
+    });
+  }
 }
 
 export const configHandlers = defineHandlers({
