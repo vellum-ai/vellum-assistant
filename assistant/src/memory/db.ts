@@ -1015,6 +1015,12 @@ export function initializeDb(): void {
   // doesn't support DROP COLUMN in older versions) but are no longer read by the app.
   try { database.run(/*sql*/ `ALTER TABLE channel_guardian_rate_limits ADD COLUMN attempt_timestamps_json TEXT NOT NULL DEFAULT '[]'`); } catch { /* already exists */ }
 
+  // Migration: re-add legacy columns for databases created during the brief window when
+  // PR #6748 was live (columns were absent from CREATE TABLE). These columns are not read
+  // by app logic but must exist so drizzle inserts don't fail.
+  try { database.run(/*sql*/ `ALTER TABLE channel_guardian_rate_limits ADD COLUMN invalid_attempts INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE channel_guardian_rate_limits ADD COLUMN window_started_at INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
+
   database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_guardian_rate_limits_actor ON channel_guardian_rate_limits(assistant_id, channel, actor_external_user_id, actor_chat_id)`);
 
   migrateMemoryFtsBackfill(database);
