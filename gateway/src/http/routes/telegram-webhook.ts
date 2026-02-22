@@ -120,11 +120,19 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
     if (updateId !== undefined) {
       const reserved = dedupCache.reserve(updateId);
       if (!reserved) {
-        log.info({ updateId }, "Duplicate update_id, returning cached response");
-        const cached = dedupCache.get(updateId)!;
-        return new Response(cached.body, {
-          status: cached.status,
-          headers: { "content-type": "application/json" },
+        const cached = dedupCache.get(updateId);
+        if (cached) {
+          log.info({ updateId }, "Duplicate update_id, returning cached response");
+          return new Response(cached.body, {
+            status: cached.status,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        // Still being processed by the first handler — ask Telegram to retry
+        log.info({ updateId }, "Duplicate update_id while still processing, returning 503");
+        return new Response(JSON.stringify({ error: "Processing in progress" }), {
+          status: 503,
+          headers: { "content-type": "application/json", "Retry-After": "1" },
         });
       }
     }
