@@ -60,7 +60,7 @@ declare -a PATTERNS=(
 # Also ignore Swift/TS function-parameter declarations (e.g. `clientSecret: String?`).
 declare -a SAFE_LINE_PATTERNS=(
     "[A-Za-z0-9_\"']*(sha256|SHA256|checksum|digest|hash|nonceSha256|observedNonceSha256)[A-Za-z0-9_\"']*[[:space:]]*[:=][[:space:]]*['\"][a-fA-F0-9]{32,}['\"]"
-    "client[Ss]ecret:[[:space:]]*(String[?]?[[:space:]]*([,)]|=[[:space:]]*nil)|client[Ss]ecret[[:space:]]*[,)])"
+    "client[Ss]ecret:[[:space:]]*(String[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil)|client[Ss]ecret[[:space:]]*[,)])"
 )
 
 matches_safe_line_pattern() {
@@ -121,6 +121,7 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_CLIENT_SECRET_DOC='- **PKCE or client_secret flows** — Desktop apps use PKCE by default (S256).'
     SAFE_SWIFT_PARAM_LINE='public init(action: String, mode: String? = nil, clientId: String? = nil, clientSecret: String? = nil)'
     SAFE_SWIFT_CALL_LINE='self.init(type: "twitter_integration_config", action: action, clientSecret: clientSecret, strategy: strategy)'
+    SAFE_SWIFT_DECL_LINE='public let clientSecret: String?'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -218,8 +219,16 @@ if [ "${1:-}" = "--self-test" ]; then
         echo -e "${RED}Self-test failed:${NC} real client_secret assignment did not match"
         exit 1
     fi
-    if matches_secret_pattern "$DANGEROUS_TYPED_SECRET" && matches_safe_line_pattern "$DANGEROUS_TYPED_SECRET"; then
+    if ! matches_secret_pattern "$DANGEROUS_TYPED_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} typed clientSecret assignment was not detected as a secret"
+        exit 1
+    fi
+    if matches_safe_line_pattern "$DANGEROUS_TYPED_SECRET"; then
         echo -e "${RED}Self-test failed:${NC} typed clientSecret assignment incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_DECL_LINE" && ! matches_safe_line_pattern "$SAFE_SWIFT_DECL_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} Swift clientSecret end-of-line declaration false positive"
         exit 1
     fi
 
