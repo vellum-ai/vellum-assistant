@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -12,6 +13,11 @@ struct SettingsAdvancedTab: View {
 
     @State private var sessionToken: String = ""
     @State private var tokenCopied: Bool = false
+    @State private var fingerprint: String = ""
+    @State private var iosPairingEnabled: Bool = false
+    @State private var showingPairingQR: Bool = false
+    @State private var showingPairingWarning: Bool = false
+    @State private var showingRegenerateConfirmation: Bool = false
     @State private var showingRetireConfirmation: Bool = false
     @State private var isRetiring: Bool = false
     @State private var lockfileAssistants: [LockfileAssistant] = []
@@ -42,6 +48,10 @@ struct SettingsAdvancedTab: View {
         .onAppear {
             let tokenPath = NSHomeDirectory() + "/.vellum/session-token"
             sessionToken = (try? String(contentsOfFile: tokenPath, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let fingerprintPath = NSHomeDirectory() + "/.vellum/tls/fingerprint"
+            fingerprint = (try? String(contentsOfFile: fingerprintPath, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let flagPath = NSHomeDirectory() + "/.vellum/ios-pairing-enabled"
+            iosPairingEnabled = FileManager.default.fileExists(atPath: flagPath)
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
             identity = IdentityInfo.load()
@@ -262,42 +272,132 @@ struct SettingsAdvancedTab: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Session Token")
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textPrimary)
-                Text("Paste this into the Vellum iOS app to connect it to this Mac.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-
-                HStack(spacing: VSpacing.sm) {
-                    if sessionToken.isEmpty {
-                        Text("Token not found")
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textMuted)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        Text(String(sessionToken.prefix(16)) + "...")
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    Button(tokenCopied ? "Copied!" : "Copy") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(sessionToken, forType: .string)
-                        tokenCopied = true
-                        Task {
-                            try? await Task.sleep(nanoseconds: 2_000_000_000)
-                            tokenCopied = false
+            // Pairing toggle
+            HStack {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Enable iOS Pairing")
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Allow iPhone connections over your local network (TLS encrypted).")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                Spacer()
+                Toggle("", isOn: $iosPairingEnabled)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .onChange(of: iosPairingEnabled) { _, enabled in
+                        if enabled {
+                            // Show one-time warning on first enable
+                            if !UserDefaults.standard.bool(forKey: "ios_pairing_warning_shown") {
+                                showingPairingWarning = true
+                            } else {
+                                setIOSPairingEnabled(true)
+                            }
+                        } else {
+                            setIOSPairingEnabled(false)
                         }
                     }
-                    .disabled(sessionToken.isEmpty)
+            }
+
+            // QR Code + Token display
+            if iosPairingEnabled {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Show QR Code", style: .primary) {
+                            showingPairingQR = true
+                        }
+                        .disabled(sessionToken.isEmpty || fingerprint.isEmpty)
+
+                        Spacer()
+
+                        Button(tokenCopied ? "Copied!" : "Copy Token") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(sessionToken, forType: .string)
+                            tokenCopied = true
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                tokenCopied = false
+                            }
+                        }
+                        .disabled(sessionToken.isEmpty)
+                    }
+
+                    if !sessionToken.isEmpty {
+                        HStack(spacing: VSpacing.xs) {
+                            Text("Token:")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Text(String(sessionToken.prefix(16)) + "...")
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textSecondary)
+                        }
+                    } else {
+                        Text("Session token not found. Restart the daemon to generate one.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+
+                    Button("Regenerate Token") {
+                        showingRegenerateConfirmation = true
+                    }
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.accent)
                 }
             }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
         }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+        .alert("Enable iOS Pairing", isPresented: $showingPairingWarning) {
+            Button("Cancel", role: .cancel) {
+                iosPairingEnabled = false
+            }
+            Button("Enable") {
+                UserDefaults.standard.set(true, forKey: "ios_pairing_warning_shown")
+                setIOSPairingEnabled(true)
+            }
+        } message: {
+            Text("Your assistant will be reachable on your local network. Only devices with the session token can connect. TLS encryption is always enabled.")
+        }
+        .alert("Regenerate Session Token", isPresented: $showingRegenerateConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Regenerate", role: .destructive) {
+                regenerateSessionToken()
+            }
+        } message: {
+            Text("This will invalidate the current token. Any paired iOS devices will need to re-scan the QR code.")
+        }
+        .sheet(isPresented: $showingPairingQR) {
+            PairingQRCodeSheet(
+                sessionToken: sessionToken,
+                fingerprint: fingerprint,
+                tcpPort: getTCPPort()
+            )
+        }
+    }
+
+    private func setIOSPairingEnabled(_ enabled: Bool) {
+        let flagPath = NSHomeDirectory() + "/.vellum/ios-pairing-enabled"
+        if enabled {
+            FileManager.default.createFile(atPath: flagPath, contents: nil)
+        } else {
+            try? FileManager.default.removeItem(atPath: flagPath)
+        }
+    }
+
+    private func regenerateSessionToken() {
+        let tokenPath = NSHomeDirectory() + "/.vellum/session-token"
+        try? FileManager.default.removeItem(atPath: tokenPath)
+        sessionToken = ""
+        // The daemon will generate a new token on next start.
+        // For now, just clear the UI. A daemon restart is needed.
+    }
+
+    private func getTCPPort() -> Int {
+        // Read TCP port from daemon config or use default
+        let envPort = ProcessInfo.processInfo.environment["VELLUM_DAEMON_TCP_PORT"]
+        if let envPort, let port = Int(envPort) { return port }
+        return 8765
     }
 
     // MARK: - Switch Assistant

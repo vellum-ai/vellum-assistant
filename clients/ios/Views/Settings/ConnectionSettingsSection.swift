@@ -52,13 +52,23 @@ struct DaemonConnectionSection: View {
     @State private var sessionToken: String = ""
     @State private var showingAlert = false
     @State private var alertMessage = ""
+    @State private var showingQRPairing = false
 
     var body: some View {
         Section("Mac Daemon") {
+            Button {
+                showingQRPairing = true
+            } label: {
+                HStack {
+                    Image(systemName: "qrcode.viewfinder")
+                    Text("Scan QR Code")
+                }
+            }
+
             HStack {
                 Text("Hostname")
                 Spacer()
-                TextField("localhost", text: $daemonHostname)
+                TextField("e.g. 192.168.1.100", text: $daemonHostname)
                     .multilineTextAlignment(.trailing)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
@@ -78,7 +88,7 @@ struct DaemonConnectionSection: View {
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
             }
-            Text("Copy this from ~/.vellum/session-token on your Mac, or from Mac app → Settings.")
+            Text("Or scan the QR code from Mac app > Settings > Show QR Code.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -115,12 +125,22 @@ struct DaemonConnectionSection: View {
         } message: {
             Text(alertMessage)
         }
-        .onAppear {
-            daemonHostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? "localhost"
-            let portValue = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
-            daemonPort = portValue > 0 ? String(portValue) : "8765"
-            sessionToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token") ?? ""
+        .sheet(isPresented: $showingQRPairing, onDismiss: {
+            // Re-read settings after QR pairing in case they changed
+            reloadSettings()
+        }) {
+            QRPairingSheet()
         }
+        .onAppear {
+            reloadSettings()
+        }
+    }
+
+    private func reloadSettings() {
+        daemonHostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? ""
+        let portValue = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
+        daemonPort = portValue > 0 ? String(portValue) : "8765"
+        sessionToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token") ?? ""
     }
 }
 #endif

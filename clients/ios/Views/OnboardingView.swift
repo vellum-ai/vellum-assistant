@@ -136,11 +136,15 @@ struct ChoosePathStep: View {
 
 struct DaemonSetupStep: View {
     var onContinue: (() -> Void)?
-    @State private var hostname = "localhost"
+    @State private var hostname = ""
     @State private var port = "8765"
     @State private var sessionToken = ""
     @State private var showingAlert = false
     @State private var alertMessage = ""
+    @State private var showingQRPairing = false
+    /// Tracks whether a token is configured (via QR or manual entry).
+    /// Re-checked on appear and after QR sheet dismissal.
+    @State private var hasConfiguredToken = false
 
     var body: some View {
         VStack(spacing: VSpacing.xl) {
@@ -150,14 +154,45 @@ struct DaemonSetupStep: View {
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Enter your Mac's address and the session token from the Vellum desktop app.")
+            Text("Scan the QR code from your Mac, or enter the connection details manually.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
 
+            // QR Scanner button
+            Button {
+                showingQRPairing = true
+            } label: {
+                HStack(spacing: VSpacing.md) {
+                    Image(systemName: "qrcode.viewfinder")
+                        .font(.system(size: 24))
+                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                        Text("Scan QR Code")
+                            .font(VFont.bodyBold)
+                        Text("Open Vellum on your Mac > Settings > Show QR Code")
+                            .font(VFont.caption)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(VSpacing.lg)
+                .background(VColor.surface)
+                .cornerRadius(VRadius.md)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                )
+            }
+            .foregroundColor(VColor.textPrimary)
+            .padding(.horizontal, VSpacing.xl)
+
+            // Manual entry section
             VStack(spacing: VSpacing.lg) {
-                TextField("Hostname (e.g. localhost)", text: $hostname)
+                Text("Or enter manually:")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+
+                TextField("Hostname (e.g. 192.168.1.100)", text: $hostname)
                     .textFieldStyle(.roundedBorder)
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
@@ -166,15 +201,10 @@ struct DaemonSetupStep: View {
                     .textFieldStyle(.roundedBorder)
                     .keyboardType(.numberPad)
 
-                SecureField("Session token (from ~/.vellum/session-token)", text: $sessionToken)
+                SecureField("Session token", text: $sessionToken)
                     .textFieldStyle(.roundedBorder)
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
-
-                Text("Find the token at ~/.vellum/session-token on your Mac, or in Mac app Settings.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .multilineTextAlignment(.center)
             }
             .padding(.horizontal, VSpacing.xl)
 
@@ -184,20 +214,20 @@ struct DaemonSetupStep: View {
                     showingAlert = true
                     return
                 }
-                UserDefaults.standard.set(hostname, forKey: UserDefaultsKeys.daemonHostname)
+                if !hostname.isEmpty {
+                    UserDefaults.standard.set(hostname, forKey: UserDefaultsKeys.daemonHostname)
+                }
                 UserDefaults.standard.set(portInt, forKey: UserDefaultsKeys.daemonPort)
                 // iOS always uses TLS for TCP connections
                 UserDefaults.standard.set(true, forKey: UserDefaultsKeys.daemonTLSEnabled)
-                if sessionToken.isEmpty {
-                    _ = APIKeyManager.shared.deleteAPIKey(provider: "daemon-token")
-                    UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.legacyDaemonToken)
-                } else {
+                if !sessionToken.isEmpty {
                     _ = APIKeyManager.shared.setAPIKey(sessionToken, provider: "daemon-token")
                 }
                 onContinue?()
             }
             .buttonStyle(.borderedProminent)
-            .disabled(hostname.isEmpty || port.isEmpty || sessionToken.isEmpty)
+            // Enable if either QR pairing configured a token, or manual fields are filled
+            .disabled(!hasConfiguredToken && (hostname.isEmpty || port.isEmpty || sessionToken.isEmpty))
 
             Button("Skip for now") {
                 onContinue?()
@@ -212,12 +242,33 @@ struct DaemonSetupStep: View {
         } message: {
             Text(alertMessage)
         }
-        .onAppear {
-            hostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? "localhost"
-            let portValue = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
-            port = portValue > 0 ? String(portValue) : "8765"
-            sessionToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token") ?? ""
+        .sheet(isPresented: $showingQRPairing, onDismiss: {
+            reloadSettings()
+        }) {
+            QRPairingSheet()
         }
+        .onAppear {
+            reloadSettings()
+        }
+    }
+
+    private func reloadSettings() {
+        let storedHostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? ""
+        if !storedHostname.isEmpty && storedHostname != "localhost" {
+            hostname = storedHostname
+        }
+        let portValue = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
+        port = portValue > 0 ? String(portValue) : "8765"
+        sessionToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token") ?? ""
+        // Check if any token is configured (bare key or host-specific)
+        hasConfiguredToken = !sessionToken.isEmpty || hasHostSpecificToken()
+    }
+
+    private func hasHostSpecificToken() -> Bool {
+        let h = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? ""
+        let p = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
+        guard !h.isEmpty, p > 0 else { return false }
+        return APIKeyManager.shared.getAPIKey(provider: "daemon-token:\(h):\(p)") != nil
     }
 }
 
