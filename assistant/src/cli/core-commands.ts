@@ -20,23 +20,16 @@ import { shouldAutoStartDaemon, hasSocketOverride } from '../daemon/connection-p
 import { loadRawConfig } from '../config/loader.js';
 import { getRecentInvocations } from '../memory/tool-usage-store.js';
 import {
-  createConversation,
-  addMessage,
   getConversation,
   getMessages,
   listConversations,
   clearAll as clearAllConversations,
 } from '../memory/conversation-store.js';
 import { initializeDb } from '../memory/db.js';
-import { getDb } from '../memory/db.js';
-import { conversations, messages as messagesTable, conversationKeys } from '../memory/schema.js';
-import { eq } from 'drizzle-orm';
-import { v4 as uuid } from 'uuid';
 import { initQdrantClient } from '../memory/qdrant-client.js';
 import { formatMarkdown, formatJson } from '../export/formatter.js';
 import { getConfig } from '../config/loader.js';
 import { sendOneMessage } from './ipc-client.js';
-import { parseChatGPTExport } from '../import/chatgpt.js';
 
 const log = getCliLogger('cli');
 
@@ -245,113 +238,6 @@ export function registerSessionsCommand(program: Command): void {
         log.info(`Exported to ${opts.output}`);
       } else {
         process.stdout.write(output);
-      }
-    });
-
-  sessions
-    .command('import <file>')
-    .description('Import conversations from another AI tool')
-    .option('-s, --source <source>', 'Source format (chatgpt)', 'chatgpt')
-    .option('--dry-run', 'Print summary without importing')
-    .action(async (file: string, opts: { source: string; dryRun?: boolean }) => {
-      const source = opts.source;
-      if (source !== 'chatgpt') {
-        log.error(`Unsupported source: ${source}. Supported sources: chatgpt`);
-        process.exit(1);
-      }
-
-      if (!existsSync(file)) {
-        log.error(`File not found: ${file}`);
-        process.exit(1);
-      }
-
-      log.info(`Parsing ${source} export: ${file}`);
-      const imported = await parseChatGPTExport(file);
-
-      if (imported.length === 0) {
-        log.info('No conversations found in export file');
-        return;
-      }
-
-      const totalMessages = imported.reduce((sum, c) => sum + c.messages.length, 0);
-
-      if (opts.dryRun) {
-        log.info(`\nDry run — would import:`);
-        log.info(`  ${imported.length} conversation(s)`);
-        log.info(`  ${totalMessages} message(s)\n`);
-        for (const conv of imported) {
-          log.info(`  "${conv.title}" — ${conv.messages.length} messages`);
-        }
-        return;
-      }
-
-      initializeDb();
-      const db = getDb();
-      let importedCount = 0;
-      let skippedCount = 0;
-      let messageCount = 0;
-
-      for (const conv of imported) {
-        const convKey = `chatgpt:${conv.sourceId}`;
-
-        // Check for duplicate
-        const existing = db
-          .select()
-          .from(conversationKeys)
-          .where(eq(conversationKeys.conversationKey, convKey))
-          .get();
-
-        if (existing) {
-          skippedCount++;
-          continue;
-        }
-
-        // Create the conversation
-        const conversation = createConversation(conv.title);
-
-        // Add all messages
-        for (const msg of conv.messages) {
-          addMessage(conversation.id, msg.role, JSON.stringify(msg.content));
-        }
-
-        // Override timestamps to match ChatGPT originals
-        db.update(conversations)
-          .set({ createdAt: conv.createdAt, updatedAt: conv.updatedAt })
-          .where(eq(conversations.id, conversation.id))
-          .run();
-
-        // Update message timestamps to match ChatGPT originals
-        const dbMessages = db
-          .select({ id: messagesTable.id })
-          .from(messagesTable)
-          .where(eq(messagesTable.conversationId, conversation.id))
-          .orderBy(messagesTable.createdAt)
-          .all();
-
-        for (let i = 0; i < dbMessages.length && i < conv.messages.length; i++) {
-          db.update(messagesTable)
-            .set({ createdAt: conv.messages[i].createdAt })
-            .where(eq(messagesTable.id, dbMessages[i].id))
-            .run();
-        }
-
-        // Store deduplication key
-        db.insert(conversationKeys)
-          .values({
-            id: uuid(),
-            conversationKey: convKey,
-            conversationId: conversation.id,
-            createdAt: Date.now(),
-          })
-          .run();
-
-        importedCount++;
-        messageCount += conv.messages.length;
-      }
-
-      log.info(`\nImported ${importedCount} conversation(s) with ${messageCount} message(s)`);
-      if (skippedCount > 0) {
-        log.info(`Skipped ${skippedCount} already-imported conversation(s)`);
       }
     });
 
@@ -745,7 +631,7 @@ export function registerCompletionsCommand(program: Command): void {
     .action((shell: string) => {
       const subcommands: Record<string, string[]> = {
         daemon: ['start', 'stop', 'restart', 'status'],
-        sessions: ['list', 'new', 'export', 'import', 'clear'],
+        sessions: ['list', 'new', 'export', 'clear'],
         config: ['set', 'get', 'list', 'validate-allowlist'],
         keys: ['list', 'set', 'delete'],
         trust: ['list', 'remove', 'clear'],
