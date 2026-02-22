@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#
+# setup.sh — One-time local development setup for vellum-assistant.
+#
+# Installs dependencies for all three main packages (cli, gateway, assistant)
+# and links the global `vellum` command to the local assistant entry point.
+#
+# Usage:
+#   ./setup.sh
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+info()  { echo "==> $*"; }
+error() { echo "error: $*" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Pre-flight: ensure bun is available
+# ---------------------------------------------------------------------------
+if ! command -v bun &>/dev/null; then
+  error "bun is not installed. Install it from https://bun.sh and try again."
+fi
+
+# ---------------------------------------------------------------------------
+# Install dependencies for each package
+# ---------------------------------------------------------------------------
+for dir in cli gateway assistant; do
+  info "Installing dependencies in ${dir}/"
+  (cd "${REPO_ROOT}/${dir}" && bun install)
+done
+
+# ---------------------------------------------------------------------------
+# Link the global `vellum` command to this repo's assistant package
+# ---------------------------------------------------------------------------
+info "Linking global 'vellum' command to assistant/"
+(cd "${REPO_ROOT}/assistant" && bun link)
+
+info "Setup complete! Run 'vellum --version' to verify."
