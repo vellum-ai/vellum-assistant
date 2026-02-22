@@ -5,31 +5,12 @@ import { registerTool } from '../registry.js';
 import { getConfig } from '../../config/loader.js';
 import { getSecureKey } from '../../security/secure-keys.js';
 import { getLogger } from '../../util/logger.js';
+import { getHttpRetryDelay, sleep, DEFAULT_MAX_RETRIES, DEFAULT_BASE_DELAY_MS } from '../../util/retry.js';
 
 const log = getLogger('web-search');
 
 const BRAVE_API_URL = 'https://api.search.brave.com/res/v1/web/search';
 const PERPLEXITY_API_URL = 'https://api.perplexity.ai/chat/completions';
-const RATE_LIMIT_MAX_RETRIES = 3;
-const RATE_LIMIT_BASE_DELAY_MS = 1000;
-
-/**
- * Parse a Retry-After header value into milliseconds.
- * RFC 7231 allows either delta-seconds (e.g. "120") or an HTTP-date
- * (e.g. "Tue, 17 Feb 2026 12:00:00 GMT"). Returns undefined if unparseable.
- */
-function parseRetryAfterMs(value: string): number | undefined {
-  const seconds = Number(value);
-  if (!isNaN(seconds)) {
-    return seconds * 1000;
-  }
-  // Try HTTP-date format — Date.parse handles RFC 2822 / IMF-fixdate
-  const dateMs = Date.parse(value);
-  if (!isNaN(dateMs)) {
-    return Math.max(0, dateMs - Date.now());
-  }
-  return undefined;
-}
 
 type WebSearchProvider = 'perplexity' | 'brave';
 
@@ -148,7 +129,7 @@ async function executeBraveSearch(
 
   const url = `${BRAVE_API_URL}?${params.toString()}`;
 
-  for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
     const response = await fetch(url, {
       headers: {
         'Accept': 'application/json',
@@ -169,12 +150,10 @@ async function executeBraveSearch(
       return { content: 'Error: Invalid or expired Brave Search API key', isError: true };
     }
 
-    if (response.status === 429 && attempt < RATE_LIMIT_MAX_RETRIES) {
-      const retryAfter = response.headers.get('retry-after');
-      const parsed = retryAfter ? parseRetryAfterMs(retryAfter) : undefined;
-      const delayMs = parsed ?? RATE_LIMIT_BASE_DELAY_MS * Math.pow(2, attempt);
+    if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
+      const delayMs = getHttpRetryDelay(response, attempt, DEFAULT_BASE_DELAY_MS);
       log.warn({ attempt: attempt + 1, delayMs }, 'Brave Search rate limited, retrying');
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+      await sleep(delayMs);
       continue;
     }
 
@@ -192,7 +171,7 @@ async function executePerplexitySearch(
   query: string,
   apiKey: string,
 ): Promise<ToolExecutionResult> {
-  for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
     const response = await fetch(PERPLEXITY_API_URL, {
       method: 'POST',
       headers: {
@@ -218,12 +197,10 @@ async function executePerplexitySearch(
       return { content: 'Error: Invalid or expired Perplexity API key', isError: true };
     }
 
-    if (response.status === 429 && attempt < RATE_LIMIT_MAX_RETRIES) {
-      const retryAfter = response.headers.get('retry-after');
-      const parsed = retryAfter ? parseRetryAfterMs(retryAfter) : undefined;
-      const delayMs = parsed ?? RATE_LIMIT_BASE_DELAY_MS * Math.pow(2, attempt);
+    if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
+      const delayMs = getHttpRetryDelay(response, attempt, DEFAULT_BASE_DELAY_MS);
       log.warn({ attempt: attempt + 1, delayMs }, 'Perplexity rate limited, retrying');
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+      await sleep(delayMs);
       continue;
     }
 

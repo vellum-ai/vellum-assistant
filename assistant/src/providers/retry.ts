@@ -1,46 +1,21 @@
 import type { Provider, ProviderResponse, SendMessageOptions, Message, ToolDefinition } from './types.js';
 import { ProviderError } from '../util/errors.js';
 import { getLogger, isDebug } from '../util/logger.js';
+import {
+  computeRetryDelay,
+  isRetryableNetworkError,
+  sleep,
+  DEFAULT_MAX_RETRIES,
+  DEFAULT_BASE_DELAY_MS,
+} from '../util/retry.js';
 
 const log = getLogger('retry');
 
-const MAX_RETRIES = 3;
-const BASE_DELAY_MS = 1000;
-
 function isRetryableError(error: unknown): boolean {
-  // Check ProviderError.statusCode for retryable HTTP status codes
   if (error instanceof ProviderError && error.statusCode !== undefined) {
     if (error.statusCode === 429 || error.statusCode >= 500) return true;
   }
-
-  // Check for network errors (direct or wrapped in cause chain)
-  if (error instanceof Error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ECONNRESET' || code === 'ECONNREFUSED' || code === 'ETIMEDOUT' || code === 'EPIPE') {
-      return true;
-    }
-
-    if (error.cause instanceof Error) {
-      const causeCode = (error.cause as NodeJS.ErrnoException).code;
-      if (causeCode === 'ECONNRESET' || causeCode === 'ECONNREFUSED' || causeCode === 'ETIMEDOUT' || causeCode === 'EPIPE') {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-function getRetryDelay(attempt: number): number {
-  // Equal jitter: guaranteed floor of cap/2 plus random in [0, cap/2].
-  // Prevents retry storms while ensuring retries never collapse to 0ms.
-  const cap = BASE_DELAY_MS * Math.pow(2, attempt);
-  const half = cap / 2;
-  return half + Math.random() * half;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return isRetryableNetworkError(error);
 }
 
 export class RetryProvider implements Provider {
@@ -67,7 +42,7 @@ export class RetryProvider implements Provider {
       }, 'Provider sendMessage start');
     }
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
       try {
         const start = Date.now();
         const result = await this.inner.sendMessage(messages, tools, systemPrompt, options);
@@ -85,14 +60,14 @@ export class RetryProvider implements Provider {
       } catch (error) {
         lastError = error;
 
-        if (attempt < MAX_RETRIES && isRetryableError(error)) {
-          const delay = getRetryDelay(attempt);
+        if (attempt < DEFAULT_MAX_RETRIES && isRetryableError(error)) {
+          const delay = computeRetryDelay(attempt, DEFAULT_BASE_DELAY_MS);
           const errorType = error instanceof ProviderError && error.statusCode === 429
             ? 'rate_limit'
             : error instanceof ProviderError && error.statusCode !== undefined && error.statusCode >= 500
               ? `server_error_${error.statusCode}`
               : 'network_error';
-          log.warn({ attempt: attempt + 1, maxRetries: MAX_RETRIES, delay, errorType, provider: this.name }, 'Retrying after transient error');
+          log.warn({ attempt: attempt + 1, maxRetries: DEFAULT_MAX_RETRIES, delay, errorType, provider: this.name }, 'Retrying after transient error');
           await sleep(delay);
           continue;
         }
