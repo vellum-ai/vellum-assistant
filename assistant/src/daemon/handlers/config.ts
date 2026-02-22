@@ -420,7 +420,10 @@ export function handleIngressConfig(
       const raw = loadRawConfig();
       const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
       const publicBaseUrl = (ingress.publicBaseUrl as string) ?? '';
-      const enabled = (ingress.enabled as boolean) ?? false;
+      // Backward compatibility: if `enabled` was never explicitly set,
+      // infer from whether a publicBaseUrl is configured so existing users
+      // who predate the toggle aren't silently disabled.
+      const enabled = (ingress.enabled as boolean | undefined) ?? (publicBaseUrl ? true : false);
       ctx.send(socket, { type: 'ingress_config_response', enabled, publicBaseUrl, localGatewayTarget, success: true });
     } else if (msg.action === 'set') {
       const value = (msg.publicBaseUrl ?? '').trim().replace(/\/+$/, '');
@@ -456,7 +459,10 @@ export function handleIngressConfig(
       // so updating process.env here ensures the value is visible when the
       // gateway is restarted (e.g. by the self-upgrade skill or a manual
       // `pkill -f gateway`).
-      if (value) {
+      // Only export the URL when ingress is enabled; clearing it when
+      // disabled ensures the gateway stops accepting inbound webhooks.
+      const isEnabled = (ingress.enabled as boolean | undefined) ?? (value ? true : false);
+      if (value && isEnabled) {
         process.env.INGRESS_PUBLIC_BASE_URL = value;
       } else if (ORIGINAL_INGRESS_ENV !== undefined) {
         process.env.INGRESS_PUBLIC_BASE_URL = ORIGINAL_INGRESS_ENV;
@@ -464,8 +470,7 @@ export function handleIngressConfig(
         delete process.env.INGRESS_PUBLIC_BASE_URL;
       }
 
-      const enabled = (ingress.enabled as boolean) ?? false;
-      ctx.send(socket, { type: 'ingress_config_response', enabled, publicBaseUrl: value, localGatewayTarget, success: true });
+      ctx.send(socket, { type: 'ingress_config_response', enabled: isEnabled, publicBaseUrl: value, localGatewayTarget, success: true });
     } else {
       ctx.send(socket, { type: 'ingress_config_response', enabled: false, publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
     }
