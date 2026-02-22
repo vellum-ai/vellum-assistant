@@ -21,6 +21,7 @@ import {
   createApprovalRequest,
   getPendingApprovalByGuardianChat,
   getPendingApprovalForRun,
+  getUnresolvedApprovalForRun,
   updateApprovalDecision,
 } from '../../memory/channel-guardian-store.js';
 import { deliverChannelReply, deliverApprovalPrompt } from '../gateway-client.js';
@@ -891,6 +892,32 @@ async function handleApprovalInterception(
           log.error({ err, conversationId }, 'Failed to deliver guardian-pending notice to requester');
         }
         return { handled: true, type: 'reminder_sent' };
+      }
+
+      // Check for an expired-but-unresolved guardian approval. If the approval
+      // expired without a guardian decision, auto-deny the run and transition
+      // the approval to 'expired'. Without this, the requester could bypass
+      // guardian-only controls by simply waiting for the TTL to elapse.
+      const unresolvedApproval = getUnresolvedApprovalForRun(pending[0].runId);
+      if (unresolvedApproval) {
+        updateApprovalDecision(unresolvedApproval.id, { status: 'expired' });
+
+        // Auto-deny the underlying run so it does not remain actionable
+        const expiredDecision: ApprovalDecisionResult = {
+          action: 'reject',
+          source: 'plain_text',
+        };
+        handleChannelDecision(conversationId, expiredDecision, orchestrator);
+
+        try {
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: externalChatId,
+            text: 'Your guardian approval request has expired and the action has been denied. Please try again.',
+          }, bearerToken);
+        } catch (err) {
+          log.error({ err, conversationId }, 'Failed to deliver guardian-expiry notice to requester');
+        }
+        return { handled: true, type: 'decision_applied' };
       }
     }
   }

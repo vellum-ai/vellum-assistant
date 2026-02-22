@@ -362,6 +362,29 @@ export function getPendingApprovalForRun(runId: string): GuardianApprovalRequest
 }
 
 /**
+ * Find a pending (status = 'pending') guardian approval request for a run
+ * regardless of whether it has expired. Used by the non-guardian gate to
+ * detect expired-but-unresolved approvals that should still block the
+ * requester from self-approving.
+ */
+export function getUnresolvedApprovalForRun(runId: string): GuardianApprovalRequest | null {
+  const db = getDb();
+
+  const row = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(
+      and(
+        eq(channelGuardianApprovalRequests.runId, runId),
+        eq(channelGuardianApprovalRequests.status, 'pending'),
+      ),
+    )
+    .get();
+
+  return row ? rowToApprovalRequest(row) : null;
+}
+
+/**
  * Find a pending guardian approval request by the guardian's chat ID.
  * Used when the guardian sends a decision from their chat.
  */
