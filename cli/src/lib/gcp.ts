@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir, userInfo } from "os";
 import { join } from "path";
 
@@ -9,24 +9,6 @@ import { FIREWALL_TAG, GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
 import { generateRandomSuffix } from "./random-name";
 import { exec, execOutput } from "./step-runner";
-
-export async function activateServiceAccount(): Promise<(() => void) | null> {
-  const keyFile = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (!keyFile) return null;
-
-  const gcpConfigDir = mkdtempSync(join(tmpdir(), "vellum-gcloud-"));
-  process.env.CLOUDSDK_CONFIG = gcpConfigDir;
-  await exec("gcloud", [
-    "auth",
-    "activate-service-account",
-    `--key-file=${keyFile}`,
-  ]);
-
-  return () => {
-    delete process.env.CLOUDSDK_CONFIG;
-    try { rmSync(gcpConfigDir, { recursive: true, force: true }); } catch {}
-  };
-}
 
 export async function getActiveProject(): Promise<string> {
   const output = await execOutput("gcloud", [
@@ -529,7 +511,6 @@ export async function hatchGcp(
 ): Promise<void> {
   const startTime = Date.now();
   const account = process.env.GCP_ACCOUNT_EMAIL;
-  const cleanupServiceAccount = await activateServiceAccount();
 
   try {
     const project = process.env.GCP_PROJECT ?? (await getActiveProject());
@@ -713,8 +694,6 @@ export async function hatchGcp(
   } catch (error) {
     console.error("\u274c Error:", error instanceof Error ? error.message : error);
     process.exit(1);
-  } finally {
-    cleanupServiceAccount?.();
   }
 }
 
