@@ -221,6 +221,70 @@ describe("twilio-sms-webhook", () => {
     expect(res.status).toBe(500);
   });
 
+  it("allows retry after failed forwarding (does not dedup failures)", async () => {
+    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    const params = {
+      Body: "retry test",
+      From: "+15551234567",
+      To: "+15559876543",
+      MessageSid: "SM-retry-test",
+    };
+
+    // First attempt fails
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({ forwarded: false, rejected: false }),
+    );
+    const req1 = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res1 = await handler(req1);
+    expect(res1.status).toBe(500);
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+
+    // Retry with same MessageSid should NOT be deduped since first attempt failed
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({ forwarded: true, rejected: false }),
+    );
+    const req2 = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res2 = await handler(req2);
+    expect(res2.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(2);
+
+    // Now a third attempt should be deduped since the second succeeded
+    const req3 = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res3 = await handler(req3);
+    expect(res3.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows retry after handleInbound throws (does not dedup exceptions)", async () => {
+    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    const params = {
+      Body: "throw test",
+      From: "+15551234567",
+      To: "+15559876543",
+      MessageSid: "SM-throw-test",
+    };
+
+    // First attempt throws
+    handleInboundMock.mockImplementation(() =>
+      Promise.reject(new Error("connection refused")),
+    );
+    const req1 = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res1 = await handler(req1);
+    expect(res1.status).toBe(500);
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+
+    // Retry should succeed and not be treated as duplicate
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({ forwarded: true, rejected: false }),
+    );
+    const req2 = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res2 = await handler(req2);
+    expect(res2.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(2);
+  });
+
   it("returns 200 when routing rejects the SMS", async () => {
     handleInboundMock.mockImplementation(() =>
       Promise.resolve({ forwarded: false, rejected: true, rejectionReason: "No route" }),

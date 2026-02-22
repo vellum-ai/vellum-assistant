@@ -148,12 +148,32 @@ export class StringDedupCache {
    * If not seen, marks it as seen and returns false.
    */
   seen(key: string): boolean {
+    if (this.has(key)) return true;
+    this.mark(key);
+    return false;
+  }
+
+  /**
+   * Returns true if the key is already in the cache (within the TTL window),
+   * without marking it as seen. Use this for a read-only check when you want
+   * to defer marking until after successful processing.
+   */
+  has(key: string): boolean {
     const now = Date.now();
     const expiresAt = this.cache.get(key);
     if (expiresAt !== undefined) {
       if (now <= expiresAt) return true;
       this.cache.delete(key);
     }
+    return false;
+  }
+
+  /**
+   * Marks a key as seen. Call this after successful processing to prevent
+   * future duplicates while still allowing retries on failure.
+   */
+  mark(key: string): void {
+    const now = Date.now();
 
     // Evict expired entries if at capacity
     if (this.cache.size >= this.maxSize) {
@@ -167,7 +187,6 @@ export class StringDedupCache {
     }
 
     this.cache.set(key, now + this.ttlMs);
-    return false;
   }
 
   get size(): number {

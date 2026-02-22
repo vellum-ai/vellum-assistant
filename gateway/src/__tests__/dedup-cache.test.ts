@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import { DedupCache } from "../dedup-cache.js";
+import { DedupCache, StringDedupCache } from "../dedup-cache.js";
 
 describe("DedupCache", () => {
   let cache: DedupCache;
@@ -124,5 +124,69 @@ describe("DedupCache", () => {
     }
 
     expect(shortCache.reserve(90)).toBe(true);
+  });
+});
+
+describe("StringDedupCache", () => {
+  let cache: StringDedupCache;
+
+  beforeEach(() => {
+    cache = new StringDedupCache(5_000, 100);
+  });
+
+  test("has() returns false for unseen key", () => {
+    expect(cache.has("SM-123")).toBe(false);
+  });
+
+  test("has() returns true after mark()", () => {
+    cache.mark("SM-123");
+    expect(cache.has("SM-123")).toBe(true);
+  });
+
+  test("has() does not mark the key as seen", () => {
+    cache.has("SM-123");
+    // Key should still not be in the cache
+    expect(cache.size).toBe(0);
+    expect(cache.has("SM-123")).toBe(false);
+  });
+
+  test("seen() checks and marks atomically", () => {
+    // First call: not seen, marks it
+    expect(cache.seen("SM-456")).toBe(false);
+    // Second call: already seen
+    expect(cache.seen("SM-456")).toBe(true);
+  });
+
+  test("mark() then has() works across multiple keys", () => {
+    cache.mark("SM-a");
+    cache.mark("SM-b");
+    expect(cache.has("SM-a")).toBe(true);
+    expect(cache.has("SM-b")).toBe(true);
+    expect(cache.has("SM-c")).toBe(false);
+  });
+
+  test("expired entries are not returned by has()", () => {
+    const shortCache = new StringDedupCache(1, 100);
+    shortCache.mark("SM-expire");
+
+    const start = Date.now();
+    while (Date.now() - start < 5) {
+      // busy-wait for expiry
+    }
+
+    expect(shortCache.has("SM-expire")).toBe(false);
+  });
+
+  test("mark() evicts oldest when at capacity", () => {
+    const tinyCache = new StringDedupCache(60_000, 3);
+    tinyCache.mark("a");
+    tinyCache.mark("b");
+    tinyCache.mark("c");
+    expect(tinyCache.size).toBe(3);
+
+    tinyCache.mark("d");
+    expect(tinyCache.size).toBe(3);
+    expect(tinyCache.has("a")).toBe(false);
+    expect(tinyCache.has("d")).toBe(true);
   });
 });

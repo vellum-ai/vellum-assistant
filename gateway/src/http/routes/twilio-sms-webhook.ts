@@ -72,8 +72,9 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
       return Response.json({ error: "Missing MessageSid" }, { status: 400 });
     }
 
-    // Dedup by MessageSid
-    if (dedupCache.seen(messageSid)) {
+    // Dedup by MessageSid — check only, defer marking until after successful forwarding
+    // so Twilio retries are not suppressed when downstream handling fails.
+    if (dedupCache.has(messageSid)) {
       tlog.info({ messageSid }, "Duplicate MessageSid, ignoring");
       return Response.json({ ok: true });
     }
@@ -125,6 +126,8 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
         return Response.json({ error: "Internal error" }, { status: 500 });
       }
 
+      // Mark as seen only after successful forwarding
+      dedupCache.mark(messageSid);
       tlog.info({ status: "forwarded", messageSid }, "SMS forwarded to runtime");
     } catch (err) {
       tlog.error({ err, messageSid }, "Failed to process inbound SMS");
