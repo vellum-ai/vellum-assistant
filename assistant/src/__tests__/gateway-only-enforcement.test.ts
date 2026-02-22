@@ -9,7 +9,7 @@
  * - Relay WebSocket upgrade allowed from private network peers/origins
  * - Startup warning when RUNTIME_HTTP_HOST is not loopback
  */
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll, mock } from 'bun:test';
 import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -128,6 +128,15 @@ mock.module('../security/oauth-callback-registry.js', () => ({
   consumeCallbackError: () => true,
 }));
 
+// Mock call-store so WebSocket close handlers don't hit the real DB
+mock.module('../calls/call-store.js', () => ({
+  getCallSession: () => null,
+  getCallSessionByCallSid: () => null,
+  updateCallSession: () => {},
+  recordCallEvent: () => {},
+  expirePendingQuestions: () => {},
+}));
+
 import { RuntimeHttpServer, isPrivateAddress } from '../runtime/http-server.js';
 
 // ---------------------------------------------------------------------------
@@ -149,8 +158,10 @@ describe('gateway-only ingress enforcement', () => {
   let server: RuntimeHttpServer;
   let port: number;
 
-  beforeEach(async () => {
-    logMessages.length = 0;
+  // Share a single server across all tests to avoid EADDRINUSE flakes from
+  // rapid port allocation/deallocation when creating a server per test.
+  // All tests are read-only (HTTP requests checking status codes) so sharing is safe.
+  beforeAll(async () => {
     server = new RuntimeHttpServer({
       port: 0,
       hostname: '127.0.0.1',
@@ -160,7 +171,7 @@ describe('gateway-only ingress enforcement', () => {
     port = server.actualPort;
   });
 
-  afterEach(async () => {
+  afterAll(async () => {
     await server.stop();
   });
 
