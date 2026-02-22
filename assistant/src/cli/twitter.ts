@@ -503,6 +503,15 @@ function sendDaemonMessage(
           continue;
         }
 
+        // Reject immediately on daemon error frames so the CLI surfaces the
+        // real failure reason instead of hanging until the timeout fires.
+        if (m.type === 'error') {
+          clearTimeout(timeoutHandle);
+          socket.destroy();
+          reject(new Error((m as { message?: string }).message ?? 'Daemon returned an error'));
+          return;
+        }
+
         // Only resolve on the expected response type; skip everything else
         if (m.type === expectedResponseType) {
           clearTimeout(timeoutHandle);
