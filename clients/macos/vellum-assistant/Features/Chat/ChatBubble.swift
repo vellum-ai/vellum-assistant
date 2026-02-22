@@ -759,104 +759,24 @@ struct ChatBubble: View {
                         case .text: return false
                         }
                     })
-                    VStack(alignment: .leading, spacing: hasRichContent ? VSpacing.lg : VSpacing.xs) {
-
-                        if hasRichContent {
-                            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                                switch segment {
-                                case .text(let text):
-                                    let options = AttributedString.MarkdownParsingOptions(
-                                        interpretedSyntax: .inlineOnlyPreservingWhitespace
-                                    )
-                                    let attributed = (try? AttributedString(markdown: text, options: options))
-                                        ?? AttributedString(text)
-                                    Text(attributed)
-                                        .font(.system(size: 13))
-                                        .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                                        .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                case .table(let headers, let rows):
-                                    MarkdownTableView(headers: headers, rows: rows)
-                                case .image(let alt, let url):
-                                    AnimatedImageView(urlString: url)
-                                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                                        .accessibilityLabel(alt.isEmpty ? "Image" : alt)
-                                case .heading(let level, let headingText):
-                                    let font: Font = switch level {
-                                    case 1: .system(size: 20, weight: .bold)
-                                    case 2: .system(size: 17, weight: .semibold)
-                                    case 3: .system(size: 14, weight: .semibold)
-                                    default: .system(size: 13, weight: .semibold)
-                                    }
-                                    Text(headingText)
-                                        .font(font)
-                                        .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                        .padding(.top, level == 1 ? VSpacing.xs : 0)
-
-                                case .codeBlock(let language, let code):
-                                    VStack(alignment: .leading, spacing: 0) {
-                                        if let language, !language.isEmpty {
-                                            Text(language)
-                                                .font(.system(size: 11, weight: .medium))
-                                                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textMuted)
-                                                .padding(.horizontal, VSpacing.sm)
-                                                .padding(.top, VSpacing.xs)
-                                        }
-                                        ScrollView(.horizontal, showsIndicators: false) {
-                                            Text(code)
-                                                .font(VFont.mono)
-                                                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                                                .textSelection(.enabled)
-                                                .fixedSize(horizontal: true, vertical: true)
-                                                .padding(VSpacing.sm)
-                                        }
-                                    }
-                                    .background(isUser ? VColor.userBubbleText.opacity(0.1) : VColor.backgroundSubtle)
-                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-
-                                case .horizontalRule:
-                                    Rectangle()
-                                        .fill(isUser ? VColor.userBubbleText.opacity(0.3) : VColor.surfaceBorder)
-                                        .frame(height: 1)
-                                        .padding(.vertical, VSpacing.xs)
-
-                                case .list(let items):
-                                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                                            let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
-                                            let indentLevel = item.indent / 2
-                                            HStack(alignment: .top, spacing: 0) {
-                                                Text(prefix)
-                                                    .font(.system(size: 13))
-                                                    .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
-                                                let options = AttributedString.MarkdownParsingOptions(
-                                                    interpretedSyntax: .inlineOnlyPreservingWhitespace
-                                                )
-                                                let attributed = (try? AttributedString(markdown: item.text, options: options))
-                                                    ?? AttributedString(item.text)
-                                                Text(attributed)
-                                                    .font(.system(size: 13))
-                                                    .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                                                    .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                                                    .textSelection(.enabled)
-                                                    .fixedSize(horizontal: false, vertical: true)
-                                            }
-                                            .padding(.leading, CGFloat(indentLevel) * 16)
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            Text(markdownText)
-                                .font(.system(size: 13))
-                                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                                .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
+                    if hasRichContent {
+                        MarkdownSegmentView(
+                            segments: segments,
+                            maxContentWidth: nil,
+                            textColor: isUser ? VColor.userBubbleText : VColor.textPrimary,
+                            secondaryTextColor: isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary,
+                            mutedTextColor: isUser ? VColor.userBubbleTextSecondary : VColor.textMuted,
+                            tintColor: isUser ? VColor.userBubbleText : VColor.accent,
+                            codeBackgroundColor: isUser ? VColor.userBubbleText.opacity(0.1) : VColor.backgroundSubtle,
+                            hrColor: isUser ? VColor.userBubbleText.opacity(0.3) : VColor.surfaceBorder
+                        )
+                    } else {
+                        Text(markdownText)
+                            .font(.system(size: 13))
+                            .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
+                            .tint(isUser ? VColor.userBubbleText : VColor.accent)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 } else if !message.attachments.isEmpty {
                     Text(attachmentSummary)
