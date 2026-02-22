@@ -12,6 +12,8 @@ const mockConfig = {
 mock.module('../config/loader.js', () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
+  loadRawConfig: () => ({ secretDetection: { ...mockConfig.secretDetection } }),
+  saveRawConfig: () => {},
   invalidateConfigCache: () => {},
 }));
 
@@ -19,6 +21,7 @@ mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
     get: () => () => {},
   }),
+  isDebug: () => false,
 }));
 
 const { checkIngressForSecrets } = await import('../security/secret-ingress.js');
@@ -27,6 +30,7 @@ const { checkIngressForSecrets } = await import('../security/secret-ingress.js')
 // These are well-known fake AWS/GitHub patterns used across the test suite.
 const AWS_KEY = ['AKIA', 'IOSFODNN7', 'REALKEY'].join('');
 const GH_TOKEN = ['ghp_', 'ABCDEFghijklMN01234567', '89abcdefghijkl'].join('');
+const TG_TOKEN = ['123456789', ':', 'ABCDefGHIJklmnopQRSTuvwxyz012345678'].join('');
 
 describe('secret ingress handler', () => {
   beforeEach(() => {
@@ -82,6 +86,13 @@ describe('secret ingress handler', () => {
     const result = checkIngressForSecrets(msg);
     expect(result.blocked).toBe(true);
     expect(result.detectedTypes.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('blocks message containing a Telegram bot token', () => {
+    const result = checkIngressForSecrets(`Here is my bot token: ${TG_TOKEN}`);
+    expect(result.blocked).toBe(true);
+    expect(result.detectedTypes).toContain('Telegram Bot Token');
+    expect(result.userNotice).not.toContain(TG_TOKEN);
   });
 
   test('empty content passes through', () => {

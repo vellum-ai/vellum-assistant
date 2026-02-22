@@ -224,3 +224,143 @@ describe("telegram webhook handler: /new rejection", () => {
     expect(resetCall).toBeUndefined();
   });
 });
+
+describe("telegram webhook handler: in-flight dedup", () => {
+  test("second request with same update_id returns 503 while first is still processing", async () => {
+    // Simulate a slow runtime: the first request hangs until we resolve
+    let resolveFirst!: () => void;
+    const firstBlocks = new Promise<void>((r) => { resolveFirst = r; });
+
+    const config = makeConfig({
+      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
+    });
+
+    // Install a fetch mock where the runtime inbound call blocks on the first
+    // invocation and responds immediately on subsequent ones.
+    let inboundCallCount = 0;
+    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
+      let body: unknown;
+      try {
+        if (init?.body) body = JSON.parse(String(init.body));
+        else if (typeof input === "object" && "json" in input) body = await (input as Request).clone().json();
+      } catch { /* not JSON */ }
+      fetchCalls.push({ url, method, body });
+
+      if (url.includes("/v1/assistants/") && url.includes("/inbound")) {
+        inboundCallCount++;
+        if (inboundCallCount === 1) {
+          await firstBlocks; // hang until test releases
+        }
+        return new Response(JSON.stringify({ eventId: "evt-1", duplicate: false }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.includes("api.telegram.org")) {
+        return new Response(JSON.stringify({ ok: true, result: {} }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("Not found", { status: 404 });
+    }) as any;
+
+    const handler = createTelegramWebhookHandler(config);
+    const payload = makeTelegramPayload("hello", 9001);
+
+    // Fire first request (will block on runtime call)
+    const first = handler(makeWebhookRequest(payload));
+
+    // Fire second request with same update_id while first is in-flight
+    const second = await handler(makeWebhookRequest(payload));
+    expect(second.status).toBe(503);
+    expect(second.headers.get("Retry-After")).toBe("1");
+
+    // Let the first request finish
+    resolveFirst();
+    const firstRes = await first;
+    expect(firstRes.status).toBe(200);
+
+    // Third request after processing completed — should get cached 200
+    const third = await handler(makeWebhookRequest(payload));
+    expect(third.status).toBe(200);
+    const thirdBody = await third.json();
+    expect(thirdBody.ok).toBe(true);
+  });
+
+  test("failed processing unreserves, allowing retry to be processed normally", async () => {
+    const config = makeConfig({
+      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
+      runtimeMaxRetries: 0,
+    });
+
+    let callCount = 0;
+    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
+      let body: unknown;
+      try {
+        if (init?.body) body = JSON.parse(String(init.body));
+        else if (typeof input === "object" && "json" in input) body = await (input as Request).clone().json();
+      } catch { /* not JSON */ }
+      fetchCalls.push({ url, method, body });
+
+      if (url.includes("/v1/assistants/") && url.includes("/inbound")) {
+        callCount++;
+        if (callCount === 1) {
+          // First call fails
+          return new Response("Internal error", { status: 500 });
+        }
+        // Subsequent calls succeed
+        return new Response(JSON.stringify({ eventId: "evt-2", duplicate: false }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.includes("api.telegram.org")) {
+        return new Response(JSON.stringify({ ok: true, result: {} }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("Not found", { status: 404 });
+    }) as any;
+
+    const handler = createTelegramWebhookHandler(config);
+    const payload = makeTelegramPayload("hello", 9002);
+
+    // First attempt fails — should return 500 and unreserve
+    const first = await handler(makeWebhookRequest(payload));
+    expect(first.status).toBe(500);
+
+    // Retry with same update_id — should be processed (not permanently deduped)
+    const retry = await handler(makeWebhookRequest(payload));
+    expect(retry.status).toBe(200);
+    const retryBody = await retry.json();
+    expect(retryBody.ok).toBe(true);
+  });
+
+  test("after successful processing, duplicates return cached success", async () => {
+    const config = makeConfig({
+      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
+    });
+    installFetchMock();
+    const handler = createTelegramWebhookHandler(config);
+    const payload = makeTelegramPayload("hello", 9003);
+
+    // Process successfully
+    const first = await handler(makeWebhookRequest(payload));
+    expect(first.status).toBe(200);
+
+    // Duplicate returns cached response without hitting the runtime again
+    const beforeCount = fetchCalls.length;
+    const dup = await handler(makeWebhookRequest(payload));
+    expect(dup.status).toBe(200);
+    const dupBody = await dup.json();
+    expect(dupBody.ok).toBe(true);
+    // No new fetch calls should have been made (response came from cache)
+    expect(fetchCalls.length).toBe(beforeCount);
+  });
+});

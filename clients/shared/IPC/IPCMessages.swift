@@ -1451,9 +1451,6 @@ extension IPCAddTrustRule {
         scope: String,
         decision: String,
         allowHighRisk: Bool? = nil,
-        principalKind: String? = nil,
-        principalId: String? = nil,
-        principalVersion: String? = nil,
         executionTarget: String? = nil
     ) {
         self.init(
@@ -1463,9 +1460,6 @@ extension IPCAddTrustRule {
             scope: scope,
             decision: decision,
             allowHighRisk: allowHighRisk,
-            principalKind: principalKind,
-            principalId: principalId,
-            principalVersion: principalVersion,
             executionTarget: executionTarget
         )
     }
@@ -1506,14 +1500,28 @@ extension IPCUpdateTrustRule {
 public typealias ToolPermissionSimulateMessage = IPCToolPermissionSimulateRequest
 
 extension IPCToolPermissionSimulateRequest {
-    public init(toolName: String, input: [String: AnyCodable], workingDir: String? = nil, isInteractive: Bool? = nil, forcePromptSideEffects: Bool? = nil, principalKind: String? = nil, principalId: String? = nil, principalVersion: String? = nil, executionTarget: String? = nil) {
-        self.init(type: "tool_permission_simulate", toolName: toolName, input: input, workingDir: workingDir, isInteractive: isInteractive, forcePromptSideEffects: forcePromptSideEffects, principalKind: principalKind, principalId: principalId, principalVersion: principalVersion, executionTarget: executionTarget)
+    public init(toolName: String, input: [String: AnyCodable], workingDir: String? = nil, isInteractive: Bool? = nil, forcePromptSideEffects: Bool? = nil) {
+        self.init(type: "tool_permission_simulate", toolName: toolName, input: input, workingDir: workingDir, isInteractive: isInteractive, forcePromptSideEffects: forcePromptSideEffects)
     }
 }
 
 /// Response from a tool permission simulation.
 /// Backed by generated `IPCToolPermissionSimulateResponse`.
 public typealias ToolPermissionSimulateResponseMessage = IPCToolPermissionSimulateResponse
+
+/// Request the list of all registered tool names.
+/// Backed by generated `IPCToolNamesListRequest`.
+public typealias ToolNamesListMessage = IPCToolNamesListRequest
+
+extension IPCToolNamesListRequest {
+    public init() {
+        self.init(type: "tool_names_list")
+    }
+}
+
+/// Response containing all registered tool names.
+/// Backed by generated `IPCToolNamesListResponse`.
+public typealias ToolNamesListResponseMessage = IPCToolNamesListResponse
 
 /// Response from opening and scanning a .vellumapp bundle.
 /// Backed by generated `IPCOpenBundleResponse`.
@@ -1791,6 +1799,22 @@ extension IPCVercelApiConfigRequest {
 /// Backed by generated `IPCVercelApiConfigResponse`.
 public typealias VercelApiConfigResponseMessage = IPCVercelApiConfigResponse
 
+// MARK: - Telegram Config Messages
+
+/// Sent to get/set/clear Telegram bot config.
+/// Backed by generated `IPCTelegramConfigRequest`.
+public typealias TelegramConfigRequestMessage = IPCTelegramConfigRequest
+
+extension IPCTelegramConfigRequest {
+    public init(action: String, botToken: String? = nil, commands: [IPCTelegramConfigRequestCommand]? = nil) {
+        self.init(type: "telegram_config", action: action, botToken: botToken, commands: commands)
+    }
+}
+
+/// Response from Telegram config operations.
+/// Backed by generated `IPCTelegramConfigResponse`.
+public typealias TelegramConfigResponseMessage = IPCTelegramConfigResponse
+
 // MARK: - Twitter Integration Config Messages
 
 /// Sent to get/set Twitter integration config.
@@ -1976,6 +2000,7 @@ public enum ServerMessage: Decodable, Sendable {
     case traceEvent(TraceEventMessage)
     case trustRulesListResponse(TrustRulesListResponseMessage)
     case toolPermissionSimulateResponse(ToolPermissionSimulateResponseMessage)
+    case toolNamesListResponse(ToolNamesListResponseMessage)
     case acceptStarterBundleResponse(IPCAcceptStarterBundleResponse)
     case remindersListResponse(RemindersListResponseMessage)
     case schedulesListResponse(SchedulesListResponseMessage)
@@ -1997,6 +2022,7 @@ public enum ServerMessage: Decodable, Sendable {
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
     case ingressConfigResponse(IngressConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
+    case telegramConfigResponse(TelegramConfigResponseMessage)
     case twitterIntegrationConfigResponse(TwitterIntegrationConfigResponseMessage)
     case twitterAuthResult(TwitterAuthResultMessage)
     case twitterAuthStatusResponse(TwitterAuthStatusResponseMessage)
@@ -2205,6 +2231,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "tool_permission_simulate_response":
             let message = try ToolPermissionSimulateResponseMessage(from: decoder)
             self = .toolPermissionSimulateResponse(message)
+        case "tool_names_list_response":
+            let message = try ToolNamesListResponseMessage(from: decoder)
+            self = .toolNamesListResponse(message)
         case "accept_starter_bundle_response":
             let message = try IPCAcceptStarterBundleResponse(from: decoder)
             self = .acceptStarterBundleResponse(message)
@@ -2268,6 +2297,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "vercel_api_config_response":
             let message = try VercelApiConfigResponseMessage(from: decoder)
             self = .vercelApiConfigResponse(message)
+        case "telegram_config_response":
+            let message = try TelegramConfigResponseMessage(from: decoder)
+            self = .telegramConfigResponse(message)
         case "twitter_integration_config_response":
             let message = try TwitterIntegrationConfigResponseMessage(from: decoder)
             self = .twitterIntegrationConfigResponse(message)

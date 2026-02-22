@@ -409,11 +409,12 @@ public struct ToolConfirmationBubble: View {
         removeKeyMonitor()
         keyboardModel = ToolConfirmationKeyboardModel(actions: actions)
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            // Pass through when the first responder is a text view (e.g. the
-            // composer) so typing, Enter-to-send, Tab-to-accept-suggestion,
-            // and Escape-to-dismiss-slash-menu continue to work normally.
-            if let firstResponder = NSApp.keyWindow?.firstResponder,
-               firstResponder is NSTextView {
+            // If an editable text view (e.g. the composer) is the first responder,
+            // let the event pass through so it can handle Enter/Tab/Escape normally.
+            // Non-editable text views (e.g. selectable command previews inside the
+            // confirmation bubble) don't need these keys, so we still intercept them.
+            if let firstResponder = NSApp.keyWindow?.firstResponder as? NSTextView,
+               firstResponder.isEditable {
                 return event
             }
             let mods = event.modifierFlags.intersection(Self.intentionalModifiers)
@@ -431,7 +432,7 @@ public struct ToolConfirmationBubble: View {
                 // Plain Tab — move right (modified Tab passes through)
                 keyboardModel?.moveRight()
                 return nil
-            case 36, 76 where mods.isEmpty:
+            case 36 where mods.isEmpty, 76 where mods.isEmpty:
                 // Plain Return / numpad Enter — activate (modified Enter passes through, e.g. Shift+Enter for newline)
                 if let action = keyboardModel?.selectedAction {
                     activateAction(action)
@@ -459,7 +460,7 @@ public struct ToolConfirmationBubble: View {
             // Down arrow
             popoverKeyboardModel?.moveDown()
             return nil
-        case 36, 76 where mods.isEmpty:
+        case 36 where mods.isEmpty, 76 where mods.isEmpty:
             // Plain Return / numpad Enter — activate selected row (modified Enter passes through)
             activatePopoverSelection()
             return nil

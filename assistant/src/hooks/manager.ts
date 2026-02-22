@@ -3,6 +3,7 @@ import { discoverHooks } from './discovery.js';
 import { runHookScript } from './runner.js';
 import { getLogger, isDebug } from '../util/logger.js';
 import { getHooksDir } from '../util/platform.js';
+import { Debouncer } from '../util/debounce.js';
 import type { DiscoveredHook, HookEventName, HookEventData, HookTriggerResult } from './types.js';
 
 const log = getLogger('hooks-manager');
@@ -11,7 +12,7 @@ export class HookManager {
   private hooks: DiscoveredHook[] = [];
   private eventIndex = new Map<HookEventName, DiscoveredHook[]>();
   private watcher: FSWatcher | null = null;
-  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly debouncer = new Debouncer(500);
 
   initialize(): void {
     this.hooks = discoverHooks();
@@ -82,12 +83,10 @@ export class HookManager {
 
     try {
       this.watcher = watch(hooksDir, { recursive: true }, (_eventType, filename) => {
-        if (this.debounceTimer) clearTimeout(this.debounceTimer);
-        this.debounceTimer = setTimeout(() => {
-          this.debounceTimer = null;
+        this.debouncer.schedule(() => {
           log.info({ filename: String(filename ?? '') }, 'Hooks directory changed, reloading');
           this.reload();
-        }, 500);
+        });
       });
       log.info({ dir: hooksDir }, 'Watching hooks directory for changes');
     } catch (err) {
@@ -96,10 +95,7 @@ export class HookManager {
   }
 
   stopWatching(): void {
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
-    }
+    this.debouncer.cancel();
     if (this.watcher) {
       this.watcher.close();
       this.watcher = null;

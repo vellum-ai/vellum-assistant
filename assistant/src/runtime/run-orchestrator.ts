@@ -131,9 +131,6 @@ export class RunOrchestrator {
           executionTarget: msg.executionTarget,
           allowlistOptions: msg.allowlistOptions,
           scopeOptions: msg.scopeOptions,
-          principalKind: msg.principalKind,
-          principalId: msg.principalId,
-          principalVersion: msg.principalVersion,
           persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
         });
         this.pending.set(run.id, {

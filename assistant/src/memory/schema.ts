@@ -588,3 +588,21 @@ export const processedCallbacks = sqliteTable('processed_callbacks', {
   claimId: text('claim_id'),
   createdAt: integer('created_at').notNull(),
 });
+
+// ── External Conversation Bindings ───────────────────────────────────
+// UNIQUE (source_channel, external_chat_id) enforced via idx_ext_conv_bindings_channel_chat_unique in db.ts
+
+export const externalConversationBindings = sqliteTable('external_conversation_bindings', {
+  conversationId: text('conversation_id')
+    .primaryKey()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  sourceChannel: text('source_channel').notNull(),
+  externalChatId: text('external_chat_id').notNull(),
+  externalUserId: text('external_user_id'),
+  displayName: text('display_name'),
+  username: text('username'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+  lastInboundAt: integer('last_inbound_at'),
+  lastOutboundAt: integer('last_outbound_at'),
+});

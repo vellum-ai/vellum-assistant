@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { v4 as uuid } from 'uuid';
-import { minimatch } from 'minimatch';
+import { Minimatch } from 'minimatch';
 import { getRootDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { getDefaultRuleTemplates } from './defaults.js';
@@ -20,6 +20,50 @@ interface TrustFile {
 
 let cachedRules: TrustRule[] | null = null;
 let cachedStarterBundleAccepted: boolean | null = null;
+
+/**
+ * Cache of pre-compiled Minimatch objects keyed by pattern string.
+ * Rebuilt whenever cachedRules changes. Avoids re-parsing glob patterns
+ * on every tool-call permission check.
+ */
+const compiledPatterns = new Map<string, Minimatch>();
+
+/** Get or compile a Minimatch object for the given pattern. Returns null if the pattern is invalid. */
+function getCompiledPattern(pattern: string): Minimatch | null {
+  let compiled = compiledPatterns.get(pattern);
+  if (!compiled) {
+    if (typeof pattern !== 'string') {
+      log.warn({ pattern }, 'Cannot compile non-string pattern');
+      return null;
+    }
+    try {
+      compiled = new Minimatch(pattern);
+      compiledPatterns.set(pattern, compiled);
+    } catch (err) {
+      log.warn({ pattern, err }, 'Failed to compile pattern');
+      return null;
+    }
+  }
+  return compiled;
+}
+
+/** Rebuild the compiled pattern cache from the current rule set. */
+function rebuildPatternCache(rules: TrustRule[]): void {
+  compiledPatterns.clear();
+  for (const rule of rules) {
+    if (typeof rule.pattern !== 'string') {
+      log.warn({ ruleId: rule.id, pattern: rule.pattern }, 'Skipping rule with non-string pattern during cache rebuild');
+      continue;
+    }
+    if (!compiledPatterns.has(rule.pattern)) {
+      try {
+        compiledPatterns.set(rule.pattern, new Minimatch(rule.pattern));
+      } catch (err) {
+        log.warn({ ruleId: rule.id, pattern: rule.pattern, err }, 'Skipping rule with invalid pattern during cache rebuild');
+      }
+    }
+  }
+}
 
 function getTrustPath(): string {
   return join(getRootDir(), 'protected', 'trust.json');
@@ -201,6 +245,22 @@ function loadFromDisk(): TrustRule[] {
         log.info({ ruleCount: rules.length }, 'Migrated v2 trust rules to v3 (principal fields)');
       } else if (data.version === TRUST_FILE_VERSION) {
         rules = rawRules;
+
+        // Strip legacy principal-scoped fields from persisted v3 rules.
+        // Before the principal concept was removed, rules could carry
+        // principalKind/principalId/principalVersion which acted as scope
+        // constraints. Now that matching ignores those fields, leaving them
+        // on loaded rules would silently widen their scope to global
+        // wildcards. Stripping them and re-saving prevents scope escalation.
+        for (const rule of rules) {
+          const r = rule as Record<string, unknown>;
+          if ('principalKind' in r || 'principalId' in r || 'principalVersion' in r) {
+            delete r.principalKind;
+            delete r.principalId;
+            delete r.principalVersion;
+            needsSave = true;
+          }
+        }
       } else if (data.version !== 1) {
         log.warn({ version: data.version }, 'Unknown trust file version, applying defaults in-memory only');
         // Apply default deny rules in-memory so the assistant is still
@@ -262,6 +322,7 @@ function saveToDisk(rules: TrustRule[]): void {
 function getRules(): TrustRule[] {
   if (cachedRules === null) {
     cachedRules = loadFromDisk();
+    rebuildPatternCache(cachedRules);
   }
   return cachedRules;
 }
@@ -274,9 +335,6 @@ export function addRule(
   priority: number = 100,
   options?: {
     allowHighRisk?: boolean;
-    principalKind?: string;
-    principalId?: string;
-    principalVersion?: string;
     executionTarget?: string;
   },
 ): TrustRule {
@@ -296,21 +354,13 @@ export function addRule(
   if (options?.allowHighRisk != null) {
     rule.allowHighRisk = options.allowHighRisk;
   }
-  if (options?.principalKind != null) {
-    rule.principalKind = options.principalKind;
-  }
-  if (options?.principalId != null) {
-    rule.principalId = options.principalId;
-  }
-  if (options?.principalVersion != null) {
-    rule.principalVersion = options.principalVersion;
-  }
   if (options?.executionTarget != null) {
     rule.executionTarget = options.executionTarget;
   }
   rules.push(rule);
   rules.sort(ruleOrder);
   cachedRules = rules;
+  rebuildPatternCache(rules);
   saveToDisk(rules);
   log.info({ rule }, 'Added trust rule');
   return rule;
@@ -337,6 +387,7 @@ export function updateRule(
   rules[index] = rule;
   rules.sort(ruleOrder);
   cachedRules = rules;
+  rebuildPatternCache(rules);
   saveToDisk(rules);
   log.info({ rule }, 'Updated trust rule');
   return rule;
@@ -353,6 +404,7 @@ export function removeRule(id: string): boolean {
   if (index === -1) return false;
   rules.splice(index, 1);
   cachedRules = rules;
+  rebuildPatternCache(rules);
   saveToDisk(rules);
   log.info({ id }, 'Removed trust rule');
   return true;
@@ -372,45 +424,12 @@ function findRuleByDecision(tool: string, command: string, scope: string, decisi
   for (const rule of rules) {
     if (rule.tool !== tool) continue;
     if (rule.decision !== decision) continue;
-    if (!minimatch(command, rule.pattern)) continue;
+    const compiled = getCompiledPattern(rule.pattern);
+    if (!compiled || !compiled.match(command)) continue;
     if (!matchesScope(rule.scope, scope)) continue;
     return rule;
   }
   return null;
-}
-
-/**
- * Check whether a rule's principal constraints match the given policy context.
- *
- * A missing field on the rule acts as a wildcard — it matches any value
- * (or absence) in the context. When a rule specifies a principal field,
- * the context must provide a matching value for the rule to apply.
- */
-function matchesPrincipal(rule: TrustRule, ctx?: PolicyContext): boolean {
-  // If the rule has no principal constraints it matches everything (wildcard).
-  if (rule.principalKind == null && rule.principalId == null && rule.principalVersion == null) {
-    return true;
-  }
-
-  const principal = ctx?.principal;
-
-  // Rule specifies a principalKind — context must supply one that matches.
-  if (rule.principalKind != null) {
-    if (principal?.kind !== rule.principalKind) return false;
-  }
-
-  // Rule specifies a principalId — context must supply one that matches.
-  if (rule.principalId != null) {
-    if (principal?.id !== rule.principalId) return false;
-  }
-
-  // Rule specifies a principalVersion — context must supply one that matches.
-  // If the rule omits principalVersion, any version (or none) is accepted.
-  if (rule.principalVersion != null) {
-    if (principal?.version !== rule.principalVersion) return false;
-  }
-
-  return true;
 }
 
 /**
@@ -428,9 +447,9 @@ function matchesExecutionTarget(rule: TrustRule, ctx?: PolicyContext): boolean {
  * Find the highest-priority rule that matches any of the command candidates.
  * Rules are pre-sorted by priority descending, so the first match wins.
  *
- * When a `PolicyContext` is provided, rules that specify principal or
- * executionTarget constraints are filtered accordingly. Rules without
- * those constraints act as wildcards and match any context.
+ * When a `PolicyContext` is provided, rules that specify executionTarget
+ * constraints are filtered accordingly. Rules without those constraints
+ * act as wildcards and match any context.
  */
 export function findHighestPriorityRule(tool: string, commands: string[], scope: string, ctx?: PolicyContext): TrustRule | null {
   // Check ephemeral (task-scoped) rules first — they take precedence over
@@ -449,10 +468,11 @@ export function findHighestPriorityRule(tool: string, commands: string[], scope:
   for (const rule of allRules) {
     if (rule.tool !== tool) continue;
     if (!matchesScope(rule.scope, scope)) continue;
-    if (!matchesPrincipal(rule, ctx)) continue;
     if (!matchesExecutionTarget(rule, ctx)) continue;
+    const compiled = getCompiledPattern(rule.pattern);
+    if (!compiled) continue;
     for (const command of commands) {
-      if (minimatch(command, rule.pattern)) {
+      if (compiled.match(command)) {
         return rule;
       }
     }
@@ -480,6 +500,7 @@ export function clearAllRules(): void {
   backfillDefaults(rules);
   rules.sort(ruleOrder);
   cachedRules = rules;
+  rebuildPatternCache(rules);
   saveToDisk(rules);
   log.info('Cleared all user trust rules (default rules preserved)');
 }
@@ -487,6 +508,7 @@ export function clearAllRules(): void {
 export function clearCache(): void {
   cachedRules = null;
   cachedStarterBundleAccepted = null;
+  compiledPatterns.clear();
 }
 
 // ─── Starter approval bundle ────────────────────────────────────────────────
@@ -577,6 +599,7 @@ export function acceptStarterBundle(): AcceptStarterBundleResult {
   cachedStarterBundleAccepted = true;
   rules.sort(ruleOrder);
   cachedRules = rules;
+  rebuildPatternCache(rules);
   saveToDisk(rules);
   log.info({ rulesAdded: added }, 'Starter approval bundle accepted');
 

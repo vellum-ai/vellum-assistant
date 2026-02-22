@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { getLogger } from '../../util/logger.js';
 import { IntegrityError } from '../../util/errors.js';
+import { PromiseGuard } from '../../util/promise-guard.js';
 import { Parser, Language, type Node as TSNode } from 'web-tree-sitter';
 
 const log = getLogger('shell-parser');
@@ -73,7 +74,7 @@ function verifyWasmChecksum(filePath: string, label: string): void {
 }
 
 let parserInstance: Parser | null = null;
-let initPromise: Promise<void> | null = null;
+const initGuard = new PromiseGuard<void>();
 
 /**
  * Locate a WASM file from a dependency package.
@@ -105,27 +106,24 @@ function findWasmPath(pkg: string, file: string): string {
 async function ensureParser(): Promise<Parser> {
   if (parserInstance) return parserInstance;
 
-  if (!initPromise) {
-    initPromise = (async () => {
-      const treeSitterWasm = findWasmPath('web-tree-sitter', 'web-tree-sitter.wasm');
-      const bashWasmPath = findWasmPath('tree-sitter-bash', 'tree-sitter-bash.wasm');
+  await initGuard.run(async () => {
+    const treeSitterWasm = findWasmPath('web-tree-sitter', 'web-tree-sitter.wasm');
+    const bashWasmPath = findWasmPath('tree-sitter-bash', 'tree-sitter-bash.wasm');
 
-      verifyWasmChecksum(treeSitterWasm, 'web-tree-sitter.wasm');
-      verifyWasmChecksum(bashWasmPath, 'tree-sitter-bash.wasm');
+    verifyWasmChecksum(treeSitterWasm, 'web-tree-sitter.wasm');
+    verifyWasmChecksum(bashWasmPath, 'tree-sitter-bash.wasm');
 
-      await Parser.init({
-        locateFile: () => treeSitterWasm,
-      });
+    await Parser.init({
+      locateFile: () => treeSitterWasm,
+    });
 
-      const Bash = await Language.load(bashWasmPath);
-      const parser = new Parser();
-      parser.setLanguage(Bash);
-      parserInstance = parser;
-      log.info('Shell parser initialized (web-tree-sitter + bash, checksums verified)');
-    })();
-  }
+    const Bash = await Language.load(bashWasmPath);
+    const parser = new Parser();
+    parser.setLanguage(Bash);
+    parserInstance = parser;
+    log.info('Shell parser initialized (web-tree-sitter + bash, checksums verified)');
+  });
 
-  await initPromise;
   return parserInstance!;
 }
 

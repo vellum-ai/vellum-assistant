@@ -8,6 +8,9 @@ const log = getLogger("telegram-deliver");
 
 export function createTelegramDeliverHandler(config: GatewayConfig) {
   return async (req: Request): Promise<Response> => {
+    const traceId = req.headers.get("x-trace-id") ?? undefined;
+    const tlog = traceId ? log.child({ traceId }) : log;
+
     if (req.method !== "POST") {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
@@ -82,10 +85,11 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
         await sendTelegramAttachments(config, chatId, assistantId, attachments);
       }
     } catch (err) {
-      log.error({ err, chatId }, "Failed to deliver Telegram reply");
+      tlog.error({ err, chatId }, "Failed to deliver Telegram reply");
       return Response.json({ error: "Delivery failed" }, { status: 502 });
     }
 
+    tlog.info({ chatId, hasText: !!text, attachmentCount: attachments?.length ?? 0 }, "Reply sent");
     return Response.json({ ok: true });
   };
 }

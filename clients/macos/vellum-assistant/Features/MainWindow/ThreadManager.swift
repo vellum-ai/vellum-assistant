@@ -7,6 +7,7 @@ import Combine
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadManager")
 private let archivedSessionsKey = "archivedSessionIds"
+private let hiddenSessionsKey = "hiddenSessionTimestamps"
 
 /// Haiku is used for title generation because it's cost-effective and fast enough
 /// for simple summarization tasks without sacrificing quality.
@@ -54,6 +55,25 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// Subscription to activeViewModel's messages count changes.
     /// Forwards only message count changes to ThreadManager's objectWillChange.
     private var activeViewModelCancellable: AnyCancellable?
+
+    /// Metadata for sessions whose threads were hidden locally.
+    /// Keyed by daemon session ID so we can detect inbound activity and restore them.
+    struct HiddenSessionInfo {
+        let sessionId: String
+        let title: String
+        let sourceChannel: String?
+        let externalChatId: String?
+        let displayName: String?
+        let username: String?
+    }
+    private(set) var hiddenSessions: [String: HiddenSessionInfo] = [:]
+
+    /// Fired when a previously-hidden thread is restored due to new activity.
+    /// The String parameter is the thread title for display in a toast.
+    var onThreadReconnected: ((String) -> Void)?
+
+    /// Task monitoring daemon messages for activity on hidden sessions.
+    private var hiddenSessionMonitorTask: Task<Void, Never>?
 
     /// Threads that are not archived — used by the UI to populate the sidebar.
     /// Sorted: pinned first (by pinnedOrder ascending), then unpinned by lastInteractedAt descending.
@@ -254,6 +274,287 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         log.info("Archived thread \(id)")
     }
 
+
+    /// Hide a synced thread locally without removing the server-side binding.
+    /// Removes the thread from the UI and persists a hidden timestamp so the
+    /// session restorer suppresses it on restart. When the daemon reports new
+    /// activity (updatedAt > hideTime), the hidden state auto-clears and the
+    /// thread re-appears as visible.
+    func hideLocalThread(id: UUID) {
+        guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
+        let thread = threads[index]
+        let sourceChannel = thread.sourceChannel ?? "?"
+        let externalChatId = thread.externalChatId ?? "?"
+
+        // Preserve session metadata so we can restore the thread on next activity
+        if let sessionId = thread.sessionId {
+            hiddenSessions[sessionId] = HiddenSessionInfo(
+                sessionId: sessionId,
+                title: thread.title,
+                sourceChannel: thread.sourceChannel,
+                externalChatId: thread.externalChatId,
+                displayName: thread.displayName,
+                username: thread.username
+            )
+            startHiddenSessionMonitorIfNeeded()
+        }
+
+        // Stop any active generation and remove the view model
+        chatViewModels[id]?.stopGenerating()
+        chatViewModels.removeValue(forKey: id)
+
+        // Persist the hidden state so the session restorer suppresses this
+        // thread on restart. Unlike archivedSessionIds, the hidden timestamp
+        // is compared against the session's updatedAt — if new activity
+        // arrives (updatedAt advances), the hidden state is automatically
+        // cleared and the thread re-appears.
+        if let sessionId = thread.sessionId {
+            var hidden = hiddenSessionTimestamps
+            hidden[sessionId] = Int(Date().timeIntervalSince1970 * 1000)
+            hiddenSessionTimestamps = hidden
+        }
+
+        threads.remove(at: index)
+
+        // If the removed thread was active, select an adjacent thread or create a new one
+        if activeThreadId == id {
+            let visible = visibleThreads
+            if !visible.isEmpty {
+                activeThreadId = visible.first?.id
+            } else {
+                createThread()
+            }
+        }
+
+        log.info("Hid local thread \(id) (\(sourceChannel):\(externalChatId)), runtime binding preserved")
+    }
+    /// Disconnect a synced thread's channel binding and archive it locally.
+    /// Calls the runtime's DELETE /v1/channels/conversation endpoint to
+    /// remove the conversation key mapping and external binding, then
+    /// archives the thread in the UI. Does NOT call any external channel
+    /// delete APIs (e.g. Telegram).
+    func disconnectSyncedThread(id: UUID) async {
+        guard let thread = threads.first(where: { $0.id == id }) else { return }
+        guard let sourceChannel = thread.sourceChannel,
+              let externalChatId = thread.externalChatId else {
+            log.warning("Cannot disconnect thread \(id): missing channel binding")
+            return
+        }
+
+        // Await the DELETE so the runtime mapping is removed before we hide locally;
+        // otherwise inbound messages can route to an archived thread.
+        let success = await daemonClient.deleteChannelConversation(
+            sourceChannel: sourceChannel,
+            externalChatId: externalChatId
+        )
+
+        if !success {
+            log.warning("DELETE channel conversation failed for thread \(id) (\(sourceChannel):\(externalChatId)); proceeding with local archive")
+        }
+
+        // Re-lookup after await — threads may have changed during suspension
+        guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
+
+        threads[index].sourceChannel = nil
+        threads[index].externalChatId = nil
+        threads[index].displayName = nil
+        threads[index].username = nil
+
+        archiveThread(id: id)
+
+        log.info("Disconnected synced thread \(id) (\(sourceChannel):\(externalChatId))")
+    }
+
+    /// Move Telegram sync ownership to the specified thread.
+    /// Calls the runtime's move-sync endpoint to atomically transfer the binding,
+    /// then updates the UI: the target thread becomes synced, the old owner loses its binding.
+    func moveSyncHere(threadId: UUID, sourceChannel: String, externalChatId: String) {
+        guard let targetIndex = threads.firstIndex(where: { $0.id == threadId }),
+              let sessionId = threads[targetIndex].sessionId else {
+            log.warning("Cannot move sync: thread \(threadId) not found or has no session")
+            return
+        }
+
+        Task { @MainActor in
+            let success = await daemonClient.moveChannelSync(
+                sourceChannel: sourceChannel,
+                externalChatId: externalChatId,
+                newConversationId: sessionId
+            )
+
+            if success {
+                // Capture metadata from old owner before clearing
+                let oldOwner = threads.first(where: {
+                    $0.sourceChannel == sourceChannel &&
+                    $0.externalChatId == externalChatId &&
+                    $0.id != threadId
+                })
+                let oldDisplayName = oldOwner?.displayName
+                let oldUsername = oldOwner?.username
+
+                // Clear old owner's binding
+                for i in threads.indices {
+                    if threads[i].sourceChannel == sourceChannel &&
+                       threads[i].externalChatId == externalChatId &&
+                       threads[i].id != threadId {
+                        threads[i].sourceChannel = nil
+                        threads[i].externalChatId = nil
+                        threads[i].displayName = nil
+                        threads[i].username = nil
+                    }
+                }
+
+                // Set the new thread as synced, preserving display metadata
+                if let idx = threads.firstIndex(where: { $0.id == threadId }) {
+                    threads[idx].sourceChannel = sourceChannel
+                    threads[idx].externalChatId = externalChatId
+                    threads[idx].displayName = threads[idx].displayName ?? oldDisplayName
+                    threads[idx].username = threads[idx].username ?? oldUsername
+                }
+
+                log.info("Moved sync to thread \(threadId) for \(sourceChannel):\(externalChatId)")
+            } else {
+                log.error("Failed to move sync to thread \(threadId)")
+            }
+        }
+    }
+
+    /// Find the canonical synced thread for a given channel chat, if one exists.
+    /// Returns the thread that owns the sync binding, or nil if no other thread is synced to this chat.
+    func findCanonicalThread(sourceChannel: String, externalChatId: String, excludingThread: UUID) -> ThreadModel? {
+        return threads.first(where: {
+            $0.sourceChannel == sourceChannel &&
+            $0.externalChatId == externalChatId &&
+            $0.id != excludingThread &&
+            !$0.isArchived
+        })
+    }
+
+    /// Find a thread by its daemon session/conversation ID.
+    /// Used to resolve `ownerConversationId` from send-conflict payloads to a concrete thread.
+    func findThreadBySessionId(_ sessionId: String) -> ThreadModel? {
+        return threads.first(where: { $0.sessionId == sessionId && !$0.isArchived })
+    }
+
+    /// Resolve a send-conflict's `ownerConversationId` into a `SyncConflictInfo` for the UI.
+    /// Returns nil if the owner thread cannot be found (e.g. archived or unknown session).
+    func resolveSendConflict(_ conflict: SendConflictInfo, excludingThread: UUID) -> SyncConflictInfo? {
+        guard let ownerThread = findThreadBySessionId(conflict.ownerConversationId),
+              ownerThread.id != excludingThread else {
+            return nil
+        }
+        return SyncConflictInfo(
+            ownerThreadTitle: ownerThread.title,
+            ownerThreadId: ownerThread.id,
+            sourceChannel: ownerThread.sourceChannel ?? "",
+            externalChatId: ownerThread.externalChatId ?? "",
+            ownerConversationId: conflict.ownerConversationId
+        )
+    }
+
+    /// Switch to the canonical synced thread, carrying over any draft text and
+    /// attachments from the source thread's composer so the user doesn't lose work.
+    func continueInSyncedThread(targetThreadId: UUID, sourceThreadId: UUID) {
+        guard let sourceVM = chatViewModels[sourceThreadId],
+              let targetVM = chatViewModels[targetThreadId] else {
+            // Fallback: just switch threads without draft carryover
+            activeThreadId = targetThreadId
+            return
+        }
+
+        // Capture draft state from source composer
+        let draftText = sourceVM.inputText
+        let draftAttachments = sourceVM.pendingAttachments
+
+        // Clear the source composer so it doesn't look like unsaved state
+        sourceVM.inputText = ""
+        sourceVM.pendingAttachments = []
+
+        // Switch to the target thread
+        activeThreadId = targetThreadId
+
+        // Place the draft in the target composer
+        if !draftText.isEmpty {
+            targetVM.inputText = draftText
+        }
+        if !draftAttachments.isEmpty {
+            targetVM.pendingAttachments = draftAttachments
+        }
+
+        log.info("Continued in synced thread \(targetThreadId), carried draft (\(draftText.count) chars, \(draftAttachments.count) attachments)")
+    }
+
+    /// Move sync ownership to this thread and automatically resend any pending
+    /// draft text once the move succeeds. If the composer is empty, falls back
+    /// to a plain moveSyncHere without auto-send.
+    func moveSyncHereAndResend(threadId: UUID, sourceChannel: String, externalChatId: String) {
+        guard let vm = chatViewModels[threadId] else {
+            log.warning("Cannot move-sync-and-resend: no view model for thread \(threadId)")
+            return
+        }
+
+        // Capture the draft that should be resent after the move succeeds
+        let draftText = vm.inputText
+        let draftAttachments = vm.pendingAttachments
+
+        guard let targetIndex = threads.firstIndex(where: { $0.id == threadId }),
+              let sessionId = threads[targetIndex].sessionId else {
+            log.warning("Cannot move sync: thread \(threadId) not found or has no session")
+            return
+        }
+
+        Task { @MainActor in
+            let success = await daemonClient.moveChannelSync(
+                sourceChannel: sourceChannel,
+                externalChatId: externalChatId,
+                newConversationId: sessionId
+            )
+
+            if success {
+                // Capture metadata from old owner before clearing
+                let oldOwner = threads.first(where: {
+                    $0.sourceChannel == sourceChannel &&
+                    $0.externalChatId == externalChatId &&
+                    $0.id != threadId
+                })
+                let oldDisplayName = oldOwner?.displayName
+                let oldUsername = oldOwner?.username
+
+                // Clear old owner's binding
+                for i in threads.indices {
+                    if threads[i].sourceChannel == sourceChannel &&
+                       threads[i].externalChatId == externalChatId &&
+                       threads[i].id != threadId {
+                        threads[i].sourceChannel = nil
+                        threads[i].externalChatId = nil
+                        threads[i].displayName = nil
+                        threads[i].username = nil
+                    }
+                }
+
+                // Set the new thread as synced, preserving display metadata
+                if let idx = threads.firstIndex(where: { $0.id == threadId }) {
+                    threads[idx].sourceChannel = sourceChannel
+                    threads[idx].externalChatId = externalChatId
+                    threads[idx].displayName = threads[idx].displayName ?? oldDisplayName
+                    threads[idx].username = threads[idx].username ?? oldUsername
+                }
+
+                log.info("Moved sync to thread \(threadId) for \(sourceChannel):\(externalChatId)")
+
+                // Auto-resend the draft message now that ownership has moved
+                if !draftText.isEmpty || !draftAttachments.isEmpty {
+                    vm.inputText = draftText
+                    vm.pendingAttachments = draftAttachments
+                    vm.sendMessage()
+                    log.info("Auto-resent draft after move-sync (\(draftText.count) chars, \(draftAttachments.count) attachments)")
+                }
+            } else {
+                log.error("Failed to move sync to thread \(threadId)")
+            }
+        }
+    }
+
     func unarchiveThread(id: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
 
@@ -270,6 +571,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             var archived = archivedSessionIds
             archived.remove(sessionId)
             archivedSessionIds = archived
+            // Clear any persisted hidden-timestamp so the thread isn't
+            // re-hidden on restart when no new activity has arrived yet.
+            clearHiddenSession(sessionId)
         }
 
         log.info("Unarchived thread \(id)")
@@ -277,6 +581,46 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func isSessionArchived(_ sessionId: String) -> Bool {
         archivedSessionIds.contains(sessionId)
+    }
+
+    /// Returns true if the session was previously hidden locally (in-memory or persisted).
+    func isSessionHidden(_ sessionId: String) -> Bool {
+        hiddenSessions[sessionId] != nil || hiddenSessionTimestamps[sessionId] != nil
+    }
+
+    /// Returns true if the session was hidden and has not received new activity
+    /// since the hide timestamp. `updatedAt` is the daemon's session timestamp
+    /// (milliseconds since epoch); if it exceeds the stored hide time, the session
+    /// has new activity and the hidden state is automatically cleared.
+    func isSessionHidden(_ sessionId: String, updatedAt: Int) -> Bool {
+        guard let hideTime = hiddenSessionTimestamps[sessionId] else { return false }
+        if updatedAt > hideTime {
+            // New activity arrived — clear the hidden state so the thread re-appears.
+            var hidden = hiddenSessionTimestamps
+            hidden.removeValue(forKey: sessionId)
+            hiddenSessionTimestamps = hidden
+            return false
+        }
+        return true
+    }
+
+    func clearHiddenSession(_ sessionId: String) {
+        var hidden = hiddenSessionTimestamps
+        hidden.removeValue(forKey: sessionId)
+        hiddenSessionTimestamps = hidden
+        clearHiddenSessionMonitor(sessionId)
+    }
+
+    /// Clear only the in-memory hidden-session tracker (monitor task) without
+    /// touching the persisted timestamp. Used when a session should stay hidden
+    /// across restarts but the monitor is no longer needed (e.g. the session
+    /// restorer already re-created the thread as archived).
+    func clearHiddenSessionMonitor(_ sessionId: String) {
+        hiddenSessions.removeValue(forKey: sessionId)
+        if hiddenSessions.isEmpty {
+            hiddenSessionMonitorTask?.cancel()
+            hiddenSessionMonitorTask = nil
+        }
     }
 
     /// Clear the `activeSurfaceId` on a specific thread's ChatViewModel.
@@ -563,6 +907,79 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
     }
 
+    // MARK: - Hidden Session Restoration
+
+    /// Restore a previously-hidden thread when activity is detected on its session.
+    /// Creates a new thread with the stored metadata and notifies via `onThreadReconnected`.
+    func restoreHiddenThread(sessionId: String) {
+        guard let info = hiddenSessions.removeValue(forKey: sessionId) else { return }
+
+        // Also clear the persistent hidden-timestamp so session restore
+        // doesn't suppress it on future app launches.
+        clearHiddenSession(sessionId)
+
+        // Avoid duplicates if the thread was already restored by the session restorer
+        if threads.contains(where: { $0.sessionId == sessionId }) {
+            onThreadReconnected?(info.title)
+            return
+        }
+
+        let thread = ThreadModel(
+            title: info.title,
+            sessionId: sessionId,
+            sourceChannel: info.sourceChannel,
+            displayName: info.displayName,
+            username: info.username,
+            externalChatId: info.externalChatId
+        )
+        let viewModel = makeViewModel()
+        viewModel.sessionId = sessionId
+        // Do NOT wire onFirstUserMessage — this is a restored thread with an
+        // existing title. Auto-titling would clobber the preserved title.
+        viewModel.startMessageLoop()
+
+        threads.insert(thread, at: 0)
+        chatViewModels[thread.id] = viewModel
+
+        // Stop monitoring if no hidden sessions remain
+        if hiddenSessions.isEmpty {
+            hiddenSessionMonitorTask?.cancel()
+            hiddenSessionMonitorTask = nil
+        }
+
+        onThreadReconnected?(info.title)
+        log.info("Restored hidden thread for session \(sessionId) (\(info.sourceChannel ?? "?"):\(info.externalChatId ?? "?"))")
+    }
+
+    /// Start a daemon message listener to detect activity on hidden sessions.
+    /// Only one monitor task runs at a time; it cancels itself when no hidden sessions remain.
+    private func startHiddenSessionMonitorIfNeeded() {
+        guard hiddenSessionMonitorTask == nil else { return }
+
+        let stream = daemonClient.subscribe()
+        hiddenSessionMonitorTask = Task { @MainActor [weak self] in
+            for await message in stream {
+                guard let self, !Task.isCancelled else { break }
+                guard !self.hiddenSessions.isEmpty else { break }
+
+                // Extract session ID from messages that indicate activity
+                let messageSessionId: String? = {
+                    switch message {
+                    case .assistantTextDelta(let msg): return msg.sessionId
+                    case .userMessageEcho(let msg): return msg.sessionId
+                    case .messageComplete(let msg): return msg.sessionId
+                    default: return nil
+                    }
+                }()
+
+                if let sid = messageSessionId, self.hiddenSessions[sid] != nil {
+                    self.restoreHiddenThread(sessionId: sid)
+                }
+            }
+            self?.hiddenSessionMonitorTask = nil
+        }
+    }
+
     // MARK: - Private
 
     /// Backfill ThreadModel.sessionId when the daemon assigns a session to a new thread.
@@ -588,6 +1005,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         set {
             UserDefaults.standard.set(Array(newValue), forKey: archivedSessionsKey)
+        }
+    }
+
+    /// Maps hidden session IDs to the timestamp (ms since epoch) when they were hidden.
+    /// Used to suppress threads on restore while allowing re-creation when new activity
+    /// (updatedAt > hideTime) is detected.
+    private var hiddenSessionTimestamps: [String: Int] {
+        get {
+            UserDefaults.standard.dictionary(forKey: hiddenSessionsKey) as? [String: Int] ?? [:]
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: hiddenSessionsKey)
         }
     }
 
@@ -631,10 +1060,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // Subscribe to the new active view model if one exists
         guard let viewModel = activeViewModel else { return }
 
-        // Only observe message count changes, not all ChatViewModel property changes
-        activeViewModelCancellable = viewModel.$messages
+        // Observe message count changes and send-conflict state changes.
+        // Message count drives the sidebar unread indicator; sendConflict
+        // triggers re-evaluation of the conflict banner in chatView.
+        let messagesPublisher = viewModel.$messages
             .map { $0.count }
             .removeDuplicates()
+            .map { _ in () }
+        let conflictPublisher = viewModel.$sendConflict
+            .removeDuplicates(by: { $0?.ownerConversationId == $1?.ownerConversationId })
+            .map { _ in () }
+        activeViewModelCancellable = messagesPublisher
+            .merge(with: conflictPublisher)
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }

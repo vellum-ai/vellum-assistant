@@ -148,16 +148,10 @@ describe('Trust Store', () => {
       expect(userRules[1].decision).toBe('allow');
     });
 
-    test('accepts principal and executionTarget options and persists them', () => {
+    test('accepts executionTarget option and persists it', () => {
       const rule = addRule('skill_tool', 'skill_tool:*', '/tmp', 'allow', 100, {
-        principalKind: 'skill',
-        principalId: 'my-skill-42',
-        principalVersion: 'sha256-abc123',
         executionTarget: 'sandbox',
       });
-      expect(rule.principalKind).toBe('skill');
-      expect(rule.principalId).toBe('my-skill-42');
-      expect(rule.principalVersion).toBe('sha256-abc123');
       expect(rule.executionTarget).toBe('sandbox');
 
       // Verify persistence to disk
@@ -165,24 +159,15 @@ describe('Trust Store', () => {
       const rules = getAllRules();
       const found = rules.find((r) => r.id === rule.id);
       expect(found).toBeDefined();
-      expect(found!.principalKind).toBe('skill');
-      expect(found!.principalId).toBe('my-skill-42');
-      expect(found!.principalVersion).toBe('sha256-abc123');
       expect(found!.executionTarget).toBe('sandbox');
     });
 
-    test('accepts all contextual options together (principal, target, allowHighRisk)', () => {
+    test('accepts all contextual options together (target, allowHighRisk)', () => {
       const rule = addRule('risky_tool', 'risky_tool:*', 'everywhere', 'allow', 100, {
         allowHighRisk: true,
-        principalKind: 'skill',
-        principalId: 'dangerous-skill',
-        principalVersion: 'sha256-deadbeef',
         executionTarget: 'host',
       });
       expect(rule.allowHighRisk).toBe(true);
-      expect(rule.principalKind).toBe('skill');
-      expect(rule.principalId).toBe('dangerous-skill');
-      expect(rule.principalVersion).toBe('sha256-deadbeef');
       expect(rule.executionTarget).toBe('host');
 
       // Verify on disk
@@ -190,26 +175,17 @@ describe('Trust Store', () => {
       const diskRule = raw.rules.find((r: { id: string }) => r.id === rule.id);
       expect(diskRule).toBeDefined();
       expect(diskRule.allowHighRisk).toBe(true);
-      expect(diskRule.principalKind).toBe('skill');
-      expect(diskRule.principalId).toBe('dangerous-skill');
-      expect(diskRule.principalVersion).toBe('sha256-deadbeef');
       expect(diskRule.executionTarget).toBe('host');
     });
 
-    test('addRule without principal options does not set principal fields', () => {
+    test('addRule without options does not set optional fields', () => {
       const rule = addRule('bash', 'echo *', '/tmp');
-      expect(rule.principalKind).toBeUndefined();
-      expect(rule.principalId).toBeUndefined();
-      expect(rule.principalVersion).toBeUndefined();
       expect(rule.executionTarget).toBeUndefined();
 
       // Verify on disk
       const raw = JSON.parse(readFileSync(trustPath, 'utf-8'));
       const diskRule = raw.rules.find((r: { id: string }) => r.id === rule.id);
       expect(diskRule).toBeDefined();
-      expect(diskRule).not.toHaveProperty('principalKind');
-      expect(diskRule).not.toHaveProperty('principalId');
-      expect(diskRule).not.toHaveProperty('principalVersion');
       expect(diskRule).not.toHaveProperty('executionTarget');
     });
   });
@@ -1026,12 +1002,9 @@ describe('Trust Store', () => {
   // ── trust rule schema v3 (PR 14) ──────────────────────────────
 
   describe('trust rule schema v3 (PR 14)', () => {
-    test('new rules can include principal fields', () => {
+    test('new rules can include v3 optional fields', () => {
       const rule = addRule('bash', 'git *', '/tmp');
-      // Manually set v3 principal fields on the rule and persist
-      rule.principalKind = 'skill';
-      rule.principalId = 'my-skill';
-      rule.principalVersion = 'abc123';
+      // Manually set v3 optional fields on the rule and persist
       rule.executionTarget = '/usr/local/bin/node';
       rule.allowHighRisk = true;
       // Re-persist the updated rules
@@ -1045,9 +1018,6 @@ describe('Trust Store', () => {
       const reloaded = getAllRules();
       const found = reloaded.find((r) => r.id === rule.id);
       expect(found).toBeDefined();
-      expect(found!.principalKind).toBe('skill');
-      expect(found!.principalId).toBe('my-skill');
-      expect(found!.principalVersion).toBe('abc123');
       expect(found!.executionTarget).toBe('/usr/local/bin/node');
       expect(found!.allowHighRisk).toBe(true);
     });
@@ -1072,7 +1042,7 @@ describe('Trust Store', () => {
       expect(data.version).toBe(3);
     });
 
-    test('v2 rules survive v3 migration with no principal fields', () => {
+    test('v2 rules survive v3 migration with no v3-only fields', () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       writeFileSync(trustPath, JSON.stringify({
         version: 2,
@@ -1105,10 +1075,7 @@ describe('Trust Store', () => {
       expect(ruleB).toBeDefined();
       expect(ruleA!.pattern).toBe('git *');
       expect(ruleB!.decision).toBe('deny');
-      // No principal fields should be present
-      expect(ruleA).not.toHaveProperty('principalKind');
-      expect(ruleA).not.toHaveProperty('principalId');
-      expect(ruleA).not.toHaveProperty('principalVersion');
+      // No v3-only fields should be present
       expect(ruleA).not.toHaveProperty('executionTarget');
       expect(ruleA).not.toHaveProperty('allowHighRisk');
     });
@@ -1254,25 +1221,22 @@ describe('Trust Store', () => {
       expect(userRules).toHaveLength(1);
     });
 
-    test('v3 file with principal fields is loaded correctly without re-migration', () => {
+    test('v3 file with optional fields is loaded correctly without re-migration', () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       const v3Rules = [
         {
-          id: 'v3-with-principal',
+          id: 'v3-with-options',
           tool: 'bash',
           pattern: 'skill-cmd *',
           scope: '/tmp',
           decision: 'allow',
           priority: 100,
           createdAt: 7000,
-          principalKind: 'skill',
-          principalId: 'my-skill',
-          principalVersion: 'sha256-abc',
           executionTarget: '/usr/bin/node',
           allowHighRisk: false,
         },
         {
-          id: 'v3-without-principal',
+          id: 'v3-without-options',
           tool: 'bash',
           pattern: 'git *',
           scope: '/tmp',
@@ -1285,23 +1249,19 @@ describe('Trust Store', () => {
       clearCache();
       const rules = getAllRules();
 
-      // Rule with principal fields should have them preserved
-      const withPrincipal = rules.find((r) => r.id === 'v3-with-principal');
-      expect(withPrincipal).toBeDefined();
-      expect(withPrincipal!.principalKind).toBe('skill');
-      expect(withPrincipal!.principalId).toBe('my-skill');
-      expect(withPrincipal!.principalVersion).toBe('sha256-abc');
-      expect(withPrincipal!.executionTarget).toBe('/usr/bin/node');
-      expect(withPrincipal!.allowHighRisk).toBe(false);
+      // Rule with optional fields should have them preserved
+      const withOptions = rules.find((r) => r.id === 'v3-with-options');
+      expect(withOptions).toBeDefined();
+      expect(withOptions!.executionTarget).toBe('/usr/bin/node');
+      expect(withOptions!.allowHighRisk).toBe(false);
 
-      // Rule without principal fields should remain without them
-      const withoutPrincipal = rules.find((r) => r.id === 'v3-without-principal');
-      expect(withoutPrincipal).toBeDefined();
-      expect(withoutPrincipal).not.toHaveProperty('principalKind');
-      expect(withoutPrincipal).not.toHaveProperty('principalId');
+      // Rule without optional fields should remain without them
+      const withoutOptions = rules.find((r) => r.id === 'v3-without-options');
+      expect(withoutOptions).toBeDefined();
+      expect(withoutOptions).not.toHaveProperty('executionTarget');
     });
 
-    test('v2 migration preserves rule meaning exactly — no default principal values added', () => {
+    test('v2 migration preserves rule meaning exactly — no extra fields added', () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       const originalRules = [
         {
@@ -1337,21 +1297,9 @@ describe('Trust Store', () => {
         expect(migrated!.decision).toBe(original.decision);
         expect(migrated!.priority).toBe(original.priority);
         expect(migrated!.createdAt).toBe(original.createdAt);
-        // No principal fields were injected by migration
-        expect(migrated).not.toHaveProperty('principalKind');
-        expect(migrated).not.toHaveProperty('principalId');
-        expect(migrated).not.toHaveProperty('principalVersion');
+        // No extra fields were injected by migration
         expect(migrated).not.toHaveProperty('executionTarget');
         expect(migrated).not.toHaveProperty('allowHighRisk');
-      }
-
-      // Verify disk representation also has no principal fields on user rules
-      const data = JSON.parse(readFileSync(trustPath, 'utf-8'));
-      for (const original of originalRules) {
-        const diskRule = data.rules.find((r: { id: string }) => r.id === original.id);
-        expect(diskRule).toBeDefined();
-        expect(diskRule).not.toHaveProperty('principalKind');
-        expect(diskRule).not.toHaveProperty('principalId');
       }
     });
 
@@ -1374,54 +1322,15 @@ describe('Trust Store', () => {
       expect(rule).toBeDefined();
       // v1 → v2 adds priority 100
       expect(rule!.priority).toBe(100);
-      // v2 → v3 adds no principal fields
-      expect(rule).not.toHaveProperty('principalKind');
-      expect(rule).not.toHaveProperty('principalId');
       // File should be v3 on disk
       const data = JSON.parse(readFileSync(trustPath, 'utf-8'));
       expect(data.version).toBe(3);
     });
   });
 
-  // ── backward compat: addRule without principal options (PR 2/40) ──
-  // These tests verify that addRule() without explicit principal options
-  // creates wildcard rules. The TrustRule schema *does* support principal
-  // and version fields (since PR 14), but they are only set when explicitly
-  // provided via the options parameter.
+  // ── executionTarget-aware rule matching ──────────────────────
 
-  describe('backward compat: addRule without principal options (PR 2/40)', () => {
-    test('addRule without principal options creates rules without principal fields', () => {
-      const rule = addRule('skill_test_tool', 'skill_test_tool:*', '/tmp');
-      expect(rule).not.toHaveProperty('principalKind');
-      expect(rule).not.toHaveProperty('principalId');
-      expect(rule).not.toHaveProperty('principalVersion');
-      expect(rule).not.toHaveProperty('executionTarget');
-      expect(rule).not.toHaveProperty('allowHighRisk');
-    });
-
-    test('findHighestPriorityRule matches without policy context (backward compat)', () => {
-      addRule('skill_test_tool', 'skill_test_tool:*', '/tmp', 'allow', 200);
-      // Calling without the optional 4th ctx parameter still matches wildcard rules
-      const match = findHighestPriorityRule('skill_test_tool', ['skill_test_tool:do-thing'], '/tmp');
-      expect(match).not.toBeNull();
-      expect(match!.decision).toBe('allow');
-    });
-
-    test('trust file schema is v3 (rules created without principal fields)', () => {
-      addRule('skill_test_tool', 'skill_test_tool:*', '/tmp');
-      const raw = JSON.parse(readFileSync(trustPath, 'utf-8'));
-      expect(raw.version).toBe(3);
-      const userRule = raw.rules.find((r: { pattern: string }) => r.pattern === 'skill_test_tool:*');
-      expect(userRule).toBeDefined();
-      // addRule without principal options doesn't set principal fields
-      expect(userRule).not.toHaveProperty('principalVersion');
-      expect(userRule).not.toHaveProperty('principalKind');
-    });
-  });
-
-  // ── principal-aware rule matching (PR 16) ──────────────────────
-
-  describe('principal-aware rule matching (PR 16)', () => {
+  describe('executionTarget-aware rule matching', () => {
     /**
      * Helper: write a v3 trust file with the given rules directly to disk,
      * then clear the cache so the next getRules() call picks them up.
@@ -1432,212 +1341,23 @@ describe('Trust Store', () => {
       clearCache();
     }
 
-    // ── wildcard semantics (no principal fields on rule) ──────────
+    // ── wildcard semantics (no executionTarget on rule) ──────────
 
-    describe('wildcard semantics — rules without principal fields', () => {
-      test('rule with no principal fields matches when no context is provided', () => {
+    describe('wildcard semantics — rules without executionTarget', () => {
+      test('rule with no executionTarget matches when no context is provided', () => {
         addRule('bash', 'git *', '/tmp', 'allow', 200);
         const match = findHighestPriorityRule('bash', ['git status'], '/tmp');
         expect(match).not.toBeNull();
         expect(match!.decision).toBe('allow');
       });
 
-      test('rule with no principal fields matches any principal context', () => {
-        addRule('bash', 'git *', '/tmp', 'allow', 200);
-        const match = findHighestPriorityRule('bash', ['git status'], '/tmp', {
-          principal: { kind: 'skill', id: 'my-skill', version: 'v1' },
-        });
-        expect(match).not.toBeNull();
-        expect(match!.decision).toBe('allow');
-      });
-
-      test('rule with no principal fields matches any execution target', () => {
+      test('rule with no executionTarget matches any execution target', () => {
         addRule('bash', 'git *', '/tmp', 'allow', 200);
         const match = findHighestPriorityRule('bash', ['git status'], '/tmp', {
           executionTarget: '/usr/bin/node',
         });
         expect(match).not.toBeNull();
         expect(match!.decision).toBe('allow');
-      });
-
-      test('rule with no principal fields matches context with both principal and target', () => {
-        addRule('bash', 'npm *', '/tmp', 'allow', 200);
-        const match = findHighestPriorityRule('bash', ['npm install'], '/tmp', {
-          principal: { kind: 'skill', id: 'builder', version: 'sha256-xyz' },
-          executionTarget: '/usr/local/bin/bun',
-        });
-        expect(match).not.toBeNull();
-      });
-    });
-
-    // ── principalKind matching ────────────────────────────────────
-
-    describe('principalKind matching', () => {
-      test('rule with principalKind matches when context kind matches', () => {
-        seedRules([{
-          id: 'pk-match',
-          tool: 'bash',
-          pattern: 'echo *',
-          scope: 'everywhere',
-          decision: 'allow',
-          priority: 200,
-          createdAt: Date.now(),
-          principalKind: 'skill',
-        }]);
-        const match = findHighestPriorityRule('bash', ['echo hello'], '/tmp', {
-          principal: { kind: 'skill' },
-        });
-        expect(match).not.toBeNull();
-        expect(match!.id).toBe('pk-match');
-      });
-
-      test('rule with principalKind does NOT match when context kind differs', () => {
-        seedRules([{
-          id: 'pk-mismatch',
-          tool: 'bash',
-          pattern: 'echo *',
-          scope: 'everywhere',
-          decision: 'allow',
-          priority: 200,
-          createdAt: Date.now(),
-          principalKind: 'skill',
-        }]);
-        const match = findHighestPriorityRule('bash', ['echo hello'], '/tmp', {
-          principal: { kind: 'core' },
-        });
-        // Should not match the pk-mismatch rule; may still match a default rule
-        expect(match === null || match.id !== 'pk-mismatch').toBe(true);
-      });
-
-      test('rule with principalKind does NOT match when no context is provided', () => {
-        seedRules([{
-          id: 'pk-no-ctx',
-          tool: 'bash',
-          pattern: 'echo *',
-          scope: 'everywhere',
-          decision: 'allow',
-          priority: 200,
-          createdAt: Date.now(),
-          principalKind: 'skill',
-        }]);
-        const match = findHighestPriorityRule('bash', ['echo hello'], '/tmp');
-        expect(match === null || match.id !== 'pk-no-ctx').toBe(true);
-      });
-    });
-
-    // ── principalId matching ──────────────────────────────────────
-
-    describe('principalId matching', () => {
-      test('rule with principalKind + principalId matches exact principal', () => {
-        seedRules([{
-          id: 'pid-exact',
-          tool: 'bash',
-          pattern: 'deploy *',
-          scope: 'everywhere',
-          decision: 'allow',
-          priority: 200,
-          createdAt: Date.now(),
-          principalKind: 'skill',
-          principalId: 'deployer',
-        }]);
-        const match = findHighestPriorityRule('bash', ['deploy prod'], '/tmp', {
-          principal: { kind: 'skill', id: 'deployer' },
-        });
-        expect(match).not.toBeNull();
-        expect(match!.id).toBe('pid-exact');
-      });
-
-      test('rule with principalId does NOT match different id', () => {
-        seedRules([{
-          id: 'pid-diff',
-          tool: 'bash',
-          pattern: 'deploy *',
-          scope: 'everywhere',
-          decision: 'allow',
-          priority: 200,
-          createdAt: Date.now(),
-          principalKind: 'skill',
-          principalId: 'deployer',
-        }]);
-        const match = findHighestPriorityRule('bash', ['deploy prod'], '/tmp', {
-          principal: { kind: 'skill', id: 'other-skill' },
-        });
-        expect(match === null || match.id !== 'pid-diff').toBe(true);
-      });
-    });
-
-    // ── principalVersion matching ─────────────────────────────────
-
-    describe('principalVersion matching', () => {
-      test('rule with principalVersion matches exact version', () => {
-        seedRules([{
-          id: 'pv-exact',
-          tool: 'bash',
-          pattern: 'build *',
-          scope: 'everywhere',
-          decision: 'allow',
-          priority: 200,
-          createdAt: Date.now(),
-          principalKind: 'skill',
-          principalId: 'builder',
-          principalVersion: 'sha256-abc123',
-        }]);
-        const match = findHighestPriorityRule('bash', ['build all'], '/tmp', {
-          principal: { kind: 'skill', id: 'builder', version: 'sha256-abc123' },
-        });
-        expect(match).not.toBeNull();
-        expect(match!.id).toBe('pv-exact');
-      });
-
-      test('rule with principalVersion does NOT match different version', () => {
-        seedRules([{
-          id: 'pv-diff',
-          tool: 'bash',
-          pattern: 'build *',
-          scope: 'everywhere',
-          decision: 'allow',
-          priority: 200,
-          createdAt: Date.now(),
-          principalKind: 'skill',
-          principalId: 'builder',
-          principalVersion: 'sha256-abc123',
-        }]);
-        const match = findHighestPriorityRule('bash', ['build all'], '/tmp', {
-          principal: { kind: 'skill', id: 'builder', version: 'sha256-DIFFERENT' },
-        });
-        expect(match === null || match.id !== 'pv-diff').toBe(true);
-      });
-
-      test('rule WITHOUT principalVersion matches any version (wildcard)', () => {
-        seedRules([{
-          id: 'pv-wildcard',
-          tool: 'bash',
-          pattern: 'build *',
-          scope: 'everywhere',
-          decision: 'allow',
-          priority: 200,
-          createdAt: Date.now(),
-          principalKind: 'skill',
-          principalId: 'builder',
-          // no principalVersion — should match any version
-        }]);
-        const matchV1 = findHighestPriorityRule('bash', ['build all'], '/tmp', {
-          principal: { kind: 'skill', id: 'builder', version: 'v1' },
-        });
-        expect(matchV1).not.toBeNull();
-        expect(matchV1!.id).toBe('pv-wildcard');
-
-        const matchV2 = findHighestPriorityRule('bash', ['build all'], '/tmp', {
-          principal: { kind: 'skill', id: 'builder', version: 'v2' },
-        });
-        expect(matchV2).not.toBeNull();
-        expect(matchV2!.id).toBe('pv-wildcard');
-
-        const matchNoVersion = findHighestPriorityRule('bash', ['build all'], '/tmp', {
-          principal: { kind: 'skill', id: 'builder' },
-        });
-        expect(matchNoVersion).not.toBeNull();
-        expect(matchNoVersion!.id).toBe('pv-wildcard');
       });
     });
 
@@ -1704,139 +1424,6 @@ describe('Trust Store', () => {
       });
     });
 
-    // ── combined principal + executionTarget ───────────────────────
-
-    describe('combined principal + executionTarget matching', () => {
-      test('rule with both principal and executionTarget matches when all fields match', () => {
-        seedRules([{
-          id: 'combo-match',
-          tool: 'bash',
-          pattern: 'deploy *',
-          scope: 'everywhere',
-          decision: 'allow',
-          priority: 200,
-          createdAt: Date.now(),
-          principalKind: 'skill',
-          principalId: 'deployer',
-          principalVersion: 'sha256-abc',
-          executionTarget: '/usr/bin/node',
-        }]);
-        const match = findHighestPriorityRule('bash', ['deploy prod'], '/tmp', {
-          principal: { kind: 'skill', id: 'deployer', version: 'sha256-abc' },
-          executionTarget: '/usr/bin/node',
-        });
-        expect(match).not.toBeNull();
-        expect(match!.id).toBe('combo-match');
-      });
-
-      test('rule with both principal and executionTarget fails if principal mismatches', () => {
-        seedRules([{
-          id: 'combo-bad-principal',
-          tool: 'bash',
-          pattern: 'deploy *',
-          scope: 'everywhere',
-          decision: 'allow',
-          priority: 200,
-          createdAt: Date.now(),
-          principalKind: 'skill',
-          principalId: 'deployer',
-          executionTarget: '/usr/bin/node',
-        }]);
-        const match = findHighestPriorityRule('bash', ['deploy prod'], '/tmp', {
-          principal: { kind: 'skill', id: 'other-skill' },
-          executionTarget: '/usr/bin/node',
-        });
-        expect(match === null || match.id !== 'combo-bad-principal').toBe(true);
-      });
-
-      test('rule with both principal and executionTarget fails if target mismatches', () => {
-        seedRules([{
-          id: 'combo-bad-target',
-          tool: 'bash',
-          pattern: 'deploy *',
-          scope: 'everywhere',
-          decision: 'allow',
-          priority: 200,
-          createdAt: Date.now(),
-          principalKind: 'skill',
-          principalId: 'deployer',
-          executionTarget: '/usr/bin/node',
-        }]);
-        const match = findHighestPriorityRule('bash', ['deploy prod'], '/tmp', {
-          principal: { kind: 'skill', id: 'deployer' },
-          executionTarget: '/usr/bin/bun',
-        });
-        expect(match === null || match.id !== 'combo-bad-target').toBe(true);
-      });
-    });
-
-    // ── priority interaction with principal filtering ──────────────
-
-    describe('priority interaction with principal filtering', () => {
-      test('higher-priority principal-specific rule wins over lower-priority wildcard', () => {
-        seedRules([
-          {
-            id: 'wildcard-low',
-            tool: 'bash',
-            pattern: 'test *',
-            scope: 'everywhere',
-            decision: 'deny',
-            priority: 50,
-            createdAt: Date.now(),
-          },
-          {
-            id: 'specific-high',
-            tool: 'bash',
-            pattern: 'test *',
-            scope: 'everywhere',
-            decision: 'allow',
-            priority: 200,
-            createdAt: Date.now(),
-            principalKind: 'skill',
-            principalId: 'tester',
-          },
-        ]);
-        const match = findHighestPriorityRule('bash', ['test unit'], '/tmp', {
-          principal: { kind: 'skill', id: 'tester' },
-        });
-        expect(match).not.toBeNull();
-        expect(match!.id).toBe('specific-high');
-        expect(match!.decision).toBe('allow');
-      });
-
-      test('non-matching principal rule is skipped, falling through to wildcard rule', () => {
-        seedRules([
-          {
-            id: 'specific-high',
-            tool: 'bash',
-            pattern: 'test *',
-            scope: 'everywhere',
-            decision: 'allow',
-            priority: 200,
-            createdAt: Date.now(),
-            principalKind: 'skill',
-            principalId: 'deployer',
-          },
-          {
-            id: 'wildcard-low',
-            tool: 'bash',
-            pattern: 'test *',
-            scope: 'everywhere',
-            decision: 'deny',
-            priority: 50,
-            createdAt: Date.now(),
-          },
-        ]);
-        // Context has kind=skill, id=tester — doesn't match 'deployer'
-        const match = findHighestPriorityRule('bash', ['test unit'], '/tmp', {
-          principal: { kind: 'skill', id: 'tester' },
-        });
-        expect(match).not.toBeNull();
-        expect(match!.id).toBe('wildcard-low');
-        expect(match!.decision).toBe('deny');
-      });
-    });
-
     // ── backward compatibility ────────────────────────────────────
 
     describe('backward compatibility', () => {
@@ -1846,19 +1433,6 @@ describe('Trust Store', () => {
         const match = findHighestPriorityRule('bash', ['git status'], '/tmp');
         expect(match).not.toBeNull();
         expect(match!.pattern).toBe('git *');
-      });
-
-      test('existing default rules (no principal fields) match with any context', () => {
-        // Default rules have no principal fields and should match regardless of context.
-        // Use host_file_read which has a default ask rule (default:ask-host_file_read-global).
-        const match = findHighestPriorityRule(
-          'host_file_read',
-          ['host_file_read:/etc/hosts'],
-          '/tmp',
-          { principal: { kind: 'skill', id: 'random-skill', version: 'v99' } },
-        );
-        expect(match).not.toBeNull();
-        expect(match!.decision).toBe('ask');
       });
 
       test('empty PolicyContext object behaves the same as no context', () => {

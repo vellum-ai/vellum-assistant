@@ -144,6 +144,7 @@ import type {
   TwitterAuthStatusRequest,
   ServerMessage,
 } from '../daemon/ipc-contract.js';
+import { DebouncerMap } from '../util/debounce.js';
 
 // Mock global fetch for Twitter /2/users/me
 const _originalFetch = globalThis.fetch;
@@ -162,7 +163,7 @@ function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
     cuObservationParseSequence: new Map(),
     socketSandboxOverride: new Map(),
     sharedRequestTimestamps: [],
-    debounceTimers: new Map(),
+    debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
     suppressConfigReload: false,
     setSuppressConfigReload: () => {},
     updateConfigFingerprint: () => {},

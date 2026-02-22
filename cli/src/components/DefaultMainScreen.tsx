@@ -58,9 +58,6 @@ interface PendingConfirmation {
   executionTarget?: "sandbox" | "host";
   allowlistOptions?: AllowlistOption[];
   scopeOptions?: ScopeOption[];
-  principalKind?: string;
-  principalId?: string;
-  principalVersion?: string;
   persistentDecisionsAllowed?: boolean;
 }
 

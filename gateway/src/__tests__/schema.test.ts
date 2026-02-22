@@ -1,22 +1,15 @@
-import { describe, test, expect, afterAll } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { buildSchema } from "../schema.js";
 
-const server = Bun.serve({
-  port: 0,
-  fetch(req) {
-    const url = new URL(req.url);
+function handleRequest(req: Request): Response {
+  const url = new URL(req.url);
 
-    if (url.pathname === "/schema") {
-      return Response.json(buildSchema());
-    }
+  if (url.pathname === "/schema") {
+    return Response.json(buildSchema());
+  }
 
-    return Response.json({ error: "Not found" }, { status: 404 });
-  },
-});
-
-afterAll(() => {
-  server.stop(true);
-});
+  return Response.json({ error: "Not found" }, { status: 404 });
+}
 
 describe("/schema route", () => {
   test("returns valid OpenAPI 3.1 schema via HTTP", async () => {
@@ -28,7 +21,7 @@ describe("/schema route", () => {
     // GIVEN a running gateway server
 
     // WHEN we request the schema endpoint
-    const res = await fetch(`http://localhost:${server.port}/schema`);
+    const res = handleRequest(new Request("http://gateway.test/schema"));
 
     // THEN we receive a 200 with valid JSON
     expect(res.status).toBe(200);
@@ -54,7 +47,7 @@ describe("/schema route", () => {
     // GIVEN a running gateway server
 
     // WHEN we request the schema endpoint
-    const res = await fetch(`http://localhost:${server.port}/schema`);
+    const res = handleRequest(new Request("http://gateway.test/schema"));
     const body = await res.json();
 
     // THEN the paths include every gateway endpoint
@@ -80,7 +73,7 @@ describe("/schema route", () => {
     const pkg = (await import("../../package.json")).default;
 
     // WHEN we request the schema endpoint
-    const res = await fetch(`http://localhost:${server.port}/schema`);
+    const res = handleRequest(new Request("http://gateway.test/schema"));
     const body = await res.json();
 
     // THEN the schema version matches the package version

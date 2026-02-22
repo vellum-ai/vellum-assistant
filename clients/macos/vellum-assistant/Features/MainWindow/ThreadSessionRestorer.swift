@@ -18,7 +18,17 @@ protocol ThreadRestorerDelegate: AnyObject {
     func activateThread(_ id: UUID)
     func createThread()
     func isSessionArchived(_ sessionId: String) -> Bool
+    func isSessionHidden(_ sessionId: String, updatedAt: Int) -> Bool
     func restoreLastActiveThread()
+    /// Returns true if the session was previously hidden locally.
+    func isSessionHidden(_ sessionId: String) -> Bool
+    /// Remove a session from the hidden-sessions tracker (called when the
+    /// session restorer re-creates the thread on daemon reconnect).
+    func clearHiddenSession(_ sessionId: String)
+    /// Clear only the in-memory hidden-session monitor without removing the
+    /// persisted timestamp. Used when a session should stay hidden across
+    /// restarts but the monitor is no longer needed.
+    func clearHiddenSessionMonitor(_ sessionId: String)
 }
 
 /// Handles daemon session restoration: fetching the session list on connect,
@@ -102,13 +112,48 @@ final class ThreadSessionRestorer {
 
         var restoredThreads: [ThreadModel] = []
         for session in recentSessions {
+            // Check hidden state BEFORE clearing so isSessionHidden(_:updatedAt:)
+            // can read the persisted timestamp. If the session has new activity
+            // (updatedAt > hideTime), isSessionHidden returns false and the thread
+            // re-appears as visible.
+            let isHidden = delegate.isSessionHidden(session.id, updatedAt: session.updatedAt)
+
+            // Clean up hidden-session tracking now that the thread is being
+            // re-created by the session restorer.
+            if delegate.isSessionHidden(session.id) {
+                if isHidden {
+                    // Session should stay hidden (no new activity) — only stop the
+                    // in-memory monitor. Preserve the persisted timestamp so the
+                    // thread remains hidden across future app restarts.
+                    delegate.clearHiddenSessionMonitor(session.id)
+                } else {
+                    // New activity detected — fully clear hidden state (both
+                    // in-memory and persisted) so the thread re-appears as visible.
+                    delegate.clearHiddenSession(session.id)
+                }
+            }
+
             let kind: ThreadKind = session.threadType == "private" ? .private : .standard
+            let binding = session.channelBinding
+
+            // Preserve user-set titles: if a thread with this session already
+            // exists locally and has a non-default title, keep it instead of
+            // overwriting with the daemon's auto-generated title.
+            let existingTitle = delegate.threads
+                .first(where: { $0.sessionId == session.id && $0.title != "New Conversation" })?
+                .title
+            let title = existingTitle ?? session.title
+
             let thread = ThreadModel(
-                title: session.title,
+                title: title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 sessionId: session.id,
-                isArchived: delegate.isSessionArchived(session.id),
-                kind: kind
+                isArchived: delegate.isSessionArchived(session.id) || isHidden,
+                kind: kind,
+                sourceChannel: binding?.sourceChannel,
+                displayName: binding?.displayName,
+                username: binding?.username,
+                externalChatId: binding?.externalChatId
             )
             let viewModel = delegate.makeViewModel()
             viewModel.sessionId = session.id

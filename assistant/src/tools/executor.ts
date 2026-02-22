@@ -1,8 +1,7 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { getTool, getAllTools } from './registry.js';
-import type { ExecutionTarget, Tool, ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
+import type { ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
 import { RiskLevel } from '../permissions/types.js';
-import type { PolicyContext } from '../permissions/types.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { addRule } from '../permissions/trust-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
@@ -18,6 +17,9 @@ import { scanText, redactSecrets } from '../security/secret-scanner.js';
 import { redactSensitiveFields } from '../security/redaction.js';
 import { getHookManager } from '../hooks/manager.js';
 import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
+import { safeTimeoutMs, executeWithTimeout } from './execution-timeout.js';
+import { buildPolicyContext } from './policy-context.js';
+import { resolveExecutionTarget } from './execution-target.js';
 
 const log = getLogger('tool-executor');
 
@@ -253,11 +255,6 @@ export class ToolExecutor {
           sandboxed,
           context.conversationId,
           executionTarget,
-          policyContext?.principal ? {
-            kind: policyContext.principal.kind,
-            id: policyContext.principal.id,
-            version: policyContext.principal.version,
-          } : undefined,
           persistentDecisionsAllowed,
         );
 
@@ -325,9 +322,6 @@ export class ToolExecutor {
         ) {
           const ruleOptions: {
             allowHighRisk?: boolean;
-            principalKind?: string;
-            principalId?: string;
-            principalVersion?: string;
             executionTarget?: string;
           } = {};
 
@@ -335,19 +329,6 @@ export class ToolExecutor {
             ruleOptions.allowHighRisk = true;
           }
 
-          // Capture the principal context from the tool so the saved rule
-          // is scoped to the specific skill/version that was approved.
-          if (policyContext?.principal) {
-            if (policyContext.principal.kind != null) {
-              ruleOptions.principalKind = policyContext.principal.kind;
-            }
-            if (policyContext.principal.id != null) {
-              ruleOptions.principalId = policyContext.principal.id;
-            }
-            if (policyContext.principal.version != null) {
-              ruleOptions.principalVersion = policyContext.principal.version;
-            }
-          }
           if (policyContext?.executionTarget != null) {
             ruleOptions.executionTarget = policyContext.executionTarget;
           }
@@ -393,11 +374,7 @@ export class ToolExecutor {
       const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
       const toolTimeoutMs = safeTimeoutMs(rawTimeoutSec);
 
-      // Enrich context with principal so tools (e.g. claude_code) can
-      // forward it through sub-tool confirmation requests.
-      const execContext = policyContext?.principal
-        ? { ...context, principal: policyContext.principal }
-        : context;
+      const execContext = context;
 
       if (tool.executionMode === 'proxy') {
         if (!context.proxyToolResolver) {
@@ -589,7 +566,6 @@ export class ToolExecutor {
               undefined, // not sandboxed
               context.conversationId,
               executionTarget,
-              undefined, // no principal
               false, // no persistent decisions
             );
 
@@ -754,111 +730,6 @@ export function isSideEffectTool(toolName: string, input?: Record<string, unknow
   }
 
   return false;
-}
-
-const TIMEOUT_SENTINEL = Symbol('tool-timeout');
-
-const DEFAULT_TOOL_TIMEOUT_SEC = 120;
-
-/**
- * Convert a config-provided seconds value to a safe milliseconds value,
- * falling back to the default if the input is NaN, non-finite, zero, or negative.
- */
-function safeTimeoutMs(sec: unknown): number {
-  const n = Number(sec);
-  if (!Number.isFinite(n) || n <= 0) {
-    return DEFAULT_TOOL_TIMEOUT_SEC * 1000;
-  }
-  return n * 1000;
-}
-
-/**
- * Race a tool execution promise against a timeout. Returns a timeout error
- * result instead of throwing so the agent loop can continue gracefully.
- */
-async function executeWithTimeout(
-  promise: Promise<ToolExecutionResult>,
-  timeoutMs: number,
-  toolName: string,
-): Promise<ToolExecutionResult> {
-  // Guard against NaN/invalid values that would cause setTimeout to fire immediately
-  const safeMs = Number.isFinite(timeoutMs) && timeoutMs > 0
-    ? timeoutMs
-    : DEFAULT_TOOL_TIMEOUT_SEC * 1000;
-  let timeoutHandle: ReturnType<typeof setTimeout>;
-  const timeoutPromise = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
-    timeoutHandle = setTimeout(() => resolve(TIMEOUT_SENTINEL), safeMs);
-  });
-  try {
-    const result = await Promise.race([promise, timeoutPromise]);
-    if (result === TIMEOUT_SENTINEL) {
-      const sec = Math.round(safeMs / 1000);
-      return {
-        content: `Tool "${toolName}" timed out after ${sec}s. The operation may still be running in the background. Consider increasing timeouts.toolExecutionTimeoutSec in the config.`,
-        isError: true,
-      };
-    }
-    return result;
-  } finally {
-    clearTimeout(timeoutHandle!);
-  }
-}
-
-/**
- * Build a PolicyContext from tool metadata and execution context. Skill-origin
- * tools carry a principal identifying the owning skill. When executing within
- * a task run, ephemeral permission rules are included so pre-approved tools
- * are auto-allowed without prompting.
- */
-function buildPolicyContext(tool: Tool, context?: ToolContext): PolicyContext | undefined {
-  const ephemeralRules = context?.taskRunId
-    ? getTaskRunRules(context.taskRunId)
-    : undefined;
-
-  if (tool.origin === 'skill') {
-    return {
-      principal: {
-        kind: 'skill',
-        id: tool.ownerSkillId,
-        version: tool.ownerSkillVersionHash,
-      },
-      executionTarget: tool.executionTarget,
-      ephemeralRules: ephemeralRules?.length ? ephemeralRules : undefined,
-    };
-  }
-
-  // For non-skill tools in a task run, create a context with task principal
-  // and ephemeral rules so pre-approved tools are honored.
-  if (context?.taskRunId && ephemeralRules?.length) {
-    return {
-      principal: {
-        kind: 'task',
-        id: context.taskRunId,
-      },
-      ephemeralRules,
-    };
-  }
-
-  return undefined;
-}
-
-function resolveExecutionTarget(toolName: string): ExecutionTarget {
-  const tool = getTool(toolName);
-  // Manifest-declared execution target is authoritative — check it first so
-  // skill tools with host_/computer_use_ prefixes aren't mis-classified.
-  if (tool?.executionTarget) {
-    return tool.executionTarget;
-  }
-  // Check the tool's executionMode metadata — proxy tools run on the connected
-  // client (host), not inside the sandbox.
-  if (tool?.executionMode === 'proxy') {
-    return 'host';
-  }
-  // Prefix heuristics for core tools that don't declare an explicit target.
-  if (toolName.startsWith('host_') || toolName.startsWith('computer_use_')) {
-    return 'host';
-  }
-  return 'sandbox';
 }
 
 /**

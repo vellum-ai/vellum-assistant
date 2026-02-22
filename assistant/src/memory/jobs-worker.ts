@@ -85,8 +85,9 @@ export async function runMemoryJobsOnce(
   // Periodic stale item sweep (throttled to at most once per hour)
   sweepStaleItems(config);
 
+  const batchSize = Math.max(1, config.memory.jobs.batchSize);
   const concurrency = Math.max(1, config.memory.jobs.workerConcurrency);
-  const jobs = claimMemoryJobs(concurrency);
+  const jobs = claimMemoryJobs(batchSize);
   if (jobs.length === 0) {
     if (enableScheduledCleanup) {
       maybeEnqueueScheduledCleanupJobs(config);
@@ -94,42 +95,80 @@ export async function runMemoryJobsOnce(
     return 0;
   }
 
-  let processed = 0;
+  // Group jobs by type so same-type jobs run sequentially (preventing
+  // checkpoint races for backfill, etc.), while different types run concurrently.
+  const jobsByType = new Map<string, MemoryJob[]>();
   for (const job of jobs) {
-    try {
-      await processJob(job, config);
-      completeMemoryJob(job.id);
-      processed += 1;
-    } catch (err) {
-      if (err instanceof BackendUnavailableError) {
-        // Backend not configured yet -- put the job back with exponential backoff.
-        const result = deferMemoryJob(job.id);
-        if (result === 'failed') {
-          log.warn({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, job exceeded max deferrals');
-        } else {
-          log.debug({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, deferring job');
+    let group = jobsByType.get(job.type);
+    if (!group) {
+      group = [];
+      jobsByType.set(job.type, group);
+    }
+    group.push(job);
+  }
+
+  let processed = 0;
+  const typeGroups = [...jobsByType.values()];
+
+  // Run type groups concurrently (up to workerConcurrency at a time).
+  // Within each group, jobs are processed sequentially.
+  for (let i = 0; i < typeGroups.length; i += concurrency) {
+    const groupChunk = typeGroups.slice(i, i + concurrency);
+    const groupResults = await Promise.allSettled(
+      groupChunk.map(async (group) => {
+        let groupProcessed = 0;
+        for (const job of group) {
+          try {
+            await processJob(job, config);
+            completeMemoryJob(job.id);
+            groupProcessed += 1;
+          } catch (err) {
+            handleJobError(job, err);
+          }
         }
-      } else {
-        const message = err instanceof Error ? err.message : String(err);
-        const category = classifyError(err);
-        if (category === 'retryable') {
-          const delay = retryDelayForAttempt(job.attempts + 1);
-          failMemoryJob(job.id, message, {
-            retryDelayMs: delay,
-            maxAttempts: RETRY_MAX_ATTEMPTS,
-          });
-          log.warn({ err, jobId: job.id, type: job.type, delay, category }, 'Memory job failed (retryable)');
-        } else {
-          failMemoryJob(job.id, message, { maxAttempts: 1 });
-          log.warn({ err, jobId: job.id, type: job.type, category }, 'Memory job failed (fatal)');
-        }
+        return groupProcessed;
+      }),
+    );
+    for (const result of groupResults) {
+      if (result.status === 'fulfilled') {
+        processed += result.value;
       }
+      // Errors within groups are already handled per-job above;
+      // a rejected group promise would only come from an unexpected
+      // error in the loop itself, which is unlikely.
     }
   }
   if (enableScheduledCleanup) {
     maybeEnqueueScheduledCleanupJobs(config);
   }
   return processed;
+}
+
+// ── Job error handling ─────────────────────────────────────────────
+
+function handleJobError(job: MemoryJob, err: unknown): void {
+  if (err instanceof BackendUnavailableError) {
+    const result = deferMemoryJob(job.id);
+    if (result === 'failed') {
+      log.warn({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, job exceeded max deferrals');
+    } else {
+      log.debug({ jobId: job.id, type: job.type }, 'Embedding backend unavailable, deferring job');
+    }
+  } else {
+    const message = err instanceof Error ? err.message : String(err);
+    const category = classifyError(err);
+    if (category === 'retryable') {
+      const delay = retryDelayForAttempt(job.attempts + 1);
+      failMemoryJob(job.id, message, {
+        retryDelayMs: delay,
+        maxAttempts: RETRY_MAX_ATTEMPTS,
+      });
+      log.warn({ err, jobId: job.id, type: job.type, delay, category }, 'Memory job failed (retryable)');
+    } else {
+      failMemoryJob(job.id, message, { maxAttempts: 1 });
+      log.warn({ err, jobId: job.id, type: job.type, category }, 'Memory job failed (fatal)');
+    }
+  }
 }
 
 // ── Job dispatch ───────────────────────────────────────────────────

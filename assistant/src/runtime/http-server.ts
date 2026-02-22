@@ -37,6 +37,7 @@ import {
 } from './routes/run-routes.js';
 import {
   handleDeleteConversation,
+  handleMoveSync,
   handleChannelInbound,
   handleChannelDeliveryAck,
   handleListDeadLetters,
@@ -44,6 +45,7 @@ import {
 } from './routes/channel-routes.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import * as externalConversationStore from '../memory/external-conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import { renderHistoryContent } from '../daemon/handlers.js';
 import { deliverChannelReply } from './gateway-client.js';
@@ -60,6 +62,7 @@ import {
   handleGetCallStatus,
   handleCancelCall,
   handleAnswerCall,
+  handleInstructionCall,
 } from './routes/call-routes.js';
 import {
   handleVoiceWebhook,
@@ -616,13 +619,28 @@ export class RuntimeHttpServer {
       if (endpoint === 'conversations' && req.method === 'GET') {
         const limit = Number(url.searchParams.get('limit') ?? 50);
         const conversations = conversationStore.listConversations(limit);
+        const bindings = externalConversationStore.getBindingsForConversations(
+          conversations.map((c) => c.id),
+        );
         return Response.json({
-          sessions: conversations.map((c) => ({
-            id: c.id,
-            title: c.title ?? 'Untitled',
-            updatedAt: c.updatedAt,
-            threadType: c.threadType === 'private' ? 'private' : 'standard',
-          })),
+          sessions: conversations.map((c) => {
+            const binding = bindings.get(c.id);
+            return {
+              id: c.id,
+              title: c.title ?? 'Untitled',
+              updatedAt: c.updatedAt,
+              threadType: c.threadType === 'private' ? 'private' : 'standard',
+              ...(binding ? {
+                channelBinding: {
+                  sourceChannel: binding.sourceChannel,
+                  externalChatId: binding.externalChatId,
+                  externalUserId: binding.externalUserId,
+                  displayName: binding.displayName,
+                  username: binding.username,
+                },
+              } : {}),
+            };
+          }),
         });
       }
 
@@ -699,6 +717,10 @@ export class RuntimeHttpServer {
         return await handleDeleteConversation(req);
       }
 
+      if (endpoint === 'channels/move-sync' && req.method === 'POST') {
+        return await handleMoveSync(req);
+      }
+
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
         return await handleChannelInbound(req, this.processMessage, this.bearerToken);
       }
@@ -720,8 +742,8 @@ export class RuntimeHttpServer {
         return await handleStartCall(req);
       }
 
-      // Match calls/:callSessionId and calls/:callSessionId/cancel, calls/:callSessionId/answer
-      const callsMatch = endpoint.match(/^calls\/([^/]+?)(\/cancel|\/answer)?$/);
+      // Match calls/:callSessionId and calls/:callSessionId/cancel, calls/:callSessionId/answer, calls/:callSessionId/instruction
+      const callsMatch = endpoint.match(/^calls\/([^/]+?)(\/cancel|\/answer|\/instruction)?$/);
       if (callsMatch) {
         const callSessionId = callsMatch[1];
         // Skip known sub-paths that are handled elsewhere (twilio, relay)
@@ -731,6 +753,9 @@ export class RuntimeHttpServer {
           }
           if (callsMatch[2] === '/answer' && req.method === 'POST') {
             return await handleAnswerCall(req, callSessionId);
+          }
+          if (callsMatch[2] === '/instruction' && req.method === 'POST') {
+            return await handleInstructionCall(req, callSessionId);
           }
           if (!callsMatch[2] && req.method === 'GET') {
             return handleGetCallStatus(callSessionId);

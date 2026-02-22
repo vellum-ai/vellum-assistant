@@ -17,36 +17,13 @@ Extract these flags from `$ARGUMENTS` before treating the remainder as the featu
 
 Everything after stripping flags is the **feature description**.
 
-## Namespace
+Read and follow `.claude/phases/namespace.md`.
 
-Derive a short namespace slug from the feature description to avoid conflicts with parallel swarms. Take the first 3-4 meaningful words of the feature description, convert to kebab-case, and truncate to 20 characters max (e.g., "Add WebSocket transport for daemon IPC" → `ws-daemon-ipc`). This namespace is used for:
-- Prefixing milestone labels in TODO.md to distinguish tasks from different blitzes
-- Namespacing swarm branch names to avoid worktree collisions
-
-## Repo-specific gotchas (include these in every agent prompt)
-
-- **gh pr view fields**: `merged` is NOT a valid --json field. Use `state` and `mergedAt` instead: `gh pr view <N> --json state,mergedAt,title,url`
-- **Merge strategy**: This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
-- **CI**: Do NOT wait for CI checks to pass before merging. Merge immediately.
-- **No piping to tail/head**: `tail` and `head` may not be available in the shell. Don't pipe to them.
+Read and follow `.claude/phases/repo-gotchas.md`. Include these gotchas in every agent prompt.
 
 ## Phase 1: Project Setup
 
-1. If `.private/project-config.env` does not exist, create the project board:
-
-```bash
-if [ ! -f .private/project-config.env ]; then
-  .claude/gh-project init
-fi
-```
-
-2. Source the config for later use:
-
-```bash
-source .private/project-config.env
-```
-
-This provides: `GH_PROJECT_NUMBER`, `GH_PROJECT_OWNER`, `GH_PROJECT_ID`, and status option IDs.
+Read and follow `.claude/phases/project-setup.md`.
 
 ## Phase 1.5: Create the Feature Branch
 
@@ -70,99 +47,19 @@ This keeps your current branch unchanged so safe-blitz doesn't block your main w
 
 ## Phase 2: Plan & Spec
 
-**If `--skip-plan` was passed**, skip issue creation. Instead:
-
-1. Fetch existing "Ready" issues from the project board and use those as the milestones.
-2. Identify the project-level issue (the epic). Look for an open issue in "In Progress" status that references milestones, or ask the user to provide the project issue number. This is required — Phase 6 needs it to set the project status and reference it in the final PR.
-3. Proceed to Phase 3 with the fetched milestones.
-
-**Otherwise:**
-
-1. Analyze the feature description with extended thinking. Consider:
-   - What the feature requires architecturally
-   - How it fits into the existing codebase
-   - What the logical milestones are (ordered by dependency)
-   - What can be parallelized
-
-2. Create a **project-level issue** — the epic/umbrella for this feature. Assign it to the current GitHub user:
-
-```bash
-GH_USERNAME=$(gh api user --jq '.login')
-gh issue create --assignee "$GH_USERNAME" --title "<Feature Title>" --body "$(cat <<'EOF'
-## Overview
-<what this feature does>
-
-## Goals
-- <goal 1>
-- <goal 2>
-
-## Non-goals
-- <explicit non-goal>
-
-## Approach
-<high-level implementation approach>
-
+Read and follow `.claude/phases/plan-and-spec.md`. For safe-blitz mode, replace `<EXTRA_EPIC_FIELDS>` with:
+```
 ## Feature branch
 `<feature-branch-name>`
-
-## Milestones
-- [ ] M1: <title>
-- [ ] M2: <title>
-- ...
-EOF
-)"
 ```
 
-3. Create **milestone issues** (M1, M2, ...) — one per PR-sized chunk of work. Assign to the same GitHub user:
-
-```bash
-gh issue create --assignee "$GH_USERNAME" --title "M1: <milestone title>" --body "$(cat <<'EOF'
-## Context
-Part of #<project-issue-number>: <feature title>
-
-## Implementation
-- <specific file changes>
-- <functions to add/modify>
-- <tests to write>
-
-## Dependencies
-- Depends on: <none | M<n>>
-- Blocks: <M<n> | none>
-EOF
-)"
-```
-
-4. Add all issues to the GH project board and set their statuses:
-
-```bash
-# Project-level (epic) issue → in-progress
-.claude/gh-project add-issue <epic-issue-number> --status in-progress
-
-# Milestone issues → ready (repeat for each)
-.claude/gh-project add-issue <milestone-issue-number> --status ready
-```
-
-5. **Present the plan to the user for approval.** Show:
-   - The project-level issue link
-   - The feature branch name
-   - A numbered list of milestones with their issue links and dependency order
-   - Note: "All milestone PRs will target the feature branch `<name>`. A final PR into main will be created at the end for your review."
-   - Ask: "Proceed with execution?"
-
-   Do NOT continue until the user confirms.
+When presenting the plan for approval, also show:
+- The feature branch name
+- Note: "All milestone PRs will target the feature branch `<name>`. A final PR into main will be created at the end for your review."
 
 ## Phase 3: Populate TODO.md
 
-1. Read `.private/TODO.md` (preserve existing items).
-2. Prepend milestone issues as TODO items at the top, prefixed with the namespace:
-
-```
-- [<namespace>] M1: <title> (#<issue-number>)
-- [<namespace>] M2: <title> (#<issue-number>)
-...
-```
-
-3. Write the updated file back. Verify the write preserved existing items.
+Read and follow `.claude/phases/populate-todo.md`.
 
 ## Phase 4: Swarm (Feature Branch Mode)
 
@@ -245,18 +142,9 @@ gh issue close <issue-number>
 
 ## Phase 5: Sweep
 
-1. Unless `--auto` was passed, pause and ask the user: **"Initial swarm complete. Run sweep for review feedback?"**
-   - If the user declines, skip to Phase 6.
+Read and follow `.claude/phases/sweep.md`. When it says "back to the Swarm phase", return to Phase 4 above. When it says "final phase", proceed to Phase 6.
 
-2. Run the check-reviews workflow by reading and following `.claude/commands/check-reviews.md`, passing `--namespace <namespace>` so that only PRs from this blitz are checked and any TODO items added are prefixed with the namespace.
-
-3. After check-reviews completes, read `.private/TODO.md`:
-   - If new `[<namespace>]`-prefixed "Address the feedback" or "Fix CI failures" items were added, run another swarm pass (back to Phase 4).
-   - If no new namespaced feedback items, proceed to Phase 6.
-
-4. If `--auto` was passed, skip the pause and run the sweep automatically. Still loop back to Phase 4 if feedback items were added.
-
-## Phase 6: Create Final PR (Feature Branch → Main)
+## Phase 6: Create Final PR (Feature Branch -> Main)
 
 This is the key difference from `/blitz`. Instead of closing the epic, we create the final PR.
 
@@ -287,7 +175,7 @@ Closes #<project-issue-number>
 ## Test plan
 - [ ] <verification steps>
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )" --assignee @me
 ```
@@ -315,20 +203,17 @@ gh project view "$GH_PROJECT_NUMBER" --owner "$GH_PROJECT_OWNER" --format json |
 
 | #   | Milestone                          | Issue | PR   | Status              |
 | --- | ---------------------------------- | ----- | ---- | ------------------- |
-| M1  | <title>                            | #10   | #15  | merged → feature    |
-| M2  | <title>                            | #11   | #16  | merged → feature    |
-| M3  | <title>                            | #12   | #17  | merged → feature    |
+| M1  | <title>                            | #10   | #15  | merged -> feature    |
+| M2  | <title>                            | #11   | #16  | merged -> feature    |
+| M3  | <title>                            | #12   | #17  | merged -> feature    |
 
 **Feedback PRs:** <count, if any>
 
-⚠️ The final PR is open and waiting for your review. Merge it when ready.
+The final PR is open and waiting for your review. Merge it when ready.
 ```
 
 ## Important
 
-- `.private/TODO.md` and `.private/UNREVIEWED_PRS.md` are written to by other processes. Always read before writing, verify after writing. These files are gitignored.
-- Don't sleep for more than 15 seconds at a time while waiting for agents to finish.
-- If an agent reports failure, put the item back in TODO.md and note the failure.
+Read and follow `.claude/phases/blitz-important.md`. Additionally:
 - If an agent hits merge conflicts after another agent's PR landed, tell it to rebase against the **feature branch**: `git pull --rebase origin <feature-branch-name>`.
-- Use `.claude/worktree` for isolation (same as swarm).
 - **Do NOT merge the final PR.** Only create it and present the link to the user.

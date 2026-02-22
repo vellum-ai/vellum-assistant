@@ -234,6 +234,10 @@ Users can send multiple messages while the assistant is busy. Messages are queue
 
 **Current limitations:** Text-only messages, no conversation history browser.
 
+### Tool Permission Tester
+
+In Settings > Trust, engineers can simulate whether a tool invocation would be allowed, denied, or prompted. The tester shows the same `ToolConfirmationBubble` UI used in chat. "Allow Once" and "Don't Allow" are simulation-only; "Always Allow" persists a real trust rule.
+
 ## Xcode Previews
 
 The package is split into a library target (`VellumAssistantLib`) and a thin executable target (`vellum-assistant`). This lets you preview SwiftUI views live in Xcode without building and running the whole app.

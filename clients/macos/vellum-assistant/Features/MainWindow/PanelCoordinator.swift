@@ -311,6 +311,33 @@ extension MainWindowView {
     @ViewBuilder
     var chatView: some View {
         if let viewModel = threadManager.activeViewModel {
+            let activeThread = threadManager.activeThread
+
+            // Merge two conflict sources: active send-conflict from a tool error
+            // takes priority over passive duplicate-binding detection.
+            let syncConflict: SyncConflictInfo? = {
+                // 1. Active send-conflict from a tool error payload
+                if let thread = activeThread,
+                   let conflict = viewModel.sendConflict,
+                   let resolved = threadManager.resolveSendConflict(conflict, excludingThread: thread.id) {
+                    return resolved
+                }
+                // 2. Passive duplicate-binding detection (existing behavior)
+                guard let thread = activeThread,
+                      let sourceChannel = thread.sourceChannel,
+                      let externalChatId = thread.externalChatId,
+                      let canonical = threadManager.findCanonicalThread(
+                          sourceChannel: sourceChannel,
+                          externalChatId: externalChatId,
+                          excludingThread: thread.id
+                      ) else { return nil }
+                return SyncConflictInfo(
+                    ownerThreadTitle: canonical.title,
+                    sourceChannel: sourceChannel,
+                    externalChatId: externalChatId
+                )
+            }()
+
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
@@ -318,7 +345,55 @@ extension MainWindowView {
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
                 onMicrophoneToggle: onMicrophoneToggle,
-                isTemporaryChat: threadManager.activeThread?.kind == .private
+                isTemporaryChat: activeThread?.kind == .private,
+                syncedChannelLabel: activeThread?.isSynced == true ? activeThread?.sourceChannel?.capitalized : nil,
+                syncConflict: syncConflict,
+                onContinueInSyncedThread: syncConflict != nil ? {
+                    // When conflict was resolved from a send-conflict payload, use
+                    // the ownerThreadId directly instead of re-scanning bindings.
+                    if let thread = threadManager.activeThread,
+                       let ownerThreadId = syncConflict?.ownerThreadId {
+                        viewModel.dismissSendConflict()
+                        threadManager.continueInSyncedThread(
+                            targetThreadId: ownerThreadId,
+                            sourceThreadId: thread.id
+                        )
+                    } else if let thread = threadManager.activeThread,
+                       let sourceChannel = thread.sourceChannel,
+                       let externalChatId = thread.externalChatId,
+                       let canonical = threadManager.findCanonicalThread(
+                           sourceChannel: sourceChannel,
+                           externalChatId: externalChatId,
+                           excludingThread: thread.id
+                       ) {
+                        viewModel.dismissSendConflict()
+                        threadManager.continueInSyncedThread(
+                            targetThreadId: canonical.id,
+                            sourceThreadId: thread.id
+                        )
+                    }
+                } : nil,
+                onMoveSyncHere: syncConflict != nil ? {
+                    if let thread = threadManager.activeThread,
+                       let sourceChannel = syncConflict?.sourceChannel, !sourceChannel.isEmpty,
+                       let externalChatId = syncConflict?.externalChatId, !externalChatId.isEmpty {
+                        viewModel.dismissSendConflict()
+                        threadManager.moveSyncHereAndResend(
+                            threadId: thread.id,
+                            sourceChannel: sourceChannel,
+                            externalChatId: externalChatId
+                        )
+                    } else if let thread = threadManager.activeThread,
+                       let sourceChannel = thread.sourceChannel,
+                       let externalChatId = thread.externalChatId {
+                        viewModel.dismissSendConflict()
+                        threadManager.moveSyncHereAndResend(
+                            threadId: thread.id,
+                            sourceChannel: sourceChannel,
+                            externalChatId: externalChatId
+                        )
+                    }
+                } : nil
             )
             .overlay(alignment: .bottomTrailing) {
                 DemoOverlayView()
@@ -481,6 +556,10 @@ struct ActiveChatViewWrapper: View {
     @ObservedObject var settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
     var isTemporaryChat: Bool = false
+    var syncedChannelLabel: String?
+    var syncConflict: SyncConflictInfo?
+    var onContinueInSyncedThread: (() -> Void)?
+    var onMoveSyncHere: (() -> Void)?
 
     var body: some View {
         ChatView(
@@ -574,7 +653,11 @@ struct ActiveChatViewWrapper: View {
             daemonHttpPort: daemonClient.httpPort,
             isHistoryLoaded: viewModel.isHistoryLoaded,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
-            onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) }
+            onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
+            syncedChannelLabel: syncedChannelLabel,
+            syncConflict: syncConflict,
+            onContinueInSyncedThread: onContinueInSyncedThread,
+            onMoveSyncHere: onMoveSyncHere
         )
     }
 }

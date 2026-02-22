@@ -62,12 +62,11 @@ describe("DedupCache", () => {
     expect(cache.size).toBe(2);
   });
 
-  test("reserve returns true for unseen update_id and populates cache", () => {
+  test("reserve returns true for unseen update_id and creates processing entry", () => {
     expect(cache.reserve(50)).toBe(true);
     expect(cache.size).toBe(1);
-    const hit = cache.get(50);
-    expect(hit).toBeDefined();
-    expect(hit!.status).toBe(200);
+    // get() returns undefined for processing entries (not yet finalized)
+    expect(cache.get(50)).toBeUndefined();
   });
 
   test("reserve returns false for already-reserved update_id", () => {
@@ -80,11 +79,39 @@ describe("DedupCache", () => {
     expect(cache.reserve(70)).toBe(false);
   });
 
-  test("set overwrites a reserved entry with the final response", () => {
+  test("get returns undefined while entry is still processing", () => {
+    cache.reserve(75);
+    // Entry is reserved (processing) — get() should not return it
+    expect(cache.get(75)).toBeUndefined();
+    // But the entry does occupy a slot
+    expect(cache.size).toBe(1);
+  });
+
+  test("set finalizes a reserved entry and makes it available via get", () => {
     cache.reserve(80);
+    // Still processing — not visible
+    expect(cache.get(80)).toBeUndefined();
+    // Finalize with actual response
     cache.set(80, '{"final":true}', 201);
     const hit = cache.get(80);
     expect(hit).toEqual({ body: '{"final":true}', status: 201 });
+  });
+
+  test("unreserve allows re-reservation after processing failure", () => {
+    cache.reserve(85);
+    expect(cache.reserve(85)).toBe(false);
+    // Simulate processing failure — unreserve so Telegram can retry
+    cache.unreserve(85);
+    expect(cache.size).toBe(0);
+    // Now re-reserve should succeed
+    expect(cache.reserve(85)).toBe(true);
+  });
+
+  test("unreserve does not remove finalized entries", () => {
+    cache.set(86, '{"ok":true}', 200);
+    cache.unreserve(86);
+    // Finalized entry should still be present
+    expect(cache.get(86)).toEqual({ body: '{"ok":true}', status: 200 });
   });
 
   test("reserve succeeds after a reserved entry expires", () => {

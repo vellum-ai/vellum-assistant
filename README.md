@@ -27,13 +27,6 @@ The platform has three main components:
 
 - **Docker** is required. The sandbox uses Docker as its default backend for container-level isolation. Install [Docker Desktop](https://docs.docker.com/get-docker/) (macOS/Windows) or Docker Engine (Linux) and ensure the daemon is running before starting the assistant.
 
-## Local Development
-
-```bash
-# Start local services (Postgres + MinIO)
-docker compose up -d
-```
-
 ## Git Hooks
 
 This repository includes git hooks to help maintain code quality and security. The hooks are installed by running the install script directly.
@@ -334,7 +327,6 @@ Existing users with `permissions.mode: "strict"` or `permissions.mode: "legacy"`
 User approval decisions are persisted as trust rules in `~/.vellum/protected/trust.json`. Rules support:
 
 - **Pattern matching**: Minimatch glob patterns for tool commands and file paths.
-- **Principal binding**: Rules can target specific skills (`principalId`) and even specific versions (`principalVersion`) via content hashing.
 - **Execution target binding**: Rules can be scoped to `sandbox` or `host` execution contexts.
 - **High-risk override**: Rules with `allowHighRisk: true` auto-allow even high-risk tool invocations.
 
@@ -636,7 +628,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 |---------|---------|
 | `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists). |
 | `/release [version]` | Cut a release: pull main, determine/create version tag, generate release notes, publish GitHub Release, and verify CI trigger. |
-| `/update` | Pull latest from `main`, restart daemon, relaunch a single source gateway with ingress + Twilio auth env injected from local config/credentials, then launch app pinned to local `gateway/`. |
+| `/update` | Pull latest from `main`, restart daemon, relaunch a single source gateway with ingress + Twilio auth env plus resilient routing defaults (`GATEWAY_UNMAPPED_POLICY` / `GATEWAY_DEFAULT_ASSISTANT_ID`) injected from local config/credentials, then launch app pinned to local `gateway/`. |
 
 
 ### Review

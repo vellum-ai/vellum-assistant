@@ -330,23 +330,39 @@ By default, always show the live transcript of the call as it happens. When a ca
 
 4. Continue monitoring until the call completes or fails
 
-### Handling questions during a call
+### Interacting with a live call
 
-The AI voice agent may encounter situations where it needs input from the user. When this happens:
+During an active call, the user can type messages in the chat thread to interact with the AI voice agent in real time. Messages are automatically routed to the call via the call bridge, which decides how to handle them based on the call's current state:
 
-1. The call status changes to `waiting_on_user`
-2. A **pending question** appears in `call_status` output
-3. Present the question prominently to the user:
+#### Mode 1: Answering questions
+
+When the AI voice agent encounters something it needs user input for, a **pending question** appears in the chat. The call status changes to `waiting_on_user`.
+
+1. A **pending question** appears in `call_status` output
+2. Present the question prominently to the user:
 
 ```
 ❓ The person on the call asked something the assistant needs your help with:
    "They're asking if you'd prefer the smoking or non-smoking section?"
 ```
 
-4. The user can reply directly in the chat — their response is automatically routed to the live call via the call bridge
-5. The AI voice agent receives the answer and continues the conversation naturally
+3. The user replies directly in the chat — since there is a pending question, the reply is automatically routed as an **answer** to the AI voice agent
+4. The AI voice agent receives the answer and continues the conversation naturally
 
 **Important:** Respond to pending questions quickly. There is a consultation timeout (default: 2 minutes). If no answer is provided in time, the AI voice agent will move on.
+
+#### Mode 2: Steering with instructions
+
+When there is **no pending question** but the call is still active, any message the user types in the chat is treated as a **steering instruction**. This lets the user proactively guide the call in real time — for example:
+
+- "Ask them about their cancellation policy too"
+- "Wrap up the call, we have what we need"
+- "Switch to asking about weekend availability instead"
+- "Be more assertive about getting a discount"
+
+The instruction is injected into the AI voice agent's conversation context as high-priority input, and the agent adjusts its behavior accordingly. A confirmation message ("Instruction relayed to active call.") appears in the chat thread.
+
+**The user does not need to do anything special** — just type a message. The system automatically determines whether it should be an answer or an instruction based on whether a question is pending.
 
 ### Call status values
 

@@ -1,6 +1,7 @@
 import * as net from 'node:net';
 import { v4 as uuid } from 'uuid';
 import * as conversationStore from '../../memory/conversation-store.js';
+import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { classifySessionError, buildSessionErrorMessage } from '../session-error.js';
 import { getAttachmentsForMessage, setAttachmentThumbnail } from '../../memory/attachments-store.js';
@@ -199,14 +200,29 @@ export function handleSecretResponse(
 
 export function handleSessionList(socket: net.Socket, ctx: HandlerContext): void {
   const conversations = conversationStore.listConversations(50);
+  const bindings = externalConversationStore.getBindingsForConversations(
+    conversations.map((c) => c.id),
+  );
   ctx.send(socket, {
     type: 'session_list_response',
-    sessions: conversations.map((c) => ({
-      id: c.id,
-      title: c.title ?? 'Untitled',
-      updatedAt: c.updatedAt,
-      threadType: normalizeThreadType(c.threadType),
-    })),
+    sessions: conversations.map((c) => {
+      const binding = bindings.get(c.id);
+      return {
+        id: c.id,
+        title: c.title ?? 'Untitled',
+        updatedAt: c.updatedAt,
+        threadType: normalizeThreadType(c.threadType),
+        ...(binding ? {
+          channelBinding: {
+            sourceChannel: binding.sourceChannel,
+            externalChatId: binding.externalChatId,
+            externalUserId: binding.externalUserId,
+            displayName: binding.displayName,
+            username: binding.username,
+          },
+        } : {}),
+      };
+    }),
   });
 }
 

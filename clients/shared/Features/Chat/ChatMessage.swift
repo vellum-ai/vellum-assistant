@@ -308,6 +308,38 @@ public struct ToolConfirmationData: Equatable {
         self.persistentDecisionsAllowed = persistentDecisionsAllowed
         self.state = state
     }
+
+    /// Build a `ToolConfirmationData` from a tool permission simulation response.
+    /// Maps the simulation-specific prompt payload types to the confirmation types
+    /// used by `ToolConfirmationBubble`.
+    public static func fromSimulation(
+        toolName: String,
+        input: [String: AnyCodable],
+        riskLevel: String,
+        executionTarget: String?,
+        promptPayload: IPCToolPermissionSimulateResponsePromptPayload
+    ) -> ToolConfirmationData {
+        let allowlistOptions = promptPayload.allowlistOptions.map { opt in
+            IPCConfirmationRequestAllowlistOption(
+                label: opt.label,
+                description: opt.description,
+                pattern: opt.pattern
+            )
+        }
+        let scopeOptions = promptPayload.scopeOptions.map { opt in
+            IPCConfirmationRequestScopeOption(label: opt.label, scope: opt.scope)
+        }
+        return ToolConfirmationData(
+            requestId: "simulation",
+            toolName: toolName,
+            input: input,
+            riskLevel: riskLevel,
+            allowlistOptions: allowlistOptions,
+            scopeOptions: scopeOptions,
+            executionTarget: executionTarget,
+            persistentDecisionsAllowed: promptPayload.persistentDecisionsAllowed
+        )
+    }
 }
 
 /// A single sub-tool invocation within a claude_code tool call.

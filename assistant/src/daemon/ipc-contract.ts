@@ -320,12 +320,6 @@ export interface AddTrustRule {
   decision: 'allow' | 'deny' | 'ask';
   /** When true, the rule also covers high-risk invocations. */
   allowHighRisk?: boolean;
-  /** Principal kind that this rule applies to (e.g. 'core', 'skill', 'task'). */
-  principalKind?: 'core' | 'skill' | 'task';
-  /** Skill/task ID when principalKind is 'skill' or 'task'. */
-  principalId?: string;
-  /** Content-hash of the skill source for version pinning. */
-  principalVersion?: string;
   /** Execution target override for this rule. */
   executionTarget?: 'host' | 'sandbox';
 }
@@ -535,6 +529,24 @@ export interface TwitterIntegrationConfigRequest {
   clientId?: string;
   clientSecret?: string;
   strategy?: string;
+}
+
+export interface TelegramConfigRequest {
+  type: 'telegram_config';
+  action: 'get' | 'set' | 'clear' | 'set_commands';
+  botToken?: string;  // Only for action: 'set'
+  commands?: Array<{ command: string; description: string }>;  // Only for action: 'set_commands'
+}
+
+export interface TelegramConfigResponse {
+  type: 'telegram_config_response';
+  success: boolean;
+  hasBotToken: boolean;
+  botUsername?: string;
+  connected: boolean;
+  hasWebhookSecret: boolean;
+  lastError?: string;
+  error?: string;
 }
 
 export interface TwitterIntegrationConfigResponse {
@@ -944,12 +956,10 @@ export interface ToolPermissionSimulateRequest {
   isInteractive?: boolean;
   /** When true, side-effect tools that would normally be auto-allowed get promoted to prompt. */
   forcePromptSideEffects?: boolean;
-  /** Optional principal context overrides. */
-  principalKind?: 'core' | 'skill' | 'task';
-  principalId?: string;
-  principalVersion?: string;
-  /** Optional execution target override. */
-  executionTarget?: 'host' | 'sandbox';
+}
+
+export interface ToolNamesListRequest {
+  type: 'tool_names_list';
 }
 
 export type ClientMessage =
@@ -1021,6 +1031,7 @@ export type ClientMessage =
   | IngressConfigRequest
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
+  | TelegramConfigRequest
   | TwitterAuthStartRequest
   | TwitterAuthStatusRequest
   | SessionsClearRequest
@@ -1064,7 +1075,8 @@ export type ClientMessage =
   | WorkspaceFilesListRequest
   | WorkspaceFileReadRequest
   | IdentityGetRequest
-  | ToolPermissionSimulateRequest;
+  | ToolPermissionSimulateRequest
+  | ToolNamesListRequest;
 
 export interface IntegrationListRequest {
   type: 'integration_list';
@@ -1171,12 +1183,6 @@ export interface ConfirmationRequest {
   diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
   sandboxed?: boolean;
   sessionId?: string;
-  /** Principal kind that initiated this tool use (e.g. 'core' or 'skill'). */
-  principalKind?: string;
-  /** Skill ID when principalKind is 'skill'. */
-  principalId?: string;
-  /** Content-hash of the skill source for version tracking. */
-  principalVersion?: string;
   /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
   persistentDecisionsAllowed?: boolean;
 }
@@ -1214,9 +1220,18 @@ export interface SessionInfo {
   threadType?: ThreadType;
 }
 
+/** Channel binding metadata exposed in session/conversation list APIs. */
+export interface ChannelBinding {
+  sourceChannel: string;
+  externalChatId: string;
+  externalUserId?: string | null;
+  displayName?: string | null;
+  username?: string | null;
+}
+
 export interface SessionListResponse {
   type: 'session_list_response';
-  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType }>;
+  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType; channelBinding?: ChannelBinding }>;
 }
 
 export interface SessionsClearResponse {
@@ -2269,10 +2284,31 @@ export interface ToolPermissionSimulateResponse {
     scopeOptions: Array<{ label: string; scope: string }>;
     persistentDecisionsAllowed: boolean;
   };
+  /** Resolved execution target for the tool. */
+  executionTarget?: 'host' | 'sandbox';
   /** ID of the trust rule that matched (if any). */
   matchedRuleId?: string;
   /** Error message when success is false. */
   error?: string;
+}
+
+export interface ToolInputSchema {
+  type: 'object';
+  properties?: Record<string, {
+    type?: string;
+    description?: string;
+    enum?: string[];
+    [key: string]: unknown;
+  }>;
+  required?: string[];
+}
+
+export interface ToolNamesListResponse {
+  type: 'tool_names_list_response';
+  /** Sorted list of all registered tool names. */
+  names: string[];
+  /** Input schemas keyed by tool name. */
+  schemas?: Record<string, ToolInputSchema>;
 }
 
 export type ServerMessage =
@@ -2359,6 +2395,7 @@ export type ServerMessage =
   | IngressConfigResponse
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse
+  | TelegramConfigResponse
   | TwitterAuthResult
   | TwitterAuthStatusResponse
   | OpenUrl
@@ -2400,7 +2437,8 @@ export type ServerMessage =
   | WorkspaceFilesListResponse
   | WorkspaceFileReadResponse
   | IdentityGetResponse
-  | ToolPermissionSimulateResponse;
+  | ToolPermissionSimulateResponse
+  | ToolNamesListResponse;
 
 // === Subagent IPC ─────────────────────────────────────────────────────
 

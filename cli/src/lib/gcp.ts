@@ -1,4 +1,3 @@
-import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 import { existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir, userInfo } from "os";
@@ -772,30 +771,15 @@ export async function retireInstance(
 
   console.log(`\u{1F5D1}\ufe0f  Deleting GCP instance ${name}\n`);
 
-  const child = spawn(
-    "gcloud",
-    [
-      "compute",
-      "instances",
-      "delete",
-      name,
-      `--project=${project}`,
-      `--zone=${zone}`,
-      "--quiet",
-    ],
-    { stdio: "inherit" },
-  );
-
-  await new Promise<void>((resolve, reject) => {
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`gcloud instance delete exited with code ${code}`));
-      }
-    });
-    child.on("error", reject);
-  });
+  await exec("gcloud", [
+    "compute",
+    "instances",
+    "delete",
+    name,
+    `--project=${project}`,
+    `--zone=${zone}`,
+    "--quiet",
+  ]);
 
   console.log(`\u2705 Instance ${name} deleted.`);
 }

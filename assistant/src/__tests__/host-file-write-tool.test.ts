@@ -74,4 +74,63 @@ describe('host_file_write tool', () => {
       isNewFile: false,
     });
   });
+
+  test('rejects missing path parameter', async () => {
+    const result = await hostFileWriteTool.execute({ content: 'data' }, makeContext());
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('path is required');
+  });
+
+  test('rejects non-string path', async () => {
+    const result = await hostFileWriteTool.execute({ path: 123, content: 'data' }, makeContext());
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('path is required and must be a string');
+  });
+
+  test('success message contains the file path', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'host-file-write-test-'));
+    testDirs.push(dir);
+    const filePath = join(dir, 'msg-check.txt');
+
+    const result = await hostFileWriteTool.execute({ path: filePath, content: 'check' }, makeContext());
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain(`Successfully wrote to ${filePath}`);
+  });
+
+  test('new file message includes line count', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'host-file-write-test-'));
+    testDirs.push(dir);
+    const filePath = join(dir, 'lines.txt');
+
+    const result = await hostFileWriteTool.execute({
+      path: filePath,
+      content: 'line1\nline2\nline3',
+    }, makeContext());
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('new file');
+    expect(result.content).toContain('3 lines');
+  });
+
+  test('writes empty string content', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'host-file-write-test-'));
+    testDirs.push(dir);
+    const filePath = join(dir, 'empty.txt');
+
+    const result = await hostFileWriteTool.execute({ path: filePath, content: '' }, makeContext());
+    expect(result.isError).toBe(false);
+    expect(existsSync(filePath)).toBe(true);
+    expect(readFileSync(filePath, 'utf-8')).toBe('');
+  });
+
+  test('creates nested parent directories', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'host-file-write-test-'));
+    testDirs.push(dir);
+    const filePath = join(dir, 'a', 'b', 'c', 'deep.txt');
+
+    const result = await hostFileWriteTool.execute({ path: filePath, content: 'deep' }, makeContext());
+    expect(result.isError).toBe(false);
+    expect(existsSync(filePath)).toBe(true);
+    expect(readFileSync(filePath, 'utf-8')).toBe('deep');
+  });
 });

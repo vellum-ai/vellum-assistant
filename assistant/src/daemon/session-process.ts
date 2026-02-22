@@ -16,6 +16,7 @@ import * as conversationStore from '../memory/conversation-store.js';
 import { resolveSlash } from './session-slash.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
+import { tryRouteCallMessage } from '../calls/call-bridge.js';
 
 const log = getLogger('session-process');
 
@@ -49,6 +50,8 @@ export interface ProcessSessionContext {
   readonly conversationId: string;
   messages: Message[];
   processing: boolean;
+  abortController: AbortController | null;
+  currentRequestId?: string;
   readonly queue: MessageQueue;
   readonly traceEmitter: TraceEmitter;
   currentActiveSurfaceId?: string;
@@ -177,13 +180,47 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   session.currentPage = next.currentPage;
 
   // Fire-and-forget: persistUserMessage set session.processing = true
-  // so subsequent messages will still be enqueued. runAgentLoop's
-  // finally block will call drainQueue when this run completes.
-  session.runAgentLoop(resolvedContent, userMessageId, next.onEvent).catch((err) => {
+  // so subsequent messages will still be enqueued. Route through the call
+  // bridge first — if consumed, skip agent processing and continue draining.
+  // runAgentLoop's finally block will call drainQueue when this run completes.
+  routeOrProcess(session, resolvedContent, userMessageId, next).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId: session.conversationId, requestId: next.requestId }, 'Error processing queued message');
     next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });
   });
+}
+
+/**
+ * Try the call bridge first; if not consumed, run the agent loop.
+ * Used by drainQueue to handle the async bridge check in fire-and-forget mode.
+ */
+async function routeOrProcess(
+  session: ProcessSessionContext,
+  content: string,
+  userMessageId: string,
+  next: { onEvent: (msg: ServerMessage) => void; requestId: string },
+): Promise<void> {
+  try {
+    const bridgeResult = await tryRouteCallMessage(session.conversationId, content, userMessageId);
+    if (bridgeResult.handled) {
+      session.preactivatedSkillIds = undefined;
+      session.processing = false;
+      session.abortController = null;
+      session.currentRequestId = undefined;
+      log.info({ conversationId: session.conversationId, userMessageId }, 'Queued message consumed by call bridge, skipping agent loop');
+      if (bridgeResult.userFacingText) {
+        next.onEvent({ type: 'assistant_text_delta', text: bridgeResult.userFacingText });
+      }
+      next.onEvent({ type: 'message_complete', sessionId: session.conversationId });
+      // runAgentLoop never ran so its finally block won't drain — continue manually
+      drainQueue(session);
+      return;
+    }
+  } catch (err) {
+    log.warn({ err, conversationId: session.conversationId }, 'Call bridge check failed (non-fatal), proceeding with agent loop');
+  }
+
+  await session.runAgentLoop(content, userMessageId, next.onEvent);
 }
 
 // ── processMessage ───────────────────────────────────────────────────
@@ -257,6 +294,28 @@ export async function processMessage(
     // runAgentLoop never ran, so its finally block won't clear this
     session.preactivatedSkillIds = undefined;
     return '';
+  }
+
+  // Route through the call bridge before the agent loop. When the bridge
+  // consumes the message (answer or instruction), skip agent processing.
+  try {
+    const bridgeResult = await tryRouteCallMessage(session.conversationId, resolvedContent, userMessageId);
+    if (bridgeResult.handled) {
+      session.preactivatedSkillIds = undefined;
+      session.processing = false;
+      session.abortController = null;
+      session.currentRequestId = undefined;
+      log.info({ conversationId: session.conversationId, userMessageId }, 'IPC message consumed by call bridge, skipping agent loop');
+      if (bridgeResult.userFacingText) {
+        onEvent({ type: 'assistant_text_delta', text: bridgeResult.userFacingText });
+      }
+      onEvent({ type: 'message_complete', sessionId: session.conversationId });
+      // runAgentLoop never ran so its finally block won't drain — continue manually
+      drainQueue(session);
+      return userMessageId;
+    }
+  } catch (err) {
+    log.warn({ err, conversationId: session.conversationId }, 'Call bridge check failed (non-fatal), proceeding with agent loop');
   }
 
   await session.runAgentLoop(resolvedContent, userMessageId, onEvent);

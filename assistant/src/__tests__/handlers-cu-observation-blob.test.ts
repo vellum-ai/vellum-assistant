@@ -45,6 +45,7 @@ mock.module('../util/logger.js', () => ({
 import { handleMessage, type HandlerContext } from '../daemon/handlers.js';
 import type { CuObservation, IpcBlobRef, ServerMessage } from '../daemon/ipc-contract.js';
 import { ComputerUseSession } from '../daemon/computer-use-session.js';
+import { DebouncerMap } from '../util/debounce.js';
 
 /** Write a blob file to the test blob directory and return the IpcBlobRef. */
 function writeBlobFile(content: Buffer, kind: IpcBlobRef['kind'], encoding: IpcBlobRef['encoding']): IpcBlobRef {
@@ -86,7 +87,7 @@ function createTestContext(sessionId: string): {
     cuObservationParseSequence: new Map(),
     socketSandboxOverride: new Map(),
     sharedRequestTimestamps: [],
-    debounceTimers: new Map(),
+    debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
     suppressConfigReload: false,
     setSuppressConfigReload: () => {},
     updateConfigFingerprint: () => {},

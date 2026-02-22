@@ -1,7 +1,12 @@
-name: PR CLI Checks
+name: CLI Checks
 
 on:
   pull_request:
+    paths:
+      - 'cli/**'
+      - '.github/workflows/ci-cli.yml'
+  push:
+    branches: [main]
     paths:
       - 'cli/**'
       - '.github/workflows/ci-cli.yml'

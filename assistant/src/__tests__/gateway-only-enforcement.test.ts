@@ -2,13 +2,14 @@
  * Tests for gateway-only ingress enforcement in the runtime HTTP server.
  *
  * Verifies:
+ * - Runtime does not expose any Telegram webhook ingress routes
  * - Direct Twilio webhook routes return 410
  * - Internal forwarding routes (gateway→runtime) still work
  * - Relay WebSocket upgrade blocked for non-private-network origins (isPrivateNetworkOrigin)
  * - Relay WebSocket upgrade allowed from private network peers/origins
  * - Startup warning when RUNTIME_HTTP_HOST is not loopback
  */
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll, mock } from 'bun:test';
 import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -127,6 +128,15 @@ mock.module('../security/oauth-callback-registry.js', () => ({
   consumeCallbackError: () => true,
 }));
 
+// Mock call-store so WebSocket close handlers don't hit the real DB
+mock.module('../calls/call-store.js', () => ({
+  getCallSession: () => null,
+  getCallSessionByCallSid: () => null,
+  updateCallSession: () => {},
+  recordCallEvent: () => {},
+  expirePendingQuestions: () => {},
+}));
+
 import { RuntimeHttpServer, isPrivateAddress } from '../runtime/http-server.js';
 
 // ---------------------------------------------------------------------------
@@ -148,8 +158,10 @@ describe('gateway-only ingress enforcement', () => {
   let server: RuntimeHttpServer;
   let port: number;
 
-  beforeEach(async () => {
-    logMessages.length = 0;
+  // Share a single server across all tests to avoid EADDRINUSE flakes from
+  // rapid port allocation/deallocation when creating a server per test.
+  // All tests are read-only (HTTP requests checking status codes) so sharing is safe.
+  beforeAll(async () => {
     server = new RuntimeHttpServer({
       port: 0,
       hostname: '127.0.0.1',
@@ -159,8 +171,61 @@ describe('gateway-only ingress enforcement', () => {
     port = server.actualPort;
   });
 
-  afterEach(async () => {
+  afterAll(async () => {
     await server.stop();
+  });
+
+  // ── Runtime does not expose Telegram webhook ingress ─────────────
+
+  describe('runtime has no Telegram webhook routes', () => {
+
+    test('POST /webhooks/telegram is rejected (not handled by runtime)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/webhooks/telegram`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ update_id: 1, message: { text: 'hello' } }),
+      });
+      // The runtime has no route for /webhooks/telegram. Without auth, the
+      // request is rejected with 401 (auth middleware fires before 404).
+      // With auth, it would 404. Either way, no Telegram handler runs.
+      expect(res.status).toBe(401);
+    });
+
+    test('GET /webhooks/telegram is rejected', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/webhooks/telegram`);
+      expect(res.status).toBe(401);
+    });
+
+    test('POST /webhooks/telegram/test is rejected', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/webhooks/telegram/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(401);
+    });
+
+    test('POST /webhooks/telegram returns 404 when authenticated (no handler exists)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/webhooks/telegram`, {
+        method: 'POST',
+        headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ update_id: 1, message: { text: 'hello' } }),
+      });
+      // With valid auth, the request passes the auth middleware and reaches
+      // route matching — confirming no Telegram webhook handler exists.
+      expect(res.status).toBe(404);
+    });
+
+    test('POST /webhooks/telegram/test returns 404 when authenticated (no handler exists)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/webhooks/telegram/test`, {
+        method: 'POST',
+        headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      // With valid auth, the request passes the auth middleware and reaches
+      // route matching — confirming no Telegram subpath handler exists.
+      expect(res.status).toBe(404);
+    });
   });
 
   // ── Direct Twilio webhook routes blocked in gateway_only mode ──────
@@ -405,6 +470,78 @@ describe('gateway-only ingress enforcement', () => {
       '2001:db8::1',
     ])('rejects public address %s', (addr) => {
       expect(isPrivateAddress(addr)).toBe(false);
+    });
+  });
+
+  // ── Channel sync endpoints require auth ─────────────────────────────
+
+  describe('channel sync endpoints require authentication', () => {
+
+    test('POST /v1/channels/inbound without auth returns 401', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/channels/inbound`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceChannel: 'telegram',
+          externalChatId: '12345',
+          externalMessageId: 'msg-1',
+          content: 'hello',
+        }),
+      });
+      expect(res.status).toBe(401);
+    });
+
+    test('POST /v1/channels/move-sync without auth returns 401', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/channels/move-sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceChannel: 'telegram',
+          externalChatId: '12345',
+          newConversationId: 'conv-1',
+        }),
+      });
+      expect(res.status).toBe(401);
+    });
+
+    test('DELETE /v1/channels/conversation without auth returns 401', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/channels/conversation`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceChannel: 'telegram',
+          externalChatId: '12345',
+        }),
+      });
+      expect(res.status).toBe(401);
+    });
+
+    test('POST /v1/channels/delivery-ack without auth returns 401', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/channels/delivery-ack`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceChannel: 'telegram',
+          externalChatId: '12345',
+          externalMessageId: 'msg-1',
+        }),
+      });
+      expect(res.status).toBe(401);
+    });
+
+    test('POST /v1/channels/move-sync with valid auth is not blocked (returns non-401)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/channels/move-sync`, {
+        method: 'POST',
+        headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceChannel: 'telegram',
+          externalChatId: '12345',
+          newConversationId: 'conv-1',
+        }),
+      });
+      // Should pass auth — will fail at handler level (e.g. 500 because DB
+      // not fully initialized), but must NOT be 401.
+      expect(res.status).not.toBe(401);
     });
   });
 

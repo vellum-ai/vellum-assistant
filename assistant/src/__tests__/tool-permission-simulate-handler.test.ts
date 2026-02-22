@@ -60,6 +60,7 @@ import { handleToolPermissionSimulate } from '../daemon/handlers/config.js';
 import { addRule, clearAllRules, clearCache } from '../permissions/trust-store.js';
 import type { ToolPermissionSimulateRequest, ToolPermissionSimulateResponse, ServerMessage } from '../daemon/ipc-contract.js';
 import type { HandlerContext } from '../daemon/handlers.js';
+import { DebouncerMap } from '../util/debounce.js';
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
   const sent: ServerMessage[] = [];
@@ -71,7 +72,7 @@ function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
     cuObservationParseSequence: new Map(),
     socketSandboxOverride: new Map(),
     sharedRequestTimestamps: [],
-    debounceTimers: new Map(),
+    debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
     suppressConfigReload: false,
     setSuppressConfigReload: () => {},
     updateConfigFingerprint: () => {},
@@ -274,5 +275,62 @@ describe('tool_permission_simulate handler', () => {
     expect(res.success).toBe(true);
     expect(res.decision).toBe('allow');
     expect(res.matchedRuleId).toBeDefined();
+  });
+
+  test('executionTarget: sandbox-scoped rule matches when tool resolves to sandbox', async () => {
+    // file_write resolves to 'sandbox' (no host_ prefix)
+    addRule('file_write', 'file_write:/tmp/**', 'everywhere', 'allow', 100, {
+      executionTarget: 'sandbox',
+    });
+
+    const { ctx, sent } = createTestContext();
+    const msg: ToolPermissionSimulateRequest = {
+      type: 'tool_permission_simulate',
+      toolName: 'file_write',
+      input: { path: '/tmp/test.txt', content: 'hello' },
+    };
+    await handleToolPermissionSimulate(msg, {} as net.Socket, ctx);
+
+    const res = getResponse(sent);
+    expect(res.success).toBe(true);
+    expect(res.decision).toBe('allow');
+    expect(res.matchedRuleId).toBeDefined();
+    expect(res.executionTarget).toBe('sandbox');
+  });
+
+  test('executionTarget: sandbox-scoped rule does NOT match when tool resolves to host', async () => {
+    // host_file_write resolves to 'host' (host_ prefix)
+    addRule('host_file_write', 'host_file_write:/tmp/**', 'everywhere', 'allow', 100, {
+      executionTarget: 'sandbox',
+    });
+
+    const { ctx, sent } = createTestContext();
+    const msg: ToolPermissionSimulateRequest = {
+      type: 'tool_permission_simulate',
+      toolName: 'host_file_write',
+      input: { path: '/tmp/test.txt', content: 'hello' },
+    };
+    await handleToolPermissionSimulate(msg, {} as net.Socket, ctx);
+
+    const res = getResponse(sent);
+    expect(res.success).toBe(true);
+    // The sandbox-scoped rule should not match a host tool
+    expect(res.decision).toBe('prompt');
+    expect(res.matchedRuleId).toBeUndefined();
+    expect(res.executionTarget).toBe('host');
+  });
+
+  test('executionTarget: response includes resolved execution target', async () => {
+    const { ctx, sent } = createTestContext();
+    const msg: ToolPermissionSimulateRequest = {
+      type: 'tool_permission_simulate',
+      toolName: 'host_bash',
+      input: { command: 'echo hi' },
+    };
+    await handleToolPermissionSimulate(msg, {} as net.Socket, ctx);
+
+    const res = getResponse(sent);
+    expect(res.success).toBe(true);
+    expect(res.executionTarget).toBe('host');
   });
 });

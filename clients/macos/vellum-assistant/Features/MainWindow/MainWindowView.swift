@@ -459,17 +459,10 @@ struct MainWindowView: View {
 
                     Divider().background(VColor.surfaceBorder)
 
-                    // Content area with sidebar drawer overlay.
-                    // On panel routes the sidebar pushes content via leading padding
-                    // so the panel view is never obscured. On chat routes the sidebar
-                    // floats as an overlay.
+                    // Content area with sidebar pushing content
                     ZStack(alignment: .leading) {
                         let sidebarVisible = sidebarOpen && windowState.layoutConfig.left.visible
-                        let sidebarPushesContent: Bool = {
-                            if case .panel = windowState.selection { return true }
-                            return false
-                        }()
-                        let sidebarInset = sidebarVisible && sidebarPushesContent
+                        let sidebarInset = sidebarVisible
                             ? threadDrawerWidth + VSpacing.xs : 0
 
                         chatContentView(geometry: geometry)
@@ -477,22 +470,10 @@ struct MainWindowView: View {
 
                         // Sidebar drawer
                         if sidebarVisible {
-                            // Click-outside-to-dismiss scrim (overlay mode only)
-                            if !sidebarPushesContent {
-                                Color.clear
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        withAnimation(.easeInOut(duration: 0.35)) {
-                                            sidebarOpen = false
-                                        }
-                                    }
-                            }
                             HStack(spacing: 0) {
                                 sidebarView
                                 drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
                             }
-                            .shadow(color: sidebarPushesContent ? .clear : .black.opacity(0.2),
-                                    radius: 8, x: 2, y: 0)
                             .transition(.move(edge: .leading))
                             .animation(nil, value: threadDrawerWidth)
                         }
@@ -577,6 +558,22 @@ struct MainWindowView: View {
                 windowState.persistentThreadId = activeId
             }
             requestHomeBaseDashboardIfNeeded()
+
+            // Show a brief toast when a previously-hidden thread reappears
+            threadManager.onThreadReconnected = { [weak windowState] title in
+                let toastMessage = "Reconnected: \(title)"
+                windowState?.showToast(
+                    message: toastMessage,
+                    style: .success
+                )
+                // Auto-dismiss after 3 seconds, but only if this toast is still showing.
+                // Avoids prematurely dismissing an unrelated toast that appeared in the interim.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak windowState] in
+                    if windowState?.toastInfo?.message == toastMessage {
+                        windowState?.dismissToast()
+                    }
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
@@ -719,12 +716,25 @@ struct MainWindowView: View {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(VColor.accent.opacity(0.7))
+                } else if thread.isSynced {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
                 }
-                Text(thread.title)
-                    .font(.system(size: 13))
-                    .foregroundColor(VColor.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(thread.title)
+                        .font(.system(size: 13))
+                        .foregroundColor(VColor.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if let senderLabel = thread.senderLabel {
+                        Text(senderLabel)
+                            .font(VFont.small)
+                            .foregroundColor(VColor.textMuted)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.md)
@@ -808,6 +818,30 @@ struct MainWindowView: View {
             }
         }
         .padding(.horizontal, VSpacing.sm)
+        .contextMenu {
+            if thread.sourceChannel != nil {
+                Button {
+                    threadManager.hideLocalThread(id: thread.id)
+                } label: {
+                    Label("Hide Local Thread", systemImage: "eye.slash")
+                }
+                .help("This does not delete Telegram history. The thread reappears on next message.")
+            }
+            Button {
+                if thread.isPinned {
+                    threadManager.unpinThread(id: thread.id)
+                } else {
+                    threadManager.pinThread(id: thread.id)
+                }
+            } label: {
+                Label(thread.isPinned ? "Unpin" : "Pin to Top", systemImage: thread.isPinned ? "pin.slash" : "pin")
+            }
+            Button {
+                threadManager.archiveThread(id: thread.id)
+            } label: {
+                Label("Archive", systemImage: "archivebox")
+            }
+        }
         .onHover { hovering in
             if hovering {
                 isHoveredThread = thread.id
@@ -839,9 +873,6 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "plus.circle", label: "New chat") {
                 windowState.selection = nil
                 threadManager.createThread()
-                withAnimation(.easeInOut(duration: 0.35)) {
-                    sidebarOpen = false
-                }
             }
 
             Spacer().frame(height: VSpacing.lg)
@@ -1137,7 +1168,8 @@ private struct SidebarSubheader: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 20)
             .padding(.trailing, VSpacing.md)
-            .padding(.vertical, 20)
+            .padding(.top, VSpacing.md)
+            .padding(.bottom, VSpacing.md)
     }
 }
 

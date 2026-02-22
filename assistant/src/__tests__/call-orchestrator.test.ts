@@ -100,6 +100,7 @@ import { conversations } from '../memory/schema.js';
 import {
   createCallSession,
   getCallSession,
+  getCallEvents,
   getPendingQuestion,
   updateCallSession,
 } from '../calls/call-store.js';
@@ -507,6 +508,118 @@ describe('call-orchestrator', () => {
 
     const { orchestrator } = setupOrchestrator();
     await orchestrator.handleCallerUtterance('Hello');
+    orchestrator.destroy();
+  });
+
+  // ── handleUserInstruction ─────────────────────────────────────────
+
+  test('handleUserInstruction: injects instruction marker into conversation history and triggers LLM when idle', async () => {
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { messages: Array<{ role: string; content: string }> };
+      const instructionMsg = firstArg.messages.find((m) =>
+        m.role === 'user' && m.content.includes('[USER_INSTRUCTION:'),
+      );
+      expect(instructionMsg).toBeDefined();
+      expect(instructionMsg!.content).toContain('[USER_INSTRUCTION: Ask about their weekend plans]');
+      return createMockStream(['Sure, do you have any weekend plans?']);
+    });
+
+    const { relay, orchestrator } = setupOrchestrator();
+
+    await orchestrator.handleUserInstruction('Ask about their weekend plans');
+
+    // Should have streamed a response since orchestrator was idle
+    const nonEmptyTokens = relay.sentTokens.filter((t) => t.token.length > 0);
+    expect(nonEmptyTokens.length).toBeGreaterThan(0);
+
+    orchestrator.destroy();
+  });
+
+  test('handleUserInstruction: does not break existing answer flow', async () => {
+    // Step 1: Caller says something, LLM responds normally
+    mockStreamFn.mockImplementation(() => createMockStream(['Hello! How can I help you today?']));
+    const { session, relay, orchestrator } = setupOrchestrator('Book appointment');
+
+    await orchestrator.handleCallerUtterance('Hi there');
+
+    // Step 2: Inject an instruction while idle
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { messages: Array<{ role: string; content: string }> };
+      // Verify the history contains both the original exchange and the instruction
+      const messages = firstArg.messages;
+      expect(messages.length).toBeGreaterThanOrEqual(3); // user utterance + assistant response + instruction
+      const instructionMsg = messages.find((m) =>
+        m.role === 'user' && m.content.includes('[USER_INSTRUCTION:'),
+      );
+      expect(instructionMsg).toBeDefined();
+      return createMockStream(['Of course, let me mention the weekend special.']);
+    });
+
+    await orchestrator.handleUserInstruction('Mention the weekend special');
+
+    // Step 3: Caller speaks again — the flow should continue normally
+    mockStreamFn.mockImplementation(() =>
+      createMockStream(['Great choice! The weekend special is 20% off.']),
+    );
+
+    await orchestrator.handleCallerUtterance('Tell me more about that');
+
+    // Verify state is idle after the normal flow
+    expect(orchestrator.getState()).toBe('idle');
+
+    // Verify relay received tokens from all exchanges
+    const allText = relay.sentTokens.map((t) => t.token).join('');
+    expect(allText).toContain('Hello');
+    expect(allText).toContain('weekend special');
+
+    orchestrator.destroy();
+  });
+
+  test('handleUserInstruction: emits user_instruction_relayed event', async () => {
+    mockStreamFn.mockImplementation(() => createMockStream(['Understood, adjusting approach.']));
+
+    const { session, orchestrator } = setupOrchestrator();
+
+    await orchestrator.handleUserInstruction('Be more formal in your tone');
+
+    const events = getCallEvents(session.id);
+    const instructionEvents = events.filter((e) => e.eventType === 'user_instruction_relayed');
+    expect(instructionEvents.length).toBe(1);
+
+    const payload = JSON.parse(instructionEvents[0].payloadJson);
+    expect(payload.instruction).toBe('Be more formal in your tone');
+
+    orchestrator.destroy();
+  });
+
+  test('handleUserInstruction: does not trigger LLM when orchestrator is not idle', async () => {
+    // First, trigger ASK_USER so orchestrator enters waiting_on_user
+    mockStreamFn.mockImplementation(() =>
+      createMockStream(['Hold on. [ASK_USER: What time?]']),
+    );
+
+    const { session, orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('I need an appointment');
+    expect(orchestrator.getState()).toBe('waiting_on_user');
+
+    // Track how many times the stream mock is called
+    let streamCallCount = 0;
+    mockStreamFn.mockImplementation(() => {
+      streamCallCount++;
+      return createMockStream(['Response after instruction.']);
+    });
+
+    // Inject instruction while in waiting_on_user state
+    await orchestrator.handleUserInstruction('Suggest morning slots');
+
+    // The LLM should NOT have been triggered since we're not idle
+    expect(streamCallCount).toBe(0);
+
+    // But the event should still be recorded
+    const events = getCallEvents(session.id);
+    const instructionEvents = events.filter((e) => e.eventType === 'user_instruction_relayed');
+    expect(instructionEvents.length).toBe(1);
+
     orchestrator.destroy();
   });
 });

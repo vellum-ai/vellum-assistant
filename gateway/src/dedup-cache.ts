@@ -25,7 +25,11 @@ export class DedupCache {
     this.maxSize = maxSize;
   }
 
-  /** Returns the cached response body+status if the update_id was already seen. */
+  /**
+   * Returns the cached response body+status if the update_id was already seen
+   * and processing has completed. Returns `undefined` for entries still being
+   * processed (reserved but not yet finalized).
+   */
   get(updateId: number): { body: string; status: number } | undefined {
     const entry = this.cache.get(updateId);
     if (!entry) return undefined;
@@ -33,6 +37,7 @@ export class DedupCache {
       this.cache.delete(updateId);
       return undefined;
     }
+    if (entry.processing) return undefined;
     return { body: entry.body, status: entry.status };
   }
 
@@ -42,6 +47,10 @@ export class DedupCache {
    * concurrent retries are blocked before the handler finishes.
    * Returns true if a new reservation was created (caller should proceed),
    * false if the update_id was already present (caller should short-circuit).
+   *
+   * While the entry is in the "processing" state, {@link get} returns
+   * `undefined` so callers can distinguish an in-flight request from a
+   * finalized cache hit and respond accordingly (e.g. 503 Retry-After).
    */
   reserve(updateId: number): boolean {
     const existing = this.cache.get(updateId);
@@ -50,8 +59,24 @@ export class DedupCache {
     }
     // Clean up expired entry if present
     if (existing) this.cache.delete(updateId);
-    this.set(updateId, '{"ok":true}', 200);
-    this.cache.get(updateId)!.processing = true;
+
+    // Evict if at capacity
+    if (this.cache.size >= this.maxSize) {
+      this.evictExpired();
+    }
+    if (this.cache.size >= this.maxSize) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest !== undefined) {
+        this.cache.delete(oldest);
+      }
+    }
+
+    this.cache.set(updateId, {
+      body: "",
+      status: 0,
+      expiresAt: Date.now() + this.ttlMs,
+      processing: true,
+    });
     return true;
   }
 

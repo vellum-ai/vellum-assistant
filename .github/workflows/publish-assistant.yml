@@ -43,7 +43,7 @@ jobs:
         if: steps.version.outputs.changed == 'true'
         run: |
           if ! bun install --frozen-lockfile; then
-            echo "bun install failed (likely stale lockfile integrity hash), retrying without lockfile..."
+            echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
             rm -f bun.lock
             rm -rf node_modules
             bun install
@@ -93,3 +93,4 @@ jobs:
                       text: "View Run"
                     url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
                     style: danger
+

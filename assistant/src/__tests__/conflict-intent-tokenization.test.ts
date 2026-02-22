@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { computeConflictRelevance } from '../memory/conflict-intent.js';
+import { areStatementsCoherent, computeConflictRelevance, tokenizeForConflictRelevance, overlapRatio } from '../memory/conflict-intent.js';
 
 describe('tokenizeForConflictRelevance hardening', () => {
   test('excludes numeric-only tokens from relevance', () => {
@@ -81,5 +81,61 @@ describe('tokenizeForConflictRelevance hardening', () => {
     );
     // Real content tokens like "react", "frontend" should still match
     expect(relevance).toBeGreaterThan(0);
+  });
+});
+
+describe('statement coherence (areStatementsCoherent)', () => {
+  test('unrelated statements are incoherent', () => {
+    expect(areStatementsCoherent(
+      'The default model for the summarize CLI is google/gemini-3-flash-preview.',
+      "User's favorite color is blue.",
+    )).toBe(false);
+  });
+
+  test('related statements are coherent', () => {
+    expect(areStatementsCoherent(
+      "User's favorite color is blue.",
+      "User's favorite color is green.",
+    )).toBe(true);
+  });
+
+  test('topically similar preferences are coherent', () => {
+    expect(areStatementsCoherent(
+      'Use React for frontend work.',
+      'Use Vue for frontend work.',
+    )).toBe(true);
+  });
+
+  test('completely disjoint technical topics are incoherent', () => {
+    expect(areStatementsCoherent(
+      'Always use PostgreSQL for database storage.',
+      'The preferred terminal font is JetBrains Mono.',
+    )).toBe(false);
+  });
+
+  test('short technical terms (3 chars) are preserved for coherence', () => {
+    // "vim" and "css" are 3 chars — should not be filtered
+    expect(areStatementsCoherent(
+      'Use Vim for editing.',
+      'Use Emacs instead of Vim.',
+    )).toBe(true);
+
+    expect(areStatementsCoherent(
+      'Use CSS grid for layouts.',
+      'Use CSS flexbox for layouts.',
+    )).toBe(true);
+
+    expect(areStatementsCoherent(
+      'Use npm for installs.',
+      'Use npm with --legacy-peer-deps.',
+    )).toBe(true);
+  });
+
+  test('short terms with no shared context are still incoherent', () => {
+    // No shared tokens at all — completely different topics
+    expect(areStatementsCoherent(
+      'Vim is the preferred editor.',
+      'CSS grid handles page layouts.',
+    )).toBe(false);
   });
 });

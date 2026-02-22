@@ -8,6 +8,7 @@ import { estimateBase64Bytes } from '../assistant-attachments.js';
 import type { ClientMessage, CuSessionCreate, ServerMessage, SessionTransportMetadata } from '../ipc-protocol.js';
 import type { SecretPromptResult } from '../../permissions/secret-prompter.js';
 import { getConfig } from '../../config/loader.js';
+import type { DebouncerMap } from '../../util/debounce.js';
 
 const log = getLogger('handlers');
 
@@ -115,7 +116,7 @@ export interface HandlerContext {
   cuObservationParseSequence: Map<string, number>;
   socketSandboxOverride: Map<net.Socket, boolean>;
   sharedRequestTimestamps: number[];
-  debounceTimers: Map<string, ReturnType<typeof setTimeout>>;
+  debounceTimers: DebouncerMap;
   suppressConfigReload: boolean;
   setSuppressConfigReload(value: boolean): void;
   updateConfigFingerprint(): void;

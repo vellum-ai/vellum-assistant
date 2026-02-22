@@ -1304,6 +1304,7 @@ graph LR
         C9["ping"]
         C10["ipc_blob_probe<br/>probeId, nonceSha256"]
         C11["work_items_list / work_item_get<br/>work_item_create / work_item_update<br/>work_item_complete / work_item_run_task<br/>(planned)"]
+        C12["tool_permission_simulate<br/>toolName, input, workingDir?,<br/>isInteractive?, forcePromptSideEffects?,<br/>executionTarget?"]
     end
 
     SOCKET["Unix Socket<br/>~/.vellum/vellum.sock<br/>───────────────<br/>Newline-delimited JSON<br/>Max 96MB per message<br/>Ping/pong every 30s<br/>Auto-reconnect<br/>1s → 30s backoff"]
@@ -1331,6 +1332,7 @@ graph LR
         S18["session_info<br/>sessionId, title,<br/>correlationId?, threadType?"]
         S19["session_list_response<br/>sessions[]: id, title,<br/>updatedAt, threadType?"]
         S20["work_item_status_changed<br/>workItemId, newStatus<br/>(planned push)"]
+        S21["tool_permission_simulate_response<br/>decision, riskLevel, reason?,<br/>promptPayload?, matchedRuleId?"]
     end
 
     C0 --> SOCKET
@@ -1345,6 +1347,7 @@ graph LR
     C9 --> SOCKET
     C10 --> SOCKET
     C11 --> SOCKET
+    C12 --> SOCKET
 
     SOCKET --> S0
     SOCKET --> S1
@@ -1367,6 +1370,7 @@ graph LR
     SOCKET --> S18
     SOCKET --> S19
     SOCKET --> S20
+    SOCKET --> S21
 ```
 
 ---
@@ -1866,7 +1870,7 @@ graph TB
 
 ## Permission and Trust Security Model
 
-The permission system controls which tool actions the agent can execute without explicit user approval. It supports three operating modes (`workspace`, `strict`, and `legacy`), principal-aware trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
+The permission system controls which tool actions the agent can execute without explicit user approval. It supports three operating modes (`workspace`, `strict`, and `legacy`), execution-target-scoped trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
 
 ### Permission Evaluation Flow
 
@@ -1874,7 +1878,7 @@ The permission system controls which tool actions the agent can execute without 
 graph TB
     TOOL_CALL["Tool invocation<br/>(toolName, input, policyContext)"] --> CLASSIFY["classifyRisk()<br/>→ Low / Medium / High"]
     CLASSIFY --> CANDIDATES["buildCommandCandidates()<br/>tool:target strings +<br/>canonical path variants"]
-    CANDIDATES --> FIND_RULE["findHighestPriorityRule()<br/>iterate sorted rules:<br/>tool, scope, pattern (minimatch),<br/>principal, executionTarget"]
+    CANDIDATES --> FIND_RULE["findHighestPriorityRule()<br/>iterate sorted rules:<br/>tool, scope, pattern (minimatch),<br/>executionTarget"]
 
     FIND_RULE -->|"Deny rule"| DENY["decision: deny<br/>Blocked by rule"]
     FIND_RULE -->|"Ask rule"| PROMPT_ASK["decision: prompt<br/>Always ask user"]
@@ -1936,38 +1940,10 @@ Rules are stored in `~/.vellum/protected/trust.json` with version `3`. Each rule
 | `scope` | `string` | Path prefix or `everywhere` — restricts where the rule applies |
 | `decision` | `allow \| deny \| ask` | What to do when the rule matches |
 | `priority` | `number` | Higher priority wins; deny wins ties at equal priority |
-| `principalKind` | `string?` | `core` or `skill` — filters by tool origin |
-| `principalId` | `string?` | Skill ID — only matches invocations from this skill |
-| `principalVersion` | `string?` | Version hash — only matches this exact skill version |
 | `executionTarget` | `string?` | `sandbox` or `host` — restricts by execution context |
 | `allowHighRisk` | `boolean?` | When true, auto-allows even high-risk invocations |
 
-Missing optional fields act as wildcards. A rule with no `principalKind`, `principalId`, or `principalVersion` matches any principal. A rule with no `executionTarget` matches any target.
-
-### Principal and Version Matching
-
-When a tool invocation carries a `PolicyContext` with a `ToolPrincipal`, the trust store filters rules by principal constraints:
-
-```mermaid
-graph TB
-    RULE["Trust rule with<br/>principalKind, principalId,<br/>principalVersion"] --> KIND_CHECK{"principalKind<br/>on rule?"}
-    KIND_CHECK -->|"absent"| ID_CHECK
-    KIND_CHECK -->|"present"| KIND_MATCH{"ctx.principal.kind<br/>matches?"}
-    KIND_MATCH -->|"no"| SKIP["Rule does not match"]
-    KIND_MATCH -->|"yes"| ID_CHECK{"principalId<br/>on rule?"}
-
-    ID_CHECK -->|"absent"| VER_CHECK
-    ID_CHECK -->|"present"| ID_MATCH{"ctx.principal.id<br/>matches?"}
-    ID_MATCH -->|"no"| SKIP
-    ID_MATCH -->|"yes"| VER_CHECK{"principalVersion<br/>on rule?"}
-
-    VER_CHECK -->|"absent"| MATCH["Rule matches<br/>(any version)"]
-    VER_CHECK -->|"present"| VER_MATCH{"ctx.principal.version<br/>matches?"}
-    VER_MATCH -->|"no"| SKIP
-    VER_MATCH -->|"yes"| MATCH
-```
-
-Version-bound rules are central to the security model for skills: when a user approves a specific skill version, the trust rule records the version hash. If the skill's source files change (producing a different hash from `computeSkillVersionHash()`), the old rule no longer matches and the user is re-prompted.
+Missing optional fields act as wildcards. A rule with no `executionTarget` matches any target.
 
 ### Risk Classification and Escalation
 
@@ -2056,9 +2032,6 @@ When a permission prompt is sent to the client (via `confirmation_request` IPC m
 | `input` | Redacted tool input (sensitive fields removed) |
 | `riskLevel` | `low`, `medium`, or `high` |
 | `executionTarget` | `sandbox` or `host` — where the action will execute |
-| `principalKind` | `core` or `skill` — who owns the tool |
-| `principalId` | Skill ID (if skill-origin) |
-| `principalVersion` | Version hash (if available) |
 | `allowlistOptions` | Suggested patterns for "always allow" rules |
 | `scopeOptions` | Suggested scopes for rule persistence |
 
@@ -2072,16 +2045,30 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 
 | File | Role |
 |---|---|
-| `assistant/src/permissions/types.ts` | `TrustRule`, `PolicyContext`, `ToolPrincipal`, `RiskLevel`, `UserDecision` types |
+| `assistant/src/permissions/types.ts` | `TrustRule`, `PolicyContext`, `RiskLevel`, `UserDecision` types |
 | `assistant/src/permissions/checker.ts` | `classifyRisk()`, `check()`, `buildCommandCandidates()`, allowlist/scope generation |
 | `assistant/src/permissions/shell-identity.ts` | `analyzeShellCommand()`, `deriveShellActionKeys()`, `buildShellCommandCandidates()`, `buildShellAllowlistOptions()` — parser-based shell command identity and action key derivation |
-| `assistant/src/permissions/trust-store.ts` | Rule persistence, `findHighestPriorityRule()`, principal/version matching, starter bundle |
+| `assistant/src/permissions/trust-store.ts` | Rule persistence, `findHighestPriorityRule()`, execution-target matching, starter bundle |
 | `assistant/src/permissions/prompter.ts` | IPC prompt flow: `confirmation_request` → `confirmation_response` |
 | `assistant/src/permissions/defaults.ts` | Default rule templates (system ask rules for host tools, CU, etc.) |
 | `assistant/src/skills/version-hash.ts` | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files |
 | `assistant/src/skills/path-classifier.ts` | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection |
 | `assistant/src/config/schema.ts` | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict` / `legacy`) |
 | `assistant/src/tools/executor.ts` | `ToolExecutor` — orchestrates risk classification, permission check, and execution |
+| `assistant/src/daemon/handlers/config.ts` | `handleToolPermissionSimulate()` — dry-run simulation handler |
+
+### Permission Simulation (Tool Permission Tester)
+
+The `tool_permission_simulate` IPC message lets clients dry-run a tool invocation through the full permission evaluation pipeline without actually executing the tool or mutating daemon state. The macOS Settings panel exposes this as a "Tool Permission Tester" UI.
+
+**Simulation semantics:**
+
+- The request specifies `toolName`, `input`, and optional context overrides (`workingDir`, `isInteractive`, `forcePromptSideEffects`, `executionTarget`).
+- The daemon runs `classifyRisk()` and `check()` against the live trust rules, then returns the decision (`allow`, `deny`, or `prompt`), risk level, reason, matched rule ID, and (when decision is `prompt`) the full `promptPayload` with allowlist/scope options.
+- **Simulation-only allow/deny**: A simulated `allow` or `deny` decision does not persist any state. No trust rules are created or modified.
+- **Always-allow persistence**: When the tester UI's "Always Allow" action is used, the client sends a separate `add_trust_rule` message that persists the rule to `trust.json`, identical to the existing confirmation flow.
+- **Private-thread override**: When `forcePromptSideEffects` is true, side-effect tools that would normally be auto-allowed are promoted to `prompt`.
+- **Non-interactive override**: When `isInteractive` is false, `prompt` decisions are converted to `deny` (no client available to approve).
 
 ---
 
@@ -2718,6 +2705,8 @@ graph TB
     BLOCK --> NOTIFY["Send error to client:<br/>'Message contains sensitive info'"]
     BLOCK --> LOG["Log warning with<br/>detectedTypes + matchCount<br/>(never the secret itself)"]
 ```
+
+The secret scanner includes pattern-based detection for Telegram bot tokens (format: `<8-10 digit bot_id>:<35-char secret>`), API keys from major providers, Slack tokens, and other common secret formats. This prevents users from accidentally pasting a Telegram bot token in chat — the token must be entered through the secure credential prompt flow or the Settings UI instead.
 
 ### Brokered Credential Use
 
@@ -3463,20 +3452,41 @@ The avatar evolves during onboarding based on conversation and identity choices.
 
 ## Ingress Boundary Architecture — Gateway-Only Public Ingress
 
-All public-facing HTTP callbacks (Twilio webhooks, OAuth authorization callbacks, Telegram webhooks) terminate at the gateway, which validates and forwards them to the assistant runtime. The runtime HTTP server is not directly exposed to the internet.
+All external webhook endpoints (Telegram, Twilio, OAuth, future channels) are handled exclusively by the gateway. The runtime never exposes webhook ingress. The runtime-proxy explicitly blocks forwarding of `/webhooks/*` paths.
+
+This boundary is enforced at three layers:
+
+1. **Gateway routing:** The gateway's `fetch()` handler matches `/webhooks/*` paths to dedicated handlers before the runtime-proxy fallthrough. Webhook traffic is validated (signature checks, payload limits) and forwarded to internal runtime endpoints.
+2. **Runtime-proxy guard:** The runtime-proxy handler rejects any `/webhooks/*` path with a 404, preventing accidental forwarding of webhook traffic to the runtime even if a new webhook path is added to the gateway without a dedicated handler.
+3. **Runtime server:** The runtime HTTP server does not register any `/webhooks/telegram` routes. Direct Twilio webhook routes (`/webhooks/twilio/*`) return 410 with a `GATEWAY_ONLY` error code, and relay WebSocket upgrades are restricted to private network peers.
 
 ```
 Internet
   |
-  +-- Twilio ----------> Gateway POST /webhooks/twilio/*    --> Runtime /v1/calls/*
-  +-- OAuth Provider ---> Gateway GET  /webhooks/oauth/callback --> Runtime /v1/oauth/callback
-  +-- Telegram --------> Gateway POST /webhooks/telegram    --> Runtime /v1/assistants/:id/channels/inbound
+  +-- Twilio ----------> Gateway POST /webhooks/twilio/*    --> Runtime /v1/internal/twilio/*
+  +-- OAuth Provider ---> Gateway GET  /webhooks/oauth/callback --> Runtime /v1/internal/oauth/callback
+  +-- Telegram --------> Gateway POST /webhooks/telegram    --> Runtime /v1/channels/inbound
   |
   +-- Tunnel (ngrok, Cloudflare, etc.)
        |
        v
      Gateway (http://127.0.0.1:7830)
+       |
+       +-- Runtime proxy /v1/* --> Runtime (http://127.0.0.1:7821)
+       +-- /webhooks/* --> BLOCKED (404, never forwarded to runtime)
 ```
+
+### Channel Sync Lifecycle
+
+Channel bindings (e.g., Telegram chat to conversation) follow a four-phase lifecycle:
+
+1. **Bind** — An inbound message from an external channel (e.g., Telegram chat) arrives at the gateway, which normalizes it and forwards it to the runtime's `/v1/channels/inbound` endpoint. The runtime creates or reuses a conversation, establishing the channel binding (`sourceChannel` metadata on the conversation).
+
+2. **Sync** — Subsequent messages on the same external chat are routed to the same conversation via the channel binding. Replies from the assistant are delivered back through the gateway's `/deliver/telegram` endpoint, which sends them to the Telegram API. The binding ensures bidirectional message flow stays in sync.
+
+3. **Delete** — When a conversation is deleted (via the UI or API), the channel binding is removed. Future messages from the same external chat will create a new conversation.
+
+4. **Resurrection** — If a message arrives on an external chat whose conversation was previously deleted, the channel inbound handler treats it as a new conversation and establishes a fresh binding. The external chat ID is reused, but the conversation is new. This prevents orphaned external chats from losing the ability to communicate.
 
 ### Configuration
 
@@ -3533,11 +3543,47 @@ The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-clos
 
 **Bot-account limitations:** The Telegram Bot API only supports sending messages to chats that have previously interacted with the bot. Bots cannot enumerate chats, read message history, or search messages. A future MTProto user-account session track may lift some of these restrictions.
 
+### Telegram Credential Flow
+
+In desktop deployments, Telegram bot tokens are stored in secure storage (macOS Keychain or the encrypted file fallback) and never in plaintext config files. When deploying the gateway standalone, operators may also supply credentials via environment variables (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`).
+
+```
+Entry points:
+
+  1. Skill-based setup (chat):
+     credential_store action: "prompt" → token stored in secure storage
+       → telegram_config IPC (action: set) — daemon reads token from secure storage
+
+  2. Desktop Settings UI (macOS):
+     SettingsStore.saveTelegramToken(token)
+       → telegram_config IPC (action: set, botToken: token) — token passed directly
+
+Both paths converge at:
+  → Daemon handler validates token via Telegram getMe API
+    → setSecureKey("credential:telegram:bot_token", token)
+    → upsertCredentialMetadata("telegram", "bot_token", {accountInfo: username})
+    → Auto-generates webhook secret if missing
+      → setSecureKey("credential:telegram:webhook_secret", secret)
+      → upsertCredentialMetadata("telegram", "webhook_secret", {})
+      → On storage failure: rolls back bot_token + metadata, returns error
+    → If webhook secret already exists: upserts metadata anyway (self-heal)
+    → Triggers gateway webhook reconcile
+      → Gateway credential reader picks up new credentials
+        → Webhook reconciliation registers webhook with Telegram
+```
+
+The `telegram_config` IPC message supports three actions:
+- **`get`** — returns connection status (`hasBotToken`, `botUsername`, `connected`, `hasWebhookSecret`) without exposing secret values
+- **`set`** — validates the bot token against the Telegram API, stores it in secure storage, auto-generates a webhook secret if none exists (with rollback on failure), self-heals webhook_secret metadata if it already exists, and triggers gateway webhook reconciliation
+- **`clear`** — deregisters the webhook by calling Telegram's `deleteWebhook` API directly (while the token is still available), then deletes the bot token and webhook secret from both secure storage and credential metadata, and triggers gateway reconciliation
+
+The gateway reads Telegram credentials via its `credential-reader` module (`gateway/src/credential-reader.ts`), which uses a keychain-first fallback strategy on macOS: it tries the macOS Keychain first (via the `security` CLI), then falls back to the encrypted file store (`~/.vellum/protected/keys.enc`). This mirrors the assistant's own `secure-keys.ts` module. On non-macOS platforms, only the encrypted store is used. The keychain reader discriminates exit code 44 (`errSecItemNotFound` — credential genuinely missing) from other non-zero exit codes (transient errors like locked keychain or timeout), logging the latter as warnings for operator visibility.
+
 ### Webhook Reconciliation
 
 On startup, the gateway automatically reconciles the Telegram webhook registration:
 
-1. Reads `INGRESS_PUBLIC_BASE_URL` and Telegram credentials (bot token, webhook secret)
+1. Reads `INGRESS_PUBLIC_BASE_URL` and Telegram credentials (bot token, webhook secret) from secure storage via the credential reader
 2. Calls `getWebhookInfo` to log the current registration state
 3. Unconditionally calls `setWebhook` with the expected URL, secret, and allowed updates (idempotent — Telegram does not expose the current secret via `getWebhookInfo`, so a compare-then-set approach would miss secret rotations)
 
@@ -3555,7 +3601,7 @@ In multi-assistant mode, the operator must configure `GATEWAY_ASSISTANT_ROUTING_
 
 ## Outgoing AI Phone Calls — Twilio ConversationRelay
 
-The Calls subsystem enables the assistant to place outgoing phone calls on behalf of the user via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak with the callee in real time, and can pause to consult the user (in the chat UI) when it encounters questions it cannot answer on its own.
+The Calls subsystem enables the assistant to place outgoing phone calls on behalf of the user via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak with the callee in real time. During a live call, user messages in the chat thread are automatically routed to the call: if the AI agent has a pending question, the message is treated as an answer; otherwise, it is treated as a mid-call steering instruction that guides the AI agent's behavior in real time.
 
 ### Call Flow
 
@@ -3632,8 +3678,8 @@ sequenceDiagram
 | File | Role |
 |------|------|
 | `assistant/src/calls/call-store.ts` | CRUD operations for call sessions, call events, and pending questions in SQLite via Drizzle ORM |
-| `assistant/src/calls/call-domain.ts` | Shared domain functions (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`) used by both tools and HTTP routes |
-| `assistant/src/calls/call-bridge.ts` | Auto-routes user chat replies as answers to pending call questions, intercepting messages before the agent loop |
+| `assistant/src/calls/call-domain.ts` | Shared domain functions (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`) used by both tools and HTTP routes |
+| `assistant/src/calls/call-bridge.ts` | Answer-or-instruction bridge: intercepts user chat messages before the agent loop and routes them as answers (when a pending question exists) or as mid-call steering instructions (when no question is pending) |
 | `assistant/src/calls/call-state-machine.ts` | Deterministic state transition validator with allowed-transition table and terminal-state enforcement |
 | `assistant/src/calls/call-recovery.ts` | Startup reconciliation of non-terminal calls: fetches provider status and transitions stale sessions |
 | `assistant/src/calls/twilio-provider.ts` | Twilio Voice REST API integration (initiateCall, endCall, getCallStatus) using direct fetch — no Twilio SDK dependency |
@@ -3676,24 +3722,46 @@ initiated ──> ringing ──> in_progress ──> waiting_on_user ──> in
 
 The `validateTransition(current, next)` function is called by `updateCallSession()` in the call store. Same-state transitions (no-ops) are always valid. Invalid transitions are rejected with an explanatory reason string.
 
-### Call Bridge — In-Thread User Consultation
+### Call Bridge — Answer-or-Instruction Routing
 
-The call bridge (`call-bridge.ts`) enables seamless user consultation during a live call without requiring out-of-band API calls. The flow is:
+The call bridge (`call-bridge.ts`) intercepts user chat messages during a live call and routes them to the call orchestrator — either as answers to pending questions or as mid-call steering instructions. This enables users to both respond to questions from the callee and proactively steer the conversation without leaving the chat thread.
+
+The bridge function `tryRouteCallMessage()` applies the following decision logic:
+
+1. **Find active call**: Look up a non-terminal call session for the conversation. If none exists, return `{ handled: false, reason: 'no_active_call' }`.
+2. **Pending question → answer path** (priority): If the active call has a pending question, the message is routed as an answer via `handleUserAnswer()` on the orchestrator, which injects `[USER_ANSWERED: answer]` into the LLM context and resumes the conversation with the callee.
+3. **No pending question → instruction path**: If no question is pending, the message is routed as a steering instruction via `relayInstruction()` in `call-domain.ts`, which calls `handleUserInstruction()` on the orchestrator. The orchestrator injects `[USER_INSTRUCTION: text]` into its conversation history as high-priority steering input.
+
+#### Answer path detail
 
 1. **Question emission**: When the LLM emits `[ASK_USER: question]`, the orchestrator creates a pending question in SQLite, fires the question notifier, and transitions to `waiting_on_user` state.
-
 2. **In-thread display**: The Session's registered question notifier callback persists an assistant message in the conversation thread (via `conversationStore.addMessage()`) and emits `assistant_text_delta` + `message_complete` events to connected clients.
-
-3. **Auto-consumption**: When the user sends their next message in the same thread, `DaemonServer.processMessage()` and `DaemonServer.persistAndProcessMessage()` call `tryHandlePendingCallAnswer()` before launching the agent loop. If there is an active call with a pending question and the orchestrator is in `waiting_on_user` state, the message is routed directly to the orchestrator and the agent loop is skipped.
-
+3. **Auto-consumption**: `tryRouteCallMessage()` is checked before the agent loop in two entrypoints:
+   - **HTTP path**: `DaemonServer.processMessage()` / `persistAndProcessMessage()` in the daemon server.
+   - **IPC/session path**: `processMessage()` (direct) and `routeOrProcess()` (queued) in `session-process.ts`.
+   In both paths, if the bridge consumes the message the agent loop is skipped. Any `userFacingText` returned by the bridge is emitted as `assistant_text_delta` + `message_complete` so the chat UI shows a live acknowledgement or failure notice.
 4. **Orchestrator resume**: The orchestrator receives the answer via `handleUserAnswer()`, injects `[USER_ANSWERED: answer]` into the LLM context, and resumes the conversation with the callee.
 
-The bridge returns a `{ handled: boolean; reason?: string }` result so callers can determine whether the message was consumed:
+#### Instruction path detail
+
+When no pending question exists but a call is active, the user's message is treated as a steering instruction:
+
+1. The bridge calls `relayInstruction()` which validates the call is active and delegates to `handleUserInstruction()` on the orchestrator.
+2. The orchestrator appends `[USER_INSTRUCTION: text]` to its conversation history. The system prompt tells the model to treat this marker as high-priority steering input.
+3. A confirmation message ("Instruction relayed to active call.") is persisted in the conversation thread.
+4. **Failure handling**: If `relayInstruction()` fails (no active orchestrator, terminal session, etc.), a failure notice ("Failed to relay instruction to the active call.") is persisted and the message is still consumed (`handled: true`) so the caller does not fall through to the normal agent loop. The bridge returns `reason: 'instruction_relay_failed'` so callers can distinguish success from failure.
+
+The instruction path is also available via HTTP at `POST /v1/calls/:callSessionId/instruction` for programmatic access (see Runtime HTTP Endpoints).
+
+#### Bridge result reasons
+
+The bridge returns a `{ handled: boolean; reason?: string; userFacingText?: string }` result so callers can determine whether the message was consumed:
 - `no_active_call` — no non-terminal call session exists for this conversation
-- `no_pending_question` — call is active but no question is pending
+- `no_pending_question` — call is active but no question is pending (only returned in legacy answer-only path; current bridge falls through to instruction)
 - `orchestrator_not_found` — the orchestrator was destroyed (call ended between question and answer)
 - `orchestrator_not_waiting` — the orchestrator is not in `waiting_on_user` state
 - `orchestrator_rejected` — the orchestrator's `handleUserAnswer()` returned false
+- `instruction_relay_failed` — the instruction could not be relayed to the orchestrator; message is still consumed (`handled: true`) with a failure notice persisted in-thread
 
 ### SQLite Tables
 
@@ -3742,6 +3810,7 @@ This makes ingress URL updates smoother in local tunnel workflows because Twilio
 | GET | `/v1/calls/:callSessionId` | Get call status, including any pending question |
 | POST | `/v1/calls/:callSessionId/cancel` | Cancel an active call |
 | POST | `/v1/calls/:callSessionId/answer` | Answer a pending question via HTTP (alternative to in-thread bridge) |
+| POST | `/v1/calls/:callSessionId/instruction` | Relay a steering instruction to an active call's orchestrator (alternative to in-thread bridge) |
 | POST | `/v1/calls/voice-webhook` | Twilio voice webhook; returns TwiML with ConversationRelay connect |
 | POST | `/v1/calls/status-callback` | Twilio status callback (ringing, in-progress, completed, failed) |
 | POST | `/v1/calls/connect-action` | TwiML connect action callback when ConversationRelay ends |
@@ -3755,7 +3824,7 @@ This makes ingress URL updates smoother in local tunnel workflows because Twilio
 | `call_status` | Retrieves the current status of a call session |
 | `call_end` | Terminates an active call |
 
-Both tools and HTTP routes delegate to the same domain functions in `call-domain.ts` (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`), ensuring consistent validation and behavior.
+Both tools and HTTP routes delegate to the same domain functions in `call-domain.ts` (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`), ensuring consistent validation and behavior.
 
 ### Control Markers
 

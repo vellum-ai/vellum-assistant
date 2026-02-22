@@ -41,6 +41,8 @@ export class CallOrchestrator {
   private consultationTimer: ReturnType<typeof setTimeout> | null = null;
   private durationEndTimer: ReturnType<typeof setTimeout> | null = null;
   private task: string | null;
+  /** Instructions queued while an LLM turn is in-flight or during waiting_on_user */
+  private pendingInstructions: string[] = [];
 
   constructor(callSessionId: string, relay: RelayConnection, task: string | null) {
     this.callSessionId = callSessionId;
@@ -101,8 +103,18 @@ export class CallOrchestrator {
     this.state = 'processing';
     updateCallSession(this.callSessionId, { status: 'in_progress' });
 
-    // Append the user's answer as a special message the model recognizes
-    this.conversationHistory.push({ role: 'user', content: `[USER_ANSWERED: ${answerText}]` });
+    // Merge any instructions that were queued during the waiting_on_user
+    // state into a single user message alongside the answer to avoid
+    // consecutive user-role messages (which violate Anthropic API
+    // role-alternation requirements).
+    const parts: string[] = [];
+    for (const instr of this.pendingInstructions) {
+      parts.push(`[USER_INSTRUCTION: ${instr}]`);
+    }
+    this.pendingInstructions = [];
+    parts.push(`[USER_ANSWERED: ${answerText}]`);
+
+    this.conversationHistory.push({ role: 'user', content: parts.join('\n') });
 
     // Fire-and-forget: unblock the caller so the HTTP response and answer
     // persistence happen immediately, before LLM streaming begins.
@@ -110,6 +122,46 @@ export class CallOrchestrator {
       log.error({ err, callSessionId: this.callSessionId }, 'runLlm failed after user answer'),
     );
     return true;
+  }
+
+  /**
+   * Inject a user instruction into the orchestrator's conversation history.
+   * The instruction is formatted as a dedicated marker that the system prompt
+   * tells the model to treat as high-priority steering input.
+   *
+   * When the LLM is actively processing or speaking, or when the orchestrator
+   * is waiting on a user answer, the instruction is queued and spliced into
+   * the conversation at the correct chronological position once the current
+   * turn completes. This prevents:
+   *  - History ordering corruption (instruction appearing before an in-flight
+   *    assistant response).
+   *  - Consecutive user-role messages (which violate Anthropic API
+   *    role-alternation requirements).
+   */
+  async handleUserInstruction(instructionText: string): Promise<void> {
+    recordCallEvent(this.callSessionId, 'user_instruction_relayed', { instruction: instructionText });
+
+    // Queue the instruction when it cannot be safely appended right now:
+    //  - processing/speaking: an LLM turn is in-flight; appending would
+    //    place the instruction before the assistant response in the array.
+    //  - waiting_on_user: the last message is an assistant turn; the next
+    //    message should be the user's answer. Queued instructions are merged
+    //    into that answer message by handleUserAnswer().
+    if (this.state === 'processing' || this.state === 'speaking' || this.state === 'waiting_on_user') {
+      this.pendingInstructions.push(instructionText);
+      return;
+    }
+
+    this.conversationHistory.push({
+      role: 'user',
+      content: `[USER_INSTRUCTION: ${instructionText}]`,
+    });
+
+    // Reset the silence timer so the instruction-triggered LLM turn
+    // doesn't race with a stale silence timeout.
+    this.resetSilenceTimer();
+
+    await this.runLlm();
   }
 
   /**
@@ -155,10 +207,11 @@ export class CallOrchestrator {
       '2. Be concise — phone conversations should be brief and natural.',
       '3. If the callee asks something you don\'t know, include [ASK_USER: your question here] in your response along with a hold message like "Let me check on that for you."',
       '4. If the callee provides information preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
-      '5. When the call\'s purpose is fulfilled, include [END_CALL] in your response along with a polite goodbye.',
-      '6. Do not make up information — ask the user if unsure.',
-      '7. Keep responses short — 1-3 sentences is ideal for phone conversation.',
-      '8. When caller text includes [SPEAKER id="..." label="..."], treat each speaker as a distinct person and personalize responses using that speaker\'s prior context in this call.',
+      '5. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.',
+      '6. When the call\'s purpose is fulfilled, include [END_CALL] in your response along with a polite goodbye.',
+      '7. Do not make up information — ask the user if unsure.',
+      '8. Keep responses short — 1-3 sentences is ideal for phone conversation.',
+      '9. When caller text includes [SPEAKER id="..." label="..."], treat each speaker as a distinct person and personalize responses using that speaker\'s prior context in this call.',
     ]
       .filter(Boolean)
       .join('\n');
@@ -326,6 +379,7 @@ export class CallOrchestrator {
             this.state = 'idle';
             updateCallSession(this.callSessionId, { status: 'in_progress' });
             expirePendingQuestions(this.callSessionId);
+            this.flushPendingInstructions();
           }
         }, getUserConsultationTimeoutMs());
         return;
@@ -351,8 +405,11 @@ export class CallOrchestrator {
         return;
       }
 
-      // Normal turn complete
+      // Normal turn complete — flush any instructions that arrived while
+      // the LLM was active. They are appended after the assistant response
+      // so chronological order is preserved, then a new LLM turn is started.
       this.state = 'idle';
+      this.flushPendingInstructions();
     } catch (err: unknown) {
       // Aborted requests are expected (interruptions, rapid utterances)
       if (err instanceof Error && err.name === 'AbortError') {
@@ -362,7 +419,36 @@ export class CallOrchestrator {
       log.error({ err, callSessionId: this.callSessionId }, 'LLM streaming error');
       this.relay.sendTextToken('I\'m sorry, I encountered a technical issue. Could you repeat that?', true);
       this.state = 'idle';
+      this.flushPendingInstructions();
     }
+  }
+
+  /**
+   * Drain any instructions that were queued while the LLM was active.
+   * Each instruction is appended as a user message (now correctly after
+   * the assistant response) and a new LLM turn is kicked off to handle
+   * them. Batches all pending instructions into a single user message to
+   * avoid triggering multiple sequential LLM turns.
+   */
+  private flushPendingInstructions(): void {
+    if (this.pendingInstructions.length === 0) return;
+
+    const parts = this.pendingInstructions.map(
+      (instr) => `[USER_INSTRUCTION: ${instr}]`,
+    );
+    this.pendingInstructions = [];
+
+    this.conversationHistory.push({
+      role: 'user',
+      content: parts.join('\n'),
+    });
+
+    this.resetSilenceTimer();
+
+    // Fire-and-forget so we don't block the current turn's cleanup.
+    this.runLlm().catch((err) =>
+      log.error({ err, callSessionId: this.callSessionId }, 'runLlm failed after flushing queued instructions'),
+    );
   }
 
   private startDurationTimer(): void {

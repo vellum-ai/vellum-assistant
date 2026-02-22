@@ -53,6 +53,22 @@ export function deleteConversationKey(
 }
 
 /**
+ * Map a conversation key to an existing conversation ID (no creation).
+ * Used by move-sync to rebind a key to a different conversation.
+ */
+export function setConversationKey(conversationKey: string, conversationId: string): void {
+  const db = getDb();
+  db.insert(conversationKeys)
+    .values({
+      id: uuid(),
+      conversationKey,
+      conversationId,
+      createdAt: Date.now(),
+    })
+    .run();
+}
+
+/**
  * Get or create a conversation for the given conversationKey.
  *
  * If a mapping already exists, returns the existing conversation ID.

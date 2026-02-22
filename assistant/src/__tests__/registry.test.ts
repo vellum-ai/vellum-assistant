@@ -176,7 +176,7 @@ describe('tool manifest', () => {
   });
 
   test('eager module tool names list contains expected count', () => {
-    expect(eagerModuleToolNames.length).toBe(15);
+    expect(eagerModuleToolNames.length).toBe(16);
   });
 
   test('explicit tools list includes memory, credential, watch, catalog, and discover tools', () => {

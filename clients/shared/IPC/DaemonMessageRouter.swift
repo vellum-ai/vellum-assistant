@@ -83,6 +83,8 @@ extension DaemonClient {
             onTrustRulesListResponse?(msg.rules)
         case .toolPermissionSimulateResponse(let msg):
             onToolPermissionSimulateResponse?(msg)
+        case .toolNamesListResponse(let msg):
+            onToolNamesListResponse?(msg)
         case .schedulesListResponse(let msg):
             onSchedulesListResponse?(msg.schedules)
         case .remindersListResponse(let msg):
@@ -125,6 +127,8 @@ extension DaemonClient {
             onIngressConfigResponse?(msg)
         case .vercelApiConfigResponse(let msg):
             onVercelApiConfigResponse?(msg)
+        case .telegramConfigResponse(let msg):
+            onTelegramConfigResponse?(msg)
         case .twitterIntegrationConfigResponse(let msg):
             onTwitterIntegrationConfigResponse?(msg)
         case .twitterAuthResult(let msg):

@@ -185,6 +185,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `tool_permission_simulate_response` message.
     public var onToolPermissionSimulateResponse: ((ToolPermissionSimulateResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `tool_names_list_response` message.
+    public var onToolNamesListResponse: ((ToolNamesListResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `schedules_list_response` message.
     public var onSchedulesListResponse: (([ScheduleItem]) -> Void)?
 
@@ -244,6 +247,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a `vercel_api_config_response` message.
     public var onVercelApiConfigResponse: ((VercelApiConfigResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `telegram_config_response` message.
+    public var onTelegramConfigResponse: ((TelegramConfigResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `twitter_integration_config_response` message.
     public var onTwitterIntegrationConfigResponse: ((TwitterIntegrationConfigResponseMessage) -> Void)?
@@ -492,6 +498,10 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Used in tests to avoid needing a live NWConnection.
     internal var sendOverride: ((Any) throws -> Void)?
 
+    /// Closure that, when set, replaces the real moveChannelSync HTTP call.
+    /// Used in tests to simulate success/failure without a live HTTP server.
+    internal var moveChannelSyncOverride: ((String, String, String) async -> Bool)?
+
     /// Send a message to the daemon.
     /// Encodes the message as JSON, appends a newline, and writes to the connection.
     /// Throws `SendError.notConnected` when the connection is nil so callers can
@@ -599,9 +609,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         scope: String,
         decision: String,
         allowHighRisk: Bool? = nil,
-        principalKind: String? = nil,
-        principalId: String? = nil,
-        principalVersion: String? = nil,
         executionTarget: String? = nil
     ) throws {
         try send(AddTrustRuleMessage(
@@ -610,9 +617,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             scope: scope,
             decision: decision,
             allowHighRisk: allowHighRisk,
-            principalKind: principalKind,
-            principalId: principalId,
-            principalVersion: principalVersion,
             executionTarget: executionTarget
         ))
     }
@@ -656,23 +660,20 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         input: [String: AnyCodable],
         workingDir: String? = nil,
         isInteractive: Bool? = nil,
-        forcePromptSideEffects: Bool? = nil,
-        principalKind: String? = nil,
-        principalId: String? = nil,
-        principalVersion: String? = nil,
-        executionTarget: String? = nil
+        forcePromptSideEffects: Bool? = nil
     ) throws {
         try send(ToolPermissionSimulateMessage(
             toolName: toolName,
             input: input,
             workingDir: workingDir,
             isInteractive: isInteractive,
-            forcePromptSideEffects: forcePromptSideEffects,
-            principalKind: principalKind,
-            principalId: principalId,
-            principalVersion: principalVersion,
-            executionTarget: executionTarget
+            forcePromptSideEffects: forcePromptSideEffects
         ))
+    }
+
+    /// Request the sorted list of all registered tool names from the daemon.
+    public func sendToolNamesList() throws {
+        try send(ToolNamesListMessage())
     }
 
     // MARK: - Schedules Management
@@ -903,6 +904,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(VercelApiConfigRequestMessage(action: action, apiToken: apiToken))
     }
 
+    /// Get, set, or clear Telegram bot token configuration.
+    public func sendTelegramConfig(action: String, botToken: String? = nil, commands: [IPCTelegramConfigRequestCommand]? = nil) throws {
+        try send(TelegramConfigRequestMessage(action: action, botToken: botToken, commands: commands))
+    }
+
     /// Publish a static page to Vercel.
     public func sendPublishPage(html: String, title: String? = nil, appId: String? = nil) throws {
         try send(PublishPageRequestMessage(html: html, title: title, appId: appId))
@@ -1111,5 +1117,135 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             type: "document_list",
             conversationId: conversationId
         ))
+    }
+
+    // MARK: - Channel Management
+
+    /// Delete a channel conversation binding via the runtime HTTP endpoint.
+    /// Removes the conversation key mapping and external binding so the
+    /// sync can be re-established on the next inbound or outbound message.
+    public func deleteChannelConversation(sourceChannel: String, externalChatId: String) async -> Bool {
+        let baseURL: String
+        let bearerToken: String?
+
+        if let httpTransport {
+            baseURL = httpTransport.baseURL
+            bearerToken = httpTransport.bearerToken
+        } else if let port = httpPort {
+            baseURL = "http://localhost:\(port)"
+            let tokenBase: String
+            if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !baseDir.isEmpty {
+                tokenBase = baseDir
+            } else {
+                tokenBase = NSHomeDirectory()
+            }
+            let tokenPath = tokenBase + "/.vellum/http-token"
+            do {
+                bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                log.error("Failed to read HTTP bearer token from \(tokenPath): \(error)")
+                bearerToken = nil
+            }
+        } else {
+            log.warning("Cannot delete channel conversation: no HTTP transport available")
+            return false
+        }
+
+        guard let url = URL(string: "\(baseURL)/v1/channels/conversation") else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+        if let token = bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let body: [String: String] = [
+            "sourceChannel": sourceChannel,
+            "externalChatId": externalChatId,
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+            if http.statusCode == 200 {
+                log.info("Deleted channel conversation \(sourceChannel):\(externalChatId)")
+                return true
+            } else {
+                log.error("Delete channel conversation failed (\(http.statusCode))")
+                return false
+            }
+        } catch {
+            log.error("Delete channel conversation error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Move channel sync ownership to a different conversation.
+    /// Calls the runtime's POST /v1/channels/move-sync endpoint to
+    /// atomically transfer the binding from the current owner to the new conversation.
+    public func moveChannelSync(sourceChannel: String, externalChatId: String, newConversationId: String) async -> Bool {
+        if let override = moveChannelSyncOverride {
+            return await override(sourceChannel, externalChatId, newConversationId)
+        }
+        let baseURL: String
+        let bearerToken: String?
+
+        if let httpTransport {
+            baseURL = httpTransport.baseURL
+            bearerToken = httpTransport.bearerToken
+        } else if let port = httpPort {
+            baseURL = "http://localhost:\(port)"
+            let tokenBase: String
+            if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !baseDir.isEmpty {
+                tokenBase = baseDir
+            } else {
+                tokenBase = NSHomeDirectory()
+            }
+            let tokenPath = tokenBase + "/.vellum/http-token"
+            do {
+                bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                log.error("Failed to read HTTP bearer token from \(tokenPath): \(error)")
+                bearerToken = nil
+            }
+        } else {
+            log.warning("Cannot move channel sync: no HTTP transport available")
+            return false
+        }
+
+        guard let url = URL(string: "\(baseURL)/v1/channels/move-sync") else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+        if let token = bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let body: [String: String] = [
+            "sourceChannel": sourceChannel,
+            "externalChatId": externalChatId,
+            "newConversationId": newConversationId,
+        ]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+            if http.statusCode == 200 {
+                log.info("Moved channel sync \(sourceChannel):\(externalChatId) to \(newConversationId)")
+                return true
+            } else {
+                log.error("Move channel sync failed (\(http.statusCode))")
+                return false
+            }
+        } catch {
+            log.error("Move channel sync error: \(error.localizedDescription)")
+            return false
+        }
     }
 }

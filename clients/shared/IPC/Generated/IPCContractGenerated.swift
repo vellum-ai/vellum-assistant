@@ -29,12 +29,6 @@ public struct IPCAddTrustRule: Codable, Sendable {
     public let decision: String
     /// When true, the rule also covers high-risk invocations.
     public let allowHighRisk: Bool?
-    /// Principal kind that this rule applies to (e.g. 'core', 'skill', 'task').
-    public let principalKind: String?
-    /// Skill/task ID when principalKind is 'skill' or 'task'.
-    public let principalId: String?
-    /// Content-hash of the skill source for version pinning.
-    public let principalVersion: String?
     /// Execution target override for this rule.
     public let executionTarget: String?
 }
@@ -349,6 +343,15 @@ public struct IPCCardSurfaceDataMetadata: Codable, Sendable {
     public let value: String
 }
 
+/// Channel binding metadata exposed in session/conversation list APIs.
+public struct IPCChannelBinding: Codable, Sendable {
+    public let sourceChannel: String
+    public let externalChatId: String
+    public let externalUserId: String?
+    public let displayName: String?
+    public let username: String?
+}
+
 public struct IPCConfirmationRequest: Codable, Sendable {
     public let type: String
     public let requestId: String
@@ -361,12 +364,6 @@ public struct IPCConfirmationRequest: Codable, Sendable {
     public let diff: IPCConfirmationRequestDiff?
     public let sandboxed: Bool?
     public let sessionId: String?
-    /// Principal kind that initiated this tool use (e.g. 'core' or 'skill').
-    public let principalKind: String?
-    /// Skill ID when principalKind is 'skill'.
-    public let principalId: String?
-    /// Content-hash of the skill source for version tracking.
-    public let principalVersion: String?
     /// When false, the client should hide "always allow" / trust-rule persistence affordances.
     public let persistentDecisionsAllowed: Bool?
 }
@@ -1314,6 +1311,8 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     public let title: String
     public let updatedAt: Int
     public let threadType: String?
+    /// Channel binding metadata exposed in session/conversation list APIs.
+    public let channelBinding: IPCChannelBinding?
 }
 
 public struct IPCSessionsClearRequest: Codable, Sendable {
@@ -1714,11 +1713,52 @@ public struct IPCTaskSubmit: Codable, Sendable {
     public let source: String?
 }
 
+public struct IPCTelegramConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let botToken: String?
+    public let commands: [IPCTelegramConfigRequestCommand]?
+}
+
+public struct IPCTelegramConfigRequestCommand: Codable, Sendable {
+    public let command: String
+    public let description: String
+}
+
+public struct IPCTelegramConfigResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let hasBotToken: Bool
+    public let botUsername: String?
+    public let connected: Bool
+    public let hasWebhookSecret: Bool
+    public let lastError: String?
+    public let error: String?
+}
+
 public struct IPCToolInputDelta: Codable, Sendable {
     public let type: String
     public let toolName: String
     public let content: String
     public let sessionId: String?
+}
+
+public struct IPCToolInputSchema: Codable, Sendable {
+    public let type: String
+    public let properties: [String: AnyCodable]?
+    public let required: [String]?
+}
+
+public struct IPCToolNamesListRequest: Codable, Sendable {
+    public let type: String
+}
+
+public struct IPCToolNamesListResponse: Codable, Sendable {
+    public let type: String
+    /// Sorted list of all registered tool names.
+    public let names: [String]
+    /// Input schemas keyed by tool name.
+    public let schemas: [String: AnyCodable]?
 }
 
 public struct IPCToolOutputChunk: Codable, Sendable {
@@ -1744,12 +1784,6 @@ public struct IPCToolPermissionSimulateRequest: Codable, Sendable {
     public let isInteractive: Bool?
     /// When true, side-effect tools that would normally be auto-allowed get promoted to prompt.
     public let forcePromptSideEffects: Bool?
-    /// Optional principal context overrides.
-    public let principalKind: String?
-    public let principalId: String?
-    public let principalVersion: String?
-    /// Optional execution target override.
-    public let executionTarget: String?
 }
 
 public struct IPCToolPermissionSimulateResponse: Codable, Sendable {
@@ -1763,6 +1797,8 @@ public struct IPCToolPermissionSimulateResponse: Codable, Sendable {
     public let reason: String?
     /// When decision is 'prompt', the data needed to render a ToolConfirmationBubble.
     public let promptPayload: IPCToolPermissionSimulateResponsePromptPayload?
+    /// Resolved execution target for the tool.
+    public let executionTarget: String?
     /// ID of the trust rule that matched (if any).
     public let matchedRuleId: String?
     /// Error message when success is false.

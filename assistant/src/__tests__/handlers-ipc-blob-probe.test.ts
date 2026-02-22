@@ -44,6 +44,7 @@ mock.module('../util/logger.js', () => ({
 
 import { handleMessage, type HandlerContext } from '../daemon/handlers.js';
 import type { IpcBlobProbe, ServerMessage } from '../daemon/ipc-contract.js';
+import { DebouncerMap } from '../util/debounce.js';
 
 /** Write a probe file to the test blob directory. */
 function writeProbeFile(probeId: string, content: Buffer): string {
@@ -63,7 +64,7 @@ function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
     cuObservationParseSequence: new Map(),
     socketSandboxOverride: new Map(),
     sharedRequestTimestamps: [],
-    debounceTimers: new Map(),
+    debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
     suppressConfigReload: false,
     setSuppressConfigReload: () => {},
     updateConfigFingerprint: () => {},

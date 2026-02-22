@@ -12,6 +12,7 @@ public struct SettingsView: View {
     @State private var vercelKeyText = ""
     @State private var twitterClientId = ""
     @State private var twitterClientSecret = ""
+    @State private var telegramBotTokenText = ""
     @State private var ingressUrlText = ""
     @FocusState private var isIngressUrlFocused: Bool
     @State private var accessibilityGranted = false
@@ -358,6 +359,54 @@ public struct SettingsView: View {
                 }
             }
 
+            Section("Telegram") {
+                if store.telegramHasBotToken {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 14))
+                        if let username = store.telegramBotUsername {
+                            Text("@\(username)")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Bot token configured")
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Clear") {
+                            store.clearTelegramCredentials()
+                            telegramBotTokenText = ""
+                        }
+                        .tint(.red)
+                    }
+                } else {
+                    SecureField("Enter bot token", text: $telegramBotTokenText)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Text("Get your bot token from @BotFather on Telegram")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if store.telegramSaveInProgress {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Button("Save") {
+                                store.saveTelegramToken(botToken: telegramBotTokenText)
+                                telegramBotTokenText = ""
+                            }
+                            .disabled(telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                }
+
+                if let error = store.telegramError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+
             Section("Public Ingress") {
                 Toggle("Enable Public Ingress", isOn: Binding(
                     get: { store.ingressEnabled },
@@ -616,6 +665,7 @@ public struct SettingsView: View {
             store.refreshAPIKeyState()
             store.refreshVercelKeyState()
             store.refreshTwitterStatus()
+            store.refreshTelegramStatus()
             store.refreshIngressConfig()
             ingressUrlText = store.ingressPublicBaseUrl
             checkPermissions()

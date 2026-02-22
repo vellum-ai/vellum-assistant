@@ -14,6 +14,7 @@ import {
 import type { PendingConflictDetail } from '../memory/conflict-store.js';
 import { resolveConflictClarification } from '../memory/clarification-resolver.js';
 import {
+  areStatementsCoherent,
   computeConflictRelevance,
   looksLikeClarificationReply,
   shouldAttemptConflictResolution,
@@ -49,13 +50,14 @@ export class ConflictGate {
     const cooldownTurns = Math.max(1, conflictConfig.reaskCooldownTurns);
     const pendingBeforeResolve = listPendingConflictDetails(scopeId, 50);
 
-    // Dismiss non-actionable conflicts (kind or statement policy)
+    // Dismiss non-actionable conflicts (kind/statement policy or incoherent pair)
     const dismissedIds = new Set<string>();
     for (const conflict of pendingBeforeResolve) {
-      if (!this.isConflictActionable(conflict, conflictConfig.conflictableKinds)) {
+      const dismissReason = this.getDismissReason(conflict, conflictConfig.conflictableKinds);
+      if (dismissReason) {
         resolveConflict(conflict.id, {
           status: 'dismissed',
-          resolutionNote: 'Dismissed by conflict policy (transient/non-durable).',
+          resolutionNote: dismissReason,
         });
         dismissedIds.add(conflict.id);
       }
@@ -147,20 +149,27 @@ export class ConflictGate {
     return this.turnCounter - lastAsked <= cooldownTurns;
   }
 
-  private isConflictActionable(
+  /**
+   * Returns a dismissal reason if the conflict should be dismissed, or null if actionable.
+   */
+  private getDismissReason(
     conflict: PendingConflictDetail,
     conflictableKinds: readonly string[],
-  ): boolean {
+  ): string | null {
     if (!isConflictKindPairEligible(conflict.existingKind, conflict.candidateKind, { conflictableKinds })) {
-      return false;
+      return 'Dismissed by conflict policy (kind not eligible).';
     }
     if (!isStatementConflictEligible(conflict.existingKind, conflict.existingStatement, { conflictableKinds })) {
-      return false;
+      return 'Dismissed by conflict policy (transient/non-durable).';
     }
     if (!isStatementConflictEligible(conflict.candidateKind, conflict.candidateStatement, { conflictableKinds })) {
-      return false;
+      return 'Dismissed by conflict policy (transient/non-durable).';
     }
-    return true;
+    // Dismiss incoherent conflicts where the two statements have zero topical overlap
+    if (!areStatementsCoherent(conflict.existingStatement, conflict.candidateStatement)) {
+      return 'Dismissed by conflict policy (incoherent — zero statement overlap).';
+    }
+    return null;
   }
 }
 

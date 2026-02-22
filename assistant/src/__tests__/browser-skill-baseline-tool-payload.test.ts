@@ -40,22 +40,22 @@ describe('browser skill cutover — startup tool payload', () => {
 
   test('total tool definition count reflects removal of 10 browser tools', () => {
     const definitions = getAllToolDefinitions();
-    // Startup has exactly 48 definitions (no browser tools).
+    // Startup has ~31 definitions (no browser tools).
     // Allow wider drift for unrelated tool additions while still failing if
     // browser tools are reintroduced at startup (+10 definitions).
-    expect(definitions.length).toBeGreaterThanOrEqual(46);
-    expect(definitions.length).toBeLessThanOrEqual(65);
+    expect(definitions.length).toBeGreaterThanOrEqual(25);
+    expect(definitions.length).toBeLessThanOrEqual(50);
   });
 
   test('serialized tool definitions payload still exceeds a reasonable floor', () => {
     const definitions = getAllToolDefinitions();
     const serialized = JSON.stringify(definitions);
-    // Startup payload is ~45 034 chars without browser tools.
-    // Floor at 30 000 catches accidental wholesale removal; ceiling at 47 000
-    // gives ~2 000 char headroom while still catching browser tool leakage
+    // Startup payload is ~22 000 chars without browser tools.
+    // Floor at 15 000 catches accidental wholesale removal; ceiling at 35 000
+    // gives headroom while still catching browser tool leakage
     // (~4 640 chars would push it past the ceiling).
-    expect(serialized.length).toBeGreaterThan(30_000);
-    expect(serialized.length).toBeLessThan(47_000);
+    expect(serialized.length).toBeGreaterThan(15_000);
+    expect(serialized.length).toBeLessThan(35_000);
   });
 
   test('no browser-categorised tools remain in startup registry', () => {

@@ -36,7 +36,7 @@ Pull the latest changes from main, restart the backend daemon, rebuild/launch th
    cd assistant && bun run daemon:restart:http && cd ..
    ```
 
-5. Resolve gateway ingress and Twilio auth env from local config/credential store:
+5. Resolve gateway ingress, Twilio auth, and routing env from local config/credential store:
    ```bash
    INGRESS_PUBLIC_BASE_URL="$(
      python3 - <<'PY'
@@ -56,11 +56,65 @@ PY
      bun -e 'import { getSecureKey } from "./src/security/secure-keys.js"; process.stdout.write(getSecureKey("credential:twilio:auth_token") ?? "")'
      cd ..
    )"
+
+   # Mirror CLI startGateway() behavior: only auto-enable default routing
+   # when exactly one assistant is present in ~/.vellum.lock.json.
+   ASSISTANT_ROUTING_INFO="$(
+     python3 - <<'PY'
+import json, os
+lock_path = os.path.expanduser("~/.vellum.lock.json")
+count = 0
+assistant_id = ""
+try:
+    with open(lock_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assistants = data.get("assistants")
+    if isinstance(assistants, list):
+        valid = []
+        for item in assistants:
+            if isinstance(item, dict):
+                raw_id = item.get("assistantId")
+                if isinstance(raw_id, str):
+                    aid = raw_id.strip()
+                    if aid:
+                        valid.append(aid)
+        count = len(valid)
+        if count == 1:
+            assistant_id = valid[0]
+except Exception:
+    pass
+print(count)
+print(assistant_id)
+PY
+   )"
+   ASSISTANT_COUNT="$(printf '%s\n' "$ASSISTANT_ROUTING_INFO" | sed -n '1p')"
+   SINGLE_ASSISTANT_ID="$(printf '%s\n' "$ASSISTANT_ROUTING_INFO" | sed -n '2p')"
+
+   if [ -z "${GATEWAY_UNMAPPED_POLICY:-}" ] && [ "$ASSISTANT_COUNT" = "1" ]; then
+     GATEWAY_UNMAPPED_POLICY="default"
+   fi
+   if [ -z "${GATEWAY_DEFAULT_ASSISTANT_ID:-}" ] && [ "$ASSISTANT_COUNT" = "1" ]; then
+     GATEWAY_DEFAULT_ASSISTANT_ID="$SINGLE_ASSISTANT_ID"
+   fi
+   if [ "${GATEWAY_UNMAPPED_POLICY:-}" = "default" ] && [ -z "${GATEWAY_DEFAULT_ASSISTANT_ID:-}" ]; then
+     echo "WARNING: GATEWAY_UNMAPPED_POLICY=default but no GATEWAY_DEFAULT_ASSISTANT_ID is set. Falling back to reject."
+     GATEWAY_UNMAPPED_POLICY="reject"
+   fi
+
    if [ -z "$INGRESS_PUBLIC_BASE_URL" ]; then
      echo "WARNING: INGRESS_PUBLIC_BASE_URL is empty (Twilio signature validation may fail)."
    fi
    if [ -z "$TWILIO_AUTH_TOKEN" ]; then
      echo "WARNING: TWILIO_AUTH_TOKEN is empty (Twilio webhooks will be rejected)."
+   fi
+   if [ "${GATEWAY_UNMAPPED_POLICY:-}" = "default" ]; then
+     if [ -n "${GATEWAY_DEFAULT_ASSISTANT_ID:-}" ]; then
+       echo "Gateway routing: default -> ${GATEWAY_DEFAULT_ASSISTANT_ID}"
+     else
+       echo "WARNING: Gateway routing policy is default but default assistant is empty."
+     fi
+   else
+     echo "Gateway routing: ${GATEWAY_UNMAPPED_POLICY:-reject}"
    fi
    ```
 
@@ -73,6 +127,8 @@ PY
      GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH=false \
      INGRESS_PUBLIC_BASE_URL="$INGRESS_PUBLIC_BASE_URL" \
      TWILIO_AUTH_TOKEN="$TWILIO_AUTH_TOKEN" \
+     GATEWAY_UNMAPPED_POLICY="${GATEWAY_UNMAPPED_POLICY:-}" \
+     GATEWAY_DEFAULT_ASSISTANT_ID="${GATEWAY_DEFAULT_ASSISTANT_ID:-}" \
      bun run dev:proxy \
      > "${HOME}/.vellum/gateway-dev.log" 2>&1 &
    cd ..
@@ -95,4 +151,5 @@ Report:
 1. What was pulled (new commits).
 2. Daemon health and gateway health results.
 3. Whether ingress and Twilio auth env were non-empty at startup.
-4. The gateway log path: `~/.vellum/gateway-dev.log`.
+4. Gateway routing env values used (`GATEWAY_UNMAPPED_POLICY`, `GATEWAY_DEFAULT_ASSISTANT_ID`).
+5. The gateway log path: `~/.vellum/gateway-dev.log`.

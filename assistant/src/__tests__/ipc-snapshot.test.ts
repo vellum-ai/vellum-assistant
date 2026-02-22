@@ -4,7 +4,6 @@ import type {
   ClientMessage,
   ServerMessage,
 } from '../daemon/ipc-protocol.js';
-import type { ConfirmationRequest } from '../daemon/ipc-contract.js';
 
 /**
  * Snapshot tests for every IPC message type.
@@ -239,9 +238,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     scope: '/projects/my-app',
     decision: 'allow',
     allowHighRisk: true,
-    principalKind: 'skill',
-    principalId: 'my-skill',
-    principalVersion: 'sha256:abc123',
     executionTarget: 'host',
   },
   trust_rules_list: {
@@ -352,6 +348,28 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'app_preview_request',
     appId: 'app-001',
   },
+  app_history_request: {
+    type: 'app_history_request',
+    appId: 'app-001',
+    limit: 25,
+  },
+  app_diff_request: {
+    type: 'app_diff_request',
+    appId: 'app-001',
+    fromCommit: 'abc123def456',
+    toCommit: '789abc123def',
+  },
+  app_file_at_version_request: {
+    type: 'app_file_at_version_request',
+    appId: 'app-001',
+    path: 'index.html',
+    commitHash: 'abc123def456',
+  },
+  app_restore_request: {
+    type: 'app_restore_request',
+    appId: 'app-001',
+    commitHash: 'abc123def456',
+  },
   share_app_cloud: {
     type: 'share_app_cloud',
     appId: 'app-001',
@@ -374,6 +392,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   twitter_integration_config: {
     type: 'twitter_integration_config',
+    action: 'get',
+  },
+  telegram_config: {
+    type: 'telegram_config',
     action: 'get',
   },
   twitter_auth_start: {
@@ -548,10 +570,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     workingDir: '/projects/my-app',
     isInteractive: true,
     forcePromptSideEffects: false,
-    principalKind: 'skill',
-    principalId: 'my-skill',
-    principalVersion: 'sha256:abc123',
-    executionTarget: 'host',
   },
 };
 
@@ -642,9 +660,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     },
     sandboxed: false,
     sessionId: 'sess-001',
-    principalKind: 'skill',
-    principalId: 'my-skill',
-    principalVersion: 'sha256:abcdef1234567890',
   },
   message_complete: {
     type: 'message_complete',
@@ -1226,6 +1241,14 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     localClientConfigured: true,
     connected: false,
   },
+  telegram_config_response: {
+    type: 'telegram_config_response',
+    success: true,
+    hasBotToken: true,
+    botUsername: 'my_test_bot',
+    connected: true,
+    hasWebhookSecret: true,
+  },
   twitter_auth_result: {
     type: 'twitter_auth_result',
     success: true,
@@ -1251,6 +1274,37 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'app_preview_response',
     appId: 'app-001',
     preview: 'base64-png-data',
+  },
+  app_history_response: {
+    type: 'app_history_response',
+    appId: 'app-001',
+    versions: [
+      {
+        commitHash: 'abc123def456',
+        message: 'Initial app commit',
+        timestamp: 1700000000,
+      },
+      {
+        commitHash: '789abc123def',
+        message: 'Update landing page',
+        timestamp: 1700001000,
+      },
+    ],
+  },
+  app_diff_response: {
+    type: 'app_diff_response',
+    appId: 'app-001',
+    diff: 'diff --git a/index.html b/index.html',
+  },
+  app_file_at_version_response: {
+    type: 'app_file_at_version_response',
+    appId: 'app-001',
+    path: 'index.html',
+    content: '<html><body>Hello</body></html>',
+  },
+  app_restore_response: {
+    type: 'app_restore_response',
+    success: true,
   },
   ui_surface_undo_result: {
     type: 'ui_surface_undo_result',
@@ -1562,6 +1616,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       ],
       persistentDecisionsAllowed: true,
     },
+    executionTarget: 'host',
     matchedRuleId: undefined,
   },
 };
@@ -1672,43 +1727,6 @@ describe('IPC message snapshots', () => {
       expect(parsed.type).toBe('secret_response');
       expect(parsed.requestId).toBe('req-cancel-001');
       expect(parsed.value).toBeUndefined();
-    });
-  });
-
-  // Baseline assertions for principal context in confirmation_request.
-  describe('confirmation principal context baselines', () => {
-    test('confirmation_request includes principal context fields', () => {
-      const req = serverMessages.confirmation_request as ConfirmationRequest;
-      expect(req.principalKind).toBe('skill');
-      expect(req.principalId).toBe('my-skill');
-      expect(req.principalVersion).toBe('sha256:abcdef1234567890');
-    });
-
-    test('confirmation_request principal fields are optional (backward-compatible)', () => {
-      // Core tools omit principal fields — verify the contract allows it
-      const minimal: typeof serverMessages.confirmation_request = {
-        type: 'confirmation_request',
-        requestId: 'req-minimal',
-        toolName: 'bash',
-        input: { command: 'ls' },
-        riskLevel: 'low',
-        allowlistOptions: [],
-        scopeOptions: [],
-      };
-      const serialized = serialize(minimal);
-      const parsed = JSON.parse(serialized.trimEnd());
-      expect(parsed.principalKind).toBeUndefined();
-      expect(parsed.principalId).toBeUndefined();
-      expect(parsed.principalVersion).toBeUndefined();
-    });
-
-    test('confirmation_request round-trips with all principal fields', () => {
-      const req = serverMessages.confirmation_request;
-      const serialized = serialize(req);
-      const parsed = JSON.parse(serialized.trimEnd());
-      expect(parsed.principalKind).toBe('skill');
-      expect(parsed.principalId).toBe('my-skill');
-      expect(parsed.principalVersion).toBe('sha256:abcdef1234567890');
     });
   });
 

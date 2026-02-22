@@ -45,33 +45,29 @@ const handleRuntimeProxy = config.runtimeProxyEnabled
   ? createRuntimeProxyHandler(config)
   : null;
 
-const server = Bun.serve({
-  port: 0,
-  async fetch(req) {
-    const url = new URL(req.url);
+async function handleRequest(req: Request): Promise<Response> {
+  const url = new URL(req.url);
 
-    if (url.pathname === "/healthz") {
-      return Response.json({ status: "ok" });
-    }
+  if (url.pathname === "/healthz") {
+    return Response.json({ status: "ok" });
+  }
 
-    if (url.pathname === "/readyz") {
-      return Response.json({ status: "ok" });
-    }
+  if (url.pathname === "/readyz") {
+    return Response.json({ status: "ok" });
+  }
 
-    if (url.pathname === "/webhooks/telegram") {
-      return handleTelegramWebhook(req);
-    }
+  if (url.pathname === "/webhooks/telegram") {
+    return handleTelegramWebhook(req);
+  }
 
-    if (handleRuntimeProxy) {
-      return handleRuntimeProxy(req);
-    }
+  if (handleRuntimeProxy) {
+    return handleRuntimeProxy(req);
+  }
 
-    return Response.json({ error: "Not found" }, { status: 404 });
-  },
-});
+  return Response.json({ error: "Not found" }, { status: 404 });
+}
 
 afterAll(() => {
-  server.stop(true);
   for (const [k, v] of Object.entries(saved)) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
@@ -80,28 +76,30 @@ afterAll(() => {
 
 describe("Telegram-only default: non-Telegram requests return 404", () => {
   test("GET / returns 404", async () => {
-    const res = await fetch(`http://localhost:${server.port}/`);
+    const res = await handleRequest(new Request("http://gateway.test/"));
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("Not found");
   });
 
   test("GET /v1/health returns 404", async () => {
-    const res = await fetch(`http://localhost:${server.port}/v1/health`);
+    const res = await handleRequest(new Request("http://gateway.test/v1/health"));
     expect(res.status).toBe(404);
   });
 
   test("POST /v1/assistants/foo/chat returns 404", async () => {
-    const res = await fetch(`http://localhost:${server.port}/v1/assistants/foo/chat`, {
-      method: "POST",
-      body: "{}",
-      headers: { "content-type": "application/json" },
-    });
+    const res = await handleRequest(
+      new Request("http://gateway.test/v1/assistants/foo/chat", {
+        method: "POST",
+        body: "{}",
+        headers: { "content-type": "application/json" },
+      }),
+    );
     expect(res.status).toBe(404);
   });
 
   test("GET /random-path returns 404", async () => {
-    const res = await fetch(`http://localhost:${server.port}/random-path`);
+    const res = await handleRequest(new Request("http://gateway.test/random-path"));
     expect(res.status).toBe(404);
   });
 
@@ -114,14 +112,14 @@ describe("Telegram-only default: non-Telegram requests return 404", () => {
   });
 
   test("GET /healthz returns 200 (infrastructure routes still work)", async () => {
-    const res = await fetch(`http://localhost:${server.port}/healthz`);
+    const res = await handleRequest(new Request("http://gateway.test/healthz"));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("ok");
   });
 
   test("GET /readyz returns 200 (infrastructure routes still work)", async () => {
-    const res = await fetch(`http://localhost:${server.port}/readyz`);
+    const res = await handleRequest(new Request("http://gateway.test/readyz"));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("ok");

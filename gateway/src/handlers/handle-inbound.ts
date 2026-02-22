@@ -23,6 +23,7 @@ export type HandleInboundOptions = {
   attachmentIds?: string[];
   transportMetadata?: TransportMetadataOverrides;
   replyCallbackUrl?: string;
+  traceId?: string;
 };
 
 function normalizeTransportHints(hints: string[] | undefined): string[] {
@@ -62,27 +63,32 @@ export async function handleInbound(
   const transportUxBrief = options?.transportMetadata?.uxBrief?.trim();
 
   try {
-    const response = await forwardToRuntime(config, routing.assistantId, {
-      sourceChannel: event.sourceChannel,
-      externalChatId: event.message.externalChatId,
-      externalMessageId: event.message.externalMessageId,
-      content: event.message.content,
-      ...(event.message.isEdit ? { isEdit: true } : {}),
-      senderName: displayName,
-      senderExternalUserId: event.sender.externalUserId,
-      senderUsername: event.sender.username,
-      sourceMetadata: {
-        updateId: event.source.updateId,
-        messageId: event.source.messageId,
-        chatType: event.source.chatType,
-        languageCode: event.sender.languageCode,
-        isBot: event.sender.isBot,
-        ...(transportHints.length > 0 ? { hints: transportHints } : {}),
-        ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
+    const response = await forwardToRuntime(
+      config,
+      routing.assistantId,
+      {
+        sourceChannel: event.sourceChannel,
+        externalChatId: event.message.externalChatId,
+        externalMessageId: event.message.externalMessageId,
+        content: event.message.content,
+        ...(event.message.isEdit ? { isEdit: true } : {}),
+        senderName: displayName,
+        senderExternalUserId: event.sender.externalUserId,
+        senderUsername: event.sender.username,
+        sourceMetadata: {
+          updateId: event.source.updateId,
+          messageId: event.source.messageId,
+          chatType: event.source.chatType,
+          languageCode: event.sender.languageCode,
+          isBot: event.sender.isBot,
+          ...(transportHints.length > 0 ? { hints: transportHints } : {}),
+          ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
+        },
+        ...(options?.attachmentIds?.length ? { attachmentIds: options.attachmentIds } : {}),
+        ...(options?.replyCallbackUrl ? { replyCallbackUrl: options.replyCallbackUrl } : {}),
       },
-      ...(options?.attachmentIds?.length ? { attachmentIds: options.attachmentIds } : {}),
-      ...(options?.replyCallbackUrl ? { replyCallbackUrl: options.replyCallbackUrl } : {}),
-    });
+      { traceId: options?.traceId },
+    );
 
     log.info(
       {

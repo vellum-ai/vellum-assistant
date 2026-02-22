@@ -81,6 +81,13 @@ const PATTERNS: SecretPattern[] = [
     regex: /(https:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]+\/B[A-Z0-9]+\/[A-Za-z0-9]+)/g,
   },
 
+  // -- Telegram --
+  {
+    type: 'Telegram Bot Token',
+    // Format: <bot_id>:<secret> where bot_id is 8-10 digits and secret is 35 alphanumeric/dash/underscore chars
+    regex: /\b([0-9]{8,10}:[A-Za-z0-9_-]{35})(?=[^A-Za-z0-9_-]|$)/g,
+  },
+
   // -- Anthropic --
   {
     type: 'Anthropic API Key',

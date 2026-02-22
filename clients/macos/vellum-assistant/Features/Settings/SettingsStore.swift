@@ -82,6 +82,15 @@ public final class SettingsStore: ObservableObject {
     @Published var twitterAuthInProgress: Bool = false
     @Published var twitterAuthError: String?
 
+    // MARK: - Telegram Integration State
+
+    @Published var telegramHasBotToken: Bool = false
+    @Published var telegramBotUsername: String?
+    @Published var telegramConnected: Bool = false
+    @Published var telegramHasWebhookSecret: Bool = false
+    @Published var telegramSaveInProgress: Bool = false
+    @Published var telegramError: String?
+
     // MARK: - Ingress Config State
 
     @Published var ingressEnabled: Bool = false
@@ -241,6 +250,21 @@ public final class SettingsStore: ObservableObject {
             self.refreshTwitterStatus()
         }
 
+        // Wire up Telegram config IPC response
+        daemonClient?.onTelegramConfigResponse = { [weak self] response in
+            guard let self else { return }
+            self.telegramSaveInProgress = false
+            if response.success {
+                self.telegramHasBotToken = response.hasBotToken
+                self.telegramBotUsername = response.botUsername
+                self.telegramConnected = response.connected
+                self.telegramHasWebhookSecret = response.hasWebhookSecret
+                self.telegramError = nil
+            } else {
+                self.telegramError = response.error
+            }
+        }
+
         // Refresh Vercel key state on init
         refreshVercelKeyState()
 
@@ -253,6 +277,9 @@ public final class SettingsStore: ObservableObject {
 
         // Refresh Twitter integration status on init
         refreshTwitterStatus()
+
+        // Refresh Telegram integration status on init
+        refreshTelegramStatus()
 
         // Ingress config is refreshed by onAppear in SettingsPanel /
         // SettingsView, not here, to avoid duplicate get requests whose
@@ -482,6 +509,43 @@ public final class SettingsStore: ObservableObject {
             try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "disconnect"))
         } catch {
             log.error("Failed to send Twitter disconnect: \(error)")
+        }
+    }
+
+    // MARK: - Telegram Integration Actions
+
+    func refreshTelegramStatus() {
+        do {
+            guard let daemonClient else { return }
+            try daemonClient.sendTelegramConfig(action: "get")
+        } catch {
+            log.error("Failed to send Telegram config get: \(error)")
+        }
+    }
+
+    func saveTelegramToken(botToken: String) {
+        let trimmed = botToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        telegramSaveInProgress = true
+        telegramError = nil
+        do {
+            guard let daemonClient else {
+                telegramSaveInProgress = false
+                return
+            }
+            try daemonClient.sendTelegramConfig(action: "set", botToken: trimmed)
+        } catch {
+            telegramSaveInProgress = false
+            telegramError = "Failed to save: \(error.localizedDescription)"
+        }
+    }
+
+    func clearTelegramCredentials() {
+        do {
+            guard let daemonClient else { return }
+            try daemonClient.sendTelegramConfig(action: "clear")
+        } catch {
+            log.error("Failed to send Telegram config clear: \(error)")
         }
     }
 

@@ -3,6 +3,21 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AssistantCli")
 
+/// Thread-safe one-shot flag for ensuring a continuation is resumed exactly once.
+private final class OnceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var set = false
+
+    /// Returns `true` the first time it's called; `false` on every subsequent call.
+    func trySet() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if set { return false }
+        set = true
+        return true
+    }
+}
+
 /// Manages all daemon lifecycle operations through the bundled CLI binary.
 ///
 /// This is the single entry point for hatching, stopping, and retiring the
@@ -115,7 +130,8 @@ final class AssistantCli {
     }
 
     /// How long to wait for the retire CLI command before giving up.
-    private static let retireTimeout: TimeInterval = 60.0
+    /// GCP instance deletion can take several minutes, so allow up to 5 min.
+    private static let retireTimeout: TimeInterval = 300.0
 
     /// Retire an assistant via the CLI. Stops the daemon, deregisters the
     /// assistant entry. Does NOT delete ~/.vellum (macOS app manages its data).
@@ -124,7 +140,9 @@ final class AssistantCli {
     /// inside `Task.detached` to avoid blocking a cooperative thread pool thread,
     /// which can cause hangs when the pool is saturated.
     ///
-    /// Times out after 60 seconds; on timeout the CLI process is terminated.
+    /// Times out after 5 minutes; on timeout the CLI process is terminated.
+    /// CLI stdout/stderr are streamed to `os.Logger` so progress is visible
+    /// in Console.app.
     func retire(name: String) async throws {
         isStopping = true
         stopMonitoring()
@@ -141,9 +159,29 @@ final class AssistantCli {
             proc.executableURL = binaryURL
             proc.arguments = ["retire", name]
 
+            let stdoutPipe = Pipe()
             let stderrPipe = Pipe()
-            proc.standardOutput = FileHandle.nullDevice
+            proc.standardOutput = stdoutPipe
             proc.standardError = stderrPipe
+
+            // Stream CLI stdout/stderr to os_log so progress is visible
+            // in Console.app while the retire is running.
+            stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    log.info("[retire stdout] \(trimmed)")
+                }
+            }
+            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    log.warning("[retire stderr] \(trimmed)")
+                }
+            }
 
             let fullEnv = ProcessInfo.processInfo.environment
             var env: [String: String] = [
@@ -161,31 +199,27 @@ final class AssistantCli {
             }
             proc.environment = env
 
-            var resumed = false
-            let lock = NSLock()
+            let once = OnceFlag()
+            let timeoutSeconds = Int(Self.retireTimeout)
 
             // Timeout: terminate the process if it takes too long
             let timeoutItem = DispatchWorkItem { [weak proc] in
-                lock.lock()
-                let alreadyResumed = resumed
-                if !alreadyResumed { resumed = true }
-                lock.unlock()
-
-                if !alreadyResumed {
+                if once.trySet() {
+                    log.error("Retire timed out after \(timeoutSeconds) seconds — terminating CLI process")
                     proc?.terminate()
-                    continuation.resume(throwing: CLIError.executionFailed("Retire timed out after 60 seconds"))
+                    continuation.resume(throwing: CLIError.executionFailed("Retire timed out after \(timeoutSeconds) seconds"))
                 }
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + Self.retireTimeout, execute: timeoutItem)
 
             proc.terminationHandler = { finished in
                 timeoutItem.cancel()
-                lock.lock()
-                let alreadyResumed = resumed
-                if !alreadyResumed { resumed = true }
-                lock.unlock()
 
-                guard !alreadyResumed else { return }
+                // Stop streaming handlers before reading final data
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+
+                guard once.trySet() else { return }
 
                 let stderrData = stderrPipe.fileHandleForReading.availableData
                 let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
@@ -194,14 +228,12 @@ final class AssistantCli {
 
             do {
                 try proc.run()
+                log.info("Retire CLI launched with pid \(proc.processIdentifier)")
             } catch {
                 timeoutItem.cancel()
-                lock.lock()
-                let alreadyResumed = resumed
-                if !alreadyResumed { resumed = true }
-                lock.unlock()
-
-                if !alreadyResumed {
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+                if once.trySet() {
                     continuation.resume(throwing: CLIError.executionFailed("Failed to launch retire: \(error.localizedDescription)"))
                 }
             }

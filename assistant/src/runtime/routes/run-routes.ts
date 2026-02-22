@@ -200,13 +200,8 @@ export async function handleAddTrustRule(
   }
 
   try {
-    // Intentionally omit executionTarget: core tools (bash, file_*, etc.)
-    // have no executionTarget in their PolicyContext, so a rule with one
-    // would never match and users would keep getting re-prompted.
-    addRule(confirmation.toolName, pattern, scope, decision, 100, {
-      principalKind: confirmation.principalKind,
-      principalId: confirmation.principalId,
-      principalVersion: confirmation.principalVersion,
+    addRule(confirmation.toolName, pattern, scope, decision, undefined, {
+      executionTarget: confirmation.executionTarget,
     });
     log.info(
       { tool: confirmation.toolName, pattern, scope, decision, runId },
