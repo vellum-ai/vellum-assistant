@@ -323,28 +323,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'gallery_install',
     galleryAppId: 'gallery-focus-timer',
   },
-  app_history_request: {
-    type: 'app_history_request',
-    appId: 'app-001',
-    limit: 10,
-  },
-  app_diff_request: {
-    type: 'app_diff_request',
-    appId: 'app-001',
-    fromCommit: 'abc123',
-    toCommit: 'def456',
-  },
-  app_file_at_version_request: {
-    type: 'app_file_at_version_request',
-    appId: 'app-001',
-    path: 'index.html',
-    commitHash: 'abc123',
-  },
-  app_restore_request: {
-    type: 'app_restore_request',
-    appId: 'app-001',
-    commitHash: 'abc123',
-  },
   app_update_preview: {
     type: 'app_update_preview',
     appId: 'app-001',
@@ -1198,32 +1176,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     appId: 'app-new-001',
     name: 'Focus Timer',
-  },
-  app_history_response: {
-    type: 'app_history_response',
-    appId: 'app-001',
-    versions: [
-      {
-        commitHash: 'abc123',
-        message: 'Initial commit',
-        timestamp: 1700000000,
-      },
-    ],
-  },
-  app_diff_response: {
-    type: 'app_diff_response',
-    appId: 'app-001',
-    diff: '--- a/index.html\n+++ b/index.html\n@@ -1 +1 @@\n-old\n+new',
-  },
-  app_file_at_version_response: {
-    type: 'app_file_at_version_response',
-    appId: 'app-001',
-    path: 'index.html',
-    content: '<html><body>Hello</body></html>',
-  },
-  app_restore_response: {
-    type: 'app_restore_response',
-    success: true,
   },
   share_app_cloud_response: {
     type: 'share_app_cloud_response',
