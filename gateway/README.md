@@ -26,8 +26,8 @@ bun run dev
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `TELEGRAM_BOT_TOKEN` | No | — | Bot token from @BotFather (Telegram disabled when unset) |
-| `TELEGRAM_WEBHOOK_SECRET` | No | — | Secret for verifying webhook requests (Telegram disabled when unset) |
+| `TELEGRAM_BOT_TOKEN` | No | — | Bot token from @BotFather (Telegram disabled when unset). When not set as an env var, the gateway reads from the assistant's secure credential store (macOS Keychain first, then encrypted file fallback). |
+| `TELEGRAM_WEBHOOK_SECRET` | No | — | Secret for verifying webhook requests (Telegram disabled when unset). Same fallback behavior as `TELEGRAM_BOT_TOKEN`. |
 | `TELEGRAM_API_BASE_URL` | No | `https://api.telegram.org` | Override Telegram API base URL |
 | `ASSISTANT_RUNTIME_BASE_URL` | Yes | — | Base URL of the assistant runtime HTTP server |
 | `GATEWAY_ASSISTANT_ROUTING_JSON` | No | `{}` | JSON mapping of Telegram identities to assistant IDs |
