@@ -76,6 +76,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     },
     jobs: {
       workerConcurrency: 2,
+      batchSize: 10,
     },
     retention: {
       keepRawForever: true,
