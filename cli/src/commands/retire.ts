@@ -59,10 +59,9 @@ async function retireLocal(): Promise<void> {
         child.on("error", () => resolve());
       });
     } catch {}
-
-    // Only delete ~/.vellum in non-desktop mode
-    rmSync(vellumDir, { recursive: true, force: true });
   }
+
+  rmSync(vellumDir, { recursive: true, force: true });
 
   console.log("\u2705 Local instance retired.");
 }
