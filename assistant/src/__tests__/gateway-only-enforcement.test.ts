@@ -289,6 +289,49 @@ describe('gateway-only ingress enforcement', () => {
     });
   });
 
+  // ── SMS-specific direct webhook routes blocked ──────────────────────
+
+  describe('SMS webhook routes are blocked at the runtime (gateway-only)', () => {
+
+    test('POST /webhooks/twilio/sms returns 410 (cannot bypass gateway)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/webhooks/twilio/sms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: makeFormBody({ Body: 'hello', From: '+15551234567', To: '+15559876543', MessageSid: 'SM123' }),
+      });
+      expect(res.status).toBe(410);
+      const body = await res.json() as { error: string; code: string };
+      expect(body.code).toBe('GATEWAY_ONLY');
+      expect(body.error).toContain('Direct webhook access disabled');
+    });
+
+    test('POST /v1/calls/twilio/sms returns 410 (legacy path also blocked)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/calls/twilio/sms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: makeFormBody({ Body: 'hello', From: '+15551234567', MessageSid: 'SM456' }),
+      });
+      expect(res.status).toBe(410);
+      const body = await res.json() as { error: string; code: string };
+      expect(body.code).toBe('GATEWAY_ONLY');
+    });
+
+    test('POST /webhooks/twilio/sms with valid auth still returns 410 (auth does not bypass gateway-only)', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/webhooks/twilio/sms`, {
+        method: 'POST',
+        headers: {
+          ...AUTH_HEADERS,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: makeFormBody({ Body: 'sneaky', From: '+15551234567', MessageSid: 'SM789' }),
+      });
+      // The gateway-only guard runs before auth for Twilio webhook paths
+      expect(res.status).toBe(410);
+      const body = await res.json() as { error: string; code: string };
+      expect(body.code).toBe('GATEWAY_ONLY');
+    });
+  });
+
   // ── Internal forwarding routes still work ─────
 
   describe('internal forwarding routes are not blocked', () => {
@@ -600,6 +643,45 @@ describe('gateway-only ingress enforcement', () => {
       // Auth middleware fires first, so even with a valid gateway-origin
       // header, the request is rejected if bearer auth is missing.
       expect(res.status).toBe(401);
+    });
+
+    test('POST /v1/channels/inbound with SMS sourceChannel requires X-Gateway-Origin', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/channels/inbound`, {
+        method: 'POST',
+        headers: {
+          ...AUTH_HEADERS,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sourceChannel: 'sms',
+          externalChatId: '+15551234567',
+          externalMessageId: 'SM-test-gw-1',
+          content: 'hello via SMS',
+        }),
+      });
+      // SMS messages must also go through the gateway — missing X-Gateway-Origin is rejected.
+      expect(res.status).toBe(403);
+      const body = await res.json() as { error: string; code: string };
+      expect(body.code).toBe('GATEWAY_ORIGIN_REQUIRED');
+    });
+
+    test('POST /v1/channels/inbound with SMS sourceChannel and valid X-Gateway-Origin passes', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/v1/channels/inbound`, {
+        method: 'POST',
+        headers: {
+          ...AUTH_HEADERS,
+          'Content-Type': 'application/json',
+          'X-Gateway-Origin': TEST_TOKEN,
+        },
+        body: JSON.stringify({
+          sourceChannel: 'sms',
+          externalChatId: '+15551234567',
+          externalMessageId: 'SM-test-gw-2',
+          content: 'hello via SMS',
+        }),
+      });
+      // Should NOT be 403 — the gateway-origin check passes.
+      expect(res.status).not.toBe(403);
     });
   });
 

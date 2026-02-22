@@ -183,6 +183,12 @@ Guardian enforcement (actor-role resolution, fail-closed denial for unknown acto
 | **Guardian-only approval** | Non-guardian senders cannot approve their own pending actions. Only the verified guardian can approve or deny. |
 | **Expired approval auto-deny** | If a guardian approval request expires (30-minute TTL) without a decision, the action is auto-denied when the non-guardian sender next interacts. |
 
+### Ingress Boundary Guarantees (Gateway-Only Mode)
+
+The runtime operates in **gateway-only mode**: all public-facing webhook paths are blocked at the runtime level. Direct access to Twilio webhook routes (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/twilio/connect-action`, `/webhooks/twilio/sms`) and their legacy equivalents (`/v1/calls/twilio/*`) returns `410 GATEWAY_ONLY`. This ensures external webhook traffic (including SMS) can only reach the runtime through the gateway, which performs signature validation before forwarding.
+
+Internal forwarding routes (`/v1/internal/twilio/*`) are unaffected — these accept pre-validated payloads from the gateway over the private network.
+
 ### Gateway-Origin Ingress Contract
 
 The `/channels/inbound` endpoint requires a valid `X-Gateway-Origin` header that matches the configured bearer token. This ensures channel messages can only be submitted via the gateway (which performs webhook-level verification) and not via direct HTTP calls that bypass signature checks.

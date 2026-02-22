@@ -17,6 +17,14 @@ function firstHeaderValue(value: string | null): string | undefined {
  * 1) Canonical configured ingress URL (when present)
  * 2) Forwarded public URL headers from tunnel/proxy
  * 3) Raw request URL (last-resort fallback)
+ *
+ * When `ingressPublicBaseUrl` is configured, the canonical ingress URL is the
+ * highest-priority candidate. The raw request URL is still included as a
+ * fallback to preserve local-dev operability (e.g., when Twilio is configured
+ * to call the local server directly). However, a warning is logged when the
+ * raw fallback is the only candidate that validates, as this indicates a
+ * potential configuration drift between the ingress URL and the actual
+ * webhook registration.
  */
 function buildSignatureUrlCandidates(req: Request, config: GatewayConfig): string[] {
   const parsedUrl = new URL(req.url);
@@ -53,6 +61,26 @@ function buildSignatureUrlCandidates(req: Request, config: GatewayConfig): strin
   }
 
   return candidates;
+}
+
+/**
+ * Track which candidate validated the signature so we can warn about
+ * fallback usage when `ingressPublicBaseUrl` is configured.
+ *
+ * @internal Exported for testing only.
+ */
+export function findValidatingCandidateIndex(
+  candidates: string[],
+  params: Record<string, string>,
+  signature: string,
+  authToken: string,
+): number {
+  for (let i = 0; i < candidates.length; i++) {
+    if (verifyTwilioSignature(candidates[i], params, signature, authToken)) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 export type TwilioValidationSuccess = {
@@ -119,16 +147,38 @@ export async function validateTwilioWebhookRequest(
   }
 
   const signatureUrlCandidates = buildSignatureUrlCandidates(req, config);
-  const isValid = signatureUrlCandidates.some((candidate) =>
-    verifyTwilioSignature(candidate, params, signature, config.twilioAuthToken!),
+  const validatingIndex = findValidatingCandidateIndex(
+    signatureUrlCandidates,
+    params,
+    signature,
+    config.twilioAuthToken!,
   );
 
-  if (!isValid) {
+  if (validatingIndex === -1) {
     log.warn(
       { candidateCount: signatureUrlCandidates.length },
       "Twilio webhook signature validation failed",
     );
     return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // When ingressPublicBaseUrl is configured and the signature only validated
+  // against the raw local URL (last candidate), log a warning. This indicates
+  // a likely drift between the configured ingress URL and the actual webhook
+  // registration — the ingress URL should match what Twilio is signing against.
+  if (
+    config.ingressPublicBaseUrl &&
+    validatingIndex === signatureUrlCandidates.length - 1 &&
+    signatureUrlCandidates.length > 1
+  ) {
+    log.warn(
+      {
+        ingressPublicBaseUrl: config.ingressPublicBaseUrl,
+        validatedAgainst: signatureUrlCandidates[validatingIndex],
+      },
+      "Twilio signature validated against raw request URL fallback — " +
+        "INGRESS_PUBLIC_BASE_URL may be stale or mismatched with the actual webhook registration",
+    );
   }
 
   return { rawBody, params };

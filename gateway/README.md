@@ -229,6 +229,22 @@ In local tunnel setups, updating `ingress.publicBaseUrl` in Settings is typicall
 
 The assistant runtime uses this URL to construct all webhook and OAuth callback URLs automatically.
 
+## Ingress Boundary Guarantees
+
+The gateway is the **sole public ingress point** for all external webhooks, including SMS. The assistant runtime never directly accepts public webhook traffic — all Twilio and Telegram webhook routes on the runtime return `410 GATEWAY_ONLY` when accessed directly.
+
+### SMS Ingress
+
+Inbound SMS follows the same gateway-only pattern as voice and Telegram:
+
+1. **Twilio → Gateway** (`/webhooks/twilio/sms`) — Gateway validates `X-Twilio-Signature` using HMAC-SHA1 with the configured `TWILIO_AUTH_TOKEN`.
+2. **Gateway → Runtime** (`/v1/channels/inbound`) — Gateway forwards the normalized event to the runtime with `X-Gateway-Origin` proof and bearer auth.
+3. **Runtime rejects direct SMS webhooks** — Any direct POST to `/webhooks/twilio/sms` or `/v1/calls/twilio/sms` on the runtime returns `410 GATEWAY_ONLY`.
+
+### Signature URL Tightening
+
+When `INGRESS_PUBLIC_BASE_URL` is configured, the gateway prioritizes it as the canonical URL for Twilio signature validation. If the signature only validates against the raw local request URL (fallback), a warning is logged indicating potential drift between the configured ingress URL and the actual webhook registration. The raw URL fallback is preserved for local-dev operability.
+
 ## Default Mode: Telegram-Only
 
 By default the gateway only serves the Telegram webhook endpoint (`/webhooks/telegram`). All other HTTP requests return `404`. The runtime proxy is **opt-in** — set `GATEWAY_RUNTIME_PROXY_ENABLED=true` to enable it. This behavior is enforced by automated tests.
