@@ -1,5 +1,6 @@
 import { getLogger } from '../util/logger.js';
 import type { RuntimeAttachmentMetadata } from './http-types.js';
+import type { ApprovalUIMetadata } from './channel-approval-types.js';
 
 const log = getLogger('gateway-client');
 
@@ -10,6 +11,7 @@ export interface ChannelReplyPayload {
   text?: string;
   assistantId?: string;
   attachments?: RuntimeAttachmentMetadata[];
+  approval?: ApprovalUIMetadata;
 }
 
 export async function deliverChannelReply(
@@ -39,4 +41,18 @@ export async function deliverChannelReply(
   }
 
   log.info({ chatId: payload.chatId, callbackUrl }, 'Channel reply delivered');
+}
+
+/**
+ * Deliver an approval prompt (text + inline keyboard metadata) to the
+ * gateway so it can render the approval UI in the channel.
+ */
+export async function deliverApprovalPrompt(
+  callbackUrl: string,
+  chatId: string,
+  text: string,
+  approval: ApprovalUIMetadata,
+  bearerToken?: string,
+): Promise<void> {
+  await deliverChannelReply(callbackUrl, { chatId, text, approval }, bearerToken);
 }
