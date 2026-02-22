@@ -717,7 +717,7 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken);
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {

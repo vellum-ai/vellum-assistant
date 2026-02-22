@@ -7,17 +7,53 @@ import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
+import { getPendingConfirmationsByConversation } from '../../memory/runs-store.js';
 import { renderHistoryContent } from '../../daemon/handlers.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
-import { deliverChannelReply } from '../gateway-client.js';
+import { deliverChannelReply, deliverApprovalPrompt } from '../gateway-client.js';
+import { parseApprovalDecision } from '../channel-approval-parser.js';
+import {
+  getChannelApprovalPrompt,
+  buildApprovalUIMetadata,
+  handleChannelDecision,
+  buildReminderPrompt,
+} from '../channel-approvals.js';
+import type { ApprovalAction, ApprovalDecisionResult } from '../channel-approval-types.js';
+import type { RunOrchestrator } from '../run-orchestrator.js';
 import type {
   MessageProcessor,
   RuntimeAttachmentMetadata,
 } from '../http-types.js';
 
 const log = getLogger('runtime-http');
+
+// ---------------------------------------------------------------------------
+// Feature flag
+// ---------------------------------------------------------------------------
+
+export function isChannelApprovalsEnabled(): boolean {
+  return process.env.CHANNEL_APPROVALS_ENABLED === 'true';
+}
+
+// ---------------------------------------------------------------------------
+// Callback data parser — format: "apr:<runId>:<action>"
+// ---------------------------------------------------------------------------
+
+const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
+  'approve_once',
+  'approve_always',
+  'reject',
+]);
+
+function parseCallbackData(data: string): ApprovalDecisionResult | null {
+  const parts = data.split(':');
+  if (parts.length < 3 || parts[0] !== 'apr') return null;
+  const action = parts.slice(2).join(':');
+  if (!VALID_ACTIONS.has(action)) return null;
+  return { action: action as ApprovalAction, source: 'telegram_button' };
+}
 
 export async function handleDeleteConversation(req: Request): Promise<Response> {
   const body = await req.json() as {
@@ -45,6 +81,7 @@ export async function handleChannelInbound(
   req: Request,
   processMessage?: MessageProcessor,
   bearerToken?: string,
+  runOrchestrator?: RunOrchestrator,
 ): Promise<Response> {
   const body = await req.json() as {
     sourceChannel?: string;
@@ -58,6 +95,8 @@ export async function handleChannelInbound(
     senderUsername?: string;
     sourceMetadata?: Record<string, unknown>;
     replyCallbackUrl?: string;
+    callbackQueryId?: string;
+    callbackData?: string;
   };
 
   const {
@@ -201,6 +240,33 @@ export async function handleChannelInbound(
 
   const replyCallbackUrl = body.replyCallbackUrl;
 
+  // ── Approval interception (gated behind feature flag) ──
+  if (
+    isChannelApprovalsEnabled() &&
+    runOrchestrator &&
+    replyCallbackUrl &&
+    !result.duplicate
+  ) {
+    const approvalResult = await handleApprovalInterception({
+      conversationId: result.conversationId,
+      callbackData: body.callbackData,
+      content: trimmedContent,
+      externalChatId,
+      replyCallbackUrl,
+      bearerToken,
+      orchestrator: runOrchestrator,
+    });
+
+    if (approvalResult.handled) {
+      return Response.json({
+        accepted: true,
+        duplicate: false,
+        eventId: result.eventId,
+        approval: approvalResult.type,
+      });
+    }
+  }
+
   // For new (non-duplicate) messages, run the secret ingress check
   // synchronously, then fire off the agent loop in the background.
   if (!result.duplicate && processMessage) {
@@ -229,21 +295,40 @@ export async function handleChannelInbound(
       throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
     }
 
-    // Fire-and-forget: process the message and deliver the reply in the background.
-    // The HTTP response returns immediately so the gateway webhook is not blocked.
-    processChannelMessageInBackground({
-      processMessage,
-      conversationId: result.conversationId,
-      eventId: result.eventId,
-      content: content ?? '',
-      attachmentIds: hasAttachments ? attachmentIds : undefined,
-      sourceChannel,
-      externalChatId,
-      metadataHints,
-      metadataUxBrief,
-      replyCallbackUrl,
-      bearerToken,
-    });
+    // When approval flow is enabled and we have an orchestrator, use the
+    // orchestrator-backed path which properly intercepts confirmation_request
+    // events and sends proactive approval prompts to the channel.
+    const useApprovalPath =
+      isChannelApprovalsEnabled() && runOrchestrator && replyCallbackUrl;
+
+    if (useApprovalPath) {
+      processChannelMessageWithApprovals({
+        orchestrator: runOrchestrator,
+        conversationId: result.conversationId,
+        eventId: result.eventId,
+        content: content ?? '',
+        attachmentIds: hasAttachments ? attachmentIds : undefined,
+        externalChatId,
+        replyCallbackUrl,
+        bearerToken,
+      });
+    } else {
+      // Fire-and-forget: process the message and deliver the reply in the background.
+      // The HTTP response returns immediately so the gateway webhook is not blocked.
+      processChannelMessageInBackground({
+        processMessage,
+        conversationId: result.conversationId,
+        eventId: result.eventId,
+        content: content ?? '',
+        attachmentIds: hasAttachments ? attachmentIds : undefined,
+        sourceChannel,
+        externalChatId,
+        metadataHints,
+        metadataUxBrief,
+        replyCallbackUrl,
+        bearerToken,
+      });
+    }
   }
 
   return Response.json({
@@ -308,6 +393,189 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
       channelDeliveryStore.recordProcessingFailure(eventId, err);
     }
   })();
+}
+
+// ---------------------------------------------------------------------------
+// Orchestrator-backed channel processing with approval prompt delivery
+// ---------------------------------------------------------------------------
+
+const RUN_POLL_INTERVAL_MS = 500;
+const RUN_POLL_MAX_WAIT_MS = 300_000; // 5 minutes
+
+interface ApprovalProcessingParams {
+  orchestrator: RunOrchestrator;
+  conversationId: string;
+  eventId: string;
+  content: string;
+  attachmentIds?: string[];
+  externalChatId: string;
+  replyCallbackUrl: string;
+  bearerToken?: string;
+}
+
+/**
+ * Process a channel message using the run orchestrator so that
+ * `confirmation_request` events are intercepted and written to the
+ * runs store. Polls the run until it reaches a terminal state,
+ * sending approval prompts when `needs_confirmation` is detected.
+ */
+function processChannelMessageWithApprovals(params: ApprovalProcessingParams): void {
+  const {
+    orchestrator,
+    conversationId,
+    eventId,
+    content,
+    attachmentIds,
+    externalChatId,
+    replyCallbackUrl,
+    bearerToken,
+  } = params;
+
+  (async () => {
+    try {
+      const run = await orchestrator.startRun(conversationId, content, attachmentIds);
+
+      // Poll the run until it reaches a terminal state, delivering approval
+      // prompts when it transitions to needs_confirmation.
+      const startTime = Date.now();
+      let lastStatus = run.status;
+
+      while (Date.now() - startTime < RUN_POLL_MAX_WAIT_MS) {
+        await new Promise((resolve) => setTimeout(resolve, RUN_POLL_INTERVAL_MS));
+
+        const current = orchestrator.getRun(run.id);
+        if (!current) break;
+
+        if (current.status === 'needs_confirmation' && lastStatus !== 'needs_confirmation') {
+          // Run just transitioned to needs_confirmation — send approval prompt
+          const prompt = getChannelApprovalPrompt(conversationId);
+          if (prompt) {
+            const pending = getPendingConfirmationsByConversation(conversationId);
+            if (pending.length > 0) {
+              const uiMetadata = buildApprovalUIMetadata(prompt, pending[0]);
+              try {
+                await deliverApprovalPrompt(
+                  replyCallbackUrl,
+                  externalChatId,
+                  prompt.promptText,
+                  uiMetadata,
+                  bearerToken,
+                );
+              } catch (err) {
+                log.error({ err, runId: run.id }, 'Failed to deliver approval prompt for channel run');
+              }
+            }
+          }
+        }
+
+        lastStatus = current.status;
+
+        if (current.status === 'completed' || current.status === 'failed') {
+          break;
+        }
+      }
+
+      channelDeliveryStore.markProcessed(eventId);
+
+      // Deliver the final assistant reply
+      await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+    } catch (err) {
+      log.error({ err, conversationId }, 'Approval-aware channel message processing failed');
+      channelDeliveryStore.recordProcessingFailure(eventId, err);
+    }
+  })();
+}
+
+// ---------------------------------------------------------------------------
+// Approval interception
+// ---------------------------------------------------------------------------
+
+interface ApprovalInterceptionParams {
+  conversationId: string;
+  callbackData?: string;
+  content: string;
+  externalChatId: string;
+  replyCallbackUrl: string;
+  bearerToken?: string;
+  orchestrator: RunOrchestrator;
+}
+
+interface ApprovalInterceptionResult {
+  handled: boolean;
+  type?: 'decision_applied' | 'reminder_sent';
+}
+
+/**
+ * Check for pending approvals and handle inbound messages accordingly.
+ *
+ * Returns `{ handled: true }` when the message was consumed by the approval
+ * flow (either as a decision or a reminder), so the caller should NOT proceed
+ * to normal message processing.
+ */
+async function handleApprovalInterception(
+  params: ApprovalInterceptionParams,
+): Promise<ApprovalInterceptionResult> {
+  const {
+    conversationId,
+    callbackData,
+    content,
+    externalChatId,
+    replyCallbackUrl,
+    bearerToken,
+    orchestrator,
+  } = params;
+
+  const pendingPrompt = getChannelApprovalPrompt(conversationId);
+  if (!pendingPrompt) return { handled: false };
+
+  // Try to extract a decision from callback data (button press) first,
+  // then fall back to plain-text parsing.
+  let decision: ApprovalDecisionResult | null = null;
+
+  if (callbackData) {
+    decision = parseCallbackData(callbackData);
+  }
+
+  if (!decision && content) {
+    decision = parseApprovalDecision(content);
+  }
+
+  if (decision) {
+    const result = handleChannelDecision(conversationId, decision, orchestrator);
+
+    if (result.applied) {
+      // Deliver the run's result back to the channel once the decision is applied.
+      // The run will resume in the background; deliver whatever assistant reply
+      // is available now (there may not be one yet if the run is still processing).
+      try {
+        await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+      } catch (err) {
+        log.error({ err, conversationId }, 'Failed to deliver post-decision reply');
+      }
+    }
+
+    return { handled: true, type: 'decision_applied' };
+  }
+
+  // The message is not a decision — send a reminder with the approval buttons.
+  const reminder = buildReminderPrompt(pendingPrompt);
+  const pending = getPendingConfirmationsByConversation(conversationId);
+  if (pending.length > 0) {
+    const uiMetadata = buildApprovalUIMetadata(reminder, pending[0]);
+    try {
+      await deliverApprovalPrompt(
+        replyCallbackUrl,
+        externalChatId,
+        reminder.promptText,
+        uiMetadata,
+        bearerToken,
+      );
+    } catch (err) {
+      log.error({ err, conversationId }, 'Failed to deliver approval reminder');
+    }
+  }
+
+  return { handled: true, type: 'reminder_sent' };
 }
 
 async function deliverReplyViaCallback(
