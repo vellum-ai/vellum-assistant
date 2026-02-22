@@ -234,7 +234,7 @@ struct ToolPermissionTesterView: View {
                             }
                         )
 
-                        Text("This is a simulation \u{2014} Allow Once and Don\u{2019}t Allow do not affect real permissions.")
+                        Text("Allow Once and Don\u{2019}t Allow are simulation-only. Always Allow persists a real trust rule.")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                             .italic()

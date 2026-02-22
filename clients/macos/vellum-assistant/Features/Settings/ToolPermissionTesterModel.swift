@@ -113,6 +113,9 @@ final class ToolPermissionTesterModel: ObservableObject {
     }
 
     /// Persist a trust rule via IPC, then re-simulate to show updated decision.
+    ///
+    /// Forwards the simulation's metadata (execution target, principal) so the
+    /// persisted rule matches the context that was being tested.
     func alwaysAllow(pattern: String, scope: String, decision: String) {
         guard let dc = daemonClient as? DaemonClient else {
             lastError = "Cannot add trust rule: daemon client unavailable"
@@ -120,7 +123,8 @@ final class ToolPermissionTesterModel: ObservableObject {
         }
 
         let riskLevel = lastResult?.riskLevel ?? ""
-        let effectiveDecision = riskLevel.lowercased() == "high"
+        let isHighRisk = riskLevel.lowercased() == "high"
+        let effectiveDecision = isHighRisk
             ? "always_allow_high_risk"
             : decision
 
@@ -129,7 +133,12 @@ final class ToolPermissionTesterModel: ObservableObject {
                 toolName: toolName,
                 pattern: pattern,
                 scope: scope,
-                decision: effectiveDecision
+                decision: effectiveDecision,
+                allowHighRisk: isHighRisk ? true : nil,
+                principalKind: principalKind.isEmpty ? nil : principalKind,
+                principalId: principalId.isEmpty ? nil : principalId,
+                principalVersion: principalVersion.isEmpty ? nil : principalVersion,
+                executionTarget: executionTarget.isEmpty ? nil : executionTarget
             )
             // Re-simulate to show the updated outcome with the new rule in effect.
             simulate()
