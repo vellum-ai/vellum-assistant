@@ -97,7 +97,7 @@ export class ConflictGate {
 
     if (!candidateToAsk) return null;
 
-    if (candidateToAsk.relevance > 0) {
+    if (askable || candidateToAsk.relevance > 0) {
       this.lastAskedTurn.set(candidateToAsk.conflict.id, this.turnCounter);
       markConflictAsked(candidateToAsk.conflict.id);
     }

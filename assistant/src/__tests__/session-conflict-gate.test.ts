@@ -1017,6 +1017,46 @@ describe('ConflictGate askOnIrrelevantTurns knob', () => {
     expect(result2).toBeNull();
   });
 
+  test('zero-relevance conflict on primary askable path (relevanceThreshold=0) is tracked as asked', async () => {
+    pendingConflicts = [{
+      id: 'conflict-zero-threshold',
+      scopeId: 'default',
+      existingItemId: 'existing-zt',
+      candidateItemId: 'candidate-zt',
+      relationship: 'ambiguous_contradiction',
+      status: 'pending_clarification',
+      clarificationQuestion: 'Should I assume Postgres or MySQL?',
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: 1,
+      updatedAt: 1,
+      existingStatement: 'Use Postgres as the default database.',
+      candidateStatement: 'Use MySQL as the default database.',
+      existingKind: 'preference',
+      candidateKind: 'preference',
+    }];
+
+    const gate = new ConflictGate();
+    // relevanceThreshold=0 means zero-relevance conflicts pass the primary askable filter
+    const result1 = await gate.evaluate(
+      'How do I set up pre-commit hooks?',
+      { ...baseConfig, relevanceThreshold: 0, askOnIrrelevantTurns: false },
+    );
+
+    expect(result1).not.toBeNull();
+    expect(result1!.relevant).toBe(true);
+    // Should be tracked as asked since it came through the primary askable path
+    expect(markAskedCalls).toEqual(['conflict-zero-threshold']);
+
+    // Second turn within cooldown: the conflict should NOT be re-asked
+    const result2 = await gate.evaluate(
+      'Another unrelated question',
+      { ...baseConfig, relevanceThreshold: 0, askOnIrrelevantTurns: false },
+    );
+    expect(result2).toBeNull();
+  });
+
   test('relevant conflict is asked regardless of askOnIrrelevantTurns value', async () => {
     pendingConflicts = [{
       id: 'conflict-rel-knob',
