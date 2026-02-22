@@ -3623,7 +3623,7 @@ In multi-assistant mode, the operator must configure `GATEWAY_ASSISTANT_ROUTING_
 
 ## Outgoing AI Phone Calls — Twilio ConversationRelay
 
-The Calls subsystem enables the assistant to place outgoing phone calls on behalf of the user via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak with the callee in real time, and can pause to consult the user (in the chat UI) when it encounters questions it cannot answer on its own.
+The Calls subsystem enables the assistant to place outgoing phone calls on behalf of the user via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak with the callee in real time. During a live call, user messages in the chat thread are automatically routed to the call: if the AI agent has a pending question, the message is treated as an answer; otherwise, it is treated as a mid-call steering instruction that guides the AI agent's behavior in real time.
 
 ### Call Flow
 
@@ -3700,8 +3700,8 @@ sequenceDiagram
 | File | Role |
 |------|------|
 | `assistant/src/calls/call-store.ts` | CRUD operations for call sessions, call events, and pending questions in SQLite via Drizzle ORM |
-| `assistant/src/calls/call-domain.ts` | Shared domain functions (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`) used by both tools and HTTP routes |
-| `assistant/src/calls/call-bridge.ts` | Auto-routes user chat replies as answers to pending call questions, intercepting messages before the agent loop |
+| `assistant/src/calls/call-domain.ts` | Shared domain functions (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`) used by both tools and HTTP routes |
+| `assistant/src/calls/call-bridge.ts` | Answer-or-instruction bridge: intercepts user chat messages before the agent loop and routes them as answers (when a pending question exists) or as mid-call steering instructions (when no question is pending) |
 | `assistant/src/calls/call-state-machine.ts` | Deterministic state transition validator with allowed-transition table and terminal-state enforcement |
 | `assistant/src/calls/call-recovery.ts` | Startup reconciliation of non-terminal calls: fetches provider status and transitions stale sessions |
 | `assistant/src/calls/twilio-provider.ts` | Twilio Voice REST API integration (initiateCall, endCall, getCallStatus) using direct fetch — no Twilio SDK dependency |
@@ -3744,24 +3744,42 @@ initiated ──> ringing ──> in_progress ──> waiting_on_user ──> in
 
 The `validateTransition(current, next)` function is called by `updateCallSession()` in the call store. Same-state transitions (no-ops) are always valid. Invalid transitions are rejected with an explanatory reason string.
 
-### Call Bridge — In-Thread User Consultation
+### Call Bridge — Answer-or-Instruction Routing
 
-The call bridge (`call-bridge.ts`) enables seamless user consultation during a live call without requiring out-of-band API calls. The flow is:
+The call bridge (`call-bridge.ts`) intercepts user chat messages during a live call and routes them to the call orchestrator — either as answers to pending questions or as mid-call steering instructions. This enables users to both respond to questions from the callee and proactively steer the conversation without leaving the chat thread.
+
+The bridge function `tryRouteCallMessage()` applies the following decision logic:
+
+1. **Find active call**: Look up a non-terminal call session for the conversation. If none exists, return `{ handled: false, reason: 'no_active_call' }`.
+2. **Pending question → answer path** (priority): If the active call has a pending question, the message is routed as an answer via `handleUserAnswer()` on the orchestrator, which injects `[USER_ANSWERED: answer]` into the LLM context and resumes the conversation with the callee.
+3. **No pending question → instruction path**: If no question is pending, the message is routed as a steering instruction via `relayInstruction()` in `call-domain.ts`, which calls `handleUserInstruction()` on the orchestrator. The orchestrator injects `[USER_INSTRUCTION: text]` into its conversation history as high-priority steering input.
+
+#### Answer path detail
 
 1. **Question emission**: When the LLM emits `[ASK_USER: question]`, the orchestrator creates a pending question in SQLite, fires the question notifier, and transitions to `waiting_on_user` state.
-
 2. **In-thread display**: The Session's registered question notifier callback persists an assistant message in the conversation thread (via `conversationStore.addMessage()`) and emits `assistant_text_delta` + `message_complete` events to connected clients.
-
-3. **Auto-consumption**: When the user sends their next message in the same thread, `DaemonServer.processMessage()` and `DaemonServer.persistAndProcessMessage()` call `tryHandlePendingCallAnswer()` before launching the agent loop. If there is an active call with a pending question and the orchestrator is in `waiting_on_user` state, the message is routed directly to the orchestrator and the agent loop is skipped.
-
+3. **Auto-consumption**: When the user sends their next message in the same thread, `DaemonServer.processMessage()` and `DaemonServer.persistAndProcessMessage()` call `tryRouteCallMessage()` before launching the agent loop. If there is an active call with a pending question and the orchestrator is in `waiting_on_user` state, the message is routed directly to the orchestrator and the agent loop is skipped.
 4. **Orchestrator resume**: The orchestrator receives the answer via `handleUserAnswer()`, injects `[USER_ANSWERED: answer]` into the LLM context, and resumes the conversation with the callee.
+
+#### Instruction path detail
+
+When no pending question exists but a call is active, the user's message is treated as a steering instruction:
+
+1. The bridge calls `relayInstruction()` which validates the call is active and delegates to `handleUserInstruction()` on the orchestrator.
+2. The orchestrator appends `[USER_INSTRUCTION: text]` to its conversation history. The system prompt tells the model to treat this marker as high-priority steering input.
+3. A confirmation message ("Instruction relayed to active call.") is persisted in the conversation thread.
+
+The instruction path is also available via HTTP at `POST /v1/calls/:callSessionId/instruction` for programmatic access (see Runtime HTTP Endpoints).
+
+#### Bridge result reasons
 
 The bridge returns a `{ handled: boolean; reason?: string }` result so callers can determine whether the message was consumed:
 - `no_active_call` — no non-terminal call session exists for this conversation
-- `no_pending_question` — call is active but no question is pending
+- `no_pending_question` — call is active but no question is pending (only returned in legacy answer-only path; current bridge falls through to instruction)
 - `orchestrator_not_found` — the orchestrator was destroyed (call ended between question and answer)
 - `orchestrator_not_waiting` — the orchestrator is not in `waiting_on_user` state
 - `orchestrator_rejected` — the orchestrator's `handleUserAnswer()` returned false
+- `instruction_relay_failed` — the instruction could not be relayed to the orchestrator
 
 ### SQLite Tables
 
@@ -3810,6 +3828,7 @@ This makes ingress URL updates smoother in local tunnel workflows because Twilio
 | GET | `/v1/calls/:callSessionId` | Get call status, including any pending question |
 | POST | `/v1/calls/:callSessionId/cancel` | Cancel an active call |
 | POST | `/v1/calls/:callSessionId/answer` | Answer a pending question via HTTP (alternative to in-thread bridge) |
+| POST | `/v1/calls/:callSessionId/instruction` | Relay a steering instruction to an active call's orchestrator (alternative to in-thread bridge) |
 | POST | `/v1/calls/voice-webhook` | Twilio voice webhook; returns TwiML with ConversationRelay connect |
 | POST | `/v1/calls/status-callback` | Twilio status callback (ringing, in-progress, completed, failed) |
 | POST | `/v1/calls/connect-action` | TwiML connect action callback when ConversationRelay ends |
@@ -3823,7 +3842,7 @@ This makes ingress URL updates smoother in local tunnel workflows because Twilio
 | `call_status` | Retrieves the current status of a call session |
 | `call_end` | Terminates an active call |
 
-Both tools and HTTP routes delegate to the same domain functions in `call-domain.ts` (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`), ensuring consistent validation and behavior.
+Both tools and HTTP routes delegate to the same domain functions in `call-domain.ts` (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`), ensuring consistent validation and behavior.
 
 ### Control Markers
 

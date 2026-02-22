@@ -836,7 +836,9 @@ export async function handleTelegramConfig(
         hasWebhookSecret,
       });
     } else if (msg.action === 'set') {
-      if (!msg.botToken) {
+      // Resolve token: prefer explicit msg.botToken, fall back to secure storage
+      const botToken = msg.botToken || getSecureKey('credential:telegram:bot_token');
+      if (!botToken) {
         ctx.send(socket, {
           type: 'telegram_config_response',
           success: false,
@@ -851,7 +853,7 @@ export async function handleTelegramConfig(
       // Validate token via Telegram getMe API
       let botUsername: string;
       try {
-        const res = await fetch(`https://api.telegram.org/bot${msg.botToken}/getMe`);
+        const res = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
         if (!res.ok) {
           const body = await res.text();
           ctx.send(socket, {
@@ -891,7 +893,7 @@ export async function handleTelegramConfig(
       }
 
       // Store bot token securely
-      const stored = setSecureKey('credential:telegram:bot_token', msg.botToken);
+      const stored = setSecureKey('credential:telegram:bot_token', botToken);
       if (!stored) {
         ctx.send(socket, {
           type: 'telegram_config_response',
@@ -984,6 +986,64 @@ export async function handleTelegramConfig(
       if (effectiveUrl) {
         triggerGatewayReconcile(effectiveUrl);
       }
+    } else if (msg.action === 'set_commands') {
+      const storedToken = getSecureKey('credential:telegram:bot_token');
+      if (!storedToken) {
+        ctx.send(socket, {
+          type: 'telegram_config_response',
+          success: false,
+          hasBotToken: false,
+          connected: false,
+          hasWebhookSecret: false,
+          error: 'Bot token not configured. Run set action first.',
+        });
+        return;
+      }
+
+      const commands = msg.commands ?? [
+        { command: 'new', description: 'Start a new conversation' },
+      ];
+
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${storedToken}/setMyCommands`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ commands }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          ctx.send(socket, {
+            type: 'telegram_config_response',
+            success: false,
+            hasBotToken: true,
+            connected: !!getSecureKey('credential:telegram:webhook_secret'),
+            hasWebhookSecret: !!getSecureKey('credential:telegram:webhook_secret'),
+            error: `Failed to set bot commands: ${body}`,
+          });
+          return;
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        ctx.send(socket, {
+          type: 'telegram_config_response',
+          success: false,
+          hasBotToken: true,
+          connected: !!getSecureKey('credential:telegram:webhook_secret'),
+          hasWebhookSecret: !!getSecureKey('credential:telegram:webhook_secret'),
+          error: `Failed to set bot commands: ${message}`,
+        });
+        return;
+      }
+
+      const hasBotToken = !!getSecureKey('credential:telegram:bot_token');
+      const hasWebhookSecret = !!getSecureKey('credential:telegram:webhook_secret');
+      ctx.send(socket, {
+        type: 'telegram_config_response',
+        success: true,
+        hasBotToken,
+        connected: hasBotToken && hasWebhookSecret,
+        hasWebhookSecret,
+      });
     } else {
       ctx.send(socket, {
         type: 'telegram_config_response',

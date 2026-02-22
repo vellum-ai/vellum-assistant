@@ -272,7 +272,7 @@ describe('Telegram config handler', () => {
     expect(secureKeyStore['credential:telegram:bot_token']).toBeUndefined();
   });
 
-  test('set action without botToken returns error', async () => {
+  test('set action without botToken returns error when no token in secure storage', async () => {
     const msg: TelegramConfigRequest = {
       type: 'telegram_config',
       action: 'set',
@@ -285,6 +285,40 @@ describe('Telegram config handler', () => {
     const res = sent[0] as { type: string; success: boolean; error?: string };
     expect(res.success).toBe(false);
     expect(res.error).toContain('botToken is required');
+  });
+
+  test('set action without botToken falls back to secure storage', async () => {
+    // Pre-populate token in secure storage (as credential_store prompt would)
+    secureKeyStore['credential:telegram:bot_token'] = '123456:stored-token';
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('api.telegram.org') && urlStr.includes('/getMe')) {
+        // Verify the stored token is being used
+        expect(urlStr).toContain('123456:stored-token');
+        return new Response(JSON.stringify({
+          ok: true,
+          result: { id: 123456, is_bot: true, first_name: 'TestBot', username: 'stored_bot' },
+        }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TelegramConfigRequest = {
+      type: 'telegram_config',
+      action: 'set',
+      // No botToken provided — should fall back to secure storage
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTelegramConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; hasBotToken: boolean; botUsername: string; connected: boolean };
+    expect(res.success).toBe(true);
+    expect(res.hasBotToken).toBe(true);
+    expect(res.botUsername).toBe('stored_bot');
+    expect(res.connected).toBe(true);
   });
 
   test('clear action removes credentials', async () => {
@@ -651,5 +685,116 @@ describe('Telegram config handler', () => {
     // Credentials should still be cleaned up despite webhook deregistration failure
     expect(secureKeyStore['credential:telegram:bot_token']).toBeUndefined();
     expect(secureKeyStore['credential:telegram:webhook_secret']).toBeUndefined();
+  });
+
+  test('set_commands action registers default commands', async () => {
+    secureKeyStore['credential:telegram:bot_token'] = 'test-bot-token';
+    secureKeyStore['credential:telegram:webhook_secret'] = 'test-webhook-secret';
+
+    let setCommandsCalled = false;
+    let setCommandsBody: unknown = null;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('/setMyCommands')) {
+        setCommandsCalled = true;
+        setCommandsBody = JSON.parse(init?.body as string);
+        return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TelegramConfigRequest = {
+      type: 'telegram_config',
+      action: 'set_commands',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTelegramConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; hasBotToken: boolean; connected: boolean };
+    expect(res.success).toBe(true);
+    expect(res.hasBotToken).toBe(true);
+    expect(res.connected).toBe(true);
+    expect(setCommandsCalled).toBe(true);
+    expect((setCommandsBody as { commands: Array<{ command: string; description: string }> }).commands).toEqual([
+      { command: 'new', description: 'Start a new conversation' },
+    ]);
+  });
+
+  test('set_commands action with custom commands', async () => {
+    secureKeyStore['credential:telegram:bot_token'] = 'test-bot-token';
+    secureKeyStore['credential:telegram:webhook_secret'] = 'test-webhook-secret';
+
+    let setCommandsBody: unknown = null;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('/setMyCommands')) {
+        setCommandsBody = JSON.parse(init?.body as string);
+        return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TelegramConfigRequest = {
+      type: 'telegram_config',
+      action: 'set_commands',
+      commands: [
+        { command: 'new', description: 'Start a new conversation' },
+        { command: 'help', description: 'Show help' },
+      ],
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTelegramConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean };
+    expect(res.success).toBe(true);
+    expect((setCommandsBody as { commands: Array<{ command: string; description: string }> }).commands).toEqual([
+      { command: 'new', description: 'Start a new conversation' },
+      { command: 'help', description: 'Show help' },
+    ]);
+  });
+
+  test('set_commands action fails when no bot token is configured', async () => {
+    const msg: TelegramConfigRequest = {
+      type: 'telegram_config',
+      action: 'set_commands',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTelegramConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Bot token not configured');
+  });
+
+  test('set_commands action handles Telegram API error', async () => {
+    secureKeyStore['credential:telegram:bot_token'] = 'test-bot-token';
+    secureKeyStore['credential:telegram:webhook_secret'] = 'test-webhook-secret';
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('/setMyCommands')) {
+        return new Response(JSON.stringify({ ok: false, description: 'Bad Request' }), { status: 400 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TelegramConfigRequest = {
+      type: 'telegram_config',
+      action: 'set_commands',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTelegramConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Failed to set bot commands');
   });
 });
