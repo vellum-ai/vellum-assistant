@@ -60,6 +60,16 @@ final class ToolPermissionTesterModel: ObservableObject {
 
     private let daemonClient: DaemonClientProtocol
 
+    // Snapshot of form values captured at simulate() time so
+    // handleSimulateResponse uses the values that produced the request,
+    // not whatever the user may have edited while the request was in flight.
+    private var pendingSnapshotToolName: String = ""
+    private var pendingSnapshotInputJSON: String = ""
+    private var pendingSnapshotExecutionTarget: String = ""
+    private var pendingSnapshotPrincipalKind: String = ""
+    private var pendingSnapshotPrincipalId: String = ""
+    private var pendingSnapshotPrincipalVersion: String = ""
+
     init(daemonClient: DaemonClientProtocol) {
         self.daemonClient = daemonClient
     }
@@ -80,6 +90,16 @@ final class ToolPermissionTesterModel: ObservableObject {
         }
 
         isSimulating = true
+
+        // Capture form values now so the snapshot reflects the state at
+        // request time, not at response time (the user may edit the form
+        // while the IPC round-trip is in flight).
+        pendingSnapshotToolName = toolName
+        pendingSnapshotInputJSON = inputJSON
+        pendingSnapshotExecutionTarget = executionTarget
+        pendingSnapshotPrincipalKind = principalKind
+        pendingSnapshotPrincipalId = principalId
+        pendingSnapshotPrincipalVersion = principalVersion
 
         // Wire up the one-shot response callback before sending.
         if let dc = daemonClient as? DaemonClient {
@@ -175,12 +195,12 @@ final class ToolPermissionTesterModel: ObservableObject {
             reason: response.reason ?? "",
             matchedRuleId: response.matchedRuleId,
             promptPayload: response.promptPayload,
-            snapshotToolName: toolName,
-            snapshotInputJSON: inputJSON,
-            snapshotExecutionTarget: executionTarget,
-            snapshotPrincipalKind: principalKind,
-            snapshotPrincipalId: principalId,
-            snapshotPrincipalVersion: principalVersion
+            snapshotToolName: pendingSnapshotToolName,
+            snapshotInputJSON: pendingSnapshotInputJSON,
+            snapshotExecutionTarget: pendingSnapshotExecutionTarget,
+            snapshotPrincipalKind: pendingSnapshotPrincipalKind,
+            snapshotPrincipalId: pendingSnapshotPrincipalId,
+            snapshotPrincipalVersion: pendingSnapshotPrincipalVersion
         )
     }
 
