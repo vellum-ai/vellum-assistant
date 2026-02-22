@@ -651,8 +651,19 @@ struct DynamicWorkspaceWrapper: View {
     let onToggleChatDock: () -> Void
     let onMicrophoneToggle: () -> Void
 
+    @State private var showVersionHistory = false
+
     var body: some View {
         ZStack {
+            if showVersionHistory, let appId = data.appId {
+                AppVersionHistoryPanel(
+                    daemonClient: daemonClient,
+                    appId: appId,
+                    appName: data.preview?.title ?? "App",
+                    onClose: { showVersionHistory = false }
+                )
+            } else {
+
             DynamicPageSurfaceView(
                 data: data,
                 onAction: { actionId, actionData in
@@ -730,8 +741,16 @@ struct DynamicWorkspaceWrapper: View {
 
                     Spacer()
 
-                    // Right: Share + Close ghost buttons
+                    // Right: History + Share + Close ghost buttons
                     HStack(spacing: VSpacing.sm) {
+                        if data.appId != nil {
+                            VButton(label: "History", icon: "clock.arrow.circlepath", style: .ghost) {
+                                showVersionHistory = true
+                            }
+                            .controlSize(.small)
+                            .accessibilityLabel("Version history")
+                        }
+
                         if isPublishing {
                             ProgressView()
                                 .controlSize(.small)
@@ -779,6 +798,7 @@ struct DynamicWorkspaceWrapper: View {
 
                 Spacer()
             }
+            } // else (not showing version history)
         }
     }
 }
