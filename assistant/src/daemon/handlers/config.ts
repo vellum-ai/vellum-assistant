@@ -424,9 +424,7 @@ function triggerGatewayReconcile(ingressPublicBaseUrl: string | undefined): void
   }
 
   const url = `${gatewayBase}/internal/telegram/reconcile`;
-  const body = ingressPublicBaseUrl
-    ? JSON.stringify({ ingressPublicBaseUrl })
-    : '{}';
+  const body = JSON.stringify({ ingressPublicBaseUrl: ingressPublicBaseUrl ?? '' });
 
   fetch(url, {
     method: 'POST',
