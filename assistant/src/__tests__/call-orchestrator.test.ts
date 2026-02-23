@@ -524,6 +524,56 @@ describe('call-orchestrator', () => {
     orchestrator.destroy();
   });
 
+  test('interrupt then next caller prompt still preserves role alternation', async () => {
+    let callCount = 0;
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      callCount++;
+      if (callCount === 1) {
+        const emitter = new EventEmitter();
+        const options = args[1] as { signal?: AbortSignal } | undefined;
+        return {
+          on: (event: string, handler: (...evtArgs: unknown[]) => void) => {
+            emitter.on(event, handler);
+            return { on: () => ({ on: () => ({}) }) };
+          },
+          finalMessage: () =>
+            new Promise((_, reject) => {
+              options?.signal?.addEventListener('abort', () => {
+                const err = new Error('aborted');
+                err.name = 'AbortError';
+                reject(err);
+              }, { once: true });
+            }),
+        };
+      }
+
+      const firstArg = args[0] as { messages: Array<{ role: string; content: string }> };
+      const roles = firstArg.messages.map((m) => m.role);
+      for (let i = 1; i < roles.length; i++) {
+        expect(!(roles[i - 1] === 'user' && roles[i] === 'user')).toBe(true);
+      }
+      const userMessages = firstArg.messages.filter((m) => m.role === 'user');
+      const lastUser = userMessages[userMessages.length - 1];
+      expect(lastUser?.content).toContain('First caller utterance');
+      expect(lastUser?.content).toContain('Second caller utterance');
+      return createMockStream(['Post-interrupt response.']);
+    });
+
+    const { relay, orchestrator } = setupOrchestrator();
+    const firstTurnPromise = orchestrator.handleCallerUtterance('First caller utterance');
+    await new Promise((r) => setTimeout(r, 5));
+    orchestrator.handleInterrupt();
+    const secondTurnPromise = orchestrator.handleCallerUtterance('Second caller utterance');
+
+    await Promise.all([firstTurnPromise, secondTurnPromise]);
+
+    const allTokens = relay.sentTokens.map((t) => t.token).join('');
+    expect(allTokens).toContain('Post-interrupt response.');
+    expect(allTokens).not.toContain('technical issue');
+
+    orchestrator.destroy();
+  });
+
   test('handleUserAnswer: returns false when not in waiting_on_user state', async () => {
     const { orchestrator } = setupOrchestrator();
 

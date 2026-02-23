@@ -77,11 +77,12 @@ export class CallOrchestrator {
     this.resetSilenceTimer();
     const callerContent = this.formatCallerUtterance(transcript, speaker);
 
-    // If a caller barges in while the assistant turn is still in flight,
-    // the interrupted run may never append an assistant message. Coalesce
-    // contiguous caller turns to preserve role alternation for Anthropic.
+    // Preserve strict role alternation for Anthropic. If the last message
+    // is already user-role (e.g. interrupted run never appended assistant,
+    // or a second caller prompt arrives before assistant completion), merge
+    // this utterance into that same user turn.
     const lastMessage = this.conversationHistory[this.conversationHistory.length - 1];
-    if (interruptedInFlight && lastMessage?.role === 'user') {
+    if (lastMessage?.role === 'user') {
       lastMessage.content = `${lastMessage.content}\n${callerContent}`;
     } else {
       this.conversationHistory.push({
