@@ -12,7 +12,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  notify-start:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack of release start
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            unfurl_links: false
+            unfurl_media: false
+            blocks:
+              - type: header
+                text:
+                  type: plain_text
+                  text: "\U0001F680 Release v${{ inputs.version }} Started"
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: "*Workflow:* Unified Release\n*Version:* `${{ inputs.version }}`\n*Triggered by:* ${{ github.actor }}"
+              - type: actions
+                elements:
+                  - type: button
+                    text:
+                      type: plain_text
+                      text: "View Run"
+                    url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
   bump-and-tag:
+    needs: notify-start
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App token
