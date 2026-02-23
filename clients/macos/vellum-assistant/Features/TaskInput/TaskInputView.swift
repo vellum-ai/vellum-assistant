@@ -4,7 +4,7 @@ import AppKit
 import UniformTypeIdentifiers
 
 struct TaskInputView: View {
-    private static let maxAttachmentCount = 10
+    private static let maxAttachmentCount = 5
     private static let maxTotalAttachmentBytes = 50 * 1024 * 1024
     let onSubmit: (TaskSubmission) -> Void
     @ObservedObject var daemonClient: DaemonClient
