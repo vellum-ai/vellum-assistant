@@ -995,8 +995,8 @@ final class ComputerUseSession: ObservableObject {
             summary = "Session cancelled by user"
             stepCount = currentStepNumber
         default:
-            status = "unknown"
-            summary = "Session ended in unexpected state"
+            status = "failed"
+            summary = "Session ended in unexpected state: \(state)"
             stepCount = currentStepNumber
         }
 
@@ -1005,7 +1005,7 @@ final class ComputerUseSession: ObservableObject {
         if let recorder = screenRecorder, recorder.isRecording {
             do {
                 let result = try await recorder.stopRecording()
-                let expiresAtEpoch = Int(Date().addingTimeInterval(7 * 24 * 3600).timeIntervalSince1970)
+                let expiresAtEpoch = Int(Date().addingTimeInterval(7 * 24 * 3600).timeIntervalSince1970 * 1000)
                 recordingData = IPCCuSessionFinalizedRecording(
                     localPath: result.fileURL.path,
                     mimeType: result.mimeType,

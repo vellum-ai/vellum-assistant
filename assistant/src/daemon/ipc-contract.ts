@@ -1566,6 +1566,10 @@ export interface TaskRouted {
   task?: string;
   /** Set when a text_qa session escalates to computer_use via computer_use_request_control. */
   escalatedFrom?: string;
+  /** Whether this is a QA/test workflow session. */
+  qaMode?: boolean;
+  /** The originating chat session ID for result injection. */
+  reportToSessionId?: string;
 }
 
 export interface RideShotgunProgress {

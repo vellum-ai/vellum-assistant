@@ -3440,14 +3440,10 @@ public struct IPCTaskRouted: Codable, Sendable {
     public let task: String?
     /// Set when a text_qa session escalates to computer_use via computer_use_request_control.
     public let escalatedFrom: String?
-
-    public init(type: String, sessionId: String, interactionType: String, task: String?, escalatedFrom: String?) {
-        self.type = type
-        self.sessionId = sessionId
-        self.interactionType = interactionType
-        self.task = task
-        self.escalatedFrom = escalatedFrom
-    }
+    /// Whether this is a QA/test workflow session.
+    public let qaMode: Bool?
+    /// The originating chat session ID for result injection.
+    public let reportToSessionId: String?
 }
 
 /// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread.
