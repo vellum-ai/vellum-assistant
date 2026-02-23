@@ -429,11 +429,23 @@ export async function runDaemon(): Promise<void> {
   if (httpPortEnv) {
     const port = parseInt(httpPortEnv, 10);
     if (!isNaN(port) && port > 0) {
-      // Use an explicit env var if provided; otherwise generate a fresh
-      // random token. Either way, write it to disk so HTTP clients and
-      // the gateway can authenticate.
-      const bearerToken = process.env.RUNTIME_PROXY_BEARER_TOKEN || randomBytes(32).toString('hex');
+      // Resolve the bearer token in priority order:
+      //   1. Explicit env var (e.g. cloud deploys)
+      //   2. Existing token file on disk (preserves QR-paired iOS devices across restarts)
+      //   3. Fresh random token (first-time startup)
       const httpTokenPath = getHttpTokenPath();
+      let bearerToken = process.env.RUNTIME_PROXY_BEARER_TOKEN;
+      if (!bearerToken) {
+        try {
+          const existing = readFileSync(httpTokenPath, 'utf-8').trim();
+          if (existing) bearerToken = existing;
+        } catch {
+          // File doesn't exist or can't be read — will generate below
+        }
+      }
+      if (!bearerToken) {
+        bearerToken = randomBytes(32).toString('hex');
+      }
       writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
       chmodSync(httpTokenPath, 0o600);
 

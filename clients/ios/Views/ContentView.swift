@@ -94,7 +94,7 @@ struct ContentView: View {
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Could not reach your assistant. Check that your Mac is running and try again.")
+            Text("Unable to reach your Mac's gateway. This could mean your Mac is offline, the tunnel is down, or ingress is disabled.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)

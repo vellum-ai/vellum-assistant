@@ -302,12 +302,27 @@ export async function startGateway(): Promise<string> {
   const assistants = loadAllAssistants();
   const isSingleAssistant = assistants.length === 1;
 
+  // Read the bearer token from ~/.vellum/http-token so the gateway can
+  // authenticate proxied requests (e.g. from paired iOS devices).
+  const httpTokenPath = join(homedir(), ".vellum", "http-token");
+  let runtimeProxyBearerToken: string | undefined;
+  try {
+    const tok = readFileSync(httpTokenPath, "utf-8").trim();
+    if (tok) runtimeProxyBearerToken = tok;
+  } catch {
+    // Token file doesn't exist yet — daemon hasn't written it.
+  }
+
   const gatewayEnv: Record<string, string> = {
     ...process.env as Record<string, string>,
     GATEWAY_RUNTIME_PROXY_ENABLED: "true",
-    GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "false",
+    GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "true",
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
   };
+
+  if (runtimeProxyBearerToken) {
+    gatewayEnv.RUNTIME_PROXY_BEARER_TOKEN = runtimeProxyBearerToken;
+  }
 
   if (process.env.GATEWAY_UNMAPPED_POLICY) {
     gatewayEnv.GATEWAY_UNMAPPED_POLICY = process.env.GATEWAY_UNMAPPED_POLICY;

@@ -56,8 +56,44 @@ struct DaemonConnectionSection: View {
 
     @State private var showManualSetup = false
 
+    /// The gateway URL from UserDefaults, if the user paired via QR code (HTTP transport).
+    private var gatewayURL: String? {
+        UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Whether the current transport is HTTP (gateway-based).
+    private var isHTTPTransport: Bool {
+        gatewayURL != nil
+    }
+
     var body: some View {
         Form {
+            // Show gateway connection status when connected via HTTP transport
+            if isHTTPTransport, clientProvider.isConnected {
+                Section {
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("Connected via gateway")
+                            .font(VFont.body)
+                    }
+                    if let url = gatewayURL {
+                        HStack {
+                            Text("Gateway URL")
+                                .foregroundColor(VColor.textSecondary)
+                            Spacer()
+                            Text(url)
+                                .font(.caption)
+                                .foregroundColor(VColor.textMuted)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                } header: {
+                    Text("Connection")
+                }
+            }
+
             Section {
                 Button {
                     showingQRPairing = true
