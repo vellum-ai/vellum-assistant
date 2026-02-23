@@ -20,6 +20,7 @@ import type {
 } from '../ipc-protocol.js';
 import { log, wireEscalationHandler, renderHistoryContent, defineHandlers, type HandlerContext } from './shared.js';
 import { handleCuSessionCreate } from './computer-use.js';
+import { detectQaIntent } from '../qa-intent.js';
 
 // ─── Task submit handler ────────────────────────────────────────────────────
 
@@ -74,6 +75,7 @@ export async function handleTaskSubmit(
     if (interactionType === 'computer_use') {
       // Create CU session (reuse handleCuSessionCreate logic)
       const sessionId = uuid();
+      const isQa = detectQaIntent(msg.task);
       const cuMsg: CuSessionCreate = {
         type: 'cu_session_create',
         sessionId,
@@ -82,6 +84,7 @@ export async function handleTaskSubmit(
         screenHeight: msg.screenHeight,
         attachments: msg.attachments,
         interactionType: 'computer_use',
+        ...(isQa ? { qaMode: true } : {}),
       };
       handleCuSessionCreate(cuMsg, socket, ctx);
 
@@ -89,6 +92,7 @@ export async function handleTaskSubmit(
         type: 'task_routed',
         sessionId,
         interactionType: 'computer_use',
+        ...(isQa ? { qaMode: true } : {}),
       });
     } else {
       // Create text QA session and immediately start processing
