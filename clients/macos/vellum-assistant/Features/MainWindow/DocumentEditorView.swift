@@ -209,12 +209,20 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
   <title>\(escapedTitle)</title>
 
   <!-- Toast UI Editor CSS -->
-  <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/toastui-editor.min.css" />
-  <link rel="stylesheet" href="https://uicdn.toast.com/editor/latest/theme/toastui-editor-dark.min.css"
+  <link rel="stylesheet" href="https://uicdn.toast.com/editor/3.2.2/toastui-editor.min.css"
+        integrity="sha384-Uw+ry/KtbmFNRGJd+U+hpfJou1QMHCAQc8k8OdZkclgUySjn8aJJcVTkkCeSwP6H"
+        crossorigin="anonymous" />
+  <link rel="stylesheet" href="https://uicdn.toast.com/editor/3.2.2/theme/toastui-editor-dark.min.css"
+        integrity="sha384-sVw6WIm9J/uQN297I6pVzNTIZf44KjU+hr4aeWw7/a6jmwjHKJHyaqawLS4LUIq0"
+        crossorigin="anonymous"
         media="(prefers-color-scheme: dark)" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
+        integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+        crossorigin="anonymous"
         media="(prefers-color-scheme: dark)" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css"
+        integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+        crossorigin="anonymous"
         media="(prefers-color-scheme: light)" />
 
   <style>
@@ -333,78 +341,93 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
   </div>
 
   <!-- Toast UI Editor JS -->
-  <script src="https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js"></script>
+  <script src="https://uicdn.toast.com/editor/3.2.2/toastui-editor-all.min.js"
+          integrity="sha384-FF8a/n4tsDcp0oRDFHNNygVDoaTZfIGmaSzvbL8wMqj/8R5sD+JKKKqfQmwJQAQY"
+          crossorigin="anonymous"></script>
 
   <script>
-    // Initialize Toast UI Editor
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-    window.editor = new toastui.Editor({
-      el: document.querySelector('#editor'),
-      height: '100%',
-      initialEditType: 'wysiwyg',
-      previewStyle: 'vertical',
-      theme: prefersDark ? 'dark' : 'light',
-      usageStatistics: false,
-      initialValue: \(escapedContent),
-      toolbarItems: [
-        ['heading', 'bold', 'italic', 'strike'],
-        ['hr', 'quote'],
-        ['ul', 'ol', 'task', 'indent', 'outdent'],
-        ['table', 'link', 'image', 'code', 'codeblock']
-      ],
-      hooks: {
-        addImageBlobHook: (blob, callback) => {
-          const reader = new FileReader();
-          reader.onload = (e) => callback(e.target.result, blob.name);
-          reader.readAsDataURL(blob);
-        }
+    try {
+      if (typeof toastui === 'undefined' || typeof toastui.Editor === 'undefined') {
+        throw new Error('Toast UI Editor failed to load. Please check your network connection and try again.');
       }
-    });
 
-    const titleInput = document.getElementById('title-input');
-    const statusEl = document.getElementById('status');
-    let wordCount = 0;
-    let saveTimeout = null;
+      // Initialize Toast UI Editor
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
-    // Update word count
-    function updateWordCount() {
-      const text = window.editor.getMarkdown();
-      wordCount = text.trim().split(/\\s+/).filter(w => w.length > 0).length;
-      statusEl.textContent = `${wordCount} words`;
-    }
-
-    // Notify Swift side of content changes (debounced)
-    function notifyContentChanged() {
-      clearTimeout(saveTimeout);
-      statusEl.textContent = 'Saving...';
-
-      saveTimeout = setTimeout(() => {
-        const content = window.editor.getMarkdown();
-        const title = titleInput.value.trim() || 'Untitled Document';
-
-        // Update word count before sending to ensure fresh data
-        updateWordCount();
-
-        if (typeof window.vellum !== 'undefined' && typeof window.vellum.sendAction === 'function') {
-          window.vellum.sendAction('content_changed', {
-            title,
-            content,
-            wordCount
-          });
+      window.editor = new toastui.Editor({
+        el: document.querySelector('#editor'),
+        height: '100%',
+        initialEditType: 'wysiwyg',
+        previewStyle: 'vertical',
+        theme: prefersDark ? 'dark' : 'light',
+        usageStatistics: false,
+        initialValue: \(escapedContent),
+        toolbarItems: [
+          ['heading', 'bold', 'italic', 'strike'],
+          ['hr', 'quote'],
+          ['ul', 'ol', 'task', 'indent', 'outdent'],
+          ['table', 'link', 'image', 'code', 'codeblock']
+        ],
+        hooks: {
+          addImageBlobHook: (blob, callback) => {
+            const reader = new FileReader();
+            reader.onload = (e) => callback(e.target.result, blob.name);
+            reader.readAsDataURL(blob);
+          }
         }
-      }, 500);
+      });
+
+      const titleInput = document.getElementById('title-input');
+      const statusEl = document.getElementById('status');
+      let wordCount = 0;
+      let saveTimeout = null;
+
+      // Update word count
+      function updateWordCount() {
+        const text = window.editor.getMarkdown();
+        wordCount = text.trim().split(/\\s+/).filter(w => w.length > 0).length;
+        statusEl.textContent = `${wordCount} words`;
+      }
+
+      // Notify Swift side of content changes (debounced)
+      function notifyContentChanged() {
+        clearTimeout(saveTimeout);
+        statusEl.textContent = 'Saving...';
+
+        saveTimeout = setTimeout(() => {
+          const content = window.editor.getMarkdown();
+          const title = titleInput.value.trim() || 'Untitled Document';
+
+          // Update word count before sending to ensure fresh data
+          updateWordCount();
+
+          if (typeof window.vellum !== 'undefined' && typeof window.vellum.sendAction === 'function') {
+            window.vellum.sendAction('content_changed', {
+              title,
+              content,
+              wordCount
+            });
+          }
+        }, 500);
+      }
+
+      // Listen for content changes
+      window.editor.on('change', notifyContentChanged);
+      titleInput.addEventListener('input', notifyContentChanged);
+
+      // Initial word count
+      updateWordCount();
+
+      // Focus editor
+      setTimeout(() => window.editor.focus(), 100);
+    } catch (e) {
+      document.getElementById('editor').innerHTML =
+        '<div style="padding: 32px; color: var(--v-text-secondary); font-size: 14px;">' +
+        '<strong>Editor failed to load</strong><br><br>' +
+        'The document editor could not be initialized. This may be due to a network issue preventing ' +
+        'external assets from loading.<br><br>' +
+        '<em>' + e.message + '</em></div>';
     }
-
-    // Listen for content changes
-    window.editor.on('change', notifyContentChanged);
-    titleInput.addEventListener('input', notifyContentChanged);
-
-    // Initial word count
-    updateWordCount();
-
-    // Focus editor
-    setTimeout(() => window.editor.focus(), 100);
   </script>
 </body>
 </html>
