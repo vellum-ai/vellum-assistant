@@ -39,6 +39,8 @@ Telegram uses a bot token (not OAuth). Install and load the **telegram-setup** s
 
 The telegram-setup skill handles: verifying the bot token from @BotFather, generating a webhook secret, registering bot commands, and storing credentials securely via the secure credential prompt flow. **Never accept a Telegram bot token pasted in plaintext chat — always use the secure prompt.** Webhook registration with Telegram is handled automatically by the gateway on startup and whenever credentials change.
 
+The telegram-setup skill also includes **guardian verification**, which links your Telegram account as the trusted guardian for the bot.
+
 ### SMS (Twilio)
 SMS messaging uses Twilio as the telephony provider. Twilio credentials and phone number configuration are shared with the **phone-calls** skill. Load the **twilio-setup** skill to configure Twilio:
    - Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "twilio-setup"`.
@@ -46,6 +48,8 @@ SMS messaging uses Twilio as the telephony provider. Twilio credentials and phon
    - Tell the user: *"I've loaded a setup guide for Twilio. It will walk you through configuring your Twilio account for SMS and voice calls."*
 
 The twilio-setup skill handles: credential storage (Account SID + Auth Token), phone number provisioning or assignment, and public ingress setup. Once Twilio is configured, SMS is available automatically — no additional feature flag is needed. The assistant's Twilio phone number is used for both outbound SMS and voice calls.
+
+The twilio-setup skill also includes optional **guardian verification** for SMS, which links your phone number as the trusted guardian. This is the same guardian concept used by Telegram — it ensures only verified users can approve sensitive operations via SMS.
 
 ## Platform Selection
 
