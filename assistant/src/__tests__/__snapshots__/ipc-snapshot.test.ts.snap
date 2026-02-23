@@ -146,6 +146,24 @@ exports[`IPC message snapshots ClientMessage types cu_session_abort serializes t
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types cu_auto_approve_update serializes to expected JSON 1`] = `
+{
+  "enabled": true,
+  "sessionId": "cu-sess-001",
+  "type": "cu_auto_approve_update",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types cu_session_finalized serializes to expected JSON 1`] = `
+{
+  "sessionId": "cu-sess-001",
+  "status": "completed",
+  "stepCount": 5,
+  "summary": "Task completed successfully",
+  "type": "cu_session_finalized",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types cu_observation serializes to expected JSON 1`] = `
 {
   "axDiff": "+ new element",
@@ -2497,15 +2515,5 @@ exports[`IPC message snapshots ServerMessage types tool_names_list_response seri
     "file_write",
   ],
   "type": "tool_names_list_response",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types cu_session_finalized serializes to expected JSON 1`] = `
-{
-  "sessionId": "cu-sess-001",
-  "status": "completed",
-  "stepCount": 5,
-  "summary": "Task completed successfully",
-  "type": "cu_session_finalized",
 }
 `;

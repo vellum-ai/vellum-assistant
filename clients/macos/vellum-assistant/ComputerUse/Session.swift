@@ -29,7 +29,33 @@ struct PendingToolPermissionPrompt: Equatable {
 final class ComputerUseSession: ObservableObject {
     @Published var state: SessionState = .idle
     @Published var undoCount = 0
-    @Published var autoApproveTools = false
+    @Published var autoApproveTools = false {
+        didSet {
+            guard autoApproveTools != oldValue else { return }
+            log.info("Auto-approve tools toggled: \(autoApproveTools)")
+
+            // Notify daemon so it can skip prompt creation proactively
+            do {
+                try daemonClient.send(CuAutoApproveUpdateMessage(sessionId: id, enabled: autoApproveTools))
+            } catch {
+                log.error("Failed to send cu_auto_approve_update: \(error)")
+            }
+
+            // Retro-resolve: if toggling ON and a low/medium-risk prompt is pending, approve it immediately
+            if autoApproveTools, let pending = pendingToolPermissionPrompt {
+                let normalizedRisk = pending.riskLevel.lowercased()
+                if normalizedRisk == "low" || normalizedRisk == "medium" {
+                    log.info("Retro-resolving pending prompt \(pending.requestId) (tool=\(pending.toolName), risk=\(normalizedRisk))")
+                    do {
+                        try daemonClient.send(ConfirmationResponseMessage(requestId: pending.requestId, decision: "allow"))
+                    } catch {
+                        log.error("Failed to retro-resolve pending prompt: \(error)")
+                    }
+                    pendingToolPermissionPrompt = nil
+                }
+            }
+        }
+    }
     @Published var pendingToolPermissionPrompt: PendingToolPermissionPrompt?
 
     let task: String
