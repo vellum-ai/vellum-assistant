@@ -228,8 +228,9 @@ struct MainWindowView: View {
     }
 
     /// Whether the chat bubble toggle should be visible for the current selection.
+    /// Hidden when already in a full-screen chat thread (.thread / .none).
     private var isChatBubbleVisible: Bool {
-        true
+        !windowState.isShowingChat
     }
 
     /// Whether the chat bubble toggle is active (chat is open).
