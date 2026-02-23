@@ -455,6 +455,24 @@ final class AssistantCli {
 
     // MARK: - Private Helpers
 
+    /// Path to the lock file that tracks registered assistants.
+    private var lockFileURL: URL {
+        if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
+            return URL(fileURLWithPath: baseDir).appendingPathComponent(".vellum.lock.json")
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".vellum.lock.json")
+    }
+
+    /// Returns `true` if the given assistant ID is present in `~/.vellum.lock.json`.
+    private func isAssistantInLockFile(assistantId: String) -> Bool {
+        guard let data = try? Data(contentsOf: lockFileURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let assistants = json["assistants"] as? [[String: Any]] else {
+            return false
+        }
+        return assistants.contains { ($0["assistantId"] as? String) == assistantId }
+    }
+
     /// Returns `true` if the daemon process is alive based on the PID file.
     private func isDaemonAlive() -> Bool {
         let pidData: Data
@@ -474,6 +492,14 @@ final class AssistantCli {
     private func restartDaemon() async {
         guard cliBinaryURL != nil else { return }
         guard !hasGivenUp else { return }
+
+        // Only restart if the assistant is still registered in the lock file
+        let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        guard let assistantId, isAssistantInLockFile(assistantId: assistantId) else {
+            log.info("Assistant not found in lock file — skipping restart and stopping monitor")
+            stopMonitoring()
+            return
+        }
 
         // Track consecutive rapid crashes for backoff
         if let lastLaunch = lastLaunchTime,
@@ -498,9 +524,7 @@ final class AssistantCli {
         }
 
         do {
-            // Pass the existing assistant name so the CLI reuses it
-            let existingName = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            try await hatch(name: existingName, daemonOnly: true)
+            try await hatch(name: assistantId, daemonOnly: true)
             log.info("Daemon restarted successfully via CLI")
             onDaemonRestarted?()
         } catch {
