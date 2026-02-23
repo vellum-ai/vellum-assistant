@@ -13,6 +13,7 @@ struct ChatEmptyStateView: View {
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
+    let errorText: String?
     let onSend: () -> Void
     let onStop: () -> Void
     let onAcceptSuggestion: () -> Void
@@ -20,6 +21,7 @@ struct ChatEmptyStateView: View {
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
+    let onDismissError: () -> Void
     @Binding var editorContentHeight: CGFloat
     @Binding var isComposerExpanded: Bool
 
@@ -73,24 +75,42 @@ struct ChatEmptyStateView: View {
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.bottom, VSpacing.xl)
 
-            ComposerView(
-                inputText: $inputText,
-                hasAPIKey: hasAPIKey,
-                isSending: isSending,
-                isRecording: isRecording,
-                suggestion: suggestion,
-                pendingAttachments: pendingAttachments,
-                onSend: onSend,
-                onStop: onStop,
-                onAcceptSuggestion: onAcceptSuggestion,
-                onAttach: onAttach,
-                onRemoveAttachment: onRemoveAttachment,
-                onPaste: onPaste,
-                onMicrophoneToggle: onMicrophoneToggle,
-                placeholderText: placeholder,
-                editorContentHeight: $editorContentHeight,
-                isComposerExpanded: $isComposerExpanded
-            )
+            VStack(spacing: 0) {
+                if let errorText {
+                    ChatErrorBanner(
+                        text: errorText,
+                        isSecretBlockError: false,
+                        onSendAnyway: {},
+                        isRetryableError: false,
+                        onRetryError: {},
+                        isConnectionError: false,
+                        onOpenDoctor: {},
+                        onDismissError: onDismissError
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous))
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.xs)
+                }
+
+                ComposerView(
+                    inputText: $inputText,
+                    hasAPIKey: hasAPIKey,
+                    isSending: isSending,
+                    isRecording: isRecording,
+                    suggestion: suggestion,
+                    pendingAttachments: pendingAttachments,
+                    onSend: onSend,
+                    onStop: onStop,
+                    onAcceptSuggestion: onAcceptSuggestion,
+                    onAttach: onAttach,
+                    onRemoveAttachment: onRemoveAttachment,
+                    onPaste: onPaste,
+                    onMicrophoneToggle: onMicrophoneToggle,
+                    placeholderText: placeholder,
+                    editorContentHeight: $editorContentHeight,
+                    isComposerExpanded: $isComposerExpanded
+                )
+            }
             .frame(maxWidth: 500)
             .opacity(visible ? 1 : 0)
             .offset(y: visible ? 0 : 10)
@@ -122,6 +142,7 @@ struct ChatTemporaryChatEmptyStateView: View {
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
+    let errorText: String?
     let onSend: () -> Void
     let onStop: () -> Void
     let onAcceptSuggestion: () -> Void
@@ -129,6 +150,7 @@ struct ChatTemporaryChatEmptyStateView: View {
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
+    let onDismissError: () -> Void
     @Binding var editorContentHeight: CGFloat
     @Binding var isComposerExpanded: Bool
 
@@ -155,24 +177,42 @@ struct ChatTemporaryChatEmptyStateView: View {
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.bottom, VSpacing.xxl)
 
-            ComposerView(
-                inputText: $inputText,
-                hasAPIKey: hasAPIKey,
-                isSending: isSending,
-                isRecording: isRecording,
-                suggestion: suggestion,
-                pendingAttachments: pendingAttachments,
-                onSend: onSend,
-                onStop: onStop,
-                onAcceptSuggestion: onAcceptSuggestion,
-                onAttach: onAttach,
-                onRemoveAttachment: onRemoveAttachment,
-                onPaste: onPaste,
-                onMicrophoneToggle: onMicrophoneToggle,
-                placeholderText: "Ask anything...",
-                editorContentHeight: $editorContentHeight,
-                isComposerExpanded: $isComposerExpanded
-            )
+            VStack(spacing: 0) {
+                if let errorText {
+                    ChatErrorBanner(
+                        text: errorText,
+                        isSecretBlockError: false,
+                        onSendAnyway: {},
+                        isRetryableError: false,
+                        onRetryError: {},
+                        isConnectionError: false,
+                        onOpenDoctor: {},
+                        onDismissError: onDismissError
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous))
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.xs)
+                }
+
+                ComposerView(
+                    inputText: $inputText,
+                    hasAPIKey: hasAPIKey,
+                    isSending: isSending,
+                    isRecording: isRecording,
+                    suggestion: suggestion,
+                    pendingAttachments: pendingAttachments,
+                    onSend: onSend,
+                    onStop: onStop,
+                    onAcceptSuggestion: onAcceptSuggestion,
+                    onAttach: onAttach,
+                    onRemoveAttachment: onRemoveAttachment,
+                    onPaste: onPaste,
+                    onMicrophoneToggle: onMicrophoneToggle,
+                    placeholderText: "Ask anything...",
+                    editorContentHeight: $editorContentHeight,
+                    isComposerExpanded: $isComposerExpanded
+                )
+            }
 
             Spacer()
             Spacer()
