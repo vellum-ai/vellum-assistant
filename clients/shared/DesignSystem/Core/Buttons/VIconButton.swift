@@ -100,8 +100,8 @@ private struct VIconButtonStyle: ButtonStyle {
             return adaptiveColor(light: Moss._100, dark: Moss._700)
         } else {
             if isPressed { return adaptiveColor(light: Moss._200, dark: Moss._600) }
-            if isHovered { return adaptiveColor(light: Moss._200, dark: Moss._600) }
-            return adaptiveColor(light: Moss._100, dark: Moss._700)
+            if isHovered { return adaptiveColor(light: Moss._100, dark: Moss._700) }
+            return .clear
         }
     }
 }
