@@ -66,20 +66,29 @@ export class CallOrchestrator {
    * Handle a final caller utterance from the ConversationRelay.
    */
   async handleCallerUtterance(transcript: string, speaker?: PromptSpeakerContext): Promise<void> {
+    const interruptedInFlight = this.state === 'processing' || this.state === 'speaking';
     // If we're already processing or speaking, abort the in-flight generation
-    if (this.state === 'processing' || this.state === 'speaking') {
+    if (interruptedInFlight) {
       this.abortController.abort();
       this.abortController = new AbortController();
     }
 
     this.state = 'processing';
     this.resetSilenceTimer();
+    const callerContent = this.formatCallerUtterance(transcript, speaker);
 
-    // Append caller utterance
-    this.conversationHistory.push({
-      role: 'user',
-      content: this.formatCallerUtterance(transcript, speaker),
-    });
+    // If a caller barges in while the assistant turn is still in flight,
+    // the interrupted run may never append an assistant message. Coalesce
+    // contiguous caller turns to preserve role alternation for Anthropic.
+    const lastMessage = this.conversationHistory[this.conversationHistory.length - 1];
+    if (interruptedInFlight && lastMessage?.role === 'user') {
+      lastMessage.content = `${lastMessage.content}\n${callerContent}`;
+    } else {
+      this.conversationHistory.push({
+        role: 'user',
+        content: callerContent,
+      });
+    }
 
     await this.runLlm();
   }
