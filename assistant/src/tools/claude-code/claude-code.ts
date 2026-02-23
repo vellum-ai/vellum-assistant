@@ -104,6 +104,12 @@ export const claudeCodeTool: Tool = {
 
     // Resolve prompt: either from direct prompt input or by loading a CC command template
     let prompt: string;
+    if (input.command != null && typeof input.command !== 'string') {
+      return {
+        content: `Error: "command" must be a string, got ${typeof input.command}`,
+        isError: true,
+      };
+    }
     const commandName = input.command as string | undefined;
     if (commandName) {
       // Command-template execution path: load .claude/commands/<command>.md,
