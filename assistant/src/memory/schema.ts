@@ -763,3 +763,18 @@ export const mediaTrackingProfiles = sqliteTable('media_tracking_profiles', {
   capabilities: text('capabilities').notNull(),                  // JSON: { [capName]: { enabled, tier } }
   createdAt: integer('created_at').notNull(),
 });
+
+export const mediaEventFeedback = sqliteTable('media_event_feedback', {
+  id: text('id').primaryKey(),
+  assetId: text('asset_id').notNull()
+    .references(() => mediaAssets.id, { onDelete: 'cascade' }),
+  eventId: text('event_id').notNull()
+    .references(() => mediaEvents.id, { onDelete: 'cascade' }),
+  feedbackType: text('feedback_type').notNull(),                 // correct | incorrect | boundary_edit | missed
+  originalStartTime: real('original_start_time'),
+  originalEndTime: real('original_end_time'),
+  correctedStartTime: real('corrected_start_time'),
+  correctedEndTime: real('corrected_end_time'),
+  notes: text('notes'),
+  createdAt: integer('created_at').notNull(),
+});
