@@ -1136,5 +1136,26 @@ export function initializeDb(): void {
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_tracking_profiles_asset_id ON media_tracking_profiles(asset_id)`);
 
+  // ── Media Event Feedback ──────────────────────────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS media_event_feedback (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL REFERENCES media_assets(id) ON DELETE CASCADE,
+      event_id TEXT NOT NULL REFERENCES media_events(id) ON DELETE CASCADE,
+      feedback_type TEXT NOT NULL,
+      original_start_time REAL,
+      original_end_time REAL,
+      corrected_start_time REAL,
+      corrected_end_time REAL,
+      notes TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_asset_id ON media_event_feedback(asset_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_event_id ON media_event_feedback(event_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_type ON media_event_feedback(asset_id, feedback_type)`);
+
   migrateMemoryFtsBackfill(database);
 }

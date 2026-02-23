@@ -228,6 +228,75 @@
       },
       "executor": "tools/generate-clip.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "submit_feedback",
+      "description": "Submit feedback on a detected media event. Supports four feedback types: 'correct' (confirms accuracy), 'incorrect' (marks false positive), 'boundary_edit' (adjusts start/end times), and 'missed' (reports an event the system failed to detect, creating a new event). Works for any event type.",
+      "category": "media",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "ID of the event to provide feedback on. Required for all types except 'missed'."
+          },
+          "feedback_type": {
+            "type": "string",
+            "enum": ["correct", "incorrect", "boundary_edit", "missed"],
+            "description": "Type of feedback: correct, incorrect, boundary_edit, or missed"
+          },
+          "corrected_start_time": {
+            "type": "number",
+            "description": "Corrected start time in seconds (for boundary_edit feedback)"
+          },
+          "corrected_end_time": {
+            "type": "number",
+            "description": "Corrected end time in seconds (for boundary_edit feedback)"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Optional free-text notes about the feedback"
+          },
+          "asset_id": {
+            "type": "string",
+            "description": "ID of the media asset (required for 'missed' type)"
+          },
+          "event_type": {
+            "type": "string",
+            "description": "Event type label for the missed event (required for 'missed' type)"
+          },
+          "start_time": {
+            "type": "number",
+            "description": "Start time in seconds for the missed event (required for 'missed' type)"
+          },
+          "end_time": {
+            "type": "number",
+            "description": "End time in seconds for the missed event (required for 'missed' type)"
+          }
+        },
+        "required": ["feedback_type"]
+      },
+      "executor": "tools/submit-feedback.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "recalibrate",
+      "description": "Recalibrate event detection for a media asset based on accumulated feedback. Analyzes correction patterns (false positive rates, missed events, boundary adjustments), re-ranks existing events by adjusting confidence scores, and returns a summary of adjustments made. Works for any event type.",
+      "category": "media",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "ID of the media asset to recalibrate"
+          }
+        },
+        "required": ["asset_id"]
+      },
+      "executor": "tools/recalibrate.ts",
+      "execution_target": "host"
     }
   ]
 }
