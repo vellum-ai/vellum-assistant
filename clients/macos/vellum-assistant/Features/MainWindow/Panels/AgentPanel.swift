@@ -1006,7 +1006,6 @@ struct AgentPanel: View {
             .padding(.horizontal, VSpacing.xxl)
             .frame(maxWidth: .infinity)
         }
-        .background(VColor.backgroundSubtle)
     }
 }
 

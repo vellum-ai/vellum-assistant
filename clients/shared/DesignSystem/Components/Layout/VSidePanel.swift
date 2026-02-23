@@ -55,7 +55,6 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
             }
             .layoutPriority(-1)
         }
-        .background(VColor.backgroundSubtle)
     }
 }
 
