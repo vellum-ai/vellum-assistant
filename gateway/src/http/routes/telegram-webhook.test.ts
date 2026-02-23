@@ -256,7 +256,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
     expect(clearCalls[0][2]).toEqual({
       chat_id: "42",
       message_id: 10,
-      reply_markup: { inline_keyboard: [] },
+      reply_markup: null,
     });
   });
 
@@ -310,6 +310,83 @@ describe("telegram-webhook callback query acknowledgment", () => {
     expect(clearCalls.length).toBe(0);
   });
 
+  it("clears inline approval buttons when approval field is omitted for approval callback data", async () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({
+        forwarded: true,
+        rejected: false,
+        runtimeResponse: {
+          accepted: true,
+          duplicate: false,
+          eventId: "evt-omitted",
+        },
+      }),
+    );
+
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = makeCallbackQueryBody("apr:run1:approve_once", 310);
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(200);
+    const clearCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "editMessageReplyMarkup",
+    );
+    expect(clearCalls.length).toBe(1);
+    expect(clearCalls[0][2]).toEqual({
+      chat_id: "42",
+      message_id: 10,
+      reply_markup: null,
+    });
+  });
+
+  it("falls back to empty inline keyboard payload when null reply_markup fails", async () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({
+        forwarded: true,
+        rejected: false,
+        runtimeResponse: {
+          accepted: true,
+          duplicate: false,
+          eventId: "evt-fallback",
+          approval: "decision_applied",
+        },
+      }),
+    );
+
+    let editAttempts = 0;
+    callTelegramApiMock.mockImplementation((_config: GatewayConfig, method: string) => {
+      if (method === "editMessageReplyMarkup") {
+        editAttempts++;
+        if (editAttempts === 1) {
+          return Promise.reject(new Error("Telegram editMessageReplyMarkup failed: can't parse reply markup JSON object"));
+        }
+        return Promise.resolve({});
+      }
+      return Promise.resolve({});
+    });
+
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = makeCallbackQueryBody("apr:run1:approve_once", 311);
+    const res = await handler(postRequest(body));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(res.status).toBe(200);
+    const clearCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "editMessageReplyMarkup",
+    );
+    expect(clearCalls.length).toBe(2);
+    expect(clearCalls[0][2]).toEqual({
+      chat_id: "42",
+      message_id: 10,
+      reply_markup: null,
+    });
+    expect(clearCalls[1][2]).toEqual({
+      chat_id: "42",
+      message_id: 10,
+      reply_markup: { inline_keyboard: [] },
+    });
+  });
+
   it("does not fail webhook when clearing inline approval buttons fails", async () => {
     handleInboundMock.mockImplementation(() =>
       Promise.resolve({
@@ -333,11 +410,12 @@ describe("telegram-webhook callback query acknowledgment", () => {
     const handler = createTelegramWebhookHandler(baseConfig);
     const body = makeCallbackQueryBody("gapr:run1:approve", 309);
     const res = await handler(postRequest(body));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(res.status).toBe(200);
     const clearCalls = callTelegramApiMock.mock.calls.filter(
       (c) => c[1] === "editMessageReplyMarkup",
     );
-    expect(clearCalls.length).toBe(1);
+    expect(clearCalls.length).toBe(2);
   });
 });

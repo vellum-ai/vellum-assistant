@@ -181,16 +181,33 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         tlog.warn({ messageId, phase }, "Skipping inline approval button clear due to invalid message id");
         return;
       }
-      callTelegramApi(config, "editMessageReplyMarkup", {
+      const basePayload = {
         chat_id: chatId,
         message_id: parsedMessageId,
-        reply_markup: { inline_keyboard: [] },
-      }).catch((err) => {
-        tlog.error(
-          { err, chatId, messageId: parsedMessageId, phase },
-          "Failed to clear inline approval buttons",
-        );
-      });
+      };
+
+      // Bot API behavior differs across wrappers/clients for "remove markup".
+      // Try the explicit null form first, then fall back to an empty inline
+      // keyboard payload if needed.
+      callTelegramApi(config, "editMessageReplyMarkup", {
+        ...basePayload,
+        reply_markup: null,
+      }).catch((primaryErr) =>
+        callTelegramApi(config, "editMessageReplyMarkup", {
+          ...basePayload,
+          reply_markup: { inline_keyboard: [] },
+        }).catch((fallbackErr) => {
+          tlog.error(
+            { primaryErr, fallbackErr, chatId, messageId: parsedMessageId, phase },
+            "Failed to clear inline approval buttons",
+          );
+        })
+      );
+    };
+
+    const isApprovalCallbackData = (callbackData: string | undefined): boolean => {
+      if (!callbackData) return false;
+      return callbackData.startsWith("apr:");
     };
 
     // Normalize the update
@@ -380,14 +397,17 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       // Once a callback decision is consumed, remove the inline keyboard so
       // users cannot click obsolete approval buttons again.
       const approval = result.runtimeResponse?.approval;
-      const shouldClearInlineButtons = approval === "decision_applied" ||
+      const consumedApprovalDecision = approval === "decision_applied" ||
         approval === "guardian_decision_applied" ||
         approval === "stale_ignored";
+      const fallbackApprovalCallback =
+        approval === undefined && isApprovalCallbackData(normalized.message.callbackData);
+      const shouldClearInlineButtons = consumedApprovalDecision || fallbackApprovalCallback;
       if (isCallback && shouldClearInlineButtons) {
         clearInlineApprovalButtons(
           normalized.message.externalChatId,
           normalized.source.messageId,
-          approval,
+          approval ?? "callback_data_fallback",
         );
       }
     } catch (err) {
