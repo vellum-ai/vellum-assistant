@@ -537,6 +537,42 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertEqual(smsStatus.first?.assistantId, testAssistantId)
     }
 
+    func testStatusPollResponseDoesNotClearGuardianChallengePending() {
+        store.startChannelGuardianVerification(channel: "telegram")
+        XCTAssertTrue(store.telegramGuardianVerificationInProgress)
+
+        // Simulate a status poll response (no secret, no instruction, not bound)
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: true,
+            secret: nil,
+            instruction: nil,
+            bound: false,
+            guardianExternalUserId: nil,
+            channel: "telegram",
+            assistantId: testAssistantId,
+            guardianDeliveryChatId: nil,
+            error: nil
+        ))
+
+        // A challenge response (with secret+instruction) should still clear the pending state
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: true,
+            secret: "abc123",
+            instruction: "Send /guardian_verify abc123 on Telegram",
+            bound: false,
+            guardianExternalUserId: nil,
+            channel: "telegram",
+            assistantId: testAssistantId,
+            guardianDeliveryChatId: nil,
+            error: nil
+        ))
+
+        XCTAssertEqual(store.telegramGuardianInstruction, "Send /guardian_verify abc123 on Telegram")
+        XCTAssertFalse(store.telegramGuardianVerificationInProgress)
+    }
+
     func testGuardianRequestsFallBackToSelfWhenNoConnectedAssistantId() {
         UserDefaults.standard.removeObject(forKey: connectedAssistantIdDefaultsKey)
         sentMessages.removeAll()
