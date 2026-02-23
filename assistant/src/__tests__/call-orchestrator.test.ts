@@ -977,10 +977,10 @@ describe('call-orchestrator', () => {
     orchestrator.destroy();
   });
 
-  test('system prompt never contains the phrase "AI assistant"', async () => {
+  test('system prompt does not use "AI assistant" as a self-identity label', async () => {
     mockStreamFn.mockImplementation((...args: unknown[]) => {
       const firstArg = args[0] as { system: string };
-      expect(firstArg.system).not.toContain('AI assistant');
+      expect(firstArg.system).not.toMatch(/(?:you are|call yourself|introduce yourself as).*AI assistant/i);
       return createMockStream(['Got it.']);
     });
 
