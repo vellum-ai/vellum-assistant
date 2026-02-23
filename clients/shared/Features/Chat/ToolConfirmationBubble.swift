@@ -112,11 +112,11 @@ public struct ToolConfirmationBubble: View {
                     #endif
                 }
 
-                VButton(label: "I\u{2019}ve granted it", style: .ghost) {
+                VButton(label: "I\u{2019}ve granted it", style: .tertiary) {
                     onAllow()
                 }
 
-                VButton(label: "Skip", style: .ghost) {
+                VButton(label: "Skip", style: .tertiary) {
                     onDeny()
                 }
             }

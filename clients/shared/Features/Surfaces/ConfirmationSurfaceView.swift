@@ -54,7 +54,7 @@ public struct ConfirmationSurfaceView: View {
 
                 VButton(
                     label: data.cancelLabel ?? "Cancel",
-                    style: .ghost
+                    style: .tertiary
                 ) {
                     onAction(cancelActionId)
                 }

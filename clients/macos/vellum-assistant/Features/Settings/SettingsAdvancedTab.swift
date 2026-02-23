@@ -614,7 +614,7 @@ struct SettingsAdvancedTab: View {
                             .foregroundColor(VColor.textMuted)
                     }
                     Spacer()
-                    VButton(label: "View...", style: .ghost) {
+                    VButton(label: "View...", style: .tertiary) {
                         appEnvVars = ProcessInfo.processInfo.environment
                             .sorted(by: { $0.key < $1.key })
                             .map { ($0.key, $0.value) }

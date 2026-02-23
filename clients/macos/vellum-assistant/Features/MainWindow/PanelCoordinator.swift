@@ -718,7 +718,7 @@ struct DynamicWorkspaceWrapper: View {
                         }
                         .controlSize(.small)
                     } else {
-                        VButton(label: "Edit", icon: "pencil", style: .ghost) {
+                        VButton(label: "Edit", icon: "pencil", style: .tertiary) {
                             if !isChatDockOpen {
                                 windowState.workspaceComposerExpanded = false
                             }
@@ -741,10 +741,10 @@ struct DynamicWorkspaceWrapper: View {
 
                     Spacer()
 
-                    // Right: History + Share + Close ghost buttons
+                    // Right: History + Share + Close tertiary buttons
                     HStack(spacing: VSpacing.sm) {
                         if data.appId != nil {
-                            VButton(label: "History", icon: "clock.arrow.circlepath", style: .ghost) {
+                            VButton(label: "History", icon: "clock.arrow.circlepath", style: .tertiary) {
                                 showVersionHistory = true
                             }
                             .controlSize(.small)
@@ -756,19 +756,19 @@ struct DynamicWorkspaceWrapper: View {
                                 .controlSize(.small)
                                 .frame(height: 24)
                         } else if let url = publishedUrl {
-                            VButton(label: "Copied!", icon: "checkmark", style: .ghost) {
+                            VButton(label: "Copied!", icon: "checkmark", style: .tertiary) {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(url, forType: .string)
                             }
                             .controlSize(.small)
                         } else {
-                            VButton(label: "Publish", icon: "arrow.up.right", style: .ghost) {
+                            VButton(label: "Publish", icon: "arrow.up.right", style: .tertiary) {
                                 onPublishPage(data.html, data.preview?.title, data.appId)
                             }
                             .controlSize(.small)
                         }
 
-                        VButton(label: "X", style: .ghost) {
+                        VButton(label: "X", style: .tertiary) {
                             showSharePicker = false
                             windowState.activeDynamicSurface = nil
                             windowState.activeDynamicParsedSurface = nil

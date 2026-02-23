@@ -78,7 +78,7 @@ struct ObservationModeView: View {
 
                             OnboardingButton(
                                 title: "Skip for now",
-                                style: .ghost,
+                                style: .tertiary,
                                 fadeIn: true,
                                 fadeDelay: 0.3
                             ) {

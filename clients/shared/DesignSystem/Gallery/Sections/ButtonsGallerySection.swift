@@ -22,8 +22,8 @@ struct ButtonsGallerySection: View {
                     HStack(spacing: VSpacing.xl) {
                         Picker("Style", selection: $selectedStyle) {
                             Text("Primary").tag(VButton.Style.primary)
-                            Text("Ghost").tag(VButton.Style.ghost)
                             Text("Tertiary").tag(VButton.Style.tertiary)
+                            Text("Secondary").tag(VButton.Style.secondary)
                             Text("Danger").tag(VButton.Style.danger)
                         }
                         .pickerStyle(.segmented)
@@ -52,7 +52,7 @@ struct ButtonsGallerySection: View {
 
             VCard {
                 HStack(spacing: VSpacing.xl) {
-                    ForEach([VButton.Style.primary, .ghost, .tertiary, .danger], id: \.self) { style in
+                    ForEach([VButton.Style.primary, .tertiary, .secondary, .danger], id: \.self) { style in
                         VStack(spacing: VSpacing.md) {
                             VButton(label: styleName(style), style: style) {}
                             VButton(label: "Disabled", style: style, isDisabled: true) {}
@@ -148,8 +148,8 @@ struct ButtonsGallerySection: View {
     private func styleName(_ style: VButton.Style) -> String {
         switch style {
         case .primary: return "Primary"
-        case .ghost: return "Ghost"
         case .tertiary: return "Tertiary"
+        case .secondary: return "Secondary"
         case .danger: return "Danger"
         }
     }

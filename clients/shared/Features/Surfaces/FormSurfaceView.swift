@@ -107,7 +107,7 @@ public struct FormSurfaceView: View {
             if currentPage > 0 {
                 VButton(
                     label: data.pageLabels?.back ?? "Back",
-                    style: .ghost
+                    style: .tertiary
                 ) {
                     withAnimation(VAnimation.fast) {
                         currentPageIndex -= 1

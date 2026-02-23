@@ -4,7 +4,7 @@ import AppKit
 #endif
 
 public struct VButton: View {
-    public enum Style: Hashable { case primary, ghost, tertiary, danger }
+    public enum Style: Hashable { case primary, secondary, tertiary, danger }
     public enum Size: Hashable { case small, medium, large }
 
     public let label: String
@@ -95,7 +95,7 @@ private struct VButtonStyle: ButtonStyle {
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(borderColor(isPressed: configuration.isPressed), lineWidth: style == .ghost ? 1 : 0)
+                    .stroke(borderColor(isPressed: configuration.isPressed), lineWidth: style == .tertiary ? 1 : 0)
             )
             .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
             .shadow(color: configuration.isPressed ? .clear : shadowColor, radius: 0, x: 0, y: 2)
@@ -128,9 +128,9 @@ private struct VButtonStyle: ButtonStyle {
                 : adaptiveColor(light: Color(hex: 0x3D5739), dark: Forest._800)
         case .danger:
             return isHovered ? Color(hex: 0xA53817) : Color(hex: 0x8A2F13)
-        case .ghost:
-            return .clear
         case .tertiary:
+            return .clear
+        case .secondary:
             return .clear
         }
     }
@@ -141,7 +141,7 @@ private struct VButtonStyle: ButtonStyle {
             if isPressed { return VColor.buttonPrimaryPressed }
             if isHovered { return VColor.buttonPrimaryHover }
             return VColor.buttonPrimary
-        case .tertiary:
+        case .secondary:
             if isPressed { return VColor.ghostPressed }
             if isHovered { return adaptiveColor(light: Forest._200, dark: Forest._800) }
             return VColor.buttonTertiaryBackground
@@ -149,7 +149,7 @@ private struct VButtonStyle: ButtonStyle {
             if isPressed { return Color(hex: 0xE0745A) }
             if isHovered { return Color(hex: 0xD4582F) }
             return Color(hex: 0xC1421B)
-        case .ghost:
+        case .tertiary:
             if isPressed { return VColor.ghostPressed }
             if isHovered { return VColor.ghostHover }
             return .clear
@@ -159,18 +159,18 @@ private struct VButtonStyle: ButtonStyle {
     private var foregroundColor: Color {
         switch style {
         case .primary: return .white
-        case .ghost: return VColor.buttonSecondaryText
-        case .tertiary: return VColor.iconAccent
+        case .tertiary: return VColor.buttonSecondaryText
+        case .secondary: return VColor.iconAccent
         case .danger: return .white
         }
     }
 
     private func borderColor(isPressed: Bool) -> Color {
         switch style {
-        case .ghost:
+        case .tertiary:
             if isPressed { return VColor.ghostPressed }
             return VColor.buttonSecondaryBorder
-        case .tertiary:
+        case .secondary:
             return .clear
         default:
             return .clear
@@ -185,13 +185,13 @@ private struct VButtonStyle: ButtonStyle {
             VButton(label: "Small", style: .primary, size: .small) {}
             VButton(label: "Medium", style: .primary, size: .medium) {}
             VButton(label: "Large", style: .primary, size: .large) {}
-            VButton(label: "Ghost Small", style: .ghost, size: .small) {}
-            VButton(label: "Ghost Large", style: .ghost, size: .large) {}
-            VButton(label: "Tertiary", style: .tertiary, size: .small) {}
-            VButton(label: "Tertiary Medium", style: .tertiary, size: .medium) {}
+            VButton(label: "Tertiary Small", style: .tertiary, size: .small) {}
+            VButton(label: "Tertiary Large", style: .tertiary, size: .large) {}
+            VButton(label: "Secondary", style: .secondary, size: .small) {}
+            VButton(label: "Secondary Medium", style: .secondary, size: .medium) {}
             VButton(label: "With Left Icon", leftIcon: "plus", style: .primary, size: .small) {}
-            VButton(label: "With Right Icon", rightIcon: "arrow.right", style: .ghost, size: .small) {}
-            VButton(label: "Both Icons", leftIcon: "star", rightIcon: "chevron.right", style: .tertiary, size: .medium) {}
+            VButton(label: "With Right Icon", rightIcon: "arrow.right", style: .tertiary, size: .small) {}
+            VButton(label: "Both Icons", leftIcon: "star", rightIcon: "chevron.right", style: .secondary, size: .medium) {}
             VButton(label: "Legacy Icon", icon: "gear", style: .primary, size: .small) {}
             VButton(label: "Full Width", style: .primary, isFullWidth: true) {}
         }
