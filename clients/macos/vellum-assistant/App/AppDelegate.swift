@@ -1053,18 +1053,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         voiceInput?.onActionModeTriggered = { [weak self] text in
             guard let self else { return }
             log.info("Action mode triggered from voice dictation — submitting task")
-            let screenBounds = CGDisplayBounds(CGMainDisplayID())
-            do {
-                try self.daemonClient.send(TaskSubmitMessage(
-                    task: text,
-                    screenWidth: Int(screenBounds.width),
-                    screenHeight: Int(screenBounds.height),
-                    attachments: nil,
-                    source: "voice_action"
-                ))
-            } catch {
-                log.error("Failed to send task_submit for voice action: \(error)")
-            }
+            self.startSession(task: text, source: "voice_action")
         }
         voiceInput?.onRecordingStateChanged = { [weak self] isRecording in
             // Check if main window is actively in the foreground (not just existing behind other apps)
