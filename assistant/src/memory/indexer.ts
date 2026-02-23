@@ -7,6 +7,7 @@ import { getDb } from './db.js';
 import { enqueueMemoryJob, enqueueResolvePendingConflictsForMessageJob } from './jobs-store.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
 import { segmentText } from './segmenter.js';
+import { bumpMemoryVersion } from './recall-cache.js';
 import { memorySegments } from './schema.js';
 
 const log = getLogger('memory-indexer');
@@ -108,6 +109,7 @@ export function indexMessageNow(
     log.debug(`Skipped ${skippedEmbedJobs}/${segments.length} embed_segment jobs (content unchanged)`);
   }
 
+  bumpMemoryVersion();
   enqueueSummaryRollupJobsIfDue();
 
   const enqueuedJobs = (segments.length - skippedEmbedJobs) + (shouldExtract ? 2 : 1) + (shouldResolveConflicts ? 1 : 0);

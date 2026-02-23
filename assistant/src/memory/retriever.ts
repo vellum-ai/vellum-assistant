@@ -19,6 +19,7 @@ import { semanticSearch, isQdrantConnectionError } from './search/semantic.js';
 import { entitySearch } from './search/entity.js';
 import { mergeCandidates, applySourceCaps, rerankWithLLM, trimToTokenBudget, markItemUsage } from './search/ranking.js';
 import { buildInjectedText, MEMORY_CONTEXT_ACK } from './search/formatting.js';
+import { getCachedRecall, setCachedRecall } from './recall-cache.js';
 
 // Re-export public types and functions so existing importers continue to work
 export type {
@@ -234,6 +235,14 @@ export async function buildMemoryRecall(
     return emptyResult({ enabled: true, degraded: false, reason: 'memory.aborted', latencyMs: Date.now() - start });
   }
 
+  // Check recall cache — serves identical results instantly when the query
+  // and memory state haven't changed since the last recall.
+  const cached = getCachedRecall(query, conversationId, options);
+  if (cached) {
+    log.debug({ query: truncate(query, 120), latencyMs: Date.now() - start }, 'Memory recall served from cache');
+    return { ...cached, latencyMs: Date.now() - start };
+  }
+
   const backendStatus = getMemoryBackendStatus(config);
   let queryVector: number[] | null = null;
   let provider: string | undefined;
@@ -395,7 +404,7 @@ export async function buildMemoryRecall(
     latencyMs,
   }, 'Memory recall completed');
 
-  return {
+  const result: MemoryRecallResult = {
     enabled: true,
     degraded,
     reason,
@@ -418,6 +427,9 @@ export async function buildMemoryRecall(
     latencyMs,
     topCandidates,
   };
+
+  setCachedRecall(query, conversationId, options, result);
+  return result;
 }
 
 export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'; content: Array<{ type: string; text?: string }> }>(
