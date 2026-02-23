@@ -137,3 +137,9 @@ export interface MemorySearchResult {
     recency: number;
   };
 }
+
+export interface TraversalOptions {
+  maxEdges: number;
+  maxNeighborEntities: number;
+  maxDepth?: number; // default 3
+}

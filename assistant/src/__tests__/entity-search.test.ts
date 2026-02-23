@@ -100,14 +100,14 @@ describe('entity search', () => {
 
   describe('findNeighborEntities', () => {
     test('returns empty for empty seed list', () => {
-      const result = findNeighborEntities([], 10, 10, 3);
+      const result = findNeighborEntities([], { maxEdges: 10, maxNeighborEntities: 10, maxDepth: 3 });
       expect(result.neighborEntityIds).toEqual([]);
       expect(result.traversedEdgeCount).toBe(0);
     });
 
     test('returns empty when no edges exist', () => {
       const entityId = upsertEntity({ name: 'Lonely', type: 'concept', aliases: [] });
-      const result = findNeighborEntities([entityId], 10, 10, 3);
+      const result = findNeighborEntities([entityId], { maxEdges: 10, maxNeighborEntities: 10, maxDepth: 3 });
       expect(result.neighborEntityIds).toEqual([]);
       expect(result.traversedEdgeCount).toBe(0);
     });
@@ -123,7 +123,7 @@ describe('entity search', () => {
         evidence: 'Alpha uses Beta',
       });
 
-      const result = findNeighborEntities([a], 10, 10, 3);
+      const result = findNeighborEntities([a], { maxEdges: 10, maxNeighborEntities: 10, maxDepth: 3 });
       expect(result.neighborEntityIds).toContain(b);
       expect(result.neighborEntityIds).toHaveLength(1);
       expect(result.traversedEdgeCount).toBeGreaterThan(0);
@@ -147,7 +147,7 @@ describe('entity search', () => {
         evidence: null,
       });
 
-      const result = findNeighborEntities([a], 20, 10, 2);
+      const result = findNeighborEntities([a], { maxEdges: 20, maxNeighborEntities: 10, maxDepth: 2 });
       expect(result.neighborEntityIds).toContain(b);
       expect(result.neighborEntityIds).toContain(c);
       expect(result.neighborEntityIds).toHaveLength(2);
@@ -170,7 +170,7 @@ describe('entity search', () => {
         evidence: null,
       });
 
-      const result = findNeighborEntities([a], 20, 10, 5);
+      const result = findNeighborEntities([a], { maxEdges: 20, maxNeighborEntities: 10, maxDepth: 5 });
       expect(result.neighborEntityIds).toEqual([b]);
     });
 
@@ -192,7 +192,7 @@ describe('entity search', () => {
         evidence: null,
       });
 
-      const result = findNeighborEntities([a], 20, 10, 1);
+      const result = findNeighborEntities([a], { maxEdges: 20, maxNeighborEntities: 10, maxDepth: 1 });
       expect(result.neighborEntityIds).toContain(b);
       expect(result.neighborEntityIds).not.toContain(c);
       expect(result.neighborEntityIds).toHaveLength(1);
@@ -209,7 +209,7 @@ describe('entity search', () => {
       upsertEntityRelation({ sourceEntityId: b, targetEntityId: d, relation: 'related_to', evidence: null });
 
       // Allow only 1 edge total, so BFS can't explore much
-      const result = findNeighborEntities([a], 1, 10, 3);
+      const result = findNeighborEntities([a], { maxEdges: 1, maxNeighborEntities: 10, maxDepth: 3 });
       expect(result.traversedEdgeCount).toBeLessThanOrEqual(1);
     });
 
@@ -222,7 +222,7 @@ describe('entity search', () => {
         upsertEntityRelation({ sourceEntityId: seed, targetEntityId: n, relation: 'related_to', evidence: null });
       }
 
-      const result = findNeighborEntities([seed], 20, 2, 3);
+      const result = findNeighborEntities([seed], { maxEdges: 20, maxNeighborEntities: 2, maxDepth: 3 });
       expect(result.neighborEntityIds).toHaveLength(2);
     });
 
@@ -237,7 +237,7 @@ describe('entity search', () => {
         evidence: null,
       });
 
-      const result = findNeighborEntities([a], 10, 10, 3);
+      const result = findNeighborEntities([a], { maxEdges: 10, maxNeighborEntities: 10, maxDepth: 3 });
       expect(result.neighborEntityIds).toContain(x);
     });
 
@@ -250,7 +250,7 @@ describe('entity search', () => {
       upsertEntityRelation({ sourceEntityId: a, targetEntityId: na, relation: 'uses', evidence: null });
       upsertEntityRelation({ sourceEntityId: b, targetEntityId: nb, relation: 'uses', evidence: null });
 
-      const result = findNeighborEntities([a, b], 20, 10, 3);
+      const result = findNeighborEntities([a, b], { maxEdges: 20, maxNeighborEntities: 10, maxDepth: 3 });
       expect(result.neighborEntityIds).toContain(na);
       expect(result.neighborEntityIds).toContain(nb);
     });

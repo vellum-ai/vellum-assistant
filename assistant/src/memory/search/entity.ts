@@ -8,7 +8,7 @@ import {
   memoryItems,
   memoryItemSources,
 } from '../schema.js';
-import type { Candidate, CandidateSource, CandidateType, EntitySearchResult, MatchedEntityRow } from './types.js';
+import type { Candidate, CandidateSource, CandidateType, EntitySearchResult, MatchedEntityRow, TraversalOptions } from './types.js';
 import { computeRecencyScore } from './ranking.js';
 
 const log = getLogger('memory-retriever');
@@ -54,12 +54,11 @@ export function entitySearch(
   const {
     neighborEntityIds,
     traversedEdgeCount: relationTraversedEdgeCount,
-  } = findNeighborEntities(
-    seedEntityIds,
-    relationConfig.maxEdges,
-    relationConfig.maxNeighborEntities,
-    relationConfig.maxDepth,
-  );
+  } = findNeighborEntities(seedEntityIds, {
+    maxEdges: relationConfig.maxEdges,
+    maxNeighborEntities: relationConfig.maxNeighborEntities,
+    maxDepth: relationConfig.maxDepth,
+  });
   const relationNeighborEntityCount = neighborEntityIds.length;
   const directItemIds = new Set(directCandidates.map((candidate) => candidate.id));
   const relationCandidates = getEntityLinkedItemCandidates(neighborEntityIds, {
@@ -152,10 +151,9 @@ export function findMatchedEntities(query: string, maxMatches: number): MatchedE
  */
 export function findNeighborEntities(
   seedEntityIds: string[],
-  maxEdges: number,
-  maxNeighborEntities: number,
-  maxDepth: number = 3,
+  opts: TraversalOptions,
 ): { neighborEntityIds: string[]; traversedEdgeCount: number } {
+  const { maxEdges, maxNeighborEntities, maxDepth = 3 } = opts;
   if (seedEntityIds.length === 0 || maxEdges <= 0 || maxNeighborEntities <= 0 || maxDepth <= 0) {
     return { neighborEntityIds: [], traversedEdgeCount: 0 };
   }
