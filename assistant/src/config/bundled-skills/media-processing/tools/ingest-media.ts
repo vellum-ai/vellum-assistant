@@ -1,9 +1,10 @@
 import { basename, extname } from 'node:path';
-import { access, readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { access } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import {
   registerMediaAsset,
-  computeFileHash,
   getMediaAssetByHash,
   createProcessingStage,
   updateMediaAssetStatus,
@@ -117,10 +118,15 @@ export async function run(
     return { content: `Could not classify media type for MIME: ${mimeType}`, isError: true };
   }
 
-  // Compute content hash for dedup
-  context.onOutput?.('Reading file and computing content hash...\n');
-  const fileData = await readFile(filePath);
-  const fileHash = computeFileHash(fileData);
+  // Compute content hash for dedup using streaming to avoid loading entire file into memory
+  context.onOutput?.('Computing content hash (streaming)...\n');
+  const fileHash = await new Promise<string>((resolve, reject) => {
+    const hash = createHash('sha256');
+    const stream = createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
 
   // Check for existing asset with same hash
   const existingAsset = getMediaAssetByHash(fileHash);
@@ -172,7 +178,7 @@ export async function run(
   updateMediaAssetStatus(asset.id, 'processing');
 
   // Enqueue a processing job via the existing jobs framework
-  enqueueMemoryJob('embed_segment' as any, {
+  enqueueMemoryJob('media_processing', {
     mediaAssetId: asset.id,
     stage: 'ingest',
     filePath,

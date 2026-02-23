@@ -1033,7 +1033,7 @@ export function initializeDb(): void {
     )
   `);
 
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_assets_file_hash ON media_assets(file_hash)`);
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_assets_file_hash ON media_assets(file_hash)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_assets_status ON media_assets(status)`);
 
   database.run(/*sql*/ `

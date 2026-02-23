@@ -20,7 +20,8 @@ export type MemoryJobType =
   | 'build_conversation_summary'
   | 'backfill'
   | 'rebuild_index'
-  | 'delete_qdrant_vectors';
+  | 'delete_qdrant_vectors'
+  | 'media_processing';
 
 const EMBED_JOB_TYPES: MemoryJobType[] = ['embed_segment', 'embed_item', 'embed_summary'];
 
