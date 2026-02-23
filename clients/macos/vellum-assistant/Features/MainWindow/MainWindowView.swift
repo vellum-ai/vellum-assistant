@@ -484,13 +484,15 @@ struct MainWindowView: View {
                     .frame(height: 36)
                     .background(adaptiveColor(light: Moss._50, dark: Moss._950))
 
-                    // Content area: sidebar always pushes chat content right
-                    HStack(spacing: 0) {
+                    // Main container: sidebar + content with uniform padding
+                    HStack(spacing: 16) {
                         sidebarView
                             .animation(VAnimation.panel, value: sidebarExpanded)
 
                         chatContentView(geometry: geometry)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                     }
+                    .padding(16)
                 }
                 .overlay {
                     // Click-outside-to-dismiss background for control center drawer
@@ -522,7 +524,7 @@ struct MainWindowView: View {
                             }
                         )
                         .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
-                        .offset(x: sidebarOuterMargin + VSpacing.sm, y: -52)
+                        .offset(x: 16 + VSpacing.sm, y: -52)
                         .zIndex(10)
                         .transition(.opacity)
                     }
@@ -861,8 +863,7 @@ struct MainWindowView: View {
         .padding(VSpacing.xs)
         .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-        .padding(sidebarOuterMargin)
-        .frame(width: sidebarExpanded ? sidebarExpandedWidth + sidebarOuterMargin * 2 : sidebarCollapsedWidth + sidebarOuterMargin * 2)
+        .frame(width: sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
     }
 
     @ViewBuilder
