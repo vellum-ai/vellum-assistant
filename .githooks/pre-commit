@@ -64,6 +64,7 @@ declare -a SAFE_LINE_PATTERNS=(
     "client[Ss]ecret:[[:space:]]*(String[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil)|client[Ss]ecret[[:space:]]*[,)])"
     "[Pp]rivate[_-]?[Kk]ey['\"]?:[[:space:]]*(String|string|Data|data)[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil|=[[:space:]]*['\"]['\"])"
     "(secret|Secret)['\"]?[[:space:]]*[:=][[:space:]]*['\"]<(optional|required|placeholder|none|empty|unset|redacted|your-[a-z-]+-here|[a-zA-Z][a-zA-Z_/ '-]*[A-Z_/][a-zA-Z_/ '.-]*)>['\"]"
+    "[a-zA-Z_-]*[[:space:]]*[:=][[:space:]]*\\\$\\{\\{[[:space:]]*secrets\\."
 )
 
 matches_safe_line_pattern() {
@@ -138,6 +139,7 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_DESC_PLACEHOLDER_LINE2='  "authToken": "<value from credential_store for twilio/auth_token>"'
     UNSAFE_ANGLEBRACKET_SECRET='clientSecret: "<abcDEF1234567890>"'
     UNSAFE_PASSPHRASE_SECRET='client_secret: "<correct horse battery staple>"'
+    SAFE_GHA_SECRETS_LINE='          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -277,6 +279,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$UNSAFE_PASSPHRASE_SECRET" && matches_safe_line_pattern "$UNSAFE_PASSPHRASE_SECRET"; then
         echo -e "${RED}Self-test failed:${NC} passphrase-style secret in angle brackets was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_GHA_SECRETS_LINE" && ! matches_safe_line_pattern "$SAFE_GHA_SECRETS_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} GitHub Actions \${{ secrets.* }} reference false positive"
         exit 1
     fi
 
