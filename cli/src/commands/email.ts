@@ -6,7 +6,7 @@
  *   - `vellum email create <username>`  — provision a new email inbox
  */
 
-import { createProvider } from "../email/providers/index.js";
+import { VellumEmailClient } from "../email/vellum.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,8 +54,8 @@ export async function email(): Promise<void> {
   switch (subcommand) {
     case "status": {
       try {
-        const provider = await createProvider();
-        const status = await provider.status();
+        const client = new VellumEmailClient();
+        const status = await client.status();
         output({
           ok: true,
           provider: status.provider,
@@ -73,8 +73,8 @@ export async function email(): Promise<void> {
         return;
       }
       try {
-        const provider = await createProvider();
-        const inbox = await provider.createInbox(username);
+        const client = new VellumEmailClient();
+        const inbox = await client.createInbox(username);
         output({ ok: true, inbox });
       } catch (err) {
         exitError(err instanceof Error ? err.message : String(err));

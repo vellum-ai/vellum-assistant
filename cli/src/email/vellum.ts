@@ -1,13 +1,12 @@
 /**
- * Vellum email provider — calls the Vellum platform email API.
- *
- * Only supports the two operations needed by the bundled email skill:
- *   - status()              — list existing inboxes / check connectivity
- *   - createInbox(username) — provision a new inbox
+ * Vellum email API client — calls the Vellum platform email endpoints.
  */
 
+// The domain for the Vellum email API is still being finalized and may change.
+const DEFAULT_VELLUM_API_URL = "https://api.vellum.ai";
+
 // ---------------------------------------------------------------------------
-// Types returned by the provider
+// Types
 // ---------------------------------------------------------------------------
 
 export interface EmailInbox {
@@ -58,36 +57,42 @@ async function vellumFetch(
 }
 
 // ---------------------------------------------------------------------------
-// Provider
+// Client
 // ---------------------------------------------------------------------------
 
-export class VellumProvider {
-  readonly name = "vellum";
+export class VellumEmailClient {
   private apiKey: string;
   private baseUrl: string;
 
-  constructor(apiKey: string, baseUrl?: string) {
-    this.apiKey = apiKey;
-    this.baseUrl = baseUrl ?? "https://api.vellum.ai";
+  constructor(apiKey?: string, baseUrl?: string) {
+    const resolvedKey = apiKey ?? process.env.VELLUM_API_KEY;
+    if (!resolvedKey) {
+      throw new Error(
+        "No Vellum API key configured. Set the VELLUM_API_KEY environment variable.",
+      );
+    }
+    this.apiKey = resolvedKey;
+    this.baseUrl =
+      baseUrl ?? process.env.VELLUM_API_URL ?? DEFAULT_VELLUM_API_URL;
   }
 
-  /** Return current email status: connectivity + list of inboxes. */
+  /** List existing email addresses and check connectivity. */
   async status(): Promise<EmailStatus> {
     const result = await vellumFetch(
       this.apiKey,
       this.baseUrl,
-      "/v1/email/inboxes",
+      "/v1/email-addresses",
     );
     const inboxes = (result as { inboxes: EmailInbox[] }).inboxes;
-    return { provider: this.name, ok: true, inboxes };
+    return { provider: "vellum", ok: true, inboxes };
   }
 
-  /** Provision a new inbox for the given username. */
+  /** Provision a new email address for the given username. */
   async createInbox(username: string): Promise<EmailInbox> {
     const result = await vellumFetch(
       this.apiKey,
       this.baseUrl,
-      "/v1/email/inboxes",
+      "/v1/email-addresses",
       {
         method: "POST",
         body: { username },
