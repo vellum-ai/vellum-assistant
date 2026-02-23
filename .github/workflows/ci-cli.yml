@@ -2,6 +2,7 @@ name: CLI Checks
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, closed]
     paths:
       - 'cli/**'
       - '.github/workflows/ci-cli.yml'
@@ -11,8 +12,13 @@ on:
       - 'cli/**'
       - '.github/workflows/ci-cli.yml'
 
+concurrency:
+  group: ci-cli-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   checks:
+    if: github.event.action != 'closed'
     name: Lint & Type Check
     runs-on: ubuntu-latest
     defaults:
