@@ -323,7 +323,9 @@ final class VoiceInputManager {
             log.error("Audio engine failed to start: \(error.localizedDescription)")
             isRecording = false
             onRecordingStateChanged?(false)
+            recognitionRequest?.endAudio()
             recognitionRequest = nil
+            recognitionTask?.cancel()
             recognitionTask = nil
             currentDictationContext = nil
             audioEngine.inputNode.removeTap(onBus: 0)
