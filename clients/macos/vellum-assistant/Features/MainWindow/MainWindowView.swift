@@ -1158,38 +1158,19 @@ private struct SidebarThreadsHeader: View {
 
 private struct ControlCenterRow: View {
     let onToggle: () -> Void
-    @State private var isHovered = false
-
-    private let iconColor = adaptiveColor(light: Forest._700, dark: Forest._500)
-    private let textColor = adaptiveColor(light: Forest._800, dark: Forest._400)
-    private let chevronColor = adaptiveColor(light: Forest._700, dark: Forest._500)
-    private let bgColor = adaptiveColor(light: Forest._200, dark: Moss._700)
 
     var body: some View {
-        Button(action: onToggle) {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(iconColor)
-                    .frame(width: 18)
-                Text("Control Center")
-                    .font(VFont.body)
-                    .foregroundColor(textColor)
-                Spacer()
-                Image(systemName: "chevron.up")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(chevronColor)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.md)
-            .background(bgColor.opacity(isHovered ? 1.0 : 0.85))
-            .clipShape(Capsule())
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
+        VButton(
+            label: "Control Center",
+            leftIcon: "gearshape",
+            rightIcon: "chevron.up",
+            style: .secondary,
+            size: .medium,
+            isFullWidth: true,
+            action: onToggle
+        )
         .padding(.horizontal, VSpacing.sm)
         .padding(.bottom, VSpacing.sm)
-        .onHover { isHovered = $0 }
     }
 }
 
