@@ -277,6 +277,8 @@ final class VoiceInputManager {
             isRecording = false
             onRecordingStateChanged?(false)
             currentDictationContext = nil
+            recognitionRequest = nil
+            overlayWindow.dismiss()
             return
         }
 
@@ -323,6 +325,8 @@ final class VoiceInputManager {
             recognitionRequest = nil
             recognitionTask = nil
             currentDictationContext = nil
+            audioEngine.inputNode.removeTap(onBus: 0)
+            overlayWindow.dismiss()
         }
     }
 
