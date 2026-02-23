@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { AssistantConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 import { GeminiEmbeddingBackend } from './embedding-gemini.js';
@@ -10,9 +11,41 @@ const log = getLogger('memory-embeddings');
 /** Global cache of embedding backend instances, keyed by "provider:model". */
 const backendCache = new Map<string, EmbeddingBackend>();
 
-/** Clear cached embedding backends so new instances pick up fresh credentials. */
+// ── In-memory embedding vector cache ──────────────────────────────
+// LRU cache keyed by sha256(provider + model + text) → embedding vector.
+// Avoids redundant API calls / local compute for identical content.
+const VECTOR_CACHE_MAX_ENTRIES = 4096;
+const vectorCache = new Map<string, number[]>();
+
+function vectorCacheKey(provider: string, model: string, text: string): string {
+  return createHash('sha256').update(`${provider}\0${model}\0${text}`).digest('hex');
+}
+
+function getFromVectorCache(provider: string, model: string, text: string): number[] | undefined {
+  const key = vectorCacheKey(provider, model, text);
+  const v = vectorCache.get(key);
+  if (v !== undefined) {
+    // LRU refresh: move to end of insertion order
+    vectorCache.delete(key);
+    vectorCache.set(key, v);
+  }
+  return v;
+}
+
+function putInVectorCache(provider: string, model: string, text: string, vector: number[]): void {
+  const key = vectorCacheKey(provider, model, text);
+  vectorCache.delete(key);
+  if (vectorCache.size >= VECTOR_CACHE_MAX_ENTRIES) {
+    const oldest = vectorCache.keys().next().value;
+    if (oldest !== undefined) vectorCache.delete(oldest);
+  }
+  vectorCache.set(key, vector);
+}
+
+/** Clear cached embedding backends and the in-memory vector cache. */
 export function clearEmbeddingBackendCache(): void {
   backendCache.clear();
+  vectorCache.clear();
 }
 
 function cacheKey(provider: string, model: string): string {
@@ -153,7 +186,23 @@ export async function embedWithBackend(
     throw new Error(selection.reason ?? 'No memory embedding backend configured');
   }
 
-  // In auto mode, build a fallback list of backends to try
+  const expectedDim = config.memory.qdrant.vectorSize;
+  const { provider: primaryProvider, model: primaryModel } = selection.backend;
+
+  // ── In-memory cache check ───────────────────────────────────────
+  const cached: (number[] | null)[] = texts.map(t => {
+    const v = getFromVectorCache(primaryProvider, primaryModel, t);
+    return v && v.length === expectedDim ? v : null;
+  });
+  const uncachedIndices: number[] = [];
+  for (let i = 0; i < cached.length; i++) {
+    if (!cached[i]) uncachedIndices.push(i);
+  }
+  if (uncachedIndices.length === 0) {
+    return { provider: primaryProvider, model: primaryModel, vectors: cached as number[][] };
+  }
+
+  // ── Embed uncached texts ────────────────────────────────────────
   const backends: EmbeddingBackend[] = [selection.backend];
   if (config.memory.embeddings.provider === 'auto' && selection.backend.provider === 'local') {
     for (const fallback of selectFallbackBackends(config, 'local')) {
@@ -163,18 +212,35 @@ export async function embedWithBackend(
 
   let lastErr: unknown;
   for (const backend of backends) {
+    const isPrimary = backend === selection.backend;
+    // For the primary backend, only embed uncached texts and merge with cached.
+    // For fallback backends, embed ALL texts since the cache was keyed to the primary.
+    const textsToEmbed = isPrimary ? uncachedIndices.map(i => texts[i]) : texts;
+
     try {
-      const vectors = await backend.embed(texts, options);
-      if (vectors.length !== texts.length) {
-        throw new Error(`Embedding backend returned ${vectors.length} vectors for ${texts.length} texts`);
+      const vectors = await backend.embed(textsToEmbed, options);
+      if (vectors.length !== textsToEmbed.length) {
+        throw new Error(`Embedding backend returned ${vectors.length} vectors for ${textsToEmbed.length} texts`);
       }
-      const expectedDim = config.memory.qdrant.vectorSize;
       for (const vec of vectors) {
         if (vec.length !== expectedDim) {
           throw new Error(
             `Embedding backend "${backend.provider}" (model ${backend.model}) returned vectors of dimension ${vec.length}, but Qdrant collection expects ${expectedDim}`,
           );
         }
+      }
+
+      // Populate cache with freshly embedded vectors
+      for (let i = 0; i < textsToEmbed.length; i++) {
+        putInVectorCache(backend.provider, backend.model, textsToEmbed[i], vectors[i]);
+      }
+
+      if (isPrimary) {
+        const merged = [...cached] as number[][];
+        for (let i = 0; i < uncachedIndices.length; i++) {
+          merged[uncachedIndices[i]] = vectors[i];
+        }
+        return { provider: backend.provider, model: backend.model, vectors: merged };
       }
       return { provider: backend.provider, model: backend.model, vectors };
     } catch (err) {

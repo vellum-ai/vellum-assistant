@@ -542,6 +542,7 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE attachments ADD COLUMN thumbnail_base64 TEXT`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE cron_jobs ADD COLUMN schedule_syntax TEXT NOT NULL DEFAULT 'cron'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE messages ADD COLUMN metadata TEXT`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE memory_embeddings ADD COLUMN content_hash TEXT`); } catch { /* already exists */ }
 
   migrateJobDeferrals(database);
   migrateToolInvocationsFk(database);
@@ -577,6 +578,7 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_last_seen_at ON memory_items(last_seen_at)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_target ON memory_embeddings(target_type, target_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_provider_model ON memory_embeddings(provider, model)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_content_hash ON memory_embeddings(content_hash, provider, model)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_jobs_status_run_after ON memory_jobs(status, run_after)`);
   database.run(/*sql*/ `
     CREATE INDEX IF NOT EXISTS idx_memory_jobs_conflict_resolve_dedupe
