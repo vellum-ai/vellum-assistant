@@ -1073,6 +1073,38 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    // MARK: - Override Resolution
+
+    /// Resolved gateway URL for iOS pairing — uses per-integration override if enabled, else global.
+    var resolvedIosGatewayUrl: String {
+        UserDefaults.standard.bool(forKey: "iosPairingUseOverride")
+            ? (nonEmpty(UserDefaults.standard.string(forKey: "iosPairingGatewayOverride")) ?? ingressPublicBaseUrl)
+            : ingressPublicBaseUrl
+    }
+
+    /// Resolved bearer token for iOS pairing — uses per-integration override if enabled, else global.
+    var resolvedIosBearerToken: String {
+        if UserDefaults.standard.bool(forKey: "iosPairingUseOverride") {
+            if let override = nonEmpty(UserDefaults.standard.string(forKey: "iosPairingTokenOverride")) {
+                return override
+            }
+        }
+        return readHttpToken() ?? ""
+    }
+
+    /// Resolved gateway URL for public ingress — uses per-integration override if enabled, else global.
+    var resolvedIngressGatewayUrl: String {
+        UserDefaults.standard.bool(forKey: "ingressUseOverride")
+            ? (nonEmpty(UserDefaults.standard.string(forKey: "ingressGatewayOverride")) ?? ingressPublicBaseUrl)
+            : ingressPublicBaseUrl
+    }
+
+    /// Returns the string if it is non-nil and non-empty after trimming, otherwise nil.
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
+    }
+
     // MARK: - Model Actions
 
     func setModel(_ model: String) {

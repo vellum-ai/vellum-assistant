@@ -28,10 +28,6 @@ struct SettingsPanel: View {
     @State private var showingReminders = false
     @State private var twitterClientId: String = ""
     @State private var twitterClientSecret: String = ""
-    @State private var ingressUrlText: String = ""
-    @FocusState private var isIngressUrlFocused: Bool
-    @State private var checkingGateway: Bool = false
-    @State private var gatewayHealthResult: Bool? = nil
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
     @State private var connectingIntegration: String?
     @State private var integrationError: (id: String, message: String)?
@@ -45,6 +41,8 @@ struct SettingsPanel: View {
     @State private var modelDropdownFrame: CGRect = .zero
     @State private var selectedTab: SettingsTab = .connect
     @State private var testerModel: ToolPermissionTesterModel?
+    @AppStorage("ingressUseOverride") private var ingressUseOverride: Bool = false
+    @AppStorage("ingressGatewayOverride") private var ingressGatewayOverride: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -88,7 +86,6 @@ struct SettingsPanel: View {
             store.refreshTelegramStatus()
             store.refreshTwilioStatus()
             store.refreshIngressConfig()
-            ingressUrlText = store.ingressPublicBaseUrl
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
             if testerModel == nil, let dc = daemonClient {
@@ -102,20 +99,6 @@ struct SettingsPanel: View {
             if let monitor = mouseDownMonitor {
                 NSEvent.removeMonitor(monitor)
                 mouseDownMonitor = nil
-            }
-        }
-        .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
-            // Only sync from store when the field is not focused, so
-            // background IPC responses don't overwrite in-progress edits.
-            if !isIngressUrlFocused {
-                ingressUrlText = newValue
-            }
-        }
-        .onChange(of: isIngressUrlFocused) { _, focused in
-            // Re-sync when focus leaves so any updates skipped while the
-            // user was editing are applied once they're done.
-            if !focused {
-                ingressUrlText = store.ingressPublicBaseUrl
             }
         }
         .onChange(of: showModelDropdown) { _, isOpen in
@@ -203,7 +186,8 @@ struct SettingsPanel: View {
                 store: store,
                 threadManager: threadManager,
                 onClose: onClose,
-                daemonClient: daemonClient
+                daemonClient: daemonClient,
+                onNavigateToConnect: { selectedTab = .connect }
             )
         }
     }
@@ -348,105 +332,11 @@ struct SettingsPanel: View {
                         .foregroundColor(VColor.textSecondary)
                 }
 
-                // Public Ingress URL field
-                HStack(spacing: VSpacing.xs) {
-                    Text("Public Ingress URL")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
+                // Global Gateway & Token readout
+                ingressGlobalConfigCard
 
-                TextField("https://abc123.ngrok-free.app", text: $ingressUrlText)
-                    .focused($isIngressUrlFocused)
-                    .textFieldStyle(.plain)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .padding(VSpacing.md)
-                    .background(VColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                    )
-
-                VButton(label: "Save", style: .primary) {
-                    store.saveIngressPublicBaseUrl(ingressUrlText)
-                }
-
-                Divider()
-                    .background(VColor.surfaceBorder)
-
-                // Local Gateway Target (read-only)
-                HStack(spacing: VSpacing.xs) {
-                    Text("Local Gateway Target")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                HStack(spacing: VSpacing.sm) {
-                    Text(store.localGatewayTarget)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
-                        .textSelection(.enabled)
-                        .padding(VSpacing.md)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(VColor.surface.opacity(0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-                        )
-
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Copy gateway address")
-                    .help("Copy address")
-
-                    // Check Gateway button
-                    Button {
-                        checkGatewayHealth()
-                    } label: {
-                        if checkingGateway {
-                            ProgressView()
-                                .controlSize(.small)
-                                .frame(width: 28, height: 28)
-                        } else {
-                            Image(systemName: "antenna.radiowaves.left.and.right")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(VColor.textSecondary)
-                                .frame(width: 28, height: 28)
-                                .contentShape(Rectangle())
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(checkingGateway)
-                    .accessibilityLabel("Check gateway health")
-                    .help("Check gateway health")
-                }
-
-                if let reachable = gatewayHealthResult {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: reachable ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(reachable ? VColor.success : VColor.error)
-                        Text(reachable ? "Gateway is reachable" : "Gateway is not reachable")
-                            .font(VFont.caption)
-                            .foregroundColor(reachable ? VColor.success : VColor.error)
-                    }
-                    .transition(.opacity)
-                }
-
-                Text("Point your tunnel service at this local address.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                // Override section
+                ingressOverrideSection
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
@@ -1172,41 +1062,76 @@ struct SettingsPanel: View {
         onClose()
     }
 
-    // MARK: - Gateway Health Check
+    // MARK: - Ingress Global Config Card
 
-    private func checkGatewayHealth() {
-        gatewayHealthResult = nil
-        checkingGateway = true
+    /// Card showing the resolved gateway URL for public ingress, referencing global Connect config.
+    private var ingressGlobalConfigCard: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Using Global Gateway & Token")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .textCase(.uppercase)
 
-        Task {
-            defer { checkingGateway = false }
-
-            guard let url = URL(string: "\(store.localGatewayTarget)/healthz") else {
-                withAnimation(VAnimation.fast) { gatewayHealthResult = false }
-                return
+            HStack(alignment: .top) {
+                Text("Gateway URL")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .frame(width: 90, alignment: .leading)
+                Text(store.resolvedIngressGatewayUrl.isEmpty ? "Not configured" : store.resolvedIngressGatewayUrl)
+                    .font(VFont.mono)
+                    .foregroundColor(store.resolvedIngressGatewayUrl.isEmpty ? VColor.textMuted : VColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
             }
 
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 3
-
-            let reachable: Bool
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                if let httpResponse = response as? HTTPURLResponse {
-                    reachable = (200..<300).contains(httpResponse.statusCode)
-                } else {
-                    reachable = false
-                }
-            } catch {
-                reachable = false
+            Button("Manage in Connect tab") {
+                selectedTab = .connect
             }
-
-            withAnimation(VAnimation.fast) { gatewayHealthResult = reachable }
-
-            // Auto-dismiss the status message after 4 seconds
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
-            withAnimation(VAnimation.fast) { gatewayHealthResult = nil }
+            .font(VFont.caption)
+            .foregroundColor(VColor.accent)
         }
+        .padding(VSpacing.md)
+        .background(VColor.surface.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    /// Collapsed override section for per-integration ingress gateway URL customization.
+    private var ingressOverrideSection: some View {
+        DisclosureGroup("Override") {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Toggle("Use custom gateway for ingress", isOn: $ingressUseOverride)
+                    .toggleStyle(.switch)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+
+                if ingressUseOverride {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Gateway URL Override")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        TextField("https://custom-ingress.example.com", text: $ingressGatewayOverride)
+                            .textFieldStyle(.plain)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .padding(VSpacing.md)
+                            .background(VColor.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                            )
+                    }
+                }
+            }
+            .padding(.top, VSpacing.sm)
+        }
+        .font(VFont.caption)
+        .foregroundColor(VColor.textSecondary)
     }
 
     // MARK: - Permission Row
