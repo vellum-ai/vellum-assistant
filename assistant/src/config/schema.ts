@@ -1059,6 +1059,19 @@ export const SkillsConfigSchema = z.object({
   allowBundled: z.array(z.string()).nullable().default(null),
 });
 
+export const QaRecordingConfigSchema = z.object({
+  defaultRetentionDays: z
+    .number({ error: 'qaRecording.defaultRetentionDays must be a number' })
+    .int('qaRecording.defaultRetentionDays must be an integer')
+    .positive('qaRecording.defaultRetentionDays must be a positive integer')
+    .default(7),
+  cleanupIntervalMs: z
+    .number({ error: 'qaRecording.cleanupIntervalMs must be a number' })
+    .int('qaRecording.cleanupIntervalMs must be an integer')
+    .positive('qaRecording.cleanupIntervalMs must be a positive integer')
+    .default(6 * 60 * 60 * 1000),
+});
+
 export const SmsConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'sms.enabled must be a boolean' })
@@ -1372,6 +1385,10 @@ export const AssistantConfigSchema = z.object({
       allowPerCallOverride: true,
     },
   }),
+  qaRecording: QaRecordingConfigSchema.default({
+    defaultRetentionDays: 7,
+    cleanupIntervalMs: 6 * 60 * 60 * 1000,
+  }),
   sms: SmsConfigSchema.default({
     enabled: false,
     provider: 'twilio',
@@ -1441,5 +1458,6 @@ export type CallsSafetyConfig = z.infer<typeof CallsSafetyConfigSchema>;
 export type CallsVoiceConfig = z.infer<typeof CallsVoiceConfigSchema>;
 export type CallsElevenLabsConfig = z.infer<typeof CallsElevenLabsConfigSchema>;
 export type CallerIdentityConfig = z.infer<typeof CallerIdentityConfigSchema>;
+export type QaRecordingConfig = z.infer<typeof QaRecordingConfigSchema>;
 export type SmsConfig = z.infer<typeof SmsConfigSchema>;
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;

@@ -37,6 +37,7 @@ export type {
   CallsVoiceConfig,
   CallsElevenLabsConfig,
   CallerIdentityConfig,
+  QaRecordingConfig,
   SmsConfig,
   IngressConfig,
 } from './schema.js';
