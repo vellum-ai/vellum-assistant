@@ -58,7 +58,9 @@ function normalizeSmsPayload(
 }
 
 export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
-  const dedupCache = new StringDedupCache();
+  // 24-hour TTL — MessageSids are globally unique and never reused, so a
+  // longer window hardens replay prevention beyond the default 5 minutes.
+  const dedupCache = new StringDedupCache(24 * 60 * 60_000);
 
   return async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;

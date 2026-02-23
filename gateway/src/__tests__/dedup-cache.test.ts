@@ -125,6 +125,48 @@ describe("DedupCache", () => {
 
     expect(shortCache.reserve(90)).toBe(true);
   });
+
+  test("high-water mark rejects update_ids at or below the max finalized", () => {
+    cache.reserve(100);
+    cache.set(100, '{"ok":true}', 200);
+
+    // update_id below the high-water mark is permanently rejected
+    expect(cache.reserve(99)).toBe(false);
+    // same update_id is also rejected (even if TTL entry expired)
+    expect(cache.reserve(100)).toBe(false);
+    // update_id above the high-water mark is accepted
+    expect(cache.reserve(101)).toBe(true);
+  });
+
+  test("high-water mark persists after cache TTL expires", () => {
+    const shortCache = new DedupCache(1, 100);
+    shortCache.reserve(50);
+    shortCache.set(50, '{"ok":true}', 200);
+
+    // Wait for the TTL entry to expire
+    const start = Date.now();
+    while (Date.now() - start < 5) {
+      // busy-wait
+    }
+
+    // TTL entry is gone, but high-water mark still blocks replay
+    expect(shortCache.get(50)).toBeUndefined();
+    expect(shortCache.reserve(50)).toBe(false);
+    expect(shortCache.reserve(49)).toBe(false);
+    // Higher ID still works
+    expect(shortCache.reserve(51)).toBe(true);
+  });
+
+  test("high-water mark advances to the max across non-sequential sets", () => {
+    cache.set(200, "a", 200);
+    cache.set(100, "b", 200);
+    cache.set(150, "c", 200);
+
+    // High-water mark should be 200 (the max), not 150 (the last set)
+    expect(cache.reserve(199)).toBe(false);
+    expect(cache.reserve(200)).toBe(false);
+    expect(cache.reserve(201)).toBe(true);
+  });
 });
 
 describe("StringDedupCache", () => {

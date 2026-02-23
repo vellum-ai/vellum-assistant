@@ -19,6 +19,14 @@ export class DedupCache {
   private cache = new Map<number, CacheEntry>();
   private readonly ttlMs: number;
   private readonly maxSize: number;
+  /**
+   * Monotonic high-water mark: the highest update_id that has been fully
+   * processed (finalized via set()). Any update_id at or below this value
+   * is rejected permanently, even after the TTL cache evicts the entry.
+   * This closes the replay window that existed when entries expired from
+   * the TTL cache.
+   */
+  private highWaterMark = -Infinity;
 
   constructor(ttlMs = 5 * 60_000, maxSize = 10_000) {
     this.ttlMs = ttlMs;
@@ -53,6 +61,12 @@ export class DedupCache {
    * finalized cache hit and respond accordingly (e.g. 503 Retry-After).
    */
   reserve(updateId: number): boolean {
+    // Reject any update_id at or below the high-water mark — these have
+    // already been fully processed and are replay attempts.
+    if (updateId <= this.highWaterMark) {
+      return false;
+    }
+
     const existing = this.cache.get(updateId);
     if (existing && Date.now() <= existing.expiresAt) {
       return false;
@@ -88,8 +102,14 @@ export class DedupCache {
     }
   }
 
-  /** Store a response for the given update_id. */
+  /** Store a response for the given update_id and advance the high-water mark. */
   set(updateId: number, body: string, status: number): void {
+    // Advance monotonic high-water mark so this update_id (and all lower
+    // ones) are permanently rejected even after the TTL cache evicts them.
+    if (updateId > this.highWaterMark) {
+      this.highWaterMark = updateId;
+    }
+
     // Evict expired entries if we're at capacity
     if (this.cache.size >= this.maxSize) {
       this.evictExpired();
