@@ -6,6 +6,9 @@ import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } f
 import { isSideEffectTool } from '../../tools/executor.js';
 import { resolveExecutionTarget } from '../../tools/execution-target.js';
 import { getAllTools } from '../../tools/registry.js';
+import { loadSkillCatalog } from '../../config/skills.js';
+import { parseToolManifestFile } from '../../skills/tool-manifest.js';
+import { join } from 'node:path';
 import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression } from '../../schedule/schedule-store.js';
 import { listReminders, cancelReminder } from '../../tools/reminder/reminder-store.js';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
@@ -1652,7 +1655,7 @@ export async function handleToolPermissionSimulate(
 
 export function handleToolNamesList(socket: net.Socket, ctx: HandlerContext): void {
   const tools = getAllTools();
-  const names = tools.map((t) => t.name).sort((a, b) => a.localeCompare(b));
+  const nameSet = new Set(tools.map((t) => t.name));
   const schemas: Record<string, import('../ipc-contract.js').ToolInputSchema> = {};
   for (const tool of tools) {
     try {
@@ -1662,6 +1665,29 @@ export function handleToolNamesList(socket: net.Socket, ctx: HandlerContext): vo
       // Skip tools whose definitions can't be resolved
     }
   }
+
+  // Include tools from all installed skills, even those not currently
+  // activated in any session.
+  try {
+    const catalog = loadSkillCatalog();
+    for (const skill of catalog) {
+      if (!skill.toolManifest?.present || !skill.toolManifest.valid) continue;
+      try {
+        const manifest = parseToolManifestFile(join(skill.directoryPath, 'TOOLS.json'));
+        for (const entry of manifest.tools) {
+          if (nameSet.has(entry.name)) continue;
+          nameSet.add(entry.name);
+          schemas[entry.name] = entry.input_schema as unknown as import('../ipc-contract.js').ToolInputSchema;
+        }
+      } catch {
+        // Skip skills whose manifests can't be parsed
+      }
+    }
+  } catch {
+    // Non-fatal — fall back to registered tools only
+  }
+
+  const names = Array.from(nameSet).sort((a, b) => a.localeCompare(b));
   ctx.send(socket, { type: 'tool_names_list_response', names, schemas });
 }
 
