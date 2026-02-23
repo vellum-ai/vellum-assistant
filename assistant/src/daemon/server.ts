@@ -434,6 +434,7 @@ export class DaemonServer {
       if (cuSessionIds) {
         for (const cuSessionId of cuSessionIds) {
           this.cuObservationParseSequence.delete(cuSessionId);
+          this.cuSessionMetadata.delete(cuSessionId);
           const cuSession = this.cuSessions.get(cuSessionId);
           if (cuSession) {
             cuSession.abort();
