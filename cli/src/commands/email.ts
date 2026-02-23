@@ -1,10 +1,8 @@
 /**
  * CLI command: `vellum email`
  *
- * Provider-agnostic email operations routed through the assistant's
- * EmailService. All subcommand parsing and output formatting lives here
- * in @vellumai/cli; the service/provider layer is imported from
- * @vellumai/assistant.
+ * Provider-agnostic email operations implemented directly in @vellumai/cli.
+ * All subcommand parsing, output formatting, and service logic lives here.
  *
  * All commands output JSON to stdout.
  * Exit codes: 0 = success, 1 = error, 2 = guardrail blocked.
@@ -13,11 +11,11 @@
 import {
   getEmailService,
   GuardrailError,
-} from "../../../assistant/src/email/service.js";
+} from "../email/service.js";
 import {
   SUPPORTED_PROVIDERS,
   type SupportedProvider,
-} from "../../../assistant/src/email/providers/index.js";
+} from "../email/providers/index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
