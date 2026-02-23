@@ -89,23 +89,32 @@ const initGuard = new PromiseGuard<void>();
  */
 function findWasmPath(pkg: string, file: string): string {
   const dir = import.meta.dirname ?? __dirname;
-  const sourcePath = join(dir, '..', '..', '..', 'node_modules', pkg, file);
 
-  if (existsSync(sourcePath)) return sourcePath;
-
-  // Fallback: resolve from process.cwd() (the assistant/ directory).
-  // import.meta.dirname can resolve unexpectedly in compiled/daemon contexts.
-  const cwdPath = join(process.cwd(), 'node_modules', pkg, file);
-  if (existsSync(cwdPath)) return cwdPath;
-
+  // In compiled Bun binaries, import.meta.dirname points into the virtual
+  // /$bunfs/ filesystem.  Prefer bundled WASM assets shipped alongside the
+  // executable before falling back to process.cwd(), so we never accidentally
+  // pick up a mismatched version from the working directory.
   if (dir.startsWith('/$bunfs/')) {
     const execDir = dirname(process.execPath);
     // macOS .app bundle: binary is in Contents/MacOS/, resources in Contents/Resources/
     const resourcesPath = join(execDir, '..', 'Resources', file);
     if (existsSync(resourcesPath)) return resourcesPath;
-    // Fallback: next to the binary itself (non-app-bundle deployments)
-    return join(execDir, file);
+    // Next to the binary itself (non-app-bundle deployments)
+    const execDirPath = join(execDir, file);
+    if (existsSync(execDirPath)) return execDirPath;
+    // Last resort: resolve from process.cwd() (the assistant/ directory)
+    const cwdPath = join(process.cwd(), 'node_modules', pkg, file);
+    if (existsSync(cwdPath)) return cwdPath;
+    return execDirPath;
   }
+
+  const sourcePath = join(dir, '..', '..', '..', 'node_modules', pkg, file);
+
+  if (existsSync(sourcePath)) return sourcePath;
+
+  // Fallback: resolve from process.cwd() (the assistant/ directory).
+  const cwdPath = join(process.cwd(), 'node_modules', pkg, file);
+  if (existsSync(cwdPath)) return cwdPath;
 
   return sourcePath;
 }
