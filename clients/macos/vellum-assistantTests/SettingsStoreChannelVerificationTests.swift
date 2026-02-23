@@ -296,6 +296,105 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertNil(store.telegramGuardianError)
     }
 
+    func testChallengeResponseStartsGuardianStatusPolling() {
+        sentMessages.removeAll()
+        let pollingStore = SettingsStore(
+            daemonClient: daemonClient,
+            guardianStatusPollInterval: 0.05,
+            guardianStatusPollWindow: 2.0
+        )
+        pollingStore.startChannelGuardianVerification(channel: "telegram")
+
+        let statusCountBefore = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+            .filter { $0.action == "status" && $0.channel == "telegram" }
+            .count
+
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: true,
+            secret: "poll-me",
+            instruction: "Send /guardian_verify poll-me on Telegram",
+            bound: false,
+            guardianExternalUserId: nil,
+            channel: "telegram",
+            assistantId: testAssistantId,
+            guardianDeliveryChatId: nil,
+            error: nil
+        ))
+
+        let predicate = NSPredicate { _, _ in
+            let statusCountAfter = self.sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+                .filter { $0.action == "status" && $0.channel == "telegram" }
+                .count
+            return statusCountAfter > statusCountBefore
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+    }
+
+    func testVerifiedResponseStopsGuardianStatusPolling() {
+        sentMessages.removeAll()
+        let pollingStore = SettingsStore(
+            daemonClient: daemonClient,
+            guardianStatusPollInterval: 0.05,
+            guardianStatusPollWindow: 2.0
+        )
+        pollingStore.startChannelGuardianVerification(channel: "telegram")
+
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: true,
+            secret: "poll-me",
+            instruction: "Send /guardian_verify poll-me on Telegram",
+            bound: false,
+            guardianExternalUserId: nil,
+            channel: "telegram",
+            assistantId: testAssistantId,
+            guardianDeliveryChatId: nil,
+            error: nil
+        ))
+
+        let pollingStartedPredicate = NSPredicate { _, _ in
+            let statusCount = self.sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+                .filter { $0.action == "status" && $0.channel == "telegram" }
+                .count
+            return statusCount > 1
+        }
+        let pollingStartedExpectation = XCTNSPredicateExpectation(predicate: pollingStartedPredicate, object: nil)
+        wait(for: [pollingStartedExpectation], timeout: 2.0)
+
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: true,
+            secret: nil,
+            instruction: nil,
+            bound: true,
+            guardianExternalUserId: "tg_user_123",
+            channel: "telegram",
+            assistantId: testAssistantId,
+            guardianDeliveryChatId: "chat_456",
+            error: nil
+        ))
+
+        let settleOne = expectation(description: "settleOne")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { settleOne.fulfill() }
+        wait(for: [settleOne], timeout: 1.0)
+
+        let statusCountAfterVerification = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+            .filter { $0.action == "status" && $0.channel == "telegram" }
+            .count
+
+        let settleTwo = expectation(description: "settleTwo")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { settleTwo.fulfill() }
+        wait(for: [settleTwo], timeout: 1.0)
+
+        let statusCountFinal = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+            .filter { $0.action == "status" && $0.channel == "telegram" }
+            .count
+
+        XCTAssertEqual(statusCountFinal, statusCountAfterVerification)
+    }
+
     // MARK: - revokeChannelGuardian
 
     func testRevokeChannelGuardianSendsRevokeAction() {
