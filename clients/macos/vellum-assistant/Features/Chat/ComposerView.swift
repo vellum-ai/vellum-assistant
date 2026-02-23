@@ -534,8 +534,11 @@ struct ComposerView: View {
                 selectSlashCommand(filtered[slashSelectedIndex])
             case .tab:
                 let command = filtered[slashSelectedIndex]
-                suppressSlashReopen = true
-                inputText = "/\(command.name)"
+                let newText = "/\(command.name)"
+                if inputText != newText {
+                    suppressSlashReopen = true
+                }
+                inputText = newText
                 withAnimation(VAnimation.fast) { showSlashMenu = false }
             case .dismiss:
                 withAnimation(VAnimation.fast) { showSlashMenu = false }
