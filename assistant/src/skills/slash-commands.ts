@@ -155,6 +155,10 @@ export function formatUnknownSlashSkillMessage(
 /**
  * Rewrite user input for a known slash command into a model-facing prompt
  * that explicitly instructs the model to invoke the skill.
+ *
+ * For the claude-code skill, trailing arguments are routed via the `command`
+ * input (not `prompt`) so that .claude/commands/*.md templates are loaded
+ * and $ARGUMENTS substitution is applied.
  */
 export function rewriteKnownSlashCommandPrompt(params: {
   rawInput: string;
@@ -162,6 +166,25 @@ export function rewriteKnownSlashCommandPrompt(params: {
   skillName: string;
   trailingArgs: string;
 }): string {
+  // For the claude-code skill, route trailing args through the `command` input
+  // so CC command templates (.claude/commands/*.md) are loaded and $ARGUMENTS
+  // substitution is applied, rather than sending them as a raw prompt.
+  if (params.skillId === 'claude-code' && params.trailingArgs) {
+    // Extract the command name (first word of trailing args) and remaining arguments
+    const parts = params.trailingArgs.split(/\s+/);
+    const commandName = parts[0];
+    const commandArgs = parts.slice(1).join(' ');
+
+    const lines = [
+      `The user invoked the slash command \`/${params.skillId}\`.`,
+      `Execute the Claude Code command "${commandName}" using the claude_code tool with command="${commandName}".`,
+    ];
+    if (commandArgs) {
+      lines.push(`Pass the following as the \`arguments\` input: ${commandArgs}`);
+    }
+    return lines.join('\n');
+  }
+
   const lines = [
     `The user invoked the slash command \`/${params.skillId}\`.`,
     `Please invoke the "${params.skillName}" skill (ID: ${params.skillId}).`,

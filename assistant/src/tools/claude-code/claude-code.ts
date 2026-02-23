@@ -6,6 +6,7 @@ import { getLogger } from '../../util/logger.js';
 import { truncate } from '../../util/truncate.js';
 import { getProfilePolicy } from '../../swarm/worker-backend.js';
 import type { WorkerProfile } from '../../swarm/worker-backend.js';
+import { getCCCommand, loadCCCommandTemplate } from '../../commands/cc-command-registry.js';
 
 const log = getLogger('claude-code-tool');
 
@@ -62,7 +63,15 @@ export const claudeCodeTool: Tool = {
         properties: {
           prompt: {
             type: 'string',
-            description: 'The coding task or question for Claude Code to work on',
+            description: 'The coding task or question for Claude Code to work on. Use this for free-form tasks. Mutually exclusive with command.',
+          },
+          command: {
+            type: 'string',
+            description: 'Name of a .claude/commands/*.md command template to execute. The template will be loaded and $ARGUMENTS substituted before execution. Use this instead of prompt when invoking a named CC command.',
+          },
+          arguments: {
+            type: 'string',
+            description: 'Arguments to substitute into the command template ($ARGUMENTS placeholder). Only used with the command input.',
           },
           working_dir: {
             type: 'string',
@@ -82,7 +91,6 @@ export const claudeCodeTool: Tool = {
             description: 'Worker profile that scopes tool access. Defaults to general (backward compatible).',
           },
         },
-        required: ['prompt'],
       },
     };
   },
@@ -92,8 +100,46 @@ export const claudeCodeTool: Tool = {
       return { content: 'Cancelled', isError: true };
     }
 
-    const prompt = input.prompt as string;
     const workingDir = (input.working_dir as string) || context.workingDir;
+
+    // Resolve prompt: either from direct prompt input or by loading a CC command template
+    let prompt: string;
+    const commandName = input.command as string | undefined;
+    if (commandName) {
+      // Command-template execution path: load .claude/commands/<command>.md,
+      // apply $ARGUMENTS substitution, and use the result as the prompt.
+      const entry = getCCCommand(workingDir, commandName);
+      if (!entry) {
+        return {
+          content: `Error: CC command "${commandName}" not found. Looked for .claude/commands/${commandName}.md in ${workingDir} and parent directories.`,
+          isError: true,
+        };
+      }
+
+      let template: string;
+      try {
+        template = loadCCCommandTemplate(entry);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: `Error: Failed to load CC command template "${commandName}": ${message}`,
+          isError: true,
+        };
+      }
+
+      // Substitute $ARGUMENTS placeholder with the provided arguments
+      const args = (input.arguments as string) ?? '';
+      prompt = template.replace(/\$ARGUMENTS/g, args);
+
+      log.info({ command: commandName, templatePath: entry.filePath, hasArgs: !!args }, 'Loaded CC command template');
+    } else if (typeof input.prompt === 'string') {
+      prompt = input.prompt;
+    } else {
+      return {
+        content: 'Error: Either "prompt" or "command" must be provided.',
+        isError: true,
+      };
+    }
     const resumeSessionId = input.resume as string | undefined;
     const model = (input.model as string) || 'claude-sonnet-4-6';
     const profileName = (input.profile as WorkerProfile | undefined) ?? 'general';
