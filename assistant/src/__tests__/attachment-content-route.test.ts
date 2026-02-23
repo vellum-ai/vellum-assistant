@@ -136,7 +136,7 @@ describe('handleGetAttachmentContent — file-backed', () => {
     expect(Buffer.from(body).toString()).toBe('fghij');
   });
 
-  test('returns 416 for unsatisfiable range', () => {
+  test('returns 416 when start is beyond file size', () => {
     const filePath = join(testDir, 'test-416.mp4');
     const content = Buffer.from('short');
     writeFileSync(filePath, content);
@@ -154,6 +154,32 @@ describe('handleGetAttachmentContent — file-backed', () => {
     const res = handleGetAttachmentContent(attachment.id, req);
 
     expect(res.status).toBe(416);
+  });
+
+  test('clamps oversized end to fileSize-1 per RFC 7233', async () => {
+    const filePath = join(testDir, 'test-clamp.mp4');
+    const content = Buffer.from('0123456789');
+    writeFileSync(filePath, content);
+
+    const attachment = createFileBackedAttachment({
+      filename: 'test-clamp.mp4',
+      mimeType: 'video/mp4',
+      sizeBytes: content.length,
+      filePath,
+    });
+
+    // Request bytes=5-999 on a 10-byte file; end should be clamped to 9
+    const req = new Request('http://localhost/v1/attachments/' + attachment.id + '/content', {
+      headers: { Range: 'bytes=5-999' },
+    });
+    const res = handleGetAttachmentContent(attachment.id, req);
+
+    expect(res.status).toBe(206);
+    expect(res.headers.get('Content-Range')).toBe(`bytes 5-9/${content.length}`);
+    expect(res.headers.get('Content-Length')).toBe('5');
+
+    const body = await res.arrayBuffer();
+    expect(Buffer.from(body).toString()).toBe('56789');
   });
 
   test('returns 404 when file is missing from disk', () => {
