@@ -145,14 +145,6 @@ function buildGuardianDenyContext(
 }
 
 // ---------------------------------------------------------------------------
-// Feature flag
-// ---------------------------------------------------------------------------
-
-export function isChannelApprovalsEnabled(): boolean {
-  return process.env.CHANNEL_APPROVALS_ENABLED === 'true';
-}
-
-// ---------------------------------------------------------------------------
 // Callback data parser — format: "apr:<runId>:<action>"
 // ---------------------------------------------------------------------------
 
@@ -434,9 +426,7 @@ export async function handleChannelInbound(
   // When a guardian binding exists, non-guardian actors get stricter
   // side-effect controls and their approvals route to the guardian's chat.
   //
-  // Guardian actor-role resolution always runs. Guardian enforcement for
-  // non-guardian/unverified actors is active even when
-  // CHANNEL_APPROVALS_ENABLED is disabled.
+  // Guardian actor-role resolution always runs.
   let guardianCtx: GuardianContext = { actorRole: 'guardian' };
   if (body.senderExternalUserId) {
     const senderIsGuardian = isGuardian(assistantId, sourceChannel, body.senderExternalUserId);
@@ -478,9 +468,7 @@ export async function handleChannelInbound(
   }
 
   // ── Approval interception ──
-  // Keep this active whenever orchestrator + callback context are available so
-  // guardian decisions can still be applied even when CHANNEL_APPROVALS_ENABLED
-  // is disabled for generic self-approval UX.
+  // Keep this active whenever orchestrator + callback context are available.
   if (
     runOrchestrator &&
     replyCallbackUrl &&
@@ -553,13 +541,12 @@ export async function handleChannelInbound(
       throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
     }
 
-    // Use the approval-aware orchestrator path when:
-    // 1) generic channel approvals are enabled, or
-    // 2) guardian enforcement is required for non-guardian/unverified actors.
+    // Use the approval-aware orchestrator path whenever orchestration and a
+    // callback delivery target are available. This keeps approval handling
+    // consistent across all channels and avoids silent prompt timeouts.
     const useApprovalPath = Boolean(
       runOrchestrator &&
-      replyCallbackUrl &&
-      (isChannelApprovalsEnabled() || guardianCtx.actorRole !== 'guardian'),
+      replyCallbackUrl,
     );
 
     if (useApprovalPath && runOrchestrator && replyCallbackUrl) {

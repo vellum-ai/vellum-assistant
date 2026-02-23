@@ -41,7 +41,6 @@ import {
   handleChannelDeliveryAck,
   handleListDeadLetters,
   handleReplayDeadLetters,
-  isChannelApprovalsEnabled,
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from './routes/channel-routes.js';

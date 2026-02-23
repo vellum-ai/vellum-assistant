@@ -3636,7 +3636,7 @@ The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-clos
 
 ### Channel Approval Flow
 
-When the assistant requires tool-use confirmation during a channel session (e.g., Telegram), the approval flow intercepts the run and surfaces an interactive prompt to the user. Generic self-approval UX is gated behind `CHANNEL_APPROVALS_ENABLED`; guardian enforcement (fail-closed denial for unknown actors, `forceStrictSideEffects`, guardian-routed approval prompts) for non-guardian/unverified actors remains active regardless of the flag when orchestrator + callback context are available.
+When the assistant requires tool-use confirmation during a channel session (e.g., Telegram), the approval flow intercepts the run and surfaces an interactive prompt to the user. This approval-aware path is always active when orchestrator + callback context are available. Guardian enforcement (fail-closed denial for unknown actors, `forceStrictSideEffects`, guardian-routed approval prompts) applies consistently to non-guardian/unverified actors.
 
 **State machine:**
 
@@ -3728,9 +3728,9 @@ The raw secret is shown only once in the desktop UI. Only the SHA-256 hash is pe
 
 #### Actor Role Resolution
 
-When a message arrives on a channel, the runtime resolves the sender's role. Role *classification* runs unconditionally. Guardian enforcement (`forceStrictSideEffects`, fail-closed denial, guardian approval routing) applies to non-guardian/unverified actors regardless of `CHANNEL_APPROVALS_ENABLED` when orchestrator + callback context are available:
+When a message arrives on a channel, the runtime resolves the sender's role. Role *classification* runs unconditionally. Guardian enforcement (`forceStrictSideEffects`, fail-closed denial, guardian approval routing) applies to non-guardian/unverified actors whenever orchestrator + callback context are available:
 
-- **Guardian**: `externalUserId` matches the binding's `guardianExternalUserId` for the `(assistantId, channel)` pair. Generic self-approval UX is controlled by `CHANNEL_APPROVALS_ENABLED`.
+- **Guardian**: `externalUserId` matches the binding's `guardianExternalUserId` for the `(assistantId, channel)` pair. Self-approval is handled through the same approval-aware channel flow.
 - **Non-guardian**: A known sender who is not the guardian. Side-effect tools are forced through the confirmation flow (`forceStrictSideEffects`), and approval prompts are routed to the guardian's chat instead of the requester's chat.
 - **Unverified channel**: No guardian binding exists for the channel, or `senderExternalUserId` is absent. Sensitive actions are auto-denied immediately (fail-closed). This prevents unverified senders from self-approving actions or bypassing guardian enforcement by omitting identity data.
 

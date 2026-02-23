@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterAll, afterEach, mock, spyOn } from 'bun:test';
+import { describe, test, expect, beforeEach, afterAll, mock, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -60,7 +60,6 @@ import {
 import type { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import {
   handleChannelInbound,
-  isChannelApprovalsEnabled,
   sweepExpiredGuardianApprovals,
   verifyGatewayOrigin,
   _setTestPollMaxWait,
@@ -162,52 +161,11 @@ function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
 
 const noopProcessMessage = mock(async () => ({ messageId: 'msg-1' }));
 
-// ---------------------------------------------------------------------------
-// Set up / tear down feature flag for each test
-// ---------------------------------------------------------------------------
-
-let originalEnv: string | undefined;
-
 beforeEach(() => {
   resetTables();
-  originalEnv = process.env.CHANNEL_APPROVALS_ENABLED;
   noopProcessMessage.mockClear();
 });
-
-afterEach(() => {
-  if (originalEnv === undefined) {
-    delete process.env.CHANNEL_APPROVALS_ENABLED;
-  } else {
-    process.env.CHANNEL_APPROVALS_ENABLED = originalEnv;
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 1. Feature flag gating
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('isChannelApprovalsEnabled', () => {
-  test('returns false when env var is not set', () => {
-    delete process.env.CHANNEL_APPROVALS_ENABLED;
-    expect(isChannelApprovalsEnabled()).toBe(false);
-  });
-
-  test('returns false when env var is "false"', () => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'false';
-    expect(isChannelApprovalsEnabled()).toBe(false);
-  });
-
-  test('returns true when env var is "true"', () => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
-    expect(isChannelApprovalsEnabled()).toBe(true);
-  });
-});
-
-describe('feature flag disabled → normal flow', () => {
-  beforeEach(() => {
-    delete process.env.CHANNEL_APPROVALS_ENABLED;
-  });
-
+describe('stale callback handling without matching pending approval', () => {
   test('ignores stale callback payloads even when pending approvals exist', async () => {
     ensureConversation('conv-1');
     const run = createRun('conv-1');
@@ -222,8 +180,8 @@ describe('feature flag disabled → normal flow', () => {
     const res = await handleChannelInbound(req, noopProcessMessage, undefined, orchestrator);
     const body = await res.json() as Record<string, unknown>;
 
-    // With generic approvals disabled, callback payloads without a matching
-    // pending approval are still treated as stale and ignored.
+    // Callback payloads without a matching pending approval are treated as
+    // stale and ignored.
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe('stale_ignored');
   });
@@ -235,7 +193,6 @@ describe('feature flag disabled → normal flow', () => {
 
 describe('inbound callback metadata triggers decision handling', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
@@ -333,7 +290,6 @@ describe('inbound callback metadata triggers decision handling', () => {
 
 describe('inbound text matching approval phrases triggers decision handling', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
@@ -404,7 +360,6 @@ describe('inbound text matching approval phrases triggers decision handling', ()
 
 describe('non-decision messages during pending approval trigger reminder', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
@@ -458,7 +413,6 @@ describe('non-decision messages during pending approval trigger reminder', () =>
 
 describe('messages without pending approval proceed normally', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('proceeds to normal processing when no pending approval exists', async () => {
@@ -502,7 +456,6 @@ describe('empty content with callbackData bypasses validation', () => {
   });
 
   test('allows empty content when callbackData is present', async () => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
     const orchestrator = makeMockOrchestrator();
 
     // Establish the conversation first
@@ -535,7 +488,6 @@ describe('empty content with callbackData bypasses validation', () => {
   });
 
   test('allows undefined content when callbackData is present', async () => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
     const orchestrator = makeMockOrchestrator();
 
     // Establish the conversation first
@@ -584,7 +536,6 @@ describe('empty content with callbackData bypasses validation', () => {
 
 describe('callback run ID validation', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
@@ -698,7 +649,6 @@ describe('callback run ID validation', () => {
 
 describe('linkMessage in approval-aware processing path', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('linkMessage is called when run has a messageId and reaches terminal state', async () => {
@@ -755,7 +705,6 @@ describe('linkMessage in approval-aware processing path', () => {
 
 describe('terminal state check before markProcessed', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('records processing failure when run disappears (non-approval non-terminal state)', async () => {
@@ -894,7 +843,6 @@ describe('terminal state check before markProcessed', () => {
 
 describe('no immediate reply after approval decision', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
@@ -978,7 +926,6 @@ describe('no immediate reply after approval decision', () => {
 
 describe('stale callback handling', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('callback with no pending approval returns stale_ignored and does not start a run', async () => {
@@ -1042,7 +989,6 @@ describe('stale callback handling', () => {
 
 describe('poll timeout handling by run state', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('records processing failure when run disappears (getRun returns null) before terminal state', async () => {
@@ -1325,7 +1271,6 @@ describe('poll timeout handling by run state', () => {
 
 describe('post-decision delivery after poll timeout', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('delivers reply via callback after a late approval decision', async () => {
@@ -1439,7 +1384,6 @@ describe('post-decision delivery after poll timeout', () => {
 
 describe('sourceChannel passed to orchestrator.startRun', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('startRun is called with sourceChannel from inbound event', async () => {
@@ -1497,7 +1441,6 @@ describe('sourceChannel passed to orchestrator.startRun', () => {
 
 describe('SMS channel approval decisions', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
     createBinding({
       assistantId: 'self',
       channel: 'sms',
@@ -1737,7 +1680,6 @@ describe('SMS guardian verify intercept', () => {
 
 describe('SMS non-guardian actor gating', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('non-guardian SMS actor gets stricter controls when guardian binding exists', async () => {
@@ -1811,7 +1753,6 @@ describe('SMS non-guardian actor gating', () => {
 
 describe('plain-text fallback surfacing for non-rich channels', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
@@ -1979,7 +1920,6 @@ function makeSensitiveOrchestrator(opts: {
 
 describe('fail-closed guardian gate — unverified channel', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('no binding + sensitive action → auto-deny with contextual assistant guidance', async () => {
@@ -2123,7 +2063,6 @@ describe('fail-closed guardian gate — unverified channel', () => {
 
 describe('guardian-with-binding path regression', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('non-guardian with binding routes approval to guardian chat', async () => {
@@ -2250,7 +2189,6 @@ describe('guardian-with-binding path regression', () => {
 
 describe('guardian delivery failure → denial', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('delivery failure denies run and notifies requester', async () => {
@@ -2346,7 +2284,6 @@ describe('guardian delivery failure → denial', () => {
 
 describe('standard approval prompt delivery failure → auto-deny', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('standard prompt delivery failure auto-denies the run (fail-closed)', async () => {
@@ -2392,7 +2329,6 @@ describe('standard approval prompt delivery failure → auto-deny', () => {
 
 describe('guardian decision scoping — multiple pending approvals', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('callback for older run resolves to the correct approval request', async () => {
@@ -2479,7 +2415,6 @@ describe('guardian decision scoping — multiple pending approvals', () => {
 
 describe('ambiguous plain-text decision with multiple pending requests', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('does not apply plain-text decision to wrong run when multiple pending', async () => {
@@ -2566,7 +2501,6 @@ describe('ambiguous plain-text decision with multiple pending requests', () => {
 
 describe('expired guardian approval auto-denies via sweep', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('sweepExpiredGuardianApprovals auto-denies and notifies both parties', async () => {
@@ -2710,7 +2644,6 @@ describe('deliver-once idempotency guard', () => {
 
 describe('final reply idempotency — no duplicate delivery', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
@@ -3010,7 +2943,6 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
   });
 
   test('actor role resolution uses threaded assistantId', async () => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
 
     // Create guardian binding for asst-role-X
     createBinding({
@@ -3044,7 +2976,6 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
   });
 
   test('same user is guardian for one assistant but not another', async () => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
 
     // user-multi is guardian for asst-M1 but not asst-M2
     createBinding({
@@ -3134,13 +3065,53 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 27. Guardian enforcement decoupled from CHANNEL_APPROVALS_ENABLED
+// 27. Guardian enforcement behavior
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('guardian enforcement independence from approval flag', () => {
-  test('non-guardian sensitive action routes approval to guardian when CHANNEL_APPROVALS_ENABLED is off', async () => {
-    delete process.env.CHANNEL_APPROVALS_ENABLED;
+describe('guardian enforcement behavior', () => {
+  test('guardian sender on telegram uses approval-aware path', async () => {
 
+    // Default senderExternalUserId in makeInboundRequest is telegram-user-default.
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
+
+    const processSpy = mock(async () => ({ messageId: 'msg-bg-guardian' }));
+    const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const orchestrator = makeSensitiveOrchestrator({
+      runId: 'run-guardian-flag-off-telegram',
+      terminalStatus: 'completed',
+    });
+
+    const req = makeInboundRequest({
+      content: 'place a call',
+      senderExternalUserId: 'telegram-user-default',
+      sourceChannel: 'telegram',
+    });
+
+    const res = await handleChannelInbound(req, processSpy, 'token', orchestrator);
+    expect(res.status).toBe(200);
+
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    // Regression guard: this must use the orchestrator approval path, not
+    // fire-and-forget processMessage, otherwise prompts can time out.
+    expect(orchestrator.startRun).toHaveBeenCalled();
+    expect(processSpy).not.toHaveBeenCalled();
+
+    // Guardian self-approval prompt should be delivered to the requester's chat.
+    expect(approvalSpy).toHaveBeenCalled();
+
+    approvalSpy.mockRestore();
+    deliverSpy.mockRestore();
+  });
+
+  test('non-guardian sensitive action routes approval to guardian', async () => {
     // Create a guardian binding — user-guardian is the guardian
     createBinding({
       assistantId: 'self',
@@ -3171,7 +3142,6 @@ describe('guardian enforcement independence from approval flag', () => {
   });
 
   test('missing senderExternalUserId with guardian binding fails closed', async () => {
-    delete process.env.CHANNEL_APPROVALS_ENABLED;
 
     // Create a guardian binding — guardian enforcement is active
     createBinding({
@@ -3225,7 +3195,6 @@ describe('guardian enforcement independence from approval flag', () => {
   });
 
   test('missing senderExternalUserId without guardian binding fails closed', async () => {
-    delete process.env.CHANNEL_APPROVALS_ENABLED;
 
     // No guardian binding exists, but identity is missing — treat sender as
     // unverified_channel and auto-deny sensitive actions.
@@ -3409,7 +3378,6 @@ describe('handleChannelInbound gatewayOriginSecret integration', () => {
 
 describe('unknown actor identity — forceStrictSideEffects', () => {
   beforeEach(() => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
   test('unknown sender (no senderExternalUserId) with guardian binding gets forceStrictSideEffects', async () => {

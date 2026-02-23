@@ -46,7 +46,6 @@ cp .env.example .env
 | `OLLAMA_BASE_URL` | No | `http://127.0.0.1:11434/v1` | Ollama base URL |
 | `RUNTIME_HTTP_PORT` | No | — | Enable the HTTP server (required for gateway/web) |
 | `RUNTIME_GATEWAY_ORIGIN_SECRET` | No | — | Dedicated secret for the `X-Gateway-Origin` proof header on `/channels/inbound`. When not set, falls back to the bearer token. Both gateway and runtime must share the same value. |
-| `CHANNEL_APPROVALS_ENABLED` | No | `false` | Enable generic channel approval UX (self-approval prompts, callback/text interception, reminders). Guardian actor-role classification always runs; guardian enforcement for non-guardian/unverified actors remains active regardless of this flag when orchestrator + callback context are available. |
 | `VELLUM_DAEMON_SOCKET` | No | `~/.vellum/vellum.sock` | Override the daemon socket path |
 
 ## Usage
@@ -124,7 +123,7 @@ assistant/
 
 ## Channel Approval Flow
 
-When the assistant needs tool-use confirmation during a channel session (e.g., Telegram), the approval flow intercepts the run and surfaces an interactive prompt to the user. Generic self-approval UX is gated behind `CHANNEL_APPROVALS_ENABLED=true`; guardian enforcement for non-guardian/unverified actors remains active even when the flag is off.
+When the assistant needs tool-use confirmation during a channel session (e.g., Telegram), the approval flow intercepts the run and surfaces an interactive prompt to the user. This approval-aware path is always enabled whenever orchestrator + callback context are available.
 
 ### How it works
 
@@ -164,24 +163,17 @@ Channels that do not support rich inline approval UI (e.g., inline keyboards) re
 
 ### Enabling
 
-Set the environment variable before starting the daemon:
-
-```bash
-CHANNEL_APPROVALS_ENABLED=true
-```
-
-When disabled (the default), guardian senders follow the standard fire-and-forget processing path; non-guardian/unverified senders still use guardian-enforced approval handling for sensitive actions.
+Channel approvals are always enabled for channel traffic when orchestrator + callback context are available.
 
 ### Guardian-Specific Behavior
 
-Guardian actor-role *classification* (determining whether a sender is guardian, non-guardian, or unverified) runs unconditionally. Guardian *enforcement* for non-guardian/unverified actors (`forceStrictSideEffects`, fail-closed denial for unverified channels, and approval prompt routing to guardians) also remains active even when `CHANNEL_APPROVALS_ENABLED=false`, as long as orchestrator + callback context are available. The flag controls generic self-approval UX for guardian actors.
+Guardian actor-role *classification* (determining whether a sender is guardian, non-guardian, or unverified) runs unconditionally. Guardian *enforcement* for non-guardian/unverified actors (`forceStrictSideEffects`, fail-closed denial for unverified channels, and approval prompt routing to guardians) is always active when orchestrator + callback context are available.
 
 | Flag / Behavior | Description |
 |-----------------|-------------|
-| `CHANNEL_APPROVALS_ENABLED=true` | Enables generic self-approval UX: approval prompts, callback/text decisions, and reminder messages for guardian actors. |
-| `forceStrictSideEffects` | Automatically set on runs triggered by non-guardian or unverified-channel senders so all side-effect tools require approval. Applied regardless of `CHANNEL_APPROVALS_ENABLED` for guardian-enforced actors. |
-| **Fail-closed no-binding** | When no guardian binding exists for a channel, the sender is classified as `unverified_channel`. Any sensitive action is auto-denied with a notice that no guardian has been configured. Enforced regardless of `CHANNEL_APPROVALS_ENABLED`. |
-| **Fail-closed no-identity** | When `senderExternalUserId` is absent, the actor is classified as `unverified_channel` (even if no guardian binding exists yet). Enforced regardless of `CHANNEL_APPROVALS_ENABLED`. |
+| `forceStrictSideEffects` | Automatically set on runs triggered by non-guardian or unverified-channel senders so all side-effect tools require approval. |
+| **Fail-closed no-binding** | When no guardian binding exists for a channel, the sender is classified as `unverified_channel`. Any sensitive action is auto-denied with a notice that no guardian has been configured. |
+| **Fail-closed no-identity** | When `senderExternalUserId` is absent, the actor is classified as `unverified_channel` (even if no guardian binding exists yet). |
 | **Guardian-only approval** | Non-guardian senders cannot approve their own pending actions. Only the verified guardian can approve or deny. |
 | **Expired approval auto-deny** | A proactive sweep runs every 60 seconds to find expired guardian approval requests (30-minute TTL). Expired approvals are auto-denied, and both the requester and guardian are notified. If a non-guardian interacts before the sweep runs, the expiry is also detected reactively. |
 
