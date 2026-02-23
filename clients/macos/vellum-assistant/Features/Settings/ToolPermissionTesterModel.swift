@@ -87,7 +87,6 @@ final class ToolPermissionTesterModel: ObservableObject {
 
     private let daemonClient: DaemonClientProtocol
     private var cancellables = Set<AnyCancellable>()
-    private var hasFetchedToolNames = false
 
     // Snapshot of form values captured at simulate() time so
     // handleSimulateResponse uses the values that produced the request,
@@ -105,46 +104,43 @@ final class ToolPermissionTesterModel: ObservableObject {
                 self?.updateFieldsForTool(name)
             }
             .store(in: &cancellables)
+
+        // Wire up the response callback and connection-state subscription
+        // once in init so they are never duplicated.
+        if let dc = daemonClient as? DaemonClient {
+            dc.onToolNamesListResponse = { [weak self] response in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.availableToolNames = response.names
+                    // Store raw schemas from the response.
+                    self.toolSchemas = Self.extractSchemas(from: response.schemas ?? [:])
+                    // Refresh fields if a tool is already selected.
+                    if !self.toolName.isEmpty {
+                        self.updateFieldsForTool(self.toolName)
+                    }
+                }
+            }
+
+            // Re-fetch tool names whenever the daemon (re)connects.
+            dc.$isConnected
+                .removeDuplicates()
+                .filter { $0 }
+                .sink { [weak dc] _ in
+                    try? dc?.sendToolNamesList()
+                }
+                .store(in: &cancellables)
+        }
     }
 
     // MARK: - Tool Names Fetching
 
-    /// Request the list of all registered tool names from the daemon.
+    /// Request a fresh list of registered tool names from the daemon.
     ///
-    /// Call this after init (e.g. from `onAppear`) rather than from init itself
-    /// to avoid polluting test `sentMessages` and to allow connection-state
-    /// retries.
+    /// Safe to call multiple times (e.g. on every `onAppear`). The response
+    /// callback and connection subscription are set up once in `init`.
     func fetchToolNames() {
-        guard !hasFetchedToolNames else { return }
-        hasFetchedToolNames = true
-
         guard let dc = daemonClient as? DaemonClient else { return }
-
-        dc.onToolNamesListResponse = { [weak self] response in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.availableToolNames = response.names
-                // Store raw schemas from the response.
-                self.toolSchemas = Self.extractSchemas(from: response.schemas ?? [:])
-                // Refresh fields if a tool is already selected.
-                if !self.toolName.isEmpty {
-                    self.updateFieldsForTool(self.toolName)
-                }
-            }
-        }
-
-        // Send when the daemon connection (re)connects. The $isConnected
-        // publisher emits its current value immediately on subscription, so
-        // this also covers the already-connected case without a separate call.
-        dc.$isConnected
-            .removeDuplicates()
-            .filter { $0 }
-            .sink { [weak self] _ in
-                guard let self,
-                      let dc = self.daemonClient as? DaemonClient else { return }
-                try? dc.sendToolNamesList()
-            }
-            .store(in: &cancellables)
+        try? dc.sendToolNamesList()
     }
 
     // MARK: - Schema Parsing
