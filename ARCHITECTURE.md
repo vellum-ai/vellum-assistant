@@ -4201,14 +4201,16 @@ Keep-alive heartbeats (every 30 s by default):
 ### QA Recording Data Flow
 
 ```
-User asks to test → QA intent detection → CU session created with qaMode + reportToSessionId
+User asks to test → QA intent detection (regex/keyword) → CU session created with qaMode
+→ reportToSessionId set if conversationId available (chat context) or sourceSessionId (escalation)
 → macOS ScreenRecorder starts → CU action loop executes
 → Session terminates → ScreenRecorder stops → .mp4 saved to ~/Library/Application Support/vellum-assistant/recordings/
 → cu_session_finalized sent to daemon with recording metadata
-→ Daemon handler creates file-backed attachment + assistant message in source chat
+→ Daemon handler creates file-backed attachment (always, for cleanup tracking)
+→ If reportToSessionId present: also injects assistant message + attachment into source chat
 → Client loads video from GET /v1/attachments/:id/content (with Range support)
 → Video playable inline + draggable to Finder
-→ Retention cleanup removes expired recordings after configurable period (default 7 days)
+→ Retention cleanup removes expired recordings after configurable period (qaRecording.defaultRetentionDays)
 ```
 
 ### File-Backed Attachment Storage
