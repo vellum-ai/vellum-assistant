@@ -63,7 +63,7 @@ declare -a SAFE_LINE_PATTERNS=(
     "[A-Za-z0-9_\"']*(sha256|SHA256|checksum|digest|hash|nonceSha256|observedNonceSha256)[A-Za-z0-9_\"']*[[:space:]]*[:=][[:space:]]*['\"][a-fA-F0-9]{32,}['\"]"
     "client[Ss]ecret:[[:space:]]*(String[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil)|client[Ss]ecret[[:space:]]*[,)])"
     "private[_-]?[Kk]ey['\"]?:[[:space:]]*(String|string|Data|data)[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil|=[[:space:]]*['\"]['\"])"
-    "(secret|Secret)['\"]?[[:space:]]*[:=][[:space:]]*['\"]<(optional|required|placeholder|none|empty|unset|redacted|your-[a-z-]+-here)>['\"]"
+    "(secret|Secret)['\"]?[[:space:]]*[:=][[:space:]]*['\"]<(optional|required|placeholder|none|empty|unset|redacted|your-[a-z-]+-here|[a-zA-Z][a-zA-Z_-]* [a-zA-Z '/._-]+)>['\"]"
 )
 
 matches_safe_line_pattern() {
@@ -131,6 +131,8 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_SWIFT_CALL_LINE='self.init(type: "twitter_integration_config", action: action, clientSecret: clientSecret, strategy: strategy)'
     SAFE_SWIFT_DECL_LINE='public let clientSecret: String?'
     SAFE_DOC_PLACEHOLDER_LINE='  oauth2ClientSecret: "<optional>",'
+    SAFE_DESC_PLACEHOLDER_LINE='client_secret: "<the extracted Client Secret>"'
+    SAFE_DESC_PLACEHOLDER_LINE2='  "authToken": "<value from credential_store for twilio/auth_token>"'
     UNSAFE_ANGLEBRACKET_SECRET='clientSecret: "<abcDEF1234567890>"'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
@@ -255,6 +257,14 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_DOC_PLACEHOLDER_LINE" && ! matches_safe_line_pattern "$SAFE_DOC_PLACEHOLDER_LINE"; then
         echo -e "${RED}Self-test failed:${NC} doc placeholder clientSecret false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_DESC_PLACEHOLDER_LINE" && ! matches_safe_line_pattern "$SAFE_DESC_PLACEHOLDER_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} descriptive doc placeholder '<the extracted Client Secret>' false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_DESC_PLACEHOLDER_LINE2" && ! matches_safe_line_pattern "$SAFE_DESC_PLACEHOLDER_LINE2"; then
+        echo -e "${RED}Self-test failed:${NC} descriptive doc placeholder '<value from credential_store ...>' false positive"
         exit 1
     fi
     if matches_secret_pattern "$UNSAFE_ANGLEBRACKET_SECRET" && matches_safe_line_pattern "$UNSAFE_ANGLEBRACKET_SECRET"; then
