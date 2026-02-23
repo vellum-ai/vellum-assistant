@@ -265,16 +265,19 @@ extension AppDelegate {
     }
 
     @objc func openCurrentThread() {
+        guard !isAwaitingFirstLaunchReady else { return }
         showMainWindow()
     }
 
     @objc func openNewChat() {
+        guard !isAwaitingFirstLaunchReady else { return }
         showMainWindow()
         mainWindow?.threadManager.createThread()
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
     }
 
     @objc func openAppCollection() {
+        guard !isAwaitingFirstLaunchReady else { return }
         showMainWindow()
         mainWindow?.windowState.selection = .panel(.directory)
     }
@@ -331,6 +334,7 @@ extension AppDelegate {
     }
 
     @objc func openAppById(_ sender: NSMenuItem) {
+        guard !isAwaitingFirstLaunchReady else { return }
         guard let info = sender.representedObject as? [String: String],
               let appId = info["id"] else { return }
         showMainWindow()
