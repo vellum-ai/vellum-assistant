@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { existsSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir, userInfo } from "os";
 import { join } from "path";
 
@@ -549,10 +549,22 @@ async function hatchLocal(species: Species, name: string | null, daemonOnly: boo
   }
 
   const baseDataDir = join(process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? userInfo().homedir), ".vellum");
+
+  // Read the bearer token written by the daemon so the client can authenticate
+  // with the gateway (which requires auth by default).
+  let bearerToken: string | undefined;
+  try {
+    const token = readFileSync(join(baseDataDir, "http-token"), "utf-8").trim();
+    if (token) bearerToken = token;
+  } catch {
+    // Token file may not exist if daemon started without HTTP server
+  }
+
   const localEntry: AssistantEntry = {
     assistantId: instanceName,
     runtimeUrl,
     baseDataDir,
+    bearerToken,
     cloud: "local",
     species,
     hatchedAt: new Date().toISOString(),

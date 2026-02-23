@@ -63,18 +63,24 @@ export class DedupCache {
    *   (fully processed, TTL entry may have expired)
    */
   reserve(updateId: number): ReserveResult {
-    // Reject any update_id at or below the high-water mark — these have
-    // already been fully processed and are replay attempts.
-    if (updateId <= this.highWaterMark) {
-      return "already_processed";
-    }
-
+    // Check existing cache entries FIRST — an active (non-expired) entry
+    // takes priority over the high-water mark. This prevents a race where
+    // a higher update_id finalizes first (advancing the high-water mark)
+    // while a lower update_id is still in-flight: without this ordering,
+    // the in-flight entry would be reported as "already_processed" instead
+    // of "duplicate", causing the caller to return 200 and suppress retries.
     const existing = this.cache.get(updateId);
     if (existing && Date.now() <= existing.expiresAt) {
       return "duplicate";
     }
     // Clean up expired entry if present
     if (existing) this.cache.delete(updateId);
+
+    // Reject any update_id at or below the high-water mark — these have
+    // already been fully processed and are replay attempts.
+    if (updateId <= this.highWaterMark) {
+      return "already_processed";
+    }
 
     // Evict if at capacity
     if (this.cache.size >= this.maxSize) {

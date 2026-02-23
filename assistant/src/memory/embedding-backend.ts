@@ -189,23 +189,16 @@ export async function embedWithBackend(
   const expectedDim = config.memory.qdrant.vectorSize;
   const { provider: primaryProvider, model: primaryModel } = selection.backend;
 
-  // ── Build fallback backends list (needed for both cache check and embed) ──
+  // ── Build fallback backends list (needed for embed fallback) ──
   const fallbacks: EmbeddingBackend[] =
     config.memory.embeddings.provider === 'auto' && selection.backend.provider === 'local'
       ? selectFallbackBackends(config, 'local')
       : [];
 
-  // ── In-memory cache check ───────────────────────────────────────
+  // ── In-memory cache check (primary provider only) ──────────────
   const cached: (number[] | null)[] = texts.map(t => {
-    // Try primary provider first
     const v = getFromVectorCache(primaryProvider, primaryModel, t);
     if (v && v.length === expectedDim) return v;
-    // Also check fallback providers — embeddings may have been cached under
-    // a fallback's key during a previous primary backend failure.
-    for (const fb of fallbacks) {
-      const fv = getFromVectorCache(fb.provider, fb.model, t);
-      if (fv && fv.length === expectedDim) return fv;
-    }
     return null;
   });
   const uncachedIndices: number[] = [];
@@ -264,16 +257,6 @@ export async function embedWithBackend(
 
 export function logMemoryEmbeddingWarning(err: unknown, context: string): void {
   log.warn({ err }, `Memory embeddings failed (${context})`);
-}
-
-/** Return fallback provider/model pairs for the given config (excluding the primary). */
-export function getFallbackProviders(config: AssistantConfig): { provider: EmbeddingProviderName; model: string }[] {
-  const primary = selectEmbeddingBackend(config);
-  if (!primary.backend || config.memory.embeddings.provider !== 'auto') return [];
-  return selectFallbackBackends(config, primary.backend.provider).map(b => ({
-    provider: b.provider,
-    model: b.model,
-  }));
 }
 
 function selectFallbackBackends(config: AssistantConfig, exclude: EmbeddingProviderName): EmbeddingBackend[] {

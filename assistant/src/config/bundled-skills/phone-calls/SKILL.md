@@ -439,7 +439,7 @@ All call-related settings can be managed via `vellum config`:
 | `calls.maxDurationSeconds` | Maximum call length in seconds | `3600` (1 hour) |
 | `calls.userConsultTimeoutSeconds` | How long to wait for user answers | `120` (2 min) |
 | `calls.disclosure.enabled` | Whether the AI announces itself at call start | `true` |
-| `calls.disclosure.text` | The disclosure message spoken at call start | `"At the very beginning of the call, introduce yourself as an assistant calling on behalf of the user."` |
+| `calls.disclosure.text` | The disclosure message spoken at call start | `"At the very beginning of the call, introduce yourself as an assistant calling on behalf of my human."` |
 | `calls.model` | Override LLM model for call orchestration | *(uses default model)* |
 | `calls.callerIdentity.allowPerCallOverride` | Allow per-call caller identity selection | `true` |
 | `calls.callerIdentity.userNumber` | E.164 phone number for user-number mode | *(empty)* |

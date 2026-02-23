@@ -162,10 +162,12 @@ async function collectAndMergeCandidates(
 
   // -- Phase 2: expensive searches (skipped on early termination) --
   let semantic: Candidate[] = [];
+  let semanticSearchFailed = false;
   if (queryVector && !canTerminateEarly) {
     try {
       semantic = await semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds, scopeIds);
     } catch (err) {
+      semanticSearchFailed = true;
       if (isQdrantConnectionError(err)) {
         log.warn({ err }, 'Qdrant is unavailable — semantic search disabled, memory recall will be degraded');
       } else {
@@ -215,6 +217,7 @@ async function collectAndMergeCandidates(
     relationNeighborEntityCount,
     relationExpandedItemCount,
     earlyTerminated: canTerminateEarly,
+    semanticSearchFailed,
     merged,
   };
 }
@@ -336,7 +339,15 @@ export async function buildMemoryRecall(
     relationNeighborEntityCount,
     relationExpandedItemCount,
     earlyTerminated,
+    semanticSearchFailed,
   } = collected;
+
+  // Mark as degraded when semantic search failed — the recall is based on
+  // lexical/recency only and should not be cached.
+  if (semanticSearchFailed) {
+    degraded = true;
+    reason = reason ?? 'memory.semantic_search_failure';
+  }
   let merged = applySourceCaps(collected.merged, config);
 
   // LLM re-ranking: send top candidates to Haiku for relevance scoring

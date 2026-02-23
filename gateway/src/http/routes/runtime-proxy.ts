@@ -118,14 +118,21 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
     }, config.runtimeTimeoutMs);
 
+    // Buffer the request body instead of streaming req.body to avoid
+    // Content-Length mismatches when Bun re-sends a ReadableStream, which
+    // can cause the upstream to reject the request with a bare 400.
+    const hasBody = req.method !== "GET" && req.method !== "HEAD";
+    const bodyBuffer = hasBody ? await req.arrayBuffer() : null;
+    if (bodyBuffer !== null) {
+      reqHeaders.set("content-length", String(bodyBuffer.byteLength));
+    }
+
     let response: Response;
     try {
       response = await fetch(upstream, {
         method: req.method,
         headers: reqHeaders,
-        body: req.body,
-        // @ts-expect-error Bun supports duplex on Request
-        duplex: "half",
+        body: bodyBuffer,
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
