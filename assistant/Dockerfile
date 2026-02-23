@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y \
     fonts-freefont-ttf \
     make \
     g++ \
+    git \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
