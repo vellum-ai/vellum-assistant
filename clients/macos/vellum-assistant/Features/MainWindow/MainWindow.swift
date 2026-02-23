@@ -141,6 +141,10 @@ final class MainWindow {
     var onMicrophoneToggle: (() -> Void)?
     let voiceModeManager = VoiceModeManager()
 
+    /// Wake-up greeting to auto-send after the "coming alive" transition completes.
+    /// Set by AppDelegate on first launch; consumed by MainWindowView.
+    var pendingWakeUpMessage: String?
+
     // Forwarding accessors — keeps existing references working while
     // ownership lives in the `services` container.
     private var daemonClient: DaemonClient { services.daemonClient }
@@ -264,7 +268,19 @@ final class MainWindow {
             return
         }
 
-        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, documentManager: documentManager, avatarEvolutionState: avatarEvolutionState, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager)
+        // Build a wake-up callback that sends the pending message once the
+        // "coming alive" transition finishes. Capture the message eagerly so
+        // the closure is self-contained.
+        let wakeUpMessage = pendingWakeUpMessage
+        let wakeUpCallback: (() -> Void)? = wakeUpMessage != nil ? { [weak self] in
+            guard let self, let message = wakeUpMessage,
+                  let viewModel = self.threadManager.activeViewModel else { return }
+            viewModel.inputText = message
+            viewModel.sendMessage()
+            self.pendingWakeUpMessage = nil
+        } : nil
+
+        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, windowState: windowState, documentManager: documentManager, avatarEvolutionState: avatarEvolutionState, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)

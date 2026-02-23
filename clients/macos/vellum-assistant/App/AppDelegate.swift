@@ -1178,11 +1178,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 withIdentifiers: ["tool-confirm-\(requestId)"]
             )
         }
-        // Send the initial message BEFORE showing the window so SwiftUI never
-        // renders the empty state.
-        if let message = initialMessage, let viewModel = main.activeViewModel {
-            viewModel.inputText = message
-            viewModel.sendMessage()
+        // On first launch, defer the wake-up message until after the
+        // "coming alive" transition so the animation plays uninterrupted.
+        // For non-first-launch cases, send the message immediately so
+        // SwiftUI never renders the empty state.
+        if let message = initialMessage {
+            if isFirstLaunch {
+                main.pendingWakeUpMessage = message
+            } else if let viewModel = main.activeViewModel {
+                viewModel.inputText = message
+                viewModel.sendMessage()
+            }
         }
         main.show()
         mainWindow = main

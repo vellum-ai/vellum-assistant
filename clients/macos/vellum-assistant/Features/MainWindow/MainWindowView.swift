@@ -51,7 +51,14 @@ struct MainWindowView: View {
     let onMicrophoneToggle: () -> Void
     @ObservedObject var voiceModeManager: VoiceModeManager
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager()) {
+    /// Callback to send the wake-up greeting after the "coming alive" transition.
+    /// Nil for returning users (no transition).
+    let onSendWakeUp: (() -> Void)?
+
+    /// Whether the "coming alive" overlay is currently showing.
+    @State private var showComingAlive: Bool = false
+
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
@@ -65,6 +72,7 @@ struct MainWindowView: View {
         self.avatarEvolutionState = avatarEvolutionState
         self.onMicrophoneToggle = onMicrophoneToggle
         self.voiceModeManager = voiceModeManager
+        self.onSendWakeUp = onSendWakeUp
     }
 
     // MARK: - Layout Constants
@@ -287,6 +295,27 @@ struct MainWindowView: View {
 
     var body: some View {
         coreLayoutView
+            .opacity(showComingAlive ? 0 : 1)
+            .overlay {
+                if showComingAlive {
+                    ComingAliveOverlay(onComplete: {
+                        withAnimation(VAnimation.standard) {
+                            showComingAlive = false
+                        }
+                        // Send the wake-up message after the chat fades in
+                        DispatchQueue.main.asyncAfter(deadline: .now() + VAnimation.durationStandard) {
+                            onSendWakeUp?()
+                        }
+                    })
+                    .transition(.opacity)
+                }
+            }
+            .onAppear {
+                // Trigger the "coming alive" transition on first launch
+                if onSendWakeUp != nil {
+                    showComingAlive = true
+                }
+            }
             .onChange(of: windowState.selection) { oldSelection, newSelection in
                 // Deactivate voice mode when navigating away from the voice panel
                 if case .panel(.voiceMode) = oldSelection, voiceModeManager.state != .off {
