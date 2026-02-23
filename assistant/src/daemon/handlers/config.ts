@@ -40,7 +40,6 @@ import {
   updatePhoneNumberWebhooks,
 } from '../../calls/twilio-rest.js';
 import {
-  getPublicBaseUrl,
   getTwilioVoiceWebhookUrl,
   getTwilioStatusCallbackUrl,
   getTwilioSmsWebhookUrl,
@@ -1509,7 +1508,7 @@ export function handleGuardianVerification(
         guardianExternalUserId: binding?.guardianExternalUserId,
       });
     } else if (msg.action === 'revoke') {
-      const revoked = revokeGuardianBinding(assistantId, channel);
+      revokeGuardianBinding(assistantId, channel);
       ctx.send(socket, {
         type: 'guardian_verification_response',
         success: true,

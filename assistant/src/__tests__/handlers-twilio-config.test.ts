@@ -963,7 +963,7 @@ describe('Twilio config handler', () => {
     secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
     rawConfigStore = { sms: { phoneNumber: '+15551234567' } };
 
-    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = (async (url: string | URL | Request, _init?: RequestInit) => {
       const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
       // Gateway reconcile (ignore)
       if (urlStr.includes('/internal/telegram/reconcile')) {

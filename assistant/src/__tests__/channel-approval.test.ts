@@ -65,8 +65,10 @@ function ensureConversation(conversationId: string): void {
 }
 
 function ensureMessage(messageId: string, conversationId: string): void {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getDb } = require('../memory/db.js');
   const db = getDb();
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { messages } = require('../memory/schema.js');
   try {
     db.insert(messages).values({
