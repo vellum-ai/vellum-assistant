@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import {
   getMediaAssetById,
+  getKeyframesForAsset,
   insertKeyframesBatch,
   deleteKeyframesForAsset,
   createProcessingStage,
@@ -33,24 +34,20 @@ function spawnWithTimeout(
   });
 }
 
-export async function run(
-  input: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolExecutionResult> {
-  const assetId = input.asset_id as string | undefined;
-  if (!assetId) {
-    return { content: 'asset_id is required.', isError: true };
-  }
-
-  const intervalSeconds = (input.interval_seconds as number) || 3;
+export async function extractKeyframesForAsset(
+  assetId: string,
+  intervalSeconds?: number,
+  onProgress?: (msg: string) => void,
+): Promise<void> {
+  const interval = intervalSeconds ?? 3;
 
   const asset = getMediaAssetById(assetId);
   if (!asset) {
-    return { content: `Media asset not found: ${assetId}`, isError: true };
+    throw new Error(`Media asset not found: ${assetId}`);
   }
 
   if (asset.mediaType !== 'video') {
-    return { content: `Keyframe extraction requires a video asset. Got: ${asset.mediaType}`, isError: true };
+    throw new Error(`Keyframe extraction requires a video asset. Got: ${asset.mediaType}`);
   }
 
   // Find or create the keyframe_extraction processing stage
@@ -70,13 +67,13 @@ export async function run(
   await mkdir(tempDir, { recursive: true });
 
   try {
-    context.onOutput?.(`Extracting keyframes every ${intervalSeconds}s from ${asset.title}...\n`);
+    onProgress?.(`Extracting keyframes every ${interval}s from ${asset.title}...\n`);
 
     // Use ffmpeg to extract frames at the specified interval
     const result = await spawnWithTimeout([
       'ffmpeg', '-y',
       '-i', asset.filePath,
-      '-vf', `fps=1/${intervalSeconds}`,
+      '-vf', `fps=1/${interval}`,
       '-q:v', '2',
       join(tempDir, 'frame-%06d.jpg'),
     ], FFMPEG_TIMEOUT_MS);
@@ -87,7 +84,7 @@ export async function run(
         status: 'failed',
         lastError: result.stderr.slice(0, 500),
       });
-      return { content: `ffmpeg failed: ${result.stderr.slice(0, 500)}`, isError: true };
+      throw new Error(`ffmpeg failed: ${result.stderr.slice(0, 500)}`);
     }
 
     // List extracted frames
@@ -102,21 +99,21 @@ export async function run(
         status: 'failed',
         lastError: 'No frames extracted',
       });
-      return { content: 'No frames were extracted from the video.', isError: true };
+      throw new Error('No frames were extracted from the video.');
     }
 
     // Extraction succeeded — atomically swap temp dir into the durable path
     await rm(outputDir, { recursive: true, force: true });
     await rename(tempDir, outputDir);
 
-    context.onOutput?.(`Extracted ${frameFiles.length} frames. Registering in database...\n`);
+    onProgress?.(`Extracted ${frameFiles.length} frames. Registering in database...\n`);
 
     // Build keyframe rows
     const keyframeRows = frameFiles.map((file, index) => ({
       assetId,
-      timestamp: index * intervalSeconds,
+      timestamp: index * interval,
       filePath: join(outputDir, file),
-      metadata: { frameIndex: index, intervalSeconds },
+      metadata: { frameIndex: index, intervalSeconds: interval },
     }));
 
     // Clear existing keyframes to prevent duplicates on re-extraction
@@ -132,7 +129,39 @@ export async function run(
       completedAt: Date.now(),
     });
 
-    context.onOutput?.(`Registered ${keyframes.length} keyframes.\n`);
+    onProgress?.(`Registered ${keyframes.length} keyframes.\n`);
+  } catch (err) {
+    // Clean up temp dir if it still exists (no-op when already removed above)
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    // Update stage for unexpected errors (ffmpeg/no-frames cases already updated above)
+    const msg = (err as Error).message;
+    if (!msg.startsWith('ffmpeg failed:') && msg !== 'No frames were extracted from the video.') {
+      updateProcessingStage(stage.id, {
+        status: 'failed',
+        lastError: msg.slice(0, 500),
+      });
+    }
+    throw err;
+  }
+}
+
+export async function run(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const assetId = input.asset_id as string | undefined;
+  if (!assetId) {
+    return { content: 'asset_id is required.', isError: true };
+  }
+
+  const intervalSeconds = (input.interval_seconds as number) || 3;
+
+  try {
+    await extractKeyframesForAsset(assetId, intervalSeconds, context.onOutput);
+
+    const asset = getMediaAssetById(assetId);
+    const outputDir = join(dirname(asset!.filePath), 'keyframes', assetId);
+    const keyframes = getKeyframesForAsset(assetId);
 
     return {
       content: JSON.stringify({
@@ -145,14 +174,17 @@ export async function run(
       isError: false,
     };
   } catch (err) {
-    await rm(tempDir, { recursive: true, force: true });
-    updateProcessingStage(stage.id, {
-      status: 'failed',
-      lastError: (err as Error).message.slice(0, 500),
-    });
-    return {
-      content: `Keyframe extraction failed: ${(err as Error).message}`,
-      isError: true,
-    };
+    const msg = (err as Error).message;
+    // Preserve original error message format: validation and known failures
+    // are returned directly; unexpected errors get the prefix
+    if (
+      msg.startsWith('Media asset not found:') ||
+      msg.startsWith('Keyframe extraction requires a video asset.') ||
+      msg.startsWith('ffmpeg failed:') ||
+      msg === 'No frames were extracted from the video.'
+    ) {
+      return { content: msg, isError: true };
+    }
+    return { content: `Keyframe extraction failed: ${msg}`, isError: true };
   }
 }

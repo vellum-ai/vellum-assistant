@@ -25,52 +25,38 @@ const VLM_PROMPT = `Analyze this image frame extracted from a video. Return a JS
 
 Return ONLY the JSON object, no additional text.`;
 
-export async function run(
-  input: Record<string, unknown>,
-  context: ToolContext,
-): Promise<ToolExecutionResult> {
-  const assetId = input.asset_id as string | undefined;
-  if (!assetId) {
-    return { content: 'asset_id is required.', isError: true };
-  }
+export async function analyzeKeyframesForAsset(
+  assetId: string,
+  analysisType?: string,
+  batchSize?: number,
+  onProgress?: (msg: string) => void,
+): Promise<void> {
+  const type = analysisType ?? 'scene_description';
+  const batch = batchSize ?? 10;
 
-  const analysisType = (input.analysis_type as string) || 'scene_description';
-  const batchSize = (input.batch_size as number) || 10;
-
-  if (batchSize <= 0) {
-    return { content: 'batch_size must be greater than 0.', isError: true };
+  if (batch <= 0) {
+    throw new Error('batch_size must be greater than 0.');
   }
 
   const asset = getMediaAssetById(assetId);
   if (!asset) {
-    return { content: `Media asset not found: ${assetId}`, isError: true };
+    throw new Error(`Media asset not found: ${assetId}`);
   }
 
   // Get all keyframes for this asset
   const keyframes = getKeyframesForAsset(assetId);
   if (keyframes.length === 0) {
-    return {
-      content: 'No keyframes found for this asset. Run extract_keyframes first.',
-      isError: true,
-    };
+    throw new Error('No keyframes found for this asset. Run extract_keyframes first.');
   }
 
   // Resumability: find already-analyzed keyframe IDs for this analysis type
-  const existingOutputs = getVisionOutputsForAsset(assetId, analysisType);
+  const existingOutputs = getVisionOutputsForAsset(assetId, type);
   const analyzedKeyframeIds = new Set(existingOutputs.map((o) => o.keyframeId));
   const pendingKeyframes = keyframes.filter((kf) => !analyzedKeyframeIds.has(kf.id));
 
   if (pendingKeyframes.length === 0) {
-    return {
-      content: JSON.stringify({
-        message: 'All keyframes already analyzed',
-        assetId,
-        analysisType,
-        totalKeyframes: keyframes.length,
-        alreadyAnalyzed: existingOutputs.length,
-      }, null, 2),
-      isError: false,
-    };
+    // Nothing to do — all keyframes already analyzed
+    return;
   }
 
   // Find or create the vision_analysis processing stage
@@ -90,10 +76,7 @@ export async function run(
       status: 'failed',
       lastError: 'Anthropic API key not configured',
     });
-    return {
-      content: 'No Anthropic API key available. Configure it in settings or set ANTHROPIC_API_KEY.',
-      isError: true,
-    };
+    throw new Error('No Anthropic API key available. Configure it in settings or set ANTHROPIC_API_KEY.');
   }
 
   const client = new Anthropic({ apiKey });
@@ -101,17 +84,12 @@ export async function run(
   const totalKeyframes = keyframes.length;
   let errorCount = 0;
 
-  context.onOutput?.(`Analyzing ${pendingKeyframes.length} keyframes (${analyzedKeyframeIds.size} already done)...\n`);
+  onProgress?.(`Analyzing ${pendingKeyframes.length} keyframes (${analyzedKeyframeIds.size} already done)...\n`);
 
   try {
     // Process in batches
-    for (let i = 0; i < pendingKeyframes.length; i += batchSize) {
-      if (context.signal?.aborted) {
-        context.onOutput?.('Analysis cancelled.\n');
-        break;
-      }
-
-      const batch = pendingKeyframes.slice(i, i + batchSize);
+    for (let i = 0; i < pendingKeyframes.length; i += batch) {
+      const currentBatch = pendingKeyframes.slice(i, i + batch);
       const batchResults: Array<{
         assetId: string;
         keyframeId: string;
@@ -120,22 +98,20 @@ export async function run(
         confidence?: number;
       }> = [];
 
-      for (const keyframe of batch) {
-        if (context.signal?.aborted) break;
-
+      for (const keyframe of currentBatch) {
         try {
           const result = await analyzeKeyframe(client, keyframe);
           batchResults.push({
             assetId,
             keyframeId: keyframe.id,
-            analysisType,
+            analysisType: type,
             output: result.output,
             confidence: result.confidence,
           });
           analyzedCount++;
         } catch (err) {
           errorCount++;
-          context.onOutput?.(`  Warning: failed to analyze frame at ${keyframe.timestamp}s: ${(err as Error).message}\n`);
+          onProgress?.(`  Warning: failed to analyze frame at ${keyframe.timestamp}s: ${(err as Error).message}\n`);
         }
       }
 
@@ -148,7 +124,7 @@ export async function run(
       const progress = Math.round((analyzedCount / totalKeyframes) * 100);
       updateProcessingStage(stage.id, { progress });
 
-      context.onOutput?.(`  Batch ${Math.floor(i / batchSize) + 1}: analyzed ${batchResults.length}/${batch.length} frames (${progress}% total)\n`);
+      onProgress?.(`  Batch ${Math.floor(i / batch) + 1}: analyzed ${batchResults.length}/${currentBatch.length} frames (${progress}% total)\n`);
     }
 
     const finalProgress = Math.round((analyzedCount / totalKeyframes) * 100);
@@ -159,6 +135,56 @@ export async function run(
       progress: finalProgress,
       ...(isComplete ? { completedAt: Date.now() } : {}),
     });
+  } catch (err) {
+    updateProcessingStage(stage.id, {
+      status: 'failed',
+      lastError: (err as Error).message.slice(0, 500),
+    });
+    throw err;
+  }
+}
+
+export async function run(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const assetId = input.asset_id as string | undefined;
+  if (!assetId) {
+    return { content: 'asset_id is required.', isError: true };
+  }
+
+  const analysisType = (input.analysis_type as string) || 'scene_description';
+  const batchSize = (input.batch_size as number) || 10;
+
+  try {
+    // Check if all keyframes are already analyzed before calling the core function
+    const keyframes = getKeyframesForAsset(assetId);
+    const existingOutputs = getVisionOutputsForAsset(assetId, analysisType);
+    const analyzedKeyframeIds = new Set(existingOutputs.map((o) => o.keyframeId));
+    const pendingKeyframes = keyframes.filter((kf) => !analyzedKeyframeIds.has(kf.id));
+
+    if (keyframes.length > 0 && pendingKeyframes.length === 0) {
+      return {
+        content: JSON.stringify({
+          message: 'All keyframes already analyzed',
+          assetId,
+          analysisType,
+          totalKeyframes: keyframes.length,
+          alreadyAnalyzed: existingOutputs.length,
+        }, null, 2),
+        isError: false,
+      };
+    }
+
+    await analyzeKeyframesForAsset(assetId, analysisType, batchSize, context.onOutput);
+
+    // Gather final stats
+    const allKeyframes = getKeyframesForAsset(assetId);
+    const allOutputs = getVisionOutputsForAsset(assetId, analysisType);
+    const totalKeyframes = allKeyframes.length;
+    const analyzedCount = allOutputs.length;
+    const finalProgress = Math.round((analyzedCount / totalKeyframes) * 100);
+    const isComplete = analyzedCount >= totalKeyframes;
 
     return {
       content: JSON.stringify({
@@ -168,20 +194,23 @@ export async function run(
         totalKeyframes,
         analyzedCount,
         newlyAnalyzed: analyzedCount - analyzedKeyframeIds.size,
-        errorCount,
+        errorCount: pendingKeyframes.length - (analyzedCount - analyzedKeyframeIds.size),
         progress: finalProgress,
       }, null, 2),
       isError: false,
     };
   } catch (err) {
-    updateProcessingStage(stage.id, {
-      status: 'failed',
-      lastError: (err as Error).message.slice(0, 500),
-    });
-    return {
-      content: `Vision analysis failed: ${(err as Error).message}`,
-      isError: true,
-    };
+    const msg = (err as Error).message;
+    // Preserve original error message format
+    if (
+      msg === 'batch_size must be greater than 0.' ||
+      msg.startsWith('Media asset not found:') ||
+      msg === 'No keyframes found for this asset. Run extract_keyframes first.' ||
+      msg === 'No Anthropic API key available. Configure it in settings or set ANTHROPIC_API_KEY.'
+    ) {
+      return { content: msg, isError: true };
+    }
+    return { content: `Vision analysis failed: ${(err as Error).message}`, isError: true };
   }
 }
 
@@ -205,7 +234,7 @@ async function analyzeKeyframe(
   const mediaType = mediaTypeMap[ext] ?? 'image/jpeg';
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6-20250514',
     max_tokens: 1024,
     messages: [
       {
