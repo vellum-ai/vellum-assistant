@@ -10,6 +10,7 @@ import { hatch } from "./commands/hatch";
 import { ps } from "./commands/ps";
 import { retire } from "./commands/retire";
 import { sleep } from "./commands/sleep";
+import { ssh } from "./commands/ssh";
 import { wake } from "./commands/wake";
 
 const commands = {
@@ -18,6 +19,7 @@ const commands = {
   ps,
   retire,
   sleep,
+  ssh,
   wake,
 } as const;
 
@@ -62,6 +64,7 @@ async function main() {
     console.log("  ps       List assistants (or processes for a specific assistant)");
     console.log("  retire   Delete an assistant instance");
     console.log("  sleep    Stop the daemon process");
+    console.log("  ssh      SSH into a remote assistant instance");
     console.log("  wake     Start the daemon and gateway");
     process.exit(0);
   }
