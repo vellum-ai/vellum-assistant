@@ -15,6 +15,7 @@ struct ChatBubble: View {
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var daemonHttpPort: Int?
+    var isLatestAssistantMessage: Bool = false
 
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
@@ -56,7 +57,7 @@ struct ChatBubble: View {
         } else if message.isError {
             AnyShapeStyle(VColor.error.opacity(0.1))
         } else {
-            AnyShapeStyle(VColor.surface)
+            AnyShapeStyle(Color.clear)
         }
     }
 
@@ -65,16 +66,14 @@ struct ChatBubble: View {
         if message.isError {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .strokeBorder(VColor.error.opacity(0.3), lineWidth: 1)
-        } else if !isUser {
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .strokeBorder(VColor.surfaceBorder.opacity(0.85), lineWidth: 0.5)
         }
     }
 
     private func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        content()
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.md)
+        let isPlainAssistant = !isUser && !message.isError
+        return content()
+            .padding(.horizontal, isPlainAssistant ? 0 : VSpacing.lg)
+            .padding(.vertical, isPlainAssistant ? 0 : VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(bubbleFill)
@@ -139,7 +138,7 @@ struct ChatBubble: View {
             // Inner HStack: avatar/button and bubble are grouped so the button
             // is always immediately adjacent to the bubble, not the screen edge.
             HStack(alignment: .top, spacing: VSpacing.sm) {
-                if !isUser {
+                if !isUser && isLatestAssistantMessage {
                     Image(nsImage: appearance.chatAvatarImage)
                         .interpolation(.none)
                         .resizable()
