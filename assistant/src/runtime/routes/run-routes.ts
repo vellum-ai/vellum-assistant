@@ -5,6 +5,7 @@ import { getOrCreateConversation } from '../../memory/conversation-key-store.js'
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as runsStore from '../../memory/runs-store.js';
 import { addRule } from '../../permissions/trust-store.js';
+import { getTool } from '../../tools/registry.js';
 import { getLogger } from '../../util/logger.js';
 import type { RunOrchestrator } from '../run-orchestrator.js';
 
@@ -200,8 +201,13 @@ export async function handleAddTrustRule(
   }
 
   try {
+    // Only persist executionTarget for skill-origin tools — core tools don't
+    // set it in their PolicyContext, so a persisted value would prevent the
+    // rule from ever matching on subsequent permission checks.
+    const tool = getTool(confirmation.toolName);
+    const executionTarget = tool?.origin === 'skill' ? confirmation.executionTarget : undefined;
     addRule(confirmation.toolName, pattern, scope, decision, undefined, {
-      executionTarget: confirmation.executionTarget,
+      executionTarget,
     });
     log.info(
       { tool: confirmation.toolName, pattern, scope, decision, runId },
