@@ -203,6 +203,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 } else {
                     log.warning("Daemon not ready after timeout — opening window without wake-up greeting")
                     showMainWindow(isFirstLaunch: true)
+                    mainWindow?.windowState.showToast(
+                        message: "Still connecting to your assistant — it may take a moment.",
+                        style: .warning
+                    )
                 }
                 debugStateWriter.start(appDelegate: self)
             }
@@ -838,7 +842,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Route dynamic pages to workspace
         surfaceManager.onDynamicPageShow = { [weak self] msg in
-            guard let self else { return }
+            guard let self, !self.isAwaitingFirstLaunchReady else { return }
             self.showMainWindow()
             NotificationCenter.default.post(
                 name: .openDynamicWorkspace,
@@ -1349,7 +1353,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if tasksWindow == nil {
             let window = TasksWindow(daemonClient: daemonClient)
             window.onOpenInChat = { [weak self] conversationId, workItemId, title in
-                guard let self else { return }
+                guard let self, !self.isAwaitingFirstLaunchReady else { return }
                 self.mainWindow?.threadManager.createTaskRunThread(
                     conversationId: conversationId,
                     workItemId: workItemId,
