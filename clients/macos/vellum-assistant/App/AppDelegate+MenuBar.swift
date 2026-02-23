@@ -271,7 +271,7 @@ extension AppDelegate {
     @objc func openNewChat() {
         showMainWindow()
         mainWindow?.threadManager.createThread()
-        UserDefaults.standard.set(false, forKey: "sidebarOpen")
+        UserDefaults.standard.set(false, forKey: "sidebarExpanded")
     }
 
     @objc func openAppCollection() {
