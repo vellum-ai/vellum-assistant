@@ -25,7 +25,7 @@ mock.module('../util/logger.js', () => ({
 
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { upsertEntity, upsertEntityRelation } from '../memory/entity-extractor.js';
-import { findNeighborEntities, findMatchedEntities, getEntityLinkedItemCandidates } from '../memory/search/entity.js';
+import { findNeighborEntities, findMatchedEntities, getEntityLinkedItemCandidates, collectTypedNeighbors } from '../memory/search/entity.js';
 import { memoryItems, memoryItemEntities } from '../memory/schema.js';
 import { Database } from 'bun:sqlite';
 
@@ -467,6 +467,87 @@ describe('entity search', () => {
       });
 
       expect(candidates).toEqual([]);
+    });
+  });
+
+  // ── collectTypedNeighbors ────────────────────────────────────────────
+
+  describe('collectTypedNeighbors', () => {
+    test('multi-step: person -> projects -> tools', () => {
+      const person = upsertEntity({ name: 'StepPerson1', type: 'person', aliases: [] });
+      const project1 = upsertEntity({ name: 'StepProject1', type: 'project', aliases: [] });
+      const project2 = upsertEntity({ name: 'StepProject2', type: 'project', aliases: [] });
+      const tool1 = upsertEntity({ name: 'StepTool1', type: 'tool', aliases: [] });
+      const tool2 = upsertEntity({ name: 'StepTool2', type: 'tool', aliases: [] });
+      const tool3 = upsertEntity({ name: 'StepTool3', type: 'tool', aliases: [] });
+
+      // person works_on project1 and project2
+      upsertEntityRelation({ sourceEntityId: person, targetEntityId: project1, relation: 'works_on' });
+      upsertEntityRelation({ sourceEntityId: person, targetEntityId: project2, relation: 'works_on' });
+      // project1 uses tool1 and tool2
+      upsertEntityRelation({ sourceEntityId: project1, targetEntityId: tool1, relation: 'uses' });
+      upsertEntityRelation({ sourceEntityId: project1, targetEntityId: tool2, relation: 'uses' });
+      // project2 uses tool2 and tool3
+      upsertEntityRelation({ sourceEntityId: project2, targetEntityId: tool2, relation: 'uses' });
+      upsertEntityRelation({ sourceEntityId: project2, targetEntityId: tool3, relation: 'uses' });
+
+      const result = collectTypedNeighbors(
+        [person],
+        [
+          { relationTypes: ['works_on'], entityTypes: ['project'] },
+          { relationTypes: ['uses'], entityTypes: ['tool'] },
+        ],
+      );
+
+      expect(result).toContain(tool1);
+      expect(result).toContain(tool2);
+      expect(result).toContain(tool3);
+      // Should NOT include person or projects in final result
+      expect(result).not.toContain(person);
+      expect(result).not.toContain(project1);
+      expect(result).not.toContain(project2);
+    });
+
+    test('returns empty for empty seeds', () => {
+      const result = collectTypedNeighbors([], [{ relationTypes: ['uses'] }]);
+      expect(result).toEqual([]);
+    });
+
+    test('returns empty for empty steps', () => {
+      const person = upsertEntity({ name: 'StepPerson2', type: 'person', aliases: [] });
+      const result = collectTypedNeighbors([person], []);
+      expect(result).toEqual([]);
+    });
+
+    test('single step equivalent to filtered BFS', () => {
+      const person = upsertEntity({ name: 'StepPerson3', type: 'person', aliases: [] });
+      const tool = upsertEntity({ name: 'StepTool4', type: 'tool', aliases: [] });
+      const project = upsertEntity({ name: 'StepProject3', type: 'project', aliases: [] });
+
+      upsertEntityRelation({ sourceEntityId: person, targetEntityId: tool, relation: 'uses' });
+      upsertEntityRelation({ sourceEntityId: person, targetEntityId: project, relation: 'works_on' });
+
+      const result = collectTypedNeighbors(
+        [person],
+        [{ relationTypes: ['uses'], entityTypes: ['tool'] }],
+      );
+
+      expect(result).toContain(tool);
+      expect(result).not.toContain(project);
+    });
+
+    test('chain breaks when intermediate step finds no matches', () => {
+      const person = upsertEntity({ name: 'StepPerson4', type: 'person', aliases: [] });
+      // person has no edges
+      const result = collectTypedNeighbors(
+        [person],
+        [
+          { relationTypes: ['works_on'], entityTypes: ['project'] },
+          { relationTypes: ['uses'], entityTypes: ['tool'] },
+        ],
+      );
+
+      expect(result).toEqual([]);
     });
   });
 });

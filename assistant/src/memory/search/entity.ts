@@ -10,7 +10,7 @@ import {
   memoryItems,
   memoryItemSources,
 } from '../schema.js';
-import type { Candidate, CandidateSource, CandidateType, EntitySearchResult, MatchedEntityRow, TraversalOptions, TraversalResult } from './types.js';
+import type { Candidate, CandidateSource, CandidateType, EntitySearchResult, MatchedEntityRow, TraversalOptions, TraversalResult, TraversalStep } from './types.js';
 import { computeRecencyScore } from './ranking.js';
 
 const log = getLogger('memory-retriever');
@@ -327,4 +327,38 @@ export function getEntityLinkedItemCandidates(
     recency: computeRecencyScore(item.lastSeenAt),
     finalScore: 0,
   }));
+}
+
+/**
+ * Multi-step typed traversal: each step expands the frontier through
+ * edges matching the step's relation/entity type filters.
+ * Returns entity IDs reachable after all steps are applied in sequence.
+ */
+export function collectTypedNeighbors(
+  seedEntityIds: string[],
+  steps: TraversalStep[],
+  opts?: { maxResultsPerStep?: number; maxEdgesPerStep?: number },
+): string[] {
+  if (seedEntityIds.length === 0 || steps.length === 0) return [];
+
+  const maxResults = opts?.maxResultsPerStep ?? 20;
+  const maxEdges = opts?.maxEdgesPerStep ?? 40;
+
+  let currentSeeds = seedEntityIds;
+
+  for (const step of steps) {
+    if (currentSeeds.length === 0) break;
+
+    const result = findNeighborEntities(currentSeeds, {
+      maxEdges,
+      maxNeighborEntities: maxResults,
+      maxDepth: 1,
+      relationTypes: step.relationTypes,
+      entityTypes: step.entityTypes,
+    });
+
+    currentSeeds = result.neighborEntityIds;
+  }
+
+  return currentSeeds;
 }
