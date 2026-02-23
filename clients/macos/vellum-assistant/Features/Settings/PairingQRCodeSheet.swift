@@ -201,7 +201,7 @@ struct PairingQRCodeSheet: View {
     /// Read the IOPlatformUUID from the IORegistry (macOS hardware identifier).
     private static func getPlatformUUID() -> String? {
         let service = IOServiceGetMatchingService(
-            kIOMasterPortDefault,
+            kIOMainPortDefault,
             IOServiceMatching("IOPlatformExpertDevice")
         )
         guard service != 0 else { return nil }
