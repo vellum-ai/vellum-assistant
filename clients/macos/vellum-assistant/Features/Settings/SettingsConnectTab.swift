@@ -95,16 +95,9 @@ struct SettingsConnectTab: View {
 
             TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
                 .focused($isGatewayUrlFocused)
-                .textFieldStyle(.plain)
+                .textFieldStyle(VInputStyle())
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.md)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
 
             VButton(label: "Save", style: .primary) {
                 store.saveIngressPublicBaseUrl(gatewayUrlText)
@@ -317,16 +310,9 @@ struct SettingsConnectTab: View {
             }
 
             SecureField("Telegram bot token", text: $telegramBotTokenText)
-                .textFieldStyle(.plain)
+                .textFieldStyle(VInputStyle())
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.md)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
 
             Text("Get your bot token from @BotFather on Telegram")
                 .font(VFont.caption)
@@ -457,28 +443,14 @@ struct SettingsConnectTab: View {
             }
 
             TextField("Account SID", text: $twilioAccountSidText)
-                .textFieldStyle(.plain)
+                .textFieldStyle(VInputStyle())
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.md)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
 
             SecureField("Auth Token", text: $twilioAuthTokenText)
-                .textFieldStyle(.plain)
+                .textFieldStyle(VInputStyle())
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.md)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
 
             if store.twilioSaveInProgress {
                 HStack(spacing: VSpacing.sm) {
