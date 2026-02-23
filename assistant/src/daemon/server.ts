@@ -60,6 +60,7 @@ export class DaemonServer {
   private socketToSession = new Map<net.Socket, string>();
   private cuSessions = new Map<string, ComputerUseSession>();
   private socketToCuSession = new Map<net.Socket, Set<string>>();
+  private cuSessionMetadata = new Map<string, import('./handlers/shared.js').CuSessionMetadata>();
   private connectedSockets = new Set<net.Socket>();
   private socketSandboxOverride = new Map<net.Socket, boolean>();
   private cuObservationParseSequence = new Map<string, number>();
@@ -298,6 +299,7 @@ export class DaemonServer {
     }
     this.cuSessions.clear();
     this.socketToCuSession.clear();
+    this.cuSessionMetadata.clear();
 
     for (const socket of this.connectedSockets) {
       socket.destroy();
@@ -612,6 +614,7 @@ export class DaemonServer {
       socketToSession: this.socketToSession,
       cuSessions: this.cuSessions,
       socketToCuSession: this.socketToCuSession,
+      cuSessionMetadata: this.cuSessionMetadata,
       cuObservationParseSequence: this.cuObservationParseSequence,
       socketSandboxOverride: this.socketSandboxOverride,
       sharedRequestTimestamps: this.sharedRequestTimestamps,

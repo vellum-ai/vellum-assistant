@@ -89,6 +89,7 @@ function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
     socketToSession: new Map(),
     cuSessions: new Map(),
     socketToCuSession: new Map(),
+    cuSessionMetadata: new Map(),
     cuObservationParseSequence: new Map(),
     socketSandboxOverride: new Map(),
     sharedRequestTimestamps: [],
