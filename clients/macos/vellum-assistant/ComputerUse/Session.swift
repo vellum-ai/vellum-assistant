@@ -1099,6 +1099,7 @@ final class ComputerUseSession: ObservableObject {
             // run() never reaches the post-loop block (e.g., throws or gets stuck).
             cancelSafetyNetTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+                guard !Task.isCancelled else { return } // disarmed by run() post-loop
                 guard self.isCancelled else { return } // in case state changed
                 try? self.daemonClient.send(CuSessionAbortMessage(sessionId: self.id))
             }
