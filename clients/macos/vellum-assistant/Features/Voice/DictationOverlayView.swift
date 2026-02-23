@@ -25,7 +25,7 @@ struct DictationOverlayView: View {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(VColor.surfaceBorder, lineWidth: 1)
         )
-        .vShadow(.md)
+        .vShadow(VShadow.md)
     }
 
     @ViewBuilder
