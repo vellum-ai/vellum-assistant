@@ -635,7 +635,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 
 | Command | Purpose |
 |---------|---------|
-| `/check-reviews [--namespace NAME]` | Checks for review feedback on unreviewed PRs, assesses feedback contextually (valid, nonsensical, or regression risk), creates follow-up tasks for valid feedback, and halts for user decision on regression risks. When `--namespace` is provided, only PRs whose head branch starts with `swarm/<namespace>/` are processed, and any TODO items added are prefixed with `[<namespace>]`. When `--namespace` is omitted, all PRs are processed, but TODO items are still namespaced if the PR's branch name matches `swarm/<NAME>/...` (the namespace is inferred from the branch). |
+| `/check-reviews [--namespace NAME] [--branch NAME]` | Checks for review feedback on unreviewed PRs, assesses feedback contextually (valid, nonsensical, or regression risk), creates follow-up tasks for valid feedback, and halts for user decision on regression risks. When `--namespace` is provided, only PRs whose head branch starts with `swarm/<namespace>/` are processed, and any TODO items added are prefixed with `[<namespace>]`. When `--namespace` is omitted, all PRs are processed, but TODO items are still namespaced if the PR's branch name matches `swarm/<NAME>/...` (the namespace is inferred from the branch). Use `--branch` to control which branch CI failures are checked on (default: `main`), useful when PRs merge into a feature branch instead of main. |
 
 ### Typical flow
 
