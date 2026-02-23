@@ -4,11 +4,12 @@ import AppKit
 #endif
 
 public struct VButton: View {
-    public enum Style: Hashable { case primary, ghost, danger }
+    public enum Style: Hashable { case primary, ghost, tertiary, danger }
     public enum Size: Hashable { case small, medium, large }
 
     public let label: String
-    public var icon: String? = nil
+    public var leftIcon: String? = nil
+    public var rightIcon: String? = nil
     public var style: Style = .primary
     public var size: Size = .small
     public var isFullWidth: Bool = false
@@ -17,9 +18,10 @@ public struct VButton: View {
 
     @State private var isHovered = false
 
-    public init(label: String, icon: String? = nil, style: Style = .primary, size: Size = .small, isFullWidth: Bool = false, isDisabled: Bool = false, action: @escaping () -> Void) {
+    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, style: Style = .primary, size: Size = .small, isFullWidth: Bool = false, isDisabled: Bool = false, action: @escaping () -> Void) {
         self.label = label
-        self.icon = icon
+        self.leftIcon = leftIcon ?? icon
+        self.rightIcon = rightIcon
         self.style = style
         self.size = size
         self.isFullWidth = isFullWidth
@@ -30,12 +32,16 @@ public struct VButton: View {
     public var body: some View {
         Button(action: action) {
             HStack(spacing: VSpacing.sm) {
-                if let icon {
-                    Image(systemName: icon)
+                if let leftIcon {
+                    Image(systemName: leftIcon)
                         .font(.system(size: iconSize, weight: .semibold))
                 }
                 Text(label)
                     .font(labelFont)
+                if let rightIcon {
+                    Image(systemName: rightIcon)
+                        .font(.system(size: iconSize, weight: .semibold))
+                }
             }
         }
         .buttonStyle(VButtonStyle(style: style, size: size, isHovered: isHovered, isFullWidth: isFullWidth))
@@ -86,12 +92,12 @@ private struct VButtonStyle: ButtonStyle {
             .frame(height: height)
             .frame(maxWidth: isFullWidth ? .infinity : nil)
             .background(backgroundColor(isPressed: configuration.isPressed))
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
+                RoundedRectangle(cornerRadius: VRadius.lg)
                     .stroke(borderColor(isPressed: configuration.isPressed), lineWidth: style == .ghost ? 1 : 0)
             )
-            .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
             .shadow(color: configuration.isPressed ? .clear : shadowColor, radius: 0, x: 0, y: 2)
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(VAnimation.fast, value: configuration.isPressed)
@@ -124,15 +130,21 @@ private struct VButtonStyle: ButtonStyle {
             return isHovered ? Color(hex: 0xA53817) : Color(hex: 0x8A2F13)
         case .ghost:
             return .clear
+        case .tertiary:
+            return .clear
         }
     }
 
     private func backgroundColor(isPressed: Bool) -> Color {
         switch style {
         case .primary:
-            if isPressed { return adaptiveColor(light: Color(hex: 0x3D5739), dark: Forest._400) }
-            if isHovered { return adaptiveColor(light: Color(hex: 0x5A7B54), dark: Forest._500) }
-            return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._600)
+            if isPressed { return VColor.buttonPrimaryPressed }
+            if isHovered { return VColor.buttonPrimaryHover }
+            return VColor.buttonPrimary
+        case .tertiary:
+            if isPressed { return VColor.ghostPressed }
+            if isHovered { return adaptiveColor(light: Forest._200, dark: Forest._800) }
+            return VColor.buttonTertiaryBackground
         case .danger:
             if isPressed { return Color(hex: 0xE0745A) }
             if isHovered { return Color(hex: 0xD4582F) }
@@ -147,7 +159,8 @@ private struct VButtonStyle: ButtonStyle {
     private var foregroundColor: Color {
         switch style {
         case .primary: return .white
-        case .ghost: return VColor.textSecondary
+        case .ghost: return VColor.buttonSecondaryText
+        case .tertiary: return VColor.iconAccent
         case .danger: return .white
         }
     }
@@ -156,7 +169,9 @@ private struct VButtonStyle: ButtonStyle {
         switch style {
         case .ghost:
             if isPressed { return VColor.ghostPressed }
-            return VColor.surfaceBorder
+            return VColor.buttonSecondaryBorder
+        case .tertiary:
+            return .clear
         default:
             return .clear
         }
@@ -172,9 +187,15 @@ private struct VButtonStyle: ButtonStyle {
             VButton(label: "Large", style: .primary, size: .large) {}
             VButton(label: "Ghost Small", style: .ghost, size: .small) {}
             VButton(label: "Ghost Large", style: .ghost, size: .large) {}
+            VButton(label: "Tertiary", style: .tertiary, size: .small) {}
+            VButton(label: "Tertiary Medium", style: .tertiary, size: .medium) {}
+            VButton(label: "With Left Icon", leftIcon: "plus", style: .primary, size: .small) {}
+            VButton(label: "With Right Icon", rightIcon: "arrow.right", style: .ghost, size: .small) {}
+            VButton(label: "Both Icons", leftIcon: "star", rightIcon: "chevron.right", style: .tertiary, size: .medium) {}
+            VButton(label: "Legacy Icon", icon: "gear", style: .primary, size: .small) {}
             VButton(label: "Full Width", style: .primary, isFullWidth: true) {}
         }
         .padding()
     }
-    .frame(width: 300, height: 400)
+    .frame(width: 300, height: 500)
 }
