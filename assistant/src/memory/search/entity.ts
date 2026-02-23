@@ -2,9 +2,7 @@ import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { MemoryEntityConfig } from '../../config/types.js';
 import { getLogger } from '../../util/logger.js';
 import { getDb } from '../db.js';
-import type { EntityType } from '../entity-extractor.js';
 import {
-  memoryEntities,
   memoryEntityRelations,
   memoryItemEntities,
   memoryItems,
@@ -203,15 +201,7 @@ export function findNeighborEntities(
   const neighbors: string[] = [];
   const neighborDepths = new Map<string, number>();
   let totalEdgesTraversed = 0;
-
-  // Cache entity types to avoid repeated DB lookups when filtering by type
-  const entityTypeCache = new Map<string, string>();
-  function getEntityType(entityId: string): string | undefined {
-    if (entityTypeCache.has(entityId)) return entityTypeCache.get(entityId);
-    const entity = db.select({ type: memoryEntities.type }).from(memoryEntities).where(eq(memoryEntities.id, entityId)).get();
-    if (entity) entityTypeCache.set(entityId, entity.type);
-    return entity?.type;
-  }
+  const filterByEntityType = entityTypes && entityTypes.length > 0;
 
   // BFS frontier starts with seed entities
   let frontier = [...seedEntityIds];
@@ -222,24 +212,88 @@ export function findNeighborEntities(
     const edgeBudget = maxEdges - totalEdgesTraversed;
     if (edgeBudget <= 0) break;
 
-    const frontierCondition = or(
-      inArray(memoryEntityRelations.sourceEntityId, frontier),
-      inArray(memoryEntityRelations.targetEntityId, frontier),
-    );
-    const whereCondition = relationTypes && relationTypes.length > 0
-      ? and(frontierCondition, inArray(memoryEntityRelations.relation, relationTypes))
-      : frontierCondition;
+    let rows: Array<{ sourceEntityId: string; targetEntityId: string }>;
 
-    const rows = db
-      .select({
-        sourceEntityId: memoryEntityRelations.sourceEntityId,
-        targetEntityId: memoryEntityRelations.targetEntityId,
-      })
-      .from(memoryEntityRelations)
-      .where(whereCondition)
-      .orderBy(desc(memoryEntityRelations.lastSeenAt))
-      .limit(Math.max(1, edgeBudget))
-      .all();
+    if (filterByEntityType) {
+      // When filtering by entity type, JOIN with memoryEntities on the neighbor
+      // side so non-matching edges are excluded at the SQL level and don't
+      // consume the edge budget.
+      const relationTypeCondition = relationTypes && relationTypes.length > 0
+        ? `AND r.relation IN (${relationTypes.map(() => '?').join(',')})`
+        : '';
+      const entityTypeFilter = `AND me.type IN (${entityTypes.map(() => '?').join(',')})`;
+      const frontierPlaceholders = frontier.map(() => '?').join(',');
+      const limit = Math.max(1, edgeBudget);
+
+      // Direction 1: frontier is source, neighbor is target
+      const q1 = `
+        SELECT r.source_entity_id AS sourceEntityId, r.target_entity_id AS targetEntityId
+        FROM memory_entity_relations r
+        INNER JOIN memory_entities me ON me.id = r.target_entity_id
+        WHERE r.source_entity_id IN (${frontierPlaceholders})
+        ${relationTypeCondition} ${entityTypeFilter}
+        ORDER BY r.last_seen_at DESC
+        LIMIT ?
+      `;
+      const params1 = [
+        ...frontier,
+        ...(relationTypes && relationTypes.length > 0 ? relationTypes : []),
+        ...entityTypes,
+        limit,
+      ];
+
+      // Direction 2: frontier is target, neighbor is source
+      const q2 = `
+        SELECT r.source_entity_id AS sourceEntityId, r.target_entity_id AS targetEntityId
+        FROM memory_entity_relations r
+        INNER JOIN memory_entities me ON me.id = r.source_entity_id
+        WHERE r.target_entity_id IN (${frontierPlaceholders})
+        ${relationTypeCondition} ${entityTypeFilter}
+        ORDER BY r.last_seen_at DESC
+        LIMIT ?
+      `;
+      const params2 = [
+        ...frontier,
+        ...(relationTypes && relationTypes.length > 0 ? relationTypes : []),
+        ...entityTypes,
+        limit,
+      ];
+
+      const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
+      const rows1 = raw.query(q1).all(...params1) as Array<{ sourceEntityId: string; targetEntityId: string }>;
+      const rows2 = raw.query(q2).all(...params2) as Array<{ sourceEntityId: string; targetEntityId: string }>;
+
+      // Merge both directions, deduplicate by (source, target) pair, and
+      // respect the overall edge budget.
+      const seen = new Set<string>();
+      rows = [];
+      for (const r of [...rows1, ...rows2]) {
+        const key = `${r.sourceEntityId}:${r.targetEntityId}`;
+        if (!seen.has(key) && rows.length < limit) {
+          seen.add(key);
+          rows.push(r);
+        }
+      }
+    } else {
+      const frontierCondition = or(
+        inArray(memoryEntityRelations.sourceEntityId, frontier),
+        inArray(memoryEntityRelations.targetEntityId, frontier),
+      );
+      const whereCondition = relationTypes && relationTypes.length > 0
+        ? and(frontierCondition, inArray(memoryEntityRelations.relation, relationTypes))
+        : frontierCondition;
+
+      rows = db
+        .select({
+          sourceEntityId: memoryEntityRelations.sourceEntityId,
+          targetEntityId: memoryEntityRelations.targetEntityId,
+        })
+        .from(memoryEntityRelations)
+        .where(whereCondition)
+        .orderBy(desc(memoryEntityRelations.lastSeenAt))
+        .limit(Math.max(1, edgeBudget))
+        .all();
+    }
 
     totalEdgesTraversed += rows.length;
 
@@ -248,13 +302,6 @@ export function findNeighborEntities(
     for (const row of rows) {
       if (neighbors.length >= maxNeighborEntities) break;
       if (frontierSet.has(row.sourceEntityId) && !visited.has(row.targetEntityId)) {
-        if (entityTypes && entityTypes.length > 0) {
-          const targetType = getEntityType(row.targetEntityId);
-          if (!targetType || !entityTypes.includes(targetType as EntityType)) {
-            visited.add(row.targetEntityId);
-            continue;
-          }
-        }
         visited.add(row.targetEntityId);
         neighbors.push(row.targetEntityId);
         nextFrontier.push(row.targetEntityId);
@@ -262,13 +309,6 @@ export function findNeighborEntities(
       }
       if (neighbors.length >= maxNeighborEntities) break;
       if (frontierSet.has(row.targetEntityId) && !visited.has(row.sourceEntityId)) {
-        if (entityTypes && entityTypes.length > 0) {
-          const sourceType = getEntityType(row.sourceEntityId);
-          if (!sourceType || !entityTypes.includes(sourceType as EntityType)) {
-            visited.add(row.sourceEntityId);
-            continue;
-          }
-        }
         visited.add(row.sourceEntityId);
         neighbors.push(row.sourceEntityId);
         nextFrontier.push(row.sourceEntityId);
