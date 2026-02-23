@@ -260,6 +260,8 @@ export function wireEscalationHandler(
       ...(isQa ? {
         qaMode: true,
         retentionDays: config.qaRecording.defaultRetentionDays,
+        captureScope: config.qaRecording.captureScope,
+        includeAudio: config.qaRecording.includeAudio,
       } : {}),
     });
 

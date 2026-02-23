@@ -254,6 +254,8 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   qaRecording: {
     defaultRetentionDays: 7,
     cleanupIntervalMs: 6 * 60 * 60 * 1000, // 6 hours
+    captureScope: 'display' as const,
+    includeAudio: false,
   },
   sms: {
     enabled: false,
