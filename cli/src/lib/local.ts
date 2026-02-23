@@ -302,9 +302,11 @@ export async function startGateway(): Promise<string> {
   const assistants = loadAllAssistants();
   const isSingleAssistant = assistants.length === 1;
 
-  // Read the bearer token from ~/.vellum/http-token so the gateway can
-  // authenticate proxied requests (e.g. from paired iOS devices).
-  const httpTokenPath = join(homedir(), ".vellum", "http-token");
+  // Read the bearer token so the gateway can authenticate proxied requests
+  // (e.g. from paired iOS devices). Respect VELLUM_HTTP_TOKEN_PATH and
+  // BASE_DATA_DIR for consistency with gateway/config.ts and the daemon.
+  const httpTokenPath = process.env.VELLUM_HTTP_TOKEN_PATH
+    ?? join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "http-token");
   let runtimeProxyBearerToken: string | undefined;
   try {
     const tok = readFileSync(httpTokenPath, "utf-8").trim();
@@ -313,10 +315,18 @@ export async function startGateway(): Promise<string> {
     // Token file doesn't exist yet — daemon hasn't written it.
   }
 
+  // If no token is available (first startup — daemon hasn't written it yet),
+  // disable proxy auth so the gateway doesn't crash. The gateway's own
+  // readHttpTokenFile() will pick up the token once the daemon writes it.
+  const proxyRequireAuth = runtimeProxyBearerToken ? "true" : "false";
+  if (!runtimeProxyBearerToken) {
+    console.log("   ⚠️  Bearer token not found — gateway proxy auth disabled until daemon writes token");
+  }
+
   const gatewayEnv: Record<string, string> = {
     ...process.env as Record<string, string>,
     GATEWAY_RUNTIME_PROXY_ENABLED: "true",
-    GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "true",
+    GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: proxyRequireAuth,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
   };
 
