@@ -91,7 +91,14 @@ function findWasmPath(pkg: string, file: string): string {
   const dir = import.meta.dirname ?? __dirname;
   const sourcePath = join(dir, '..', '..', '..', 'node_modules', pkg, file);
 
-  if (!existsSync(sourcePath) && dir.startsWith('/$bunfs/')) {
+  if (existsSync(sourcePath)) return sourcePath;
+
+  // Fallback: resolve from process.cwd() (the assistant/ directory).
+  // import.meta.dirname can resolve unexpectedly in compiled/daemon contexts.
+  const cwdPath = join(process.cwd(), 'node_modules', pkg, file);
+  if (existsSync(cwdPath)) return cwdPath;
+
+  if (dir.startsWith('/$bunfs/')) {
     const execDir = dirname(process.execPath);
     // macOS .app bundle: binary is in Contents/MacOS/, resources in Contents/Resources/
     const resourcesPath = join(execDir, '..', 'Resources', file);
