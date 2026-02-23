@@ -320,7 +320,7 @@ struct SettingsPanel: View {
                     ))
                     .toggleStyle(.switch)
                     .labelsHidden()
-                    .disabled(store.ingressPublicBaseUrl.isEmpty && !store.ingressEnabled)
+                    .disabled(store.ingressPublicBaseUrl.isEmpty && store.resolvedIngressGatewayUrl.isEmpty && !store.ingressEnabled)
                 }
 
                 HStack(alignment: .top, spacing: VSpacing.sm) {

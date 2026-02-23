@@ -53,7 +53,8 @@ struct SettingsConnectTab: View {
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(
                 ingressEnabled: store.ingressEnabled,
-                ingressPublicBaseUrl: store.ingressPublicBaseUrl
+                gatewayUrl: store.resolvedIosGatewayUrl,
+                resolvedBearerToken: store.resolvedIosBearerToken
             )
         }
     }

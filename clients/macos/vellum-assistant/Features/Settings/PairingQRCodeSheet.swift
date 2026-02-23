@@ -11,16 +11,16 @@ struct PairingQRCodeSheet: View {
     @Environment(\.dismiss) var dismiss
 
     let ingressEnabled: Bool
-    let ingressPublicBaseUrl: String
+    let gatewayUrl: String
+    let resolvedBearerToken: String
 
     @State private var hostId: String = ""
-    @State private var bearerToken: String = ""
     @State private var isTokenRevealed: Bool = false
     @State private var copiedField: String? = nil
 
     /// Whether the ingress configuration is sufficient for pairing.
     private var canGenerateQR: Bool {
-        ingressEnabled && !ingressPublicBaseUrl.isEmpty && !bearerToken.isEmpty
+        ingressEnabled && !gatewayUrl.isEmpty && !resolvedBearerToken.isEmpty
     }
 
     var body: some View {
@@ -47,7 +47,7 @@ struct PairingQRCodeSheet: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 32))
                         .foregroundColor(VColor.error)
-                    if !ingressEnabled || ingressPublicBaseUrl.isEmpty {
+                    if !ingressEnabled || gatewayUrl.isEmpty {
                         Text("Enable ingress and set a public URL in Settings to pair with iOS")
                             .font(VFont.body)
                             .foregroundColor(VColor.error)
@@ -80,7 +80,7 @@ struct PairingQRCodeSheet: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                         .frame(width: 90, alignment: .leading)
-                    Text(ingressPublicBaseUrl.isEmpty ? "Not configured" : ingressPublicBaseUrl)
+                    Text(gatewayUrl.isEmpty ? "Not configured" : gatewayUrl)
                         .font(VFont.mono)
                         .foregroundColor(VColor.textPrimary)
                         .lineLimit(1)
@@ -88,7 +88,7 @@ struct PairingQRCodeSheet: View {
                     Spacer()
                     Button {
                         NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(ingressPublicBaseUrl, forType: .string)
+                        NSPasteboard.general.setString(gatewayUrl, forType: .string)
                         withAnimation { copiedField = "url" }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                             withAnimation { if copiedField == "url" { copiedField = nil } }
@@ -99,7 +99,7 @@ struct PairingQRCodeSheet: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(ingressPublicBaseUrl.isEmpty)
+                    .disabled(gatewayUrl.isEmpty)
                 }
 
                 Divider()
@@ -110,18 +110,18 @@ struct PairingQRCodeSheet: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                         .frame(width: 90, alignment: .leading)
-                    if bearerToken.isEmpty {
+                    if resolvedBearerToken.isEmpty {
                         Text("Not available")
                             .font(VFont.mono)
                             .foregroundColor(VColor.textPrimary)
                     } else if isTokenRevealed {
-                        Text(bearerToken)
+                        Text(resolvedBearerToken)
                             .font(VFont.mono)
                             .foregroundColor(VColor.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     } else {
-                        Text(String(repeating: "\u{2022}", count: min(bearerToken.count, 24)))
+                        Text(String(repeating: "\u{2022}", count: min(resolvedBearerToken.count, 24)))
                             .font(VFont.mono)
                             .foregroundColor(VColor.textPrimary)
                             .lineLimit(1)
@@ -135,11 +135,11 @@ struct PairingQRCodeSheet: View {
                     }
                     .buttonStyle(.borderless)
                     .help(isTokenRevealed ? "Hide token" : "Reveal token")
-                    .disabled(bearerToken.isEmpty)
+                    .disabled(resolvedBearerToken.isEmpty)
 
                     Button {
                         NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(bearerToken, forType: .string)
+                        NSPasteboard.general.setString(resolvedBearerToken, forType: .string)
                         withAnimation { copiedField = "token" }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                             withAnimation { if copiedField == "token" { copiedField = nil } }
@@ -150,7 +150,7 @@ struct PairingQRCodeSheet: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(bearerToken.isEmpty)
+                    .disabled(resolvedBearerToken.isEmpty)
                 }
             }
             .padding(VSpacing.md)
@@ -166,7 +166,6 @@ struct PairingQRCodeSheet: View {
         .frame(width: 380)
         .onAppear {
             hostId = Self.computeHostId()
-            bearerToken = Self.readBearerToken()
         }
     }
 
@@ -177,8 +176,8 @@ struct PairingQRCodeSheet: View {
             "type": "vellum-daemon",
             "v": 2,
             "id": hostId,
-            "g": ingressPublicBaseUrl,
-            "bt": bearerToken,
+            "g": gatewayUrl,
+            "bt": resolvedBearerToken,
         ]
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payload),
@@ -187,11 +186,6 @@ struct PairingQRCodeSheet: View {
         }
 
         return QRCodeGenerator.generate(from: jsonString, size: 220)
-    }
-
-    /// Read the HTTP bearer token using the shared helper that respects `BASE_DATA_DIR`.
-    private static func readBearerToken() -> String {
-        return readHttpToken() ?? ""
     }
 
     /// Compute a stable, privacy-safe host identifier.
