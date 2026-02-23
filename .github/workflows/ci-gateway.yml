@@ -2,6 +2,7 @@ name: CI Gateway Checks
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, closed]
     paths:
       - 'gateway/**'
       - '.github/workflows/ci-gateway.yml'
@@ -11,8 +12,13 @@ on:
       - 'gateway/**'
       - '.github/workflows/ci-gateway.yml'
 
+concurrency:
+  group: ci-gateway-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   checks:
+    if: github.event.action != 'closed'
     name: Lint, Type Check & Test
     runs-on: ubuntu-latest
     defaults:
