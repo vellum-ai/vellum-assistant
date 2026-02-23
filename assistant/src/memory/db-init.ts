@@ -1123,5 +1123,18 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_events_asset_type ON media_events(asset_id, event_type)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_events_confidence ON media_events(confidence DESC)`);
 
+  // ── Media Tracking Profiles ─────────────────────────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS media_tracking_profiles (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL REFERENCES media_assets(id) ON DELETE CASCADE,
+      capabilities TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_tracking_profiles_asset_id ON media_tracking_profiles(asset_id)`);
+
   migrateMemoryFtsBackfill(database);
 }

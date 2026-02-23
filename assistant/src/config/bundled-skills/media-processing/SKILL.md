@@ -24,11 +24,24 @@ Extract keyframes from a video asset at regular intervals using ffmpeg. Frames a
 
 Analyze extracted keyframes using Claude VLM (vision language model). Produces structured JSON output with scene descriptions, subjects, actions, and context. Supports resumability by skipping already-analyzed frames.
 
+### select_tracking_profile
+
+Configure which event capabilities are enabled for a media asset. Capabilities are organized into tiers:
+- **Ready**: Production-quality detection, included by default.
+- **Beta**: Functional but may have accuracy gaps. Results include a confidence disclaimer.
+- **Experimental**: Early-stage detection, expect noise. Results include a confidence disclaimer.
+
+Call without capabilities to see available options; call with a capabilities array to set the profile.
+
 ## Services
 
 ### Timeline Generation
 
 The timeline service (services/timeline-service.ts) aggregates vision analysis outputs into coherent timeline segments. Call `generateTimeline(assetId)` after keyframe analysis is complete to produce a structured timeline.
+
+### Capability Registry
+
+The capability registry (services/capability-registry.ts) maintains an extensible, domain-agnostic catalog of available tracking capabilities with tier classification. Basketball capabilities are registered as one example domain. Other domains (surveillance, lecture recording, etc.) can register their own capabilities by calling `registerCapability()`.
 
 ## Usage Notes
 
@@ -40,3 +53,6 @@ The timeline service (services/timeline-service.ts) aggregates vision analysis o
 - Keyframe extraction requires ffmpeg. Vision analysis requires the ANTHROPIC_API_KEY environment variable.
 - The `analyze_keyframes` tool is marked as medium risk because it makes external API calls to Claude VLM, which incur costs.
 - All schema tables, services, and tool interfaces are media-generic. Domain-specific interpretation belongs in VLM prompt templates.
+- The `select_tracking_profile` tool controls which event types are returned by `query_media_events`. Without a profile, only ready-tier capabilities are included.
+- To enable beta or experimental capabilities for an asset: `select_tracking_profile({ asset_id: "...", capabilities: ["turnovers", "field_goals", "rebounds_per_player"] })`.
+- The capability registry is extensible: call `registerCapability()` from `services/capability-registry.ts` to add capabilities for any domain.

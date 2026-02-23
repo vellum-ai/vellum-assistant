@@ -168,6 +168,29 @@
       "execution_target": "host"
     },
     {
+      "name": "select_tracking_profile",
+      "description": "Select and persist a tracking profile for a media asset. When called without capabilities, returns available capabilities organized by tier (ready, beta, experimental). When called with capabilities, validates them against the registry and stores the profile. The capability tier system is generic and extensible across domains.",
+      "category": "media",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "ID of the media asset to configure tracking for"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional array of capability names to enable (e.g., ['turnovers', 'field_goals']). If omitted, returns the available capabilities for selection."
+          }
+        },
+        "required": ["asset_id"]
+      },
+      "executor": "tools/select-tracking-profile.ts",
+      "execution_target": "host"
+    },
+    {
       "name": "generate_clip",
       "description": "Extract a video clip from a media asset using ffmpeg. Applies configurable pre/post-roll padding (clamped to file boundaries), outputs the clip as a temporary file, and registers it as an attachment for in-chat delivery.",
       "category": "media",

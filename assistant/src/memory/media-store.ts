@@ -8,7 +8,7 @@
 import { and, eq, inArray, gte, desc, asc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
-import { mediaAssets, processingStages, mediaKeyframes, mediaVisionOutputs, mediaTimelines, mediaEvents } from './schema.js';
+import { mediaAssets, processingStages, mediaKeyframes, mediaVisionOutputs, mediaTimelines, mediaEvents, mediaTrackingProfiles } from './schema.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -660,6 +660,88 @@ function parseEventRow(row: typeof mediaEvents.$inferSelect): MediaEvent {
     confidence: row.confidence,
     reasons,
     metadata,
+    createdAt: row.createdAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tracking profile types & CRUD
+// ---------------------------------------------------------------------------
+
+export type CapabilityTier = 'ready' | 'beta' | 'experimental';
+
+export interface CapabilityProfileEntry {
+  enabled: boolean;
+  tier: CapabilityTier;
+}
+
+export type CapabilityProfile = Record<string, CapabilityProfileEntry>;
+
+export interface TrackingProfile {
+  id: string;
+  assetId: string;
+  capabilities: CapabilityProfile;
+  createdAt: number;
+}
+
+/**
+ * Upsert a tracking profile for a media asset. If a profile already exists
+ * for the given assetId, it is replaced.
+ */
+export function setTrackingProfile(assetId: string, capabilities: CapabilityProfile): TrackingProfile {
+  const db = getDb();
+  const now = Date.now();
+
+  // Check for existing profile by assetId
+  const existing = db
+    .select()
+    .from(mediaTrackingProfiles)
+    .where(eq(mediaTrackingProfiles.assetId, assetId))
+    .get();
+
+  if (existing) {
+    db.update(mediaTrackingProfiles)
+      .set({ capabilities: JSON.stringify(capabilities), createdAt: now })
+      .where(eq(mediaTrackingProfiles.id, existing.id))
+      .run();
+    return { id: existing.id, assetId, capabilities, createdAt: now };
+  }
+
+  const id = uuid();
+  db.insert(mediaTrackingProfiles).values({
+    id,
+    assetId,
+    capabilities: JSON.stringify(capabilities),
+    createdAt: now,
+  }).run();
+
+  return { id, assetId, capabilities, createdAt: now };
+}
+
+/**
+ * Get the current tracking profile for a media asset, if one exists.
+ */
+export function getTrackingProfile(assetId: string): TrackingProfile | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(mediaTrackingProfiles)
+    .where(eq(mediaTrackingProfiles.assetId, assetId))
+    .get();
+
+  if (!row) return null;
+
+  let capabilities: CapabilityProfile = {};
+  try {
+    capabilities = JSON.parse(row.capabilities) as CapabilityProfile;
+  } catch {
+    capabilities = {};
+  }
+
+  return {
+    id: row.id,
+    assetId: row.assetId,
+    capabilities,
     createdAt: row.createdAt,
   };
 }
