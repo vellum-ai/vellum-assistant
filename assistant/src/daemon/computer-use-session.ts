@@ -249,26 +249,59 @@ export class ComputerUseSession {
   }
 
   /**
+   * Well-known app names used to detect cross-app intent in task text.
+   * Only needs to cover apps commonly referenced in cross-app workflows;
+   * the list does not need to be exhaustive.
+   */
+  private static readonly KNOWN_APP_NAMES: ReadonlySet<string> = new Set([
+    'chrome', 'google chrome', 'safari', 'firefox', 'arc', 'brave', 'edge',
+    'slack', 'discord', 'zoom', 'teams', 'microsoft teams',
+    'notion', 'obsidian', 'bear', 'notes', 'apple notes',
+    'finder', 'terminal', 'iterm', 'iterm2', 'warp',
+    'vscode', 'visual studio code', 'cursor', 'xcode', 'intellij', 'webstorm',
+    'figma', 'sketch', 'photoshop', 'illustrator',
+    'mail', 'outlook', 'gmail', 'thunderbird',
+    'spotify', 'music', 'apple music',
+    'messages', 'imessage', 'whatsapp', 'telegram', 'signal',
+    'calendar', 'reminders', 'todoist', 'things',
+    'pages', 'numbers', 'keynote', 'word', 'excel', 'powerpoint',
+    'preview', 'acrobat', 'pdf expert',
+    'vellum', 'vellum assistant',
+    'linear', 'jira', 'github', 'gitlab',
+    'postman', 'docker', 'tableplus', 'sequel pro',
+    'system preferences', 'system settings', 'activity monitor',
+  ]);
+
+  /**
    * Returns true when the original user task text explicitly requests a
    * cross-app workflow (e.g. "copy from Chrome and paste into Vellum").
    * Only the user's original task counts — model-generated reasoning
    * about switching apps does NOT qualify as an escape.
+   *
+   * Detection strategy: check whether the task text mentions at least two
+   * different known app names.  This avoids false positives from generic
+   * phrases like "switch to dark mode" or "move the file to trash".
    */
   private taskExplicitlyRequestsCrossApp(): boolean {
     if (!this.task) return false;
     const t = this.task.toLowerCase();
-    // Matches patterns like "copy from X", "paste into Y", "switch to Z",
-    // "open X and Y", "drag from X to Y", "move … to <app>", etc.
-    const crossAppPatterns = [
-      /\bcopy\s+from\s+\w+.*\bpaste\s+(in|into|to)\b/,
-      /\bswitch\s+to\s+\w+/,
-      /\bopen\s+\w+.*\band\s+(then\s+)?open\b/,
-      /\bdrag\s+from\s+\w+.*\bto\s+\w+/,
-      /\bmove\s+.*\bto\s+\w+/,
-      /\bfrom\s+\w+.*\b(into|to)\s+\w+/,
-      /\buse\s+\w+.*\band\s+\w+/,
-    ];
-    return crossAppPatterns.some((p) => p.test(t));
+
+    // Collect distinct app names mentioned in the task text.
+    const mentionedApps = new Set<string>();
+    for (const appName of ComputerUseSession.KNOWN_APP_NAMES) {
+      // Word-boundary check: the app name must appear as a standalone word/phrase,
+      // not as a substring of another word.
+      const escaped = appName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escaped}\\b`).test(t)) {
+        // Normalize to a canonical form so e.g. "google chrome" and "chrome"
+        // are counted as the same app.
+        const canonical = ComputerUseSession.normalizeAppLabel(appName);
+        mentionedApps.add(canonical);
+      }
+      // Early exit once we confirm at least two distinct apps.
+      if (mentionedApps.size >= 2) return true;
+    }
+    return false;
   }
 
   /**

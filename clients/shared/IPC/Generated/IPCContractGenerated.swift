@@ -835,6 +835,12 @@ public struct IPCCuAutoApproveUpdate: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let enabled: Bool
+
+    public init(type: String, sessionId: String, enabled: Bool) {
+        self.type = type
+        self.sessionId = sessionId
+        self.enabled = enabled
+    }
 }
 
 public struct IPCCuComplete: Codable, Sendable {
@@ -935,6 +941,20 @@ public struct IPCCuSessionCreate: Codable, Sendable {
     public let targetAppName: String?
     /// Optional target app bundle identifier for disambiguation.
     public let targetAppBundleId: String?
+
+    public init(type: String, sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]?, interactionType: String?, reportToSessionId: String?, qaMode: Bool?, targetAppName: String?, targetAppBundleId: String?) {
+        self.type = type
+        self.sessionId = sessionId
+        self.task = task
+        self.screenWidth = screenWidth
+        self.screenHeight = screenHeight
+        self.attachments = attachments
+        self.interactionType = interactionType
+        self.reportToSessionId = reportToSessionId
+        self.qaMode = qaMode
+        self.targetAppName = targetAppName
+        self.targetAppBundleId = targetAppBundleId
+    }
 }
 
 public struct IPCCuSessionFinalized: Codable, Sendable {
@@ -944,6 +964,15 @@ public struct IPCCuSessionFinalized: Codable, Sendable {
     public let summary: String
     public let stepCount: Int
     public let recording: IPCCuSessionFinalizedRecording?
+
+    public init(type: String, sessionId: String, status: String, summary: String, stepCount: Int, recording: IPCCuSessionFinalizedRecording?) {
+        self.type = type
+        self.sessionId = sessionId
+        self.status = status
+        self.summary = summary
+        self.stepCount = stepCount
+        self.recording = recording
+    }
 }
 
 public struct IPCCuSessionFinalizedRecording: Codable, Sendable {
@@ -957,6 +986,19 @@ public struct IPCCuSessionFinalizedRecording: Codable, Sendable {
     public let includeAudio: Bool
     public let targetBundleId: String?
     public let expiresAt: Int?
+
+    public init(localPath: String, mimeType: String, sizeBytes: Int, durationMs: Int, width: Int, height: Int, captureScope: String, includeAudio: Bool, targetBundleId: String?, expiresAt: Int?) {
+        self.localPath = localPath
+        self.mimeType = mimeType
+        self.sizeBytes = sizeBytes
+        self.durationMs = durationMs
+        self.width = width
+        self.height = height
+        self.captureScope = captureScope
+        self.includeAudio = includeAudio
+        self.targetBundleId = targetBundleId
+        self.expiresAt = expiresAt
+    }
 }
 
 public struct IPCDaemonStatusMessage: Codable, Sendable {
@@ -2025,7 +2067,7 @@ public struct IPCMemoryRecalled: Codable, Sendable {
     public let latencyMs: Int
     public let topCandidates: [IPCMemoryRecalledCandidateDebug]
 
-    public init(type: String, provider: String, model: String, lexicalHits: Double, semanticHits: Double, recencyHits: Double, entityHits: Double, relationSeedEntityCount: Int?, relationTraversedEdgeCount: Int?, relationNeighborEntityCount: Int?, relationExpandedItemCount: Int?, earlyTerminated: Bool?, mergedCount: Int, selectedCount: Int, rerankApplied: Bool, injectedTokens: Int, latencyMs: Double, topCandidates: [IPCMemoryRecalledCandidateDebug]) {
+    public init(type: String, provider: String, model: String, lexicalHits: Double, semanticHits: Double, recencyHits: Double, entityHits: Double, relationSeedEntityCount: Int?, relationTraversedEdgeCount: Int?, relationNeighborEntityCount: Int?, relationExpandedItemCount: Int?, earlyTerminated: Bool?, mergedCount: Int, selectedCount: Int, rerankApplied: Bool, injectedTokens: Int, latencyMs: Int, topCandidates: [IPCMemoryRecalledCandidateDebug]) {
         self.type = type
         self.provider = provider
         self.model = model
@@ -2082,7 +2124,7 @@ public struct IPCMemoryStatus: Codable, Sendable {
     public let cleanupResolvedJobsCompleted24h: Double
     public let cleanupSupersededJobsCompleted24h: Double
 
-    public init(type: String, enabled: Bool, degraded: Bool, reason: String?, provider: String?, model: String?, conflictsPending: Double, conflictsResolved: Double, oldestPendingConflictAgeMs: Double?, cleanupResolvedJobsPending: Double, cleanupSupersededJobsPending: Double, cleanupResolvedJobsCompleted24h: Double, cleanupSupersededJobsCompleted24h: Double) {
+    public init(type: String, enabled: Bool, degraded: Bool, reason: String?, provider: String?, model: String?, conflictsPending: Double, conflictsResolved: Double, oldestPendingConflictAgeMs: Int?, cleanupResolvedJobsPending: Double, cleanupSupersededJobsPending: Double, cleanupResolvedJobsCompleted24h: Double, cleanupSupersededJobsCompleted24h: Double) {
         self.type = type
         self.enabled = enabled
         self.degraded = degraded
@@ -2410,6 +2452,12 @@ public struct IPCRideShotgunProgress: Codable, Sendable {
     public let type: String
     public let watchId: String
     public let message: String
+
+    public init(type: String, watchId: String, message: String) {
+        self.type = type
+        self.watchId = watchId
+        self.message = message
+    }
 }
 
 public struct IPCRideShotgunResult: Codable, Sendable {
@@ -3464,6 +3512,21 @@ public struct IPCTaskRouted: Codable, Sendable {
     public let targetAppName: String?
     /// Target app bundle ID for frontmost-app guard (from target-app-hints).
     public let targetAppBundleId: String?
+
+    public init(type: String, sessionId: String, interactionType: String, task: String?, escalatedFrom: String?, qaMode: Bool?, reportToSessionId: String?, retentionDays: Double?, captureScope: String?, includeAudio: Bool?, targetAppName: String?, targetAppBundleId: String?) {
+        self.type = type
+        self.sessionId = sessionId
+        self.interactionType = interactionType
+        self.task = task
+        self.escalatedFrom = escalatedFrom
+        self.qaMode = qaMode
+        self.reportToSessionId = reportToSessionId
+        self.retentionDays = retentionDays
+        self.captureScope = captureScope
+        self.includeAudio = includeAudio
+        self.targetAppName = targetAppName
+        self.targetAppBundleId = targetAppBundleId
+    }
 }
 
 /// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread.
@@ -3499,6 +3562,16 @@ public struct IPCTaskSubmit: Codable, Sendable {
     public let source: String?
     /// The originating conversation/thread ID, if submitting from a chat context.
     public let conversationId: String?
+
+    public init(type: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]?, source: String?, conversationId: String?) {
+        self.type = type
+        self.task = task
+        self.screenWidth = screenWidth
+        self.screenHeight = screenHeight
+        self.attachments = attachments
+        self.source = source
+        self.conversationId = conversationId
+    }
 }
 
 public struct IPCTelegramConfigRequest: Codable, Sendable {
