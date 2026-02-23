@@ -149,6 +149,8 @@ public final class SettingsStore: ObservableObject {
     private let twilioAssistantScope = "self"
     private var twilioPhoneRefreshPending = false
     private var twilioNumbersRefreshPending = false
+    private var pendingGuardianChallengeChannel: String?
+    private var guardianChallengeTimeoutWorkItem: DispatchWorkItem?
 
     init(daemonClient: DaemonClient? = nil, configPath: String? = nil) {
         self.daemonClient = daemonClient
@@ -322,7 +324,8 @@ public final class SettingsStore: ObservableObject {
         // Wire up guardian verification IPC response
         daemonClient?.onGuardianVerificationResponse = { [weak self] response in
             guard let self else { return }
-            guard let channel = response.channel else { return }
+            guard let channel = self.resolveGuardianResponseChannel(response.channel) else { return }
+            self.clearGuardianChallengePending(for: channel)
 
             switch channel {
             case "telegram":
@@ -785,32 +788,42 @@ public final class SettingsStore: ObservableObject {
         case "telegram":
             telegramGuardianVerificationInProgress = true
             telegramGuardianError = nil
+            telegramGuardianInstruction = nil
         case "sms":
             smsGuardianVerificationInProgress = true
             smsGuardianError = nil
+            smsGuardianInstruction = nil
         default:
             return
         }
         do {
             guard let daemonClient else {
+                clearGuardianChallengePending(for: channel)
                 switch channel {
                 case "telegram":
                     telegramGuardianVerificationInProgress = false
+                    telegramGuardianError = "Daemon is not connected. Reconnect and try again."
                 case "sms":
                     smsGuardianVerificationInProgress = false
+                    smsGuardianError = "Daemon is not connected. Reconnect and try again."
                 default:
                     break
                 }
                 return
             }
+            pendingGuardianChallengeChannel = channel
+            armGuardianChallengeTimeout(for: channel)
             try daemonClient.sendGuardianVerification(action: "create_challenge", channel: channel, assistantId: "self")
         } catch {
             log.error("Failed to start \(channel) guardian verification: \(error)")
+            clearGuardianChallengePending(for: channel)
             switch channel {
             case "telegram":
                 telegramGuardianVerificationInProgress = false
+                telegramGuardianError = "Failed to start verification. Try again."
             case "sms":
                 smsGuardianVerificationInProgress = false
+                smsGuardianError = "Failed to start verification. Try again."
             default:
                 break
             }
@@ -823,6 +836,52 @@ public final class SettingsStore: ObservableObject {
         } catch {
             log.error("Failed to revoke \(channel) guardian: \(error)")
         }
+    }
+
+    private func resolveGuardianResponseChannel(_ channel: String?) -> String? {
+        if let channel {
+            return channel
+        }
+        if let pendingGuardianChallengeChannel {
+            return pendingGuardianChallengeChannel
+        }
+        if telegramGuardianVerificationInProgress != smsGuardianVerificationInProgress {
+            return telegramGuardianVerificationInProgress ? "telegram" : "sms"
+        }
+        return nil
+    }
+
+    private func clearGuardianChallengePending(for channel: String) {
+        if pendingGuardianChallengeChannel == channel {
+            pendingGuardianChallengeChannel = nil
+        }
+        guardianChallengeTimeoutWorkItem?.cancel()
+        guardianChallengeTimeoutWorkItem = nil
+    }
+
+    private func armGuardianChallengeTimeout(for channel: String) {
+        guardianChallengeTimeoutWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.pendingGuardianChallengeChannel == channel else { return }
+            self.pendingGuardianChallengeChannel = nil
+            switch channel {
+            case "telegram":
+                self.telegramGuardianVerificationInProgress = false
+                if self.telegramGuardianError == nil {
+                    self.telegramGuardianError = "Timed out waiting for verification instructions. Try again."
+                }
+            case "sms":
+                self.smsGuardianVerificationInProgress = false
+                if self.smsGuardianError == nil {
+                    self.smsGuardianError = "Timed out waiting for verification instructions. Try again."
+                }
+            default:
+                break
+            }
+        }
+        guardianChallengeTimeoutWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: workItem)
     }
 
     // MARK: - Ingress Config Actions

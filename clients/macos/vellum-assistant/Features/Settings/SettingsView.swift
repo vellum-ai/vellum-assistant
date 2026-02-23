@@ -873,9 +873,14 @@ public struct SettingsView: View {
                     }
                 }
             } else if inProgress {
-                HStack {
-                    ProgressView().controlSize(.small)
-                    Text("Verification in progress...")
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        ProgressView().controlSize(.small)
+                        Text("Generating verification code...")
+                    }
+                    Text("You will get a code to send as /guardian_verify <code> from your \(channel == "telegram" ? "Telegram account" : "SMS number").")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             } else if let instruction {
                 Text(instruction)

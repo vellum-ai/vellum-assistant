@@ -1247,12 +1247,17 @@ struct SettingsPanel: View {
                     }
                 }
             } else if inProgress {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Verification in progress...")
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack(spacing: VSpacing.sm) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Generating verification code...")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                    Text("You will get a code to send as /guardian_verify <code> from your \(channel == "telegram" ? "Telegram account" : "SMS number").")
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                        .foregroundColor(VColor.textMuted)
                 }
             } else if let instruction {
                 Text(instruction)

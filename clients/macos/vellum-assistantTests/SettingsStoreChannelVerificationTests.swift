@@ -239,7 +239,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertFalse(store.smsGuardianVerified)
     }
 
-    func testResponseWithNilChannelIsIgnored() {
+    func testResponseWithNilChannelAndNoPendingStateIsIgnored() {
         daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
             type: "guardian_verification_response",
             success: true,
@@ -257,6 +257,32 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertFalse(store.telegramGuardianVerified)
         XCTAssertNil(store.smsGuardianIdentity)
         XCTAssertFalse(store.smsGuardianVerified)
+    }
+
+    func testResponseWithNilChannelUsesPendingVerificationChannel() {
+        store.startChannelGuardianVerification(channel: "telegram")
+        XCTAssertTrue(store.telegramGuardianVerificationInProgress)
+
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: true,
+            secret: "abc123",
+            instruction: "Send /guardian_verify abc123 on Telegram",
+            bound: false,
+            guardianExternalUserId: nil,
+            channel: nil,
+            assistantId: "self",
+            guardianDeliveryChatId: nil,
+            error: nil
+        ))
+
+        let predicate = NSPredicate { _, _ in !self.store.telegramGuardianVerificationInProgress }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(store.telegramGuardianInstruction, "Send /guardian_verify abc123 on Telegram")
+        XCTAssertFalse(store.telegramGuardianVerificationInProgress)
+        XCTAssertNil(store.telegramGuardianError)
     }
 
     // MARK: - revokeChannelGuardian
