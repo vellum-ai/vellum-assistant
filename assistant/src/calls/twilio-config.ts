@@ -16,8 +16,17 @@ export interface TwilioConfig {
 export function getTwilioConfig(): TwilioConfig {
   const accountSid = getSecureKey('credential:twilio:account_sid');
   const authToken = getSecureKey('credential:twilio:auth_token');
-  const phoneNumber = process.env.TWILIO_PHONE_NUMBER || getSecureKey('credential:twilio:phone_number') || '';
   const config = loadConfig();
+
+  // Phone number resolution priority:
+  // 1. TWILIO_PHONE_NUMBER env var (explicit override)
+  // 2. config file sms.phoneNumber (primary storage)
+  // 3. credential:twilio:phone_number secure key (backward-compat fallback)
+  const phoneNumber =
+    process.env.TWILIO_PHONE_NUMBER ||
+    config.sms?.phoneNumber ||
+    getSecureKey('credential:twilio:phone_number') ||
+    '';
   const webhookBaseUrl = getPublicBaseUrl(config);
 
   // Always use the centralized relay URL derived from the public ingress base URL.

@@ -212,7 +212,7 @@ The daemon handles `twilio_config` messages with the following actions:
 |--------|-------------|
 | `get` | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned) |
 | `set_credentials` | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file). Credentials are retrieved from the credential store internally. |
-| `clear_credentials` | Removes stored Account SID, Auth Token, and phone number from secure storage. |
+| `clear_credentials` | Removes stored Account SID and Auth Token from secure storage. Preserves the phone number in both config (`sms.phoneNumber`) and secure key (`credential:twilio:phone_number`) so that re-entering credentials resumes working without needing to reassign the number. |
 | `provision_number` | Purchases a new phone number via the Twilio API. Accepts optional `areaCode` and `country` (ISO 3166-1 alpha-2, default `US`). Auto-assigns the number to the assistant (persists to config and secure storage) and configures Twilio webhooks (voice, status callback, SMS) when a public ingress URL is available. |
 | `assign_number` | Assigns an existing Twilio phone number (E.164 format) to the assistant and auto-configures webhooks when ingress is available |
 | `list_numbers` | Lists all incoming phone numbers on the Twilio account with their capabilities (voice, SMS) |
@@ -232,6 +232,16 @@ This reconciliation is **best-effort and fire-and-forget** -- failures are logge
 ### Single-Number-Per-Assistant Model
 
 Each assistant is assigned a single Twilio phone number that is shared between voice calls and SMS. The number is stored in the assistant's config at `sms.phoneNumber` and used as the `From` for outbound SMS via the gateway's `/deliver/sms` endpoint. The same credentials (Account SID, Auth Token) are used for both voice and SMS operations.
+
+### Phone Number Resolution Order
+
+At runtime, `getTwilioConfig()` resolves the phone number using this priority chain:
+
+1. **`TWILIO_PHONE_NUMBER` env var** — highest priority, explicit override for dev/CI.
+2. **`sms.phoneNumber` in config** — the primary source of truth, written by `provision_number` and `assign_number`.
+3. **`credential:twilio:phone_number` secure key** — backward-compatible fallback for setups that predate the config-first model.
+
+If no number is found after all three sources, an error is thrown.
 
 ### Assistant-Scoped Guardian State
 
