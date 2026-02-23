@@ -1135,10 +1135,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Returns `true` when `~/.vellum.lock.json` contains at least one assistant entry.
     private func lockfileHasAssistants() -> Bool {
-        let lockfilePath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum.lock.json").path
-        guard let data = FileManager.default.contents(atPath: lockfilePath),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard let json = LockfilePaths.read(),
               let assistants = json["assistants"] as? [[String: Any]] else {
             return false
         }

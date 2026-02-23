@@ -252,44 +252,33 @@ struct LockfileAssistant {
 
     /// Returns all assistant entries from the lockfile, sorted newest first.
     static func loadAll() -> [LockfileAssistant] {
-        let home = NSHomeDirectory()
-        let candidatePaths = [
-            home + "/.vellum.lock.json",
-            home + "/.vellum.lockfile.json",
-        ]
-
-        for lockfilePath in candidatePaths {
-            guard let data = FileManager.default.contents(atPath: lockfilePath),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let assistants = json["assistants"] as? [[String: Any]] else {
-                continue
-            }
-
-            let isoFormatter = ISO8601DateFormatter()
-            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let sorted = assistants.sorted { a, b in
-                let dateA = (a["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
-                let dateB = (b["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
-                return dateA > dateB
-            }
-
-            return sorted.compactMap { entry -> LockfileAssistant? in
-                guard let assistantId = entry["assistantId"] as? String else { return nil }
-                return LockfileAssistant(
-                    assistantId: assistantId,
-                    runtimeUrl: entry["runtimeUrl"] as? String,
-                    bearerToken: entry["bearerToken"] as? String,
-                    cloud: entry["cloud"] as? String ?? "local",
-                    project: entry["project"] as? String,
-                    region: entry["region"] as? String,
-                    zone: entry["zone"] as? String,
-                    instanceId: entry["instanceId"] as? String,
-                    hatchedAt: entry["hatchedAt"] as? String
-                )
-            }
+        guard let json = LockfilePaths.read(),
+              let assistants = json["assistants"] as? [[String: Any]] else {
+            return []
         }
 
-        return []
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let sorted = assistants.sorted { a, b in
+            let dateA = (a["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
+            let dateB = (b["hatchedAt"] as? String).flatMap { isoFormatter.date(from: $0) } ?? .distantPast
+            return dateA > dateB
+        }
+
+        return sorted.compactMap { entry -> LockfileAssistant? in
+            guard let assistantId = entry["assistantId"] as? String else { return nil }
+            return LockfileAssistant(
+                assistantId: assistantId,
+                runtimeUrl: entry["runtimeUrl"] as? String,
+                bearerToken: entry["bearerToken"] as? String,
+                cloud: entry["cloud"] as? String ?? "local",
+                project: entry["project"] as? String,
+                region: entry["region"] as? String,
+                zone: entry["zone"] as? String,
+                instanceId: entry["instanceId"] as? String,
+                hatchedAt: entry["hatchedAt"] as? String
+            )
+        }
     }
 
     /// Find an assistant by its ID in the lockfile.

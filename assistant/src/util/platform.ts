@@ -46,6 +46,41 @@ export function getClipboardCommand(): string | null {
 }
 
 /**
+ * Read and parse the lockfile, trying the primary path (~/.vellum.lock.json)
+ * first, then falling back to the legacy path (~/.vellum.lockfile.json).
+ * Respects BASE_DATA_DIR for non-standard home directories.
+ * Returns null if neither file exists or both are malformed.
+ */
+export function readLockfile(): Record<string, unknown> | null {
+  const base = process.env.BASE_DATA_DIR?.trim() || homedir();
+  const candidates = [
+    join(base, '.vellum.lock.json'),
+    join(base, '.vellum.lockfile.json'),
+  ];
+  for (const lockPath of candidates) {
+    if (!existsSync(lockPath)) continue;
+    try {
+      const raw = JSON.parse(readFileSync(lockPath, 'utf-8'));
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        return raw as Record<string, unknown>;
+      }
+    } catch {
+      // malformed JSON — try next
+    }
+  }
+  return null;
+}
+
+/**
+ * Write data to the primary lockfile (~/.vellum.lock.json).
+ * Respects BASE_DATA_DIR for non-standard home directories.
+ */
+export function writeLockfile(data: Record<string, unknown>): void {
+  const base = process.env.BASE_DATA_DIR?.trim() || homedir();
+  writeFileSync(join(base, '.vellum.lock.json'), JSON.stringify(data, null, 2) + '\n');
+}
+
+/**
  * Returns the root ~/.vellum directory. User-facing files (config, prompt
  * files, skills) and runtime files (socket, PID) live here.
  */

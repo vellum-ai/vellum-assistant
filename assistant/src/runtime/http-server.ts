@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
-import { getWorkspacePromptPath } from '../util/platform.js';
+import { getWorkspacePromptPath, readLockfile } from '../util/platform.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import { loadConfig } from '../config/loader.js';
 import { getPublicBaseUrl } from '../inbound/public-ingress-urls.js';
@@ -1046,28 +1046,19 @@ export class RuntimeHttpServer {
     let cloud: string | undefined;
     let originSystem: string | undefined;
     try {
-      const homedir = process.env.HOME ?? process.env.USERPROFILE ?? '';
-      const lockfilePaths = [
-        join(homedir, '.vellum.lock.json'),
-        join(homedir, '.vellum.lockfile.json'),
-      ];
-      for (const lockPath of lockfilePaths) {
-        if (!existsSync(lockPath)) continue;
-        const lockData = JSON.parse(readFileSync(lockPath, 'utf-8'));
-        const assistants = lockData.assistants as Array<Record<string, unknown>> | undefined;
-        if (assistants && assistants.length > 0) {
-          // Use the most recently hatched assistant
-          const sorted = [...assistants].sort((a, b) => {
-            const dateA = new Date(a.hatchedAt as string || 0).getTime();
-            const dateB = new Date(b.hatchedAt as string || 0).getTime();
-            return dateB - dateA;
-          });
-          const latest = sorted[0];
-          assistantId = latest.assistantId as string | undefined;
-          cloud = latest.cloud as string | undefined;
-          originSystem = cloud === 'local' ? 'local' : cloud;
-        }
-        break;
+      const lockData = readLockfile();
+      const assistants = lockData?.assistants as Array<Record<string, unknown>> | undefined;
+      if (assistants && assistants.length > 0) {
+        // Use the most recently hatched assistant
+        const sorted = [...assistants].sort((a, b) => {
+          const dateA = new Date(a.hatchedAt as string || 0).getTime();
+          const dateB = new Date(b.hatchedAt as string || 0).getTime();
+          return dateB - dateA;
+        });
+        const latest = sorted[0];
+        assistantId = latest.assistantId as string | undefined;
+        cloud = latest.cloud as string | undefined;
+        originSystem = cloud === 'local' ? 'local' : cloud;
       }
     } catch {
       // ignore — lockfile may not exist

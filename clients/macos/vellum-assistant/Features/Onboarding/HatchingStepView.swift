@@ -276,10 +276,7 @@ struct HatchingStepView: View {
                     }
                 }
 
-                let lockfilePath = FileManager.default.homeDirectoryForCurrentUser
-                    .appendingPathComponent(".vellum.lock.json").path
-                if let data = FileManager.default.contents(atPath: lockfilePath),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                if let json = LockfilePaths.read(),
                    let assistants = json["assistants"] as? [[String: Any]] {
                     let isoFormatter = ISO8601DateFormatter()
                     isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
