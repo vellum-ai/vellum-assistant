@@ -368,6 +368,7 @@ struct SettingsConnectTab: View {
                         twilioSetupExpanded = false
                         twilioNumberPickerExpanded = false
                         store.twilioNumbers = []
+                        store.twilioPhoneNumber = nil
                     }
                 )
             } else if twilioSetupExpanded {
