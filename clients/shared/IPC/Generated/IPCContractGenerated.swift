@@ -763,6 +763,12 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
     /// Present when action is 'status'.
     public let bound: Bool?
     public let guardianExternalUserId: String?
+    /// The channel this status pertains to (e.g. "telegram", "sms"). Present when action is 'status'.
+    public let channel: String?
+    /// The assistant ID scoped to this status. Present when action is 'status'.
+    public let assistantId: String?
+    /// The delivery chat ID for the guardian (e.g. Telegram chat ID). Present when action is 'status' and bound is true.
+    public let guardianDeliveryChatId: String?
     public let error: String?
 }
 

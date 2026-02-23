@@ -1522,6 +1522,9 @@ export function handleGuardianVerification(
         success: true,
         bound: binding !== null,
         guardianExternalUserId: binding?.guardianExternalUserId,
+        channel,
+        assistantId,
+        guardianDeliveryChatId: binding?.guardianDeliveryChatId,
       });
     } else if (msg.action === 'revoke') {
       revokeGuardianBinding(assistantId, channel);

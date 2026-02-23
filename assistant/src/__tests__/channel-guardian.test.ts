@@ -52,6 +52,10 @@ import {
   isGuardian,
   revokeBinding as serviceRevokeBinding,
 } from '../runtime/channel-guardian-service.js';
+import { handleGuardianVerification } from '../daemon/handlers/config.js';
+import type { GuardianVerificationRequest, GuardianVerificationResponse } from '../daemon/ipc-contract.js';
+import type { HandlerContext } from '../daemon/handlers/shared.js';
+import type * as net from 'node:net';
 
 initializeDb();
 
@@ -1184,5 +1188,188 @@ describe('assistant-scoped approval request lookups', () => {
     expect(foundB!.assistantId).toBe('asst-B');
     expect(foundA!.toolName).toBe('shell');
     expect(foundB!.toolName).toBe('browser');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 10. IPC handler — channel-aware guardian status response
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Creates a minimal mock HandlerContext that captures the response sent via ctx.send().
+ */
+function createMockCtx(): { ctx: HandlerContext; lastResponse: () => GuardianVerificationResponse | null } {
+  let captured: GuardianVerificationResponse | null = null;
+  const ctx = {
+    sessions: new Map(),
+    socketToSession: new Map(),
+    cuSessions: new Map(),
+    socketToCuSession: new Map(),
+    cuObservationParseSequence: new Map(),
+    socketSandboxOverride: new Map(),
+    sharedRequestTimestamps: [],
+    debounceTimers: { schedule: () => {}, cancel: () => {} } as unknown as HandlerContext['debounceTimers'],
+    suppressConfigReload: false,
+    setSuppressConfigReload: () => {},
+    updateConfigFingerprint: () => {},
+    send: (_socket: net.Socket, msg: unknown) => { captured = msg as GuardianVerificationResponse; },
+    broadcast: () => {},
+    clearAllSessions: () => 0,
+    getOrCreateSession: () => Promise.resolve({} as never),
+    touchSession: () => {},
+  } as unknown as HandlerContext;
+  return { ctx, lastResponse: () => captured };
+}
+
+const mockSocket = {} as net.Socket;
+
+describe('IPC handler channel-aware guardian status', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('status action for telegram returns channel and assistantId fields', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      channel: 'telegram',
+      assistantId: 'self',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.channel).toBe('telegram');
+    expect(resp!.assistantId).toBe('self');
+    expect(resp!.bound).toBe(false);
+    expect(resp!.guardianDeliveryChatId).toBeUndefined();
+  });
+
+  test('status action for sms returns channel: sms and assistantId: self', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      channel: 'sms',
+      assistantId: 'self',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.channel).toBe('sms');
+    expect(resp!.assistantId).toBe('self');
+    expect(resp!.bound).toBe(false);
+  });
+
+  test('status action returns guardianDeliveryChatId when bound', () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-42',
+      guardianDeliveryChatId: 'chat-42',
+    });
+
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      channel: 'telegram',
+      assistantId: 'self',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.bound).toBe(true);
+    expect(resp!.guardianExternalUserId).toBe('user-42');
+    expect(resp!.guardianDeliveryChatId).toBe('chat-42');
+    expect(resp!.channel).toBe('telegram');
+    expect(resp!.assistantId).toBe('self');
+  });
+
+  test('status action defaults channel to telegram when omitted (backward compat)', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      // channel omitted — should default to 'telegram'
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.channel).toBe('telegram');
+    expect(resp!.assistantId).toBe('self');
+  });
+
+  test('status action defaults assistantId to self when omitted (backward compat)', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      channel: 'sms',
+      // assistantId omitted — should default to 'self'
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.assistantId).toBe('self');
+    expect(resp!.channel).toBe('sms');
+  });
+
+  test('status action with custom assistantId returns correct value', () => {
+    createBinding({
+      assistantId: 'asst-custom',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-77',
+      guardianDeliveryChatId: 'chat-77',
+    });
+
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      channel: 'telegram',
+      assistantId: 'asst-custom',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.bound).toBe(true);
+    expect(resp!.assistantId).toBe('asst-custom');
+    expect(resp!.channel).toBe('telegram');
+    expect(resp!.guardianExternalUserId).toBe('user-77');
+    expect(resp!.guardianDeliveryChatId).toBe('chat-77');
+  });
+
+  test('status action for unbound sms does not return guardianDeliveryChatId', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      channel: 'sms',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.bound).toBe(false);
+    expect(resp!.guardianDeliveryChatId).toBeUndefined();
+    expect(resp!.guardianExternalUserId).toBeUndefined();
   });
 });

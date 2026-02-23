@@ -591,6 +591,12 @@ export interface GuardianVerificationResponse {
   /** Present when action is 'status'. */
   bound?: boolean;
   guardianExternalUserId?: string;
+  /** The channel this status pertains to (e.g. "telegram", "sms"). Present when action is 'status'. */
+  channel?: string;
+  /** The assistant ID scoped to this status. Present when action is 'status'. */
+  assistantId?: string;
+  /** The delivery chat ID for the guardian (e.g. Telegram chat ID). Present when action is 'status' and bound is true. */
+  guardianDeliveryChatId?: string;
   error?: string;
 }
 
