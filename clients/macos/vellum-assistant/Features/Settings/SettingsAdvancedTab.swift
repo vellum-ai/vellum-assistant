@@ -340,7 +340,7 @@ struct SettingsAdvancedTab: View {
                                 .textSelection(.enabled)
                             Button(action: { tokenRevealed.toggle() }) {
                                 Image(systemName: tokenRevealed ? "eye.slash" : "eye")
-                                    .font(.system(size: 11))
+                                    .font(VFont.caption)
                                     .foregroundColor(VColor.textMuted)
                             }
                             .buttonStyle(.plain)
