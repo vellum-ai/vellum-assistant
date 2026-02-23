@@ -1201,13 +1201,76 @@ describe('Twilio config handler', () => {
     expect(res.success).toBe(true);
     expect(res.phoneNumber).toBe('+15554444444');
 
-    // Legacy field should also be updated for backward compatibility
+    // Legacy field should NOT be overwritten when assistantId is provided
+    // and the field already has a value — prevents multi-assistant clobbering
+    const sms = rawConfigStore.sms as Record<string, unknown>;
+    expect(sms.phoneNumber).toBe('+15551111111');
+
+    // Per-assistant mapping should contain the new assignment
+    const mapping = sms.assistantPhoneNumbers as Record<string, string>;
+    expect(mapping['ast-gamma']).toBe('+15554444444');
+  });
+
+  test('assign_number with assistantId sets legacy phoneNumber as fallback when empty', async () => {
+    rawConfigStore = { sms: {} };
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'assign_number',
+      phoneNumber: '+15554444444',
+      assistantId: 'ast-gamma',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; phoneNumber?: string };
+    expect(res.success).toBe(true);
+    expect(res.phoneNumber).toBe('+15554444444');
+
+    // When no legacy phoneNumber exists, the first assistant assignment sets it as fallback
     const sms = rawConfigStore.sms as Record<string, unknown>;
     expect(sms.phoneNumber).toBe('+15554444444');
 
     // Per-assistant mapping should contain the new assignment
     const mapping = sms.assistantPhoneNumbers as Record<string, string>;
     expect(mapping['ast-gamma']).toBe('+15554444444');
+  });
+
+  test('assign_number with assistantId does not clobber existing global phoneNumber', async () => {
+    // Simulate a multi-assistant scenario: assistant alpha already has a number assigned
+    rawConfigStore = {
+      sms: {
+        phoneNumber: '+15551111111',
+        assistantPhoneNumbers: { 'ast-alpha': '+15551111111' },
+      },
+    };
+
+    // Now assign a different number to assistant beta
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'assign_number',
+      phoneNumber: '+15552222222',
+      assistantId: 'ast-beta',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; phoneNumber?: string };
+    expect(res.success).toBe(true);
+    expect(res.phoneNumber).toBe('+15552222222');
+
+    const sms = rawConfigStore.sms as Record<string, unknown>;
+    // The global phoneNumber should still be alpha's number, NOT beta's
+    expect(sms.phoneNumber).toBe('+15551111111');
+
+    // Both assistant mappings should be intact
+    const mapping = sms.assistantPhoneNumbers as Record<string, string>;
+    expect(mapping['ast-alpha']).toBe('+15551111111');
+    expect(mapping['ast-beta']).toBe('+15552222222');
   });
 
   test('assign_number without assistantId does not write assistantPhoneNumbers', async () => {

@@ -3,6 +3,7 @@ import { StringDedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { resolveAssistant, resolveAssistantByPhoneNumber, isRejection } from "../../routing/resolve-assistant.js";
+import type { RouteResult } from "../../routing/types.js";
 import { resetConversation } from "../../runtime/client.js";
 import { sendSmsReply } from "../../twilio/send-sms.js";
 import { validateTwilioWebhookRequest } from "../../twilio/validate-webhook.js";
@@ -181,6 +182,7 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
         transportMetadata: buildSmsTransportMetadata(),
         replyCallbackUrl: `${config.gatewayInternalBaseUrl}/deliver/sms`,
         traceId,
+        routingOverride: routing as RouteResult,
       });
 
       if (result.rejected) {

@@ -1321,8 +1321,16 @@ export async function handleTwilioConfig(
 
       const raw = loadRawConfig();
       const sms = (raw?.sms ?? {}) as Record<string, unknown>;
-      // Always persist into legacy field for backward compat
-      sms.phoneNumber = purchased.phoneNumber;
+      // When assistantId is provided, only set the legacy global phoneNumber
+      // if it's not already set — this prevents multi-assistant assignments
+      // from clobbering each other's outbound SMS number.
+      if (msg.assistantId) {
+        if (!sms.phoneNumber) {
+          sms.phoneNumber = purchased.phoneNumber;
+        }
+      } else {
+        sms.phoneNumber = purchased.phoneNumber;
+      }
       // When assistantId is provided, also persist into the per-assistant mapping
       if (msg.assistantId) {
         const mapping = (sms.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
@@ -1383,8 +1391,16 @@ export async function handleTwilioConfig(
       // Also persist in assistant config (non-secret) for the UI
       const raw = loadRawConfig();
       const sms = (raw?.sms ?? {}) as Record<string, unknown>;
-      // Always persist into legacy field for backward compat
-      sms.phoneNumber = msg.phoneNumber;
+      // When assistantId is provided, only set the legacy global phoneNumber
+      // if it's not already set — this prevents multi-assistant assignments
+      // from clobbering each other's outbound SMS number.
+      if (msg.assistantId) {
+        if (!sms.phoneNumber) {
+          sms.phoneNumber = msg.phoneNumber;
+        }
+      } else {
+        sms.phoneNumber = msg.phoneNumber;
+      }
       // When assistantId is provided, also persist into the per-assistant mapping
       if (msg.assistantId) {
         const mapping = (sms.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};

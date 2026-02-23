@@ -556,6 +556,58 @@ describe("twilio-sms-webhook", () => {
     expect(handleInboundMock).toHaveBeenCalledTimes(1);
   });
 
+  it("passes phone-number routing override to handleInbound", async () => {
+    const phoneConfig: GatewayConfig = {
+      ...baseConfig,
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+      assistantPhoneNumbers: { "ast-alpha": "+15559876543" },
+    };
+    const handler = createTwilioSmsWebhookHandler(phoneConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    const params = {
+      Body: "Hello via phone routing",
+      From: "+15551234567",
+      To: "+15559876543",
+      MessageSid: "SM-routing-override",
+    };
+    const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+
+    // Verify the routingOverride was passed to handleInbound
+    const [, , options] = handleInboundMock.mock.calls[0] as unknown[];
+    const typedOptions = options as { routingOverride?: { assistantId: string; routeSource: string } };
+    expect(typedOptions.routingOverride).toBeDefined();
+    expect(typedOptions.routingOverride!.assistantId).toBe("ast-alpha");
+    expect(typedOptions.routingOverride!.routeSource).toBe("phone_number");
+  });
+
+  it("passes default routing override to handleInbound when no phone match", async () => {
+    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    const params = {
+      Body: "Hello default routing",
+      From: "+15551234567",
+      To: "+15559876543",
+      MessageSid: "SM-default-routing",
+    };
+    const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+
+    // Verify the routingOverride uses default routing
+    const [, , options] = handleInboundMock.mock.calls[0] as unknown[];
+    const typedOptions = options as { routingOverride?: { assistantId: string; routeSource: string } };
+    expect(typedOptions.routingOverride).toBeDefined();
+    expect(typedOptions.routingOverride!.assistantId).toBe("ast-default");
+    expect(typedOptions.routingOverride!.routeSource).toBe("default");
+  });
+
   it("MMS detected via MediaContentType0 when NumMedia is absent", async () => {
     const handler = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";

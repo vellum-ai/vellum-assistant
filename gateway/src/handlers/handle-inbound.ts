@@ -1,6 +1,7 @@
 import type { GatewayConfig } from "../config.js";
 import { getLogger } from "../logger.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
+import type { RouteResult } from "../routing/types.js";
 import { forwardToRuntime } from "../runtime/client.js";
 import type { RuntimeInboundResponse } from "../runtime/client.js";
 import type { GatewayInboundEventV1 } from "../types.js";
@@ -24,6 +25,8 @@ export type HandleInboundOptions = {
   transportMetadata?: TransportMetadataOverrides;
   replyCallbackUrl?: string;
   traceId?: string;
+  /** When provided, skip resolveAssistant() and use this pre-resolved route. */
+  routingOverride?: RouteResult;
 };
 
 function normalizeTransportHints(hints: string[] | undefined): string[] {
@@ -44,7 +47,7 @@ export async function handleInbound(
   event: Omit<GatewayInboundEventV1, "routing">,
   options?: HandleInboundOptions,
 ): Promise<InboundResult> {
-  const routing = resolveAssistant(
+  const routing = options?.routingOverride ?? resolveAssistant(
     config,
     event.message.externalChatId,
     event.sender.externalUserId,
