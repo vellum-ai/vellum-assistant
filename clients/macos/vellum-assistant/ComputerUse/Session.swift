@@ -279,6 +279,17 @@ final class ComputerUseSession: ObservableObject {
         // Finalize QA recording and send cu_session_finalized
         if qaMode {
             await finalizeQARecording()
+
+            // Now that finalization is complete, send the deferred abort for cancelled
+            // QA sessions. cancel() skips sending it so cu_session_finalized arrives
+            // before the abort (the daemon's handleCuSessionAbort deletes metadata).
+            if isCancelled {
+                do {
+                    try daemonClient.send(CuSessionAbortMessage(sessionId: id))
+                } catch {
+                    log.error("Failed to send deferred session abort after QA finalization: \(error)")
+                }
+            }
         }
     }
 
@@ -1034,11 +1045,15 @@ final class ComputerUseSession: ObservableObject {
         messageLoopTask?.cancel()
         confirmationContinuation?.resume(returning: false)
         confirmationContinuation = nil
-        // Tell the daemon to abort the server-side CU session so it stops burning tokens
-        do {
-            try daemonClient.send(CuSessionAbortMessage(sessionId: id))
-        } catch {
-            log.error("Failed to send session abort on cancel: \(error)")
+        // In QA mode, defer the abort until after finalizeQARecording() in run(),
+        // because the daemon's handleCuSessionAbort deletes cuSessionMetadata and
+        // cu_session_finalized must arrive first for summary injection to work.
+        if !qaMode {
+            do {
+                try daemonClient.send(CuSessionAbortMessage(sessionId: id))
+            } catch {
+                log.error("Failed to send session abort on cancel: \(error)")
+            }
         }
     }
 
