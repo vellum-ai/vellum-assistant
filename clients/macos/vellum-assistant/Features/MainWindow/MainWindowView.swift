@@ -821,7 +821,7 @@ struct MainWindowView: View {
                 collapsedSidebarContent
             }
         }
-        .padding(sidebarExpanded ? VSpacing.lg : VSpacing.sm)
+        .padding(sidebarExpanded ? VSpacing.xs : VSpacing.xs)
         .background(adaptiveColor(light: Moss._50, dark: Moss._700))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .padding(sidebarOuterMargin)
