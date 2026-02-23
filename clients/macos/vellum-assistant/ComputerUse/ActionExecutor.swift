@@ -372,7 +372,9 @@ final class ActionExecutor: ActionExecuting {
 
         // 2. Normalized/fuzzy name matching against running apps
         let normalizedName = Self.normalizeAppName(name)
-        if let runningApp = workspace.runningApplications.first(where: { app in
+        // Guard: when the input normalizes to empty (e.g. "---"), String.contains("")
+        // returns true for any string, which would match the first running app arbitrarily.
+        if !normalizedName.isEmpty, let runningApp = workspace.runningApplications.first(where: { app in
             guard let localizedName = app.localizedName else { return false }
             let normalized = Self.normalizeAppName(localizedName)
             return normalized == normalizedName
