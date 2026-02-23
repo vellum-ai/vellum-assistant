@@ -9,6 +9,7 @@ import type { ClientMessage, CuSessionCreate, ServerMessage, SessionTransportMet
 import type { SecretPromptResult } from '../../permissions/secret-prompter.js';
 import { getConfig } from '../../config/loader.js';
 import type { DebouncerMap } from '../../util/debounce.js';
+import { detectQaIntent } from '../qa-intent.js';
 
 const log = getLogger('handlers');
 
@@ -235,6 +236,7 @@ export function wireEscalationHandler(
     }
 
     const cuSessionId = uuid();
+    const isQa = detectQaIntent(task);
     const cuMsg: CuSessionCreate = {
       type: 'cu_session_create',
       sessionId: cuSessionId,
@@ -242,6 +244,8 @@ export function wireEscalationHandler(
       screenWidth,
       screenHeight,
       interactionType: 'computer_use',
+      reportToSessionId: sourceSessionId,
+      ...(isQa ? { qaMode: true } : {}),
     };
     handleCuSessionCreate(cuMsg, currentSocket, ctx);
 
@@ -251,6 +255,8 @@ export function wireEscalationHandler(
       interactionType: 'computer_use',
       task,
       escalatedFrom: sourceSessionId,
+      reportToSessionId: sourceSessionId,
+      ...(isQa ? { qaMode: true } : {}),
     });
 
     return true;
