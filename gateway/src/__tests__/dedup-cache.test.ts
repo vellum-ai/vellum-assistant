@@ -62,21 +62,34 @@ describe("DedupCache", () => {
     expect(cache.size).toBe(2);
   });
 
-  test("reserve returns true for unseen update_id and creates processing entry", () => {
-    expect(cache.reserve(50)).toBe(true);
+  test("reserve returns 'reserved' for unseen update_id and creates processing entry", () => {
+    expect(cache.reserve(50)).toBe("reserved");
     expect(cache.size).toBe(1);
     // get() returns undefined for processing entries (not yet finalized)
     expect(cache.get(50)).toBeUndefined();
   });
 
-  test("reserve returns false for already-reserved update_id", () => {
+  test("reserve returns 'duplicate' for already-reserved update_id", () => {
     cache.reserve(60);
-    expect(cache.reserve(60)).toBe(false);
+    expect(cache.reserve(60)).toBe("duplicate");
   });
 
-  test("reserve returns false for already-cached update_id", () => {
+  test("reserve returns 'already_processed' for already-cached update_id", () => {
+    // set() advances the high-water mark, so reserve() for the same ID
+    // hits the high-water mark check and returns "already_processed"
     cache.set(70, '{"done":true}', 200);
-    expect(cache.reserve(70)).toBe(false);
+    expect(cache.reserve(70)).toBe("already_processed");
+  });
+
+  test("reserve returns 'duplicate' for in-cache entry above high-water mark", () => {
+    // reserve() without set() doesn't advance the high-water mark,
+    // so a second reserve() for the same ID returns "duplicate"
+    cache.reserve(71);
+    cache.set(71, '{"done":true}', 200);
+    // Now reserve a higher ID (which won't be finalized)
+    cache.reserve(72);
+    // 72 is above high-water mark (71) but already in cache
+    expect(cache.reserve(72)).toBe("duplicate");
   });
 
   test("get returns undefined while entry is still processing", () => {
@@ -99,12 +112,12 @@ describe("DedupCache", () => {
 
   test("unreserve allows re-reservation after processing failure", () => {
     cache.reserve(85);
-    expect(cache.reserve(85)).toBe(false);
+    expect(cache.reserve(85)).toBe("duplicate");
     // Simulate processing failure — unreserve so Telegram can retry
     cache.unreserve(85);
     expect(cache.size).toBe(0);
     // Now re-reserve should succeed
-    expect(cache.reserve(85)).toBe(true);
+    expect(cache.reserve(85)).toBe("reserved");
   });
 
   test("unreserve does not remove finalized entries", () => {
@@ -123,7 +136,7 @@ describe("DedupCache", () => {
       // busy-wait for expiry
     }
 
-    expect(shortCache.reserve(90)).toBe(true);
+    expect(shortCache.reserve(90)).toBe("reserved");
   });
 
   test("high-water mark rejects update_ids at or below the max finalized", () => {
@@ -131,11 +144,11 @@ describe("DedupCache", () => {
     cache.set(100, '{"ok":true}', 200);
 
     // update_id below the high-water mark is permanently rejected
-    expect(cache.reserve(99)).toBe(false);
-    // same update_id is also rejected (even if TTL entry expired)
-    expect(cache.reserve(100)).toBe(false);
+    expect(cache.reserve(99)).toBe("already_processed");
+    // same update_id hits high-water mark check first
+    expect(cache.reserve(100)).toBe("already_processed");
     // update_id above the high-water mark is accepted
-    expect(cache.reserve(101)).toBe(true);
+    expect(cache.reserve(101)).toBe("reserved");
   });
 
   test("high-water mark persists after cache TTL expires", () => {
@@ -151,10 +164,10 @@ describe("DedupCache", () => {
 
     // TTL entry is gone, but high-water mark still blocks replay
     expect(shortCache.get(50)).toBeUndefined();
-    expect(shortCache.reserve(50)).toBe(false);
-    expect(shortCache.reserve(49)).toBe(false);
+    expect(shortCache.reserve(50)).toBe("already_processed");
+    expect(shortCache.reserve(49)).toBe("already_processed");
     // Higher ID still works
-    expect(shortCache.reserve(51)).toBe(true);
+    expect(shortCache.reserve(51)).toBe("reserved");
   });
 
   test("high-water mark advances to the max across non-sequential sets", () => {
@@ -163,9 +176,9 @@ describe("DedupCache", () => {
     cache.set(150, "c", 200);
 
     // High-water mark should be 200 (the max), not 150 (the last set)
-    expect(cache.reserve(199)).toBe(false);
-    expect(cache.reserve(200)).toBe(false);
-    expect(cache.reserve(201)).toBe(true);
+    expect(cache.reserve(199)).toBe("already_processed");
+    expect(cache.reserve(200)).toBe("already_processed");
+    expect(cache.reserve(201)).toBe("reserved");
   });
 });
 

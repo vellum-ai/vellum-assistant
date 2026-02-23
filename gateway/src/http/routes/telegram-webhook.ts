@@ -122,8 +122,16 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
     // are blocked even while the first request is still processing.
     const updateId = typeof payload.update_id === "number" ? payload.update_id : undefined;
     if (updateId !== undefined) {
-      const reserved = dedupCache.reserve(updateId);
-      if (!reserved) {
+      const status = dedupCache.reserve(updateId);
+      if (status !== "reserved") {
+        if (status === "already_processed") {
+          // High-water mark rejection — this update_id was fully processed
+          // previously but the TTL entry has expired. Return idempotent success
+          // so Telegram stops retrying.
+          tlog.info({ updateId }, "Update_id below high-water mark, returning idempotent success");
+          return Response.json({ ok: true }, { status: 200 });
+        }
+        // status === "duplicate" — entry is in the cache (in-flight or finalized)
         const cached = dedupCache.get(updateId);
         if (cached) {
           tlog.info({ updateId }, "Duplicate update_id, returning cached response");

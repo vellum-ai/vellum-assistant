@@ -2,6 +2,8 @@ import { getLogger } from "./logger.js";
 
 const log = getLogger("dedup-cache");
 
+export type ReserveResult = "reserved" | "duplicate" | "already_processed";
+
 interface CacheEntry {
   body: string;
   status: number;
@@ -53,23 +55,23 @@ export class DedupCache {
    * Checks whether this update_id is already reserved or cached.
    * If not, immediately reserves it with a "processing" sentinel so that
    * concurrent retries are blocked before the handler finishes.
-   * Returns true if a new reservation was created (caller should proceed),
-   * false if the update_id was already present (caller should short-circuit).
    *
-   * While the entry is in the "processing" state, {@link get} returns
-   * `undefined` so callers can distinguish an in-flight request from a
-   * finalized cache hit and respond accordingly (e.g. 503 Retry-After).
+   * Returns:
+   * - `'reserved'` — new reservation created, caller should proceed
+   * - `'duplicate'` — update_id is already in the cache (in-flight or finalized)
+   * - `'already_processed'` — update_id is at or below the high-water mark
+   *   (fully processed, TTL entry may have expired)
    */
-  reserve(updateId: number): boolean {
+  reserve(updateId: number): ReserveResult {
     // Reject any update_id at or below the high-water mark — these have
     // already been fully processed and are replay attempts.
     if (updateId <= this.highWaterMark) {
-      return false;
+      return "already_processed";
     }
 
     const existing = this.cache.get(updateId);
     if (existing && Date.now() <= existing.expiresAt) {
-      return false;
+      return "duplicate";
     }
     // Clean up expired entry if present
     if (existing) this.cache.delete(updateId);
@@ -91,7 +93,7 @@ export class DedupCache {
       expiresAt: Date.now() + this.ttlMs,
       processing: true,
     });
-    return true;
+    return "reserved";
   }
 
   /** Remove a reserved entry so Telegram can retry. */
