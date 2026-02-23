@@ -2,6 +2,7 @@ name: CI iOS Build Check
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, closed]
     paths:
       - 'clients/ios/**'
       - 'clients/shared/**'
@@ -15,8 +16,13 @@ on:
       - 'clients/Package.swift'
       - '.github/workflows/ci-ios.yml'
 
+concurrency:
+  group: ci-ios-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   build-check:
+    if: github.event.action != 'closed'
     name: iOS Build
     runs-on: macos-14
     timeout-minutes: 15
