@@ -155,8 +155,8 @@ extension IPCUserMessageAttachment {
 public typealias CuSessionCreateMessage = IPCCuSessionCreate
 
 extension IPCCuSessionCreate {
-    public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, interactionType: String?) {
-        self.init(type: "cu_session_create", sessionId: sessionId, task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, interactionType: interactionType)
+    public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, interactionType: String?, reportToSessionId: String? = nil, qaMode: Bool? = nil) {
+        self.init(type: "cu_session_create", sessionId: sessionId, task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, interactionType: interactionType, reportToSessionId: reportToSessionId, qaMode: qaMode)
     }
 }
 
