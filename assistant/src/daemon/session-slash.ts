@@ -256,7 +256,7 @@ function resolveModelCommand(content: string): SlashResolution | null {
 
 function resolveStatusCommand(context: SlashContext): SlashResolution {
   const { inputTokens, maxInputTokens, model, provider, messageCount, outputTokens, estimatedCost } = context;
-  const pct = maxInputTokens > 0 ? Math.round((inputTokens / maxInputTokens) * 100) : 0;
+  const pct = maxInputTokens > 0 ? Math.min(Math.round((inputTokens / maxInputTokens) * 100), 100) : 0;
   const filled = Math.round(pct / 5);
   const bar = '█'.repeat(filled) + '░'.repeat(20 - filled);
   const fmt = (n: number) => n.toLocaleString('en-US');
