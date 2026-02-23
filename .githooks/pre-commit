@@ -62,15 +62,18 @@ declare -a PATTERNS=(
 declare -a SAFE_LINE_PATTERNS=(
     "[A-Za-z0-9_\"']*(sha256|SHA256|checksum|digest|hash|nonceSha256|observedNonceSha256)[A-Za-z0-9_\"']*[[:space:]]*[:=][[:space:]]*['\"][a-fA-F0-9]{32,}['\"]"
     "client[Ss]ecret:[[:space:]]*(String[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil)|client[Ss]ecret[[:space:]]*[,)])"
-    "private[_-]?[Kk]ey['\"]?:[[:space:]]*(String|string|Data|data)[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil|=[[:space:]]*['\"]['\"])"
-    "(secret|Secret)['\"]?[[:space:]]*[:=][[:space:]]*['\"]<(optional|required|placeholder|none|empty|unset|redacted|your-[a-z-]+-here|[a-zA-Z][a-zA-Z_-]* [a-zA-Z '/._-]+)>['\"]"
+    "[Pp]rivate[_-]?[Kk]ey['\"]?:[[:space:]]*(String|string|Data|data)[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil|=[[:space:]]*['\"]['\"])"
+    "(secret|Secret)['\"]?[[:space:]]*[:=][[:space:]]*['\"]<(optional|required|placeholder|none|empty|unset|redacted|your-[a-z-]+-here|[a-zA-Z][a-zA-Z_/ '-]*[A-Z_/][a-zA-Z_/ '.-]*)>['\"]"
 )
 
 matches_safe_line_pattern() {
     local text="$1"
     local pattern
     for pattern in "${SAFE_LINE_PATTERNS[@]}"; do
-        if printf '%s\n' "$text" | grep -niE -- "$pattern" >/dev/null 2>&1; then
+        # Case-sensitive: safe patterns handle case variants explicitly.
+        # This lets the angle-bracket allowlist distinguish uppercase
+        # placeholders from lowercase passphrase-style secrets.
+        if printf '%s\n' "$text" | grep -nE -- "$pattern" >/dev/null 2>&1; then
             return 0
         fi
     done
@@ -134,6 +137,7 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_DESC_PLACEHOLDER_LINE='client_secret: "<the extracted Client Secret>"'
     SAFE_DESC_PLACEHOLDER_LINE2='  "authToken": "<value from credential_store for twilio/auth_token>"'
     UNSAFE_ANGLEBRACKET_SECRET='clientSecret: "<abcDEF1234567890>"'
+    UNSAFE_PASSPHRASE_SECRET='client_secret: "<correct horse battery staple>"'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -269,6 +273,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$UNSAFE_ANGLEBRACKET_SECRET" && matches_safe_line_pattern "$UNSAFE_ANGLEBRACKET_SECRET"; then
         echo -e "${RED}Self-test failed:${NC} angle-bracket-wrapped real secret was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_PASSPHRASE_SECRET" && matches_safe_line_pattern "$UNSAFE_PASSPHRASE_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} passphrase-style secret in angle brackets was incorrectly whitelisted"
         exit 1
     fi
 
