@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, statSync, unlinkSync, renameSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, existsSync, statSync, unlinkSync, renameSync, readFileSync, writeFileSync, readdirSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 /**
@@ -564,6 +564,13 @@ export function ensureDataDir(): void {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
+  }
+  // Lock down the root directory so only the owner can traverse it.
+  // Runtime files (socket, session token, PID) live directly under root.
+  try {
+    chmodSync(root, 0o700);
+  } catch {
+    // Non-fatal: some filesystems don't support Unix permissions
   }
 }
 
