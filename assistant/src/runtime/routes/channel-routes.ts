@@ -141,7 +141,7 @@ function buildGuardianDenyContext(
     return `Permission denied: the action "${toolName}" requires guardian approval, but your identity could not be verified on ${sourceChannel}. Do not retry yet. Explain this clearly, ask the user to message from a verifiable direct account/chat, and then retry after identity is available.`;
   }
 
-  return `Permission denied: the action "${toolName}" requires guardian approval, but no guardian is configured for this ${sourceChannel} channel. Do not retry yet. Explain that a guardian must be set up first, and if the user is the guardian/admin, instruct them to run /guardian_verify from an existing ${sourceChannel} chat with the assistant before retrying.`;
+  return `Permission denied: the action "${toolName}" requires guardian approval, but no guardian is configured for this ${sourceChannel} channel. Do not retry yet. Explain that a guardian must be set up first. The guardian/admin should open the Channels section in Settings and click "Verify Guardian", or ask the assistant to set up guardian verification. The setup flow will provide a verification token to send as /guardian_verify <token> in the ${sourceChannel} chat.`;
 }
 
 // ---------------------------------------------------------------------------
