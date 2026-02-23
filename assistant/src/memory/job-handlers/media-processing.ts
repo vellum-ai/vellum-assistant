@@ -81,4 +81,11 @@ export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
     },
     'Media processing pipeline finished',
   );
+
+  if (result.failedStage) {
+    throw new Error(`Media processing failed at stage ${result.failedStage}: ${result.failureReason}`);
+  }
+  if (result.cancelled) {
+    throw new Error(`Media processing cancelled for asset ${mediaAssetId}`);
+  }
 }
