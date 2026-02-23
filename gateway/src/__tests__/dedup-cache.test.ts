@@ -74,11 +74,25 @@ describe("DedupCache", () => {
     expect(cache.reserve(60)).toBe("duplicate");
   });
 
-  test("reserve returns 'already_processed' for already-cached update_id", () => {
-    // set() advances the high-water mark, so reserve() for the same ID
-    // hits the high-water mark check and returns "already_processed"
+  test("reserve returns 'duplicate' for already-cached update_id still in cache", () => {
+    // set() advances the high-water mark, but the cache entry is checked
+    // first — since it's still within TTL, reserve() returns "duplicate"
     cache.set(70, '{"done":true}', 200);
-    expect(cache.reserve(70)).toBe("already_processed");
+    expect(cache.reserve(70)).toBe("duplicate");
+  });
+
+  test("reserve returns 'already_processed' for finalized update_id after TTL expires", () => {
+    const shortCache = new DedupCache(1, 100);
+    shortCache.set(70, '{"done":true}', 200);
+
+    // Wait for the TTL entry to expire
+    const start = Date.now();
+    while (Date.now() - start < 5) {
+      // busy-wait
+    }
+
+    // Cache entry expired, but high-water mark still blocks replay
+    expect(shortCache.reserve(70)).toBe("already_processed");
   });
 
   test("reserve returns 'duplicate' for in-cache entry above high-water mark", () => {
@@ -145,8 +159,8 @@ describe("DedupCache", () => {
 
     // update_id below the high-water mark is permanently rejected
     expect(cache.reserve(99)).toBe("already_processed");
-    // same update_id hits high-water mark check first
-    expect(cache.reserve(100)).toBe("already_processed");
+    // same update_id is still in cache — returns "duplicate" (cache checked first)
+    expect(cache.reserve(100)).toBe("duplicate");
     // update_id above the high-water mark is accepted
     expect(cache.reserve(101)).toBe("reserved");
   });
@@ -177,8 +191,24 @@ describe("DedupCache", () => {
 
     // High-water mark should be 200 (the max), not 150 (the last set)
     expect(cache.reserve(199)).toBe("already_processed");
-    expect(cache.reserve(200)).toBe("already_processed");
+    // 200 is still in the cache — returns "duplicate" (cache checked first)
+    expect(cache.reserve(200)).toBe("duplicate");
     expect(cache.reserve(201)).toBe("reserved");
+  });
+
+  test("in-flight entry returns 'duplicate' even when high-water mark has advanced past it", () => {
+    // Simulate concurrent processing: reserve 101, then 102 finalizes first
+    cache.reserve(101);
+    cache.reserve(102);
+    cache.set(102, '{"ok":true}', 200); // advances high-water mark to 102
+
+    // 101 is still in-flight (reserved but not finalized). A retry for 101
+    // should return "duplicate" (not "already_processed") so the caller
+    // returns 503 and Telegram retries, rather than returning 200 which
+    // would suppress retries if the original 101 handler fails.
+    expect(cache.reserve(101)).toBe("duplicate");
+    // get() still returns undefined because 101 is in processing state
+    expect(cache.get(101)).toBeUndefined();
   });
 });
 
