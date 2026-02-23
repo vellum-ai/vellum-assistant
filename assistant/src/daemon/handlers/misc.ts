@@ -97,6 +97,8 @@ export async function handleTaskSubmit(
           qaMode: true,
           reportToSessionId: msg.conversationId,
           retentionDays: config.qaRecording.defaultRetentionDays,
+          captureScope: config.qaRecording.captureScope,
+          includeAudio: config.qaRecording.includeAudio,
         } : {}),
       });
     } else {

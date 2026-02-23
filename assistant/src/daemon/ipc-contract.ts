@@ -1553,6 +1553,10 @@ export interface TaskRouted {
   reportToSessionId?: string;
   /** Recording retention in days (from daemon config). */
   retentionDays?: number;
+  /** Capture scope for QA recording (from daemon config). */
+  captureScope?: 'window' | 'display';
+  /** Whether to include audio in QA recording (from daemon config). */
+  includeAudio?: boolean;
 }
 
 export interface RideShotgunResult {

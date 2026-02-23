@@ -1746,6 +1746,10 @@ public struct IPCTaskRouted: Codable, Sendable {
     public let reportToSessionId: String?
     /// Recording retention in days (from daemon config).
     public let retentionDays: Double?
+    /// Capture scope for QA recording (from daemon config).
+    public let captureScope: String?
+    /// Whether to include audio in QA recording (from daemon config).
+    public let includeAudio: Bool?
 }
 
 /// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread.

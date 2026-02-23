@@ -1066,6 +1066,12 @@ export const QaRecordingConfigSchema = z.object({
     .positive('qaRecording.cleanupIntervalMs must be a positive integer')
     .max(2_147_483_647, 'qaRecording.cleanupIntervalMs must be at most 2147483647 (setInterval-safe limit)')
     .default(6 * 60 * 60 * 1000),
+  captureScope: z
+    .enum(['window', 'display'], { error: 'qaRecording.captureScope must be "window" or "display"' })
+    .default('display'),
+  includeAudio: z
+    .boolean({ error: 'qaRecording.includeAudio must be a boolean' })
+    .default(false),
 });
 
 export const SmsConfigSchema = z.object({
@@ -1383,6 +1389,8 @@ export const AssistantConfigSchema = z.object({
   qaRecording: QaRecordingConfigSchema.default({
     defaultRetentionDays: 7,
     cleanupIntervalMs: 6 * 60 * 60 * 1000,
+    captureScope: 'display' as const,
+    includeAudio: false,
   }),
   sms: SmsConfigSchema.default({
     enabled: false,

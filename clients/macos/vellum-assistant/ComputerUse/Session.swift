@@ -42,6 +42,10 @@ final class ComputerUseSession: ObservableObject {
     let qaMode: Bool
     /// Recording retention in days (from daemon config, default 7).
     let retentionDays: Int
+    /// Capture scope for QA recording (from daemon config, default "display").
+    let captureScope: String
+    /// Whether to include audio in QA recording (from daemon config, default false).
+    let includeAudio: Bool
 
     /// Weak reference to the chat view model for extracting tool calls for notifications.
     weak var relatedViewModel: ChatViewModel?
@@ -88,7 +92,9 @@ final class ComputerUseSession: ObservableObject {
         screenRecorder: ScreenRecording? = nil,
         reportToSessionId: String? = nil,
         qaMode: Bool = false,
-        retentionDays: Int = 7
+        retentionDays: Int = 7,
+        captureScope: String = "display",
+        includeAudio: Bool = false
     ) {
         self.id = sessionId ?? UUID().uuidString
         self.task = task
@@ -107,6 +113,8 @@ final class ComputerUseSession: ObservableObject {
         self.reportToSessionId = reportToSessionId
         self.qaMode = qaMode
         self.retentionDays = retentionDays
+        self.captureScope = captureScope
+        self.includeAudio = includeAudio
         self.verifier = ActionVerifier(maxSteps: maxSteps)
         self.logger = SessionLogger(task: task, attachments: attachments)
     }
@@ -135,7 +143,7 @@ final class ComputerUseSession: ObservableObject {
         // Start screen recording in QA mode
         if qaMode, let recorder = screenRecorder {
             do {
-                try await recorder.startRecording(windowID: nil, displayID: nil, includeAudio: false)
+                try await recorder.startRecording(windowID: nil, displayID: nil, includeAudio: self.includeAudio)
                 log.info("QA mode: screen recording started for session \(self.id)")
             } catch {
                 log.error("QA mode: failed to start screen recording: \(error.localizedDescription)")
