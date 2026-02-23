@@ -151,6 +151,14 @@ public final class SettingsStore: ObservableObject {
     private var twilioNumbersRefreshPending = false
     private var pendingGuardianChallengeChannel: String?
     private var guardianChallengeTimeoutWorkItem: DispatchWorkItem?
+    private var guardianAssistantScope: String {
+        let stored = UserDefaults.standard.string(forKey: "connectedAssistantId")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let stored, !stored.isEmpty {
+            return stored
+        }
+        return "self"
+    }
 
     init(daemonClient: DaemonClient? = nil, configPath: String? = nil) {
         self.daemonClient = daemonClient
@@ -777,7 +785,7 @@ public final class SettingsStore: ObservableObject {
 
     func refreshChannelGuardianStatus(channel: String) {
         do {
-            try daemonClient?.sendGuardianVerification(action: "status", channel: channel, assistantId: "self")
+            try daemonClient?.sendGuardianVerification(action: "status", channel: channel, assistantId: guardianAssistantScope)
         } catch {
             log.error("Failed to refresh \(channel) guardian status: \(error)")
         }
@@ -813,7 +821,7 @@ public final class SettingsStore: ObservableObject {
             }
             pendingGuardianChallengeChannel = channel
             armGuardianChallengeTimeout(for: channel)
-            try daemonClient.sendGuardianVerification(action: "create_challenge", channel: channel, assistantId: "self")
+            try daemonClient.sendGuardianVerification(action: "create_challenge", channel: channel, assistantId: guardianAssistantScope)
         } catch {
             log.error("Failed to start \(channel) guardian verification: \(error)")
             clearGuardianChallengePending(for: channel)
@@ -832,7 +840,7 @@ public final class SettingsStore: ObservableObject {
 
     func revokeChannelGuardian(channel: String) {
         do {
-            try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel, assistantId: "self")
+            try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel, assistantId: guardianAssistantScope)
         } catch {
             log.error("Failed to revoke \(channel) guardian: \(error)")
         }
