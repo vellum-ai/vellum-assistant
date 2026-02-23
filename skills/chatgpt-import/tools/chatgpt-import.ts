@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { createConversation, addMessage } from '../../../../memory/conversation-store.js';
-import { getDb } from '../../../../memory/db.js';
-import { conversations, messages as messagesTable, conversationKeys } from '../../../../memory/schema.js';
+import type { ToolContext, ToolExecutionResult } from '../../../assistant/src/tools/types.js';
+import { createConversation, addMessage } from '../../../assistant/src/memory/conversation-store.js';
+import { getDb } from '../../../assistant/src/memory/db.js';
+import { conversations, messages as messagesTable, conversationKeys } from '../../../assistant/src/memory/schema.js';
 
 // -- ChatGPT export format types --
 
