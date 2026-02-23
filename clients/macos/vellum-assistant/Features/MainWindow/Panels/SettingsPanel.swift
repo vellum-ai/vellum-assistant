@@ -1254,20 +1254,19 @@ struct SettingsPanel: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                 }
-                if let instruction {
-                    Text(instruction)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
-                        .textSelection(.enabled)
-                }
+            } else if let instruction {
+                Text(instruction)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+                    .textSelection(.enabled)
             } else {
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "shield.slash")

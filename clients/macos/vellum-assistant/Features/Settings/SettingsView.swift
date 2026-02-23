@@ -876,14 +876,13 @@ public struct SettingsView: View {
                     ProgressView().controlSize(.small)
                     Text("Verification in progress...")
                 }
-                if let instruction {
-                    Text(instruction)
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
-                        .padding(4)
-                        .background(Color.secondary.opacity(0.1))
-                        .cornerRadius(4)
-                }
+            } else if let instruction {
+                Text(instruction)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(4)
+                    .background(Color.secondary.opacity(0.1))
+                    .cornerRadius(4)
             } else {
                 HStack {
                     Image(systemName: "shield.slash").foregroundStyle(.secondary)
