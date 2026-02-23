@@ -490,6 +490,12 @@ extension MainWindowView {
                         if let threadId {
                             threadManager.selectThread(id: threadId)
                             windowState.setAppEditing(appId: appId, threadId: threadId)
+                        } else {
+                            // No threads exist — create one, then transition
+                            threadManager.createThread()
+                            if let newThreadId = threadManager.activeThreadId {
+                                windowState.setAppEditing(appId: appId, threadId: newThreadId)
+                            }
                         }
                     }
                 },
