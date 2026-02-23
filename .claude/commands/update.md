@@ -56,6 +56,16 @@ PY
      bun -e 'import { getSecureKey } from "./src/security/secure-keys.js"; process.stdout.write(getSecureKey("credential:twilio:auth_token") ?? "")'
      cd ..
    )"
+   TWILIO_ACCOUNT_SID="$(
+     cd assistant
+     bun -e 'import { getSecureKey } from "./src/security/secure-keys.js"; process.stdout.write(getSecureKey("credential:twilio:account_sid") ?? "")'
+     cd ..
+   )"
+   TWILIO_PHONE_NUMBER="$(
+     cd assistant
+     bun -e 'import { getSecureKey } from "./src/security/secure-keys.js"; process.stdout.write(getSecureKey("credential:twilio:phone_number") ?? "")'
+     cd ..
+   )"
 
    # Mirror CLI startGateway() behavior: only auto-enable default routing
    # when exactly one assistant is present in ~/.vellum.lock.json.
@@ -108,6 +118,12 @@ PY
    if [ -z "$TWILIO_AUTH_TOKEN" ]; then
      echo "WARNING: TWILIO_AUTH_TOKEN is empty (Twilio webhooks will be rejected)."
    fi
+   if [ -z "$TWILIO_ACCOUNT_SID" ]; then
+     echo "WARNING: TWILIO_ACCOUNT_SID is empty (SMS delivery will fail)."
+   fi
+   if [ -z "$TWILIO_PHONE_NUMBER" ]; then
+     echo "WARNING: TWILIO_PHONE_NUMBER is empty (SMS delivery will fail)."
+   fi
    if [ "${GATEWAY_UNMAPPED_POLICY:-}" = "default" ]; then
      if [ -n "${GATEWAY_DEFAULT_ASSISTANT_ID:-}" ]; then
        echo "Gateway routing: default -> ${GATEWAY_DEFAULT_ASSISTANT_ID}"
@@ -128,6 +144,8 @@ PY
      GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH=false \
      INGRESS_PUBLIC_BASE_URL="$INGRESS_PUBLIC_BASE_URL" \
      TWILIO_AUTH_TOKEN="$TWILIO_AUTH_TOKEN" \
+     TWILIO_ACCOUNT_SID="$TWILIO_ACCOUNT_SID" \
+     TWILIO_PHONE_NUMBER="$TWILIO_PHONE_NUMBER" \
      ${GATEWAY_UNMAPPED_POLICY:+GATEWAY_UNMAPPED_POLICY="$GATEWAY_UNMAPPED_POLICY"} \
      ${GATEWAY_DEFAULT_ASSISTANT_ID:+GATEWAY_DEFAULT_ASSISTANT_ID="$GATEWAY_DEFAULT_ASSISTANT_ID"} \
      bun run dev:proxy \
