@@ -12,7 +12,9 @@ const MAX_WINDOW_TITLE_LENGTH = 100;
 /** Sanitize window title to mitigate prompt injection from attacker-controlled titles (e.g. browser tabs, Slack conversations). */
 function sanitizeWindowTitle(title: string | undefined): string {
   if (!title) return '';
-  return title.slice(0, MAX_WINDOW_TITLE_LENGTH);
+  return title
+    .replace(/[<>]/g, '') // strip angle brackets to prevent tag injection
+    .slice(0, MAX_WINDOW_TITLE_LENGTH);
 }
 
 /** Build a delimited app metadata block so the LLM treats it as contextual data, not instructions. */
