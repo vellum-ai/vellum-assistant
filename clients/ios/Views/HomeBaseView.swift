@@ -57,6 +57,7 @@ final class HomeBaseViewModel {
 struct HomeBaseView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @State private var viewModel = HomeBaseViewModel()
+    var onConnectTapped: (() -> Void)?
 
     var body: some View {
         NavigationStack {
@@ -281,6 +282,15 @@ struct HomeBaseView: View {
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
+
+            if onConnectTapped != nil {
+                Button {
+                    onConnectTapped?()
+                } label: {
+                    Text("Go to Settings")
+                }
+                .buttonStyle(.bordered)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

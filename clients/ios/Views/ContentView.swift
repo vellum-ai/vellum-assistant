@@ -53,6 +53,11 @@ struct ContentView: View {
         }
     }
 
+    private func navigateToConnectSettings() {
+        selectedTab = .settings
+        navigateToConnect = true
+    }
+
     // MARK: - Initial Connection
 
     private func attemptInitialConnection() async {
@@ -112,9 +117,8 @@ struct ContentView: View {
                 .tint(VColor.accent)
 
                 Button {
-                    selectedTab = .settings
                     connectPhase = .ready
-                    navigateToConnect = true
+                    navigateToConnectSettings()
                 } label: {
                     Text("Go to Settings")
                 }
@@ -129,7 +133,7 @@ struct ContentView: View {
 
     private var tabContent: some View {
         TabView(selection: $selectedTab) {
-            HomeBaseView()
+            HomeBaseView(onConnectTapped: navigateToConnectSettings)
                 .environmentObject(clientProvider)
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.home)
@@ -144,7 +148,7 @@ struct ContentView: View {
                     Label("Chats", systemImage: "message")
                 }
 
-            IdentityView()
+            IdentityView(onConnectTapped: navigateToConnectSettings)
                 .environmentObject(clientProvider)
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.identity)

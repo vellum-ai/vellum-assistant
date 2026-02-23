@@ -92,6 +92,7 @@ struct IdentityView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @State private var viewModel = IdentityViewModel()
     @State private var viewingFile: WorkspaceFileInfo?
+    var onConnectTapped: (() -> Void)?
 
     var body: some View {
         NavigationStack {
@@ -411,6 +412,15 @@ struct IdentityView: View {
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
+
+            if onConnectTapped != nil {
+                Button {
+                    onConnectTapped?()
+                } label: {
+                    Text("Go to Settings")
+                }
+                .buttonStyle(.bordered)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
