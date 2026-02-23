@@ -27,6 +27,7 @@ import {
   handleUploadAttachment,
   handleDeleteAttachment,
   handleGetAttachment,
+  handleGetAttachmentContent,
 } from './routes/attachment-routes.js';
 import {
   handleCreateRun,
@@ -686,6 +687,12 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'attachments' && req.method === 'DELETE') {
         return await handleDeleteAttachment(req);
+      }
+
+      // Match attachments/:attachmentId/content — must come before the generic attachments/:attachmentId
+      const attachmentContentMatch = endpoint.match(/^attachments\/([^/]+)\/content$/);
+      if (attachmentContentMatch && req.method === 'GET') {
+        return handleGetAttachmentContent(attachmentContentMatch[1], req);
       }
 
       // Match attachments/:attachmentId
