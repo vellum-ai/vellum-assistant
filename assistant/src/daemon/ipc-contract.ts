@@ -232,6 +232,8 @@ export interface TaskSubmit {
   screenHeight: number;
   attachments?: UserMessageAttachment[];
   source?: 'voice' | 'text';
+  /** The originating conversation/thread ID, if submitting from a chat context. */
+  conversationId?: string;
 }
 
 export interface RideShotgunStart {
@@ -1549,6 +1551,8 @@ export interface TaskRouted {
   qaMode?: boolean;
   /** The originating chat session ID for result injection. */
   reportToSessionId?: string;
+  /** Recording retention in days (from daemon config). */
+  retentionDays?: number;
 }
 
 export interface RideShotgunResult {

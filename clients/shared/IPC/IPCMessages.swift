@@ -324,8 +324,8 @@ extension IPCUserMessage {
 public typealias TaskSubmitMessage = IPCTaskSubmit
 
 extension IPCTaskSubmit {
-    public init(task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, source: String?) {
-        self.init(type: "task_submit", task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, source: source)
+    public init(task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, source: String?, conversationId: String? = nil) {
+        self.init(type: "task_submit", task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, source: source, conversationId: conversationId)
     }
 }
 
