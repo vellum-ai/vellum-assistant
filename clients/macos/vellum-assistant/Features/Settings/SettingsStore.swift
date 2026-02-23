@@ -1017,6 +1017,8 @@ public final class SettingsStore: ObservableObject {
         ingressPublicBaseUrl = trimmed
         pendingIngressUrl = previous
         // Reset stale health status so the UI doesn't show results from the old URL
+        let previousReachable = ingressReachable
+        let previousLastChecked = gatewayLastChecked
         ingressReachable = nil
         gatewayLastChecked = nil
         do {
@@ -1025,6 +1027,8 @@ public final class SettingsStore: ObservableObject {
             // IPC send failed — roll back the optimistic update
             ingressPublicBaseUrl = previous
             pendingIngressUrl = nil
+            ingressReachable = previousReachable
+            gatewayLastChecked = previousLastChecked
         }
     }
 
