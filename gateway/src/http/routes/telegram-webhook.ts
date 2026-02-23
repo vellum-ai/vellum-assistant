@@ -170,6 +170,29 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       });
     };
 
+    const clearInlineApprovalButtons = (
+      chatId: string,
+      messageId: string | undefined,
+      phase: string,
+    ): void => {
+      if (!messageId) return;
+      const parsedMessageId = Number(messageId);
+      if (!Number.isFinite(parsedMessageId)) {
+        tlog.warn({ messageId, phase }, "Skipping inline approval button clear due to invalid message id");
+        return;
+      }
+      callTelegramApi(config, "editMessageReplyMarkup", {
+        chat_id: chatId,
+        message_id: parsedMessageId,
+        reply_markup: { inline_keyboard: [] },
+      }).catch((err) => {
+        tlog.error(
+          { err, chatId, messageId: parsedMessageId, phase },
+          "Failed to clear inline approval buttons",
+        );
+      });
+    };
+
     // Normalize the update
     const normalized = normalizeTelegramUpdate(payload);
     if (!normalized) {
@@ -353,6 +376,20 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       // Acknowledge the callback query to clear the button spinner in the
       // Telegram client. Best-effort — log errors but don't fail the flow.
       if (isCallback) acknowledgeCallbackQuery(normalized.message.callbackQueryId, "forwarded");
+
+      // Once a callback decision is consumed, remove the inline keyboard so
+      // users cannot click obsolete approval buttons again.
+      const approval = result.runtimeResponse?.approval;
+      const shouldClearInlineButtons = approval === "decision_applied" ||
+        approval === "guardian_decision_applied" ||
+        approval === "stale_ignored";
+      if (isCallback && shouldClearInlineButtons) {
+        clearInlineApprovalButtons(
+          normalized.message.externalChatId,
+          normalized.source.messageId,
+          approval,
+        );
+      }
     } catch (err) {
       tlog.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
       if (isCallback) acknowledgeCallbackQuery(normalized.message.callbackQueryId, "forward_exception");
