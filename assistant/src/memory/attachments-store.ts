@@ -17,6 +17,10 @@ export interface StoredAttachment {
   sizeBytes: number;
   kind: string;
   thumbnailBase64: string | null;
+  storageKind: 'inline_base64' | 'file';
+  filePath: string | null;
+  sha256: string | null;
+  expiresAt: number | null;
   createdAt: number;
 }
 
@@ -182,6 +186,10 @@ export function uploadAttachment(
       sizeBytes: attachments.sizeBytes,
       kind: attachments.kind,
       thumbnailBase64: attachments.thumbnailBase64,
+      storageKind: attachments.storageKind,
+      filePath: attachments.filePath,
+      sha256: attachments.sha256,
+      expiresAt: attachments.expiresAt,
       createdAt: attachments.createdAt,
     })
     .from(attachments)
@@ -189,7 +197,7 @@ export function uploadAttachment(
     .get();
 
   if (existing) {
-    return existing;
+    return { ...existing, storageKind: existing.storageKind as 'inline_base64' | 'file' };
   }
 
   const now = Date.now();
@@ -215,6 +223,10 @@ export function uploadAttachment(
     sizeBytes,
     kind,
     thumbnailBase64: null,
+    storageKind: 'inline_base64' as const,
+    filePath: null,
+    sha256: null,
+    expiresAt: null,
     createdAt: now,
   };
 }
@@ -281,6 +293,10 @@ export function getAttachmentsByIds(
         sizeBytes: row.sizeBytes,
         kind: row.kind,
         thumbnailBase64: row.thumbnailBase64,
+        storageKind: row.storageKind as 'inline_base64' | 'file',
+        filePath: row.filePath,
+        sha256: row.sha256,
+        expiresAt: row.expiresAt,
         dataBase64: row.dataBase64,
         createdAt: row.createdAt,
       });
@@ -356,12 +372,16 @@ export function getAttachmentMetadataForMessage(
         sizeBytes: attachments.sizeBytes,
         kind: attachments.kind,
         thumbnailBase64: attachments.thumbnailBase64,
+        storageKind: attachments.storageKind,
+        filePath: attachments.filePath,
+        sha256: attachments.sha256,
+        expiresAt: attachments.expiresAt,
         createdAt: attachments.createdAt,
       })
       .from(attachments)
       .where(eq(attachments.id, link.attachmentId))
       .get();
-    if (row) results.push(row);
+    if (row) results.push({ ...row, storageKind: row.storageKind as 'inline_base64' | 'file' });
   }
   return results;
 }
@@ -394,4 +414,94 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
   );
   const result = stmt.run(...candidateIds);
   return result.changes;
+}
+
+// ---------------------------------------------------------------------------
+// File-backed attachment operations
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a file-backed attachment record. The actual file content lives on
+ * disk at `filePath`; the DB row stores only metadata.
+ */
+export function createFileBackedAttachment(params: {
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  filePath: string;
+  sha256?: string;
+  expiresAt?: number;
+  thumbnailBase64?: string;
+}): StoredAttachment {
+  const db = getDb();
+  const now = Date.now();
+  const kind = classifyKind(params.mimeType);
+  const id = uuid();
+
+  const record = {
+    id,
+    originalFilename: params.filename,
+    mimeType: params.mimeType,
+    sizeBytes: params.sizeBytes,
+    kind,
+    dataBase64: '',
+    storageKind: 'file' as const,
+    filePath: params.filePath,
+    sha256: params.sha256 ?? null,
+    expiresAt: params.expiresAt ?? null,
+    thumbnailBase64: params.thumbnailBase64 ?? null,
+    createdAt: now,
+  };
+
+  db.insert(attachments).values(record).run();
+
+  return {
+    id,
+    originalFilename: params.filename,
+    mimeType: params.mimeType,
+    sizeBytes: params.sizeBytes,
+    kind,
+    thumbnailBase64: params.thumbnailBase64 ?? null,
+    storageKind: 'file',
+    filePath: params.filePath,
+    sha256: params.sha256 ?? null,
+    expiresAt: params.expiresAt ?? null,
+    createdAt: now,
+  };
+}
+
+/**
+ * Return file-backed attachments whose retention period has elapsed.
+ */
+export function getExpiredFileAttachments(): Array<{ id: string; filePath: string }> {
+  const db = getDb();
+  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+  const now = Date.now();
+  const rows = raw
+    .prepare(
+      `SELECT id, file_path FROM attachments WHERE storage_kind = 'file' AND expires_at IS NOT NULL AND expires_at < ?`,
+    )
+    .all(now) as Array<{ id: string; file_path: string }>;
+  return rows.map((r) => ({ id: r.id, filePath: r.file_path }));
+}
+
+/**
+ * Delete a file-backed attachment's DB row. The caller is responsible for
+ * removing the file on disk.
+ */
+export function deleteFileBackedAttachment(attachmentId: string): 'deleted' | 'not_found' {
+  const db = getDb();
+  const existing = db
+    .select({ id: attachments.id })
+    .from(attachments)
+    .where(eq(attachments.id, attachmentId))
+    .get();
+
+  if (!existing) return 'not_found';
+
+  db.delete(attachments)
+    .where(eq(attachments.id, attachmentId))
+    .run();
+
+  return 'deleted';
 }

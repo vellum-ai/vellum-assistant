@@ -526,6 +526,10 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN thread_type TEXT NOT NULL DEFAULT 'standard'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN memory_scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE attachments ADD COLUMN thumbnail_base64 TEXT`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE attachments ADD COLUMN storage_kind TEXT NOT NULL DEFAULT 'inline_base64'`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE attachments ADD COLUMN file_path TEXT`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE attachments ADD COLUMN sha256 TEXT`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE attachments ADD COLUMN expires_at INTEGER`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE cron_jobs ADD COLUMN schedule_syntax TEXT NOT NULL DEFAULT 'cron'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE messages ADD COLUMN metadata TEXT`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE memory_embeddings ADD COLUMN content_hash TEXT`); } catch { /* already exists */ }

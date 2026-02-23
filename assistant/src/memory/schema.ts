@@ -165,6 +165,10 @@ export const attachments = sqliteTable('attachments', {
   dataBase64: text('data_base64').notNull(),
   contentHash: text('content_hash'),
   thumbnailBase64: text('thumbnail_base64'),
+  storageKind: text('storage_kind').notNull().default('inline_base64'),
+  filePath: text('file_path'),
+  sha256: text('sha256'),
+  expiresAt: integer('expires_at'),
   createdAt: integer('created_at').notNull(),
 });
 
