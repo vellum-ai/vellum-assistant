@@ -2,7 +2,7 @@ import type { GatewayConfig } from "../../config.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
-import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
+import { resolveAssistant, resolveAssistantByPhoneNumber, isRejection } from "../../routing/resolve-assistant.js";
 import { resetConversation } from "../../runtime/client.js";
 import { sendSmsReply } from "../../twilio/send-sms.js";
 import { validateTwilioWebhookRequest } from "../../twilio/validate-webhook.js";
@@ -116,11 +116,13 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
 
     // --- /new intercept: reset conversation before it reaches the runtime ---
     if (normalized.message.content.trim().toLowerCase() === "/new") {
-      const routing = resolveAssistant(
-        config,
-        normalized.message.externalChatId,
-        normalized.sender.externalUserId,
-      );
+      // Phone-number routing takes priority: match the "To" number to an assistant
+      const routing = resolveAssistantByPhoneNumber(config, params.To || "")
+        ?? resolveAssistant(
+          config,
+          normalized.message.externalChatId,
+          normalized.sender.externalUserId,
+        );
 
       if (isRejection(routing)) {
         tlog.warn(
@@ -157,12 +159,13 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
       return Response.json({ ok: true });
     }
 
-    // Check routing
-    const routing = resolveAssistant(
-      config,
-      normalized.message.externalChatId,
-      normalized.sender.externalUserId,
-    );
+    // Phone-number routing takes priority, then fall through to standard routing
+    const routing = resolveAssistantByPhoneNumber(config, params.To || "")
+      ?? resolveAssistant(
+        config,
+        normalized.message.externalChatId,
+        normalized.sender.externalUserId,
+      );
 
     if (isRejection(routing)) {
       tlog.warn(

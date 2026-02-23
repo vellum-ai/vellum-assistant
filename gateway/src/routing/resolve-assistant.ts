@@ -38,6 +38,30 @@ export function resolveAssistant(
   return { rejected: true, reason: "No route configured for this chat" };
 }
 
+/**
+ * Resolve the assistant by looking up the inbound "To" phone number in
+ * the per-assistant phone number mapping. Returns undefined when no match
+ * is found, letting callers fall through to the standard routing chain.
+ */
+export function resolveAssistantByPhoneNumber(
+  config: GatewayConfig,
+  toNumber: string,
+): RoutingOutcome | undefined {
+  const mapping = config.assistantPhoneNumbers;
+  if (!mapping) return undefined;
+
+  // Reverse lookup: the mapping is assistantId -> phoneNumber, so we need
+  // to find the assistantId whose value matches the inbound "To" number.
+  for (const [assistantId, phoneNumber] of Object.entries(mapping)) {
+    if (phoneNumber === toNumber) {
+      log.debug({ toNumber, assistantId }, "Resolved by phone number");
+      return { assistantId, routeSource: "phone_number" };
+    }
+  }
+
+  return undefined;
+}
+
 export function isRejection(
   outcome: RoutingOutcome,
 ): outcome is { rejected: true; reason: string } {

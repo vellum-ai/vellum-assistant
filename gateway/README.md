@@ -59,9 +59,10 @@ bun run dev
 
 v1 uses deterministic settings-based routing (no database):
 
-1. **chat_id match** — explicit `chat:<chat_id>` entry in routing JSON
-2. **user_id match** — explicit `user:<user_id>` entry in routing JSON
-3. **Unmapped policy** — `reject` (drop with message) or `default` (forward to `GATEWAY_DEFAULT_ASSISTANT_ID`)
+1. **phone_number match** (SMS only) — reverse lookup of the inbound `To` number against `assistantPhoneNumbers` (a `Record<string, string>` mapping assistant IDs to E.164 phone numbers, propagated from the assistant config file). This allows each assistant to have its own dedicated phone number, and inbound SMS is routed to the correct assistant based on which number received the message.
+2. **chat_id match** — explicit `chat:<chat_id>` entry in routing JSON
+3. **user_id match** — explicit `user:<user_id>` entry in routing JSON
+4. **Unmapped policy** — `reject` (drop with message) or `default` (forward to `GATEWAY_DEFAULT_ASSISTANT_ID`)
 
 ### Routing JSON format
 
@@ -105,7 +106,7 @@ The `/webhooks/twilio/sms` endpoint receives inbound SMS messages from Twilio. O
 3. **MMS detection** — The gateway treats a message as MMS when any of the following conditions are met: `NumMedia > 0`, any `MediaUrl<N>` key has a non-empty value, or any `MediaContentType<N>` key has a non-empty value. This catches media attachments even when Twilio omits `NumMedia`. The gateway replies with an unsupported notice ("MMS is not supported yet") and does not forward the payload to the runtime.
 4. **`/new` command** — When the message body is exactly `/new` (case-insensitive, trimmed), the gateway resolves routing first. If routing is rejected, the gateway sends a rejection notice SMS to the sender (matching Telegram rejection semantics) and does not forward the message. If routing succeeds, the gateway resets the conversation via the runtime API and sends a confirmation SMS. The message is never forwarded to the runtime.
 5. **Normalization** — The form-encoded Twilio payload is normalized into a `GatewayInboundEventV1` with `sourceChannel: "sms"`. The sender's phone number (`From`) is used as both `externalChatId` and `externalUserId`.
-6. **Routing** — The same routing resolver used for Telegram (chat_id -> user_id -> default/reject) determines the target assistant.
+6. **Routing** — Phone-number-based routing is checked first: the `To` number is looked up in `assistantPhoneNumbers` to find the target assistant. If no match, the standard routing chain (chat_id -> user_id -> default/reject) is used.
 7. **Forwarding** — The event is forwarded to the runtime via `POST /channels/inbound` with SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
 
 SMS is text-only in v1 — MMS payloads are explicitly rejected with a user-facing notice.
