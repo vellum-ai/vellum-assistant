@@ -158,9 +158,15 @@ enum PixelSpriteBuilder {
     /// The `palette` parameter is accepted for API compatibility but the face uses
     /// fixed warm-neutral colors that work in both light and dark mode.
     static func buildBlobNSImage(pixelSize: CGFloat, palette: DinoPalette) -> NSImage {
-        // Scale factor: the old blob grid was 26 wide, so size ~ 26 * pixelSize
-        let diameter = 26.0 * pixelSize
-        let size = NSSize(width: diameter + 2, height: diameter + 2)
+        // Scale factor: the old blob grid was 26 wide, so nominal radius ~ 13 * pixelSize
+        let nominalRadius = 13.0 * pixelSize
+        // The blob path varies radius by up to +9% (sum of all harmonics)
+        let maxVariation: CGFloat = 1.0 + 0.04 + 0.03 + 0.02  // 1.09
+        let strokeWidth = max(1.5, pixelSize * 0.8)
+        // Canvas must fit the maximum varied radius plus half the stroke (centered on path)
+        let maxExtent = nominalRadius * maxVariation + strokeWidth / 2.0
+        let canvasSide = ceil(maxExtent * 2.0) + 2  // +2 for a 1pt safety margin each side
+        let size = NSSize(width: canvasSide, height: canvasSide)
         let image = NSImage(size: size)
         image.lockFocus()
 
@@ -171,7 +177,7 @@ enum PixelSpriteBuilder {
 
         let centerX = size.width / 2.0
         let centerY = size.height / 2.0
-        let blobRadius = diameter / 2.0
+        let blobRadius = nominalRadius
 
         // Build an organic blob path — slightly irregular ellipse
         let path = CGMutablePath()
