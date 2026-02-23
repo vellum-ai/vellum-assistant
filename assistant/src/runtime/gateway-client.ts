@@ -52,7 +52,8 @@ export async function deliverApprovalPrompt(
   chatId: string,
   text: string,
   approval: ApprovalUIMetadata,
+  assistantId?: string,
   bearerToken?: string,
 ): Promise<void> {
-  await deliverChannelReply(callbackUrl, { chatId, text, approval }, bearerToken);
+  await deliverChannelReply(callbackUrl, { chatId, text, approval, assistantId }, bearerToken);
 }

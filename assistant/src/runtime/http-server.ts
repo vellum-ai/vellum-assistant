@@ -941,8 +941,16 @@ export class RuntimeHttpServer {
           const externalChatId = typeof payload.externalChatId === 'string'
             ? payload.externalChatId
             : undefined;
+          const assistantId = typeof payload.assistantId === 'string'
+            ? payload.assistantId
+            : undefined;
           if (externalChatId) {
-            await this.deliverReplyViaCallback(event.conversationId, externalChatId, replyCallbackUrl);
+            await this.deliverReplyViaCallback(
+              event.conversationId,
+              externalChatId,
+              replyCallbackUrl,
+              assistantId,
+            );
           }
         }
       } catch (err) {
@@ -956,6 +964,7 @@ export class RuntimeHttpServer {
     conversationId: string,
     externalChatId: string,
     callbackUrl: string,
+    assistantId?: string,
   ): Promise<void> {
     const msgs = conversationStore.getMessages(conversationId);
     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -978,6 +987,7 @@ export class RuntimeHttpServer {
             chatId: externalChatId,
             text: rendered.text || undefined,
             attachments: replyAttachments.length > 0 ? replyAttachments : undefined,
+            assistantId,
           }, this.bearerToken);
         }
         break;

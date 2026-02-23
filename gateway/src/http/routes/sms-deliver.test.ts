@@ -271,4 +271,89 @@ describe("/deliver/sms", () => {
     expect(sentParams.get("To")).toBe("+15559876543");
     expect(sentParams.get("Body")).toBe("Test SMS body");
   });
+
+  it("uses assistant-specific From number when assistantId mapping exists", async () => {
+    const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+    globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      fetchCalls.push({ url: urlStr, init: init ?? {} });
+      return new Response(JSON.stringify({ sid: "SM-sent" }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const handler = createSmsDeliverHandler(
+      makeConfig({
+        runtimeProxyBearerToken: undefined,
+        smsDeliverAuthBypass: true,
+        assistantPhoneNumbers: { "ast-alpha": "+15550001111" },
+      }),
+    );
+    const req = makeRequest({
+      to: "+15559876543",
+      text: "assistant scoped",
+      assistantId: "ast-alpha",
+    });
+
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    expect(fetchCalls).toHaveLength(1);
+    const sentBody = fetchCalls[0].init.body as string;
+    const sentParams = new URLSearchParams(sentBody);
+    expect(sentParams.get("From")).toBe("+15550001111");
+  });
+
+  it("falls back to global From number when assistant mapping is missing", async () => {
+    const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+    globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      fetchCalls.push({ url: urlStr, init: init ?? {} });
+      return new Response(JSON.stringify({ sid: "SM-sent" }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const handler = createSmsDeliverHandler(
+      makeConfig({
+        runtimeProxyBearerToken: undefined,
+        smsDeliverAuthBypass: true,
+        assistantPhoneNumbers: { "ast-beta": "+15550002222" },
+      }),
+    );
+    const req = makeRequest({
+      to: "+15559876543",
+      text: "fallback",
+      assistantId: "ast-alpha",
+    });
+
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    expect(fetchCalls).toHaveLength(1);
+    const sentBody = fetchCalls[0].init.body as string;
+    const sentParams = new URLSearchParams(sentBody);
+    expect(sentParams.get("From")).toBe("+15551234567");
+  });
+
+  it("returns 503 when no From number is available", async () => {
+    const handler = createSmsDeliverHandler(
+      makeConfig({
+        runtimeProxyBearerToken: undefined,
+        smsDeliverAuthBypass: true,
+        twilioPhoneNumber: undefined,
+        assistantPhoneNumbers: undefined,
+      }),
+    );
+    const req = makeRequest({
+      to: "+15559876543",
+      text: "no from",
+      assistantId: "ast-alpha",
+    });
+
+    const res = await handler(req);
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toBe("SMS integration not configured");
+  });
 });
