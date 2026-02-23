@@ -184,6 +184,12 @@ export interface CuSessionAbort {
   sessionId: string;
 }
 
+export interface CuAutoApproveUpdate {
+  type: 'cu_auto_approve_update';
+  sessionId: string;
+  enabled: boolean;
+}
+
 export interface CuSessionFinalized {
   type: 'cu_session_finalized';
   sessionId: string;
@@ -1064,6 +1070,7 @@ export type ClientMessage =
   | SandboxSetRequest
   | CuSessionCreate
   | CuSessionAbort
+  | CuAutoApproveUpdate
   | CuSessionFinalized
   | CuObservation
   | RideShotgunStart

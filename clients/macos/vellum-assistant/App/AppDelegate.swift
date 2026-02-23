@@ -849,8 +849,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             Task { @MainActor in
                 // Auto-approve low/medium risk tool confirmations during CU sessions
+                // (reactive fallback — daemon-side proactive skip handles most cases)
+                let normalizedRisk = msg.riskLevel.lowercased()
                 if self.currentSession?.autoApproveTools == true,
-                   msg.riskLevel == "low" || msg.riskLevel == "medium" {
+                   normalizedRisk == "low" || normalizedRisk == "medium" {
                     do {
                         try self.daemonClient.sendConfirmationResponse(
                             requestId: msg.requestId,

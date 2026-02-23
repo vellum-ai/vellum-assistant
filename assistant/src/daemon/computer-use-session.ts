@@ -84,6 +84,9 @@ export class ComputerUseSession {
   private terminalNotified = false;
   private prompter: PermissionPrompter | null = null;
 
+  /** When true, low/medium-risk tool prompts are auto-approved without client round-trip. */
+  autoApproveEnabled = false;
+
   // Tracks the agent loop promise so callers can await session completion
   private loopPromise: Promise<void> | null = null;
 
@@ -359,9 +362,37 @@ export class ComputerUseSession {
     ];
 
     this.prompter = new PermissionPrompter(this.sendToClient);
-    const prompter = this.prompter;
+    const innerPrompter = this.prompter;
     const secretPrompter = new SecretPrompter(this.sendToClient);
-    const executor = new ToolExecutor(prompter);
+
+    // Wrap the prompter so low/medium-risk tools are auto-approved when
+    // the client has toggled auto-approve on, avoiding the IPC round-trip.
+    const sessionRef = this;
+    const autoApprovePrompter = new Proxy(innerPrompter, {
+      get(target, prop, receiver) {
+        if (prop === 'prompt') {
+          return async function (
+            toolName: string,
+            input: Record<string, unknown>,
+            riskLevel: string,
+            ...rest: unknown[]
+          ) {
+            const normalizedRisk = riskLevel.toLowerCase();
+            if (sessionRef.autoApproveEnabled && (normalizedRisk === 'low' || normalizedRisk === 'medium')) {
+              log.info(
+                { sessionId: sessionRef.sessionId, toolName, riskLevel: normalizedRisk },
+                'Auto-approved tool prompt (proactive, skipping client round-trip)',
+              );
+              return { decision: 'allow' as const };
+            }
+            return (target.prompt as Function).call(target, toolName, input, riskLevel, ...rest);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }) as PermissionPrompter;
+
+    const executor = new ToolExecutor(autoApprovePrompter);
 
     const proxyResolver = async (
       toolName: string,
