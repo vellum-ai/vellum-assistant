@@ -138,11 +138,12 @@ export interface MemorySearchResult {
   };
 }
 
-import type { EntityRelationType } from '../entity-extractor.js';
+import type { EntityRelationType, EntityType } from '../entity-extractor.js';
 
 export interface TraversalOptions {
   maxEdges: number;
   maxNeighborEntities: number;
   maxDepth?: number; // default 3
   relationTypes?: EntityRelationType[];
+  entityTypes?: EntityType[];
 }

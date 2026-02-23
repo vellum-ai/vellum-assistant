@@ -2,7 +2,9 @@ import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { MemoryEntityConfig } from '../../config/types.js';
 import { getLogger } from '../../util/logger.js';
 import { getDb } from '../db.js';
+import type { EntityType } from '../entity-extractor.js';
 import {
+  memoryEntities,
   memoryEntityRelations,
   memoryItemEntities,
   memoryItems,
@@ -153,7 +155,7 @@ export function findNeighborEntities(
   seedEntityIds: string[],
   opts: TraversalOptions,
 ): { neighborEntityIds: string[]; traversedEdgeCount: number } {
-  const { maxEdges, maxNeighborEntities, maxDepth = 3, relationTypes } = opts;
+  const { maxEdges, maxNeighborEntities, maxDepth = 3, relationTypes, entityTypes } = opts;
   if (seedEntityIds.length === 0 || maxEdges <= 0 || maxNeighborEntities <= 0 || maxDepth <= 0) {
     return { neighborEntityIds: [], traversedEdgeCount: 0 };
   }
@@ -162,6 +164,15 @@ export function findNeighborEntities(
   const visited = new Set<string>(seedEntityIds);
   const neighbors: string[] = [];
   let totalEdgesTraversed = 0;
+
+  // Cache entity types to avoid repeated DB lookups when filtering by type
+  const entityTypeCache = new Map<string, string>();
+  function getEntityType(entityId: string): string | undefined {
+    if (entityTypeCache.has(entityId)) return entityTypeCache.get(entityId);
+    const entity = db.select({ type: memoryEntities.type }).from(memoryEntities).where(eq(memoryEntities.id, entityId)).get();
+    if (entity) entityTypeCache.set(entityId, entity.type);
+    return entity?.type;
+  }
 
   // BFS frontier starts with seed entities
   let frontier = [...seedEntityIds];
@@ -198,12 +209,26 @@ export function findNeighborEntities(
     for (const row of rows) {
       if (neighbors.length >= maxNeighborEntities) break;
       if (frontierSet.has(row.sourceEntityId) && !visited.has(row.targetEntityId)) {
+        if (entityTypes && entityTypes.length > 0) {
+          const targetType = getEntityType(row.targetEntityId);
+          if (!targetType || !entityTypes.includes(targetType as EntityType)) {
+            visited.add(row.targetEntityId);
+            continue;
+          }
+        }
         visited.add(row.targetEntityId);
         neighbors.push(row.targetEntityId);
         nextFrontier.push(row.targetEntityId);
       }
       if (neighbors.length >= maxNeighborEntities) break;
       if (frontierSet.has(row.targetEntityId) && !visited.has(row.sourceEntityId)) {
+        if (entityTypes && entityTypes.length > 0) {
+          const sourceType = getEntityType(row.sourceEntityId);
+          if (!sourceType || !entityTypes.includes(sourceType as EntityType)) {
+            visited.add(row.sourceEntityId);
+            continue;
+          }
+        }
         visited.add(row.sourceEntityId);
         neighbors.push(row.sourceEntityId);
         nextFrontier.push(row.sourceEntityId);

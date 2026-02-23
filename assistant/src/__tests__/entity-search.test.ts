@@ -291,6 +291,43 @@ describe('entity search', () => {
       expect(result.neighborEntityIds).toContain(idB);
       expect(result.neighborEntityIds).toContain(idC);
     });
+
+    test('entityTypes filter: only returns entities of specified types', () => {
+      const idPerson = upsertEntity({ name: 'PersonEta', type: 'person', aliases: [] });
+      const idProject = upsertEntity({ name: 'ProjectTheta', type: 'project', aliases: [] });
+      const idTool = upsertEntity({ name: 'ToolIota', type: 'tool', aliases: [] });
+
+      upsertEntityRelation({ sourceEntityId: idPerson, targetEntityId: idProject, relation: 'works_on' });
+      upsertEntityRelation({ sourceEntityId: idPerson, targetEntityId: idTool, relation: 'uses' });
+
+      const result = findNeighborEntities([idPerson], {
+        maxEdges: 10,
+        maxNeighborEntities: 10,
+        maxDepth: 1,
+        entityTypes: ['project'],
+      });
+
+      expect(result.neighborEntityIds).toContain(idProject);
+      expect(result.neighborEntityIds).not.toContain(idTool);
+    });
+
+    test('entityTypes filter: omitting filter returns all entity types', () => {
+      const idPerson = upsertEntity({ name: 'PersonKappa', type: 'person', aliases: [] });
+      const idProject = upsertEntity({ name: 'ProjectLambda', type: 'project', aliases: [] });
+      const idTool = upsertEntity({ name: 'ToolMu', type: 'tool', aliases: [] });
+
+      upsertEntityRelation({ sourceEntityId: idPerson, targetEntityId: idProject, relation: 'works_on' });
+      upsertEntityRelation({ sourceEntityId: idPerson, targetEntityId: idTool, relation: 'uses' });
+
+      const result = findNeighborEntities([idPerson], {
+        maxEdges: 10,
+        maxNeighborEntities: 10,
+        maxDepth: 1,
+      });
+
+      expect(result.neighborEntityIds).toContain(idProject);
+      expect(result.neighborEntityIds).toContain(idTool);
+    });
   });
 
   // ── findMatchedEntities ────────────────────────────────────────────
