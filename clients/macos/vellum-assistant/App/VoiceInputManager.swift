@@ -202,7 +202,13 @@ final class VoiceInputManager {
             holdTask?.cancel()
             holdTask = nil
             if isRecording {
-                stopRecording()
+                if currentMode == .dictation {
+                    // In dictation mode, don't cancel the recognition — let it finish
+                    // processing and deliver the final transcription via the callback.
+                    stopRecordingForDictation()
+                } else {
+                    stopRecording()
+                }
             }
         }
     }
@@ -392,6 +398,26 @@ final class VoiceInputManager {
             log.info("Action mode detected — routing transcription to task submission: \(text, privacy: .public)")
             onActionModeTriggered?(text)
         }
+    }
+
+    /// Stop recording for dictation mode: stop audio input and signal end-of-audio
+    /// so the recognizer delivers a final transcription via the callback.
+    /// Does NOT cancel the recognition task or set isRecording=false — the callback
+    /// handles cleanup after receiving the isFinal result.
+    private func stopRecordingForDictation() {
+        guard isRecording else { return }
+        log.info("Stopping dictation recording — waiting for final transcription")
+
+        onRecordingStateChanged?(false)
+
+        if audioEngine.isRunning {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
+
+        // Signal end of audio — the recognizer will process remaining audio
+        // and fire the callback with isFinal = true.
+        recognitionRequest?.endAudio()
     }
 
     private func stopRecording() {
