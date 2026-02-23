@@ -351,8 +351,13 @@ public final class SettingsStore: ObservableObject {
                 self.telegramGuardianVerificationInProgress = false
                 if response.success {
                     self.telegramGuardianIdentity = response.guardianExternalUserId
-                    self.telegramGuardianVerified = response.bound ?? false
-                    self.telegramGuardianInstruction = response.instruction
+                    let isVerified = response.bound ?? false
+                    self.telegramGuardianVerified = isVerified
+                    if isVerified {
+                        self.telegramGuardianInstruction = nil
+                    } else if let instruction = response.instruction {
+                        self.telegramGuardianInstruction = instruction
+                    }
                     self.telegramGuardianError = nil
                 } else {
                     self.telegramGuardianError = response.error
@@ -361,8 +366,13 @@ public final class SettingsStore: ObservableObject {
                 self.smsGuardianVerificationInProgress = false
                 if response.success {
                     self.smsGuardianIdentity = response.guardianExternalUserId
-                    self.smsGuardianVerified = response.bound ?? false
-                    self.smsGuardianInstruction = response.instruction
+                    let isVerified = response.bound ?? false
+                    self.smsGuardianVerified = isVerified
+                    if isVerified {
+                        self.smsGuardianInstruction = nil
+                    } else if let instruction = response.instruction {
+                        self.smsGuardianInstruction = instruction
+                    }
                     self.smsGuardianError = nil
                 } else {
                     self.smsGuardianError = response.error
