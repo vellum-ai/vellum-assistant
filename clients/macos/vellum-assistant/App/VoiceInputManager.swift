@@ -214,12 +214,14 @@ final class VoiceInputManager {
     private func beginRecording() {
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
             log.error("Speech recognizer not available")
+            currentDictationContext = nil
             return
         }
 
         // Don't start if a previous recognition task is still processing
         if recognitionTask != nil {
             log.warning("Previous recognition task still active, skipping")
+            currentDictationContext = nil
             return
         }
 
@@ -228,11 +230,13 @@ final class VoiceInputManager {
         if micStatus == .notDetermined {
             AVCaptureDevice.requestAccess(for: .audio) { _ in }
             log.info("Requested microphone authorization — try again after approving")
+            currentDictationContext = nil
             return
         }
         if micStatus == .denied || micStatus == .restricted {
             log.warning("Microphone access denied — opening System Settings")
             openPrivacySettings(for: "Privacy_Microphone")
+            currentDictationContext = nil
             return
         }
 
@@ -240,11 +244,13 @@ final class VoiceInputManager {
         if authStatus == .notDetermined {
             SFSpeechRecognizer.requestAuthorization { _ in }
             log.info("Requested speech recognition authorization — try again after approving")
+            currentDictationContext = nil
             return
         }
         if authStatus == .denied || authStatus == .restricted {
             log.warning("Speech recognition denied — opening System Settings")
             openPrivacySettings(for: "Privacy_SpeechRecognition")
+            currentDictationContext = nil
             return
         }
 
@@ -266,6 +272,7 @@ final class VoiceInputManager {
             log.error("No audio input channels available")
             isRecording = false
             onRecordingStateChanged?(false)
+            currentDictationContext = nil
             return
         }
 
@@ -311,6 +318,7 @@ final class VoiceInputManager {
             onRecordingStateChanged?(false)
             recognitionRequest = nil
             recognitionTask = nil
+            currentDictationContext = nil
         }
     }
 
