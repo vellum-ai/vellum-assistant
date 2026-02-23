@@ -57,6 +57,13 @@ export function handleCuSessionCreate(
     // Clean up stale metadata from the replaced session; the new session
     // will set its own metadata below if needed.
     ctx.cuSessionMetadata.delete(msg.sessionId);
+    // Remove the session ID from the old socket's set so the old socket's
+    // close handler won't abort the replacement session.
+    for (const [sock, ids] of ctx.socketToCuSession) {
+      if (ids.delete(msg.sessionId) && ids.size === 0) {
+        ctx.socketToCuSession.delete(sock);
+      }
+    }
   }
 
   const config = getConfig();
