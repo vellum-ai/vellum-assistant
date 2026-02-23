@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterAll, afterEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterAll, afterEach, mock, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
