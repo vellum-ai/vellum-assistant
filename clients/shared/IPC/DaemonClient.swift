@@ -290,6 +290,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `vercel_api_config_response` message.
     public var onVercelApiConfigResponse: ((VercelApiConfigResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `guardian_verification_response` message.
+    public var onGuardianVerificationResponse: ((GuardianVerificationResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `telegram_config_response` message.
     public var onTelegramConfigResponse: ((TelegramConfigResponseMessage) -> Void)?
 
@@ -958,6 +961,21 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Get, set, or delete the Vercel API token configuration.
     public func sendVercelApiConfig(action: String, apiToken: String? = nil) throws {
         try send(VercelApiConfigRequestMessage(action: action, apiToken: apiToken))
+    }
+
+    /// Create a guardian verification challenge, check status, or revoke for a channel.
+    public func sendGuardianVerification(
+        action: String,
+        channel: String? = nil,
+        sessionId: String? = nil,
+        assistantId: String? = nil
+    ) throws {
+        try send(GuardianVerificationRequestMessage(
+            action: action,
+            channel: channel,
+            sessionId: sessionId,
+            assistantId: assistantId
+        ))
     }
 
     /// Get, set, or clear Telegram bot token configuration.

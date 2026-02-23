@@ -133,6 +133,8 @@ extension DaemonClient {
             onIngressConfigResponse?(msg)
         case .vercelApiConfigResponse(let msg):
             onVercelApiConfigResponse?(msg)
+        case .guardianVerificationResponse(let msg):
+            onGuardianVerificationResponse?(msg)
         case .telegramConfigResponse(let msg):
             onTelegramConfigResponse?(msg)
         case .twilioConfigResponse(let msg):
