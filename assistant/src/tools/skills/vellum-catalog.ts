@@ -1,7 +1,7 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { createManagedSkill } from '../../skills/managed-store.js';
-import { fetchCatalogEntries, fetchSkillContent, isVellumSkill } from '../../skills/vellum-catalog-remote.js';
+import { fetchCatalogEntries, fetchSkillContent, checkVellumSkill } from '../../skills/vellum-catalog-remote.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
@@ -14,18 +14,18 @@ export interface CatalogEntry {
   includes?: string[];
 }
 
-export { fetchCatalogEntries as listCatalogEntries, isVellumSkill };
+export { fetchCatalogEntries as listCatalogEntries, checkVellumSkill };
 
 /**
  * Install a skill from the vellum-skills catalog by ID.
  * Fetches SKILL.md from GitHub (with bundled fallback) and creates a managed skill.
  * Returns { success, skillName, error }.
  */
-export async function installFromVellumCatalog(skillId: string): Promise<{ success: boolean; skillName?: string; error?: string }> {
+export async function installFromVellumCatalog(skillId: string, options?: { overwrite?: boolean }): Promise<{ success: boolean; skillName?: string; error?: string }> {
   const trimmedId = skillId.trim();
 
   // Verify skill exists in catalog
-  const exists = await isVellumSkill(trimmedId);
+  const exists = await checkVellumSkill(trimmedId);
   if (!exists) {
     return { success: false, error: `Skill "${trimmedId}" not found in the Vellum catalog` };
   }
@@ -98,7 +98,7 @@ export async function installFromVellumCatalog(skillId: string): Promise<{ succe
     bodyMarkdown,
     emoji,
     includes,
-    overwrite: true,
+    overwrite: options?.overwrite ?? true,
     addToIndex: true,
   });
 
@@ -159,7 +159,7 @@ class VellumSkillsCatalogTool implements Tool {
           return { content: 'Error: skill_id is required for install action', isError: true };
         }
 
-        const result = await installFromVellumCatalog(skillId);
+        const result = await installFromVellumCatalog(skillId, { overwrite: input.overwrite === true });
         if (!result.success) {
           return { content: `Error: ${result.error}`, isError: true };
         }

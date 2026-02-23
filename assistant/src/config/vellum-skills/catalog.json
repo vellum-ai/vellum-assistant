@@ -1,4 +1,5 @@
 {
+  "_description": "Manifest of first-party Vellum skills. Fetched from GitHub at runtime so the desktop app can discover new skills without a release. The bundled copy serves as an offline fallback.",
   "version": 1,
   "skills": [
     {

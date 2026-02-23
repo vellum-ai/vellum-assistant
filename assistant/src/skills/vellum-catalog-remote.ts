@@ -61,7 +61,11 @@ export async function fetchCatalogEntries(): Promise<CatalogEntry[]> {
     }
 
     const manifest: CatalogManifest = await response.json();
-    cachedEntries = manifest.skills ?? [];
+    const skills = manifest.skills;
+    if (!Array.isArray(skills) || skills.length === 0) {
+      throw new Error('Remote catalog has invalid or empty skills array');
+    }
+    cachedEntries = skills;
     cacheTimestamp = now;
     log.info({ count: cachedEntries.length }, 'Fetched remote vellum-skills catalog');
     return cachedEntries;
@@ -97,7 +101,7 @@ export async function fetchSkillContent(skillId: string): Promise<string | null>
 }
 
 /** Check if a skill ID exists in the remote catalog. */
-export async function isVellumSkill(skillId: string): Promise<boolean> {
+export async function checkVellumSkill(skillId: string): Promise<boolean> {
   const entries = await fetchCatalogEntries();
   return entries.some((e) => e.id === skillId);
 }
