@@ -739,7 +739,7 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'channels/conversation' && req.method === 'DELETE') {
-        return await handleDeleteConversation(req);
+        return await handleDeleteConversation(req, assistantId);
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {

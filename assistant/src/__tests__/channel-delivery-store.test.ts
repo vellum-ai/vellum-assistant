@@ -24,7 +24,7 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { channelInboundEvents, messages } from '../memory/schema.js';
+import { channelInboundEvents, conversations, messages } from '../memory/schema.js';
 import {
   recordInbound,
   linkMessage,
@@ -40,6 +40,8 @@ import {
 } from '../memory/channel-delivery-store.js';
 import { RETRY_MAX_ATTEMPTS } from '../memory/job-utils.js';
 import { eq } from 'drizzle-orm';
+import { setConversationKey, getConversationByKey } from '../memory/conversation-key-store.js';
+import { handleDeleteConversation } from '../runtime/routes/channel-routes.js';
 
 initializeDb();
 
@@ -464,5 +466,85 @@ describe('channel-delivery-store', () => {
 
     const found = findMessageBySourceId('telegram', 'chat-1', 'src-1');
     expect(found!.messageId).toBe(msgId);
+  });
+
+  // ── handleDeleteConversation assistantId parameter ───────────────
+
+  test('handleDeleteConversation uses route assistantId param to delete scoped key', async () => {
+    // Set up a scoped conversation key like the one created by recordInbound
+    // with a specific assistantId.
+    const convId = 'conv-delete-test';
+    const scopedKey = 'asst:my-assistant:telegram:chat-del';
+    const legacyKey = 'telegram:chat-del';
+
+    // Insert a conversation row so FK constraints are satisfied
+    const now = Date.now();
+    const db = getDb();
+    db.insert(conversations).values({
+      id: convId,
+      title: 'test',
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+    setConversationKey(scopedKey, convId);
+    setConversationKey(legacyKey, convId);
+
+    // Verify both keys exist
+    expect(getConversationByKey(scopedKey)).not.toBeNull();
+    expect(getConversationByKey(legacyKey)).not.toBeNull();
+
+    // Call handleDeleteConversation with assistantId as a parameter (not in body)
+    const req = new Request('http://localhost/channels/conversation', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'telegram',
+        externalChatId: 'chat-del',
+        // Note: no assistantId in the body — it comes from the route param
+      }),
+    });
+
+    const res = await handleDeleteConversation(req, 'my-assistant');
+    expect(res.status).toBe(200);
+
+    const json = await res.json() as { ok: boolean };
+    expect(json.ok).toBe(true);
+
+    // Both the legacy key and the scoped key should be deleted
+    expect(getConversationByKey(scopedKey)).toBeNull();
+    expect(getConversationByKey(legacyKey)).toBeNull();
+  });
+
+  test('handleDeleteConversation defaults to "self" when no assistantId provided', async () => {
+    const convId = 'conv-delete-default';
+    const scopedKey = 'asst:self:telegram:chat-def';
+    const legacyKey = 'telegram:chat-def';
+
+    const now = Date.now();
+    const db = getDb();
+    db.insert(conversations).values({
+      id: convId,
+      title: 'test',
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+    setConversationKey(scopedKey, convId);
+    setConversationKey(legacyKey, convId);
+
+    const req = new Request('http://localhost/channels/conversation', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceChannel: 'telegram',
+        externalChatId: 'chat-def',
+      }),
+    });
+
+    // No assistantId parameter — should default to 'self'
+    const res = await handleDeleteConversation(req);
+    expect(res.status).toBe(200);
+
+    expect(getConversationByKey(scopedKey)).toBeNull();
+    expect(getConversationByKey(legacyKey)).toBeNull();
   });
 });

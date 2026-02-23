@@ -154,17 +154,13 @@ function parseCallbackData(data: string): ApprovalDecisionResult | null {
   return { action: action as ApprovalAction, source: 'telegram_button', runId };
 }
 
-export async function handleDeleteConversation(req: Request): Promise<Response> {
+export async function handleDeleteConversation(req: Request, assistantId: string = 'self'): Promise<Response> {
   const body = await req.json() as {
     sourceChannel?: string;
     externalChatId?: string;
-    assistantId?: string;
   };
 
   const { sourceChannel, externalChatId } = body;
-  const assistantId = typeof body.assistantId === 'string' && body.assistantId.length > 0
-    ? body.assistantId
-    : 'self';
 
   if (!sourceChannel || typeof sourceChannel !== 'string') {
     return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
