@@ -533,6 +533,9 @@ export const MemoryEntityConfigSchema = z.object({
       .int('memory.entity.relationRetrieval.maxDepth must be an integer')
       .positive('memory.entity.relationRetrieval.maxDepth must be a positive integer')
       .default(3),
+    depthDecay: z
+      .boolean({ error: 'memory.entity.relationRetrieval.depthDecay must be a boolean' })
+      .default(true),
   }).default({
     enabled: true,
     maxSeedEntities: 8,
@@ -540,6 +543,7 @@ export const MemoryEntityConfigSchema = z.object({
     maxEdges: 40,
     neighborScoreMultiplier: 0.7,
     maxDepth: 3,
+    depthDecay: true,
   }),
 });
 
@@ -688,6 +692,7 @@ export const MemoryConfigSchema = z.object({
       maxEdges: 40,
       neighborScoreMultiplier: 0.7,
       maxDepth: 3,
+      depthDecay: true,
     },
   }),
   conflicts: MemoryConflictsConfigSchema.default({
@@ -1226,6 +1231,7 @@ export const AssistantConfigSchema = z.object({
         maxEdges: 40,
         neighborScoreMultiplier: 0.7,
         maxDepth: 3,
+        depthDecay: true,
       },
     },
     conflicts: {

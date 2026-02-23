@@ -53,6 +53,7 @@ export function mergeCandidates(
   entity: Candidate[] = [],
   freshnessConfig?: { enabled: boolean; maxAgeDays: Record<string, number>; staleDecay: number; reinforcementShieldDays: number },
   relationScoreMultiplier?: number,
+  candidateDepthMap?: Map<string, number>,
 ): Candidate[] {
   // Build effective weight map that reflects the actual scoring weight for
   // each source.  For entity_relation the static SOURCE_WEIGHTS entry is 1.0
@@ -126,7 +127,11 @@ export function mergeCandidates(
     const lastUsedAt = meta?.lastUsedAt ?? null;
     const freshnessWeight = computeFreshnessWeight(row, accessCount, lastUsedAt, freshnessConfig);
 
-    const sourceWeight = effectiveWeights[row.source] ?? 1.0;
+    let sourceWeight = effectiveWeights[row.source] ?? 1.0;
+    if (row.source === 'entity_relation' && candidateDepthMap && relationScoreMultiplier != null) {
+      const depth = candidateDepthMap.get(row.key) ?? 1;
+      sourceWeight = Math.pow(relationScoreMultiplier, depth);
+    }
     row.finalScore = rrfScore * (0.5 + 0.5 * effectiveImportance) * trustWeight * freshnessWeight * sourceWeight;
   }
 

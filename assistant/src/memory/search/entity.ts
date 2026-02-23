@@ -56,6 +56,7 @@ export function entitySearch(
   const {
     neighborEntityIds,
     traversedEdgeCount: relationTraversedEdgeCount,
+    neighborDepths,
   } = findNeighborEntities(seedEntityIds, {
     maxEdges: relationConfig.maxEdges,
     maxNeighborEntities: relationConfig.maxNeighborEntities,
@@ -71,12 +72,47 @@ export function entitySearch(
   });
   const relationExpandedItemCount = relationCandidates.length;
 
+  // Build candidate key → BFS depth map so ranking can apply distance-based decay
+  const candidateDepths = new Map<string, number>();
+  if (relationCandidates.length > 0 && neighborDepths.size > 0) {
+    const db = getDb();
+    const itemIds = relationCandidates.map((c) => c.id);
+    const links = db
+      .select({
+        memoryItemId: memoryItemEntities.memoryItemId,
+        entityId: memoryItemEntities.entityId,
+      })
+      .from(memoryItemEntities)
+      .where(inArray(memoryItemEntities.memoryItemId, itemIds))
+      .all();
+
+    // For each item, find the minimum depth among its linked neighbor entities
+    const itemDepthMap = new Map<string, number>();
+    for (const link of links) {
+      const depth = neighborDepths.get(link.entityId);
+      if (depth !== undefined) {
+        const existing = itemDepthMap.get(link.memoryItemId);
+        if (existing === undefined || depth < existing) {
+          itemDepthMap.set(link.memoryItemId, depth);
+        }
+      }
+    }
+
+    for (const candidate of relationCandidates) {
+      const depth = itemDepthMap.get(candidate.id);
+      if (depth !== undefined) {
+        candidateDepths.set(candidate.key, depth);
+      }
+    }
+  }
+
   return {
     candidates: [...directCandidates, ...relationCandidates],
     relationSeedEntityCount,
     relationTraversedEdgeCount,
     relationNeighborEntityCount,
     relationExpandedItemCount,
+    candidateDepths,
   };
 }
 
@@ -87,6 +123,7 @@ export function emptyEntitySearchResult(): EntitySearchResult {
     relationTraversedEdgeCount: 0,
     relationNeighborEntityCount: 0,
     relationExpandedItemCount: 0,
+    candidateDepths: new Map(),
   };
 }
 

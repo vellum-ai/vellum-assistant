@@ -105,6 +105,7 @@ export interface EntitySearchResult {
   relationTraversedEdgeCount: number;
   relationNeighborEntityCount: number;
   relationExpandedItemCount: number;
+  candidateDepths?: Map<string, number>; // candidate key → BFS hop depth (1-based)
 }
 
 export interface MatchedEntityRow {

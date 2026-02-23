@@ -110,6 +110,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
         maxEdges: 40,
         neighborScoreMultiplier: 0.7,
         maxDepth: 3,
+        depthDecay: true,
       },
     },
     conflicts: {

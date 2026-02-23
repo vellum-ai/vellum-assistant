@@ -177,6 +177,7 @@ async function collectAndMergeCandidates(
   }
 
   let entity: Candidate[] = [];
+  let candidateDepths: Map<string, number> | undefined;
   let relationSeedEntityCount = 0;
   let relationTraversedEdgeCount = 0;
   let relationNeighborEntityCount = 0;
@@ -189,6 +190,7 @@ async function collectAndMergeCandidates(
       excludeMessageIds,
     );
     entity = entitySearchResult.candidates;
+    candidateDepths = entitySearchResult.candidateDepths;
     relationSeedEntityCount = entitySearchResult.relationSeedEntityCount;
     relationTraversedEdgeCount = entitySearchResult.relationTraversedEdgeCount;
     relationNeighborEntityCount = entitySearchResult.relationNeighborEntityCount;
@@ -205,7 +207,10 @@ async function collectAndMergeCandidates(
   const relationScoreMultiplier = config.memory.entity.enabled && config.memory.entity.relationRetrieval.enabled
     ? config.memory.entity.relationRetrieval.neighborScoreMultiplier
     : undefined;
-  const merged = mergeCandidates(lexical, semantic, recency, [...entity, ...directItems], config.memory.retrieval.freshness, relationScoreMultiplier);
+  const depthMap = config.memory.entity.enabled && config.memory.entity.relationRetrieval.depthDecay
+    ? candidateDepths
+    : undefined;
+  const merged = mergeCandidates(lexical, semantic, recency, [...entity, ...directItems], config.memory.retrieval.freshness, relationScoreMultiplier, depthMap);
 
   return {
     lexical,
