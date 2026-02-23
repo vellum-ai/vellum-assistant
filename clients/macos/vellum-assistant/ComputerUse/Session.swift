@@ -48,10 +48,10 @@ final class ComputerUseSession: ObservableObject {
                     log.info("Retro-resolving pending prompt \(pending.requestId) (tool=\(pending.toolName), risk=\(normalizedRisk))")
                     do {
                         try daemonClient.send(ConfirmationResponseMessage(requestId: pending.requestId, decision: "allow"))
+                        pendingToolPermissionPrompt = nil
                     } catch {
-                        log.error("Failed to retro-resolve pending prompt: \(error)")
+                        log.error("Failed to retro-resolve pending prompt: \(error) — keeping prompt visible for manual approval")
                     }
-                    pendingToolPermissionPrompt = nil
                 }
             }
         }
