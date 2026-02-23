@@ -13,6 +13,7 @@ struct SlashCommand {
         SlashCommand(name: "commands", description: "List all available commands", icon: "terminal"),
         SlashCommand(name: "model", description: "Switch the active model", icon: "cpu"),
         SlashCommand(name: "models", description: "List all available models", icon: "list.bullet"),
+        SlashCommand(name: "status", description: "Show session status and context usage", icon: "info.circle"),
     ]
 }
 

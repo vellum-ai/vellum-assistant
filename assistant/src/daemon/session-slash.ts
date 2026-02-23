@@ -15,6 +15,18 @@ export type SlashResolution =
   | { kind: 'rewritten'; content: string; skillId: string }
   | { kind: 'unknown'; message: string };
 
+// ── /status command ──────────────────────────────────────────────────
+
+export interface SlashContext {
+  messageCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  maxInputTokens: number;
+  model: string;
+  provider: string;
+  estimatedCost: number;
+}
+
 // ── /model command ───────────────────────────────────────────────────
 
 const AVAILABLE_MODELS = [
@@ -242,11 +254,31 @@ function resolveModelCommand(content: string): SlashResolution | null {
   };
 }
 
+function resolveStatusCommand(context: SlashContext): SlashResolution {
+  const { inputTokens, maxInputTokens, model, provider, messageCount, outputTokens, estimatedCost } = context;
+  const pct = maxInputTokens > 0 ? Math.round((inputTokens / maxInputTokens) * 100) : 0;
+  const filled = Math.round(pct / 5);
+  const bar = '█'.repeat(filled) + '░'.repeat(20 - filled);
+  const fmt = (n: number) => n.toLocaleString('en-US');
+  const displayName = MODEL_DISPLAY_NAMES[model] ?? model;
+
+  const lines = [
+    'Session Status\n',
+    `Context:  ${bar}  ${pct}%  (${fmt(inputTokens)} / ${fmt(maxInputTokens)} tokens)`,
+    `Model:    ${displayName} (${provider})`,
+    `Messages: ${fmt(messageCount)}`,
+    `Tokens:   ${fmt(inputTokens)} in / ${fmt(outputTokens)} out`,
+    `Cost:     $${estimatedCost.toFixed(2)} (estimated)`,
+  ];
+
+  return { kind: 'unknown', message: lines.join('\n') };
+}
+
 /**
  * Resolve slash commands against the current skill catalog.
  * Returns `unknown` with a deterministic message, or the (possibly rewritten) content.
  */
-export function resolveSlash(content: string): SlashResolution {
+export function resolveSlash(content: string, context?: SlashContext): SlashResolution {
   // Check provider shortcuts first (/gpt4, /opus, etc.)
   const providerResult = resolveProviderModelCommand(content);
   if (providerResult) return providerResult;
@@ -255,11 +287,19 @@ export function resolveSlash(content: string): SlashResolution {
   const modelResult = resolveModelCommand(content);
   if (modelResult) return modelResult;
 
+  // Handle /status command
+  if (content.trim() === '/status') {
+    if (!context) {
+      return { kind: 'unknown', message: 'Status information is not available in this context.' };
+    }
+    return resolveStatusCommand(context);
+  }
+
   // Handle /commands command
   if (content.trim() === '/commands') {
     return {
       kind: 'unknown',
-      message: '/commands — List all available commands\n/model — Show or switch the current model\n/models — List all available models',
+      message: '/commands — List all available commands\n/model — Show or switch the current model\n/models — List all available models\n/status — Show session status and context usage',
     };
   }
 

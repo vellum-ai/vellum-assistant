@@ -8,12 +8,13 @@
 
 import type { Message } from '../providers/types.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
+import type { UsageStats } from './ipc-contract.js';
 import type { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
 import type { TraceEmitter } from './trace-emitter.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import { resolveSlash } from './session-slash.js';
+import { resolveSlash, type SlashContext } from './session-slash.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { tryRouteCallMessage } from '../calls/call-bridge.js';
@@ -56,6 +57,8 @@ export interface ProcessSessionContext {
   readonly traceEmitter: TraceEmitter;
   currentActiveSurfaceId?: string;
   currentPage?: string;
+  /** Cumulative token usage stats for the session. */
+  readonly usageStats: UsageStats;
   /** Request-scoped skill IDs preactivated via slash resolution. */
   preactivatedSkillIds?: string[];
   persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>): string;
@@ -65,6 +68,20 @@ export interface ProcessSessionContext {
     onEvent: (msg: ServerMessage) => void,
     options?: { skipPreMessageRollback?: boolean },
   ): Promise<void>;
+}
+
+/** Build a SlashContext from the current session state and config. */
+function buildSlashContext(session: ProcessSessionContext): SlashContext {
+  const config = getConfig();
+  return {
+    messageCount: session.messages.length,
+    inputTokens: session.usageStats.inputTokens,
+    outputTokens: session.usageStats.outputTokens,
+    maxInputTokens: config.contextWindow.maxInputTokens,
+    model: config.model,
+    provider: config.provider,
+    estimatedCost: session.usageStats.estimatedCost,
+  };
 }
 
 // ── drainQueue ───────────────────────────────────────────────────────
@@ -96,7 +113,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   });
 
   // Resolve slash commands for queued messages
-  const slashResult = resolveSlash(next.content);
+  const slashResult = resolveSlash(next.content, buildSlashContext(session));
 
   // Unknown slash — persist the exchange and continue draining.
   // Persist each message before pushing to session.messages so that a
@@ -242,7 +259,7 @@ export async function processMessage(
   session.currentPage = currentPage;
 
   // Resolve slash commands before persistence
-  const slashResult = resolveSlash(content);
+  const slashResult = resolveSlash(content, buildSlashContext(session));
 
   // Unknown slash command — persist the exchange (user + assistant) so the
   // messageId is real.  Persist each message before pushing to session.messages
