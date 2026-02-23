@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import Anthropic from '@anthropic-ai/sdk';
+import { getConfig } from '../../../../config/defaults.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import {
   getMediaAssetById,
@@ -82,14 +83,15 @@ export async function run(
 
   updateProcessingStage(stage.id, { status: 'running', startedAt: Date.now() });
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const config = getConfig();
+  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     updateProcessingStage(stage.id, {
       status: 'failed',
-      lastError: 'ANTHROPIC_API_KEY not set',
+      lastError: 'Anthropic API key not configured',
     });
     return {
-      content: 'ANTHROPIC_API_KEY environment variable is not set. Required for vision analysis.',
+      content: 'No Anthropic API key available. Configure it in settings or set ANTHROPIC_API_KEY.',
       isError: true,
     };
   }
