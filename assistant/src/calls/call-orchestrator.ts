@@ -179,9 +179,15 @@ export class CallOrchestrator {
    * Handle caller interrupting the assistant's speech.
    */
   handleInterrupt(): void {
+    const wasSpeaking = this.state === 'speaking';
     this.abortController.abort();
     this.abortController = new AbortController();
     this.llmRunVersion++;
+    // Explicitly terminate the in-progress TTS turn so the relay can
+    // immediately hand control back to the caller after barge-in.
+    if (wasSpeaking) {
+      this.relay.sendTextToken('', true);
+    }
     this.state = 'idle';
   }
 

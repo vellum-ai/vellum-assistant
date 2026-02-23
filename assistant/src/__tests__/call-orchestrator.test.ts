@@ -594,6 +594,38 @@ describe('call-orchestrator', () => {
     orchestrator.destroy();
   });
 
+  test('handleInterrupt: sends turn terminator when interrupting active speech', async () => {
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const emitter = new EventEmitter();
+      const options = args[1] as { signal?: AbortSignal } | undefined;
+      return {
+        on: (event: string, handler: (...evtArgs: unknown[]) => void) => {
+          emitter.on(event, handler);
+          return { on: () => ({ on: () => ({}) }) };
+        },
+        finalMessage: () =>
+          new Promise((_, reject) => {
+            options?.signal?.addEventListener('abort', () => {
+              const err = new Error('aborted');
+              err.name = 'AbortError';
+              reject(err);
+            }, { once: true });
+          }),
+      };
+    });
+
+    const { relay, orchestrator } = setupOrchestrator();
+    const turnPromise = orchestrator.handleCallerUtterance('Start speaking');
+    await new Promise((r) => setTimeout(r, 5));
+    orchestrator.handleInterrupt();
+    await turnPromise;
+
+    const endTurnMarkers = relay.sentTokens.filter((t) => t.token === '' && t.last === true);
+    expect(endTurnMarkers.length).toBeGreaterThan(0);
+
+    orchestrator.destroy();
+  });
+
   // ── destroy ───────────────────────────────────────────────────────
 
   test('destroy: unregisters orchestrator', () => {
