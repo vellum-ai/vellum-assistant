@@ -1285,6 +1285,8 @@ extension ChatViewModel {
         case .subagentEvent(let msg):
             guard activeSubagents.contains(where: { $0.id == msg.subagentId }) else { break }
             subagentDetailStore.handleEvent(subagentId: msg.subagentId, event: msg.event)
+            // Notify SwiftUI so SubagentThreadView re-renders with updated events
+            objectWillChange.send()
 
         case .modelInfo(let msg):
             selectedModel = msg.model
