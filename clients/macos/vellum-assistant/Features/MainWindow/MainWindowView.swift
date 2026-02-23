@@ -218,8 +218,9 @@ struct MainWindowView: View {
             windowState.selection = .app(appId)
             isAppChatOpen = false
 
-        case .panel:
+        case .panel(let panelType) where panelType != .voiceMode && panelType != .documentEditor:
             // Toggle: flip isAppChatOpen for any panel view
+            // (voiceMode and documentEditor have their own dedicated split layouts)
             isAppChatOpen.toggle()
 
         default:
@@ -228,9 +229,15 @@ struct MainWindowView: View {
     }
 
     /// Whether the chat bubble toggle should be visible for the current selection.
-    /// Hidden when already in a full-screen chat thread (.thread / .none).
+    /// Hidden when already in a full-screen chat thread (.thread / .none),
+    /// or on panels that have their own dedicated chat layouts.
     private var isChatBubbleVisible: Bool {
-        !windowState.isShowingChat
+        if windowState.isShowingChat { return false }
+        if case .panel(let panelType) = windowState.selection,
+           panelType == .voiceMode || panelType == .documentEditor {
+            return false
+        }
+        return true
     }
 
     /// Whether the chat bubble toggle is active (chat is open).
@@ -238,7 +245,7 @@ struct MainWindowView: View {
         switch windowState.selection {
         case .appEditing:
             return true
-        case .panel:
+        case .panel(let panelType) where panelType != .voiceMode && panelType != .documentEditor:
             return isAppChatOpen
         default:
             return false
