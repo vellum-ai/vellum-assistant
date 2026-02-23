@@ -1151,14 +1151,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         } else if let port = httpPort {
             baseURL = "http://localhost:\(port)"
             // Read local bearer token from disk
-            let tokenBase: String
-            if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !baseDir.isEmpty {
-                tokenBase = baseDir
-            } else {
-                tokenBase = NSHomeDirectory()
-            }
-            let tokenPath = tokenBase + "/.vellum/http-token"
+            let tokenPath = resolveHttpTokenPath()
             do {
                 bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
             } catch {
