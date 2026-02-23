@@ -399,11 +399,14 @@ struct MainWindowView: View {
             // Poll for bootstrap completion so the dashboard is enabled even when
             // BOOTSTRAP.md is deleted via tool execution that only mutates
             // existing messages in place (no message-ID change to trigger
-            // the .onChange above). Stops automatically once the auto-enable
-            // flag is set.
-            .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
-                guard !homeBaseDashboardAutoEnabled else { return }
-                requestHomeBaseDashboardIfNeeded()
+            // the .onChange above). The task exits once the auto-enable flag
+            // is set, ensuring zero overhead after first-launch bootstrap.
+            .task {
+                while !homeBaseDashboardAutoEnabled {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    requestHomeBaseDashboardIfNeeded()
+                }
             }
             .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
             .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("AppleInterfaceThemeChangedNotification"))) { _ in
