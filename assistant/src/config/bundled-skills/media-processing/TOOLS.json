@@ -100,6 +100,50 @@
       },
       "executor": "tools/analyze-keyframes.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "detect_events",
+      "description": "Detect events from a media asset's timeline segments using configurable detection rules with weighted confidence ranking. Supports built-in rule types: segment_transition (field changes between adjacent segments), short_segment (segments below a duration threshold), and attribute_match (regex matching on segment attributes). If no rules are provided, sensible defaults are used based on the event type.",
+      "category": "media",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "ID of the media asset to detect events in"
+          },
+          "event_type": {
+            "type": "string",
+            "description": "Type label for detected events (e.g., 'turnover', 'scene_change', 'highlight')"
+          },
+          "detection_rules": {
+            "type": "array",
+            "description": "Optional array of detection rule objects. Each rule has: ruleType (string: 'segment_transition', 'short_segment', or 'attribute_match'), params (object with rule-specific parameters), and weight (number: contribution to confidence score). If omitted, defaults are used based on event_type.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ruleType": {
+                  "type": "string",
+                  "description": "Rule type: 'segment_transition', 'short_segment', or 'attribute_match'"
+                },
+                "params": {
+                  "type": "object",
+                  "description": "Rule-specific parameters (e.g., { field: 'subjects' }, { maxDurationSeconds: 5 }, { field: 'actions', pattern: 'steal|turnover' })"
+                },
+                "weight": {
+                  "type": "number",
+                  "description": "Weight for this rule's contribution to the confidence score"
+                }
+              },
+              "required": ["ruleType", "params", "weight"]
+            }
+          }
+        },
+        "required": ["asset_id", "event_type"]
+      },
+      "executor": "tools/detect-events.ts",
+      "execution_target": "host"
     }
   ]
 }

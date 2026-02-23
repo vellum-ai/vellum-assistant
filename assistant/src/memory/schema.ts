@@ -742,3 +742,16 @@ export const mediaTimelines = sqliteTable('media_timelines', {
   confidence: real('confidence'),
   createdAt: integer('created_at').notNull(),
 });
+
+export const mediaEvents = sqliteTable('media_events', {
+  id: text('id').primaryKey(),
+  assetId: text('asset_id').notNull()
+    .references(() => mediaAssets.id, { onDelete: 'cascade' }),
+  eventType: text('event_type').notNull(),
+  startTime: real('start_time').notNull(),
+  endTime: real('end_time').notNull(),
+  confidence: real('confidence').notNull(),
+  reasons: text('reasons').notNull(),                            // JSON array
+  metadata: text('metadata'),                                    // JSON
+  createdAt: integer('created_at').notNull(),
+});
