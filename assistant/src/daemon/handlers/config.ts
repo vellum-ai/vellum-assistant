@@ -4,8 +4,8 @@ import { initializeProviders } from '../../providers/registry.js';
 import { addRule, removeRule, updateRule, getAllRules, acceptStarterBundle } from '../../permissions/trust-store.js';
 import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } from '../../permissions/checker.js';
 import { isSideEffectTool } from '../../tools/executor.js';
-import { resolveExecutionTarget } from '../../tools/execution-target.js';
-import { getAllTools } from '../../tools/registry.js';
+import { resolveExecutionTarget, type ManifestOverride } from '../../tools/execution-target.js';
+import { getAllTools, getTool } from '../../tools/registry.js';
 import { loadSkillCatalog } from '../../config/skills.js';
 import { parseToolManifestFile } from '../../skills/tool-manifest.js';
 import { join } from 'node:path';
@@ -1566,6 +1566,32 @@ export function handleEnvVarsRequest(socket: net.Socket, ctx: HandlerContext): v
   ctx.send(socket, { type: 'env_vars_response', vars });
 }
 
+/**
+ * Look up manifest metadata for a tool that isn't in the live registry.
+ * Searches all installed skills' TOOLS.json manifests for a matching tool name.
+ */
+function resolveManifestOverride(toolName: string): ManifestOverride | undefined {
+  if (getTool(toolName)) return undefined;
+  try {
+    const catalog = loadSkillCatalog();
+    for (const skill of catalog) {
+      if (!skill.toolManifest?.present || !skill.toolManifest.valid) continue;
+      try {
+        const manifest = parseToolManifestFile(join(skill.directoryPath, 'TOOLS.json'));
+        const entry = manifest.tools.find((t) => t.name === toolName);
+        if (entry) {
+          return { risk: entry.risk, execution_target: entry.execution_target };
+        }
+      } catch {
+        // Skip unparseable manifests
+      }
+    }
+  } catch {
+    // Non-fatal
+  }
+  return undefined;
+}
+
 export async function handleToolPermissionSimulate(
   msg: ToolPermissionSimulateRequest,
   socket: net.Socket,
@@ -1591,13 +1617,15 @@ export async function handleToolPermissionSimulate(
 
     const workingDir = msg.workingDir ?? process.cwd();
 
-    // Resolve execution target using manifest metadata or prefix heuristics.
-    // resolveExecutionTarget handles unregistered tools via prefix fallback.
-    const executionTarget = resolveExecutionTarget(msg.toolName);
+    // For unregistered skill tools, resolve manifest metadata so the simulation
+    // uses accurate risk/execution_target values instead of falling back to defaults.
+    const manifestOverride = resolveManifestOverride(msg.toolName);
+
+    const executionTarget = resolveExecutionTarget(msg.toolName, manifestOverride);
     const policyContext = { executionTarget };
 
-    const riskLevel = await classifyRisk(msg.toolName, msg.input, workingDir);
-    const result = await check(msg.toolName, msg.input, workingDir, policyContext);
+    const riskLevel = await classifyRisk(msg.toolName, msg.input, workingDir, undefined, manifestOverride);
+    const result = await check(msg.toolName, msg.input, workingDir, policyContext, manifestOverride);
 
     // Private-thread override: promote allow → prompt for side-effect tools
     if (

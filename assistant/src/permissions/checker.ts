@@ -12,6 +12,7 @@ import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/net
 import { normalizeFilePath, isSkillSourcePath } from '../skills/path-classifier.js';
 import { isWorkspaceScopedInvocation } from './workspace-policy.js';
 import { buildShellCommandCandidates, buildShellAllowlistOptions, type ParsedCommand } from './shell-identity.js';
+import type { ManifestOverride } from '../tools/execution-target.js';
 
 // Ensures the legacy mode deprecation warning fires at most once per process.
 let _legacyDeprecationWarned = false;
@@ -244,7 +245,7 @@ async function buildCommandCandidates(toolName: string, input: Record<string, un
   return [...new Set(candidates)];
 }
 
-export async function classifyRisk(toolName: string, input: Record<string, unknown>, workingDir?: string, preParsed?: ParsedCommand): Promise<RiskLevel> {
+export async function classifyRisk(toolName: string, input: Record<string, unknown>, workingDir?: string, preParsed?: ParsedCommand, manifestOverride?: ManifestOverride): Promise<RiskLevel> {
   if (toolName === 'file_read') return RiskLevel.Low;
   if (toolName === 'file_write' || toolName === 'file_edit') {
     const filePath = getStringField(input, 'path', 'file_path');
@@ -342,6 +343,13 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
   const tool = getTool(toolName);
   if (tool) return tool.defaultRiskLevel;
 
+  // Use manifest metadata for unregistered skill tools so the Permission
+  // Simulator shows accurate risk levels instead of defaulting to Medium.
+  if (manifestOverride) {
+    const riskMap: Record<string, RiskLevel> = { low: RiskLevel.Low, medium: RiskLevel.Medium, high: RiskLevel.High };
+    return riskMap[manifestOverride.risk] ?? RiskLevel.Medium;
+  }
+
   // Unknown tool → Medium
   return RiskLevel.Medium;
 }
@@ -351,6 +359,7 @@ export async function check(
   input: Record<string, unknown>,
   workingDir: string,
   policyContext?: PolicyContext,
+  manifestOverride?: ManifestOverride,
 ): Promise<PermissionCheckResult> {
   // For shell tools, parse once and share the result to avoid duplicate tree-sitter work.
   let shellParsed: ParsedCommand | undefined;
@@ -361,7 +370,7 @@ export async function check(
     }
   }
 
-  const risk = await classifyRisk(toolName, input, workingDir, shellParsed);
+  const risk = await classifyRisk(toolName, input, workingDir, shellParsed, manifestOverride);
 
   // Build command string candidates for rule matching
   const commandCandidates = await buildCommandCandidates(toolName, input, workingDir, shellParsed);
@@ -406,9 +415,14 @@ export async function check(
   // Third-party skill-origin tools default to prompting when no trust rule
   // matches, regardless of risk level. Bundled skill tools are first-party
   // and trusted, so they fall through to the normal risk-based policy.
+  // When manifestOverride is present, the tool comes from a skill manifest
+  // but isn't registered — treat it as a third-party skill tool.
   if (!matchedRule) {
     const tool = getTool(toolName);
     if (tool?.origin === 'skill' && !tool.ownerSkillBundled) {
+      return { decision: 'prompt', reason: 'Skill tool: requires approval by default' };
+    }
+    if (!tool && manifestOverride) {
       return { decision: 'prompt', reason: 'Skill tool: requires approval by default' };
     }
   }
