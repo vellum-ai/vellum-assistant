@@ -767,9 +767,9 @@ export function buildSchema(): Record<string, unknown> {
             assistantId: { type: "string", description: "Optional assistant ID for per-assistant phone number resolution in multi-assistant setups" },
             attachments: { type: "array", items: { type: "object" }, description: "Media attachments. When text is empty but attachments are present, a fallback text message is sent instead." },
           },
-          anyOf: [
-            { required: ["to"] },
-            { required: ["chatId"] },
+          allOf: [
+            { anyOf: [{ required: ["to"] }, { required: ["chatId"] }] },
+            { anyOf: [{ required: ["text"] }, { required: ["attachments"] }] },
           ],
         },
         TelegramUpdate: {
