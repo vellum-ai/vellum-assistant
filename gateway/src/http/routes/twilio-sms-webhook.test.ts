@@ -483,6 +483,78 @@ describe("twilio-sms-webhook", () => {
     expect(handleInboundMock).toHaveBeenCalledTimes(0);
   });
 
+  it("routes by To phone number when assistantPhoneNumbers is configured", async () => {
+    const phoneConfig: GatewayConfig = {
+      ...baseConfig,
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+      assistantPhoneNumbers: { "ast-alpha": "+15559876543" },
+    };
+    const handler = createTwilioSmsWebhookHandler(phoneConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    const params = {
+      Body: "Hello via phone routing",
+      From: "+15551234567",
+      To: "+15559876543",
+      MessageSid: "SM-phone-route",
+    };
+    const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Should have been forwarded via handleInbound (not rejected)
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("phone number routing takes priority over reject policy", async () => {
+    const phoneConfig: GatewayConfig = {
+      ...baseConfig,
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+      assistantPhoneNumbers: { "ast-beta": "+15559876543" },
+    };
+    const handler = createTwilioSmsWebhookHandler(phoneConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    const params = {
+      Body: "/new",
+      From: "+15551234567",
+      To: "+15559876543",
+      MessageSid: "SM-phone-new",
+    };
+    const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    // resetConversation should have been called with the phone-routed assistant
+    expect(resetConversationMock).toHaveBeenCalledTimes(1);
+    const [, assistantId] = resetConversationMock.mock.calls[0] as unknown[];
+    expect(assistantId).toBe("ast-beta");
+  });
+
+  it("falls through to standard routing when To number is not in assistantPhoneNumbers", async () => {
+    const phoneConfig: GatewayConfig = {
+      ...baseConfig,
+      assistantPhoneNumbers: { "ast-alpha": "+15550001111" },
+    };
+    const handler = createTwilioSmsWebhookHandler(phoneConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    const params = {
+      Body: "Hello fallthrough",
+      From: "+15551234567",
+      To: "+15559876543",
+      MessageSid: "SM-phone-fallthrough",
+    };
+    const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    // Should still be forwarded via the default routing
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+  });
+
   it("MMS detected via MediaContentType0 when NumMedia is absent", async () => {
     const handler = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";

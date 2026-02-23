@@ -1170,7 +1170,15 @@ export async function handleTwilioConfig(
       const hasCredentials = hasTwilioCredentials();
       const raw = loadRawConfig();
       const sms = (raw?.sms ?? {}) as Record<string, unknown>;
-      const phoneNumber = (sms.phoneNumber as string) ?? '';
+      // When assistantId is provided, look up in assistantPhoneNumbers first,
+      // fall back to the legacy phoneNumber field
+      let phoneNumber: string;
+      if (msg.assistantId) {
+        const mapping = (sms.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
+        phoneNumber = mapping[msg.assistantId] ?? (sms.phoneNumber as string) ?? '';
+      } else {
+        phoneNumber = (sms.phoneNumber as string) ?? '';
+      }
       ctx.send(socket, {
         type: 'twilio_config_response',
         success: true,
@@ -1313,7 +1321,14 @@ export async function handleTwilioConfig(
 
       const raw = loadRawConfig();
       const sms = (raw?.sms ?? {}) as Record<string, unknown>;
+      // Always persist into legacy field for backward compat
       sms.phoneNumber = purchased.phoneNumber;
+      // When assistantId is provided, also persist into the per-assistant mapping
+      if (msg.assistantId) {
+        const mapping = (sms.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
+        mapping[msg.assistantId] = purchased.phoneNumber;
+        sms.assistantPhoneNumbers = mapping;
+      }
 
       const wasSuppressed = ctx.suppressConfigReload;
       ctx.setSuppressConfigReload(true);
@@ -1368,7 +1383,14 @@ export async function handleTwilioConfig(
       // Also persist in assistant config (non-secret) for the UI
       const raw = loadRawConfig();
       const sms = (raw?.sms ?? {}) as Record<string, unknown>;
+      // Always persist into legacy field for backward compat
       sms.phoneNumber = msg.phoneNumber;
+      // When assistantId is provided, also persist into the per-assistant mapping
+      if (msg.assistantId) {
+        const mapping = (sms.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
+        mapping[msg.assistantId] = msg.phoneNumber;
+        sms.assistantPhoneNumbers = mapping;
+      }
 
       const wasSuppressed = ctx.suppressConfigReload;
       ctx.setSuppressConfigReload(true);

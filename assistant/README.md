@@ -231,7 +231,15 @@ This reconciliation is **best-effort and fire-and-forget** -- failures are logge
 
 ### Single-Number-Per-Assistant Model
 
-Each assistant is assigned a single Twilio phone number that is shared between voice calls and SMS. The number is stored in the assistant's config at `sms.phoneNumber` and used as the `From` for outbound SMS via the gateway's `/deliver/sms` endpoint. The same credentials (Account SID, Auth Token) are used for both voice and SMS operations.
+Each assistant is assigned a single Twilio phone number that is shared between voice calls and SMS. The number is stored in the assistant's config at `sms.phoneNumber` (legacy global field) and used as the `From` for outbound SMS via the gateway's `/deliver/sms` endpoint. The same credentials (Account SID, Auth Token) are used for both voice and SMS operations.
+
+#### Assistant-Scoped Phone Numbers
+
+When `assistantId` is provided in the `twilio_config` request, the `provision_number` and `assign_number` actions persist the phone number into a per-assistant mapping at `sms.assistantPhoneNumbers` (a `Record<string, string>` keyed by assistant ID). The legacy `sms.phoneNumber` field is always updated for backward compatibility.
+
+The `get` action, when called with `assistantId`, resolves the phone number by checking `sms.assistantPhoneNumbers[assistantId]` first, falling back to `sms.phoneNumber`. This allows multiple assistants to have distinct phone numbers while preserving existing behavior for single-assistant setups.
+
+The per-assistant mapping is propagated to the gateway via the config file watcher, enabling phone-number-based routing at the gateway boundary (see Gateway README).
 
 ### Phone Number Resolution Order
 

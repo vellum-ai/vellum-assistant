@@ -1066,6 +1066,9 @@ export const SmsConfigSchema = z.object({
   phoneNumber: z
     .string({ error: 'sms.phoneNumber must be a string' })
     .default(''),
+  assistantPhoneNumbers: z
+    .record(z.string(), z.string({ error: 'sms.assistantPhoneNumbers values must be strings' }))
+    .optional(),
 });
 
 const IngressBaseSchema = z.object({
