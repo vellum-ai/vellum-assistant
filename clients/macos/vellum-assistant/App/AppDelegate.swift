@@ -197,11 +197,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             isAwaitingFirstLaunchReady = true
             Task {
                 let ready = await awaitDaemonReady(timeout: 15)
-                if !ready {
-                    log.warning("Daemon not ready after timeout — proceeding without connection")
-                }
                 isAwaitingFirstLaunchReady = false
-                showMainWindow(initialMessage: wakeUpGreeting(), isFirstLaunch: true)
+                if ready {
+                    showMainWindow(initialMessage: wakeUpGreeting(), isFirstLaunch: true)
+                } else {
+                    log.warning("Daemon not ready after timeout — opening window without wake-up greeting")
+                    showMainWindow(isFirstLaunch: true)
+                }
                 debugStateWriter.start(appDelegate: self)
             }
         } else {
