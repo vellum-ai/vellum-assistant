@@ -153,14 +153,14 @@ enum PixelSpriteBuilder {
     // MARK: - NSImage for SwiftUI
 
     /// Builds an NSImage of the minimalist avatar face.
-    /// Renders a warm beige/cream circle with two small dark eyes and a small dark mouth.
-    /// The `pixelSize` parameter controls overall scale (higher = larger image).
+    /// Renders a warm tan blob with a dark outline, two eyes with white sclera
+    /// and dark pupils. The `pixelSize` parameter controls overall scale.
     /// The `palette` parameter is accepted for API compatibility but the face uses
     /// fixed warm-neutral colors that work in both light and dark mode.
     static func buildBlobNSImage(pixelSize: CGFloat, palette: DinoPalette) -> NSImage {
         // Scale factor: the old blob grid was 26 wide, so size ~ 26 * pixelSize
         let diameter = 26.0 * pixelSize
-        let size = NSSize(width: diameter, height: diameter)
+        let size = NSSize(width: diameter + 2, height: diameter + 2)
         let image = NSImage(size: size)
         image.lockFocus()
 
@@ -169,46 +169,79 @@ enum PixelSpriteBuilder {
             return image
         }
 
-        let radius = diameter / 2.0
+        let centerX = size.width / 2.0
+        let centerY = size.height / 2.0
+        let blobRadius = diameter / 2.0
 
-        // Background circle: warm beige/cream (#F5F5F4 = Stone._100)
-        context.setFillColor(red: 0xF5 / 255.0, green: 0xF5 / 255.0, blue: 0xF4 / 255.0, alpha: 1.0)
-        context.fillEllipse(in: CGRect(x: 0, y: 0, width: diameter, height: diameter))
+        // Build an organic blob path — slightly irregular ellipse
+        let path = CGMutablePath()
+        let segments = 64
+        for i in 0..<segments {
+            let angle = CGFloat(i) / CGFloat(segments) * 2.0 * .pi
+            // Subtle radius variation for organic feel
+            let variation: CGFloat = 1.0
+                + 0.04 * cos(2.0 * angle + 0.3)
+                + 0.03 * sin(3.0 * angle + 1.0)
+                + 0.02 * cos(5.0 * angle)
+            let r = blobRadius * variation
+            let x = centerX + r * cos(angle)
+            let y = centerY + r * sin(angle)
+            if i == 0 {
+                path.move(to: CGPoint(x: x, y: y))
+            } else {
+                path.addLine(to: CGPoint(x: x, y: y))
+            }
+        }
+        path.closeSubpath()
 
-        // Feature color: dark warm gray (#44403C = Stone._800)
-        let featureR: CGFloat = 0x44 / 255.0
-        let featureG: CGFloat = 0x40 / 255.0
-        let featureB: CGFloat = 0x3C / 255.0
-        context.setFillColor(red: featureR, green: featureG, blue: featureB, alpha: 1.0)
+        // Fill: warm tan (#E3DCB6)
+        context.setFillColor(red: 0xE3 / 255.0, green: 0xDC / 255.0, blue: 0xB6 / 255.0, alpha: 1.0)
+        context.addPath(path)
+        context.fillPath()
 
-        // Eyes: two small circles, horizontally centered, slightly above vertical center
-        let eyeRadius = diameter * 0.07
-        let eyeY = radius + radius * 0.12  // slightly above center (CG y-up)
-        let eyeSpacing = diameter * 0.22
-        // Left eye
-        context.fillEllipse(in: CGRect(
-            x: radius - eyeSpacing - eyeRadius,
-            y: eyeY - eyeRadius,
-            width: eyeRadius * 2,
-            height: eyeRadius * 2
-        ))
-        // Right eye
-        context.fillEllipse(in: CGRect(
-            x: radius + eyeSpacing - eyeRadius,
-            y: eyeY - eyeRadius,
-            width: eyeRadius * 2,
-            height: eyeRadius * 2
-        ))
+        // Outline stroke: dark (#1C1917)
+        context.setStrokeColor(red: 0x1C / 255.0, green: 0x19 / 255.0, blue: 0x17 / 255.0, alpha: 1.0)
+        context.setLineWidth(max(1.5, pixelSize * 0.8))
+        context.addPath(path)
+        context.strokePath()
 
-        // Mouth: one small circle, centered below eyes
-        let mouthRadius = diameter * 0.05
-        let mouthY = radius - radius * 0.18  // below center (CG y-up)
-        context.fillEllipse(in: CGRect(
-            x: radius - mouthRadius,
-            y: mouthY - mouthRadius,
-            width: mouthRadius * 2,
-            height: mouthRadius * 2
-        ))
+        // Eyes: white sclera with dark pupils
+        let eyeOuterRadius = diameter * 0.10
+        let pupilRadius = diameter * 0.055
+        let eyeY = centerY + blobRadius * 0.08  // slightly above center
+        let eyeSpacing = diameter * 0.18
+
+        for sign: CGFloat in [-1.0, 1.0] {
+            let ex = centerX + sign * eyeSpacing
+
+            // White sclera
+            context.setFillColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+            context.fillEllipse(in: CGRect(
+                x: ex - eyeOuterRadius,
+                y: eyeY - eyeOuterRadius,
+                width: eyeOuterRadius * 2,
+                height: eyeOuterRadius * 2
+            ))
+
+            // Sclera outline
+            context.setStrokeColor(red: 0x1C / 255.0, green: 0x19 / 255.0, blue: 0x17 / 255.0, alpha: 1.0)
+            context.setLineWidth(max(0.8, pixelSize * 0.4))
+            context.strokeEllipse(in: CGRect(
+                x: ex - eyeOuterRadius,
+                y: eyeY - eyeOuterRadius,
+                width: eyeOuterRadius * 2,
+                height: eyeOuterRadius * 2
+            ))
+
+            // Dark pupil
+            context.setFillColor(red: 0x1C / 255.0, green: 0x19 / 255.0, blue: 0x17 / 255.0, alpha: 1.0)
+            context.fillEllipse(in: CGRect(
+                x: ex - pupilRadius,
+                y: eyeY - pupilRadius,
+                width: pupilRadius * 2,
+                height: pupilRadius * 2
+            ))
+        }
 
         image.unlockFocus()
         return image
