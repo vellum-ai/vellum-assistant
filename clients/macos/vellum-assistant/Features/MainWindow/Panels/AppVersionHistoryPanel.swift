@@ -64,13 +64,13 @@ struct AppVersionHistoryPanel: View {
                     VStack(spacing: VSpacing.sm) {
                         Image(systemName: "clock.arrow.circlepath")
                             .font(.system(size: 32))
-                            .foregroundColor(VColor.textTertiary)
+                            .foregroundColor(VColor.textMuted)
                         Text("No version history")
                             .font(VFont.body)
                             .foregroundColor(VColor.textSecondary)
                         Text("Changes will appear here after you edit the app.")
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textTertiary)
+                            .foregroundColor(VColor.textMuted)
                     }
                     Spacer()
                 }
@@ -135,7 +135,7 @@ struct AppVersionHistoryPanel: View {
             HStack(alignment: .top, spacing: VSpacing.md) {
                 // Timeline dot
                 Circle()
-                    .fill(isFirst ? VColor.accent : VColor.textTertiary.opacity(0.5))
+                    .fill(isFirst ? VColor.accent : VColor.textMuted.opacity(0.5))
                     .frame(width: 8, height: 8)
                     .padding(.top, 5)
 
@@ -148,11 +148,11 @@ struct AppVersionHistoryPanel: View {
                     HStack(spacing: VSpacing.sm) {
                         Text(String(version.commitHash.prefix(7)))
                             .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(VColor.textTertiary)
+                            .foregroundColor(VColor.textMuted)
 
                         Text(relativeTime(from: version.timestamp))
                             .font(VFont.caption)
-                            .foregroundColor(VColor.textTertiary)
+                            .foregroundColor(VColor.textMuted)
                     }
                 }
 
