@@ -308,8 +308,15 @@ export class Session {
     decision: UserDecision,
     selectedPattern?: string,
     selectedScope?: string,
+    decisionContext?: string,
   ): void {
-    this.prompter.resolveConfirmation(requestId, decision, selectedPattern, selectedScope);
+    this.prompter.resolveConfirmation(
+      requestId,
+      decision,
+      selectedPattern,
+      selectedScope,
+      decisionContext,
+    );
   }
 
   handleSecretResponse(requestId: string, value?: string, delivery?: 'store' | 'transient_send'): void {

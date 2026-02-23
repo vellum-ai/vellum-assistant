@@ -268,7 +268,15 @@ export class ToolExecutor {
         });
 
         if (response.decision === 'deny') {
-          const denialMessage = `Permission denied by user. The user chose not to allow the "${name}" tool. Do NOT retry this tool call immediately. Instead, tell the user that the action was not performed because they denied permission, and ask if they would like you to try again or take a different approach. Wait for the user to explicitly respond before retrying.`;
+          const contextualDenial = typeof response.decisionContext === 'string'
+            ? response.decisionContext.trim()
+            : '';
+          const denialMessage = contextualDenial.length > 0
+            ? contextualDenial
+            : `Permission denied by user. The user chose not to allow the "${name}" tool. Do NOT retry this tool call immediately. Instead, tell the user that the action was not performed because they denied permission, and ask if they would like you to try again or take a different approach. Wait for the user to explicitly respond before retrying.`;
+          const denialReason = contextualDenial.length > 0
+            ? `Permission denied (${name}): contextual policy`
+            : 'Permission denied by user';
           const durationMs = Date.now() - startTime;
           emitLifecycleEvent(context, {
             type: 'permission_denied',
@@ -281,7 +289,7 @@ export class ToolExecutor {
             requestId: context.requestId,
             riskLevel,
             decision: 'deny',
-            reason: 'Permission denied by user',
+            reason: denialReason,
             durationMs,
           });
           return { content: denialMessage, isError: true };

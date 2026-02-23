@@ -10,7 +10,12 @@ import { redactSensitiveFields } from '../security/redaction.js';
 const log = getLogger('permission-prompter');
 
 interface PendingPrompt {
-  resolve: (value: { decision: UserDecision; selectedPattern?: string; selectedScope?: string }) => void;
+  resolve: (value: {
+    decision: UserDecision;
+    selectedPattern?: string;
+    selectedScope?: string;
+    decisionContext?: string;
+  }) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -38,7 +43,12 @@ export class PermissionPrompter {
     sessionId?: string,
     executionTarget?: ExecutionTarget,
     persistentDecisionsAllowed?: boolean,
-  ): Promise<{ decision: UserDecision; selectedPattern?: string; selectedScope?: string }> {
+  ): Promise<{
+    decision: UserDecision;
+    selectedPattern?: string;
+    selectedScope?: string;
+    decisionContext?: string;
+  }> {
     const requestId = uuid();
 
     return new Promise((resolve, reject) => {
@@ -77,6 +87,7 @@ export class PermissionPrompter {
     decision: UserDecision,
     selectedPattern?: string,
     selectedScope?: string,
+    decisionContext?: string,
   ): void {
     const pending = this.pending.get(requestId);
     if (!pending) {
@@ -85,7 +96,7 @@ export class PermissionPrompter {
     }
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
-    pending.resolve({ decision, selectedPattern, selectedScope });
+    pending.resolve({ decision, selectedPattern, selectedScope, decisionContext });
   }
 
   dispose(): void {

@@ -48,6 +48,7 @@ import {
   setRunConfirmation,
 } from '../memory/runs-store.js';
 import type { PendingConfirmation } from '../memory/runs-store.js';
+import { setConversationKeyIfAbsent } from '../memory/conversation-key-store.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import {
@@ -95,6 +96,7 @@ function resetTables(): void {
   db.run('DELETE FROM channel_guardian_approval_requests');
   db.run('DELETE FROM channel_guardian_verification_challenges');
   db.run('DELETE FROM channel_guardian_bindings');
+  db.run('DELETE FROM conversation_keys');
   db.run('DELETE FROM message_runs');
   db.run('DELETE FROM channel_inbound_events');
   db.run('DELETE FROM messages');
@@ -1093,8 +1095,8 @@ describe('poll timeout handling by run state', () => {
 
   test('marks event as processed when run is in needs_confirmation state after poll timeout', async () => {
     // Use a short poll timeout so the test can exercise the timeout path
-    // without waiting 5 minutes.
-    _setTestPollMaxWait(100);
+    // without waiting 5 minutes. Must exceed one poll interval (500ms).
+    _setTestPollMaxWait(700);
 
     const linkSpy = spyOn(channelDeliveryStore, 'linkMessage').mockImplementation(() => {});
     const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
@@ -1181,6 +1183,8 @@ describe('poll timeout handling by run state', () => {
 
     const conversationId = `conv-post-approval-${Date.now()}`;
     ensureConversation(conversationId);
+    setConversationKeyIfAbsent('asst:self:telegram:chat-123', conversationId);
+    setConversationKeyIfAbsent('telegram:chat-123', conversationId);
 
     let realRunId: string | undefined;
 
@@ -1978,7 +1982,7 @@ describe('fail-closed guardian gate — unverified channel', () => {
     process.env.CHANNEL_APPROVALS_ENABLED = 'true';
   });
 
-  test('no binding + sensitive action → auto-deny and setup notice', async () => {
+  test('no binding + sensitive action → auto-deny with contextual assistant guidance', async () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
     const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
 
@@ -1998,11 +2002,15 @@ describe('fail-closed guardian gate — unverified channel', () => {
     const decisionArgs = (orchestrator.submitDecision as ReturnType<typeof mock>).mock.calls[0];
     expect(decisionArgs[1]).toBe('deny');
 
-    // The requester should have been notified about missing guardian setup
-    const replyCalls = deliverSpy.mock.calls.filter(
+    // The deny decision should carry guardian setup context for assistant reply generation.
+    expect(typeof decisionArgs[2]).toBe('string');
+    expect((decisionArgs[2] as string)).toContain('no guardian is configured');
+
+    // The runtime should not send a second deterministic denial notice.
+    const deterministicNoticeCalls = deliverSpy.mock.calls.filter(
       (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.includes('no guardian has been set up'),
     );
-    expect(replyCalls.length).toBeGreaterThanOrEqual(1);
+    expect(deterministicNoticeCalls.length).toBe(0);
 
     // No approval prompt should have been sent to a guardian (none exists)
     expect(approvalSpy).not.toHaveBeenCalled();
@@ -2091,11 +2099,19 @@ describe('fail-closed guardian gate — unverified channel', () => {
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe('decision_applied');
 
-    // The denial notice should have been sent
+    // The deny decision should carry guardian setup context for the assistant.
+    const submitCalls = (orchestrator.submitDecision as ReturnType<typeof mock>).mock.calls;
+    expect(submitCalls.length).toBeGreaterThanOrEqual(1);
+    const lastDecision = submitCalls[submitCalls.length - 1];
+    expect(lastDecision[1]).toBe('deny');
+    expect(typeof lastDecision[2]).toBe('string');
+    expect((lastDecision[2] as string)).toContain('no guardian is configured');
+
+    // Interception should not emit a separate deterministic denial notice.
     const denialCalls = deliverSpy.mock.calls.filter(
       (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.includes('no guardian has been set up'),
     );
-    expect(denialCalls.length).toBeGreaterThanOrEqual(1);
+    expect(denialCalls.length).toBe(0);
 
     deliverSpy.mockRestore();
   });
@@ -3185,21 +3201,21 @@ describe('guardian enforcement independence from approval flag', () => {
     // Wait for background processing
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
-    // The unknown actor should be treated as unverified_channel and
-    // sensitive actions should be auto-denied via the no_identity branch.
-    // deliverChannelReply args: (callbackUrl, payload, bearerToken?)
-    // The denial notice is in payload.text (index 1 of the call args).
-    expect(deliverSpy).toHaveBeenCalled();
+    // The unknown actor should be treated as unverified_channel and denied,
+    // with context passed into the tool-denial response for assistant phrasing.
+    const submitCalls = (orchestrator.submitDecision as ReturnType<typeof mock>).mock.calls;
+    expect(submitCalls.length).toBeGreaterThanOrEqual(1);
+    const lastDecision = submitCalls[submitCalls.length - 1];
+    expect(lastDecision[1]).toBe('deny');
+    expect(typeof lastDecision[2]).toBe('string');
+    expect((lastDecision[2] as string)).toContain('identity could not be verified');
+
+    // No separate deterministic denial notice should be emitted here.
     const denialCalls = deliverSpy.mock.calls.filter(
-      (call) => {
-        if (typeof call[1] !== 'object') return false;
-        const text = (call[1] as { text?: string }).text ?? '';
-        return text.includes('requires guardian approval') &&
-          text.includes('identity could not be determined') &&
-          text.includes('denied');
-      },
+      (call) => typeof call[1] === 'object'
+        && ((call[1] as { text?: string }).text ?? '').includes('identity could not be determined'),
     );
-    expect(denialCalls.length).toBeGreaterThanOrEqual(1);
+    expect(denialCalls.length).toBe(0);
 
     // Auto-deny path should never prompt for approval
     expect(approvalSpy).not.toHaveBeenCalled();
@@ -3227,17 +3243,18 @@ describe('guardian enforcement independence from approval flag', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
-    expect(deliverSpy).toHaveBeenCalled();
+    const submitCalls = (orchestrator.submitDecision as ReturnType<typeof mock>).mock.calls;
+    expect(submitCalls.length).toBeGreaterThanOrEqual(1);
+    const lastDecision = submitCalls[submitCalls.length - 1];
+    expect(lastDecision[1]).toBe('deny');
+    expect(typeof lastDecision[2]).toBe('string');
+    expect((lastDecision[2] as string)).toContain('identity could not be verified');
+
     const denialCalls = deliverSpy.mock.calls.filter(
-      (call) => {
-        if (typeof call[1] !== 'object') return false;
-        const text = (call[1] as { text?: string }).text ?? '';
-        return text.includes('requires guardian approval')
-          && text.includes('identity could not be determined')
-          && text.includes('denied');
-      },
+      (call) => typeof call[1] === 'object'
+        && ((call[1] as { text?: string }).text ?? '').includes('identity could not be determined'),
     );
-    expect(denialCalls.length).toBeGreaterThanOrEqual(1);
+    expect(denialCalls.length).toBe(0);
     expect(approvalSpy).not.toHaveBeenCalled();
 
     deliverSpy.mockRestore();

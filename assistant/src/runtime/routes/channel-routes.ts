@@ -127,6 +127,23 @@ function effectivePromptText(
   return plainTextFallback;
 }
 
+/**
+ * Build contextual deny guidance for guardian-gated auto-deny paths.
+ * This is passed through the confirmation pipeline so the assistant can
+ * produce a single, user-facing message with next steps.
+ */
+function buildGuardianDenyContext(
+  toolName: string,
+  denialReason: DenialReason,
+  sourceChannel: string,
+): string {
+  if (denialReason === 'no_identity') {
+    return `Permission denied: the action "${toolName}" requires guardian approval, but your identity could not be verified on ${sourceChannel}. Do not retry yet. Explain this clearly, ask the user to message from a verifiable direct account/chat, and then retry after identity is available.`;
+  }
+
+  return `Permission denied: the action "${toolName}" requires guardian approval, but no guardian is configured for this ${sourceChannel} channel. Do not retry yet. Explain that a guardian must be set up first, and if the user is the guardian/admin, instruct them to run /guardian_verify from an existing ${sourceChannel} chat with the assistant before retrying.`;
+}
+
 // ---------------------------------------------------------------------------
 // Feature flag
 // ---------------------------------------------------------------------------
@@ -760,19 +777,16 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
 
           if (isUnverifiedChannel && pending.length > 0) {
             // Unverified channel — auto-deny the sensitive action (fail-closed).
-            handleChannelDecision(conversationId, { action: 'reject', source: 'plain_text' }, orchestrator);
-            const denialText = guardianCtx.denialReason === 'no_identity'
-              ? `The action "${pending[0].toolName}" requires guardian approval, but your identity could not be determined. The action has been denied. Please ensure your messaging client sends user identity information.`
-              : `The action "${pending[0].toolName}" requires guardian approval, but no guardian has been set up for this channel. The action has been denied. Please ask an administrator to configure a guardian.`;
-            try {
-              await deliverChannelReply(replyCallbackUrl, {
-                chatId: externalChatId,
-                text: denialText,
-                assistantId,
-              }, bearerToken);
-            } catch (err) {
-              log.error({ err, runId: run.id }, 'Failed to deliver unverified-channel denial notice');
-            }
+            handleChannelDecision(
+              conversationId,
+              { action: 'reject', source: 'plain_text' },
+              orchestrator,
+              buildGuardianDenyContext(
+                pending[0].toolName,
+                guardianCtx.denialReason ?? 'no_binding',
+                sourceChannel,
+              ),
+            );
           } else if (isNonGuardian && guardianCtx.guardianChatId && pending.length > 0) {
             // Non-guardian actor: route the approval prompt to the guardian's chat
             const guardianPrompt = buildGuardianApprovalPrompt(
@@ -1205,18 +1219,26 @@ async function handleApprovalInterception(
   if (guardianCtx.actorRole === 'unverified_channel') {
     const pending = getPendingConfirmationsByConversation(conversationId);
     if (pending.length > 0) {
-      handleChannelDecision(conversationId, { action: 'reject', source: 'plain_text' }, orchestrator);
-      const denialText = guardianCtx.denialReason === 'no_identity'
-        ? `The action "${pending[0].toolName}" requires guardian approval, but your identity could not be determined. The action has been denied.`
-        : `The action "${pending[0].toolName}" requires guardian approval, but no guardian has been set up for this channel. The action has been denied.`;
-      try {
-        await deliverChannelReply(replyCallbackUrl, {
-          chatId: externalChatId,
-          text: denialText,
+      const denyResult = handleChannelDecision(
+        conversationId,
+        { action: 'reject', source: 'plain_text' },
+        orchestrator,
+        buildGuardianDenyContext(
+          pending[0].toolName,
+          guardianCtx.denialReason ?? 'no_binding',
+          sourceChannel,
+        ),
+      );
+      if (denyResult.applied && denyResult.runId) {
+        schedulePostDecisionDelivery(
+          orchestrator,
+          denyResult.runId,
+          conversationId,
+          externalChatId,
+          replyCallbackUrl,
+          bearerToken,
           assistantId,
-        }, bearerToken);
-      } catch (err) {
-        log.error({ err, conversationId }, 'Failed to deliver unverified-channel denial notice during interception');
+        );
       }
       return { handled: true, type: 'decision_applied' };
     }

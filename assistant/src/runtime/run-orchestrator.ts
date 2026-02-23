@@ -251,13 +251,20 @@ export class RunOrchestrator {
    * - `'run_not_found'`   – no run exists with the given ID
    * - `'no_pending_decision'` – run exists but is not awaiting a confirmation
    */
-  submitDecision(runId: string, decision: UserDecision): 'applied' | 'run_not_found' | 'no_pending_decision' {
+  submitDecision(
+    runId: string,
+    decision: UserDecision,
+    decisionContext?: string,
+  ): 'applied' | 'run_not_found' | 'no_pending_decision' {
     const pendingState = this.pending.get(runId);
     if (pendingState) {
       runsStore.clearRunConfirmation(runId);
       pendingState.session.handleConfirmationResponse(
         pendingState.prompterRequestId,
         decision,
+        undefined,
+        undefined,
+        decisionContext,
       );
       this.pending.delete(runId);
       return 'applied';

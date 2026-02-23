@@ -897,7 +897,14 @@ export class ComputerUseSession {
     decision: UserDecision,
     selectedPattern?: string,
     selectedScope?: string,
+    decisionContext?: string,
   ): void {
-    this.prompter?.resolveConfirmation(requestId, decision, selectedPattern, selectedScope);
+    this.prompter?.resolveConfirmation(
+      requestId,
+      decision,
+      selectedPattern,
+      selectedScope,
+      decisionContext,
+    );
   }
 }

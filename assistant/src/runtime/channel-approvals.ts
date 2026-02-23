@@ -101,6 +101,7 @@ export function handleChannelDecision(
   conversationId: string,
   decision: ApprovalDecisionResult,
   orchestrator: RunOrchestrator,
+  decisionContext?: string,
 ): HandleDecisionResult {
   const pending = getPendingConfirmationsByConversation(conversationId);
   if (pending.length === 0) return { applied: false };
@@ -136,7 +137,9 @@ export function handleChannelDecision(
 
   // Map channel-level action to the permission system's UserDecision type.
   const userDecision = decision.action === 'reject' ? 'deny' as const : 'allow' as const;
-  const result = orchestrator.submitDecision(info.runId, userDecision);
+  const result = decisionContext === undefined
+    ? orchestrator.submitDecision(info.runId, userDecision)
+    : orchestrator.submitDecision(info.runId, userDecision, decisionContext);
 
   return {
     applied: result === 'applied',

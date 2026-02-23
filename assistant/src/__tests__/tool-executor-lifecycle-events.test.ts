@@ -143,7 +143,12 @@ function makeContext(events: ToolLifecycleEvent[]) {
   };
 }
 
-function makePrompter(promptImpl?: () => Promise<{ decision: 'allow' | 'always_allow' | 'deny' | 'always_deny' }>) {
+function makePrompter(
+  promptImpl?: () => Promise<{
+    decision: 'allow' | 'always_allow' | 'deny' | 'always_deny';
+    decisionContext?: string;
+  }>,
+) {
   return {
     prompt: promptImpl ?? (async () => ({ decision: promptDecision })),
     resolveConfirmation: () => {},
@@ -223,6 +228,34 @@ describe('ToolExecutor lifecycle events', () => {
     expect(deniedEvent.executionTarget).toBe('sandbox');
     expect(deniedEvent.decision).toBe('deny');
     expect(deniedEvent.reason).toBe('Permission denied by user');
+  });
+
+  test('uses contextual deny messaging when provided by prompter', async () => {
+    checkerDecision = 'prompt';
+    checkerReason = 'guardrail prompt';
+    checkerRisk = 'high';
+    sandboxed = true;
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(
+      makePrompter(async () => ({
+        decision: 'deny',
+        decisionContext:
+          'Permission denied: this action requires guardian setup before retrying. Explain this and provide setup steps.',
+      })),
+    );
+
+    const result = await executor.execute('bash', { command: 'echo hi' }, makeContext(events));
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('requires guardian setup');
+    expect(result.content).not.toContain('Permission denied by user');
+
+    const deniedEvent = events.find((event) => event.type === 'permission_denied');
+    if (!deniedEvent || deniedEvent.type !== 'permission_denied') {
+      throw new Error('Expected permission_denied event');
+    }
+    expect(deniedEvent.reason).toBe('Permission denied (bash): contextual policy');
   });
 
   test('emits host executionTarget for host tools', async () => {
