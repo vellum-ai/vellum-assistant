@@ -290,7 +290,13 @@ For example, views with dependencies need them passed in:
 
 ```swift
 #Preview {
-    OnboardingFlowView()
+    OnboardingFlowView(
+        state: OnboardingState(),
+        daemonClient: DaemonClient(),
+        authManager: AuthManager(),
+        onComplete: {},
+        onOpenSettings: {}
+    )
 }
 ```
 
