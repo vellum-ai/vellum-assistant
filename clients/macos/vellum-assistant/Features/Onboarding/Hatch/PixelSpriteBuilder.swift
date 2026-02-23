@@ -212,6 +212,7 @@ enum PixelSpriteBuilder {
         context.strokePath()
 
         // Eyes: white sclera with dark pupils
+        let diameter = nominalRadius * 2.0
         let eyeOuterRadius = diameter * 0.10
         let pupilRadius = diameter * 0.055
         let eyeY = centerY + blobRadius * 0.08  // slightly above center
