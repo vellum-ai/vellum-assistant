@@ -153,6 +153,22 @@ extension IPCCuSessionCreate {
     }
 }
 
+/// Sent when a CU session reaches a terminal state (QA mode).
+/// Backed by generated `IPCCuSessionFinalized`.
+public typealias CuSessionFinalizedMessage = IPCCuSessionFinalized
+
+extension IPCCuSessionFinalized {
+    public init(sessionId: String, status: String, summary: String, stepCount: Int, recording: IPCCuSessionFinalizedRecording?) {
+        self.init(type: "cu_session_finalized", sessionId: sessionId, status: status, summary: summary, stepCount: stepCount, recording: recording)
+    }
+}
+
+extension IPCCuSessionFinalizedRecording {
+    public init(localPath: String, mimeType: String, sizeBytes: Int, durationMs: Int, width: Int, height: Int, captureScope: String, includeAudio: Bool, targetBundleId: String?, expiresAt: Int) {
+        self.init(localPath: localPath, mimeType: mimeType, sizeBytes: sizeBytes, durationMs: durationMs, width: width, height: height, captureScope: captureScope, includeAudio: includeAudio, targetBundleId: targetBundleId, expiresAt: expiresAt)
+    }
+}
+
 /// Sent after each perceive step with AX tree, screenshot, and execution results.
 /// Backed by generated `IPCCuObservation`.
 public typealias CuObservationMessage = IPCCuObservation

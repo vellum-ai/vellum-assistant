@@ -34,6 +34,13 @@ final class ComputerUseSession: ObservableObject {
     private let skipSessionCreate: Bool
     private let notificationService: ActivityNotificationServiceProtocol?
 
+    /// Screen recorder for QA mode — nil when not in QA mode.
+    private let screenRecorder: ScreenRecording?
+    /// Origin chat session ID for result injection (QA workflow).
+    let reportToSessionId: String?
+    /// Whether this session is running in QA/test mode.
+    let qaMode: Bool
+
     /// Weak reference to the chat view model for extracting tool calls for notifications.
     weak var relatedViewModel: ChatViewModel?
 
@@ -74,7 +81,10 @@ final class ComputerUseSession: ObservableObject {
         adaptiveDelay: Bool = true,
         sessionId: String? = nil,
         skipSessionCreate: Bool = false,
-        notificationService: ActivityNotificationServiceProtocol? = nil
+        notificationService: ActivityNotificationServiceProtocol? = nil,
+        screenRecorder: ScreenRecording? = nil,
+        reportToSessionId: String? = nil,
+        qaMode: Bool = false
     ) {
         self.id = sessionId ?? UUID().uuidString
         self.task = task
@@ -89,6 +99,9 @@ final class ComputerUseSession: ObservableObject {
         self.adaptiveDelayEnabled = adaptiveDelay
         self.skipSessionCreate = skipSessionCreate
         self.notificationService = notificationService
+        self.screenRecorder = screenRecorder
+        self.reportToSessionId = reportToSessionId
+        self.qaMode = qaMode
         self.verifier = ActionVerifier(maxSteps: maxSteps)
         self.logger = SessionLogger(task: task, attachments: attachments)
     }
@@ -112,6 +125,17 @@ final class ComputerUseSession: ObservableObject {
         // Brief delay to let the popover close and the target app regain focus
         if initialDelayMs > 0 {
             try? await Task.sleep(nanoseconds: initialDelayMs * 1_000_000)
+        }
+
+        // Start screen recording in QA mode
+        if qaMode, let recorder = screenRecorder {
+            do {
+                try await recorder.startRecording(windowID: nil, displayID: nil, includeAudio: false)
+                log.info("QA mode: screen recording started for session \(self.id)")
+            } catch {
+                log.error("QA mode: failed to start screen recording: \(error.localizedDescription)")
+                // Non-fatal — continue the session without recording
+            }
         }
 
         // 1. Subscribe before sending so we don't miss fast daemon responses
@@ -138,7 +162,9 @@ final class ComputerUseSession: ObservableObject {
                     screenWidth: Int(screenSize.width),
                     screenHeight: Int(screenSize.height),
                     attachments: ipcAttachments,
-                    interactionType: interactionTypeString
+                    interactionType: interactionTypeString,
+                    reportToSessionId: reportToSessionId,
+                    qaMode: qaMode ? true : nil
                 ))
             } catch {
                 log.error("Failed to send session create message: \(error)")
@@ -161,6 +187,9 @@ final class ComputerUseSession: ObservableObject {
                 log.error("Failed to send session abort message: \(error)")
             }
             logger.finishSession(result: "failed: no window")
+            if qaMode {
+                await finalizeQARecording()
+            }
             return
         }
 
@@ -242,6 +271,11 @@ final class ComputerUseSession: ObservableObject {
                 state = .failed(reason: "Connection to daemon lost")
                 logger.finishSession(result: "failed: stream ended unexpectedly")
             }
+        }
+
+        // Finalize QA recording and send cu_session_finalized
+        if qaMode {
+            await finalizeQARecording()
         }
     }
 
@@ -908,6 +942,76 @@ final class ComputerUseSession: ObservableObject {
         return viewModel.messages
             .filter { $0.role == .assistant }
             .flatMap { $0.toolCalls }
+    }
+
+    // MARK: - QA Recording Finalization
+
+    /// Stops the screen recorder (if active) and sends a `cu_session_finalized` message to the daemon.
+    private func finalizeQARecording() async {
+        // Map SessionState to a status string
+        let status: String
+        let summary: String
+        let stepCount: Int
+        switch state {
+        case .completed(let s, let steps):
+            status = "completed"
+            summary = s
+            stepCount = steps
+        case .responded(let answer, let steps):
+            status = "responded"
+            summary = answer
+            stepCount = steps
+        case .failed(let reason):
+            status = "failed"
+            summary = reason
+            stepCount = currentStepNumber
+        case .cancelled:
+            status = "cancelled"
+            summary = "Session cancelled by user"
+            stepCount = currentStepNumber
+        default:
+            status = "unknown"
+            summary = "Session ended in unexpected state"
+            stepCount = currentStepNumber
+        }
+
+        // Stop the recorder and gather metadata
+        var recordingData: IPCCuSessionFinalizedRecording?
+        if let recorder = screenRecorder, recorder.isRecording {
+            do {
+                let result = try await recorder.stopRecording()
+                let expiresAtEpoch = Int(Date().addingTimeInterval(7 * 24 * 3600).timeIntervalSince1970)
+                recordingData = IPCCuSessionFinalizedRecording(
+                    localPath: result.fileURL.path,
+                    mimeType: result.mimeType,
+                    sizeBytes: result.sizeBytes,
+                    durationMs: result.durationMs,
+                    width: result.width,
+                    height: result.height,
+                    captureScope: result.captureScope,
+                    includeAudio: result.includeAudio,
+                    targetBundleId: result.targetBundleId,
+                    expiresAt: expiresAtEpoch
+                )
+                log.info("QA recording finalized: \(result.fileURL.lastPathComponent) (\(result.sizeBytes) bytes, \(result.durationMs)ms)")
+            } catch {
+                log.error("QA mode: failed to stop screen recording: \(error.localizedDescription)")
+            }
+        }
+
+        // Send cu_session_finalized to the daemon
+        do {
+            try daemonClient.send(CuSessionFinalizedMessage(
+                sessionId: id,
+                status: status,
+                summary: summary,
+                stepCount: stepCount,
+                recording: recordingData
+            ))
+            log.info("QA mode: sent cu_session_finalized for session \(self.id) (status: \(status))")
+        } catch {
+            log.error("QA mode: failed to send cu_session_finalized: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Control
