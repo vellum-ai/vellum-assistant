@@ -144,6 +144,67 @@
       },
       "executor": "tools/detect-events.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "query_media_events",
+      "description": "Query media events using natural language. Parses the query into structured filters (event type, count, confidence threshold, time range) and retrieves matching events ranked by confidence. Supports domain-specific keyword mapping (e.g., 'turnovers' → eventType='turnover').",
+      "category": "media",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Natural language query describing the events to find (e.g., 'top 5 turnovers', 'high confidence goals in the first half')"
+          },
+          "asset_id": {
+            "type": "string",
+            "description": "ID of the media asset to search within"
+          }
+        },
+        "required": ["query", "asset_id"]
+      },
+      "executor": "tools/query-media-events.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "generate_clip",
+      "description": "Extract a video clip from a media asset using ffmpeg. Applies configurable pre/post-roll padding (clamped to file boundaries), outputs the clip as a temporary file, and registers it as an attachment for in-chat delivery.",
+      "category": "media",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "ID of the media asset (must be a video)"
+          },
+          "start_time": {
+            "type": "number",
+            "description": "Start time of the clip in seconds"
+          },
+          "end_time": {
+            "type": "number",
+            "description": "End time of the clip in seconds"
+          },
+          "pre_roll": {
+            "type": "number",
+            "description": "Seconds of padding before start_time. Default: 3"
+          },
+          "post_roll": {
+            "type": "number",
+            "description": "Seconds of padding after end_time. Default: 2"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": ["mp4", "webm", "mov"],
+            "description": "Output video format. Default: 'mp4'"
+          }
+        },
+        "required": ["asset_id", "start_time", "end_time"]
+      },
+      "executor": "tools/generate-clip.ts",
+      "execution_target": "host"
     }
   ]
 }
