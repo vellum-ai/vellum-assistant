@@ -13,6 +13,7 @@
 import { getPendingConfirmationsByConversation, getRun } from '../memory/runs-store.js';
 import type { PendingRunInfo } from '../memory/runs-store.js';
 import { addRule } from '../permissions/trust-store.js';
+import { getTool } from '../tools/registry.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 import { DEFAULT_APPROVAL_ACTIONS } from './channel-approval-types.js';
 import type {
@@ -127,8 +128,13 @@ export function handleChannelDecision(
     ) {
       const pattern = confirmation.allowlistOptions[0].pattern;
       const scope = confirmation.scopeOptions[0].scope;
+      // Only persist executionTarget for skill-origin tools — core tools don't
+      // set it in their PolicyContext, so a persisted value would prevent the
+      // rule from ever matching on subsequent permission checks.
+      const tool = getTool(confirmation.toolName);
+      const executionTarget = tool?.origin === 'skill' ? confirmation.executionTarget : undefined;
       addRule(confirmation.toolName, pattern, scope, 'allow', 100, {
-        executionTarget: confirmation.executionTarget,
+        executionTarget,
       });
     }
     // When persistence is not allowed or options are missing, the decision
