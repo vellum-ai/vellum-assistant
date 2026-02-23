@@ -2,12 +2,16 @@ name: PR macOS DMG Build
 
 on:
   pull_request:
-    types: [labeled, synchronize]
+    types: [labeled, synchronize, closed]
     paths:
       - 'clients/macos/**'
       - 'clients/shared/**'
       - 'cli/**'
       - '.github/workflows/ci-macos-dmg.yml'
+
+concurrency:
+  group: ci-macos-dmg-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   build-dmg:
