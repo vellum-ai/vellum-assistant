@@ -18,12 +18,22 @@ enum PermissionManager {
         return CGPreflightScreenCaptureAccess() ? .granted : .denied
     }
 
+    private static let hasRequestedScreenRecordingFlag = "hasRequestedScreenRecording"
+
     static func requestScreenRecordingAccess() {
-        // CGRequestScreenCaptureAccess() only shows the OS prompt once per app
-        // install. On subsequent calls it's a no-op. Fall back to opening
-        // System Settings directly if permission is still denied after the call.
+        let hasRequestedBefore = UserDefaults.standard.bool(forKey: hasRequestedScreenRecordingFlag)
+
+        // CGRequestScreenCaptureAccess() only shows the native OS prompt on
+        // its very first invocation per app install; subsequent calls are
+        // no-ops. The API is non-blocking, so CGPreflightScreenCaptureAccess()
+        // returns false immediately — before the user has a chance to respond
+        // to the prompt. On the first call we therefore trust the native prompt
+        // and skip the System Settings fallback to avoid showing both at once.
         CGRequestScreenCaptureAccess()
-        if !CGPreflightScreenCaptureAccess() {
+
+        if !hasRequestedBefore {
+            UserDefaults.standard.set(true, forKey: hasRequestedScreenRecordingFlag)
+        } else if !CGPreflightScreenCaptureAccess() {
             openScreenRecordingSettings()
         }
     }
