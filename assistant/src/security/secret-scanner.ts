@@ -461,9 +461,44 @@ function scanEntropy(
 // Encoded secret detection — decode + re-scan pass
 // ---------------------------------------------------------------------------
 
-/** Percent-encoded segments: 3+ encoded bytes mixed with normal URL chars.
- *  Quick-check for '%' before running to avoid catastrophic backtracking. */
-const PERCENT_ENCODED_RE = /(?:[A-Za-z0-9_.~+\/-]*%[0-9A-Fa-f]{2}){3,}[A-Za-z0-9_.~+\/-]*/g;
+/**
+ * Find percent-encoded segments containing 3+ encoded bytes, using a linear
+ * scan instead of a regex with nested quantifiers (which caused catastrophic
+ * backtracking on long near-miss inputs).
+ */
+function findPercentEncodedSegments(text: string): Array<{ start: number; end: number; match: string }> {
+  const results: Array<{ start: number; end: number; match: string }> = [];
+  const len = text.length;
+  const isUrlChar = (ch: string) => /[A-Za-z0-9_.~+/\-]/.test(ch);
+  const isHexDigit = (ch: string) => /[0-9A-Fa-f]/.test(ch);
+
+  let i = 0;
+  while (i < len) {
+    // Look for the start of a percent-encoded segment
+    if (text[i] !== '%' && !isUrlChar(text[i])) { i++; continue; }
+
+    // Walk a candidate segment of URL-safe chars and %XX sequences
+    const start = i;
+    let pctCount = 0;
+    while (i < len) {
+      if (text[i] === '%' && i + 2 < len && isHexDigit(text[i + 1]) && isHexDigit(text[i + 2])) {
+        pctCount++;
+        i += 3;
+      } else if (isUrlChar(text[i])) {
+        i++;
+      } else {
+        break;
+      }
+    }
+
+    if (pctCount >= 3) {
+      results.push({ start, end: i, match: text.slice(start, i) });
+    }
+    // Avoid re-scanning the same position if we didn't advance
+    if (i === start) i++;
+  }
+  return results;
+}
 
 /** Hex-escape sequences: \xHH patterns (3+ consecutive) */
 const HEX_ESCAPE_RE = /(?:\\x[0-9A-Fa-f]{2}){3,}/g;
@@ -520,6 +555,8 @@ function tryDecodeHexEscapes(encoded: string): string | null {
 
 function tryDecodeContinuousHex(encoded: string): string | null {
   try {
+    // Odd-length strings can't be decoded as pairs of hex digits
+    if (encoded.length % 2 !== 0) return null;
     // Decode pairs of hex digits to bytes
     const bytes: number[] = [];
     for (let i = 0; i < encoded.length; i += 2) {
@@ -555,14 +592,54 @@ function scanEncoded(
 ): SecretMatch[] {
   const matches: SecretMatch[] = [];
 
+  // Helper: try to match decoded content against known secret patterns
+  const tryMatchDecoded = (
+    encoded: string,
+    decoded: string,
+    startIndex: number,
+    endIndex: number,
+    encoding: string,
+  ) => {
+    for (const pattern of PATTERNS) {
+      pattern.regex.lastIndex = 0;
+      let pm: RegExpExecArray | null;
+      while ((pm = pattern.regex.exec(decoded)) !== null) {
+        const value = pm[1] ?? pm[0];
+        if (isPlaceholder(value)) continue;
+        if (isAllowlisted(value)) continue;
+        if (pattern.type === 'AWS Secret Key' && !isLikelyAwsSecret(value)) continue;
+
+        const key = `${startIndex}:${endIndex}`;
+        existingRanges.add(key);
+        matches.push({
+          type: `${pattern.type} (${encoding})`,
+          startIndex,
+          endIndex,
+          redactedValue: redact(encoded),
+        });
+        return;
+      }
+    }
+  };
+
+  // Percent-encoded segments: use linear-time scanner instead of regex
+  if (text.includes('%')) {
+    for (const seg of findPercentEncodedSegments(text)) {
+      if (seg.match.length > 1000) continue;
+      if (overlapsExisting(seg.start, seg.end, existingRanges)) continue;
+      const decoded = tryDecodePercentEncoded(seg.match);
+      if (!decoded) continue;
+      tryMatchDecoded(seg.match, decoded, seg.start, seg.end, 'percent-encoded');
+    }
+  }
+
+  // Regex-based decoders for the remaining encodings
   const decoders: Array<{
     regex: RegExp;
     decode: (s: string) => string | null;
     encoding: string;
-    /** Fast check before running the regex — skip entirely if absent */
     quickCheck?: (t: string) => boolean;
   }> = [
-    { regex: PERCENT_ENCODED_RE, decode: tryDecodePercentEncoded, encoding: 'percent-encoded', quickCheck: (t) => t.includes('%') },
     { regex: HEX_ESCAPE_RE, decode: tryDecodeHexEscapes, encoding: 'hex-escaped', quickCheck: (t) => t.includes('\\x') },
     { regex: ENCODED_BASE64_RE, decode: tryDecodeBase64, encoding: 'base64-encoded' },
     { regex: CONTINUOUS_HEX_RE, decode: tryDecodeContinuousHex, encoding: 'hex-encoded' },
@@ -574,40 +651,16 @@ function scanEncoded(
     let m: RegExpExecArray | null;
     while ((m = regex.exec(text)) !== null) {
       const encoded = m[1] ?? m[0];
-      // No realistic encoded secret exceeds ~500 chars; skip huge matches for performance
       if (encoded.length > 1000) continue;
       const startIndex = m.index + (m[0].indexOf(encoded));
       const endIndex = startIndex + encoded.length;
 
-      // Skip if overlapping with an existing match
       if (overlapsExisting(startIndex, endIndex, existingRanges)) continue;
 
       const decoded = decode(encoded);
       if (!decoded) continue;
 
-      // Re-scan decoded content against known patterns
-      for (const pattern of PATTERNS) {
-        pattern.regex.lastIndex = 0;
-        let pm: RegExpExecArray | null;
-        while ((pm = pattern.regex.exec(decoded)) !== null) {
-          const value = pm[1] ?? pm[0];
-          if (isPlaceholder(value)) continue;
-          if (isAllowlisted(value)) continue;
-          if (pattern.type === 'AWS Secret Key' && !isLikelyAwsSecret(value)) continue;
-
-          const key = `${startIndex}:${endIndex}`;
-          existingRanges.add(key);
-          matches.push({
-            type: `${pattern.type} (${encoding})`,
-            startIndex,
-            endIndex,
-            redactedValue: redact(encoded),
-          });
-          break;
-        }
-        // Stop checking patterns once we've found a match for this segment
-        if (existingRanges.has(`${startIndex}:${endIndex}`)) break;
-      }
+      tryMatchDecoded(encoded, decoded, startIndex, endIndex, encoding);
     }
   }
 
