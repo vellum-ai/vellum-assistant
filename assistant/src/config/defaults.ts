@@ -111,7 +111,6 @@ export const DEFAULT_CONFIG: AssistantConfig = {
         neighborScoreMultiplier: 0.7,
         maxDepth: 3,
         depthDecay: true,
-        autoTypeDetection: true,
       },
     },
     conflicts: {

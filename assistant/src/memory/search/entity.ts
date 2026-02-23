@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { MemoryEntityConfig } from '../../config/types.js';
 import { getLogger } from '../../util/logger.js';
 import { getDb } from '../db.js';
-import type { EntityRelationType, EntityType } from '../entity-extractor.js';
+import type { EntityType } from '../entity-extractor.js';
 import {
   memoryEntities,
   memoryEntityRelations,
@@ -14,43 +14,6 @@ import type { Candidate, CandidateSource, CandidateType, EntitySearchResult, Mat
 import { computeRecencyScore } from './ranking.js';
 
 const log = getLogger('memory-retriever');
-
-const RELATION_KEYWORDS: Record<string, EntityRelationType[]> = {
-  'use': ['uses'],
-  'uses': ['uses'],
-  'using': ['uses'],
-  'work on': ['works_on'],
-  'works on': ['works_on'],
-  'working on': ['works_on'],
-  'depends on': ['depends_on'],
-  'dependency': ['depends_on'],
-  'dependencies': ['depends_on'],
-  'member of': ['member_of'],
-  'belongs to': ['member_of'],
-  'owns': ['owns'],
-  'owned by': ['owns'],
-  'located in': ['located_in'],
-  'reports to': ['reports_to'],
-  'collaborates with': ['collaborates_with'],
-  'collaborating with': ['collaborates_with'],
-};
-
-/**
- * Detect relation type hints from query text.
- * Returns matching EntityRelationType[] if keywords found, undefined otherwise.
- */
-export function detectRelationTypes(query: string): EntityRelationType[] | undefined {
-  const lower = query.toLowerCase();
-  const detected = new Set<EntityRelationType>();
-
-  for (const [keyword, types] of Object.entries(RELATION_KEYWORDS)) {
-    if (lower.includes(keyword)) {
-      for (const t of types) detected.add(t);
-    }
-  }
-
-  return detected.size > 0 ? [...detected] : undefined;
-}
 
 /**
  * Entity-based retrieval: match seed entities from query text, fetch directly
@@ -91,11 +54,6 @@ export function entitySearch(
 
   const relationSeedEntityCount = seedEntityIds.length;
 
-  // Auto-detect relation type hints from query text
-  const detectedRelationTypes = entityConfig.relationRetrieval.autoTypeDetection
-    ? detectRelationTypes(query)
-    : undefined;
-
   const {
     neighborEntityIds,
     traversedEdgeCount: relationTraversedEdgeCount,
@@ -104,7 +62,6 @@ export function entitySearch(
     maxEdges: relationConfig.maxEdges,
     maxNeighborEntities: relationConfig.maxNeighborEntities,
     maxDepth: relationConfig.maxDepth,
-    relationTypes: detectedRelationTypes,
   });
   const relationNeighborEntityCount = neighborEntityIds.length;
   const directItemIds = new Set(directCandidates.map((candidate) => candidate.id));

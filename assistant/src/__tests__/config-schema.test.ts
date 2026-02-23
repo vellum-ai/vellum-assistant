@@ -207,7 +207,6 @@ describe('AssistantConfigSchema', () => {
       neighborScoreMultiplier: 0.7,
       maxDepth: 3,
       depthDecay: true,
-      autoTypeDetection: true,
     });
   });
 

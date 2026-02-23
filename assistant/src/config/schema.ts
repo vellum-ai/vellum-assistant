@@ -536,9 +536,6 @@ export const MemoryEntityConfigSchema = z.object({
     depthDecay: z
       .boolean({ error: 'memory.entity.relationRetrieval.depthDecay must be a boolean' })
       .default(true),
-    autoTypeDetection: z
-      .boolean({ error: 'memory.entity.relationRetrieval.autoTypeDetection must be a boolean' })
-      .default(true),
   }).default({
     enabled: true,
     maxSeedEntities: 8,
@@ -547,7 +544,6 @@ export const MemoryEntityConfigSchema = z.object({
     neighborScoreMultiplier: 0.7,
     maxDepth: 3,
     depthDecay: true,
-    autoTypeDetection: true,
   }),
 });
 
@@ -697,7 +693,6 @@ export const MemoryConfigSchema = z.object({
       neighborScoreMultiplier: 0.7,
       maxDepth: 3,
       depthDecay: true,
-      autoTypeDetection: true,
     },
   }),
   conflicts: MemoryConflictsConfigSchema.default({
@@ -1237,7 +1232,6 @@ export const AssistantConfigSchema = z.object({
         neighborScoreMultiplier: 0.7,
         maxDepth: 3,
         depthDecay: true,
-        autoTypeDetection: true,
       },
     },
     conflicts: {
