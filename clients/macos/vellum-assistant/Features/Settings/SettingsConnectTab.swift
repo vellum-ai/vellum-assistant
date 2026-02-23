@@ -355,9 +355,14 @@ struct SettingsConnectTab: View {
 
     private var twilioCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("SMS (Twilio)")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("SMS")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Text("Text your assistant using Twilio as the SMS provider")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
 
             // Credentials row
             if store.twilioHasCredentials {
@@ -607,6 +612,19 @@ struct SettingsConnectTab: View {
 
     // MARK: - Guardian Verification Row
 
+    private var guardianLabel: some View {
+        HStack(spacing: VSpacing.xs) {
+            Text("Guardian")
+            Image(systemName: "info.circle")
+                .font(.system(size: 10))
+                .foregroundColor(VColor.textMuted)
+                .help("Guardian verifies your identity so only you can interact with your assistant on this channel.")
+        }
+        .font(VFont.caption)
+        .foregroundColor(VColor.textSecondary)
+        .frame(width: 90, alignment: .leading)
+    }
+
     @ViewBuilder
     private func guardianStatusRow(channel: String) -> some View {
         let identity: String? = channel == "telegram" ? store.telegramGuardianIdentity : store.smsGuardianIdentity
@@ -617,44 +635,46 @@ struct SettingsConnectTab: View {
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             if verified {
-                channelStatusRow(
-                    label: "Guardian",
-                    icon: "checkmark.shield.fill",
-                    iconColor: VColor.success,
-                    value: identity.map { "Verified: \($0)" } ?? "Verified",
-                    action: .init(label: "Revoke", style: .danger) {
+                HStack(spacing: VSpacing.sm) {
+                    guardianLabel
+                    Image(systemName: "checkmark.shield.fill")
+                        .foregroundColor(VColor.success)
+                        .font(.system(size: 12))
+                    Text(identity.map { "Verified: \($0)" } ?? "Verified")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                        .lineLimit(1)
+                    Spacer()
+                    VButton(label: "Revoke", style: .danger) {
                         store.revokeChannelGuardian(channel: channel)
                     }
-                )
+                }
             } else if inProgress {
                 HStack(spacing: VSpacing.sm) {
-                    Text("Guardian")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                        .frame(width: 90, alignment: .leading)
+                    guardianLabel
                     ProgressView()
                         .controlSize(.small)
                     Text("Generating verification code...")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                 }
-                Text("You will get a code to send as /guardian_verify <code> from your \(channel == "telegram" ? "Telegram account" : "SMS number").")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .padding(.leading, 90 + VSpacing.sm)
             } else if let instruction {
                 guardianInstructionView(channel: channel, instruction: instruction)
             } else {
-                channelStatusRow(
-                    label: "Guardian",
-                    icon: "shield.slash",
-                    iconColor: VColor.textMuted,
-                    value: "Not verified",
-                    valueColor: VColor.textMuted,
-                    action: .init(label: "Verify", style: .secondary) {
+                HStack(spacing: VSpacing.sm) {
+                    guardianLabel
+                    Image(systemName: "shield.slash")
+                        .foregroundColor(VColor.textMuted)
+                        .font(.system(size: 12))
+                    Text("Not verified")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textMuted)
+                        .lineLimit(1)
+                    Spacer()
+                    VButton(label: "Verify", style: .secondary) {
                         store.startChannelGuardianVerification(channel: channel)
                     }
-                )
+                }
             }
 
             if let error {
@@ -663,6 +683,16 @@ struct SettingsConnectTab: View {
                     .foregroundColor(VColor.error)
                     .padding(.leading, 90 + VSpacing.sm)
             }
+        }
+    }
+
+    private func guardianInstructionSubtext(channel: String) -> String {
+        if channel == "telegram" {
+            let handle = store.telegramBotUsername.map { "@\($0)" } ?? "your bot"
+            return "Message \(handle) with the below command within the next 10 minutes"
+        } else {
+            let number = store.twilioPhoneNumber ?? "your assistant"
+            return "Text \(number) with the below command within the next 10 minutes"
         }
     }
 
@@ -678,14 +708,10 @@ struct SettingsConnectTab: View {
     private func guardianInstructionView(channel: String, instruction: String) -> some View {
         let command = extractGuardianCommand(from: instruction)
         let isCopied = guardianCommandCopiedChannel == channel
-        let channelName = channel == "telegram" ? "Telegram" : "SMS"
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
-                Text("Guardian")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                    .frame(width: 90, alignment: .leading)
+                guardianLabel
                 Image(systemName: "shield.lefthalf.filled")
                     .foregroundColor(VColor.warning)
                     .font(.system(size: 12))
@@ -699,7 +725,7 @@ struct SettingsConnectTab: View {
             }
 
             if let command {
-                Text("Send this command via \(channelName) to verify:")
+                Text(guardianInstructionSubtext(channel: channel))
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .padding(.leading, 90 + VSpacing.sm)
