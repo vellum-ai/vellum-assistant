@@ -177,6 +177,46 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertNil(store.telegramGuardianError)
     }
 
+    func testUnverifiedStatusResponseDoesNotClearExistingTelegramInstruction() {
+        store.telegramGuardianInstruction = "Send /guardian_verify abc123 on Telegram"
+
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: true,
+            secret: nil,
+            instruction: nil,
+            bound: false,
+            guardianExternalUserId: nil,
+            channel: "telegram",
+            assistantId: testAssistantId,
+            guardianDeliveryChatId: nil,
+            error: nil
+        ))
+
+        XCTAssertEqual(store.telegramGuardianInstruction, "Send /guardian_verify abc123 on Telegram")
+        XCTAssertFalse(store.telegramGuardianVerified)
+    }
+
+    func testVerifiedStatusResponseClearsExistingTelegramInstruction() {
+        store.telegramGuardianInstruction = "Send /guardian_verify abc123 on Telegram"
+
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: true,
+            secret: nil,
+            instruction: nil,
+            bound: true,
+            guardianExternalUserId: "tg_user_123",
+            channel: "telegram",
+            assistantId: testAssistantId,
+            guardianDeliveryChatId: "chat_456",
+            error: nil
+        ))
+
+        XCTAssertNil(store.telegramGuardianInstruction)
+        XCTAssertTrue(store.telegramGuardianVerified)
+    }
+
     // MARK: - Failed response sets error
 
     func testFailedResponseSetsTelegramError() {
