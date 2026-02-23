@@ -54,72 +54,87 @@ struct DaemonConnectionSection: View {
     @State private var alertMessage = ""
     @State private var showingQRPairing = false
 
+    @State private var showManualSetup = false
+
     var body: some View {
-        Section("Mac Daemon") {
-            Button {
-                showingQRPairing = true
-            } label: {
-                HStack {
-                    Image(systemName: "qrcode.viewfinder")
-                    Text("Scan QR Code")
+        Form {
+            Section {
+                Button {
+                    showingQRPairing = true
+                } label: {
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 8) {
+                            Image(systemName: "qrcode.viewfinder")
+                                .font(.system(size: 40))
+                            Text("Scan QR Code")
+                                .font(.headline)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 12)
                 }
+            } footer: {
+                Text("Open Vellum on your Mac, then go to Settings > Show QR Code.")
             }
 
-            HStack {
-                Text("Hostname")
-                Spacer()
-                TextField("e.g. 192.168.1.100", text: $daemonHostname)
-                    .multilineTextAlignment(.trailing)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-            }
-            HStack {
-                Text("Port")
-                Spacer()
-                TextField("8765", text: $daemonPort)
-                    .multilineTextAlignment(.trailing)
-                    .keyboardType(.numberPad)
-            }
-            HStack {
-                Text("Session Token")
-                Spacer()
-                SecureField("From ~/.vellum/session-token", text: $sessionToken)
-                    .multilineTextAlignment(.trailing)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-            }
-            Text("Or scan the QR code from Mac app > Settings > Show QR Code.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Button("Update") {
-                guard let port = Int(daemonPort), port > 0, port <= 65535 else {
-                    alertMessage = "Port must be a valid number between 1 and 65535"
-                    showingAlert = true
-                    return
+            Section {
+                DisclosureGroup("Manual Setup", isExpanded: $showManualSetup) {
+                    HStack {
+                        Text("Hostname")
+                        Spacer()
+                        TextField("e.g. 192.168.1.100", text: $daemonHostname)
+                            .multilineTextAlignment(.trailing)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                    }
+                    HStack {
+                        Text("Port")
+                        Spacer()
+                        TextField("8765", text: $daemonPort)
+                            .multilineTextAlignment(.trailing)
+                            .keyboardType(.numberPad)
+                    }
+                    HStack {
+                        Text("Session Token")
+                        Spacer()
+                        SecureField("From ~/.vellum/session-token", text: $sessionToken)
+                            .multilineTextAlignment(.trailing)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                    }
+                    Button("Update") {
+                        guard let port = Int(daemonPort), port > 0, port <= 65535 else {
+                            alertMessage = "Port must be a valid number between 1 and 65535"
+                            showingAlert = true
+                            return
+                        }
+                        UserDefaults.standard.set(daemonHostname, forKey: UserDefaultsKeys.daemonHostname)
+                        UserDefaults.standard.set(port, forKey: UserDefaultsKeys.daemonPort)
+                        // iOS always uses TLS for TCP connections
+                        UserDefaults.standard.set(true, forKey: UserDefaultsKeys.daemonTLSEnabled)
+                        if sessionToken.isEmpty {
+                            _ = APIKeyManager.shared.deleteAPIKey(provider: "daemon-token")
+                            UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.legacyDaemonToken)
+                        } else {
+                            _ = APIKeyManager.shared.setAPIKey(sessionToken, provider: "daemon-token")
+                        }
+                        // Rebuild the client so the new transport config takes effect,
+                        // then reconnect. DaemonClient transport is fixed at init, so
+                        // just calling connect() wouldn't pick up hostname/port changes.
+                        clientProvider.rebuildClient()
+                        Task {
+                            try? await clientProvider.client.connect()
+                        }
+                        alertMessage = "Daemon connection settings updated"
+                        showingAlert = true
+                    }
+                    .disabled(daemonHostname.isEmpty || daemonPort.isEmpty)
                 }
-                UserDefaults.standard.set(daemonHostname, forKey: UserDefaultsKeys.daemonHostname)
-                UserDefaults.standard.set(port, forKey: UserDefaultsKeys.daemonPort)
-                // iOS always uses TLS for TCP connections
-                UserDefaults.standard.set(true, forKey: UserDefaultsKeys.daemonTLSEnabled)
-                if sessionToken.isEmpty {
-                    _ = APIKeyManager.shared.deleteAPIKey(provider: "daemon-token")
-                    UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.legacyDaemonToken)
-                } else {
-                    _ = APIKeyManager.shared.setAPIKey(sessionToken, provider: "daemon-token")
-                }
-                // Rebuild the client so the new transport config takes effect,
-                // then reconnect. DaemonClient transport is fixed at init, so
-                // just calling connect() wouldn't pick up hostname/port changes.
-                clientProvider.rebuildClient()
-                Task {
-                    try? await clientProvider.client.connect()
-                }
-                alertMessage = "Daemon connection settings updated"
-                showingAlert = true
             }
-            .disabled(daemonHostname.isEmpty || daemonPort.isEmpty)
         }
+        .navigationTitle("Connect")
+        .navigationBarTitleDisplayMode(.inline)
         .alert("Daemon Settings", isPresented: $showingAlert) {
             Button("OK") {}
         } message: {

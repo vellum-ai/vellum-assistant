@@ -16,10 +16,14 @@ struct SettingsView: View {
                 if authManager.isAuthenticated {
                     AccountSection(authManager: authManager)
                 }
-                DaemonConnectionSection()
                 TwilioSettingsSection()
 
                 Section {
+                    NavigationLink {
+                        DaemonConnectionSection()
+                    } label: {
+                        Label("Connect", systemImage: "desktopcomputer")
+                    }
                     NavigationLink {
                         IntegrationsSection()
                     } label: {
