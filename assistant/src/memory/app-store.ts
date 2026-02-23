@@ -29,7 +29,6 @@ import {
   isPrebuiltHomeBaseApp,
   validatePrebuiltHomeBaseHtml,
 } from '../home-base/prebuilt-home-base-updater.js';
-import { commitAppChange } from './app-git-service.js';
 
 export interface AppDefinition {
   id: string;
@@ -211,8 +210,6 @@ export function createApp(params: {
     app.pages = params.pages;
   }
 
-  void commitAppChange(`Create app: ${params.name}`);
-
   return app;
 }
 
@@ -375,27 +372,14 @@ export function updateApp(
     updated.pages = loadedPages;
   }
 
-  const changedFields = Object.keys(updates).filter(k => updates[k as keyof typeof updates] !== undefined);
-  void commitAppChange(`Update app: ${updated.name}\n\nChanged: ${changedFields.join(', ')}`);
-
   return updated;
 }
 
 export function deleteApp(id: string): void {
   validateId(id);
   const dir = getAppsDir();
-
-  // Read app name before deleting for the commit message
-  let appName = id;
   const filePath = join(dir, `${id}.json`);
   if (existsSync(filePath)) {
-    try {
-      const raw = readFileSync(filePath, 'utf-8');
-      const app = JSON.parse(raw);
-      if (app.name) appName = app.name;
-    } catch {
-      // fall back to id
-    }
     unlinkSync(filePath);
   }
   const previewPath = join(dir, `${id}.preview`);
@@ -404,8 +388,6 @@ export function deleteApp(id: string): void {
   }
   const appDir = join(dir, id);
   rmSync(appDir, { recursive: true, force: true });
-
-  void commitAppChange(`Delete app: ${appName}`);
 }
 
 export function createAppRecord(appId: string, data: Record<string, unknown>): AppRecord {
@@ -545,8 +527,6 @@ export function writeAppFile(appId: string, path: string, content: string): void
   const dir = join(resolved, '..');
   mkdirSync(dir, { recursive: true });
   writeFileSync(resolved, content, 'utf-8');
-
-  void commitAppChange(`Write ${path} in app ${appId}`);
 }
 
 /**
@@ -569,7 +549,6 @@ export function editAppFile(
   const result = applyEdit(content, oldString, newString, replaceAll ?? false);
   if (result.ok) {
     writeFileSync(resolved, result.updatedContent, 'utf-8');
-    void commitAppChange(`Edit ${path} in app ${appId}`);
   }
   return result;
 }

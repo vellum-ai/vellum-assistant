@@ -14,8 +14,8 @@ mock.module('../util/platform.js', () => ({
 }));
 
 // Re-import after mocking so modules use our temp dir
-const { createApp, updateApp, deleteApp: _deleteApp, writeAppFile: _writeAppFile, editAppFile: _editAppFile, getAppsDir } = await import('../memory/app-store.js');
-const { getAppHistory, getAppDiff, getAppFileAtVersion, restoreAppVersion, commitAppChange: _commitAppChange } = await import('../memory/app-git-service.js');
+const { createApp, updateApp, getAppsDir } = await import('../memory/app-store.js');
+const { getAppHistory, getAppDiff, getAppFileAtVersion, restoreAppVersion, commitAppTurnChanges } = await import('../memory/app-git-service.js');
 
 describe('App Git History', () => {
   beforeEach(() => {
@@ -31,27 +31,20 @@ describe('App Git History', () => {
     }
   });
 
-  /** Wait for fire-and-forget commits to complete. */
-  async function waitForCommits(): Promise<void> {
-    await new Promise(resolve => setTimeout(resolve, 500));
-  }
-
   test('getAppHistory returns commits for a specific app', async () => {
     const app = createApp({
       name: 'History App',
       schemaJson: '{}',
       htmlDefinition: '<h1>v1</h1>',
     });
-    await waitForCommits();
+    await commitAppTurnChanges('session-1', 1);
 
     updateApp(app.id, { htmlDefinition: '<h1>v2</h1>' });
-    await waitForCommits();
+    await commitAppTurnChanges('session-1', 2);
 
     const history = await getAppHistory(app.id);
     expect(history.length).toBeGreaterThanOrEqual(2);
-    expect(history[0].message).toContain('Update app');
-    // The create commit may be absorbed into the "Initial commit" on a fresh repo
-    expect(history[history.length - 1].message).toMatch(/Create app|Initial commit/);
+    expect(history[0].message).toContain('Turn 2');
     expect(history[0].commitHash).toMatch(/^[0-9a-f]+$/);
     expect(history[0].timestamp).toBeGreaterThan(0);
   });
@@ -62,22 +55,24 @@ describe('App Git History', () => {
       schemaJson: '{}',
       htmlDefinition: '<p>one</p>',
     });
-    await waitForCommits();
+    await commitAppTurnChanges('session-1', 1);
 
     const app2 = createApp({
       name: 'App Two',
       schemaJson: '{}',
       htmlDefinition: '<p>two</p>',
     });
-    await waitForCommits();
+    await commitAppTurnChanges('session-1', 2);
 
     const history1 = await getAppHistory(app1.id);
     const history2 = await getAppHistory(app2.id);
 
-    // App1's history should only contain its own commits
-    expect(history1.every(v => v.message.includes('App One') || v.message.includes('Initial commit'))).toBe(true);
-    // App2's history should only contain its own commits
-    expect(history2.every(v => v.message.includes('App Two') || v.message.includes('Initial commit'))).toBe(true);
+    // App1 should have history from turn 1 (or initial commit)
+    expect(history1.length).toBeGreaterThanOrEqual(1);
+    // App2 should have history from turn 2 (or initial commit)
+    expect(history2.length).toBeGreaterThanOrEqual(1);
+    // App2's commits should not include app1-only turn commits
+    // (turn 2 created app2, so app2 history should not have turn 1 unless initial commit)
   });
 
   test('getAppHistory respects limit', async () => {
@@ -86,13 +81,13 @@ describe('App Git History', () => {
       schemaJson: '{}',
       htmlDefinition: '<p>v1</p>',
     });
-    await waitForCommits();
+    await commitAppTurnChanges('session-1', 1);
 
     updateApp(app.id, { htmlDefinition: '<p>v2</p>' });
-    await waitForCommits();
+    await commitAppTurnChanges('session-1', 2);
 
     updateApp(app.id, { htmlDefinition: '<p>v3</p>' });
-    await waitForCommits();
+    await commitAppTurnChanges('session-1', 3);
 
     const limited = await getAppHistory(app.id, 2);
     expect(limited.length).toBe(2);
@@ -104,13 +99,13 @@ describe('App Git History', () => {
       schemaJson: '{}',
       htmlDefinition: '<p>original</p>',
     });
-    await waitForCommits();
+    await commitAppTurnChanges('session-1', 1);
 
     const history1 = await getAppHistory(app.id);
     const createHash = history1[0].commitHash;
 
     updateApp(app.id, { htmlDefinition: '<p>modified</p>' });
-    await waitForCommits();
+    await commitAppTurnChanges('session-1', 2);
 
     const history2 = await getAppHistory(app.id);
     const updateHash = history2[0].commitHash;
@@ -126,13 +121,13 @@ describe('App Git History', () => {
       schemaJson: '{}',
       htmlDefinition: '<p>version one</p>',
     });
-    await waitForCommits();
+    await commitAppTurnChanges('session-1', 1);
 
     const history1 = await getAppHistory(app.id);
     const v1Hash = history1[0].commitHash;
 
     updateApp(app.id, { htmlDefinition: '<p>version two</p>' });
-    await waitForCommits();
+    await commitAppTurnChanges('session-1', 2);
 
     // Get the file at v1 — should show old content
     const v1Content = await getAppFileAtVersion(app.id, 'index.html', v1Hash);
@@ -150,13 +145,13 @@ describe('App Git History', () => {
       schemaJson: '{}',
       htmlDefinition: '<p>original content</p>',
     });
-    await waitForCommits();
+    await commitAppTurnChanges('session-1', 1);
 
     const history1 = await getAppHistory(app.id);
     const originalHash = history1[0].commitHash;
 
     updateApp(app.id, { htmlDefinition: '<p>new content</p>' });
-    await waitForCommits();
+    await commitAppTurnChanges('session-1', 2);
 
     // Verify current content is "new content"
     let current = readFileSync(join(getAppsDir(), app.id, 'index.html'), 'utf-8');

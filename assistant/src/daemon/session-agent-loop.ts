@@ -58,6 +58,7 @@ import { repairHistory, deepRepairHistory } from './history-repair.js';
 import { stripMediaPayloadsForRetry, raceWithTimeout } from './session-media-retry.js';
 import { commitTurnChanges } from '../workspace/turn-commit.js';
 import { getWorkspaceGitService } from '../workspace/git-service.js';
+import { commitAppTurnChanges } from '../memory/app-git-service.js';
 import type { UsageActor } from '../usage/actors.js';
 import type { SkillProjectionCache } from './session-skill-tools.js';
 
@@ -859,6 +860,9 @@ export async function runAgentLoopImpl(
           'Turn-boundary commit timed out — continuing without waiting (commit still runs in background)',
         );
       }
+
+      // Commit app changes (fire-and-forget — apps repo is separate from workspace)
+      void commitAppTurnChanges(ctx.conversationId, ctx.turnCount);
     }
 
     ctx.profiler.emitSummary(ctx.traceEmitter, reqId);

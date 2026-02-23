@@ -141,6 +141,30 @@ export async function commitAppChange(message: string): Promise<void> {
   }
 }
 
+/**
+ * Commit app changes at turn boundaries.
+ *
+ * Called once per agent turn (after all tool calls complete). Only creates
+ * a commit if there are actual changes in the apps directory, so multiple
+ * mutations within a single turn are batched into one version.
+ *
+ * Fire-and-forget safe: errors are logged but never thrown.
+ */
+export async function commitAppTurnChanges(sessionId: string, turnNumber: number): Promise<void> {
+  try {
+    const appsDir = getAppsDir();
+    ensureAppGitignoreRules(appsDir);
+
+    const gitService = getWorkspaceGitService(appsDir);
+    await gitService.commitIfDirty(() => ({
+      message: `Turn ${turnNumber}: app changes`,
+      metadata: { sessionId, turnNumber },
+    }));
+  } catch (err) {
+    log.error({ err, sessionId, turnNumber }, 'Failed to commit app turn changes');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Query methods
 // ---------------------------------------------------------------------------
