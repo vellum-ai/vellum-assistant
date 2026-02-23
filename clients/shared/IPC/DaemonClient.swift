@@ -63,16 +63,26 @@ func readSessionToken(environment: [String: String]? = nil) -> String? {
 
 #endif
 
+/// Resolve the `.vellum` data directory, honoring `BASE_DATA_DIR` when set.
+public func resolveVellumDir(environment: [String: String]? = nil) -> String {
+    let env = environment ?? ProcessInfo.processInfo.environment
+    if let baseDir = env["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
+        let resolved = baseDir.hasPrefix("~/") ? NSHomeDirectory() + "/" + String(baseDir.dropFirst(2)) : baseDir
+        return resolved + "/.vellum"
+    }
+    return NSHomeDirectory() + "/.vellum"
+}
+
 /// Resolve the runtime HTTP bearer token path.
 /// Uses BASE_DATA_DIR when set to match daemon root resolution.
 /// Available on all platforms since HTTP transport is used on both macOS and iOS.
 public func resolveHttpTokenPath(environment: [String: String]? = nil) -> String {
-    let env = environment ?? ProcessInfo.processInfo.environment
-    if let baseDir = env["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
-        let resolved = baseDir.hasPrefix("~/") ? NSHomeDirectory() + "/" + String(baseDir.dropFirst(2)) : baseDir
-        return resolved + "/.vellum/http-token"
-    }
-    return NSHomeDirectory() + "/.vellum/http-token"
+    return resolveVellumDir(environment: environment) + "/http-token"
+}
+
+/// Resolve the daemon PID file path, honoring `BASE_DATA_DIR`.
+public func resolvePidPath(environment: [String: String]? = nil) -> String {
+    return resolveVellumDir(environment: environment) + "/vellum.pid"
 }
 
 /// Read the runtime HTTP bearer token from disk.

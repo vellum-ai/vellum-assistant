@@ -268,6 +268,15 @@ struct SettingsConnectTab: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                 }
+            } else if !store.ingressEnabled {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 14))
+                    Text("Gateway URL is set but ingress is disabled. Enable ingress in Advanced settings to allow pairing.")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                }
             } else {
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "checkmark.circle.fill")
@@ -450,7 +459,7 @@ struct SettingsConnectTab: View {
         bearerToken = newToken
         // Kill the daemon so the health monitor restarts it with the new token.
         // The daemon only reads the token at startup, so a restart is required.
-        let pidPath = NSHomeDirectory() + "/.vellum/vellum.pid"
+        let pidPath = resolvePidPath()
         if let pidStr = try? String(contentsOfFile: pidPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
            let pid = Int32(pidStr) {
             kill(pid, SIGTERM)
