@@ -131,7 +131,7 @@ The design system uses a two-tier architecture with functional subgrouping:
 DesignSystem/
 ├── Tokens/              (VColor, VFont, VSpacing, VRadius, VShadow, VAnimation)
 ├── Core/                (atomic building blocks — single-responsibility controls)
-│   ├── Buttons/         (VButton, VIconButton, VCircleButton)
+│   ├── Buttons/         (VButton, VIconButton)
 │   ├── Inputs/          (VSlider, VTextEditor, VTextField, VToggle)
 │   ├── Feedback/        (VBadge, VLoadingIndicator, VToast)
 │   ├── Display/         (VListRow)

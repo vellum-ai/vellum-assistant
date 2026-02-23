@@ -116,29 +116,29 @@ struct ButtonsGallerySection: View {
 
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
-            // MARK: - VCircleButton
+            // MARK: - VIconButton (Icon Only)
             GallerySectionHeader(
-                title: "VCircleButton",
-                description: "Circular button with SF Symbol icon, configurable fill color and size."
+                title: "VIconButton (Icon Only)",
+                description: "Icon-only buttons for compact actions like close, add, and call."
             )
 
             VCard {
                 HStack(spacing: VSpacing.xl) {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Default (Emerald, 36pt)").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VCircleButton(icon: "plus", label: "Add") {}
+                        Text("Add").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VIconButton(label: "Add", icon: "plus", iconOnly: true) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Forest fill").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VCircleButton(icon: "phone.fill", label: "Call", fillColor: Forest._500) {}
+                        Text("Call").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VIconButton(label: "Call", icon: "phone.fill", iconOnly: true) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Large (48pt)").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VCircleButton(icon: "mic.fill", label: "Record", size: 48, iconSize: 20) {}
+                        Text("Record").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VIconButton(label: "Record", icon: "mic.fill", iconOnly: true) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Small (24pt, Danger)").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VCircleButton(icon: "xmark", label: "Close", fillColor: Danger._600, size: 24, iconSize: 10) {}
+                        Text("Close").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VIconButton(label: "Close", icon: "xmark", iconOnly: true) {}
                     }
                 }
             }

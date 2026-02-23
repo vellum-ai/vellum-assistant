@@ -53,15 +53,7 @@ struct SettingsPanel: View {
                     .font(VFont.panelTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close Settings")
+                VIconButton(label: "Close Settings", icon: "xmark", iconOnly: true, action: onClose)
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.lg)

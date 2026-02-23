@@ -26,15 +26,7 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
                 if let onClose = onClose {
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(VColor.textMuted)
-                            .frame(width: 32, height: 32)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close \(title)")
+                    VIconButton(label: "Close", icon: "xmark", iconOnly: true, action: onClose)
                 }
             }
             .padding(.horizontal, VSpacing.lg)
