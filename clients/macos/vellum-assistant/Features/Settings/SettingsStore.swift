@@ -878,6 +878,17 @@ public final class SettingsStore: ObservableObject {
 
     func revokeChannelGuardian(channel: String) {
         stopGuardianStatusPolling(for: channel)
+        // Eagerly clear instruction so the "Verify Guardian" button reappears
+        // immediately instead of waiting for the daemon's response (which
+        // looks identical to a status poll and won't clear it).
+        switch channel {
+        case "telegram":
+            telegramGuardianInstruction = nil
+        case "sms":
+            smsGuardianInstruction = nil
+        default:
+            break
+        }
         do {
             try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel, assistantId: guardianAssistantScope)
         } catch {
@@ -904,6 +915,16 @@ public final class SettingsStore: ObservableObject {
             guardianChallengeTimeoutWorkItem?.cancel()
             guardianChallengeTimeoutWorkItem = nil
         }
+        // Clear stale instruction so the "Verify Guardian" button reappears
+        // when a challenge is no longer active (timeout, revoke, or error).
+        switch channel {
+        case "telegram":
+            telegramGuardianInstruction = nil
+        case "sms":
+            smsGuardianInstruction = nil
+        default:
+            break
+        }
     }
 
     private func armGuardianChallengeTimeout(for channel: String) {
@@ -915,11 +936,13 @@ public final class SettingsStore: ObservableObject {
             switch channel {
             case "telegram":
                 self.telegramGuardianVerificationInProgress = false
+                self.telegramGuardianInstruction = nil
                 if self.telegramGuardianError == nil {
                     self.telegramGuardianError = "Timed out waiting for verification instructions. Try again."
                 }
             case "sms":
                 self.smsGuardianVerificationInProgress = false
+                self.smsGuardianInstruction = nil
                 if self.smsGuardianError == nil {
                     self.smsGuardianError = "Timed out waiting for verification instructions. Try again."
                 }

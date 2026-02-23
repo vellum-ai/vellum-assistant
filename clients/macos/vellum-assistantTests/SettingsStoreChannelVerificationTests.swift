@@ -591,6 +591,77 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertTrue(revokeMessages.allSatisfy { $0.assistantId == "self" })
     }
 
+    // MARK: - Revoke clears instruction
+
+    func testRevokeTelegramGuardianClearsInstruction() {
+        store.telegramGuardianInstruction = "Send /guardian_verify abc123 on Telegram"
+
+        store.revokeChannelGuardian(channel: "telegram")
+
+        XCTAssertNil(store.telegramGuardianInstruction)
+    }
+
+    func testRevokeSmsGuardianClearsInstruction() {
+        store.smsGuardianInstruction = "Send /guardian_verify abc123 via SMS"
+
+        store.revokeChannelGuardian(channel: "sms")
+
+        XCTAssertNil(store.smsGuardianInstruction)
+    }
+
+    // MARK: - Timeout clears instruction
+
+    func testTimeoutClearsTelegramInstruction() {
+        sentMessages.removeAll()
+        let shortTimeoutStore = SettingsStore(
+            daemonClient: daemonClient,
+            guardianChallengeTimeoutDuration: 0.15,
+            guardianStatusPollInterval: 0.05,
+            guardianStatusPollWindow: 2.0
+        )
+
+        shortTimeoutStore.startChannelGuardianVerification(channel: "telegram")
+
+        // Manually set instruction to simulate a previous challenge's stale text
+        // that persists when a new challenge times out before the daemon responds.
+        shortTimeoutStore.telegramGuardianInstruction = "Send /guardian_verify stale on Telegram"
+
+        // Wait for the timeout to fire
+        let predicate = NSPredicate { _, _ in
+            shortTimeoutStore.telegramGuardianError != nil
+        }
+        let timeoutExpectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [timeoutExpectation], timeout: 2.0)
+
+        XCTAssertNil(shortTimeoutStore.telegramGuardianInstruction)
+        XCTAssertFalse(shortTimeoutStore.telegramGuardianVerificationInProgress)
+    }
+
+    func testTimeoutClearsSmsInstruction() {
+        sentMessages.removeAll()
+        let shortTimeoutStore = SettingsStore(
+            daemonClient: daemonClient,
+            guardianChallengeTimeoutDuration: 0.15,
+            guardianStatusPollInterval: 0.05,
+            guardianStatusPollWindow: 2.0
+        )
+
+        shortTimeoutStore.startChannelGuardianVerification(channel: "sms")
+
+        // Manually set instruction to simulate a previous challenge's stale text
+        shortTimeoutStore.smsGuardianInstruction = "Send /guardian_verify stale via SMS"
+
+        // Wait for the timeout to fire
+        let predicate = NSPredicate { _, _ in
+            shortTimeoutStore.smsGuardianError != nil
+        }
+        let timeoutExpectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [timeoutExpectation], timeout: 2.0)
+
+        XCTAssertNil(shortTimeoutStore.smsGuardianInstruction)
+        XCTAssertFalse(shortTimeoutStore.smsGuardianVerificationInProgress)
+    }
+
     // MARK: - Cross-channel timeout isolation
 
     func testResponseForChannelADoesNotCancelTimeoutForChannelB() {
