@@ -173,8 +173,15 @@ struct InlineVideoAttachmentView: View {
         // Server thumbnail and aspect ratio are set eagerly in init.
         if thumbnailImage != nil { return }
 
-        // Fallback: extract thumbnail from inline video data.
-        guard !attachment.data.isEmpty, let data = Data(base64Encoded: attachment.data) else { return }
+        // Try inline base64 first, then fall back to /content for lazy-loaded attachments.
+        var videoData: Data?
+        if !attachment.data.isEmpty {
+            videoData = Data(base64Encoded: attachment.data)
+        } else if attachment.isLazyLoad, let port = daemonHttpPort, !attachment.id.isEmpty {
+            videoData = try? await fetchAttachmentContent(port: port, attachmentId: attachment.id)
+        }
+
+        guard let data = videoData else { return }
 
         let fileURL = safeTempURL()
         do {
@@ -272,9 +279,11 @@ struct InlineVideoAttachmentView: View {
         isLoading = true
         Task {
             do {
-                let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
+                let data = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
+                let fileURL = safeTempURL()
+                try data.write(to: fileURL)
                 await MainActor.run { isLoading = false }
-                await playFromBase64(base64)
+                await playFromFile(fileURL)
             } catch {
                 log.error("Failed to fetch attachment \(attachmentId): \(error.localizedDescription)")
                 await MainActor.run {
@@ -318,11 +327,7 @@ struct InlineVideoAttachmentView: View {
             }
             Task {
                 do {
-                    let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
-                    guard let data = Data(base64Encoded: base64) else {
-                        await MainActor.run { isSaving = false }
-                        return
-                    }
+                    let data = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
                     try data.write(to: destURL)
                     await MainActor.run { isSaving = false }
                 } catch {
@@ -373,11 +378,7 @@ struct InlineVideoAttachmentView: View {
             ) { completion in
                 Task {
                     do {
-                        let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
-                        guard let data = Data(base64Encoded: base64) else {
-                            completion(nil, false, URLError(.cannotDecodeContentData))
-                            return
-                        }
+                        let data = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
                         try data.write(to: fileURL)
                         completion(fileURL, true, nil)
                     } catch {
@@ -400,14 +401,7 @@ struct InlineVideoAttachmentView: View {
             isLoading = true
             Task {
                 do {
-                    let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
-                    guard let data = Data(base64Encoded: base64) else {
-                        await MainActor.run {
-                            isLoading = false
-                            failed = true
-                        }
-                        return
-                    }
+                    let data = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
                     let fileURL = safeTempURL()
                     try data.write(to: fileURL)
                     await MainActor.run {
@@ -415,7 +409,10 @@ struct InlineVideoAttachmentView: View {
                         NSWorkspace.shared.open(fileURL)
                     }
                 } catch {
-                    await MainActor.run { isLoading = false }
+                    await MainActor.run {
+                        isLoading = false
+                        failed = true
+                    }
                 }
             }
         } else {
@@ -427,8 +424,8 @@ struct InlineVideoAttachmentView: View {
     }
 }
 
-/// Fetch attachment base64 data from the daemon HTTP endpoint.
-private func fetchAttachmentData(port: Int, attachmentId: String) async throws -> String {
+/// Read the daemon HTTP auth token from disk.
+private func readDaemonToken() throws -> String {
     let tokenBase: String
     if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
        !baseDir.isEmpty {
@@ -442,6 +439,12 @@ private func fetchAttachmentData(port: Int, attachmentId: String) async throws -
           !token.isEmpty else {
         throw URLError(.userAuthenticationRequired)
     }
+    return token
+}
+
+/// Fetch attachment base64 data from the daemon HTTP endpoint.
+private func fetchAttachmentData(port: Int, attachmentId: String) async throws -> String {
+    let token = try readDaemonToken()
     let url = URL(string: "http://localhost:\(port)/v1/attachments/\(attachmentId)")!
     var request = URLRequest(url: url)
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -456,6 +459,20 @@ private func fetchAttachmentData(port: Int, attachmentId: String) async throws -
     }
     let decoded = try JSONDecoder().decode(AttachmentResponse.self, from: data)
     return decoded.data
+}
+
+/// Fetch attachment binary content from the daemon /content endpoint.
+/// Returns raw bytes suitable for writing to disk or AVPlayer consumption.
+private func fetchAttachmentContent(port: Int, attachmentId: String) async throws -> Data {
+    let token = try readDaemonToken()
+    var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/v1/attachments/\(attachmentId)/content")!)
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+        throw URLError(.badServerResponse)
+    }
+    return data
 }
 
 /// NSViewRepresentable wrapper for AVPlayerView.

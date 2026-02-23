@@ -12,6 +12,7 @@ import type {
   ServerMessage,
 } from '../ipc-protocol.js';
 import * as conversationStore from '../../memory/conversation-store.js';
+import { createFileBackedAttachment, linkAttachmentToMessage } from '../../memory/attachments-store.js';
 import { log, defineHandlers, findSocketForSession, type HandlerContext, type CuSessionMetadata } from './shared.js';
 
 const cuObservationSequenceBySession = new Map<string, number>();
@@ -231,23 +232,6 @@ export function handleCuSessionFinalized(
     'CU session finalized by client',
   );
 
-  // If recording metadata is present, log it for future M3 file-backed attachment support.
-  if (msg.recording) {
-    log.info(
-      {
-        sessionId: msg.sessionId,
-        localPath: msg.recording.localPath,
-        mimeType: msg.recording.mimeType,
-        sizeBytes: msg.recording.sizeBytes,
-        durationMs: msg.recording.durationMs,
-        width: msg.recording.width,
-        height: msg.recording.height,
-        captureScope: msg.recording.captureScope,
-      },
-      'CU session recording metadata (stored for M3)',
-    );
-  }
-
   // Inject a summary message into the originating chat session if configured.
   if (meta?.reportToSessionId && msg.summary) {
     const reportSessionId = meta.reportToSessionId;
@@ -258,7 +242,7 @@ export function handleCuSessionFinalized(
     const conversation = conversationStore.getConversation(reportSessionId);
     if (conversation) {
       const assistantContent = JSON.stringify([{ type: 'text', text: msg.summary }]);
-      conversationStore.addMessage(reportSessionId, 'assistant', assistantContent, {
+      const persistedMessage = conversationStore.addMessage(reportSessionId, 'assistant', assistantContent, {
         source: 'cu_session_finalized',
         cuSessionId: msg.sessionId,
         cuStatus: msg.status,
@@ -266,6 +250,42 @@ export function handleCuSessionFinalized(
         qaMode: meta.qaMode ?? false,
         ...(msg.recording ? { recordingPath: msg.recording.localPath } : {}),
       });
+
+      // Create a file-backed attachment from the recording and link it to the message.
+      let recordingAttachment: { id: string; filename: string; mimeType: string; sizeBytes: number } | undefined;
+      if (msg.recording) {
+        try {
+          const attachment = createFileBackedAttachment({
+            filename: `qa-recording-${msg.sessionId}.mp4`,
+            mimeType: msg.recording.mimeType || 'video/mp4',
+            sizeBytes: msg.recording.sizeBytes,
+            filePath: msg.recording.localPath,
+            sha256: undefined,
+            expiresAt: msg.recording.expiresAt,
+          });
+          linkAttachmentToMessage(persistedMessage.id, attachment.id, 0);
+          recordingAttachment = {
+            id: attachment.id,
+            filename: attachment.originalFilename,
+            mimeType: attachment.mimeType,
+            sizeBytes: attachment.sizeBytes,
+          };
+          log.info(
+            {
+              sessionId: msg.sessionId,
+              attachmentId: attachment.id,
+              filePath: msg.recording.localPath,
+              sizeBytes: msg.recording.sizeBytes,
+            },
+            'Created file-backed attachment for CU session recording',
+          );
+        } catch (err) {
+          log.error(
+            { err, sessionId: msg.sessionId, localPath: msg.recording.localPath },
+            'Failed to create file-backed attachment for recording',
+          );
+        }
+      }
 
       // Also append to the in-memory Session.messages so subsequent turns
       // in the same session see the injected summary without a reload.
@@ -288,6 +308,15 @@ export function handleCuSessionFinalized(
         ctx.send(reportSocket, {
           type: 'message_complete',
           sessionId: reportSessionId,
+          ...(recordingAttachment ? {
+            attachments: [{
+              id: recordingAttachment.id,
+              filename: recordingAttachment.filename,
+              mimeType: recordingAttachment.mimeType,
+              data: '',
+              sizeBytes: recordingAttachment.sizeBytes,
+            }],
+          } : {}),
         });
       }
 
