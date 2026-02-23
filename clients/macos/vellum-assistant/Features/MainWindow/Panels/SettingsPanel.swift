@@ -4,7 +4,6 @@ import VellumAssistantShared
 enum SettingsTab: String, CaseIterable {
     case connect = "Connect"
     case integrations = "Integrations"
-    case channels = "Channels"
     case trust = "Trust"
     case reminders = "Reminders"
     case appearance = "Appearance"
@@ -173,8 +172,6 @@ struct SettingsPanel: View {
             SettingsConnectTab(store: store, daemonClient: daemonClient)
         case .integrations:
             integrationsContent
-        case .channels:
-            SettingsChannelsTab(store: store)
         case .trust:
             trustContent
         case .reminders:
