@@ -1,7 +1,12 @@
-name: PR Gateway Image Build
+name: CI Gateway Image Build
 
 on:
   pull_request:
+    paths:
+      - 'gateway/**'
+      - '.github/workflows/ci-gateway-image.yml'
+  push:
+    branches: [main]
     paths:
       - 'gateway/**'
       - '.github/workflows/ci-gateway-image.yml'
@@ -24,7 +29,7 @@ jobs:
           context: gateway
           push: false
           load: true
-          tags: vellum-gateway:pr-${{ github.event.pull_request.number }}
+          tags: vellum-gateway:ci-${{ github.event.pull_request.number || github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -35,7 +40,7 @@ jobs:
             -e TELEGRAM_WEBHOOK_SECRET=test \
             -e ASSISTANT_RUNTIME_BASE_URL=http://localhost:7821 \
             -p 19830:7830 \
-            vellum-gateway:pr-${{ github.event.pull_request.number }}
+            vellum-gateway:ci-${{ github.event.pull_request.number || github.sha }}
           sleep 3
           STATUS=$(curl -sf http://localhost:19830/healthz | jq -r '.status' || echo "failed")
           docker stop gateway-smoke || true
