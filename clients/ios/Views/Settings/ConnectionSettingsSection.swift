@@ -68,30 +68,46 @@ struct DaemonConnectionSection: View {
 
     var body: some View {
         Form {
-            // Show gateway connection status when connected via HTTP transport
-            if isHTTPTransport, clientProvider.isConnected {
-                Section {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        Text("Connected via gateway")
-                            .font(VFont.body)
-                    }
-                    if let url = gatewayURL {
+            // Connection status section — always visible
+            Section {
+                if let url = gatewayURL {
+                    if clientProvider.isConnected {
+                        // Connected state
                         HStack {
-                            Text("Gateway URL")
-                                .foregroundColor(VColor.textSecondary)
-                            Spacer()
-                            Text(url)
-                                .font(.caption)
-                                .foregroundColor(VColor.textMuted)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(VColor.success)
+                            Text("Connected")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
+                        }
+                    } else {
+                        // Disconnected state — gateway configured but not connected
+                        HStack {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundColor(VColor.error)
+                            Text("Disconnected")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
                         }
                     }
-                } header: {
-                    Text("Connection")
+                    HStack {
+                        Text("Gateway")
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        Text(url)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.textMuted)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                } else {
+                    // Not configured state
+                    Text("Scan a QR code or enter your Mac's gateway URL to connect.")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
                 }
+            } header: {
+                Text("Connection")
             }
 
             Section {

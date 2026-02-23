@@ -10,12 +10,14 @@ struct QRPairingSheet: View {
     @State private var phase: PairingPhase = .scanning
     @State private var scannedPayload: DaemonQRPayload?
     @State private var errorMessage: String?
+    @State private var showGatewayChangedAlert = false
 
     enum PairingPhase {
         case scanning
         case confirming
         case connecting
         case connected
+        case alreadyConnected
         case error
     }
 
@@ -31,6 +33,8 @@ struct QRPairingSheet: View {
                     connectingView
                 case .connected:
                     connectedView
+                case .alreadyConnected:
+                    alreadyConnectedView
                 case .error:
                     errorView
                 }
@@ -41,6 +45,18 @@ struct QRPairingSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+            }
+            .alert("Gateway Settings Changed", isPresented: $showGatewayChangedAlert) {
+                Button("Update") {
+                    connectToMac()
+                }
+                Button("Cancel", role: .cancel) {
+                    // Keep existing values, return to scanning
+                    scannedPayload = nil
+                    phase = .scanning
+                }
+            } message: {
+                Text("Your Mac's gateway settings have changed. Update connection?")
             }
         }
     }
@@ -148,6 +164,35 @@ struct QRPairingSheet: View {
         }
     }
 
+    // MARK: - Already Connected
+
+    private var alreadyConnectedView: some View {
+        VStack(spacing: VSpacing.xl) {
+            Spacer()
+
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 64))
+                .foregroundColor(VColor.success)
+
+            Text("Already Connected")
+                .font(VFont.title)
+                .foregroundColor(VColor.textPrimary)
+
+            Text("Already connected to this Mac.")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+                .multilineTextAlignment(.center)
+
+            Spacer()
+
+            Button("Done") {
+                dismiss()
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.bottom, VSpacing.xxl)
+        }
+    }
+
     // MARK: - Error
 
     private var errorView: some View {
@@ -222,12 +267,30 @@ struct QRPairingSheet: View {
             return
         }
 
-        scannedPayload = DaemonQRPayload(
+        let payload = DaemonQRPayload(
             gatewayURL: gatewayURL,
             bearerToken: bearerToken,
             hostId: hostId
         )
-        phase = .confirming
+        scannedPayload = payload
+
+        // Compare with stored values to detect first-time vs re-scan vs same config
+        let storedGatewayURL = UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL) ?? ""
+        let storedBearerToken = APIKeyManager.shared.getAPIKey(provider: "runtime-bearer-token") ?? ""
+
+        let hasStoredConfig = !storedGatewayURL.isEmpty && !storedBearerToken.isEmpty
+        let valuesMatch = storedGatewayURL == payload.gatewayURL && storedBearerToken == payload.bearerToken
+
+        if !hasStoredConfig {
+            // First-time scan — save directly, proceed to confirm then connect
+            phase = .confirming
+        } else if valuesMatch {
+            // Same config — show brief "already connected" confirmation
+            phase = .alreadyConnected
+        } else {
+            // Re-scan with different values — prompt before overwriting
+            showGatewayChangedAlert = true
+        }
     }
 
     private func connectToMac() {
