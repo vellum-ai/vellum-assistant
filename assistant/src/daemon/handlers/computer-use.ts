@@ -7,6 +7,7 @@ import { readBlob, deleteBlob, validateBlobKindEncoding } from '../ipc-blob-stor
 import type {
   CuSessionCreate,
   CuSessionAbort,
+  CuSessionFinalized,
   CuObservation,
   ServerMessage,
 } from '../ipc-protocol.js';
@@ -180,8 +181,27 @@ export async function handleCuObservation(
   });
 }
 
+export function handleCuSessionFinalized(
+  msg: CuSessionFinalized,
+  _socket: net.Socket,
+  _ctx: HandlerContext,
+): void {
+  log.info(
+    {
+      sessionId: msg.sessionId,
+      status: msg.status,
+      stepCount: msg.stepCount,
+      hasRecording: !!msg.recording,
+      recordingSizeBytes: msg.recording?.sizeBytes,
+      recordingDurationMs: msg.recording?.durationMs,
+    },
+    'CU session finalized by client',
+  );
+}
+
 export const computerUseHandlers = defineHandlers({
   cu_session_create: handleCuSessionCreate,
   cu_session_abort: handleCuSessionAbort,
+  cu_session_finalized: handleCuSessionFinalized,
   cu_observation: handleCuObservation,
 });

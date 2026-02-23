@@ -2499,3 +2499,13 @@ exports[`IPC message snapshots ServerMessage types tool_names_list_response seri
   "type": "tool_names_list_response",
 }
 `;
+
+exports[`IPC message snapshots ClientMessage types cu_session_finalized serializes to expected JSON 1`] = `
+{
+  "sessionId": "cu-sess-001",
+  "status": "completed",
+  "stepCount": 5,
+  "summary": "Task completed successfully",
+  "type": "cu_session_finalized",
+}
+`;
