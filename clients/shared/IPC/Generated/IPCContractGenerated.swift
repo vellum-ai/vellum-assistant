@@ -476,6 +476,32 @@ public struct IPCCuSessionCreate: Codable, Sendable {
     public let screenHeight: Int
     public let attachments: [IPCUserMessageAttachment]?
     public let interactionType: String?
+    /// Origin chat session for result injection (QA workflow).
+    public let reportToSessionId: String?
+    /// Marks this CU run as a QA/test workflow.
+    public let qaMode: Bool?
+}
+
+public struct IPCCuSessionFinalized: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let status: String
+    public let summary: String
+    public let stepCount: Int
+    public let recording: IPCCuSessionFinalizedRecording?
+}
+
+public struct IPCCuSessionFinalizedRecording: Codable, Sendable {
+    public let localPath: String
+    public let mimeType: String
+    public let sizeBytes: Int
+    public let durationMs: Double
+    public let width: Int
+    public let height: Int
+    public let captureScope: String
+    public let includeAudio: Bool
+    public let targetBundleId: String?
+    public let expiresAt: Int?
 }
 
 public struct IPCDaemonStatusMessage: Codable, Sendable {
