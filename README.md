@@ -202,6 +202,25 @@ The unified messaging layer provides platform-agnostic tools (`messaging_send`, 
 
 Connect Gmail and Slack via the Settings UI or `integration_connect` IPC message. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens. Telegram uses a bot token (not OAuth) — see the `telegram-setup` skill for setup instructions. SMS uses Twilio credentials (Account SID + Auth Token) — see the `twilio-setup` skill for setup instructions.
 
+#### Per-assistant phone number mapping (SMS)
+
+In multi-assistant setups, each assistant can have its own dedicated Twilio phone number. Inbound SMS is routed to the correct assistant based on which number received the message, and outbound SMS is sent from the assistant's mapped number.
+
+Configure via `sms.assistantPhoneNumbers` in the gateway config file (`~/.vellum/workspace/config.json`):
+
+```json
+{
+  "sms": {
+    "assistantPhoneNumbers": {
+      "assistant-id-1": "+15551234567",
+      "assistant-id-2": "+15559876543"
+    }
+  }
+}
+```
+
+The `TWILIO_PHONE_NUMBER` environment variable (or `sms.phoneNumber` in the config file) serves as the global fallback when no per-assistant mapping matches. If an `assistantId` is provided in a `/deliver/sms` request and has a mapped phone number, that number is used as the sender; otherwise, the global `TWILIO_PHONE_NUMBER` is used.
+
 ### Twitter (X)
 
 Twitter integration supports two operation paths: **OAuth** (X API v2) and **Browser** (CDP). A strategy router selects which path is used for each operation.

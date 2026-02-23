@@ -759,12 +759,13 @@ export function buildSchema(): Record<string, unknown> {
         },
         SmsDeliverRequest: {
           type: "object",
-          required: ["text"],
-          description: "Request to deliver an SMS message via Twilio. Provide either `to` or `chatId` (alias) as the recipient phone number.",
+          description: "Request to deliver an SMS message via Twilio. Provide either `to` or `chatId` (alias) as the recipient phone number. `text` is optional when `attachments` are present — a fallback text message is sent instead.",
           properties: {
             to: { type: "string", description: "Recipient phone number in E.164 format" },
             chatId: { type: "string", description: "Alias for `to` — recipient phone number in E.164 format. Used by the runtime channel callback payload." },
             text: { type: "string", description: "Text content to send", minLength: 1 },
+            assistantId: { type: "string", description: "Optional assistant ID for per-assistant phone number resolution in multi-assistant setups" },
+            attachments: { type: "array", items: { type: "object" }, description: "Media attachments. When text is empty but attachments are present, a fallback text message is sent instead." },
           },
           anyOf: [
             { required: ["to"] },
