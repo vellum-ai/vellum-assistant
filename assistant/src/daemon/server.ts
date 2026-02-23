@@ -1,7 +1,7 @@
 import * as net from 'node:net';
 import * as tls from 'node:tls';
 import { randomBytes } from 'node:crypto';
-import { existsSync, chmodSync, readFileSync, writeFileSync, readdirSync, watch, type FSWatcher } from 'node:fs';
+import { existsSync, chmodSync, statSync, readFileSync, writeFileSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import { getSocketPath, getSessionTokenPath, getRootDir, getWorkspaceDir, getWorkspaceSkillsDir, getSandboxWorkingDir, removeSocketFile, getTCPPort, getTCPHost, isTCPEnabled, isIOSPairingEnabled } from '../util/platform.js';
 import { ensureTlsCert } from './tls-certs.js';
@@ -259,6 +259,16 @@ export class DaemonServer {
           log.error({ err, socketPath: this.socketPath }, 'Server socket error while running');
         });
         chmodSync(this.socketPath, 0o600);
+        // Validate the chmod actually took effect — some filesystems
+        // (e.g. FAT32 mounts, container overlays) silently ignore chmod.
+        const socketStat = statSync(this.socketPath);
+        if ((socketStat.mode & 0o077) !== 0) {
+          const actual = '0o' + (socketStat.mode & 0o777).toString(8);
+          log.error(
+            { socketPath: this.socketPath, mode: actual },
+            'IPC socket is accessible by other users (expected 0600) — filesystem may not support Unix permissions',
+          );
+        }
         log.info({ socketPath: this.socketPath }, 'Daemon server listening');
 
         // Start TLS-encrypted TCP listener for iOS clients (alongside the Unix socket)
