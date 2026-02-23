@@ -769,7 +769,7 @@ extension IPCMemoryRecalled {
         selectedCount: Int,
         rerankApplied: Bool,
         injectedTokens: Int,
-        latencyMs: Double,
+        latencyMs: Int,
         topCandidates: [IPCMemoryRecalledCandidateDebug]
     ) {
         self.init(
