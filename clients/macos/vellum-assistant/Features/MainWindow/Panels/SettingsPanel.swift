@@ -1053,7 +1053,7 @@ struct SettingsPanel: View {
                                 .foregroundColor(VColor.textMuted)
                         }
                         Spacer()
-                        VButton(label: "Manage...", style: .ghost) {
+                        VButton(label: "Manage...", style: .tertiary) {
                             daemonClient?.isTrustRulesSheetOpen = true
                             showingTrustRules = true
                         }
@@ -1110,7 +1110,7 @@ struct SettingsPanel: View {
                                 .foregroundColor(VColor.textMuted)
                         }
                         Spacer()
-                        VButton(label: "Manage...", style: .ghost) {
+                        VButton(label: "Manage...", style: .tertiary) {
                             showingReminders = true
                         }
                     }
@@ -1491,7 +1491,7 @@ struct SettingsPanelEnvVarsSheet: View {
                     .font(VFont.headline)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
-                VButton(label: "Done", style: .ghost) { dismiss() }
+                VButton(label: "Done", style: .tertiary) { dismiss() }
             }
             .padding(VSpacing.lg)
 

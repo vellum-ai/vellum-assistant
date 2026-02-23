@@ -115,7 +115,7 @@ struct SettingsAppearanceTab: View {
 
                     HStack {
                         Spacer()
-                        VButton(label: "Reset to Defaults", style: .ghost) {
+                        VButton(label: "Reset to Defaults", style: .tertiary) {
                             store.setMediaEmbedVideoAllowlistDomains(MediaEmbedSettings.defaultDomains)
                         }
                     }

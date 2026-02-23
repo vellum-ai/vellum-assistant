@@ -67,7 +67,7 @@ struct CapabilitiesBriefingView: View {
 
                             OnboardingButton(
                                 title: "See what I can do",
-                                style: .ghost,
+                                style: .tertiary,
                                 fadeIn: true,
                                 fadeDelay: 0.3
                             ) {

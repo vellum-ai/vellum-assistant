@@ -52,7 +52,7 @@ public struct VToast: View {
             if primaryAction != nil || secondaryAction != nil || onDismiss != nil {
                 HStack(spacing: VSpacing.sm) {
                     if let secondary = secondaryAction {
-                        VButton(label: secondary.label, style: .ghost, action: secondary.action)
+                        VButton(label: secondary.label, style: .tertiary, action: secondary.action)
                     }
                     if let primary = primaryAction {
                         VButton(label: primary.label, style: actionButtonStyle, action: primary.action)

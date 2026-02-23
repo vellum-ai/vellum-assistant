@@ -133,7 +133,7 @@ struct ObservationSessionView: View {
                     // Stop early button
                     OnboardingButton(
                         title: "Stop early",
-                        style: .ghost
+                        style: .tertiary
                     ) {
                         stopObservation()
                         onStopEarly()

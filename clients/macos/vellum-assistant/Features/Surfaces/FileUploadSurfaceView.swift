@@ -40,7 +40,7 @@ struct FileUploadSurfaceView: View {
             HStack(spacing: VSpacing.lg) {
                 Spacer()
 
-                VButton(label: "Cancel", style: .ghost) {
+                VButton(label: "Cancel", style: .tertiary) {
                     onCancel()
                 }
 

@@ -217,7 +217,7 @@ struct SecretPromptView: View {
                     // Buttons
                     HStack(spacing: VSpacing.lg) {
                         Spacer()
-                        VButton(label: "Cancel", style: .ghost) {
+                        VButton(label: "Cancel", style: .tertiary) {
                             onCancel()
                         }
                         VButton(label: "Save", style: .primary) {
@@ -235,7 +235,7 @@ struct SecretPromptView: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .font(.system(size: 10))
                                 .foregroundColor(VColor.warning)
-                            VButton(label: "Send Once (not saved)", style: .ghost) {
+                            VButton(label: "Send Once (not saved)", style: .tertiary) {
                                 let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
                                 guard !trimmed.isEmpty else { return }
                                 _ = onSendOnce(trimmed)

@@ -172,15 +172,15 @@ private struct JITPermissionManagerPreviewWrapper: View {
                 .foregroundColor(VColor.textSecondary)
 
             HStack(spacing: VSpacing.md) {
-                OnboardingButton(title: "Request Mic", style: .ghost) {
+                OnboardingButton(title: "Request Mic", style: .tertiary) {
                     manager.isActive = true
                     _ = manager.requestIfNeeded(.microphone)
                 }
-                OnboardingButton(title: "Request A11y", style: .ghost) {
+                OnboardingButton(title: "Request A11y", style: .tertiary) {
                     manager.isActive = true
                     _ = manager.requestIfNeeded(.accessibility)
                 }
-                OnboardingButton(title: "Request Screen", style: .ghost) {
+                OnboardingButton(title: "Request Screen", style: .tertiary) {
                     manager.isActive = true
                     _ = manager.requestIfNeeded(.screenCapture)
                 }
