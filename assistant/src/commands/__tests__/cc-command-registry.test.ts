@@ -303,6 +303,20 @@ describe('summary extraction', () => {
     expect(entry!.summary).toBe('');
   });
 
+  test('returns summary for small file starting with thematic break ---', () => {
+    // A small markdown file that starts with "---" as a thematic break (not
+    // frontmatter) should still have its first content line extracted as a
+    // summary, rather than being treated as truncated frontmatter.
+    createCommandsDir(tmpDir, {
+      'thematic-break.md': '---\nThis is a valid summary after a thematic break.',
+    });
+
+    const registry = discoverCCCommands(tmpDir);
+    const entry = registry.entries.get('thematic-break');
+    expect(entry).toBeDefined();
+    expect(entry!.summary).toBe('This is a valid summary after a thematic break.');
+  });
+
   test('handles frontmatter with Windows-style line endings', () => {
     createCommandsDir(tmpDir, {
       'crlf.md': '---\r\ntitle: Test\r\n---\r\n\r\nSummary with CRLF.',

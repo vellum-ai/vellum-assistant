@@ -81,10 +81,18 @@ function extractSummary(content: string): string {
   if (fmMatch) {
     body = content.slice(fmMatch[0].length);
   } else if (/^---\r?\n/.test(content)) {
-    // Content starts with a frontmatter opening delimiter but the closing
-    // delimiter was not found — the frontmatter was truncated by the partial
-    // read (SUMMARY_READ_BYTES). Return empty rather than surfacing "---".
-    return '';
+    if (content.length >= SUMMARY_READ_BYTES) {
+      // Content starts with a frontmatter opening delimiter but the closing
+      // delimiter was not found. The content length reached SUMMARY_READ_BYTES,
+      // so the read was likely truncated — the missing closing `---` is
+      // probably just beyond the read boundary. Return empty rather than
+      // surfacing partial frontmatter fields as a summary.
+      return '';
+    }
+    // Small file that starts with `---` (thematic break or unclosed
+    // frontmatter opener). Skip the leading `---` line and extract the
+    // first real content line from the remainder.
+    body = content.replace(/^---\r?\n/, '');
   }
 
   // Find first non-empty line
