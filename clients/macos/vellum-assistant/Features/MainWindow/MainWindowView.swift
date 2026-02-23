@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
@@ -398,8 +399,15 @@ struct MainWindowView: View {
                         lastAppliedBootstrapTurn = turnCount
                     }
                 }
-                // Enable Home Base dashboard as soon as bootstrap completes
-                // within the same session (BOOTSTRAP.md deleted by the AI).
+                requestHomeBaseDashboardIfNeeded()
+            }
+            // Poll for bootstrap completion so the dashboard is enabled even when
+            // BOOTSTRAP.md is deleted via tool execution that only mutates
+            // existing messages in place (no message-ID change to trigger
+            // the .onChange above). Stops automatically once the auto-enable
+            // flag is set.
+            .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
+                guard !homeBaseDashboardAutoEnabled else { return }
                 requestHomeBaseDashboardIfNeeded()
             }
             .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
