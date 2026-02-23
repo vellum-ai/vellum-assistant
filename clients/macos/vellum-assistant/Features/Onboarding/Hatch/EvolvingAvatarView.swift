@@ -49,9 +49,12 @@ struct EvolvingAvatarView: View {
                 withAnimation(.spring(response: 0.6, dampingFraction: 0.5)) {
                     appeared = true
                 }
-                startBreathing()
             } else {
                 appeared = true
+            }
+            let breatheDelay: Double = animated ? 0.6 : 0.0
+            DispatchQueue.main.asyncAfter(deadline: .now() + breatheDelay) {
+                startBreathing()
             }
         }
     }
