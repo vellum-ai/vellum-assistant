@@ -246,16 +246,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("This is your private generated key", text: $apiKeyText)
-                        .textFieldStyle(.plain)
+                        .textFieldStyle(VInputStyle())
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Get your API key at console.anthropic.com")
                         .font(VFont.caption)
@@ -360,16 +353,9 @@ struct SettingsPanel: View {
 
                 TextField("https://abc123.ngrok-free.app", text: $ingressUrlText)
                     .focused($isIngressUrlFocused)
-                    .textFieldStyle(.plain)
+                    .textFieldStyle(VInputStyle())
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
-                    .padding(VSpacing.md)
-                    .background(VColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                    )
 
                 VButton(label: "Save", style: .primary) {
                     store.saveIngressPublicBaseUrl(ingressUrlText)
@@ -485,16 +471,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your Perplexity API key", text: $perplexityKeyText)
-                        .textFieldStyle(.plain)
+                        .textFieldStyle(VInputStyle())
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Get your API key at perplexity.ai/settings/api")
                         .font(VFont.caption)
@@ -540,16 +519,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your Brave Search API key", text: $braveKeyText)
-                        .textFieldStyle(.plain)
+                        .textFieldStyle(VInputStyle())
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Get your API key at brave.com/search/api")
                         .font(VFont.caption)
@@ -613,16 +585,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your Gemini API key", text: $imageGenKeyText)
-                        .textFieldStyle(.plain)
+                        .textFieldStyle(VInputStyle())
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Get your API key at aistudio.google.com/apikey")
                         .font(VFont.caption)
@@ -668,16 +633,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your OpenAI API key", text: $openaiKeyText)
-                        .textFieldStyle(.plain)
+                        .textFieldStyle(VInputStyle())
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Used for Voice Mode (Whisper transcription). Get your key at platform.openai.com/api-keys")
                         .font(VFont.caption)
@@ -723,16 +681,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)
-                        .textFieldStyle(.plain)
+                        .textFieldStyle(VInputStyle())
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Used for Voice Mode (text-to-speech). Get your key at elevenlabs.io/app/settings/api-keys")
                         .font(VFont.caption)
@@ -810,28 +761,14 @@ struct SettingsPanel: View {
                     // Client credentials entry (when not yet configured)
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         TextField("OAuth Client ID", text: $twitterClientId)
-                            .textFieldStyle(.plain)
+                            .textFieldStyle(VInputStyle())
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
 
                         SecureField("OAuth Client Secret (optional)", text: $twitterClientSecret)
-                            .textFieldStyle(.plain)
+                            .textFieldStyle(VInputStyle())
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
 
                         HStack {
                             Text("Create an app at developer.x.com")
@@ -956,16 +893,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Telegram bot token", text: $telegramBotTokenText)
-                        .textFieldStyle(.plain)
+                        .textFieldStyle(VInputStyle())
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Get your bot token from @BotFather on Telegram")
                         .font(VFont.caption)
@@ -1036,28 +966,14 @@ struct SettingsPanel: View {
                     }
 
                     TextField("Account SID", text: $twilioAccountSidText)
-                        .textFieldStyle(.plain)
+                        .textFieldStyle(VInputStyle())
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     SecureField("Auth Token", text: $twilioAuthTokenText)
-                        .textFieldStyle(.plain)
+                        .textFieldStyle(VInputStyle())
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     if store.twilioSaveInProgress {
                         HStack(spacing: VSpacing.sm) {
@@ -1097,16 +1013,9 @@ struct SettingsPanel: View {
 
                 HStack(spacing: VSpacing.sm) {
                     TextField("Assign existing (+1555...)", text: $twilioPhoneNumberText)
-                        .textFieldStyle(.plain)
+                        .textFieldStyle(VInputStyle())
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     VButton(label: "Assign", style: .secondary) {
                         store.assignTwilioNumber(phoneNumber: twilioPhoneNumberText)
@@ -1120,29 +1029,15 @@ struct SettingsPanel: View {
 
                 HStack(spacing: VSpacing.sm) {
                     TextField("Area code (optional)", text: $twilioAreaCodeText)
-                        .textFieldStyle(.plain)
+                        .textFieldStyle(VInputStyle())
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     TextField("Country", text: $twilioCountryText)
-                        .textFieldStyle(.plain)
+                        .textFieldStyle(VInputStyle())
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
                         .frame(width: 90)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     VButton(label: "Provision", style: .secondary) {
                         store.provisionTwilioNumber(
