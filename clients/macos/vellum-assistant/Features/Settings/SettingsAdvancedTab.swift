@@ -416,11 +416,12 @@ struct SettingsAdvancedTab: View {
 
     private func regenerateSessionToken() {
         let tokenPath = NSHomeDirectory() + "/.vellum/session-token"
-        try? FileManager.default.removeItem(atPath: tokenPath)
-        // Generate a new token immediately so the UI updates right away.
+        // Generate new random bytes before deleting the old file so a
+        // SecRandomCopyBytes failure doesn't leave us with no token at all.
         var bytes = [UInt8](repeating: 0, count: 32)
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return }
         let newToken = bytes.map { String(format: "%02x", $0) }.joined()
+        try? FileManager.default.removeItem(atPath: tokenPath)
         FileManager.default.createFile(atPath: tokenPath, contents: Data(newToken.utf8), attributes: [.posixPermissions: 0o600])
         sessionToken = newToken
         // Kill the daemon so the health monitor restarts it with the new token.
