@@ -2446,7 +2446,7 @@ graph TB
     subgraph "Provider Adapters"
         SLACK_ADAPTER["Slack Adapter<br/>messaging/providers/slack/"]
         GMAIL_ADAPTER["Gmail Adapter<br/>messaging/providers/gmail/"]
-        TELEGRAM_ADAPTER["Telegram Adapter<br/>messaging/providers/telegram/"]
+        TELEGRAM_ADAPTER["Telegram Adapter<br/>messaging/providers/telegram-bot/"]
         SMS_ADAPTER["SMS Adapter (Twilio)<br/>messaging/providers/sms/"]
     end
 
