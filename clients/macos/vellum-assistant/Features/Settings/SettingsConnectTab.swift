@@ -483,6 +483,7 @@ struct SettingsConnectTab: View {
                         accountSid: twilioAccountSidText,
                         authToken: twilioAuthTokenText
                     )
+                    twilioAccountSidText = ""
                     twilioAuthTokenText = ""
                     twilioSetupExpanded = false
                 }
