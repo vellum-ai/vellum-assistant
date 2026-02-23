@@ -145,53 +145,59 @@ async function getRemoteProcessesCustom(
   ]);
 }
 
-function getLocalProcesses(): TableRow[] {
+function checkPidFile(pidFile: string): { status: string; pid: string | null } {
+  if (!existsSync(pidFile)) {
+    return { status: "not running", pid: null };
+  }
+  const pid = readFileSync(pidFile, "utf-8").trim();
+  try {
+    process.kill(parseInt(pid, 10), 0);
+    return { status: "running", pid };
+  } catch {
+    return { status: "not running", pid };
+  }
+}
+
+async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
+  const vellumDir = entry.baseDataDir ?? join(homedir(), ".vellum");
   const rows: TableRow[] = [];
-  const vellumDir = join(homedir(), ".vellum");
 
   // Check daemon PID
-  const pidFile = join(vellumDir, "vellum.pid");
-  if (existsSync(pidFile)) {
-    const pid = readFileSync(pidFile, "utf-8").trim();
-    let status = "running";
-    try {
-      process.kill(parseInt(pid, 10), 0);
-    } catch {
-      status = "not running";
-    }
-    rows.push({ name: "daemon", status: withStatusEmoji(status), info: `PID ${pid}` });
-  } else {
-    rows.push({ name: "daemon", status: withStatusEmoji("not running"), info: "no PID file" });
-  }
+  const daemon = checkPidFile(join(vellumDir, "vellum.pid"));
+  rows.push({
+    name: "daemon",
+    status: withStatusEmoji(daemon.status),
+    info: daemon.pid ? `PID ${daemon.pid}` : "no PID file",
+  });
 
   // Check qdrant PID
-  const qdrantPidFile = join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid");
-  if (existsSync(qdrantPidFile)) {
-    const pid = readFileSync(qdrantPidFile, "utf-8").trim();
-    let status = "running";
-    try {
-      process.kill(parseInt(pid, 10), 0);
-    } catch {
-      status = "not running";
-    }
-    rows.push({ name: "qdrant", status: withStatusEmoji(status), info: `PID ${pid} | port 6333` });
-  } else {
-    rows.push({ name: "qdrant", status: withStatusEmoji("not running"), info: "no PID file" });
-  }
+  const qdrant = checkPidFile(join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid"));
+  rows.push({
+    name: "qdrant",
+    status: withStatusEmoji(qdrant.status),
+    info: qdrant.pid ? `PID ${qdrant.pid} | port 6333` : "no PID file",
+  });
 
   // Check gateway PID
-  const gatewayPidFile = join(vellumDir, "gateway.pid");
-  if (existsSync(gatewayPidFile)) {
-    const pid = readFileSync(gatewayPidFile, "utf-8").trim();
-    let status = "running";
-    try {
-      process.kill(parseInt(pid, 10), 0);
-    } catch {
-      status = "not running";
+  const gateway = checkPidFile(join(vellumDir, "gateway.pid"));
+  rows.push({
+    name: "gateway",
+    status: withStatusEmoji(gateway.status),
+    info: gateway.pid ? `PID ${gateway.pid} | port 7830` : "no PID file",
+  });
+
+  // If no PID files found, fall back to health check
+  const allMissingPid = !daemon.pid && !qdrant.pid && !gateway.pid;
+  if (allMissingPid) {
+    const health = await checkHealth(entry.runtimeUrl);
+    if (health.status === "healthy" || health.status === "ok") {
+      rows.length = 0;
+      rows.push({
+        name: "daemon",
+        status: withStatusEmoji("running"),
+        info: "no PID file (detected via health check)",
+      });
     }
-    rows.push({ name: "gateway", status: withStatusEmoji(status), info: `PID ${pid} | port 7830` });
-  } else {
-    rows.push({ name: "gateway", status: withStatusEmoji("not running"), info: "no PID file" });
   }
 
   return rows;
@@ -203,7 +209,7 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
   console.log(`Processes for ${entry.assistantId} (${cloud}):\n`);
 
   if (cloud === "local") {
-    const rows = getLocalProcesses();
+    const rows = await getLocalProcesses(entry);
     printTable(rows);
     return;
   }
