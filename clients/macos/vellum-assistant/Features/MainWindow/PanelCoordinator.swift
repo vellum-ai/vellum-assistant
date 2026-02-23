@@ -420,7 +420,7 @@ extension MainWindowView {
                 surfaceManager: surfaceManager,
                 daemonClient: daemonClient,
                 trafficLightPadding: trafficLightPadding,
-                isSidebarOpen: sidebarOpen,
+                isSidebarOpen: sidebarExpanded,
                 isPublishing: $isPublishing,
                 publishedUrl: $publishedUrl,
                 publishError: $publishError,

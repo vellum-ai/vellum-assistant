@@ -31,18 +31,16 @@ struct MainWindowView: View {
     @State private var showCopyThreadConfirmation = false
     @State private var copyThreadConfirmationTimer: DispatchWorkItem?
 
-    @AppStorage("sidebarOpen") var sidebarOpen: Bool = false
+    @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var systemIsDark: Bool = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-    @AppStorage("threadDrawerWidth") private var threadDrawerWidth: Double = 240
+    private let sidebarExpandedWidth: CGFloat = 240
+    private let sidebarCollapsedWidth: CGFloat = 52
+    private let sidebarOuterMargin: CGFloat = 16
     @AppStorage("sidePanelWidth") var sidePanelWidth: Double = 400
     @AppStorage("appPanelWidth") var appPanelWidth: Double = -1
     @AppStorage("homeBaseDashboardDefaultEnabled") private var homeBaseDashboardDefaultEnabled: Bool = false
     @AppStorage("homeBaseDashboardAutoEnabled") private var homeBaseDashboardAutoEnabled: Bool = false
-    @State private var drawerDragStartWidth: Double?
-    @State private var drawerDragStartAvailableWidth: CGFloat?
-    @State private var isDrawerDragging: Bool = false
-    private let drawerDragCoordinateSpaceName = "MainWindowDrawerDragCoordinateSpace"
     let daemonClient: DaemonClient
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
@@ -341,17 +339,17 @@ struct MainWindowView: View {
                     windowState.activeDynamicParsedSurface = nil
                 }
 
-                // Close the left sidebar when an app opens to avoid crowding
-                if sidebarOpen {
-                    let shouldClose: Bool = {
+                // Collapse the sidebar when an app opens to avoid crowding
+                if sidebarExpanded {
+                    let shouldCollapse: Bool = {
                         switch newSelection {
                         case .app, .appEditing: return true
                         default: return false
                         }
                     }()
-                    if shouldClose {
-                        withAnimation(.easeInOut(duration: 0.35)) {
-                            sidebarOpen = false
+                    if shouldCollapse {
+                        withAnimation(VAnimation.panel) {
+                            sidebarExpanded = false
                         }
                     }
                 }
@@ -385,19 +383,9 @@ struct MainWindowView: View {
                 VStack(spacing: 0) {
                     // Top bar (always visible, above sidebar)
                     HStack(spacing: 0) {
-                        VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarOpen, iconOnly: true, tooltip: sidebarOpen ? "Hide sidebar" : "Show sidebar") {
-                            withAnimation(.easeInOut(duration: 0.35)) {
-                                sidebarOpen.toggle()
-                            }
-                        }
-                        if !sidebarOpen,
-                           !windowState.isShowingChat
-                            || threadManager.activeThread?.kind == .private
-                            || threadManager.activeViewModel?.messages.contains(where: { $0.role == .user }) == true {
-                            Spacer().frame(width: VSpacing.xs)
-                            VIconButton(label: "New Chat", icon: "plus.circle", iconOnly: true, tooltip: "New chat") {
-                                windowState.selection = nil
-                                threadManager.createThread()
+                        VIconButton(label: "Sidebar", icon: "sidebar.left", isActive: sidebarExpanded, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
+                            withAnimation(VAnimation.panel) {
+                                sidebarExpanded.toggle()
                             }
                         }
                         Spacer()
@@ -459,26 +447,13 @@ struct MainWindowView: View {
 
                     Divider().background(VColor.surfaceBorder)
 
-                    // Content area with sidebar pushing content
-                    ZStack(alignment: .leading) {
-                        let sidebarVisible = sidebarOpen && windowState.layoutConfig.left.visible
-                        let sidebarInset = sidebarVisible
-                            ? threadDrawerWidth + VSpacing.xs : 0
+                    // Content area: sidebar always pushes chat content right
+                    HStack(spacing: 0) {
+                        sidebarView
+                            .animation(VAnimation.panel, value: sidebarExpanded)
 
                         chatContentView(geometry: geometry)
-                            .padding(.leading, sidebarInset)
-
-                        // Sidebar drawer
-                        if sidebarVisible {
-                            HStack(spacing: 0) {
-                                sidebarView
-                                drawerDragDivider(availableWidth: geometry.size.width / zoomManager.zoomLevel)
-                            }
-                            .transition(.move(edge: .leading))
-                            .animation(nil, value: threadDrawerWidth)
-                        }
                     }
-                    .coordinateSpace(name: drawerDragCoordinateSpaceName)
                 }
                 .overlay {
                     // Click-outside-to-dismiss background for control center drawer
@@ -509,8 +484,8 @@ struct MainWindowView: View {
                                 windowState.selection = .panel(.doctor)
                             }
                         )
-                        .frame(width: threadDrawerWidth - VSpacing.sm * 2)
-                        .offset(x: VSpacing.sm, y: -52)
+                        .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
+                        .offset(x: sidebarOuterMargin + VSpacing.sm, y: -52)
                         .zIndex(10)
                         .transition(.opacity)
                     }
@@ -570,8 +545,8 @@ struct MainWindowView: View {
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             requestHomeBaseDashboardIfNeeded()
         }
-        .onChange(of: sidebarOpen) { _, isOpen in
-            if !isOpen && showControlCenterDrawer {
+        .onChange(of: sidebarExpanded) { _, isExpanded in
+            if !isExpanded && showControlCenterDrawer {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                     showControlCenterDrawer = false
                 }
@@ -837,80 +812,124 @@ struct MainWindowView: View {
     @ViewBuilder
     var sidebarView: some View {
         VStack(spacing: 0) {
-            // Rounded container inset from sidebar edges
+            if sidebarExpanded {
+                expandedSidebarContent
+            } else {
+                collapsedSidebarContent
+            }
+        }
+        .padding(sidebarExpanded ? VSpacing.lg : VSpacing.sm)
+        .background(adaptiveColor(light: Moss._50, dark: Moss._700))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .padding(sidebarOuterMargin)
+        .frame(width: sidebarExpanded ? sidebarExpandedWidth + sidebarOuterMargin * 2 : sidebarCollapsedWidth + sidebarOuterMargin * 2)
+    }
+
+    @ViewBuilder
+    private var expandedSidebarContent: some View {
+        ScrollView {
             VStack(spacing: 0) {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        Spacer().frame(height: VSpacing.sm)
+                Spacer().frame(height: VSpacing.sm)
 
-                        // MARK: Nav Items
-                        SidebarNavRow(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory) {
-                            windowState.togglePanel(.directory)
-                        }
-                        SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity) {
-                            windowState.togglePanel(.identity)
-                        }
-                        SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
-                            windowState.togglePanel(.agent)
-                        }
+                // MARK: Nav Items
+                SidebarNavRow(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory) {
+                    windowState.togglePanel(.directory)
+                }
+                SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity) {
+                    windowState.togglePanel(.identity)
+                }
+                SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
+                    windowState.togglePanel(.agent)
+                }
 
-                        // Divider between nav items and threads
-                        VColor.divider
-                            .frame(height: 1)
-                            .padding(.horizontal, VSpacing.md)
-                            .padding(.vertical, VSpacing.sm)
+                // Divider between nav items and threads
+                VColor.divider
+                    .frame(height: 1)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
 
-                        // MARK: Threads
-                        SidebarThreadsHeader(onNewThread: {
-                            windowState.selection = nil
-                            threadManager.createThread()
-                        })
+                // MARK: Threads
+                SidebarThreadsHeader(onNewThread: {
+                    windowState.selection = nil
+                    threadManager.createThread()
+                })
 
-                        ForEach(displayedThreads) { thread in
-                            threadItem(thread)
-                                .padding(.bottom, VSpacing.xxs)
-                                .dropDestination(for: String.self) { items, _ in
-                                    guard let droppedId = items.first,
-                                          let sourceUUID = UUID(uuidString: droppedId),
-                                          sourceUUID != thread.id else { return false }
-                                    return threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
-                                } isTargeted: { _ in }
-                        }
+                ForEach(displayedThreads) { thread in
+                    threadItem(thread)
+                        .padding(.bottom, VSpacing.xxs)
+                        .dropDestination(for: String.self) { items, _ in
+                            guard let droppedId = items.first,
+                                  let sourceUUID = UUID(uuidString: droppedId),
+                                  sourceUUID != thread.id else { return false }
+                            return threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
+                        } isTargeted: { _ in }
+                }
 
-                        if threadManager.visibleThreads.count > 5 {
-                            Button {
-                                withAnimation(VAnimation.standard) { showAllThreads.toggle() }
-                            } label: {
-                                Text(showAllThreads ? "Show less" : "Show more")
-                                    .font(VFont.caption)
-                                    .foregroundColor(Forest._600)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.leading, 20)
-                                    .padding(.vertical, VSpacing.xs)
-                            }
-                            .buttonStyle(.plain)
-                        }
+                if threadManager.visibleThreads.count > 5 {
+                    Button {
+                        withAnimation(VAnimation.standard) { showAllThreads.toggle() }
+                    } label: {
+                        Text(showAllThreads ? "Show less" : "Show more")
+                            .font(VFont.caption)
+                            .foregroundColor(Forest._600)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, 20)
+                            .padding(.vertical, VSpacing.xs)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .scrollClipDisabled()
+        .clipped()
+
+        Spacer(minLength: VSpacing.sm)
+
+        // Control Center row
+        ControlCenterRow(
+            onToggle: {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                    showControlCenterDrawer.toggle()
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var collapsedSidebarContent: some View {
+        VStack(spacing: VSpacing.sm) {
+            CollapsedNavIcon(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory) {
+                windowState.togglePanel(.directory)
+            }
+            CollapsedNavIcon(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity) {
+                windowState.togglePanel(.identity)
+            }
+            CollapsedNavIcon(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
+                windowState.togglePanel(.agent)
+            }
+
+            VColor.divider
+                .frame(height: 1)
+                .padding(.horizontal, VSpacing.xs)
+
+            CollapsedNavIcon(icon: "square.and.pencil", label: "New Chat", isActive: false) {
+                windowState.selection = nil
+                threadManager.createThread()
+            }
+
+            Spacer()
+
+            CollapsedNavIcon(icon: "gearshape", label: "Control Center", isActive: false) {
+                withAnimation(VAnimation.panel) {
+                    sidebarExpanded = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                        showControlCenterDrawer = true
                     }
                 }
-                .scrollClipDisabled()
-                .clipped()
-
-                Spacer(minLength: VSpacing.sm)
-
-                // Control Center row
-                ControlCenterRow(
-                    onToggle: {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                            showControlCenterDrawer.toggle()
-                        }
-                    }
-                )
             }
-            .padding(VSpacing.lg)
-            .background(adaptiveColor(light: Moss._50, dark: Moss._700))
         }
-        .frame(width: threadDrawerWidth)
-        .background(adaptiveColor(light: Moss._100, dark: Moss._950))
     }
 
     @ViewBuilder
@@ -1016,80 +1035,6 @@ struct MainWindowView: View {
         try? daemonClient.sendAppOpen(appId: app.id)
     }
 
-    // MARK: - Drawer Drag Helpers
-
-    private func resetDrawerDragState() {
-        isDrawerDragging = false
-        drawerDragStartWidth = nil
-        drawerDragStartAvailableWidth = nil
-    }
-
-    private func drawerDragDivider(availableWidth: CGFloat) -> some View {
-        Rectangle()
-            .fill(Color.clear)
-            .frame(width: VSpacing.xs)
-            .contentShape(Rectangle())
-            .onHover { hovering in
-                if hovering {
-                    NSCursor.resizeLeftRight.set()
-                } else {
-                    NSCursor.arrow.set()
-                }
-            }
-            .gesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .named(drawerDragCoordinateSpaceName))
-                    .onChanged { value in
-                        // Capture initial state on first drag event. Check both nil state AND
-                        // isDrawerDragging flag to handle race condition where async reset hasn't completed.
-                        if drawerDragStartWidth == nil || !isDrawerDragging {
-                            drawerDragStartWidth = threadDrawerWidth
-                            drawerDragStartAvailableWidth = availableWidth
-                            isDrawerDragging = true
-                        }
-
-                        guard let initialWidth = drawerDragStartWidth,
-                              let initialAvailableWidth = drawerDragStartAvailableWidth else {
-                            return
-                        }
-
-                        // Use a stable parent coordinate space so divider movement
-                        // does not feed back into gesture translation while dragging.
-                        let deltaX = value.location.x - value.startLocation.x
-                        let newWidth = initialWidth + Double(deltaX)
-                        let minDrawerWidth: CGFloat = 200
-                        let minMainContent: CGFloat = 300
-                        // Only subtract side panel width when a right-side split panel is
-                        // actually rendered. Full-window panels (identity, agent, settings,
-                        // debug, doctor, directory) don't have a right split.
-                        let hasRightSplitPanel: Bool = {
-                            guard let panel = windowState.activePanel else { return false }
-                            switch panel {
-                            case .documentEditor:
-                                return true
-                            case .generated:
-                                return windowState.isDynamicExpanded && windowState.isChatDockOpen
-                            default:
-                                return false
-                            }
-                        }()
-                        let activePanelWidth: CGFloat = hasRightSplitPanel ? sidePanelWidth : 0
-                        let maxAllowed = initialAvailableWidth - minMainContent - VSpacing.xs - (VSpacing.xs * 2) - activePanelWidth
-
-                        // Update width without animation to prevent jitter
-                        var transaction = Transaction()
-                        transaction.disablesAnimations = true
-                        withTransaction(transaction) {
-                            threadDrawerWidth = min(max(newWidth, minDrawerWidth), maxAllowed)
-                        }
-                    }
-                    .onEnded { _ in
-                        resetDrawerDragState()
-                    }
-            )
-            .onDisappear {
-                resetDrawerDragState()
-            }
-    }
 }
 
 private struct ZoomIndicatorView: View {
@@ -1145,6 +1090,32 @@ private struct SidebarNavRow: View {
     }
 }
 
+private struct CollapsedNavIcon: View {
+    let icon: String
+    let label: String
+    var isActive: Bool = false
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(VColor.textPrimary)
+                .frame(width: 32, height: 32)
+                .background(isActive || isHovered ? VColor.hoverOverlay.opacity(0.08) : .clear)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+}
+
 private struct SidebarThreadsHeader: View {
     let onNewThread: () -> Void
     @State private var isHovered = false
@@ -1189,7 +1160,7 @@ private struct ControlCenterRow: View {
     private let iconColor = adaptiveColor(light: Forest._700, dark: Forest._500)
     private let textColor = adaptiveColor(light: Forest._800, dark: Forest._400)
     private let chevronColor = adaptiveColor(light: Forest._700, dark: Forest._500)
-    private let bgColor = adaptiveColor(light: Forest._100, dark: Forest._900)
+    private let bgColor = adaptiveColor(light: Forest._200, dark: Moss._700)
 
     var body: some View {
         Button(action: onToggle) {
