@@ -1,0 +1,52 @@
+{
+  "description": "Manifest of first-party Vellum skills. Fetched from GitHub at runtime so the assistant can discover and install new skills maintained by Vellum.",
+  "version": 1,
+  "skills": [
+    {
+      "id": "chatgpt-import",
+      "name": "ChatGPT Import",
+      "description": "Import conversation history from ChatGPT into Vellum",
+      "emoji": "\ud83d\udce5"
+    },
+    {
+      "id": "deploy-fullstack-vercel",
+      "name": "Deploy Fullstack to Vercel",
+      "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) to Vercel as a serverless demo with seeded data",
+      "emoji": "\ud83d\ude80"
+    },
+    {
+      "id": "document-writer",
+      "name": "Document Writer",
+      "description": "Create and edit long-form documents like blog posts, articles, essays, and reports using the built-in rich text editor",
+      "emoji": "\ud83d\udcdd"
+    },
+    {
+      "id": "google-oauth-setup",
+      "name": "Google OAuth Setup",
+      "description": "Create Google Cloud OAuth credentials for Gmail integration using browser automation",
+      "emoji": "\ud83d\udd11",
+      "includes": ["browser", "public-ingress"]
+    },
+    {
+      "id": "slack-oauth-setup",
+      "name": "Slack OAuth Setup",
+      "description": "Create Slack App and OAuth credentials for Slack integration using browser automation",
+      "emoji": "\ud83d\udd11",
+      "includes": ["browser", "public-ingress"]
+    },
+    {
+      "id": "telegram-setup",
+      "name": "Telegram Setup",
+      "description": "Connect a Telegram bot to the Vellum Assistant gateway with automated webhook registration and credential storage",
+      "emoji": "\ud83e\udd16",
+      "includes": ["public-ingress"]
+    },
+    {
+      "id": "twilio-setup",
+      "name": "Twilio Setup",
+      "description": "Configure Twilio credentials and phone numbers for voice calls and SMS messaging",
+      "emoji": "\ud83d\udcf1",
+      "includes": ["public-ingress"]
+    }
+  ]
+}
