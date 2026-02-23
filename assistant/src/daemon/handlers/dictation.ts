@@ -7,6 +7,25 @@ import { log, defineHandlers, type HandlerContext } from './shared.js';
 // Action verbs that signal the user wants a full agent session rather than inline text
 const ACTION_VERBS = ['slack', 'email', 'send', 'create', 'open', 'search', 'find'];
 
+const MAX_WINDOW_TITLE_LENGTH = 100;
+
+/** Sanitize window title to mitigate prompt injection from attacker-controlled titles (e.g. browser tabs, Slack conversations). */
+function sanitizeWindowTitle(title: string | undefined): string {
+  if (!title) return '';
+  return title.slice(0, MAX_WINDOW_TITLE_LENGTH);
+}
+
+/** Build a delimited app metadata block so the LLM treats it as contextual data, not instructions. */
+function buildAppMetadataBlock(msg: DictationRequest): string {
+  const windowTitle = sanitizeWindowTitle(msg.context.windowTitle);
+  return [
+    '<app_metadata>',
+    `App: ${msg.context.appName} (${msg.context.bundleIdentifier})`,
+    `Window: ${windowTitle}`,
+    '</app_metadata>',
+  ].join('\n');
+}
+
 type DictationMode = 'dictation' | 'command' | 'action';
 
 function detectMode(msg: DictationRequest): DictationMode {
@@ -57,8 +76,7 @@ function buildDictationPrompt(msg: DictationRequest): string {
     '- Maintain the user\'s natural voice — don\'t over-formalize casual speech',
     '- The user\'s writing patterns and preferences may be available from memory context — follow those when present',
     '',
-    `App context: ${msg.context.appName} (${msg.context.bundleIdentifier})`,
-    `Window: ${msg.context.windowTitle}`,
+    buildAppMetadataBlock(msg),
   ].join('\n');
 }
 
@@ -87,8 +105,7 @@ function buildCommandPrompt(msg: DictationRequest): string {
     '- Maintain the user\'s natural voice — don\'t over-formalize casual speech',
     '- The user\'s writing patterns and preferences may be available from memory context — follow those when present',
     '',
-    `App context: ${msg.context.appName} (${msg.context.bundleIdentifier})`,
-    `Window: ${msg.context.windowTitle}`,
+    buildAppMetadataBlock(msg),
     '',
     'Selected text:',
     msg.context.selectedText ?? '',
