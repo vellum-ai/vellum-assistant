@@ -24,6 +24,7 @@ struct SettingsAdvancedTab: View {
     @State private var selectedAssistantId: String = ""
     @State private var identity: IdentityInfo?
     @State private var remoteIdentity: RemoteIdentityInfo?
+    @State private var flagStates: [(flag: FeatureFlag, enabled: Bool)] = []
     #if DEBUG
     @State private var showingEnvVars = false
     @State private var appEnvVars: [(String, String)] = []
@@ -40,6 +41,7 @@ struct SettingsAdvancedTab: View {
             switchAssistantSection
             retireAssistantSection
             hatchNewAssistantSection
+            featureFlagSection
 
             #if DEBUG
             developerSection
@@ -55,6 +57,9 @@ struct SettingsAdvancedTab: View {
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
             identity = IdentityInfo.load()
+            flagStates = FeatureFlag.allCases.map { flag in
+                (flag: flag, enabled: FeatureFlagManager.shared.isEnabled(flag))
+            }
 
             if identity == nil, let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }), assistant.isRemote {
                 Task {
@@ -509,6 +514,34 @@ struct SettingsAdvancedTab: View {
                         AppDelegate.shared?.replayOnboarding()
                         onClose()
                     }
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+        }
+    }
+
+    // MARK: - Feature Flags
+
+    @ViewBuilder
+    private var featureFlagSection: some View {
+        if FeatureFlagManager.shared.isEnabled(.featureFlagEditorEnabled) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Feature Flags")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                ForEach(Array(flagStates.enumerated()), id: \.element.flag) { index, entry in
+                    Toggle(entry.flag.displayName, isOn: Binding(
+                        get: { flagStates[index].enabled },
+                        set: { newValue in
+                            flagStates[index].enabled = newValue
+                            FeatureFlagManager.shared.setOverride(entry.flag, enabled: newValue)
+                        }
+                    ))
+                    .toggleStyle(.switch)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
                 }
             }
             .padding(VSpacing.lg)

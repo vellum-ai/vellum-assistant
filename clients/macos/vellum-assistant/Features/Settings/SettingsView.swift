@@ -633,10 +633,6 @@ public struct SettingsView: View {
                 .font(.caption)
             }
 
-            if FeatureFlagManager.shared.isEnabled(.featureFlagEditorEnabled) {
-                FeatureFlagEditorSection()
-            }
-
             #if DEBUG
             if let daemonClient {
                 Section("Developer") {
@@ -720,35 +716,6 @@ public struct SettingsView: View {
         screenRecordingGranted = status == .granted
     }
 
-}
-
-// MARK: - Feature Flag Editor
-
-private struct FeatureFlagEditorSection: View {
-    @State private var flagStates: [(flag: FeatureFlag, enabled: Bool)] = []
-
-    var body: some View {
-        Section("Feature Flags") {
-            ForEach(Array(flagStates.enumerated()), id: \.element.flag) { index, entry in
-                Toggle(entry.flag.displayName, isOn: Binding(
-                    get: { flagStates[index].enabled },
-                    set: { newValue in
-                        flagStates[index].enabled = newValue
-                        FeatureFlagManager.shared.setOverride(entry.flag, enabled: newValue)
-                    }
-                ))
-            }
-        }
-        .onAppear {
-            loadFlags()
-        }
-    }
-
-    private func loadFlags() {
-        flagStates = FeatureFlag.allCases.map { flag in
-            (flag: flag, enabled: FeatureFlagManager.shared.isEnabled(flag))
-        }
-    }
 }
 
 // MARK: - Knowledge Section
