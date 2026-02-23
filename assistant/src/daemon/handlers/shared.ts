@@ -260,6 +260,7 @@ export function wireEscalationHandler(
       task,
       escalatedFrom: sourceSessionId,
       reportToSessionId: sourceSessionId,
+      ...(targetApp ? { targetAppName: targetApp.appName, targetAppBundleId: targetApp.bundleId } : {}),
       ...(isQa ? {
         qaMode: true,
         retentionDays: config.qaRecording.defaultRetentionDays,
