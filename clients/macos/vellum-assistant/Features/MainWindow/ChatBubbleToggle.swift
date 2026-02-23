@@ -9,7 +9,7 @@ struct ChatBubbleToggle: View {
     var body: some View {
         VIconButton(
             label: isActive ? "Hide chat" : "Show chat",
-            icon: "bubble.left.and.text.bubble.right",
+            icon: "bubble.left",
             isActive: isActive,
             iconOnly: true,
             tooltip: tooltip,

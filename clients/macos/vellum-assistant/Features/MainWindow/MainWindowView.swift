@@ -24,7 +24,7 @@ struct MainWindowView: View {
     @State private var showAllThreads: Bool = false
     @State private var showAllApps: Bool = false
     @State private var showControlCenterDrawer: Bool = false
-    @AppStorage("isAppChatOpen") private var isAppChatOpen: Bool = false
+    @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
     /// Stores the thread ID the user was on before entering temporary chat,
     /// so we can restore it when they exit instead of jumping to visibleThreads.first
@@ -503,7 +503,6 @@ struct MainWindowView: View {
                                 sidebarExpanded.toggle()
                             }
                         }
-                        Spacer()
                         if isChatBubbleVisible {
                             ChatBubbleToggle(
                                 isActive: isChatBubbleActive,
@@ -511,7 +510,8 @@ struct MainWindowView: View {
                                 onToggle: { toggleChatBubble() }
                             )
                         }
-                        if windowState.isShowingChat {
+                        Spacer()
+                        if windowState.isShowingChat || isChatBubbleActive {
                             // Copy Thread button — only visible when there's content to copy
                             if threadManager.activeViewModel?.messages.contains(where: {
                                 !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

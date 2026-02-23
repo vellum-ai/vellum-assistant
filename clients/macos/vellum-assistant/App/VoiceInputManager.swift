@@ -3,6 +3,7 @@ import AppKit
 import Speech
 import AVFoundation
 import os
+import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "VoiceInput")
 
@@ -351,9 +352,8 @@ final class VoiceInputManager {
                 return
             }
             let request = IPCDictationRequest(
-                type: "dictation_request",
                 transcription: text,
-                context: IPCDictationContext(
+                context: .create(
                     bundleIdentifier: context.bundleIdentifier,
                     appName: context.appName,
                     windowTitle: context.windowTitle,
