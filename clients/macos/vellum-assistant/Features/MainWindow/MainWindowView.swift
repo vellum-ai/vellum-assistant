@@ -551,7 +551,7 @@ struct MainWindowView: View {
             if let toast = windowState.toastInfo {
                 VToast(
                     message: toast.message,
-                    style: toast.style == .success ? .success : .error,
+                    style: toast.style == .success ? .success : toast.style == .warning ? .warning : .error,
                     primaryAction: toast.primaryAction,
                     onDismiss: { windowState.dismissToast() }
                 )
