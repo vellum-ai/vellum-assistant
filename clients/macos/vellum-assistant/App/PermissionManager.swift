@@ -33,6 +33,12 @@ enum PermissionManager {
 
         if !hasRequestedBefore {
             UserDefaults.standard.set(true, forKey: hasRequestedScreenRecordingFlag)
+            // For legacy installs that denied screen recording before this flag
+            // existed: CGRequestScreenCaptureAccess() was a no-op, so check if
+            // permission is still denied and fall back to System Settings.
+            if CGPreflightScreenCaptureAccess() == false {
+                openScreenRecordingSettings()
+            }
         } else if !CGPreflightScreenCaptureAccess() {
             openScreenRecordingSettings()
         }
