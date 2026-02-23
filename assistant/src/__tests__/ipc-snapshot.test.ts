@@ -564,6 +564,17 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   tool_names_list: {
     type: 'tool_names_list',
   },
+  dictation_request: {
+    type: 'dictation_request',
+    transcription: 'Hello world',
+    context: {
+      bundleIdentifier: 'com.example.app',
+      appName: 'Example App',
+      windowTitle: 'Main Window',
+      selectedText: 'some selected text',
+      cursorInTextField: true,
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1607,6 +1618,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   tool_names_list_response: {
     type: 'tool_names_list_response',
     names: ['bash', 'file_read', 'file_write'],
+  },
+  dictation_response: {
+    type: 'dictation_response',
+    text: 'Hello world',
+    mode: 'dictation',
+    actionPlan: undefined,
   },
 };
 
