@@ -52,6 +52,54 @@
       },
       "executor": "tools/media-status.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "extract_keyframes",
+      "description": "Extract keyframes from a video asset at regular intervals using ffmpeg. Stores frame images and registers each in the database for subsequent vision analysis.",
+      "category": "media",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "ID of the media asset (must be a video)"
+          },
+          "interval_seconds": {
+            "type": "number",
+            "description": "Interval between keyframes in seconds. Default: 3"
+          }
+        },
+        "required": ["asset_id"]
+      },
+      "executor": "tools/extract-keyframes.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "analyze_keyframes",
+      "description": "Analyze extracted keyframes using Claude VLM (vision language model). Produces structured scene descriptions with subjects, actions, and context for each frame. Supports resumability — skips already-analyzed frames.",
+      "category": "media",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "ID of the media asset whose keyframes to analyze"
+          },
+          "analysis_type": {
+            "type": "string",
+            "description": "Type of analysis to perform. Default: 'scene_description'"
+          },
+          "batch_size": {
+            "type": "number",
+            "description": "Number of keyframes to process per batch. Default: 10"
+          }
+        },
+        "required": ["asset_id"]
+      },
+      "executor": "tools/analyze-keyframes.ts",
+      "execution_target": "host"
     }
   ]
 }

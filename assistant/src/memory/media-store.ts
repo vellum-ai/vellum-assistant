@@ -5,10 +5,10 @@
  * Uses content-hash deduplication (same pattern as attachments-store.ts).
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
-import { mediaAssets, processingStages } from './schema.js';
+import { mediaAssets, processingStages, mediaKeyframes, mediaVisionOutputs, mediaTimelines } from './schema.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -219,5 +219,302 @@ function parseStageRow(row: typeof processingStages.$inferSelect): ProcessingSta
     lastError: row.lastError,
     startedAt: row.startedAt,
     completedAt: row.completedAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Keyframe types & CRUD
+// ---------------------------------------------------------------------------
+
+export interface MediaKeyframe {
+  id: string;
+  assetId: string;
+  timestamp: number;
+  filePath: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: number;
+}
+
+export function insertKeyframe(params: {
+  assetId: string;
+  timestamp: number;
+  filePath: string;
+  metadata?: Record<string, unknown>;
+}): MediaKeyframe {
+  const db = getDb();
+  const now = Date.now();
+  const record = {
+    id: uuid(),
+    assetId: params.assetId,
+    timestamp: params.timestamp,
+    filePath: params.filePath,
+    metadata: params.metadata ? JSON.stringify(params.metadata) : null,
+    createdAt: now,
+  };
+  db.insert(mediaKeyframes).values(record).run();
+  return { ...record, metadata: params.metadata ?? null };
+}
+
+export function insertKeyframesBatch(
+  rows: Array<{
+    assetId: string;
+    timestamp: number;
+    filePath: string;
+    metadata?: Record<string, unknown>;
+  }>,
+): MediaKeyframe[] {
+  const db = getDb();
+  const now = Date.now();
+  const records = rows.map((r) => ({
+    id: uuid(),
+    assetId: r.assetId,
+    timestamp: r.timestamp,
+    filePath: r.filePath,
+    metadata: r.metadata ? JSON.stringify(r.metadata) : null,
+    createdAt: now,
+  }));
+  if (records.length > 0) {
+    db.insert(mediaKeyframes).values(records).run();
+  }
+  return records.map((rec, i) => ({
+    ...rec,
+    metadata: rows[i].metadata ?? null,
+  }));
+}
+
+export function getKeyframesForAsset(assetId: string): MediaKeyframe[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(mediaKeyframes)
+    .where(eq(mediaKeyframes.assetId, assetId))
+    .all();
+  return rows.map(parseKeyframeRow);
+}
+
+export function getKeyframeById(id: string): MediaKeyframe | null {
+  const db = getDb();
+  const row = db.select().from(mediaKeyframes).where(eq(mediaKeyframes.id, id)).get();
+  return row ? parseKeyframeRow(row) : null;
+}
+
+function parseKeyframeRow(row: typeof mediaKeyframes.$inferSelect): MediaKeyframe {
+  let metadata: Record<string, unknown> | null = null;
+  if (row.metadata) {
+    try { metadata = JSON.parse(row.metadata) as Record<string, unknown>; } catch { metadata = null; }
+  }
+  return {
+    id: row.id,
+    assetId: row.assetId,
+    timestamp: row.timestamp,
+    filePath: row.filePath,
+    metadata,
+    createdAt: row.createdAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Vision output types & CRUD
+// ---------------------------------------------------------------------------
+
+export interface MediaVisionOutput {
+  id: string;
+  assetId: string;
+  keyframeId: string;
+  analysisType: string;
+  output: Record<string, unknown>;
+  confidence: number | null;
+  createdAt: number;
+}
+
+export function insertVisionOutput(params: {
+  assetId: string;
+  keyframeId: string;
+  analysisType: string;
+  output: Record<string, unknown>;
+  confidence?: number;
+}): MediaVisionOutput {
+  const db = getDb();
+  const now = Date.now();
+  const record = {
+    id: uuid(),
+    assetId: params.assetId,
+    keyframeId: params.keyframeId,
+    analysisType: params.analysisType,
+    output: JSON.stringify(params.output),
+    confidence: params.confidence ?? null,
+    createdAt: now,
+  };
+  db.insert(mediaVisionOutputs).values(record).run();
+  return { ...record, output: params.output };
+}
+
+export function insertVisionOutputsBatch(
+  rows: Array<{
+    assetId: string;
+    keyframeId: string;
+    analysisType: string;
+    output: Record<string, unknown>;
+    confidence?: number;
+  }>,
+): MediaVisionOutput[] {
+  const db = getDb();
+  const now = Date.now();
+  const records = rows.map((r) => ({
+    id: uuid(),
+    assetId: r.assetId,
+    keyframeId: r.keyframeId,
+    analysisType: r.analysisType,
+    output: JSON.stringify(r.output),
+    confidence: r.confidence ?? null,
+    createdAt: now,
+  }));
+  if (records.length > 0) {
+    db.insert(mediaVisionOutputs).values(records).run();
+  }
+  return records.map((rec, i) => ({
+    ...rec,
+    output: rows[i].output,
+  }));
+}
+
+export function getVisionOutputsForAsset(assetId: string, analysisType?: string): MediaVisionOutput[] {
+  const db = getDb();
+  const conditions = [eq(mediaVisionOutputs.assetId, assetId)];
+  if (analysisType) {
+    conditions.push(eq(mediaVisionOutputs.analysisType, analysisType));
+  }
+  const rows = db
+    .select()
+    .from(mediaVisionOutputs)
+    .where(and(...conditions))
+    .all();
+  return rows.map(parseVisionOutputRow);
+}
+
+export function getVisionOutputsByKeyframeIds(keyframeIds: string[]): MediaVisionOutput[] {
+  if (keyframeIds.length === 0) return [];
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(mediaVisionOutputs)
+    .where(inArray(mediaVisionOutputs.keyframeId, keyframeIds))
+    .all();
+  return rows.map(parseVisionOutputRow);
+}
+
+function parseVisionOutputRow(row: typeof mediaVisionOutputs.$inferSelect): MediaVisionOutput {
+  let output: Record<string, unknown> = {};
+  try { output = JSON.parse(row.output) as Record<string, unknown>; } catch { output = {}; }
+  return {
+    id: row.id,
+    assetId: row.assetId,
+    keyframeId: row.keyframeId,
+    analysisType: row.analysisType,
+    output,
+    confidence: row.confidence,
+    createdAt: row.createdAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Timeline types & CRUD
+// ---------------------------------------------------------------------------
+
+export interface MediaTimeline {
+  id: string;
+  assetId: string;
+  startTime: number;
+  endTime: number;
+  segmentType: string;
+  attributes: Record<string, unknown> | null;
+  confidence: number | null;
+  createdAt: number;
+}
+
+export function insertTimelineSegment(params: {
+  assetId: string;
+  startTime: number;
+  endTime: number;
+  segmentType: string;
+  attributes?: Record<string, unknown>;
+  confidence?: number;
+}): MediaTimeline {
+  const db = getDb();
+  const now = Date.now();
+  const record = {
+    id: uuid(),
+    assetId: params.assetId,
+    startTime: params.startTime,
+    endTime: params.endTime,
+    segmentType: params.segmentType,
+    attributes: params.attributes ? JSON.stringify(params.attributes) : null,
+    confidence: params.confidence ?? null,
+    createdAt: now,
+  };
+  db.insert(mediaTimelines).values(record).run();
+  return { ...record, attributes: params.attributes ?? null };
+}
+
+export function insertTimelineSegmentsBatch(
+  rows: Array<{
+    assetId: string;
+    startTime: number;
+    endTime: number;
+    segmentType: string;
+    attributes?: Record<string, unknown>;
+    confidence?: number;
+  }>,
+): MediaTimeline[] {
+  const db = getDb();
+  const now = Date.now();
+  const records = rows.map((r) => ({
+    id: uuid(),
+    assetId: r.assetId,
+    startTime: r.startTime,
+    endTime: r.endTime,
+    segmentType: r.segmentType,
+    attributes: r.attributes ? JSON.stringify(r.attributes) : null,
+    confidence: r.confidence ?? null,
+    createdAt: now,
+  }));
+  if (records.length > 0) {
+    db.insert(mediaTimelines).values(records).run();
+  }
+  return records.map((rec, i) => ({
+    ...rec,
+    attributes: rows[i].attributes ?? null,
+  }));
+}
+
+export function getTimelineForAsset(assetId: string): MediaTimeline[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(mediaTimelines)
+    .where(eq(mediaTimelines.assetId, assetId))
+    .all();
+  return rows.map(parseTimelineRow);
+}
+
+export function deleteTimelineForAsset(assetId: string): void {
+  const db = getDb();
+  db.delete(mediaTimelines).where(eq(mediaTimelines.assetId, assetId)).run();
+}
+
+function parseTimelineRow(row: typeof mediaTimelines.$inferSelect): MediaTimeline {
+  let attributes: Record<string, unknown> | null = null;
+  if (row.attributes) {
+    try { attributes = JSON.parse(row.attributes) as Record<string, unknown>; } catch { attributes = null; }
+  }
+  return {
+    id: row.id,
+    assetId: row.assetId,
+    startTime: row.startTime,
+    endTime: row.endTime,
+    segmentType: row.segmentType,
+    attributes,
+    confidence: row.confidence,
+    createdAt: row.createdAt,
   };
 }

@@ -1051,5 +1051,57 @@ export function initializeDb(): void {
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_processing_stages_asset_id ON processing_stages(asset_id)`);
 
+  // ── Media Keyframes ─────────────────────────────────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS media_keyframes (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL REFERENCES media_assets(id) ON DELETE CASCADE,
+      timestamp REAL NOT NULL,
+      file_path TEXT NOT NULL,
+      metadata TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_keyframes_asset_id ON media_keyframes(asset_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_keyframes_asset_timestamp ON media_keyframes(asset_id, timestamp)`);
+
+  // ── Media Vision Outputs ────────────────────────────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS media_vision_outputs (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL REFERENCES media_assets(id) ON DELETE CASCADE,
+      keyframe_id TEXT NOT NULL REFERENCES media_keyframes(id) ON DELETE CASCADE,
+      analysis_type TEXT NOT NULL,
+      output TEXT NOT NULL,
+      confidence REAL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_vision_outputs_asset_id ON media_vision_outputs(asset_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_vision_outputs_keyframe_id ON media_vision_outputs(keyframe_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_vision_outputs_asset_type ON media_vision_outputs(asset_id, analysis_type)`);
+
+  // ── Media Timelines ─────────────────────────────────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS media_timelines (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL REFERENCES media_assets(id) ON DELETE CASCADE,
+      start_time REAL NOT NULL,
+      end_time REAL NOT NULL,
+      segment_type TEXT NOT NULL,
+      attributes TEXT,
+      confidence REAL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_timelines_asset_id ON media_timelines(asset_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_timelines_asset_time ON media_timelines(asset_id, start_time)`);
+
   migrateMemoryFtsBackfill(database);
 }

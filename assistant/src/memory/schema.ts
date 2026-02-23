@@ -708,3 +708,37 @@ export const processingStages = sqliteTable('processing_stages', {
   startedAt: integer('started_at'),
   completedAt: integer('completed_at'),
 });
+
+export const mediaKeyframes = sqliteTable('media_keyframes', {
+  id: text('id').primaryKey(),
+  assetId: text('asset_id').notNull()
+    .references(() => mediaAssets.id, { onDelete: 'cascade' }),
+  timestamp: real('timestamp').notNull(),
+  filePath: text('file_path').notNull(),
+  metadata: text('metadata'),                                   // JSON
+  createdAt: integer('created_at').notNull(),
+});
+
+export const mediaVisionOutputs = sqliteTable('media_vision_outputs', {
+  id: text('id').primaryKey(),
+  assetId: text('asset_id').notNull()
+    .references(() => mediaAssets.id, { onDelete: 'cascade' }),
+  keyframeId: text('keyframe_id').notNull()
+    .references(() => mediaKeyframes.id, { onDelete: 'cascade' }),
+  analysisType: text('analysis_type').notNull(),
+  output: text('output').notNull(),                             // JSON
+  confidence: real('confidence'),
+  createdAt: integer('created_at').notNull(),
+});
+
+export const mediaTimelines = sqliteTable('media_timelines', {
+  id: text('id').primaryKey(),
+  assetId: text('asset_id').notNull()
+    .references(() => mediaAssets.id, { onDelete: 'cascade' }),
+  startTime: real('start_time').notNull(),
+  endTime: real('end_time').notNull(),
+  segmentType: text('segment_type').notNull(),
+  attributes: text('attributes'),                               // JSON
+  confidence: real('confidence'),
+  createdAt: integer('created_at').notNull(),
+});
