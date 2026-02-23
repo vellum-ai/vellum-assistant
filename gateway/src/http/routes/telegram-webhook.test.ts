@@ -155,6 +155,42 @@ describe("telegram-webhook callback query acknowledgment", () => {
     });
   });
 
+  it("acknowledges callback query when forwarding fails with forwarded=false", async () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({ forwarded: false, rejected: false }),
+    );
+
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = makeCallbackQueryBody("apr:run1:approve", 304);
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(500);
+    const answerCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "answerCallbackQuery",
+    );
+    expect(answerCalls.length).toBe(1);
+    expect(answerCalls[0][2]).toEqual({
+      callback_query_id: "cbq-42",
+    });
+  });
+
+  it("acknowledges callback query when forwarding throws", async () => {
+    handleInboundMock.mockImplementation(() => Promise.reject(new Error("boom")));
+
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = makeCallbackQueryBody("apr:run1:approve", 305);
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(500);
+    const answerCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "answerCallbackQuery",
+    );
+    expect(answerCalls.length).toBe(1);
+    expect(answerCalls[0][2]).toEqual({
+      callback_query_id: "cbq-42",
+    });
+  });
+
   it("acknowledges callback query when /new command is triggered via callback", async () => {
     const handler = createTelegramWebhookHandler(baseConfig);
     const body = makeCallbackQueryBody("/new", 302);

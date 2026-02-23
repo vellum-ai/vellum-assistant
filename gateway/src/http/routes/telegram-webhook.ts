@@ -153,6 +153,15 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       });
     };
 
+    const acknowledgeCallbackQuery = (callbackQueryId: string | undefined, phase: string): void => {
+      if (!callbackQueryId) return;
+      callTelegramApi(config, "answerCallbackQuery", {
+        callback_query_id: callbackQueryId,
+      }).catch((err) => {
+        tlog.error({ err, callbackQueryId, phase }, "Failed to acknowledge callback query");
+      });
+    };
+
     // Normalize the update
     const normalized = normalizeTelegramUpdate(payload);
     if (!normalized) {
@@ -164,13 +173,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         "id" in (payload.callback_query as Record<string, unknown>)
           ? String((payload.callback_query as Record<string, unknown>).id)
           : undefined;
-      if (cbqId) {
-        callTelegramApi(config, "answerCallbackQuery", {
-          callback_query_id: cbqId,
-        }).catch((err) => {
-          tlog.error({ err, callbackQueryId: cbqId }, "Failed to acknowledge dropped callback query");
-        });
-      }
+      acknowledgeCallbackQuery(cbqId, "dropped_update");
       return respond({ ok: true });
     }
 
@@ -226,13 +229,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       }
 
       // Acknowledge callback query so the button spinner clears
-      if (normalized.message.callbackQueryId) {
-        callTelegramApi(config, "answerCallbackQuery", {
-          callback_query_id: normalized.message.callbackQueryId,
-        }).catch((err) => {
-          tlog.error({ err, callbackQueryId: normalized.message.callbackQueryId }, "Failed to acknowledge callback query");
-        });
-      }
+      acknowledgeCallbackQuery(normalized.message.callbackQueryId, "new_command");
 
       return respond({ ok: true });
     }
@@ -332,18 +329,13 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           });
         }
         // Acknowledge rejected callback queries so the button spinner clears
-        if (isCallback && normalized.message.callbackQueryId) {
-          callTelegramApi(config, "answerCallbackQuery", {
-            callback_query_id: normalized.message.callbackQueryId,
-          }).catch((err) => {
-            tlog.error({ err, callbackQueryId: normalized.message.callbackQueryId }, "Failed to acknowledge callback query");
-          });
-        }
+        if (isCallback) acknowledgeCallbackQuery(normalized.message.callbackQueryId, "routing_rejected");
         return respond({ ok: true });
       }
 
       if (!result.forwarded) {
         tlog.error({ updateId: payload.update_id }, "Failed to forward inbound event");
+        if (isCallback) acknowledgeCallbackQuery(normalized.message.callbackQueryId, "forward_not_forwarded");
         if (updateId !== undefined) dedupCache.unreserve(updateId);
         return Response.json({ error: "Internal error" }, { status: 500 });
       }
@@ -352,15 +344,10 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
 
       // Acknowledge the callback query to clear the button spinner in the
       // Telegram client. Best-effort — log errors but don't fail the flow.
-      if (isCallback && normalized.message.callbackQueryId) {
-        callTelegramApi(config, "answerCallbackQuery", {
-          callback_query_id: normalized.message.callbackQueryId,
-        }).catch((err) => {
-          tlog.error({ err, callbackQueryId: normalized.message.callbackQueryId }, "Failed to acknowledge callback query");
-        });
-      }
+      if (isCallback) acknowledgeCallbackQuery(normalized.message.callbackQueryId, "forwarded");
     } catch (err) {
       tlog.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
+      if (isCallback) acknowledgeCallbackQuery(normalized.message.callbackQueryId, "forward_exception");
       if (updateId !== undefined) dedupCache.unreserve(updateId);
       return Response.json({ error: "Internal error" }, { status: 500 });
     }

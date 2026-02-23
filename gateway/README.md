@@ -138,7 +138,7 @@ These fields are forwarded to the runtime in the `/channels/inbound` payload alo
 
 **Normalization constraints:** Only DM-only (`private` chat type) callback queries are processed. Group and channel callbacks are dropped and acknowledged with `answerCallbackQuery` so the Telegram button spinner clears. Callback queries with no `data` field or no associated `message` are also dropped.
 
-**Stale callback blocking:** When the runtime receives `callbackData` that does not match any pending approval (e.g., a button from an old prompt), it returns `stale_ignored` and does not process the payload as a regular message. This is enforced regardless of whether the callback has non-empty content. The gateway acknowledges all callback queries via `answerCallbackQuery` to clear the button spinner.
+**Stale callback blocking:** When the runtime receives `callbackData` that does not match any pending approval (e.g., a button from an old prompt), it returns `stale_ignored` and does not process the payload as a regular message. This is enforced regardless of whether the callback has non-empty content. The gateway sends a best-effort `answerCallbackQuery` acknowledgment for normalized callback updates (including stale, rejected, and forward-failure paths) so the button spinner clears promptly. Transient forwarding failures may still return `500` so Telegram retries update delivery.
 
 ## Approval Buttons and Inline Keyboard
 
