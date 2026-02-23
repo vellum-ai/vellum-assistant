@@ -740,12 +740,14 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
       const startTime = Date.now();
       const pollMaxWait = getEffectivePollMaxWait();
       let lastStatus = run.status;
-      // Track whether the run entered the approval-waiting state at any point
-      // during polling. When true, a post-decision delivery path has been (or
-      // will be) scheduled by handleApprovalInterception, so non-terminal
-      // states at timeout (e.g. running after approval) should not trigger
-      // the retry/dead-letter machinery.
-      let sawNeedsConfirmation = false;
+      // Track whether a post-decision delivery path is guaranteed for this
+      // run. Set to true only when the approval prompt is successfully
+      // delivered (guardian or standard path), meaning
+      // handleApprovalInterception will schedule schedulePostDecisionDelivery
+      // when a decision arrives. Auto-deny paths (unverified channel, prompt
+      // delivery failures) do NOT set this flag because no post-decision
+      // delivery is scheduled in those cases.
+      let hasPostDecisionDelivery = false;
 
       while (Date.now() - startTime < pollMaxWait) {
         await new Promise((resolve) => setTimeout(resolve, RUN_POLL_INTERVAL_MS));
@@ -754,7 +756,6 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
         if (!current) break;
 
         if (current.status === 'needs_confirmation' && lastStatus !== 'needs_confirmation') {
-          sawNeedsConfirmation = true;
           const pending = getPendingConfirmationsByConversation(conversationId);
 
           if (isUnverifiedChannel && pending.length > 0) {
@@ -812,6 +813,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
                 bearerToken,
               );
               guardianNotified = true;
+              hasPostDecisionDelivery = true;
             } catch (err) {
               log.error({ err, runId: run.id }, 'Failed to deliver guardian approval prompt');
               // Deny the approval and the underlying run — fail-closed. If
@@ -863,6 +865,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
                   assistantId,
                   bearerToken,
                 );
+                hasPostDecisionDelivery = true;
               } catch (err) {
                 // Fail-closed: if we cannot deliver the approval prompt, the
                 // user will never see it and the run would hang indefinitely
@@ -930,7 +933,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
         }
       } else if (
         finalRun?.status === 'needs_confirmation' ||
-        (sawNeedsConfirmation && finalRun?.status === 'running')
+        (hasPostDecisionDelivery && finalRun?.status === 'running')
       ) {
         // The run is either still waiting for an approval decision or was
         // recently approved and has resumed execution. In both cases, mark
@@ -940,16 +943,20 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
         //   approve/reject, and `handleApprovalInterception` will deliver
         //   the reply via `schedulePostDecisionDelivery`.
         //
-        // - running (after needs_confirmation): an approval was applied near
-        //   the poll deadline and the run resumed but hasn't reached terminal
-        //   state yet. `handleApprovalInterception` has already scheduled
-        //   post-decision delivery, so the final reply will be delivered.
+        // - running (after successful prompt delivery): an approval was
+        //   applied near the poll deadline and the run resumed but hasn't
+        //   reached terminal state yet. `handleApprovalInterception` has
+        //   already scheduled post-decision delivery, so the final reply
+        //   will be delivered. This condition is only true when the approval
+        //   prompt was actually delivered (not in auto-deny paths), ensuring
+        //   we don't suppress retry/dead-letter for cases where no
+        //   post-decision delivery path exists.
         //
         // Marking either state as failed would cause the generic retry sweep
         // to replay through `processMessage`, which throws "Session is
         // already processing a message" and dead-letters a valid conversation.
         log.warn(
-          { runId: run.id, status: finalRun.status, conversationId, sawNeedsConfirmation },
+          { runId: run.id, status: finalRun.status, conversationId, hasPostDecisionDelivery },
           'Approval-path poll loop timed out while run is in approval-related state; marking event as processed',
         );
         channelDeliveryStore.markProcessed(eventId);

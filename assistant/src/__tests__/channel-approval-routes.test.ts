@@ -1156,27 +1156,33 @@ describe('poll timeout handling by run state', () => {
     // from needs_confirmation to running. The post-decision delivery path
     // in handleApprovalInterception handles the final reply, so the main poll
     // should mark the event as processed rather than recording a failure.
+    //
+    // The hasPostDecisionDelivery flag is only set when the approval prompt
+    // is actually delivered successfully — not in auto-deny paths. This test
+    // sets up a guardian actor with a real DB run so the standard approval
+    // prompt is delivered and the flag is set.
     _setTestPollMaxWait(100);
 
     const linkSpy = spyOn(channelDeliveryStore, 'linkMessage').mockImplementation(() => {});
     const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
     const failureSpy = spyOn(channelDeliveryStore, 'recordProcessingFailure').mockImplementation(() => {});
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
 
-    const mockRun = {
-      id: 'run-post-approval',
-      conversationId: 'conv-1',
-      messageId: 'user-msg-203',
-      status: 'running' as const,
-      pendingConfirmation: null,
-      pendingSecret: null,
-      inputTokens: 0,
-      outputTokens: 0,
-      estimatedCost: 0,
-      error: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
+    // Set up a guardian binding so the sender is a guardian (standard approval
+    // path, not auto-deny). This ensures the approval prompt is delivered and
+    // hasPostDecisionDelivery is set to true.
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
+
+    const conversationId = `conv-post-approval-${Date.now()}`;
+    ensureConversation(conversationId);
+
+    let realRunId: string | undefined;
 
     // Simulate a run that transitions from needs_confirmation back to running
     // (approval applied) before the poll exits, then stays running past timeout.
@@ -1186,11 +1192,55 @@ describe('poll timeout handling by run state', () => {
       getRun: mock(() => {
         getRunCalls++;
         // First call inside the loop: needs_confirmation (triggers approval prompt delivery)
-        if (getRunCalls <= 1) return { ...mockRun, status: 'needs_confirmation' as const };
+        if (getRunCalls <= 1) return {
+          id: realRunId ?? 'run-post-approval',
+          conversationId,
+          messageId: 'user-msg-203',
+          status: 'needs_confirmation' as const,
+          pendingConfirmation: sampleConfirmation,
+          pendingSecret: null,
+          inputTokens: 0,
+          outputTokens: 0,
+          estimatedCost: 0,
+          error: null,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
         // Subsequent calls: running (approval was applied, run resumed)
-        return { ...mockRun, status: 'running' as const };
+        return {
+          id: realRunId ?? 'run-post-approval',
+          conversationId,
+          messageId: 'user-msg-203',
+          status: 'running' as const,
+          pendingConfirmation: null,
+          pendingSecret: null,
+          inputTokens: 0,
+          outputTokens: 0,
+          estimatedCost: 0,
+          error: null,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
       }),
-      startRun: mock(async () => mockRun),
+      startRun: mock(async (_convId: string) => {
+        const run = createRun(conversationId);
+        realRunId = run.id;
+        setRunConfirmation(run.id, sampleConfirmation);
+        return {
+          id: run.id,
+          conversationId,
+          messageId: null,
+          status: 'running' as const,
+          pendingConfirmation: null,
+          pendingSecret: null,
+          inputTokens: 0,
+          outputTokens: 0,
+          estimatedCost: 0,
+          error: null,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+      }),
     } as unknown as RunOrchestrator;
 
     const req = makeInboundRequest({ content: 'hello post-approval running' });
@@ -1199,9 +1249,12 @@ describe('poll timeout handling by run state', () => {
     // Wait for background async to complete (poll timeout + buffer)
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    // markProcessed SHOULD have been called — the run was in needs_confirmation
-    // and then transitioned to running (post-approval), so the post-decision
-    // delivery path handles the final reply.
+    // The approval prompt should have been delivered (standard path for guardian actor)
+    expect(approvalSpy).toHaveBeenCalled();
+
+    // markProcessed SHOULD have been called — the approval prompt was delivered
+    // (hasPostDecisionDelivery is true) and the run transitioned to running
+    // (post-approval), so the post-decision delivery path handles the final reply.
     expect(markSpy).toHaveBeenCalled();
 
     // recordProcessingFailure should NOT have been called
@@ -1211,6 +1264,7 @@ describe('poll timeout handling by run state', () => {
     markSpy.mockRestore();
     failureSpy.mockRestore();
     deliverSpy.mockRestore();
+    approvalSpy.mockRestore();
     _setTestPollMaxWait(null);
   });
 
