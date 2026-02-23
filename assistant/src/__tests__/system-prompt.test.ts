@@ -50,8 +50,12 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
+mock.module('../config/user-reference.js', () => ({
+  resolveUserReference: () => 'John',
+}));
+
 // Import after mock
-const { buildSystemPrompt, ensurePromptFiles, stripCommentLines } = await import('../config/system-prompt.js');
+const { buildSystemPrompt, ensurePromptFiles, stripCommentLines, buildExternalCommsIdentitySection } = await import('../config/system-prompt.js');
 
 /** Strip the Configuration and Skills sections so base-prompt tests stay focused. */
 function basePrompt(result: string): string {
@@ -165,6 +169,26 @@ describe('buildSystemPrompt', () => {
     expect(result).toContain('## External Service Access Preference');
     expect(result).toContain('CLI tools via host_bash');
     expect(result).toContain('Browser automation as last resort');
+  });
+
+  test('includes external comms identity section', () => {
+    const result = buildSystemPrompt();
+    expect(result).toContain('## External Communications Identity');
+  });
+
+  test('external comms identity section contains assistant guidance and resolved user reference', () => {
+    const result = buildSystemPrompt();
+    expect(result).toContain('Refer to yourself as an **assistant**');
+    expect(result).toContain('on behalf of **John**');
+  });
+
+  test('buildExternalCommsIdentitySection returns section with expected content', () => {
+    const section = buildExternalCommsIdentitySection();
+    expect(section).toContain('## External Communications Identity');
+    expect(section).toContain('assistant');
+    expect(section).toContain('John');
+    expect(section).toContain('Do not volunteer that you are an AI unless directly asked');
+    expect(section).toContain('Occasional variations are acceptable');
   });
 
   test('config section uses workspace directory from platform util', () => {
