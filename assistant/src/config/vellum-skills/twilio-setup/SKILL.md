@@ -20,12 +20,24 @@ All operations go through the `twilio_config` IPC handler on the daemon, which v
 
 ### Multi-Assistant Setups
 
-In a multi-assistant environment (multiple assistants sharing the same daemon), every `twilio_config` IPC message should include an `assistantId` field to scope the configuration to the correct assistant instance. If `assistantId` is omitted, the daemon uses the default assistant. Include `assistantId` whenever:
+In a multi-assistant environment (multiple assistants sharing the same daemon), some `twilio_config` actions are **assistant-scoped** while others are **global** (shared across all assistants):
+
+**Global actions** (ignore `assistantId` — credentials are shared across all assistants):
+- `set_credentials` — Stores Account SID and Auth Token in global secure storage (`credential:twilio:*` keys). All assistants share the same Twilio account credentials.
+- `clear_credentials` — Removes the globally stored Account SID and Auth Token. This affects all assistants.
+
+**Assistant-scoped actions** (use `assistantId` to scope phone number configuration per assistant):
+- `get` — Returns the phone number assigned to the specified assistant (falls back to the legacy global number if no per-assistant mapping exists).
+- `assign_number` — Assigns a phone number to a specific assistant via the per-assistant mapping.
+- `provision_number` — Provisions a new number and assigns it to the specified assistant.
+- `list_numbers` — Lists all phone numbers on the shared Twilio account (uses global credentials).
+
+Include `assistantId` in assistant-scoped actions whenever:
 - Multiple assistants share the same Twilio account but use different phone numbers
 - You want to ensure configuration changes only affect a specific assistant
 - The user has explicitly selected or referenced a particular assistant
 
-All IPC examples below include the optional `assistantId` field. Omit it in single-assistant setups.
+All IPC examples below include the optional `assistantId` field in assistant-scoped actions. Omit it in single-assistant setups. For global actions (`set_credentials`, `clear_credentials`), the `assistantId` field is accepted but ignored.
 
 ## Step 1: Check Current Configuration
 
@@ -66,12 +78,13 @@ After both credentials are collected, retrieve them from secure storage and pass
   "type": "twilio_config",
   "action": "set_credentials",
   "accountSid": "<value from credential_store for twilio/account_sid>",
-  "authToken": "<value from credential_store for twilio/auth_token>",
-  "assistantId": "<optional — omit for single-assistant setups>"
+  "authToken": "<value from credential_store for twilio/auth_token>"
 }
 ```
 
 Both `accountSid` and `authToken` are required — the daemon validates the credentials against the Twilio API before storing them. If credentials are invalid, the daemon returns an error. Tell the user and ask them to re-enter via the secure prompt.
+
+**Note:** `set_credentials` is a global operation — credentials are stored once and shared across all assistants. The `assistantId` field is accepted but ignored.
 
 ## Step 3: Get a Phone Number
 
@@ -245,12 +258,13 @@ If the user wants to disconnect Twilio, send:
 ```json
 {
   "type": "twilio_config",
-  "action": "clear_credentials",
-  "assistantId": "<optional — omit for single-assistant setups>"
+  "action": "clear_credentials"
 }
 ```
 
-This removes the stored Account SID and Auth Token. Your phone number assignment will be preserved. Voice calls and SMS will stop working until credentials are reconfigured.
+This removes the stored Account SID and Auth Token. Phone number assignments are preserved. Voice calls and SMS will stop working until credentials are reconfigured.
+
+**Note:** `clear_credentials` is a global operation — it removes credentials for all assistants, not just the current one. The `assistantId` field is accepted but ignored. In multi-assistant setups, warn the user that clearing credentials will affect all assistants sharing this Twilio account.
 
 ## Troubleshooting
 
