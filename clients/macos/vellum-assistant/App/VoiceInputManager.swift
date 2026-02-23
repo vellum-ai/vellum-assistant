@@ -38,6 +38,10 @@ final class VoiceInputManager {
     /// Floating overlay showing dictation state (recording/processing/done).
     private let overlayWindow = DictationOverlayWindow()
 
+    /// True after a dictation request has been sent to the daemon and we're awaiting a response.
+    /// Used by `stopRecording()` to decide whether the overlay should stay visible.
+    private var awaitingDaemonResponse = false
+
     private var isRecording = false
     private var globalMonitor: Any?
     private var localMonitor: Any?
@@ -355,13 +359,24 @@ final class VoiceInputManager {
             } else {
                 overlayWindow.show(state: .processing)
             }
-            try? daemonClient?.send(request)
-            log.info("Sent dictation_request to daemon for app=\(context.appName, privacy: .public)")
+            do {
+                guard let client = daemonClient else {
+                    throw NSError(domain: "VoiceInput", code: 1, userInfo: [NSLocalizedDescriptionKey: "Daemon client unavailable"])
+                }
+                try client.send(request)
+                awaitingDaemonResponse = true
+                log.info("Sent dictation_request to daemon for app=\(context.appName, privacy: .public)")
+            } catch {
+                log.error("Failed to send dictation_request: \(error.localizedDescription)")
+                overlayWindow.dismiss()
+                onTranscription?(text)
+            }
         }
     }
 
     /// Handle the daemon's dictation response — insert cleaned text or route action mode to a task.
     func handleDictationResponse(text: String, mode: String) {
+        awaitingDaemonResponse = false
         if mode == "dictation" || mode == "command" {
             DictationTextInserter.insertText(text)
             overlayWindow.showDoneAndDismiss()
@@ -380,6 +395,9 @@ final class VoiceInputManager {
         currentDictationContext = nil
         // Overlay stays visible if we're transitioning to processing state (dictation sent
         // to daemon). Otherwise dismiss it — recording stopped without producing a result.
+        if !awaitingDaemonResponse {
+            overlayWindow.dismiss()
+        }
         log.info("Voice recording stopped")
 
         if audioEngine.isRunning {
