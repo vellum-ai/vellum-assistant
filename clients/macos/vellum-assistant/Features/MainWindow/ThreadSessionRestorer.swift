@@ -13,6 +13,7 @@ protocol ThreadRestorerDelegate: AnyObject {
     var restoreRecentThreads: Bool { get }
     var isLoadingMoreThreads: Bool { get }
     var hasMoreThreads: Bool { get set }
+    var serverOffset: Int { get set }
     func chatViewModel(for threadId: UUID) -> ChatViewModel?
     func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID)
     func removeChatViewModel(for threadId: UUID)
@@ -158,6 +159,7 @@ final class ThreadSessionRestorer {
         }
 
         delegate.hasMoreThreads = response.hasMore ?? false
+        delegate.serverOffset = response.sessions.count
         log.info("Restored \(restoredThreads.count) threads from daemon (hasMore: \(response.hasMore ?? false))")
         delegate.restoreLastActiveThread()
     }

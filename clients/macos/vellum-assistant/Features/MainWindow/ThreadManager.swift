@@ -19,6 +19,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @Published var threads: [ThreadModel] = []
     @Published var hasMoreThreads: Bool = false
     @Published var isLoadingMoreThreads: Bool = false
+    /// Tracks the number of rows already fetched from the daemon so pagination
+    /// offsets stay correct even when the client filters out some sessions.
+    var serverOffset: Int = 0
     @Published var activeThreadId: UUID? {
         didSet {
             if let activeThreadId {
@@ -286,7 +289,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         guard !isLoadingMoreThreads else { return }
         isLoadingMoreThreads = true
         do {
-            try daemonClient.sendSessionList(offset: threads.count, limit: 50)
+            try daemonClient.sendSessionList(offset: serverOffset, limit: 50)
         } catch {
             log.error("Failed to request more threads: \(error.localizedDescription)")
             isLoadingMoreThreads = false
@@ -295,6 +298,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     /// Handle appended threads from a "load more" response.
     func appendThreads(from response: SessionListResponseMessage) {
+        // Increment offset by the unfiltered count so pagination stays aligned
+        // with the daemon's row numbering regardless of client-side filtering.
+        serverOffset += response.sessions.count
+
         let recentSessions = response.sessions.filter {
             $0.threadType != "private" && $0.channelBinding?.sourceChannel == nil
         }
