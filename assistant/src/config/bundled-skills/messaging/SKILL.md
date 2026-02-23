@@ -83,6 +83,21 @@ Telegram is supported as a messaging provider with limited capabilities compared
 - The bot can only message users or groups that have previously interacted with it (sent `/start` or been added to a group). Bots cannot initiate conversations with arbitrary phone numbers.
 - Future support for MTProto user-account sessions may lift some of these restrictions.
 
+### SMS (Twilio)
+SMS is supported as a messaging provider with limited capabilities. The conversation ID is the recipient's phone number in E.164 format (e.g. `+14155551234`):
+
+- **Send**: Send an SMS to a phone number (high risk — requires user approval)
+- **Auth Test**: Verify Twilio credentials and show the configured phone number
+
+**Not available** (SMS limitations):
+- List conversations — SMS is stateless; there is no API to enumerate past conversations
+- Read message history — message history is not available through the gateway
+- Search messages — no search API is available for SMS
+
+**SMS limits:**
+- Outbound SMS uses the assistant's configured Twilio phone number as the sender. The phone number must be provisioned and assigned via the twilio-setup skill.
+- SMS messages are subject to Twilio's character limits and carrier filtering. Long messages may be split into multiple segments.
+
 ### Slack-specific
 - **Add Reaction**: Add an emoji reaction to a message
 - **Leave Channel**: Leave a Slack channel
