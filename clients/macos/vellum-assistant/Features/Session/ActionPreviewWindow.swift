@@ -6,10 +6,11 @@ final class ActionPreviewWindow {
 
     /// Show a colored dot at the given screen position, then fade it out.
     func flash(at point: CGPoint, color: NSColor = .systemBlue, duration: TimeInterval = 0.3) {
+        guard let screen = NSScreen.main else { return }
         let size: CGFloat = 24
         let frame = NSRect(
             x: point.x - size / 2,
-            y: NSScreen.main!.frame.height - point.y - size / 2, // Flip to screen coords
+            y: screen.frame.height - point.y - size / 2, // Flip to screen coords
             width: size,
             height: size
         )
