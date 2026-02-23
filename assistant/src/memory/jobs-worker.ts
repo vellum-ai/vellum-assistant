@@ -18,6 +18,7 @@ import {
   retryDelayForAttempt,
   RETRY_MAX_ATTEMPTS,
 } from './job-utils.js';
+import { bumpMemoryVersion } from './recall-cache.js';
 
 // ── Per-job-type handlers ──────────────────────────────────────────
 
@@ -121,6 +122,7 @@ export async function runMemoryJobsOnce(
           try {
             await processJob(job, config);
             completeMemoryJob(job.id);
+            bumpMemoryVersion();
             groupProcessed += 1;
           } catch (err) {
             try {
