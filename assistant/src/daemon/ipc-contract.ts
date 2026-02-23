@@ -23,6 +23,14 @@ export interface UsageStats {
   estimatedCost: number;
 }
 
+export interface DictationContext {
+  bundleIdentifier: string;
+  appName: string;
+  windowTitle: string;
+  selectedText?: string;
+  cursorInTextField: boolean;
+}
+
 // === Client → Server messages ===
 
 export interface UserMessage {
@@ -653,6 +661,12 @@ export interface IpcBlobProbe {
   nonceSha256: string;
 }
 
+export interface DictationRequest {
+  type: 'dictation_request';
+  transcription: string;
+  context: DictationContext;
+}
+
 // === Surface types ===
 
 export type SurfaceType = 'card' | 'form' | 'list' | 'table' | 'confirmation' | 'dynamic_page' | 'file_upload' | 'browser_view' | 'document_preview';
@@ -1123,7 +1137,8 @@ export type ClientMessage =
   | WorkspaceFileReadRequest
   | IdentityGetRequest
   | ToolPermissionSimulateRequest
-  | ToolNamesListRequest;
+  | ToolNamesListRequest
+  | DictationRequest;
 
 export interface IntegrationListRequest {
   type: 'integration_list';
@@ -2360,6 +2375,13 @@ export interface ToolNamesListResponse {
   schemas?: Record<string, ToolInputSchema>;
 }
 
+export interface DictationResponse {
+  type: 'dictation_response';
+  text: string;
+  mode: 'dictation' | 'command' | 'action';
+  actionPlan?: string;
+}
+
 export type ServerMessage =
   | AuthResult
   | UserMessageEcho
@@ -2489,7 +2511,8 @@ export type ServerMessage =
   | WorkspaceFileReadResponse
   | IdentityGetResponse
   | ToolPermissionSimulateResponse
-  | ToolNamesListResponse;
+  | ToolNamesListResponse
+  | DictationResponse;
 
 // === Subagent IPC ─────────────────────────────────────────────────────
 
