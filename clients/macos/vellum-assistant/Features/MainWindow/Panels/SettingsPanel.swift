@@ -2,6 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 enum SettingsTab: String, CaseIterable {
+    case connect = "Connect"
     case integrations = "Integrations"
     case channels = "Channels"
     case trust = "Trust"
@@ -42,7 +43,7 @@ struct SettingsPanel: View {
     @State private var showModelDropdown = false
     @State private var mouseDownMonitor: Any?
     @State private var modelDropdownFrame: CGRect = .zero
-    @State private var selectedTab: SettingsTab = .integrations
+    @State private var selectedTab: SettingsTab = .connect
     @State private var testerModel: ToolPermissionTesterModel?
 
     var body: some View {
@@ -185,6 +186,8 @@ struct SettingsPanel: View {
     @ViewBuilder
     private var selectedTabContent: some View {
         switch selectedTab {
+        case .connect:
+            SettingsConnectTab(store: store, daemonClient: daemonClient)
         case .integrations:
             integrationsContent
         case .channels:
