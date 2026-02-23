@@ -15,6 +15,11 @@ struct QRPairingSheet: View {
     enum PairingPhase {
         case scanning
         case confirming
+        /// Intermediate phase while showing the gateway-changed alert.
+        /// Distinct from `.scanning` so that Cancel → `.scanning` is a real
+        /// state transition, which forces SwiftUI to recreate the scanner view
+        /// (the old QRScannerViewController has already stopped scanning).
+        case confirmingUpdate
         case connecting
         case connected
         case alreadyConnected
@@ -29,6 +34,11 @@ struct QRPairingSheet: View {
                     scanningView
                 case .confirming:
                     confirmingView
+                case .confirmingUpdate:
+                    // Empty placeholder behind the gateway-changed alert.
+                    // Using a distinct phase ensures Cancel → .scanning is a
+                    // real state transition that recreates the scanner.
+                    Color.clear
                 case .connecting:
                     connectingView
                 case .connected:
@@ -285,10 +295,18 @@ struct QRPairingSheet: View {
             // First-time scan — save directly, proceed to confirm then connect
             phase = .confirming
         } else if valuesMatch {
-            // Same config — show brief "already connected" confirmation
-            phase = .alreadyConnected
+            // Same config — only show "already connected" if actually live.
+            // If disconnected, reconnect so the user can recover by re-scanning.
+            if clientProvider.isConnected {
+                phase = .alreadyConnected
+            } else {
+                connectToMac()
+            }
         } else {
-            // Re-scan with different values — prompt before overwriting
+            // Re-scan with different values — move to an intermediate phase
+            // before showing the alert so Cancel → .scanning is a real state
+            // change that recreates the (now-stopped) scanner.
+            phase = .confirmingUpdate
             showGatewayChangedAlert = true
         }
     }
