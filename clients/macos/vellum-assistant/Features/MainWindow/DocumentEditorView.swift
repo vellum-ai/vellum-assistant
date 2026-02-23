@@ -421,12 +421,13 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
       // Focus editor
       setTimeout(() => window.editor.focus(), 100);
     } catch (e) {
+      var msg = e.message.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       document.getElementById('editor').innerHTML =
         '<div style="padding: 32px; color: var(--v-text-secondary); font-size: 14px;">' +
         '<strong>Editor failed to load</strong><br><br>' +
         'The document editor could not be initialized. This may be due to a network issue preventing ' +
         'external assets from loading.<br><br>' +
-        '<em>' + e.message + '</em></div>';
+        '<em>' + msg + '</em></div>';
     }
   </script>
 </body>
