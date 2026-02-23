@@ -643,6 +643,73 @@ describe("twilio-sms-webhook", () => {
     expect(typedOptions.routingOverride!.routeSource).toBe("default");
   });
 
+  it("regular inbound SMS with routing rejection sends rejection notice", async () => {
+    const rejectConfig: GatewayConfig = {
+      ...baseConfig,
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+    };
+    const handler = createTwilioSmsWebhookHandler(rejectConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    // Use a unique From number to avoid the module-level rejection notice
+    // rate limiter (shouldSendRejectionNotice) cooldown from other tests.
+    const params = {
+      Body: "Hello",
+      From: "+15553001001",
+      To: "+15559876543",
+      MessageSid: "SM-regular-reject",
+    };
+    const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Rejection notice SMS should have been sent
+    expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
+    const [, to, text] = sendSmsReplyMock.mock.calls[0] as unknown[];
+    expect(to).toBe("+15553001001");
+    expect(typeof text).toBe("string");
+    expect((text as string).toLowerCase()).toContain("could not be routed");
+
+    // handleInbound should NOT have been called
+    expect(handleInboundMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("runtime rejection (handleInbound rejected) sends rejection notice", async () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({ forwarded: false, rejected: true, rejectionReason: "test" }),
+    );
+
+    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    // Use a unique From number to avoid the module-level rejection notice
+    // rate limiter (shouldSendRejectionNotice) cooldown from other tests.
+    const params = {
+      Body: "Hello runtime reject",
+      From: "+15553002002",
+      To: "+15559876543",
+      MessageSid: "SM-runtime-reject",
+    };
+    const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // handleInbound should have been called
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+
+    // Rejection notice SMS should have been sent
+    expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
+    const [, to, text] = sendSmsReplyMock.mock.calls[0] as unknown[];
+    expect(to).toBe("+15553002002");
+    expect(typeof text).toBe("string");
+    expect((text as string).toLowerCase()).toContain("could not be routed");
+  });
+
   it("MMS detected via MediaContentType0 when NumMedia is absent", async () => {
     const handler = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
