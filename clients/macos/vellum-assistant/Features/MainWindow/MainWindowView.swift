@@ -719,7 +719,7 @@ struct MainWindowView: View {
                 if isSelected {
                     adaptiveColor(light: Forest._100.opacity(0.6), dark: Moss._700)
                 } else if isHovered {
-                    adaptiveColor(light: Stone._200, dark: Moss._800)
+                    adaptiveColor(light: Stone._200, dark: Moss._700)
                 } else if thread.kind == .private {
                     VColor.accent.opacity(0.04)
                 } else {
@@ -907,7 +907,7 @@ struct MainWindowView: View {
                 )
             }
             .padding(VSpacing.lg)
-            .background(adaptiveColor(light: Moss._50, dark: Moss._800))
+            .background(adaptiveColor(light: Moss._50, dark: Moss._700))
         }
         .frame(width: threadDrawerWidth)
         .background(adaptiveColor(light: Moss._100, dark: Moss._950))
