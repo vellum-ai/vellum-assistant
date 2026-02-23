@@ -1859,6 +1859,33 @@ public typealias TwilioNumberCapabilities = IPCTwilioConfigResponseNumberCapabil
 /// Backed by generated `IPCTwilioConfigResponse`.
 public typealias TwilioConfigResponseMessage = IPCTwilioConfigResponse
 
+// MARK: - Guardian Verification Messages
+
+/// Guardian verification request (create challenge, check status, revoke).
+/// Backed by generated `IPCGuardianVerificationRequest`.
+public typealias GuardianVerificationRequestMessage = IPCGuardianVerificationRequest
+
+extension IPCGuardianVerificationRequest {
+    public init(
+        action: String,
+        channel: String? = nil,
+        sessionId: String? = nil,
+        assistantId: String? = nil
+    ) {
+        self.init(
+            type: "guardian_verification",
+            action: action,
+            channel: channel,
+            sessionId: sessionId,
+            assistantId: assistantId
+        )
+    }
+}
+
+/// Guardian verification response.
+/// Backed by generated `IPCGuardianVerificationResponse`.
+public typealias GuardianVerificationResponseMessage = IPCGuardianVerificationResponse
+
 // MARK: - Twitter Integration Config Messages
 
 /// Sent to get/set Twitter integration config.
@@ -2066,6 +2093,7 @@ public enum ServerMessage: Decodable, Sendable {
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
     case ingressConfigResponse(IngressConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
+    case guardianVerificationResponse(GuardianVerificationResponseMessage)
     case telegramConfigResponse(TelegramConfigResponseMessage)
     case twilioConfigResponse(TwilioConfigResponseMessage)
     case twitterIntegrationConfigResponse(TwitterIntegrationConfigResponseMessage)
@@ -2342,6 +2370,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "vercel_api_config_response":
             let message = try VercelApiConfigResponseMessage(from: decoder)
             self = .vercelApiConfigResponse(message)
+        case "guardian_verification_response":
+            let message = try GuardianVerificationResponseMessage(from: decoder)
+            self = .guardianVerificationResponse(message)
         case "telegram_config_response":
             let message = try TelegramConfigResponseMessage(from: decoder)
             self = .telegramConfigResponse(message)
