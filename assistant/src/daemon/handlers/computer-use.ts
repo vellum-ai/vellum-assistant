@@ -7,6 +7,7 @@ import { readBlob, deleteBlob, validateBlobKindEncoding } from '../ipc-blob-stor
 import type {
   CuSessionCreate,
   CuSessionAbort,
+  CuAutoApproveUpdate,
   CuSessionFinalized,
   CuObservation,
   ServerMessage,
@@ -363,9 +364,27 @@ export function handleCuSessionFinalized(
   ctx.cuSessionMetadata.delete(msg.sessionId);
 }
 
+export function handleCuAutoApproveUpdate(
+  msg: CuAutoApproveUpdate,
+  _socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const session = ctx.cuSessions.get(msg.sessionId);
+  if (!session) {
+    log.debug({ sessionId: msg.sessionId }, 'CU auto-approve update: session not found (already finished?)');
+    return;
+  }
+  session.autoApproveEnabled = msg.enabled;
+  log.info(
+    { sessionId: msg.sessionId, autoApproveEnabled: msg.enabled },
+    'CU session auto-approve state changed',
+  );
+}
+
 export const computerUseHandlers = defineHandlers({
   cu_session_create: handleCuSessionCreate,
   cu_session_abort: handleCuSessionAbort,
+  cu_auto_approve_update: handleCuAutoApproveUpdate,
   cu_session_finalized: handleCuSessionFinalized,
   cu_observation: handleCuObservation,
 });

@@ -831,6 +831,12 @@ public struct IPCCuAction: Codable, Sendable {
     }
 }
 
+public struct IPCCuAutoApproveUpdate: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let enabled: Bool
+}
+
 public struct IPCCuComplete: Codable, Sendable {
     public let type: String
     public let sessionId: String

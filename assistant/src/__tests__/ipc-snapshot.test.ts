@@ -104,6 +104,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'cu_session_abort',
     sessionId: 'cu-sess-001',
   },
+  cu_auto_approve_update: {
+    type: 'cu_auto_approve_update',
+    sessionId: 'cu-sess-001',
+    enabled: true,
+  },
   cu_session_finalized: {
     type: 'cu_session_finalized',
     sessionId: 'cu-sess-001',

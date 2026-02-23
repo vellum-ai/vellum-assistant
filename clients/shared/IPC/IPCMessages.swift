@@ -342,6 +342,16 @@ extension IPCCuSessionAbort {
     }
 }
 
+/// Sent to notify the daemon of auto-approve toggle changes for a CU session.
+/// Backed by generated `IPCCuAutoApproveUpdate`.
+public typealias CuAutoApproveUpdateMessage = IPCCuAutoApproveUpdate
+
+extension IPCCuAutoApproveUpdate {
+    public init(sessionId: String, enabled: Bool) {
+        self.init(type: "cu_auto_approve_update", sessionId: sessionId, enabled: enabled)
+    }
+}
+
 /// Authenticate to the daemon on initial socket connect.
 /// Backed by generated `IPCAuthMessage`.
 public typealias AuthMessage = IPCAuthMessage
