@@ -218,8 +218,8 @@ struct MainWindowView: View {
             windowState.selection = .app(appId)
             isAppChatOpen = false
 
-        case .panel(.directory):
-            // Toggle: flip isAppChatOpen
+        case .panel:
+            // Toggle: flip isAppChatOpen for any panel view
             isAppChatOpen.toggle()
 
         default:
@@ -238,7 +238,7 @@ struct MainWindowView: View {
         switch windowState.selection {
         case .appEditing:
             return true
-        case .panel(.directory):
+        case .panel:
             return isAppChatOpen
         default:
             return false

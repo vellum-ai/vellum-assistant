@@ -318,6 +318,33 @@ extension MainWindowView {
                         nativePanelView(.voiceMode)
                     }
                 )
+            } else if isAppChatOpen {
+                // Split view: chat (left) + panel (right)
+                let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - Double(VSpacing.sm)
+                let effectiveWidth = Binding<Double>(
+                    get: { appPanelWidth > 0 ? appPanelWidth : contentWidth * 0.7 },
+                    set: { appPanelWidth = $0 }
+                )
+                VSplitView(
+                    panelWidth: effectiveWidth,
+                    showPanel: true,
+                    main: {
+                        chatView
+                    },
+                    panel: {
+                        fullWindowPanel(panelType)
+                            .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.xl, bottomLeadingRadius: VRadius.xl))
+                    }
+                )
+                .onAppear {
+                    if threadManager.activeViewModel == nil {
+                        if let firstThread = threadManager.visibleThreads.first {
+                            threadManager.selectThread(id: firstThread.id)
+                        } else {
+                            threadManager.createThread()
+                        }
+                    }
+                }
             } else {
                 // Full-window panels: settings, debug, doctor, identity
                 fullWindowPanel(panelType)
