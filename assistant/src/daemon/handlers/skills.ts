@@ -5,8 +5,9 @@ import { getConfig, loadRawConfig, saveRawConfig, invalidateConfigCache } from '
 import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../../config/skills.js';
 import { resolveSkillStates } from '../../config/skill-state.js';
 import { getWorkspaceSkillsDir } from '../../util/platform.js';
-import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect } from '../../skills/clawhub.js';
+import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect, type ClawhubSearchResultItem } from '../../skills/clawhub.js';
 import { removeSkillsIndexEntry, deleteManagedSkill, validateManagedSkillId } from '../../skills/managed-store.js';
+import { listCatalogEntries, installFromVellumCatalog } from '../../tools/skills/vellum-catalog.js';
 import type {
   SkillDetailRequest,
   SkillsEnableRequest,
@@ -186,26 +187,45 @@ export async function handleSkillsInstall(
   ctx: HandlerContext,
 ): Promise<void> {
   try {
-    const result = await clawhubInstall(msg.slug, { version: msg.version });
-    if (!result.success) {
-      ctx.send(socket, {
-        type: 'skills_operation_response',
-        operation: 'install',
-        success: false,
-        error: result.error ?? 'Unknown error',
-      });
-      return;
+    // Check if the slug matches a vellum-skills catalog entry first
+    const catalogEntries = listCatalogEntries();
+    const isVellumSkill = catalogEntries.some((e) => e.id === msg.slug);
+
+    let skillId: string;
+
+    if (isVellumSkill) {
+      // Install from vellum-skills catalog (local copy)
+      const result = installFromVellumCatalog(msg.slug);
+      if (!result.success) {
+        ctx.send(socket, {
+          type: 'skills_operation_response',
+          operation: 'install',
+          success: false,
+          error: result.error ?? 'Unknown error',
+        });
+        return;
+      }
+      skillId = result.skillName ?? msg.slug;
+    } else {
+      // Install from clawhub (community)
+      const result = await clawhubInstall(msg.slug, { version: msg.version });
+      if (!result.success) {
+        ctx.send(socket, {
+          type: 'skills_operation_response',
+          operation: 'install',
+          success: false,
+          error: result.error ?? 'Unknown error',
+        });
+        return;
+      }
+      const rawId = result.skillName ?? msg.slug;
+      skillId = rawId.includes('/') ? rawId.split('/').pop()! : rawId;
     }
 
     // Reload skill catalog so the newly installed skill is picked up
     loadSkillCatalog();
 
     // Auto-enable the newly installed skill so it's immediately usable.
-    // Use basename of slug to match the catalog ID (directory basename), since
-    // install slugs can be namespaced (e.g. "org/name") but skill state keys use
-    // the bare directory name.
-    const rawId = result.skillName ?? msg.slug;
-    const skillId = rawId.includes('/') ? rawId.split('/').pop()! : rawId;
     try {
       const raw = loadRawConfig();
       ensureSkillEntry(raw, skillId).enabled = true;
@@ -404,12 +424,36 @@ export async function handleSkillsSearch(
   ctx: HandlerContext,
 ): Promise<void> {
   try {
-    const result = await clawhubSearch(msg.query);
+    // Search vellum-skills catalog locally
+    const catalogEntries = listCatalogEntries();
+    const query = (msg.query ?? '').toLowerCase();
+    const matchingCatalog = catalogEntries.filter((e) => {
+      if (!query) return true;
+      return e.name.toLowerCase().includes(query) || e.description.toLowerCase().includes(query) || e.id.toLowerCase().includes(query);
+    });
+    const vellumSkills: ClawhubSearchResultItem[] = matchingCatalog.map((e) => ({
+      name: e.name,
+      slug: e.id,
+      description: e.description,
+      author: 'Vellum',
+      stars: 0,
+      installs: 0,
+      version: '',
+      createdAt: 0,
+      source: 'vellum' as const,
+    }));
+
+    // Search clawhub concurrently
+    const clawhubResult = await clawhubSearch(msg.query);
+
+    // Merge: vellum first, then clawhub
+    const merged = { skills: [...vellumSkills, ...clawhubResult.skills] };
+
     ctx.send(socket, {
       type: 'skills_operation_response',
       operation: 'search',
       success: true,
-      data: result,
+      data: merged,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

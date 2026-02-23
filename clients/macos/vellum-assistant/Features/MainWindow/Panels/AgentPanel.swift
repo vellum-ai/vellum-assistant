@@ -324,7 +324,7 @@ struct AgentPanelContent: View {
 
     private func clawhubSkillCard(_ skill: ClawhubSkillItem) -> some View {
         let isInstalling = installingSlug == skill.slug
-        let isNew = skill.createdAt > 0 && Date().timeIntervalSince(
+        let isNew = !skill.isVellum && skill.createdAt > 0 && Date().timeIntervalSince(
             Date(timeIntervalSince1970: Double(skill.createdAt) / 1000)
         ) < 7 * 86400
 
@@ -332,9 +332,9 @@ struct AgentPanelContent: View {
             HStack(spacing: VSpacing.md) {
                 // Tappable area: icon + name + description
                 HStack(spacing: VSpacing.md) {
-                    Image(systemName: "shippingbox.fill")
+                    Image(systemName: skill.isVellum ? "v.square.fill" : "shippingbox.fill")
                         .font(.system(size: 16))
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(skill.isVellum ? VColor.accent : VColor.textMuted)
                         .frame(width: 24)
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -343,7 +343,11 @@ struct AgentPanelContent: View {
                                 .font(VFont.bodyBold)
                                 .foregroundColor(VColor.textPrimary)
 
-                            if isNew {
+                            if skill.isVellum {
+                                Text("VELLUM")
+                                    .font(VFont.small)
+                                    .foregroundColor(VColor.accent)
+                            } else if isNew {
                                 Text("NEW")
                                     .font(VFont.small)
                                     .foregroundColor(Amber._500)
@@ -381,31 +385,39 @@ struct AgentPanelContent: View {
 
             // Trust signals row
             HStack(spacing: VSpacing.lg) {
-                if !skill.author.isEmpty {
+                if skill.isVellum {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "person.fill")
+                        Image(systemName: "checkmark.seal.fill")
                             .font(.system(size: 9))
-                        Text(skill.author)
+                        Text("First-party")
                     }
-                }
+                } else {
+                    if !skill.author.isEmpty {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "person.fill")
+                                .font(.system(size: 9))
+                            Text(skill.author)
+                        }
+                    }
 
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 9))
-                    Text("\(skill.stars)")
-                }
-
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "arrow.down.circle")
-                        .font(.system(size: 9))
-                    Text("\(skill.installs)")
-                }
-
-                if !skillAge(skill.createdAt).isEmpty {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "clock")
+                        Image(systemName: "star.fill")
                             .font(.system(size: 9))
-                        Text(skillAge(skill.createdAt))
+                        Text("\(skill.stars)")
+                    }
+
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "arrow.down.circle")
+                            .font(.system(size: 9))
+                        Text("\(skill.installs)")
+                    }
+
+                    if !skillAge(skill.createdAt).isEmpty {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "clock")
+                                .font(.system(size: 9))
+                            Text(skillAge(skill.createdAt))
+                        }
                     }
                 }
             }
@@ -418,7 +430,9 @@ struct AgentPanelContent: View {
         .onTapGesture {
             withAnimation(VAnimation.standard) {
                 selectedSkillSlug = skill.slug
-                skillsManager.inspectSkill(slug: skill.slug)
+                if !skill.isVellum {
+                    skillsManager.inspectSkill(slug: skill.slug)
+                }
             }
         }
         .vCard(background: VColor.surfaceSubtle)
@@ -428,7 +442,7 @@ struct AgentPanelContent: View {
 
     @ViewBuilder
     private func skillDetailView(slug: String, searchItem: ClawhubSkillItem) -> some View {
-        let isNew = searchItem.createdAt > 0 && Date().timeIntervalSince(
+        let isNew = !searchItem.isVellum && searchItem.createdAt > 0 && Date().timeIntervalSince(
             Date(timeIntervalSince1970: Double(searchItem.createdAt) / 1000)
         ) < 7 * 86400
 
@@ -456,15 +470,28 @@ struct AgentPanelContent: View {
                     .font(VFont.cardTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                if isNew {
+                if searchItem.isVellum {
+                    Text("VELLUM")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.accent)
+                } else if isNew {
                     Text("NEW")
                         .font(VFont.small)
                         .foregroundColor(Amber._500)
                 }
             }
 
-            // Author row — use inspect owner if available, fall back to search author
-            if let owner = skillsManager.inspectedSkill?.owner {
+            // Author/source row
+            if searchItem.isVellum {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(VColor.accent)
+                    Text("First-party skill by Vellum")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            } else if let owner = skillsManager.inspectedSkill?.owner {
                 HStack(spacing: VSpacing.sm) {
                     if let imageURL = owner.image, let url = URL(string: imageURL) {
                         AsyncImage(url: url) { image in
@@ -505,8 +532,12 @@ struct AgentPanelContent: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            // Stats row — use inspect stats if available, fall back to search data
-            if let stats = skillsManager.inspectedSkill?.stats {
+            // Stats row — vellum skills show first-party badge; community shows stats
+            if searchItem.isVellum {
+                HStack(spacing: VSpacing.lg) {
+                    statItem(icon: "checkmark.seal.fill", value: "First-party")
+                }
+            } else if let stats = skillsManager.inspectedSkill?.stats {
                 HStack(spacing: VSpacing.lg) {
                     statItem(icon: "star.fill", value: "\(stats.stars)")
                     statItem(icon: "arrow.down.circle", value: "\(stats.installs)")
@@ -530,31 +561,33 @@ struct AgentPanelContent: View {
             }
 
             // Inspect-only content (loading, error, or enriched details)
-            if skillsManager.isInspecting {
-                HStack {
-                    Spacer()
-                    VStack(spacing: VSpacing.md) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Loading more details...")
+            if !searchItem.isVellum {
+                if skillsManager.isInspecting {
+                    HStack {
+                        Spacer()
+                        VStack(spacing: VSpacing.md) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Loading more details...")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                    }
+                    .frame(height: 80)
+                } else if let error = skillsManager.inspectError {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(Amber._500)
+                        Text(error)
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
-                    Spacer()
+                } else if let data = skillsManager.inspectedSkill {
+                    // Enriched content from inspect (version, README, files)
+                    skillDetailEnrichedContent(data)
                 }
-                .frame(height: 80)
-            } else if let error = skillsManager.inspectError {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11))
-                        .foregroundColor(Amber._500)
-                    Text(error)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-            } else if let data = skillsManager.inspectedSkill {
-                // Enriched content from inspect (version, README, files)
-                skillDetailEnrichedContent(data)
             }
 
             // Install button — always visible

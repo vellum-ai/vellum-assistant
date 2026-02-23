@@ -15,7 +15,7 @@ function getVellumSkillsDir(): string {
   return join(import.meta.dir, '..', '..', 'config', 'vellum-skills');
 }
 
-interface CatalogEntry {
+export interface CatalogEntry {
   id: string;
   name: string;
   description: string;
@@ -88,7 +88,7 @@ function parseCatalogEntry(directory: string): CatalogEntry | null {
   }
 }
 
-function listCatalogEntries(): CatalogEntry[] {
+export function listCatalogEntries(): CatalogEntry[] {
   const catalogDir = getVellumSkillsDir();
   if (!existsSync(catalogDir)) return [];
 
@@ -105,6 +105,49 @@ function listCatalogEntries(): CatalogEntry[] {
   }
 
   return entries.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * Install a skill from the vellum-skills catalog by ID.
+ * Returns { success, skillName, error }.
+ */
+export function installFromVellumCatalog(skillId: string): { success: boolean; skillName?: string; error?: string } {
+  const catalogDir = getVellumSkillsDir();
+  const skillDir = join(catalogDir, skillId.trim());
+  const skillFilePath = join(skillDir, 'SKILL.md');
+
+  if (!existsSync(skillFilePath)) {
+    return { success: false, error: `Skill "${skillId}" not found in the Vellum catalog` };
+  }
+
+  const content = readFileSync(skillFilePath, 'utf-8');
+  const match = content.match(FRONTMATTER_REGEX);
+  if (!match) {
+    return { success: false, error: `Skill "${skillId}" has invalid SKILL.md` };
+  }
+
+  const entry = parseCatalogEntry(skillDir);
+  if (!entry) {
+    return { success: false, error: `Skill "${skillId}" has invalid SKILL.md` };
+  }
+
+  const bodyMarkdown = content.slice(match[0].length);
+  const result = createManagedSkill({
+    id: entry.id,
+    name: entry.name,
+    description: entry.description,
+    bodyMarkdown,
+    emoji: entry.emoji,
+    includes: entry.includes,
+    overwrite: true,
+    addToIndex: true,
+  });
+
+  if (!result.created) {
+    return { success: false, error: result.error };
+  }
+
+  return { success: true, skillName: entry.id };
 }
 
 class VellumSkillsCatalogTool implements Tool {

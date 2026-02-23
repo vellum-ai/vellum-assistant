@@ -1037,7 +1037,7 @@ public typealias IdentityGetResponseMessage = IPCIdentityGetResponse
 /// Backed by generated `IPCSkillStateChanged`.
 public typealias SkillStateChangedMessage = IPCSkillStateChanged
 
-/// A ClaWHub skill returned from a search or explore query.
+/// A skill returned from a search or explore query.
 /// Kept hand-maintained — this type is decoded from the `data` field of
 /// `skills_operation_response` (which is `AnyCodable` in the contract).
 public struct ClawhubSkillItem: Decodable, Sendable, Identifiable, Equatable {
@@ -1051,6 +1051,10 @@ public struct ClawhubSkillItem: Decodable, Sendable, Identifiable, Equatable {
     public let version: String
     /// Epoch milliseconds when the skill was first published.
     public let createdAt: Int
+    /// Where this skill comes from: "vellum" (first-party) or "clawhub" (community).
+    public let source: String
+
+    public var isVellum: Bool { source == "vellum" }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -1062,10 +1066,11 @@ public struct ClawhubSkillItem: Decodable, Sendable, Identifiable, Equatable {
         installs = try container.decodeIfPresent(Int.self, forKey: .installs) ?? 0
         version = try container.decodeIfPresent(String.self, forKey: .version) ?? ""
         createdAt = try container.decodeIfPresent(Int.self, forKey: .createdAt) ?? 0
+        source = try container.decodeIfPresent(String.self, forKey: .source) ?? "clawhub"
     }
 
     private enum CodingKeys: String, CodingKey {
-        case name, slug, description, author, stars, installs, version, createdAt
+        case name, slug, description, author, stars, installs, version, createdAt, source
     }
 }
 

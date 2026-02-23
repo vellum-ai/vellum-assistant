@@ -163,6 +163,8 @@ export interface ClawhubSearchResultItem {
   installs: number;
   version: string;
   createdAt: number;
+  /** Where this skill comes from: "vellum" (first-party) or "clawhub" (community). */
+  source: 'vellum' | 'clawhub';
 }
 
 export interface ClawhubSearchResult {
@@ -273,10 +275,10 @@ export async function clawhubSearch(query: string): Promise<ClawhubSearchResult>
     try {
       const parsed = JSON.parse(result.stdout);
       if (Array.isArray(parsed)) {
-        return { skills: parsed };
+        return { skills: parsed.map((s: ClawhubSearchResultItem) => ({ ...s, source: s.source ?? 'clawhub' as const })) };
       }
       if (parsed.skills && Array.isArray(parsed.skills)) {
-        return parsed as ClawhubSearchResult;
+        return { skills: parsed.skills.map((s: ClawhubSearchResultItem) => ({ ...s, source: s.source ?? 'clawhub' as const })) };
       }
     } catch {
       // CLI outputs text: "slug vVersion  DisplayName  (score)"
@@ -296,6 +298,7 @@ export async function clawhubSearch(query: string): Promise<ClawhubSearchResult>
           stars: 0,
           installs: 0,
           createdAt: 0,
+          source: 'clawhub',
         });
       }
     }
@@ -330,6 +333,7 @@ export async function clawhubExplore(opts?: { limit?: number; sort?: string }): 
         installs: (item.stats as Record<string, number>)?.installsAllTime ?? 0,
         version: (item.tags as Record<string, string>)?.latest ?? '',
         createdAt: (item.createdAt as number) ?? 0,
+        source: 'clawhub',
       }));
       return { skills };
     } catch {
