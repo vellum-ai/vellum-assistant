@@ -464,7 +464,7 @@ vellum config set calls.maxDurationSeconds 7200
 vellum config set calls.disclosure.enabled false
 
 # Custom disclosure message
-vellum config set calls.disclosure.text "Just so you know, this is an assistant calling for my human."
+vellum config set calls.disclosure.text "Just so you know, this is an assistant calling on behalf of my human."
 
 # Give more time for user consultation
 vellum config set calls.userConsultTimeoutSeconds 300
