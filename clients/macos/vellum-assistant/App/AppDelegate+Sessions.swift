@@ -57,7 +57,9 @@ extension AppDelegate {
                 screenRecorder: (routed.qaMode == true) ? ScreenRecorder() : nil,
                 reportToSessionId: routed.reportToSessionId,
                 qaMode: routed.qaMode ?? false,
-                retentionDays: routed.retentionDays.flatMap { Int($0) } ?? 7
+                retentionDays: routed.retentionDays.flatMap { Int($0) } ?? 7,
+                captureScope: routed.captureScope ?? "display",
+                includeAudio: routed.includeAudio ?? false
             )
             // Don't bind relatedViewModel for escalated sessions — the active view model
             // may be unrelated if the user switched threads. Tool calls for escalated
@@ -205,7 +207,9 @@ extension AppDelegate {
                     screenRecorder: (routed.qaMode == true) ? ScreenRecorder() : nil,
                     reportToSessionId: routed.reportToSessionId,
                     qaMode: routed.qaMode ?? false,
-                    retentionDays: routed.retentionDays.flatMap { Int($0) } ?? 7
+                    retentionDays: routed.retentionDays.flatMap { Int($0) } ?? 7,
+                    captureScope: routed.captureScope ?? "display",
+                    includeAudio: routed.includeAudio ?? false
                 )
                 // Don't bind relatedViewModel — sessions started via startSession() don't
                 // originate from a chat thread, so there's no ChatViewModel to extract
