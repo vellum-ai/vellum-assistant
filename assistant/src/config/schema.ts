@@ -907,7 +907,7 @@ export const CallsDisclosureConfigSchema = z.object({
     .default(true),
   text: z
     .string({ error: 'calls.disclosure.text must be a string' })
-    .default('At the very beginning of the call, disclose that you are an AI assistant calling on behalf of the user.'),
+    .default('At the very beginning of the call, introduce yourself as an assistant calling on behalf of the user.'),
 });
 
 export const CallsSafetyConfigSchema = z.object({
@@ -1017,7 +1017,7 @@ export const CallsConfigSchema = z.object({
     .default(120),
   disclosure: CallsDisclosureConfigSchema.default({
     enabled: true,
-    text: 'At the very beginning of the call, disclose that you are an AI assistant calling on behalf of the user.',
+    text: 'At the very beginning of the call, introduce yourself as an assistant calling on behalf of the user.',
   }),
   safety: CallsSafetyConfigSchema.default({
     denyCategories: [],
@@ -1340,7 +1340,7 @@ export const AssistantConfigSchema = z.object({
     userConsultTimeoutSeconds: 120,
     disclosure: {
       enabled: true,
-      text: 'At the very beginning of the call, disclose that you are an AI assistant calling on behalf of the user.',
+      text: 'At the very beginning of the call, introduce yourself as an assistant calling on behalf of the user.',
     },
     safety: {
       denyCategories: [],

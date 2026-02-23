@@ -224,7 +224,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     userConsultTimeoutSeconds: 120,
     disclosure: {
       enabled: true,
-      text: 'At the very beginning of the call, disclose that you are an AI assistant calling on behalf of the user.',
+      text: 'At the very beginning of the call, introduce yourself as an assistant calling on behalf of the user.',
     },
     safety: {
       denyCategories: [],
