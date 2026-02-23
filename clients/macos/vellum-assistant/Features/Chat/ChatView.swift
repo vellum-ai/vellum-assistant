@@ -457,7 +457,8 @@ struct ChatView: View {
                                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                                 onReportMessage: onReportMessage,
                                 mediaEmbedSettings: mediaEmbedSettings,
-                                daemonHttpPort: daemonHttpPort
+                                daemonHttpPort: daemonHttpPort,
+                                isLatestAssistantMessage: message.role == .assistant && displayMessages.last(where: { $0.role == .assistant })?.id == message.id
                             )
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
