@@ -35,7 +35,7 @@ For `<your-username>`, use your assistant name (lowercased, alphanumeric only). 
 
 After the inbox is created successfully:
 
-1. Parse the JSON response to extract your new email address.
+1. Parse the command output to extract your new email address.
 2. Tell the user your new email address.
 3. Store a note in your memory or `USER.md` that your email has been provisioned so you remember it in future conversations.
 
