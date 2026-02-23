@@ -126,7 +126,7 @@ public enum Forest {
 
 public enum VColor {
     // Backgrounds
-    public static let background = adaptiveColor(light: .white, dark: Moss._950)
+    public static let background = adaptiveColor(light: Moss._100, dark: Moss._950)
     public static let backgroundSubtle = adaptiveColor(light: Stone._100, dark: Moss._950)
     public static let chatBackground = adaptiveColor(light: Moss._100, dark: Moss._950)
     public static let surface = adaptiveColor(light: .white, dark: Moss._700)
