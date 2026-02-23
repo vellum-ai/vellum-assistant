@@ -38,6 +38,7 @@ mock.module('../config/user-reference.js', () => ({
 // ── Config mock ─────────────────────────────────────────────────────
 
 let mockCallModel: string | undefined = undefined;
+let mockDisclosure: { enabled: boolean; text: string } = { enabled: false, text: '' };
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
@@ -49,7 +50,7 @@ mock.module('../config/loader.js', () => ({
       userConsultTimeoutSeconds: 90,
       userConsultationTimeoutSeconds: 90,
       silenceTimeoutSeconds: 30,
-      disclosure: { enabled: false, text: '' },
+      disclosure: mockDisclosure,
       safety: { denyCategories: [] },
       model: mockCallModel,
     },
@@ -206,6 +207,7 @@ describe('call-orchestrator', () => {
     resetTables();
     mockCallModel = undefined;
     mockUserReference = 'my human';
+    mockDisclosure = { enabled: false, text: '' };
     // Reset the stream mock to default behaviour
     mockStreamFn.mockImplementation(() => createMockStream(['Hello', ' there']));
   });
@@ -941,6 +943,49 @@ describe('call-orchestrator', () => {
 
     const { orchestrator } = setupOrchestrator();
     await orchestrator.handleCallerUtterance('Test');
+    orchestrator.destroy();
+  });
+
+  test('system prompt uses disclosure text when disclosure is enabled', async () => {
+    mockDisclosure = {
+      enabled: true,
+      text: 'At the very beginning of the call, introduce yourself as an assistant calling on behalf of the person you represent. Do not say "AI assistant".',
+    };
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { system: string };
+      expect(firstArg.system).toContain('introduce yourself as an assistant calling on behalf of the person you represent');
+      expect(firstArg.system).toContain('Do not say "AI assistant"');
+      return createMockStream(['Hello, I am calling on behalf of my human.']);
+    });
+
+    const { orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('Who is this?');
+    orchestrator.destroy();
+  });
+
+  test('system prompt falls back to "Begin the conversation naturally" when disclosure is disabled', async () => {
+    mockDisclosure = { enabled: false, text: '' };
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { system: string };
+      expect(firstArg.system).toContain('Begin the conversation naturally');
+      expect(firstArg.system).not.toContain('introduce yourself as an assistant calling on behalf of the person');
+      return createMockStream(['Hello there.']);
+    });
+
+    const { orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('Hi');
+    orchestrator.destroy();
+  });
+
+  test('system prompt never contains the phrase "AI assistant"', async () => {
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { system: string };
+      expect(firstArg.system).not.toContain('AI assistant');
+      return createMockStream(['Got it.']);
+    });
+
+    const { orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('Hello');
     orchestrator.destroy();
   });
 });
