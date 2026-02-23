@@ -429,6 +429,12 @@ export function refreshSurfacesForApp(ctx: SurfaceSessionContext, appId: string,
     };
     stored.data = updatedData;
 
+    // Keep the persisted snapshot in sync so updates survive session restart.
+    const idx = ctx.currentTurnSurfaces.findIndex(s => s.surfaceId === surfaceId);
+    if (idx !== -1) {
+      ctx.currentTurnSurfaces[idx].data = updatedData;
+    }
+
     // Push the update to the client
     ctx.sendToClient({
       type: 'ui_surface_update',
