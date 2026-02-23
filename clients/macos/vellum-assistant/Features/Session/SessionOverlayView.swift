@@ -4,6 +4,41 @@ import SwiftUI
 struct SessionOverlayView: View {
     @ObservedObject var session: ComputerUseSession
 
+    private let minOverlayWidth: CGFloat = 340
+    private let maxOverlayWidth: CGFloat = 560
+
+    private var overlayWidth: CGFloat {
+        let length = longestVisibleTextLength
+        if length > 220 { return maxOverlayWidth }
+        if length > 140 { return 500 }
+        if length > 90 { return 420 }
+        return minOverlayWidth
+    }
+
+    private var longestVisibleTextLength: Int {
+        var candidates: [String] = [session.task]
+        if let prompt = session.pendingToolPermissionPrompt {
+            candidates.append(prompt.toolName)
+            candidates.append(prompt.summary)
+        }
+        switch session.state {
+        case .running(_, _, let lastAction, let reasoning):
+            candidates.append(lastAction)
+            candidates.append(reasoning)
+        case .awaitingConfirmation(let reason):
+            candidates.append(reason)
+        case .completed(let summary, _):
+            candidates.append(summary)
+        case .responded(let answer, _):
+            candidates.append(answer)
+        case .failed(let reason):
+            candidates.append(reason)
+        case .idle, .thinking, .paused, .cancelled:
+            break
+        }
+        return candidates.map(\.count).max() ?? 0
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md + VSpacing.xxs) {
             // Header
@@ -19,9 +54,14 @@ struct SessionOverlayView: View {
             Text(session.task)
                 .font(VFont.caption)
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
 
             Divider()
+
+            if let prompt = session.pendingToolPermissionPrompt {
+                toolPermissionPromptView(prompt)
+                Divider()
+            }
 
             // State-dependent content
             stateContent
@@ -30,7 +70,41 @@ struct SessionOverlayView: View {
             controlButtons
         }
         .padding(14)
-        .frame(width: 340, alignment: .leading)
+        .frame(width: overlayWidth, alignment: .leading)
+    }
+
+    private func toolPermissionPromptView(_ prompt: PendingToolPermissionPrompt) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.yellow)
+                Text("Permission needed")
+                    .font(.caption.bold())
+            }
+
+            Text("Tool: \(prompt.toolName) (\(prompt.riskLevel))")
+                .font(.caption)
+                .foregroundStyle(.primary)
+
+            Text(prompt.summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button("Allow") {
+                    session.approveToolPermissionPrompt()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+                .controlSize(.small)
+
+                Button("Deny") {
+                    session.denyToolPermissionPrompt()
+                }
+                .controlSize(.small)
+            }
+        }
     }
 
     @ViewBuilder
@@ -67,14 +141,14 @@ struct SessionOverlayView: View {
                         Text(reasoning)
                             .font(.caption)
                             .foregroundStyle(.primary)
-                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
                             .padding(.leading, 6)
                     }
                 }
                 Text(lastAction)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
         case .paused(let step, let maxSteps):
@@ -126,7 +200,7 @@ struct SessionOverlayView: View {
                     Text(summary)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -146,7 +220,6 @@ struct SessionOverlayView: View {
                 }
                 .frame(maxHeight: 200)
             }
-            .frame(width: 380)
 
         case .failed(let reason):
             HStack(spacing: 6) {
@@ -155,7 +228,7 @@ struct SessionOverlayView: View {
                 Text(reason)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
         case .cancelled:

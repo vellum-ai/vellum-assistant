@@ -10,6 +10,7 @@ import type { SecretPromptResult } from '../../permissions/secret-prompter.js';
 import { getConfig } from '../../config/loader.js';
 import type { DebouncerMap } from '../../util/debounce.js';
 import { detectQaIntent } from '../qa-intent.js';
+import { resolveComputerUseTargetAppHint } from '../target-app-hints.js';
 
 const log = getLogger('handlers');
 
@@ -237,6 +238,7 @@ export function wireEscalationHandler(
 
     const cuSessionId = uuid();
     const isQa = detectQaIntent(task);
+    const targetApp = resolveComputerUseTargetAppHint(task);
     const config = getConfig();
     const cuMsg: CuSessionCreate = {
       type: 'cu_session_create',
@@ -246,6 +248,7 @@ export function wireEscalationHandler(
       screenHeight,
       interactionType: 'computer_use',
       reportToSessionId: sourceSessionId,
+      ...(targetApp ? { targetAppName: targetApp.appName, targetAppBundleId: targetApp.bundleId } : {}),
       ...(isQa ? { qaMode: true } : {}),
     };
     handleCuSessionCreate(cuMsg, currentSocket, ctx);

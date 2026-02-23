@@ -181,6 +181,10 @@ export interface CuSessionCreate {
   reportToSessionId?: string;
   /** Marks this CU run as a QA/test workflow. */
   qaMode?: boolean;
+  /** Optional target app name constraint for disambiguation. */
+  targetAppName?: string;
+  /** Optional target app bundle identifier for disambiguation. */
+  targetAppBundleId?: string;
 }
 
 export interface CuSessionAbort {

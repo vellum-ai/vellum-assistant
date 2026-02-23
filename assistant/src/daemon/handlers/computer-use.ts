@@ -93,6 +93,9 @@ export function handleCuSessionCreate(
     sendToClient,
     msg.interactionType,
     onTerminal,
+    undefined,
+    msg.targetAppName,
+    msg.targetAppBundleId,
   );
   sessionRef.current = session;
 

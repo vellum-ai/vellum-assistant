@@ -20,7 +20,8 @@ import type {
 } from '../ipc-protocol.js';
 import { log, wireEscalationHandler, renderHistoryContent, defineHandlers, type HandlerContext } from './shared.js';
 import { handleCuSessionCreate } from './computer-use.js';
-import { detectQaIntent } from '../qa-intent.js';
+import { detectQaIntent, shouldRouteQaToComputerUse } from '../qa-intent.js';
+import { resolveComputerUseTargetAppHint } from '../target-app-hints.js';
 
 // ─── Task submit handler ────────────────────────────────────────────────────
 
@@ -67,15 +68,25 @@ export async function handleTaskSubmit(
 
     // Slash candidates always route to text_qa — bypass classifier
     const slashCandidate = parseSlashCandidate(msg.task);
+    const isQa = detectQaIntent(msg.task);
+    const forceQaComputerUse = shouldRouteQaToComputerUse(msg.task);
     const interactionType = slashCandidate.kind === 'candidate'
       ? 'text_qa' as const
-      : await classifyInteraction(msg.task, msg.source);
-    rlog.info({ interactionType, slashBypass: slashCandidate.kind === 'candidate', taskLength: msg.task.length }, 'Task classified');
+      : forceQaComputerUse
+        ? 'computer_use' as const
+        : await classifyInteraction(msg.task, msg.source);
+    rlog.info({
+      interactionType,
+      slashBypass: slashCandidate.kind === 'candidate',
+      taskLength: msg.task.length,
+      isQa,
+      forceQaComputerUse,
+    }, 'Task classified');
 
     if (interactionType === 'computer_use') {
       // Create CU session (reuse handleCuSessionCreate logic)
       const sessionId = uuid();
-      const isQa = detectQaIntent(msg.task);
+      const targetApp = resolveComputerUseTargetAppHint(msg.task);
       const config = getConfig();
       const cuMsg: CuSessionCreate = {
         type: 'cu_session_create',
@@ -85,6 +96,7 @@ export async function handleTaskSubmit(
         screenHeight: msg.screenHeight,
         attachments: msg.attachments,
         interactionType: 'computer_use',
+        ...(targetApp ? { targetAppName: targetApp.appName, targetAppBundleId: targetApp.bundleId } : {}),
         ...(isQa ? { qaMode: true, reportToSessionId: msg.conversationId } : {}),
       };
       handleCuSessionCreate(cuMsg, socket, ctx);

@@ -124,11 +124,9 @@ extension AppDelegate {
             self.textResponseWindow?.close()
             self.textResponseWindow = nil
 
-            // Hide main window so the target app becomes frontmost for CU
-            let mainWindowWasVisible = self.mainWindow?.isVisible ?? false
-            if mainWindowWasVisible {
-                self.mainWindow?.hide()
-            }
+            // Keep the main app visible during escalated CU so permission prompts
+            // and status are always visible to the user.
+            self.showMainWindow()
 
             await session.run()
             let endMessage = self.computerUseEndMessage(for: session.state)
@@ -138,9 +136,6 @@ extension AppDelegate {
             self.currentSession = nil
             self.currentTextSession = nil
             self.ambientAgent.resume()
-            if mainWindowWasVisible {
-                self.mainWindow?.show()
-            }
             if let endMessage {
                 self.mainWindow?.windowState.showToast(message: endMessage, style: .error)
             }
@@ -271,6 +266,13 @@ extension AppDelegate {
                 overlay.show()
                 self.overlayWindow = overlay
                 self.ambientAgent.pause()
+                let looksLikeQaTask = effectiveTask.localizedCaseInsensitiveContains("qa")
+                    || effectiveTask.localizedCaseInsensitiveContains("test")
+                    || effectiveTask.localizedCaseInsensitiveContains("verify")
+                if routed.qaMode == true || looksLikeQaTask {
+                    // QA/test CU sessions should keep the main app open.
+                    self.showMainWindow()
+                }
                 await session.run()
                 let endMessage = self.computerUseEndMessage(for: session.state)
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
