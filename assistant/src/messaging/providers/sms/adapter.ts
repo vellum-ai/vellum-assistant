@@ -27,7 +27,7 @@ import type {
   SendOptions,
 } from '../../provider-types.js';
 import { getSecureKey } from '../../../security/secure-keys.js';
-import { readHttpToken } from '../../../util/platform.js';
+import { readHttpToken, readLockfile } from '../../../util/platform.js';
 import { loadConfig } from '../../../config/loader.js';
 import { getOrCreateConversation } from '../../../memory/conversation-key-store.js';
 import * as externalConversationStore from '../../../memory/external-conversation-store.js';
@@ -60,10 +60,43 @@ function hasTwilioCredentials(): boolean {
 }
 
 /**
- * Resolve the configured SMS phone number.
- * Priority: TWILIO_PHONE_NUMBER env > config sms.phoneNumber > secure key fallback.
+ * Read the current assistantId from the lockfile.
+ * Returns the most recently hatched assistant's ID, or undefined if unavailable.
  */
-function getPhoneNumber(): string | undefined {
+function getAssistantId(): string | undefined {
+  try {
+    const lockData = readLockfile();
+    const assistants = lockData?.assistants as Array<Record<string, unknown>> | undefined;
+    if (assistants && assistants.length > 0) {
+      const sorted = [...assistants].sort((a, b) => {
+        const dateA = new Date(a.hatchedAt as string || 0).getTime();
+        const dateB = new Date(b.hatchedAt as string || 0).getTime();
+        return dateB - dateA;
+      });
+      return sorted[0].assistantId as string | undefined;
+    }
+  } catch {
+    // ignore — lockfile may not exist
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the configured SMS phone number.
+ * Priority: assistant-scoped phone number > TWILIO_PHONE_NUMBER env > config sms.phoneNumber > secure key fallback.
+ */
+function getPhoneNumber(assistantId?: string): string | undefined {
+  // Check assistant-scoped phone number first
+  if (assistantId) {
+    try {
+      const config = loadConfig();
+      const assistantPhone = config.sms?.assistantPhoneNumbers?.[assistantId];
+      if (assistantPhone) return assistantPhone;
+    } catch {
+      // Config may not be available yet during early startup
+    }
+  }
+
   const fromEnv = process.env.TWILIO_PHONE_NUMBER;
   if (fromEnv) return fromEnv;
 
@@ -89,7 +122,7 @@ export const smsMessagingProvider: MessagingProvider = {
    * the `from` for outbound messages.
    */
   isConnected(): boolean {
-    return hasTwilioCredentials() && !!getPhoneNumber();
+    return hasTwilioCredentials() && !!getPhoneNumber(getAssistantId());
   },
 
   async testConnection(_token: string): Promise<ConnectionInfo> {
@@ -128,8 +161,9 @@ export const smsMessagingProvider: MessagingProvider = {
   async sendMessage(_token: string, conversationId: string, text: string, _options?: SendOptions): Promise<SendResult> {
     const gatewayUrl = getGatewayUrl();
     const bearerToken = getBearerToken();
+    const assistantId = getAssistantId();
 
-    await sms.sendMessage(gatewayUrl, bearerToken, conversationId, text);
+    await sms.sendMessage(gatewayUrl, bearerToken, conversationId, text, assistantId);
 
     // Upsert external conversation binding so the conversation key mapping
     // exists for the next inbound SMS from this number.
