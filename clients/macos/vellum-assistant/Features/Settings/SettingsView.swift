@@ -364,37 +364,29 @@ public struct SettingsView: View {
                 }
             }
 
-            Section("Telegram") {
+            // MARK: - Channels
+            Section("Telegram Channel") {
                 if store.telegramHasBotToken {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .font(.system(size: 14))
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
                         if let username = store.telegramBotUsername {
                             Text("@\(username)")
-                                .foregroundStyle(.secondary)
                         } else {
                             Text("Bot token configured")
-                                .foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button("Clear") {
                             store.clearTelegramCredentials()
                             telegramBotTokenText = ""
                         }
-                        .tint(.red)
                     }
                 } else {
                     SecureField("Enter bot token", text: $telegramBotTokenText)
-                        .textFieldStyle(.roundedBorder)
+                    Text("Get your bot token from @BotFather on Telegram")
+                        .font(.caption).foregroundStyle(.secondary)
                     HStack {
-                        Text("Get your bot token from @BotFather on Telegram")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
                         if store.telegramSaveInProgress {
-                            ProgressView()
-                                .controlSize(.small)
+                            ProgressView().controlSize(.small)
                         } else {
                             Button("Save") {
                                 store.saveTelegramToken(botToken: telegramBotTokenText)
@@ -404,15 +396,17 @@ public struct SettingsView: View {
                         }
                     }
                 }
-
                 if let error = store.telegramError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(.red)
+                    Text(error).foregroundStyle(.red).font(.caption)
+                }
+
+                if store.telegramHasBotToken {
+                    Divider()
+                    settingsGuardianRow(channel: "telegram")
                 }
             }
 
-            Section("SMS (Twilio)") {
+            Section("SMS Channel (Twilio)") {
                 if store.twilioHasCredentials {
                     HStack(spacing: 6) {
                         Image(systemName: "checkmark.circle.fill")
@@ -536,6 +530,11 @@ public struct SettingsView: View {
                     Text(error)
                         .font(.caption)
                         .foregroundColor(.red)
+                }
+
+                if store.twilioHasCredentials {
+                    Divider()
+                    settingsGuardianRow(channel: "sms")
                 }
             }
 
@@ -798,6 +797,8 @@ public struct SettingsView: View {
             store.refreshIngressConfig()
             ingressUrlText = store.ingressPublicBaseUrl
             checkPermissions()
+            store.refreshChannelGuardianStatus(channel: "telegram")
+            store.refreshChannelGuardianStatus(channel: "sms")
         }
         .onDisappear {
             #if DEBUG
@@ -847,6 +848,57 @@ public struct SettingsView: View {
         accessibilityGranted = PermissionManager.accessibilityStatus() == .granted
         let status = PermissionManager.screenRecordingStatus()
         screenRecordingGranted = status == .granted
+    }
+
+    @ViewBuilder
+    private func settingsGuardianRow(channel: String) -> some View {
+        let identity: String? = channel == "telegram" ? store.telegramGuardianIdentity : store.smsGuardianIdentity
+        let verified: Bool = channel == "telegram" ? store.telegramGuardianVerified : store.smsGuardianVerified
+        let inProgress: Bool = channel == "telegram" ? store.telegramGuardianVerificationInProgress : store.smsGuardianVerificationInProgress
+        let instruction: String? = channel == "telegram" ? store.telegramGuardianInstruction : store.smsGuardianInstruction
+        let error: String? = channel == "telegram" ? store.telegramGuardianError : store.smsGuardianError
+
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Guardian Verification")
+                .font(.headline)
+
+            if verified {
+                HStack {
+                    Image(systemName: "checkmark.shield.fill").foregroundColor(.green)
+                    Text(identity.map { "Verified: \($0)" } ?? "Verified")
+                    Spacer()
+                    Button("Revoke") {
+                        store.revokeChannelGuardian(channel: channel)
+                    }
+                }
+            } else if inProgress {
+                HStack {
+                    ProgressView().controlSize(.small)
+                    Text("Verification in progress...")
+                }
+                if let instruction {
+                    Text(instruction)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(4)
+                        .background(Color.secondary.opacity(0.1))
+                        .cornerRadius(4)
+                }
+            } else {
+                HStack {
+                    Image(systemName: "shield.slash").foregroundStyle(.secondary)
+                    Text("Not verified").foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Verify Guardian") {
+                        store.startChannelGuardianVerification(channel: channel)
+                    }
+                }
+            }
+
+            if let error {
+                Text(error).foregroundStyle(.red).font(.caption)
+            }
+        }
     }
 
 }

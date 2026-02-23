@@ -3,6 +3,7 @@ import VellumAssistantShared
 
 enum SettingsTab: String, CaseIterable {
     case integrations = "Integrations"
+    case channels = "Channels"
     case trust = "Trust"
     case reminders = "Reminders"
     case appearance = "Appearance"
@@ -192,6 +193,8 @@ struct SettingsPanel: View {
         switch selectedTab {
         case .integrations:
             integrationsContent
+        case .channels:
+            channelsContent
         case .trust:
             trustContent
         case .reminders:
@@ -761,12 +764,6 @@ struct SettingsPanel: View {
 
             // TWITTER / X section
             twitterSection
-
-            // TELEGRAM section
-            telegramSection
-
-            // TWILIO / SMS section
-            twilioSection
         }
     }
 
@@ -921,282 +918,377 @@ struct SettingsPanel: View {
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    // MARK: - Telegram Section
+    // MARK: - Channels Tab
 
-    private var telegramSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Telegram")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            if store.telegramHasBotToken {
-                // Connected / configured state
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
-                        .font(.system(size: 14))
-                    if let username = store.telegramBotUsername {
-                        Text("@\(username)")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                    } else {
-                        Text("Bot token configured")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-                    Spacer()
-                    VButton(label: "Clear", style: .danger) {
-                        store.clearTelegramCredentials()
-                        telegramBotTokenText = ""
-                    }
-                }
-            } else {
-                // Not configured — show SecureField for token entry
-                HStack(spacing: VSpacing.xs) {
-                    Text("Enter Bot Token")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                SecureField("Telegram bot token", text: $telegramBotTokenText)
-                    .textFieldStyle(.plain)
-                    .font(VFont.body)
+    private var channelsContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xl) {
+            // TELEGRAM channel card
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Telegram")
+                    .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
-                    .padding(VSpacing.md)
-                    .background(VColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                    )
 
-                Text("Get your bot token from @BotFather on Telegram")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-
-                if store.telegramSaveInProgress {
+                if store.telegramHasBotToken {
                     HStack(spacing: VSpacing.sm) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Saving...")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-                } else {
-                    VButton(label: "Save", style: .primary) {
-                        store.saveTelegramToken(botToken: telegramBotTokenText)
-                        telegramBotTokenText = ""
-                    }
-                    .disabled(telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-
-            if let error = store.telegramError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-            }
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    // MARK: - Twilio Section
-
-    private var twilioSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("SMS (Twilio)")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            if store.twilioHasCredentials {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
-                        .font(.system(size: 14))
-                    Text("Credentials configured")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Spacer()
-                    if store.twilioSaveInProgress {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        VButton(label: "Clear Credentials", style: .danger) {
-                            store.clearTwilioCredentials()
-                        }
-                    }
-                }
-            } else {
-                HStack(spacing: VSpacing.xs) {
-                    Text("Enter Account SID and Auth Token")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                TextField("Account SID", text: $twilioAccountSidText)
-                    .textFieldStyle(.plain)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .padding(VSpacing.md)
-                    .background(VColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                    )
-
-                SecureField("Auth Token", text: $twilioAuthTokenText)
-                    .textFieldStyle(.plain)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .padding(VSpacing.md)
-                    .background(VColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                    )
-
-                if store.twilioSaveInProgress {
-                    HStack(spacing: VSpacing.sm) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Saving...")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-                } else {
-                    VButton(label: "Save Credentials", style: .primary) {
-                        store.saveTwilioCredentials(
-                            accountSid: twilioAccountSidText,
-                            authToken: twilioAuthTokenText
-                        )
-                        twilioAuthTokenText = ""
-                    }
-                    .disabled(
-                        twilioAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                        twilioAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    )
-                }
-            }
-
-            Divider()
-                .background(VColor.surfaceBorder)
-
-            HStack {
-                Text("Assigned Number")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                Text(store.twilioPhoneNumber ?? "Not assigned")
-                    .font(VFont.mono)
-                    .foregroundColor(store.twilioPhoneNumber == nil ? VColor.textMuted : VColor.textPrimary)
-            }
-
-            HStack(spacing: VSpacing.sm) {
-                TextField("Assign existing (+1555...)", text: $twilioPhoneNumberText)
-                    .textFieldStyle(.plain)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .padding(VSpacing.md)
-                    .background(VColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                    )
-
-                VButton(label: "Assign", style: .secondary) {
-                    store.assignTwilioNumber(phoneNumber: twilioPhoneNumberText)
-                    twilioPhoneNumberText = ""
-                }
-                .disabled(
-                    twilioPhoneNumberText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    store.twilioSaveInProgress
-                )
-            }
-
-            HStack(spacing: VSpacing.sm) {
-                TextField("Area code (optional)", text: $twilioAreaCodeText)
-                    .textFieldStyle(.plain)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .padding(VSpacing.md)
-                    .background(VColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                    )
-
-                TextField("Country", text: $twilioCountryText)
-                    .textFieldStyle(.plain)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .padding(VSpacing.md)
-                    .frame(width: 90)
-                    .background(VColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                    )
-
-                VButton(label: "Provision", style: .secondary) {
-                    store.provisionTwilioNumber(
-                        areaCode: twilioAreaCodeText,
-                        country: twilioCountryText
-                    )
-                }
-                .disabled(store.twilioSaveInProgress)
-            }
-
-            HStack(spacing: VSpacing.sm) {
-                if store.twilioListInProgress {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-                VButton(label: "Refresh Numbers", style: .tertiary) {
-                    store.refreshTwilioNumbers()
-                }
-                .disabled(store.twilioListInProgress)
-            }
-
-            if !store.twilioNumbers.isEmpty {
-                ForEach(store.twilioNumbers, id: \.phoneNumber) { number in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(number.phoneNumber)
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textPrimary)
-                            Text(number.friendlyName)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14))
+                        if let username = store.telegramBotUsername {
+                            Text("@\(username)")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                        } else {
+                            Text("Bot token configured")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
                         }
                         Spacer()
-                        VButton(label: "Use", style: .secondary) {
-                            store.assignTwilioNumber(phoneNumber: number.phoneNumber)
+                        VButton(label: "Clear", style: .danger) {
+                            store.clearTelegramCredentials()
+                            telegramBotTokenText = ""
                         }
-                        .disabled(store.twilioSaveInProgress)
+                    }
+                } else {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Enter Bot Token")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+
+                    SecureField("Telegram bot token", text: $telegramBotTokenText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    Text("Get your bot token from @BotFather on Telegram")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    if store.telegramSaveInProgress {
+                        HStack(spacing: VSpacing.sm) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Saving...")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textSecondary)
+                        }
+                    } else {
+                        VButton(label: "Save", style: .primary) {
+                            store.saveTelegramToken(botToken: telegramBotTokenText)
+                            telegramBotTokenText = ""
+                        }
+                        .disabled(telegramBotTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+
+                if let error = store.telegramError {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                }
+
+                if store.telegramHasBotToken {
+                    Divider()
+                        .background(VColor.surfaceBorder)
+
+                    guardianSection(channel: "telegram")
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
+            // SMS (TWILIO) channel card
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("SMS (Twilio)")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                if store.twilioHasCredentials {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14))
+                        Text("Credentials configured")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        if store.twilioSaveInProgress {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            VButton(label: "Clear Credentials", style: .danger) {
+                                store.clearTwilioCredentials()
+                            }
+                        }
+                    }
+                } else {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Enter Account SID and Auth Token")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+
+                    TextField("Account SID", text: $twilioAccountSidText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    SecureField("Auth Token", text: $twilioAuthTokenText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    if store.twilioSaveInProgress {
+                        HStack(spacing: VSpacing.sm) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Saving...")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textSecondary)
+                        }
+                    } else {
+                        VButton(label: "Save Credentials", style: .primary) {
+                            store.saveTwilioCredentials(
+                                accountSid: twilioAccountSidText,
+                                authToken: twilioAuthTokenText
+                            )
+                            twilioAuthTokenText = ""
+                        }
+                        .disabled(
+                            twilioAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                            twilioAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        )
+                    }
+                }
+
+                Divider()
+                    .background(VColor.surfaceBorder)
+
+                HStack {
+                    Text("Assigned Number")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    Spacer()
+                    Text(store.twilioPhoneNumber ?? "Not assigned")
+                        .font(VFont.mono)
+                        .foregroundColor(store.twilioPhoneNumber == nil ? VColor.textMuted : VColor.textPrimary)
+                }
+
+                HStack(spacing: VSpacing.sm) {
+                    TextField("Assign existing (+1555...)", text: $twilioPhoneNumberText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    VButton(label: "Assign", style: .secondary) {
+                        store.assignTwilioNumber(phoneNumber: twilioPhoneNumberText)
+                        twilioPhoneNumberText = ""
+                    }
+                    .disabled(
+                        twilioPhoneNumberText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        store.twilioSaveInProgress
+                    )
+                }
+
+                HStack(spacing: VSpacing.sm) {
+                    TextField("Area code (optional)", text: $twilioAreaCodeText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    TextField("Country", text: $twilioCountryText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .frame(width: 90)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+
+                    VButton(label: "Provision", style: .secondary) {
+                        store.provisionTwilioNumber(
+                            areaCode: twilioAreaCodeText,
+                            country: twilioCountryText
+                        )
+                    }
+                    .disabled(store.twilioSaveInProgress)
+                }
+
+                HStack(spacing: VSpacing.sm) {
+                    if store.twilioListInProgress {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    VButton(label: "Refresh Numbers", style: .tertiary) {
+                        store.refreshTwilioNumbers()
+                    }
+                    .disabled(store.twilioListInProgress)
+                }
+
+                if !store.twilioNumbers.isEmpty {
+                    ForEach(store.twilioNumbers, id: \.phoneNumber) { number in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(number.phoneNumber)
+                                    .font(VFont.mono)
+                                    .foregroundColor(VColor.textPrimary)
+                                Text(number.friendlyName)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            Spacer()
+                            VButton(label: "Use", style: .secondary) {
+                                store.assignTwilioNumber(phoneNumber: number.phoneNumber)
+                            }
+                            .disabled(store.twilioSaveInProgress)
+                        }
+                    }
+                }
+
+                if let warning = store.twilioWarning {
+                    Text(warning)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.warning)
+                }
+
+                if let error = store.twilioError {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                }
+
+                if store.twilioHasCredentials {
+                    Divider()
+                        .background(VColor.surfaceBorder)
+
+                    guardianSection(channel: "sms")
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+        }
+        .onAppear {
+            store.refreshChannelGuardianStatus(channel: "telegram")
+            store.refreshChannelGuardianStatus(channel: "sms")
+        }
+    }
+
+    // MARK: - Guardian Verification Section
+
+    @ViewBuilder
+    private func guardianSection(channel: String) -> some View {
+        let identity: String? = channel == "telegram" ? store.telegramGuardianIdentity : store.smsGuardianIdentity
+        let verified: Bool = channel == "telegram" ? store.telegramGuardianVerified : store.smsGuardianVerified
+        let inProgress: Bool = channel == "telegram" ? store.telegramGuardianVerificationInProgress : store.smsGuardianVerificationInProgress
+        let instruction: String? = channel == "telegram" ? store.telegramGuardianInstruction : store.smsGuardianInstruction
+        let error: String? = channel == "telegram" ? store.telegramGuardianError : store.smsGuardianError
+
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Guardian Verification")
+                .font(VFont.bodyMedium)
+                .foregroundColor(VColor.textPrimary)
+
+            if verified {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "checkmark.shield.fill")
+                        .foregroundColor(VColor.success)
+                        .font(.system(size: 14))
+                    if let identity {
+                        Text("Verified: \(identity)")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                    } else {
+                        Text("Verified")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                    Spacer()
+                    VButton(label: "Revoke", style: .danger) {
+                        store.revokeChannelGuardian(channel: channel)
+                    }
+                }
+            } else if inProgress {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Verification in progress...")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                if let instruction {
+                    Text(instruction)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(VSpacing.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                        )
+                        .textSelection(.enabled)
+                }
+            } else {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "shield.slash")
+                        .foregroundColor(VColor.textMuted)
+                        .font(.system(size: 14))
+                    Text("Not verified")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textMuted)
+                    Spacer()
+                    VButton(label: "Verify Guardian", style: .secondary) {
+                        store.startChannelGuardianVerification(channel: channel)
                     }
                 }
             }
 
-            if let warning = store.twilioWarning {
-                Text(warning)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.warning)
-            }
-
-            if let error = store.twilioError {
+            if let error {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
             }
         }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Trust Tab
