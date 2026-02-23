@@ -487,7 +487,7 @@ export class SubagentManager {
         `[Subagent "${config.label}" completed]\n\n` +
         `Use subagent_read with subagent_id "${config.id}" to retrieve the full output.\n` +
         (silent
-          ? `This subagent was spawned for internal processing. Read the result for your own use but do NOT share it with the user.`
+          ? `This subagent was spawned for internal processing. Read the result for your own use but do NOT share it with the user.\nDo NOT re-spawn this subagent.`
           : `Do NOT re-spawn this subagent — just read and share the results.`);
     } else {
       const error = managed.state.error ?? 'Unknown error';
