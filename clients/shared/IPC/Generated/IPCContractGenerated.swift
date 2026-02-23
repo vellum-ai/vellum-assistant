@@ -509,12 +509,26 @@ public struct IPCDictationContext: Codable, Sendable {
     public let windowTitle: String
     public let selectedText: String?
     public let cursorInTextField: Bool
+
+    public init(bundleIdentifier: String, appName: String, windowTitle: String, selectedText: String?, cursorInTextField: Bool) {
+        self.bundleIdentifier = bundleIdentifier
+        self.appName = appName
+        self.windowTitle = windowTitle
+        self.selectedText = selectedText
+        self.cursorInTextField = cursorInTextField
+    }
 }
 
 public struct IPCDictationRequest: Codable, Sendable {
     public let type: String
     public let transcription: String
     public let context: IPCDictationContext
+
+    public init(type: String, transcription: String, context: IPCDictationContext) {
+        self.type = type
+        self.transcription = transcription
+        self.context = context
+    }
 }
 
 public struct IPCDictationResponse: Codable, Sendable {
@@ -522,6 +536,13 @@ public struct IPCDictationResponse: Codable, Sendable {
     public let text: String
     public let mode: String
     public let actionPlan: String?
+
+    public init(type: String, text: String, mode: String, actionPlan: String?) {
+        self.type = type
+        self.text = text
+        self.mode = mode
+        self.actionPlan = actionPlan
+    }
 }
 
 public struct IPCDocumentEditorShow: Codable, Sendable {
