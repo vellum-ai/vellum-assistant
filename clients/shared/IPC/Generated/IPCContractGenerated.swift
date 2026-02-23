@@ -2384,6 +2384,12 @@ public struct IPCRideShotgunProgress: Codable, Sendable {
     public let type: String
     public let watchId: String
     public let message: String
+
+    public init(type: String, watchId: String, message: String) {
+        self.type = type
+        self.watchId = watchId
+        self.message = message
+    }
 }
 
 public struct IPCRideShotgunResult: Codable, Sendable {
