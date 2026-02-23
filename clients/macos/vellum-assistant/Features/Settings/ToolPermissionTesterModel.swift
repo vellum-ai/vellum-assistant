@@ -42,6 +42,7 @@ struct ToolFieldDescriptor: Identifiable {
         case integer
         case boolean
         case enumeration([String])
+        case json
     }
 }
 
@@ -198,6 +199,7 @@ final class ToolPermissionTesterModel: ObservableObject {
                 case "boolean": fieldType = .boolean
                 case "number": fieldType = .number
                 case "integer": fieldType = .integer
+                case "object", "array": fieldType = .json
                 default: fieldType = .string
                 }
             }
@@ -233,6 +235,38 @@ final class ToolPermissionTesterModel: ObservableObject {
         fieldEnabled = newEnabled
     }
 
+    // MARK: - Validation
+
+    /// Whether the form is valid for simulation. False when the tool name is
+    /// empty or any required field has an empty/unparseable value.
+    var canSimulate: Bool {
+        guard !toolName.isEmpty, !isSimulating else { return false }
+        for field in fieldDescriptors {
+            guard field.isRequired else { continue }
+            let value = fieldValues[field.id] ?? ""
+            switch field.fieldType {
+            case .boolean:
+                // Always valid — stored as "true"/"false"
+                continue
+            case .number:
+                if Double(value) == nil { return false }
+            case .integer:
+                if Int(value) == nil { return false }
+            case .enumeration:
+                if value.isEmpty { return false }
+            case .json:
+                guard !value.isEmpty,
+                      let data = value.data(using: .utf8),
+                      (try? JSONSerialization.jsonObject(with: data)) != nil
+                else { return false }
+            case .string:
+                // Strings are always valid (empty string is a legitimate value)
+                continue
+            }
+        }
+        return true
+    }
+
     // MARK: - Building Input
 
     /// Build the input dictionary from the dynamic field values.
@@ -265,6 +299,12 @@ final class ToolPermissionTesterModel: ObservableObject {
             case .enumeration:
                 if !value.isEmpty {
                     result[field.id] = AnyCodable(value)
+                }
+            case .json:
+                if !value.isEmpty,
+                   let data = value.data(using: .utf8),
+                   let parsed = try? JSONSerialization.jsonObject(with: data) {
+                    result[field.id] = AnyCodable(parsed)
                 }
             }
         }

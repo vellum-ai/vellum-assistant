@@ -186,6 +186,20 @@ struct ToolPermissionTesterView: View {
                 RoundedRectangle(cornerRadius: VRadius.sm)
                     .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
             )
+
+        case .json:
+            TextEditor(text: fieldValueBinding(for: field.id))
+                .font(VFont.mono)
+                .foregroundColor(VColor.textPrimary)
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 60, maxHeight: 120)
+                .padding(VSpacing.sm)
+                .background(VColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                )
         }
     }
 
@@ -220,7 +234,7 @@ struct ToolPermissionTesterView: View {
             VButton(label: model.isSimulating ? "Simulating..." : "Simulate", style: .primary) {
                 model.simulate()
             }
-            .disabled(model.toolName.isEmpty || model.isSimulating)
+            .disabled(!model.canSimulate)
 
             if model.isSimulating {
                 ProgressView()
