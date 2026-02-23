@@ -10,14 +10,10 @@ struct SettingsAdvancedTab: View {
     @ObservedObject var threadManager: ThreadManager
     var onClose: () -> Void
     var daemonClient: DaemonClient?
+    var onNavigateToConnect: (() -> Void)?
 
-    @State private var sessionToken: String = ""
-    @State private var tokenCopied: Bool = false
-    @State private var tokenRevealed: Bool = false
     @State private var iosPairingEnabled: Bool = false
-    @State private var showingPairingQR: Bool = false
     @State private var showingPairingWarning: Bool = false
-    @State private var showingRegenerateConfirmation: Bool = false
     @State private var showingRetireConfirmation: Bool = false
     @State private var isRetiring: Bool = false
     @State private var lockfileAssistants: [LockfileAssistant] = []
@@ -25,6 +21,10 @@ struct SettingsAdvancedTab: View {
     @State private var identity: IdentityInfo?
     @State private var remoteIdentity: RemoteIdentityInfo?
     @State private var flagStates: [(flag: FeatureFlag, enabled: Bool)] = []
+    @AppStorage("iosPairingUseOverride") private var iosPairingUseOverride: Bool = false
+    @AppStorage("iosPairingGatewayOverride") private var iosPairingGatewayOverride: String = ""
+    @AppStorage("iosPairingTokenOverride") private var iosPairingTokenOverride: String = ""
+
     #if DEBUG
     @State private var showingEnvVars = false
     @State private var appEnvVars: [(String, String)] = []
@@ -48,7 +48,6 @@ struct SettingsAdvancedTab: View {
             #endif
         }
         .onAppear {
-            refreshSessionToken()
             let flagPath = NSHomeDirectory() + "/.vellum/ios-pairing-enabled"
             iosPairingEnabled = FileManager.default.fileExists(atPath: flagPath)
             lockfileAssistants = LockfileAssistant.loadAll()
@@ -290,7 +289,6 @@ struct SettingsAdvancedTab: View {
                     .labelsHidden()
                     .onChange(of: iosPairingEnabled) { _, enabled in
                         if enabled {
-                            // Show one-time warning on first enable
                             if !UserDefaults.standard.bool(forKey: "ios_pairing_warning_shown") {
                                 showingPairingWarning = true
                             } else {
@@ -302,58 +300,10 @@ struct SettingsAdvancedTab: View {
                     }
             }
 
-            // QR Code + Token display
+            // Global Gateway & Token readout
             if iosPairingEnabled {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Show QR Code", style: .primary) {
-                            showingPairingQR = true
-                        }
-                        Spacer()
-
-                        Button(tokenCopied ? "Copied!" : "Copy Token") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(sessionToken, forType: .string)
-                            tokenCopied = true
-                            Task {
-                                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                                tokenCopied = false
-                            }
-                        }
-                        .disabled(sessionToken.isEmpty)
-                    }
-
-                    if !sessionToken.isEmpty {
-                        HStack(spacing: VSpacing.xs) {
-                            Text("Token:")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                            Text(tokenRevealed ? sessionToken : String(sessionToken.prefix(16)) + "...")
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textSecondary)
-                                .textSelection(.enabled)
-                            Button(action: { tokenRevealed.toggle() }) {
-                                Image(systemName: tokenRevealed ? "eye.slash" : "eye")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textMuted)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(tokenRevealed ? "Hide token" : "Reveal token")
-                        }
-                    }
-
-                    if !store.ingressEnabled || store.ingressPublicBaseUrl.isEmpty {
-                        Text("Enable ingress and set a public URL in Settings to pair with iOS.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-
-                    Button("Regenerate Token") {
-                        showingRegenerateConfirmation = true
-                    }
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.accent)
-                }
+                iosGlobalConfigCard
+                iosOverrideSection
             }
         }
         .padding(VSpacing.lg)
@@ -369,20 +319,106 @@ struct SettingsAdvancedTab: View {
         } message: {
             Text("Your assistant will be reachable on your local network. Only devices with the session token can connect. TLS encryption is always enabled.")
         }
-        .alert("Regenerate Session Token", isPresented: $showingRegenerateConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Regenerate", role: .destructive) {
-                regenerateSessionToken()
+    }
+
+    /// Card showing the resolved gateway URL and masked bearer token for iOS pairing.
+    private var iosGlobalConfigCard: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Using Global Gateway & Token")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+                .textCase(.uppercase)
+
+            HStack(alignment: .top) {
+                Text("Gateway URL")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .frame(width: 90, alignment: .leading)
+                Text(store.resolvedIosGatewayUrl.isEmpty ? "Not configured" : store.resolvedIosGatewayUrl)
+                    .font(VFont.mono)
+                    .foregroundColor(store.resolvedIosGatewayUrl.isEmpty ? VColor.textMuted : VColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
             }
-        } message: {
-            Text("This will replace the current token and restart the daemon. Any paired iOS devices will need to re-scan the QR code.")
+
+            HStack(alignment: .top) {
+                Text("Bearer Token")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .frame(width: 90, alignment: .leading)
+                Text(store.resolvedIosBearerToken.isEmpty
+                     ? "Not configured"
+                     : String(repeating: "\u{2022}", count: 8))
+                    .font(VFont.mono)
+                    .foregroundColor(store.resolvedIosBearerToken.isEmpty ? VColor.textMuted : VColor.textPrimary)
+                Spacer()
+            }
+
+            Button("Manage in Connect tab") {
+                onNavigateToConnect?()
+            }
+            .font(VFont.caption)
+            .foregroundColor(VColor.accent)
         }
-        .sheet(isPresented: $showingPairingQR) {
-            PairingQRCodeSheet(
-                ingressEnabled: store.ingressEnabled,
-                ingressPublicBaseUrl: store.ingressPublicBaseUrl
-            )
+        .padding(VSpacing.md)
+        .background(VColor.surface.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    /// Collapsed override section for per-integration iOS gateway/token customization.
+    private var iosOverrideSection: some View {
+        DisclosureGroup("Override") {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Toggle("Use custom gateway for iOS", isOn: $iosPairingUseOverride)
+                    .toggleStyle(.switch)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+
+                if iosPairingUseOverride {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Gateway URL Override")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        TextField("https://custom-gateway.example.com", text: $iosPairingGatewayOverride)
+                            .textFieldStyle(.plain)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .padding(VSpacing.md)
+                            .background(VColor.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                            )
+                    }
+
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Token Override")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                        SecureField("Custom bearer token", text: $iosPairingTokenOverride)
+                            .textFieldStyle(.plain)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .padding(VSpacing.md)
+                            .background(VColor.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                            )
+                    }
+                }
+            }
+            .padding(.top, VSpacing.sm)
         }
+        .font(VFont.caption)
+        .foregroundColor(VColor.textSecondary)
     }
 
     private func setIOSPairingEnabled(_ enabled: Bool) {
@@ -391,44 +427,6 @@ struct SettingsAdvancedTab: View {
             FileManager.default.createFile(atPath: flagPath, contents: nil)
         } else {
             try? FileManager.default.removeItem(atPath: flagPath)
-        }
-    }
-
-    private func refreshSessionToken() {
-        let tokenPath = NSHomeDirectory() + "/.vellum/session-token"
-        if let existing = try? String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
-           existing.count >= 32 {
-            sessionToken = existing
-        } else {
-            // Generate a token so pairing works immediately — the daemon
-            // will reuse this file on its next (re)start.
-            var bytes = [UInt8](repeating: 0, count: 32)
-            guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return }
-            let newToken = bytes.map { String(format: "%02x", $0) }.joined()
-            let dir = (tokenPath as NSString).deletingLastPathComponent
-            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-            FileManager.default.createFile(atPath: tokenPath, contents: Data(newToken.utf8), attributes: [.posixPermissions: 0o600])
-            sessionToken = newToken
-        }
-    }
-
-
-    private func regenerateSessionToken() {
-        let tokenPath = NSHomeDirectory() + "/.vellum/session-token"
-        // Generate new random bytes before deleting the old file so a
-        // SecRandomCopyBytes failure doesn't leave us with no token at all.
-        var bytes = [UInt8](repeating: 0, count: 32)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return }
-        let newToken = bytes.map { String(format: "%02x", $0) }.joined()
-        try? FileManager.default.removeItem(atPath: tokenPath)
-        FileManager.default.createFile(atPath: tokenPath, contents: Data(newToken.utf8), attributes: [.posixPermissions: 0o600])
-        sessionToken = newToken
-        // Kill the daemon so the health monitor restarts it with the new token.
-        // The daemon only reads the token at startup, so a restart is required.
-        let pidPath = NSHomeDirectory() + "/.vellum/vellum.pid"
-        if let pidStr = try? String(contentsOfFile: pidPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
-           let pid = Int32(pidStr) {
-            kill(pid, SIGTERM)
         }
     }
 
