@@ -147,3 +147,9 @@ export interface TraversalOptions {
   relationTypes?: EntityRelationType[];
   entityTypes?: EntityType[];
 }
+
+export interface TraversalResult {
+  neighborEntityIds: string[];
+  traversedEdgeCount: number;
+  neighborDepths: Map<string, number>; // entityId → depth (1-based)
+}

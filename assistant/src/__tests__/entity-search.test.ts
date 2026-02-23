@@ -328,6 +328,37 @@ describe('entity search', () => {
       expect(result.neighborEntityIds).toContain(idProject);
       expect(result.neighborEntityIds).toContain(idTool);
     });
+
+    test('neighborDepths tracks BFS depth for each neighbor', () => {
+      // A -> B -> C (chain)
+      const idA = upsertEntity({ name: 'DepthAlpha', type: 'person', aliases: [] });
+      const idB = upsertEntity({ name: 'DepthBeta', type: 'tool', aliases: [] });
+      const idC = upsertEntity({ name: 'DepthGamma', type: 'project', aliases: [] });
+
+      upsertEntityRelation({ sourceEntityId: idA, targetEntityId: idB, relation: 'uses' });
+      upsertEntityRelation({ sourceEntityId: idB, targetEntityId: idC, relation: 'depends_on' });
+
+      const result = findNeighborEntities([idA], {
+        maxEdges: 10,
+        maxNeighborEntities: 10,
+        maxDepth: 2,
+      });
+
+      expect(result.neighborEntityIds).toContain(idB);
+      expect(result.neighborEntityIds).toContain(idC);
+      expect(result.neighborDepths.get(idB)).toBe(1);
+      expect(result.neighborDepths.get(idC)).toBe(2);
+    });
+
+    test('neighborDepths is empty when no neighbors found', () => {
+      const idA = upsertEntity({ name: 'DepthDelta', type: 'person', aliases: [] });
+      const result = findNeighborEntities([idA], {
+        maxEdges: 10,
+        maxNeighborEntities: 10,
+        maxDepth: 1,
+      });
+      expect(result.neighborDepths.size).toBe(0);
+    });
   });
 
   // ── findMatchedEntities ────────────────────────────────────────────

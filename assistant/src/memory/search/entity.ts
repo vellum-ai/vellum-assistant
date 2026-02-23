@@ -10,7 +10,7 @@ import {
   memoryItems,
   memoryItemSources,
 } from '../schema.js';
-import type { Candidate, CandidateSource, CandidateType, EntitySearchResult, MatchedEntityRow, TraversalOptions } from './types.js';
+import type { Candidate, CandidateSource, CandidateType, EntitySearchResult, MatchedEntityRow, TraversalOptions, TraversalResult } from './types.js';
 import { computeRecencyScore } from './ranking.js';
 
 const log = getLogger('memory-retriever');
@@ -154,15 +154,16 @@ export function findMatchedEntities(query: string, maxMatches: number): MatchedE
 export function findNeighborEntities(
   seedEntityIds: string[],
   opts: TraversalOptions,
-): { neighborEntityIds: string[]; traversedEdgeCount: number } {
+): TraversalResult {
   const { maxEdges, maxNeighborEntities, maxDepth = 3, relationTypes, entityTypes } = opts;
   if (seedEntityIds.length === 0 || maxEdges <= 0 || maxNeighborEntities <= 0 || maxDepth <= 0) {
-    return { neighborEntityIds: [], traversedEdgeCount: 0 };
+    return { neighborEntityIds: [], traversedEdgeCount: 0, neighborDepths: new Map() };
   }
 
   const db = getDb();
   const visited = new Set<string>(seedEntityIds);
   const neighbors: string[] = [];
+  const neighborDepths = new Map<string, number>();
   let totalEdgesTraversed = 0;
 
   // Cache entity types to avoid repeated DB lookups when filtering by type
@@ -219,6 +220,7 @@ export function findNeighborEntities(
         visited.add(row.targetEntityId);
         neighbors.push(row.targetEntityId);
         nextFrontier.push(row.targetEntityId);
+        neighborDepths.set(row.targetEntityId, depth + 1);
       }
       if (neighbors.length >= maxNeighborEntities) break;
       if (frontierSet.has(row.targetEntityId) && !visited.has(row.sourceEntityId)) {
@@ -232,6 +234,7 @@ export function findNeighborEntities(
         visited.add(row.sourceEntityId);
         neighbors.push(row.sourceEntityId);
         nextFrontier.push(row.sourceEntityId);
+        neighborDepths.set(row.sourceEntityId, depth + 1);
       }
     }
 
@@ -241,6 +244,7 @@ export function findNeighborEntities(
   return {
     neighborEntityIds: neighbors.slice(0, maxNeighborEntities),
     traversedEdgeCount: totalEdgesTraversed,
+    neighborDepths,
   };
 }
 
