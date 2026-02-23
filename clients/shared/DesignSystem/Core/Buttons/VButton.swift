@@ -145,9 +145,9 @@ private struct VButtonStyle: ButtonStyle {
             if isHovered { return VColor.buttonPrimaryHover }
             return VColor.buttonPrimary
         case .secondary:
-            if isPressed { return adaptiveColor(light: Moss._300, dark: Moss._600) }
-            if isHovered { return adaptiveColor(light: Moss._300, dark: Moss._600) }
-            return VColor.buttonTertiaryBackground
+            if isPressed { return adaptiveColor(light: Color(hex: 0xC0CEBC), dark: Forest._800) }
+            if isHovered { return adaptiveColor(light: Color(hex: 0xCAD7C6), dark: Forest._900) }
+            return adaptiveColor(light: Forest._200, dark: Forest._950)
         case .danger:
             if isPressed { return Color(hex: 0xE0745A) }
             if isHovered { return Color(hex: 0xD4582F) }
