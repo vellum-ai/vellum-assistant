@@ -1064,6 +1064,7 @@ export const QaRecordingConfigSchema = z.object({
     .number({ error: 'qaRecording.cleanupIntervalMs must be a number' })
     .int('qaRecording.cleanupIntervalMs must be an integer')
     .positive('qaRecording.cleanupIntervalMs must be a positive integer')
+    .max(2_147_483_647, 'qaRecording.cleanupIntervalMs must be at most 2147483647 (setInterval-safe limit)')
     .default(6 * 60 * 60 * 1000),
 });
 
