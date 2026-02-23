@@ -51,12 +51,12 @@ struct DaemonConnectionSection: View {
     @State private var alertMessage = ""
     @State private var showingQRPairing = false
 
-    /// The currently configured gateway URL, shown as read-only status.
-    private var gatewayURL: String? {
-        UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL).flatMap { $0.isEmpty ? nil : $0 }
-    }
+    // Manual setup fields
+    @State private var manualGatewayURL: String = ""
+    @State private var manualAuthValue: String = ""
+    @State private var isConnecting = false
 
-    /// The gateway URL from UserDefaults, if the user paired via QR code (HTTP transport).
+    /// The currently configured gateway URL, shown as read-only status.
     private var gatewayURL: String? {
         UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL).flatMap { $0.isEmpty ? nil : $0 }
     }
@@ -114,6 +114,44 @@ struct DaemonConnectionSection: View {
                 Text("Open Vellum on your Mac, then go to Settings > Show QR Code.")
             }
 
+            // Manual setup section
+            Section {
+                TextField("Gateway URL", text: $manualGatewayURL)
+                    .keyboardType(.URL)
+                    .textContentType(.URL)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    .textFieldStyle(.roundedBorder)
+
+                SecureField("Bearer Token", text: $manualAuthValue)
+                    .textContentType(.password)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    .textFieldStyle(.roundedBorder)
+
+                Button {
+                    connectManually()
+                } label: {
+                    HStack {
+                        Spacer()
+                        if isConnecting {
+                            ProgressView()
+                                .controlSize(.small)
+                                .padding(.trailing, 4)
+                        }
+                        Text("Connect")
+                            .font(.headline)
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(manualGatewayURL.isEmpty || manualAuthValue.isEmpty || isConnecting)
+            } header: {
+                Text("Manual Setup")
+            } footer: {
+                Text("Enter the gateway URL and bearer token shown in your Mac's Settings.")
+            }
+
             if let url = gatewayURL {
                 Section("Connection") {
                     HStack {
@@ -126,19 +164,72 @@ struct DaemonConnectionSection: View {
                     }
                 }
             }
-
-            // Manual TCP setup removed — iOS uses HTTP+SSE exclusively via the gateway.
-            // Gateway URL configuration will be added in M5.
         }
         .navigationTitle("Connect")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("Daemon Settings", isPresented: $showingAlert) {
+        .alert("Connection", isPresented: $showingAlert) {
             Button("OK") {}
         } message: {
             Text(alertMessage)
         }
         .sheet(isPresented: $showingQRPairing) {
             QRPairingSheet()
+        }
+    }
+
+    // MARK: - Manual Connection
+
+    private func connectManually() {
+        // Validate the URL format
+        let trimmedURL = manualGatewayURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmedURL), url.scheme == "https" || url.scheme == "http" else {
+            alertMessage = "Please enter a valid URL (e.g., https://my-mac.example.com)."
+            showingAlert = true
+            return
+        }
+
+        let trimmedAuth = manualAuthValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAuth.isEmpty else {
+            alertMessage = "Please enter a bearer token."
+            showingAlert = true
+            return
+        }
+
+        isConnecting = true
+
+        // Store gateway URL
+        UserDefaults.standard.set(trimmedURL, forKey: UserDefaultsKeys.gatewayBaseURL)
+
+        // Store bearer token in Keychain
+        _ = APIKeyManager.shared.setAPIKey(trimmedAuth, provider: "runtime-bearer-token")
+
+        // Generate and store a conversation key automatically
+        if UserDefaults.standard.string(forKey: UserDefaultsKeys.conversationKey)?.isEmpty != false {
+            UserDefaults.standard.set(UUID().uuidString, forKey: UserDefaultsKeys.conversationKey)
+        }
+
+        // Rebuild the client so the new gateway config takes effect
+        clientProvider.rebuildClient()
+
+        // Connect
+        Task {
+            do {
+                try await clientProvider.client.connect()
+                await MainActor.run {
+                    isConnecting = false
+                    alertMessage = "Connected successfully!"
+                    showingAlert = true
+                    // Clear the manual input fields
+                    manualGatewayURL = ""
+                    manualAuthValue = ""
+                }
+            } catch {
+                await MainActor.run {
+                    isConnecting = false
+                    alertMessage = "Connection failed: \(error.localizedDescription)"
+                    showingAlert = true
+                }
+            }
         }
     }
 }

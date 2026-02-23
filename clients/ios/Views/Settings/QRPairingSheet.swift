@@ -49,7 +49,7 @@ struct QRPairingSheet: View {
 
     private var scanningView: some View {
         VStack(spacing: VSpacing.lg) {
-            Text("Point your camera at the QR code shown in Vellum on your Mac.")
+            Text("Scan the QR code from your Mac to connect through the gateway.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
@@ -62,7 +62,7 @@ struct QRPairingSheet: View {
             .cornerRadius(VRadius.md)
             .padding(.horizontal, VSpacing.lg)
 
-            Text("Open Vellum on your Mac > Settings > Show QR Code")
+            Text("Open Vellum on your Mac > Settings > Show QR Code. Ingress must be enabled on the Mac for pairing.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .multilineTextAlignment(.center)

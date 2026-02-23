@@ -4,6 +4,8 @@ import VellumAssistantShared
 
 /// Displays a QR code containing the v2 connection payload for iOS pairing.
 /// Payload format: `{"type":"vellum-daemon","v":2,"id":"<mac-hash>","g":"<ingress-url>","bt":"<bearer-token>"}`
+///
+/// Below the QR code, shows the gateway URL and bearer token for manual entry on iOS.
 @MainActor
 struct PairingQRCodeSheet: View {
     @Environment(\.dismiss) var dismiss
@@ -13,6 +15,8 @@ struct PairingQRCodeSheet: View {
 
     @State private var hostId: String = ""
     @State private var bearerToken: String = ""
+    @State private var isTokenRevealed: Bool = false
+    @State private var copiedField: String? = nil
 
     /// Whether the ingress configuration is sufficient for pairing.
     private var canGenerateQR: Bool {
@@ -56,9 +60,91 @@ struct PairingQRCodeSheet: View {
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
 
+            // Manual pairing info
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                infoRow(label: "Gateway URL", value: ingressPublicBaseUrl.isEmpty ? "Not configured" : ingressPublicBaseUrl)
-                infoRow(label: "Ingress", value: ingressEnabled ? "Enabled" : "Disabled")
+                Text("Manual Pairing")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .textCase(.uppercase)
+
+                // Gateway URL row
+                HStack {
+                    Text("Gateway URL")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 90, alignment: .leading)
+                    Text(ingressPublicBaseUrl.isEmpty ? "Not configured" : ingressPublicBaseUrl)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(ingressPublicBaseUrl, forType: .string)
+                        withAnimation { copiedField = "url" }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            withAnimation { if copiedField == "url" { copiedField = nil } }
+                        }
+                    } label: {
+                        Text(copiedField == "url" ? "Copied" : "Copy")
+                            .font(VFont.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(ingressPublicBaseUrl.isEmpty)
+                }
+
+                Divider()
+
+                // Bearer token row
+                HStack {
+                    Text("Bearer Token")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 90, alignment: .leading)
+                    if bearerToken.isEmpty {
+                        Text("Not available")
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.textPrimary)
+                    } else if isTokenRevealed {
+                        Text(bearerToken)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    } else {
+                        Text(String(repeating: "\u{2022}", count: min(bearerToken.count, 24)))
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.textPrimary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Button {
+                        isTokenRevealed.toggle()
+                    } label: {
+                        Image(systemName: isTokenRevealed ? "eye.slash" : "eye")
+                            .font(VFont.caption)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(isTokenRevealed ? "Hide token" : "Reveal token")
+                    .disabled(bearerToken.isEmpty)
+
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(bearerToken, forType: .string)
+                        withAnimation { copiedField = "token" }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            withAnimation { if copiedField == "token" { copiedField = nil } }
+                        }
+                    } label: {
+                        Text(copiedField == "token" ? "Copied" : "Copy")
+                            .font(VFont.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(bearerToken.isEmpty)
+                }
             }
             .padding(VSpacing.md)
             .background(VColor.surfaceSubtle)
@@ -70,25 +156,10 @@ struct PairingQRCodeSheet: View {
                 .multilineTextAlignment(.center)
         }
         .padding(VSpacing.xl)
-        .frame(width: 340)
+        .frame(width: 380)
         .onAppear {
             hostId = Self.computeHostId()
             bearerToken = Self.readBearerToken()
-        }
-    }
-
-    private func infoRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .frame(width: 90, alignment: .leading)
-            Text(value)
-                .font(VFont.mono)
-                .foregroundColor(VColor.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer()
         }
     }
 
