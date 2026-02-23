@@ -101,6 +101,22 @@ public final class SettingsStore: ObservableObject {
     @Published var twilioWarning: String?
     @Published var twilioError: String?
 
+    // MARK: - Channel Guardian State (Telegram)
+
+    @Published var telegramGuardianIdentity: String?
+    @Published var telegramGuardianVerified: Bool = false
+    @Published var telegramGuardianVerificationInProgress: Bool = false
+    @Published var telegramGuardianInstruction: String?
+    @Published var telegramGuardianError: String?
+
+    // MARK: - Channel Guardian State (SMS)
+
+    @Published var smsGuardianIdentity: String?
+    @Published var smsGuardianVerified: Bool = false
+    @Published var smsGuardianVerificationInProgress: Bool = false
+    @Published var smsGuardianInstruction: String?
+    @Published var smsGuardianError: String?
+
     // MARK: - Ingress Config State
 
     @Published var ingressEnabled: Bool = false
@@ -303,6 +319,37 @@ public final class SettingsStore: ObservableObject {
             self.twilioNumbersRefreshPending = false
         }
 
+        // Wire up guardian verification IPC response
+        daemonClient?.onGuardianVerificationResponse = { [weak self] response in
+            guard let self else { return }
+            guard let channel = response.channel else { return }
+
+            switch channel {
+            case "telegram":
+                self.telegramGuardianVerificationInProgress = false
+                if response.success {
+                    self.telegramGuardianIdentity = response.guardianExternalUserId
+                    self.telegramGuardianVerified = response.bound ?? false
+                    self.telegramGuardianInstruction = response.instruction
+                    self.telegramGuardianError = nil
+                } else {
+                    self.telegramGuardianError = response.error
+                }
+            case "sms":
+                self.smsGuardianVerificationInProgress = false
+                if response.success {
+                    self.smsGuardianIdentity = response.guardianExternalUserId
+                    self.smsGuardianVerified = response.bound ?? false
+                    self.smsGuardianInstruction = response.instruction
+                    self.smsGuardianError = nil
+                } else {
+                    self.smsGuardianError = response.error
+                }
+            default:
+                break
+            }
+        }
+
         // Refresh Vercel key state on init
         refreshVercelKeyState()
 
@@ -321,6 +368,10 @@ public final class SettingsStore: ObservableObject {
 
         // Refresh Twilio integration status on init
         refreshTwilioStatus()
+
+        // Refresh channel guardian status on init
+        refreshChannelGuardianStatus(channel: "telegram")
+        refreshChannelGuardianStatus(channel: "sms")
 
         // Ingress config is refreshed by onAppear in SettingsPanel /
         // SettingsView, not here, to avoid duplicate get requests whose
@@ -716,6 +767,50 @@ public final class SettingsStore: ObservableObject {
             twilioListInProgress = false
             twilioNumbersRefreshPending = false
             twilioError = "Failed to load Twilio numbers: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Channel Guardian Actions
+
+    func refreshChannelGuardianStatus(channel: String) {
+        do {
+            try daemonClient?.sendGuardianVerification(action: "status", channel: channel, assistantId: "self")
+        } catch {
+            log.error("Failed to refresh \(channel) guardian status: \(error)")
+        }
+    }
+
+    func startChannelGuardianVerification(channel: String) {
+        switch channel {
+        case "telegram":
+            telegramGuardianVerificationInProgress = true
+            telegramGuardianError = nil
+        case "sms":
+            smsGuardianVerificationInProgress = true
+            smsGuardianError = nil
+        default:
+            return
+        }
+        do {
+            try daemonClient?.sendGuardianVerification(action: "create_challenge", channel: channel, assistantId: "self")
+        } catch {
+            log.error("Failed to start \(channel) guardian verification: \(error)")
+            switch channel {
+            case "telegram":
+                telegramGuardianVerificationInProgress = false
+            case "sms":
+                smsGuardianVerificationInProgress = false
+            default:
+                break
+            }
+        }
+    }
+
+    func revokeChannelGuardian(channel: String) {
+        do {
+            try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel, assistantId: "self")
+        } catch {
+            log.error("Failed to revoke \(channel) guardian: \(error)")
         }
     }
 
