@@ -135,7 +135,7 @@ export const smsMessagingProvider: MessagingProvider = {
       };
     }
 
-    const phoneNumber = getPhoneNumber();
+    const phoneNumber = getPhoneNumber(getAssistantId());
     if (!phoneNumber) {
       return {
         connected: false,
