@@ -366,6 +366,8 @@ struct SettingsConnectTab: View {
                     action: .init(label: "Clear", style: .danger, disabled: store.twilioSaveInProgress) {
                         store.clearTwilioCredentials()
                         twilioSetupExpanded = false
+                        twilioNumberPickerExpanded = false
+                        store.twilioNumbers = []
                     }
                 )
             } else if twilioSetupExpanded {
