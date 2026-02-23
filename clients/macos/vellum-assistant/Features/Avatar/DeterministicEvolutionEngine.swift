@@ -149,6 +149,7 @@ enum DeterministicEvolutionEngine {
             if emojis.contains(where: { emoji.contains($0) }) {
                 if !state.lockedFields.contains(.bodyColor) {
                     state.userOverrides[.bodyColor] = color
+                    state.lockedFields.insert(.bodyColor)
                 }
                 return
             }
