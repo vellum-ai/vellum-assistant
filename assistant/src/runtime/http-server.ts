@@ -640,7 +640,9 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'conversations' && req.method === 'GET') {
         const limit = Number(url.searchParams.get('limit') ?? 50);
-        const conversations = conversationStore.listConversations(limit);
+        const offset = Number(url.searchParams.get('offset') ?? 0);
+        const conversations = conversationStore.listConversations(limit, false, offset);
+        const totalCount = conversationStore.countConversations();
         const bindings = externalConversationStore.getBindingsForConversations(
           conversations.map((c) => c.id),
         );
@@ -663,6 +665,7 @@ export class RuntimeHttpServer {
               } : {}),
             };
           }),
+          hasMore: offset + conversations.length < totalCount,
         });
       }
 

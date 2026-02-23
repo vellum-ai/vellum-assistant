@@ -67,6 +67,10 @@ export interface SecretResponse {
 
 export interface SessionListRequest {
   type: 'session_list';
+  /** Number of sessions to skip (for pagination). Defaults to 0. */
+  offset?: number;
+  /** Maximum number of sessions to return. Defaults to 50. */
+  limit?: number;
 }
 
 /** Lightweight session transport metadata for channel identity and natural-language guidance. */
@@ -1272,6 +1276,8 @@ export interface ChannelBinding {
 export interface SessionListResponse {
   type: 'session_list_response';
   sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType; channelBinding?: ChannelBinding }>;
+  /** Whether more sessions exist beyond the returned page. */
+  hasMore?: boolean;
 }
 
 export interface SessionsClearResponse {

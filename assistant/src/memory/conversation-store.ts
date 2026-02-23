@@ -84,7 +84,7 @@ export function deleteConversation(id: string): void {
   });
 }
 
-export function listConversations(limit?: number, includeBackground = false) {
+export function listConversations(limit?: number, includeBackground = false, offset = 0) {
   const db = getDb();
   const where = includeBackground ? undefined : sql`${conversations.threadType} != 'background'`;
   const query = db
@@ -92,8 +92,20 @@ export function listConversations(limit?: number, includeBackground = false) {
     .from(conversations)
     .where(where)
     .orderBy(desc(conversations.updatedAt))
-    .limit(limit ?? 100);
+    .limit(limit ?? 100)
+    .offset(offset);
   return query.all();
+}
+
+export function countConversations(includeBackground = false): number {
+  const db = getDb();
+  const where = includeBackground ? undefined : sql`${conversations.threadType} != 'background'`;
+  const [{ total }] = db
+    .select({ total: count() })
+    .from(conversations)
+    .where(where)
+    .all();
+  return total;
 }
 
 export function getLatestConversation() {

@@ -26,6 +26,7 @@ struct ConversationsListResponse: Decodable {
         let channelBinding: IPCChannelBinding?
     }
     let sessions: [Session]
+    let hasMore: Bool?
 }
 
 // MARK: - HTTP Transport
@@ -269,8 +270,8 @@ final class HTTPTransport {
                 SessionInfoMessage(sessionId: sessionId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
             )
             onMessage?(info)
-        } else if message is SessionListRequestMessage {
-            Task { await self.fetchSessionList() }
+        } else if let msg = message as? SessionListRequestMessage {
+            Task { await self.fetchSessionList(offset: Int(msg.offset ?? 0), limit: Int(msg.limit ?? 50)) }
         } else if let msg = message as? HistoryRequestMessage {
             Task { await self.fetchHistory(sessionId: msg.sessionId) }
         } else if message is PingMessage {
@@ -391,8 +392,8 @@ final class HTTPTransport {
         }
     }
 
-    private func fetchSessionList() async {
-        guard let url = URL(string: "\(baseURL)/v1/conversations") else { return }
+    private func fetchSessionList(offset: Int = 0, limit: Int = 50) async {
+        guard let url = URL(string: "\(baseURL)/v1/conversations?limit=\(limit)&offset=\(offset)") else { return }
 
         var request = URLRequest(url: url)
         applyAuth(&request)
@@ -402,7 +403,7 @@ final class HTTPTransport {
 
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 log.error("Fetch session list failed")
-                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [])))
+                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: false)))
                 return
             }
 
@@ -411,14 +412,14 @@ final class HTTPTransport {
                 let sessions = decoded.sessions.map {
                     IPCSessionListResponseSession(id: $0.id, title: $0.title, updatedAt: $0.updatedAt, threadType: $0.threadType, channelBinding: $0.channelBinding)
                 }
-                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions)))
+                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions, hasMore: decoded.hasMore)))
             } catch {
                 log.error("Failed to decode session list response: \(error)")
-                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [])))
+                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: false)))
             }
         } catch {
             log.error("Fetch session list error: \(error.localizedDescription)")
-            onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [])))
+            onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: false)))
         }
     }
 

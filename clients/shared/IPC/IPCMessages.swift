@@ -508,8 +508,8 @@ extension IPCOpenBundleRequest {
 public typealias SessionListRequestMessage = IPCSessionListRequest
 
 extension IPCSessionListRequest {
-    public init() {
-        self.init(type: "session_list")
+    public init(offset: Int? = nil, limit: Int? = nil) {
+        self.init(type: "session_list", offset: offset.map(Double.init), limit: limit.map(Double.init))
     }
 }
 

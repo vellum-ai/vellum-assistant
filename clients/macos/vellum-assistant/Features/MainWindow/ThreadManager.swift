@@ -17,6 +17,11 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @AppStorage("restoreRecentThreads") private(set) var restoreRecentThreads = true
     @AppStorage("lastActiveThreadId") private var lastActiveThreadIdString: String?
     @Published var threads: [ThreadModel] = []
+    @Published var hasMoreThreads: Bool = false
+    @Published var isLoadingMoreThreads: Bool = false
+    /// Tracks the number of rows already fetched from the daemon so pagination
+    /// offsets stay correct even when the client filters out some sessions.
+    var serverOffset: Int = 0
     @Published var activeThreadId: UUID? {
         didSet {
             if let activeThreadId {
@@ -277,6 +282,49 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func isSessionArchived(_ sessionId: String) -> Bool {
         archivedSessionIds.contains(sessionId)
+    }
+
+    /// Load more threads from the daemon (pagination).
+    func loadMoreThreads() {
+        guard !isLoadingMoreThreads else { return }
+        isLoadingMoreThreads = true
+        do {
+            try daemonClient.sendSessionList(offset: serverOffset, limit: 50)
+        } catch {
+            log.error("Failed to request more threads: \(error.localizedDescription)")
+            isLoadingMoreThreads = false
+        }
+    }
+
+    /// Handle appended threads from a "load more" response.
+    func appendThreads(from response: SessionListResponseMessage) {
+        // Increment offset by the unfiltered count so pagination stays aligned
+        // with the daemon's row numbering regardless of client-side filtering.
+        serverOffset += response.sessions.count
+
+        let recentSessions = response.sessions.filter {
+            $0.threadType != "private" && $0.channelBinding?.sourceChannel == nil
+        }
+
+        for session in recentSessions {
+            // Skip sessions that already have a thread
+            guard !threads.contains(where: { $0.sessionId == session.id }) else { continue }
+
+            let thread = ThreadModel(
+                title: session.title,
+                createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
+                sessionId: session.id,
+                isArchived: isSessionArchived(session.id),
+                kind: session.threadType == "private" ? .private : .standard
+            )
+            let viewModel = makeViewModel()
+            viewModel.sessionId = session.id
+            chatViewModels[thread.id] = viewModel
+            threads.append(thread)
+        }
+
+        hasMoreThreads = response.hasMore ?? false
+        isLoadingMoreThreads = false
     }
 
     /// Clear the `activeSurfaceId` on a specific thread's ChatViewModel.

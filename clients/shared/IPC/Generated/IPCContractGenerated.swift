@@ -752,6 +752,7 @@ public struct IPCGuardianVerificationRequest: Codable, Sendable {
     public let action: String
     public let channel: String?
     public let sessionId: String?
+    public let assistantId: String?
 }
 
 public struct IPCGuardianVerificationResponse: Codable, Sendable {
@@ -759,6 +760,9 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
     public let success: Bool
     public let secret: String?
     public let instruction: String?
+    /// Present when action is 'status'.
+    public let bound: Bool?
+    public let guardianExternalUserId: String?
     public let error: String?
 }
 
@@ -1314,11 +1318,17 @@ public struct IPCSessionInfo: Codable, Sendable {
 
 public struct IPCSessionListRequest: Codable, Sendable {
     public let type: String
+    /// Number of sessions to skip (for pagination). Defaults to 0.
+    public let offset: Double?
+    /// Maximum number of sessions to return. Defaults to 50.
+    public let limit: Double?
 }
 
 public struct IPCSessionListResponse: Codable, Sendable {
     public let type: String
     public let sessions: [IPCSessionListResponseSession]
+    /// Whether more sessions exist beyond the returned page.
+    public let hasMore: Bool?
 }
 
 public struct IPCSessionListResponseSession: Codable, Sendable {
@@ -1880,6 +1890,36 @@ public struct IPCTrustRulesListResponseRule: Codable, Sendable {
     public let decision: String
     public let priority: Int
     public let createdAt: Int
+}
+
+public struct IPCTwilioConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let accountSid: String?
+    public let authToken: String?
+    public let phoneNumber: String?
+    public let areaCode: String?
+    public let country: String?
+}
+
+public struct IPCTwilioConfigResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let hasCredentials: Bool
+    public let phoneNumber: String?
+    public let numbers: [IPCTwilioConfigResponseNumber]?
+    public let error: String?
+}
+
+public struct IPCTwilioConfigResponseNumber: Codable, Sendable {
+    public let phoneNumber: String
+    public let friendlyName: String
+    public let capabilities: IPCTwilioConfigResponseNumberCapabilities
+}
+
+public struct IPCTwilioConfigResponseNumberCapabilities: Codable, Sendable {
+    public let voice: Bool
+    public let sms: Bool
 }
 
 public struct IPCTwitterAuthResult: Codable, Sendable {

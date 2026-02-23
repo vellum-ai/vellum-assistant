@@ -198,8 +198,9 @@ export function handleSecretResponse(
   log.warn({ requestId: msg.requestId }, 'No session found with pending secret prompt for requestId');
 }
 
-export function handleSessionList(socket: net.Socket, ctx: HandlerContext): void {
-  const conversations = conversationStore.listConversations(50);
+export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offset = 0, limit = 50): void {
+  const conversations = conversationStore.listConversations(limit, false, offset);
+  const totalCount = conversationStore.countConversations();
   const bindings = externalConversationStore.getBindingsForConversations(
     conversations.map((c) => c.id),
   );
@@ -223,6 +224,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext): void
         } : {}),
       };
     }),
+    hasMore: offset + conversations.length < totalCount,
   });
 }
 
@@ -541,7 +543,7 @@ export const sessionHandlers = defineHandlers({
   user_message: handleUserMessage,
   confirmation_response: handleConfirmationResponse,
   secret_response: handleSecretResponse,
-  session_list: (_msg, socket, ctx) => handleSessionList(socket, ctx),
+  session_list: (msg, socket, ctx) => handleSessionList(socket, ctx, msg.offset ?? 0, msg.limit ?? 50),
   session_create: handleSessionCreate,
   sessions_clear: (_msg, socket, ctx) => handleSessionsClear(socket, ctx),
   session_switch: handleSessionSwitch,
