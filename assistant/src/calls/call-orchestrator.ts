@@ -172,6 +172,7 @@ export class CallOrchestrator {
   handleInterrupt(): void {
     this.abortController.abort();
     this.abortController = new AbortController();
+    this.llmRunVersion++;
     this.state = 'idle';
   }
 
