@@ -54,6 +54,10 @@ function main() {
   const server = Bun.serve({
     port: config.port,
     websocket: getRelayWebsocketHandlers(),
+    error(err) {
+      log.error({ err }, "Unhandled gateway error");
+      return Response.json({ error: "Internal server error" }, { status: 500 });
+    },
     async fetch(req) {
       const url = new URL(req.url);
 
