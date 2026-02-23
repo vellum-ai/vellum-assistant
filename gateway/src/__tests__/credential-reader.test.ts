@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -35,10 +35,7 @@ mock.module("node:child_process", () => {
 
 import {
   readTelegramCredentials,
-  readCredential,
   readKeychainCredential,
-  getMetadataPath,
-  getRootDir,
 } from "../credential-reader.js";
 
 // ---------------------------------------------------------------------------
