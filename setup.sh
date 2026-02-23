@@ -45,4 +45,112 @@ info "Linking local packages into meta/"
 info "Linking global 'vellum' command to meta/"
 (cd "${REPO_ROOT}/meta" && bun link)
 
+# ---------------------------------------------------------------------------
+# Install shell completions for the `vellum` command
+# ---------------------------------------------------------------------------
+info "Installing shell completions for vellum"
+
+VELLUM_COMP_DIR="${HOME}/.config/vellum/completions"
+mkdir -p "${VELLUM_COMP_DIR}"
+
+LOCKFILE_PATH="${HOME}/.vellum.lock.json"
+LOCKFILE_GREP="grep -o '\"assistantId\"[[:space:]]*:[[:space:]]*\"[^\"]*\"' ${LOCKFILE_PATH} 2>/dev/null | awk -F'\"' '{print \$(NF-1)}'"
+
+# — Bash completions —
+cat > "${VELLUM_COMP_DIR}/completions.bash" << 'BASH_COMP'
+_vellum_completions() {
+  local cur prev commands
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  commands="client hatch ps retire sleep wake"
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    COMPREPLY=( $(compgen -W "${commands}" -- "${cur}") )
+    return 0
+  fi
+
+  case "${COMP_WORDS[1]}" in
+    hatch)
+      COMPREPLY=( $(compgen -W "openclaw vellum -d --daemon-only --name --remote" -- "${cur}") )
+      ;;
+    client|retire)
+      local instances
+BASH_COMP
+
+# Append the dynamic lockfile lookup (needs variable expansion)
+cat >> "${VELLUM_COMP_DIR}/completions.bash" << BASH_COMP_DYN
+      instances="\$(${LOCKFILE_GREP} | tr '\n' ' ')"
+BASH_COMP_DYN
+
+cat >> "${VELLUM_COMP_DIR}/completions.bash" << 'BASH_COMP_END'
+      COMPREPLY=( $(compgen -W "${instances}" -- "${cur}") )
+      ;;
+  esac
+
+  return 0
+}
+
+complete -F _vellum_completions vellum
+BASH_COMP_END
+
+# — Zsh completions —
+cat > "${VELLUM_COMP_DIR}/completions.zsh" << 'ZSH_COMP'
+_vellum() {
+  local -a commands
+  commands=(
+    'client'
+    'hatch'
+    'ps'
+    'retire'
+    'sleep'
+    'wake'
+  )
+
+  _arguments -C \
+    '1:command:->command' \
+    '*::arg:->args'
+
+  case $state in
+    command)
+      _describe 'command' commands
+      ;;
+    args)
+      case $words[1] in
+        hatch)
+          _arguments '*:species:(openclaw vellum -d --daemon-only --name --remote)'
+          ;;
+        client|retire)
+          local -a instances
+ZSH_COMP
+
+# Append the dynamic lockfile lookup (needs variable expansion)
+cat >> "${VELLUM_COMP_DIR}/completions.zsh" << ZSH_COMP_DYN
+          instances=(\${(f)"\$(${LOCKFILE_GREP})"})
+ZSH_COMP_DYN
+
+cat >> "${VELLUM_COMP_DIR}/completions.zsh" << 'ZSH_COMP_END'
+          _describe 'instance' instances
+          ;;
+      esac
+      ;;
+  esac
+}
+
+compdef _vellum vellum
+ZSH_COMP_END
+
+# — Source completions from shell rc files —
+if [ -f "${HOME}/.bashrc" ]; then
+  if ! grep -q '.config/vellum/completions/completions.bash' "${HOME}/.bashrc"; then
+    printf '\n# vellum completions\nsource ~/.config/vellum/completions/completions.bash\n' >> "${HOME}/.bashrc"
+  fi
+fi
+
+if [ -f "${HOME}/.zshrc" ]; then
+  if ! grep -q '.config/vellum/completions/completions.zsh' "${HOME}/.zshrc"; then
+    printf '\n# vellum completions\nsource ~/.config/vellum/completions/completions.zsh\n' >> "${HOME}/.zshrc"
+  fi
+fi
+
 info "Setup complete! Run 'vellum --version' to verify."
