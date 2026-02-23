@@ -403,7 +403,7 @@ final class HTTPTransport {
 
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 log.error("Fetch session list failed")
-                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: false)))
+                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: nil)))
                 return
             }
 
@@ -415,11 +415,11 @@ final class HTTPTransport {
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions, hasMore: decoded.hasMore)))
             } catch {
                 log.error("Failed to decode session list response: \(error)")
-                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: false)))
+                onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: nil)))
             }
         } catch {
             log.error("Fetch session list error: \(error.localizedDescription)")
-            onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: false)))
+            onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: [], hasMore: nil)))
         }
     }
 

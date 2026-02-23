@@ -323,7 +323,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             threads.append(thread)
         }
 
-        hasMoreThreads = response.hasMore ?? false
+        if let hasMore = response.hasMore {
+            hasMoreThreads = hasMore
+        }
         isLoadingMoreThreads = false
     }
 

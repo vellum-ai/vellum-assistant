@@ -11,7 +11,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 protocol ThreadRestorerDelegate: AnyObject {
     var threads: [ThreadModel] { get set }
     var restoreRecentThreads: Bool { get }
-    var isLoadingMoreThreads: Bool { get }
+    var isLoadingMoreThreads: Bool { get set }
     var hasMoreThreads: Bool { get set }
     var serverOffset: Int { get set }
     func chatViewModel(for threadId: UUID) -> ChatViewModel?
@@ -36,6 +36,7 @@ final class ThreadSessionRestorer {
 
     private let daemonClient: DaemonClient
     private var connectionCancellable: AnyCancellable?
+    private var disconnectCancellable: AnyCancellable?
 
     weak var delegate: ThreadRestorerDelegate?
 
@@ -58,6 +59,15 @@ final class ThreadSessionRestorer {
         // so the session restorer doesn't override the wake-up conversation thread.
         // The handlers above are still registered for later use (e.g. history loading).
         guard !skipInitialFetch else { return }
+
+        // Reset loading state when the daemon disconnects so the Load More
+        // button doesn't stay permanently disabled after a dropped connection.
+        disconnectCancellable = daemonClient.$isConnected
+            .removeDuplicates()
+            .filter { !$0 }
+            .sink { [weak self] _ in
+                self?.delegate?.isLoadingMoreThreads = false
+            }
 
         connectionCancellable = daemonClient.$isConnected
             .removeDuplicates()
@@ -158,7 +168,9 @@ final class ThreadSessionRestorer {
             delegate.createThread()
         }
 
-        delegate.hasMoreThreads = response.hasMore ?? false
+        if let hasMore = response.hasMore {
+            delegate.hasMoreThreads = hasMore
+        }
         delegate.serverOffset = response.sessions.count
         log.info("Restored \(restoredThreads.count) threads from daemon (hasMore: \(response.hasMore ?? false))")
         delegate.restoreLastActiveThread()
