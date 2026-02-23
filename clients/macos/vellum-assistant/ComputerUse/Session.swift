@@ -40,6 +40,8 @@ final class ComputerUseSession: ObservableObject {
     let reportToSessionId: String?
     /// Whether this session is running in QA/test mode.
     let qaMode: Bool
+    /// Recording retention in days (from daemon config, default 7).
+    let retentionDays: Int
 
     /// Weak reference to the chat view model for extracting tool calls for notifications.
     weak var relatedViewModel: ChatViewModel?
@@ -85,7 +87,8 @@ final class ComputerUseSession: ObservableObject {
         notificationService: ActivityNotificationServiceProtocol? = nil,
         screenRecorder: ScreenRecording? = nil,
         reportToSessionId: String? = nil,
-        qaMode: Bool = false
+        qaMode: Bool = false,
+        retentionDays: Int = 7
     ) {
         self.id = sessionId ?? UUID().uuidString
         self.task = task
@@ -103,6 +106,7 @@ final class ComputerUseSession: ObservableObject {
         self.screenRecorder = screenRecorder
         self.reportToSessionId = reportToSessionId
         self.qaMode = qaMode
+        self.retentionDays = retentionDays
         self.verifier = ActionVerifier(maxSteps: maxSteps)
         self.logger = SessionLogger(task: task, attachments: attachments)
     }
@@ -1005,7 +1009,7 @@ final class ComputerUseSession: ObservableObject {
         if let recorder = screenRecorder, recorder.isRecording {
             do {
                 let result = try await recorder.stopRecording()
-                let expiresAtEpoch = Int(Date().addingTimeInterval(7 * 24 * 3600).timeIntervalSince1970 * 1000)
+                let expiresAtEpoch = Int(Date().addingTimeInterval(Double(retentionDays) * 24 * 3600).timeIntervalSince1970 * 1000)
                 recordingData = IPCCuSessionFinalizedRecording(
                     localPath: result.fileURL.path,
                     mimeType: result.mimeType,

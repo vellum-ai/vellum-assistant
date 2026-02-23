@@ -237,6 +237,7 @@ export function wireEscalationHandler(
 
     const cuSessionId = uuid();
     const isQa = detectQaIntent(task);
+    const config = getConfig();
     const cuMsg: CuSessionCreate = {
       type: 'cu_session_create',
       sessionId: cuSessionId,
@@ -256,7 +257,10 @@ export function wireEscalationHandler(
       task,
       escalatedFrom: sourceSessionId,
       reportToSessionId: sourceSessionId,
-      ...(isQa ? { qaMode: true } : {}),
+      ...(isQa ? {
+        qaMode: true,
+        retentionDays: config.qaRecording.defaultRetentionDays,
+      } : {}),
     });
 
     return true;

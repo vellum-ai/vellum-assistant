@@ -56,7 +56,8 @@ extension AppDelegate {
                 notificationService: self.services.activityNotificationService,
                 screenRecorder: (routed.qaMode == true) ? ScreenRecorder() : nil,
                 reportToSessionId: routed.reportToSessionId,
-                qaMode: routed.qaMode ?? false
+                qaMode: routed.qaMode ?? false,
+                retentionDays: routed.retentionDays.flatMap { Int($0) } ?? 7
             )
             // Don't bind relatedViewModel for escalated sessions — the active view model
             // may be unrelated if the user switched threads. Tool calls for escalated
@@ -139,13 +140,17 @@ extension AppDelegate {
                     extractedText: $0.extractedText
                 )
             }
+            // Pass the active thread's conversation ID so the daemon can set reportToSessionId for QA sessions
+            let activeConversationId = self.mainWindow?.threadManager.activeViewModel?.sessionId
+
             do {
                 try self.daemonClient.send(TaskSubmitMessage(
                     task: effectiveTask,
                     screenWidth: Int(screenBounds.width),
                     screenHeight: Int(screenBounds.height),
                     attachments: ipcAttachments,
-                    source: submission.source
+                    source: submission.source,
+                    conversationId: activeConversationId
                 ))
             } catch {
                 log.error("Failed to send task submit message: \(error)")
@@ -199,7 +204,8 @@ extension AppDelegate {
                     notificationService: self.services.activityNotificationService,
                     screenRecorder: (routed.qaMode == true) ? ScreenRecorder() : nil,
                     reportToSessionId: routed.reportToSessionId,
-                    qaMode: routed.qaMode ?? false
+                    qaMode: routed.qaMode ?? false,
+                    retentionDays: routed.retentionDays.flatMap { Int($0) } ?? 7
                 )
                 // Don't bind relatedViewModel — sessions started via startSession() don't
                 // originate from a chat thread, so there's no ChatViewModel to extract
