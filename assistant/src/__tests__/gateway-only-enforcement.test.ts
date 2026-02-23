@@ -71,6 +71,9 @@ mock.module('../config/loader.js', () => ({
     ingress: {
       publicBaseUrl: 'https://test.example.com',
     },
+    sms: {
+      phoneNumber: '+15550001111',
+    },
   }),
   getConfig: () => ({
     model: 'test',
@@ -81,6 +84,9 @@ mock.module('../config/loader.js', () => ({
     secretDetection: { enabled: false },
     ingress: {
       publicBaseUrl: 'https://test.example.com',
+    },
+    sms: {
+      phoneNumber: '+15550001111',
     },
   }),
   invalidateConfigCache: () => {},
@@ -96,21 +102,21 @@ mock.module('../calls/twilio-provider.js', () => ({
   },
 }));
 
-// Mock Twilio config
-mock.module('../calls/twilio-config.js', () => ({
-  getTwilioConfig: () => ({
-    accountSid: 'AC_test',
-    authToken: 'test_token',
-    phoneNumber: '+15550001111',
-    webhookBaseUrl: 'https://test.example.com',
-    wssBaseUrl: 'wss://test.example.com',
-  }),
-}));
+const secureKeyStore: Record<string, string | undefined> = {
+  'credential:twilio:account_sid': 'AC_test',
+  'credential:twilio:auth_token': 'test_token',
+  'credential:twilio:phone_number': '+15550001111',
+};
 
 mock.module('../security/secure-keys.js', () => ({
-  getSecureKey: () => null,
-  setSecureKey: () => true,
-  deleteSecureKey: () => {},
+  getSecureKey: (key: string) => secureKeyStore[key] ?? null,
+  setSecureKey: (key: string, value: string) => {
+    secureKeyStore[key] = value;
+    return true;
+  },
+  deleteSecureKey: (key: string) => {
+    delete secureKeyStore[key];
+  },
 }));
 
 // NOTE: Do NOT mock '../inbound/public-ingress-urls.js' here.

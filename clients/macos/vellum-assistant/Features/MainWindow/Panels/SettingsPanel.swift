@@ -27,6 +27,11 @@ struct SettingsPanel: View {
     @State private var twitterClientId: String = ""
     @State private var twitterClientSecret: String = ""
     @State private var telegramBotTokenText: String = ""
+    @State private var twilioAccountSidText: String = ""
+    @State private var twilioAuthTokenText: String = ""
+    @State private var twilioPhoneNumberText: String = ""
+    @State private var twilioAreaCodeText: String = ""
+    @State private var twilioCountryText: String = "US"
     @State private var ingressUrlText: String = ""
     @FocusState private var isIngressUrlFocused: Bool
     @State private var checkingGateway: Bool = false
@@ -94,6 +99,7 @@ struct SettingsPanel: View {
             store.refreshAPIKeyState()
             store.refreshTwitterStatus()
             store.refreshTelegramStatus()
+            store.refreshTwilioStatus()
             store.refreshIngressConfig()
             ingressUrlText = store.ingressPublicBaseUrl
             setupIntegrationCallbacks()
@@ -767,6 +773,9 @@ struct SettingsPanel: View {
 
             // TELEGRAM section
             telegramSection
+
+            // TWILIO / SMS section
+            twilioSection
         }
     }
 
@@ -992,6 +1001,204 @@ struct SettingsPanel: View {
             }
 
             if let error = store.telegramError {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Twilio Section
+
+    private var twilioSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("SMS (Twilio)")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            if store.twilioHasCredentials {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                        .font(.system(size: 14))
+                    Text("Credentials configured")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Spacer()
+                    if store.twilioSaveInProgress {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        VButton(label: "Clear Credentials", style: .danger) {
+                            store.clearTwilioCredentials()
+                        }
+                    }
+                }
+            } else {
+                HStack(spacing: VSpacing.xs) {
+                    Text("Enter Account SID and Auth Token")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                TextField("Account SID", text: $twilioAccountSidText)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.md)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+
+                SecureField("Auth Token", text: $twilioAuthTokenText)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.md)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+
+                if store.twilioSaveInProgress {
+                    HStack(spacing: VSpacing.sm) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Saving...")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                } else {
+                    VButton(label: "Save Credentials", style: .primary) {
+                        store.saveTwilioCredentials(
+                            accountSid: twilioAccountSidText,
+                            authToken: twilioAuthTokenText
+                        )
+                        twilioAuthTokenText = ""
+                    }
+                    .disabled(
+                        twilioAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        twilioAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
+                }
+            }
+
+            Divider()
+                .background(VColor.surfaceBorder)
+
+            HStack {
+                Text("Assigned Number")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                Spacer()
+                Text(store.twilioPhoneNumber ?? "Not assigned")
+                    .font(VFont.mono)
+                    .foregroundColor(store.twilioPhoneNumber == nil ? VColor.textMuted : VColor.textPrimary)
+            }
+
+            HStack(spacing: VSpacing.sm) {
+                TextField("Assign existing (+1555...)", text: $twilioPhoneNumberText)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.md)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+
+                VButton(label: "Assign", style: .secondary) {
+                    store.assignTwilioNumber(phoneNumber: twilioPhoneNumberText)
+                    twilioPhoneNumberText = ""
+                }
+                .disabled(
+                    twilioPhoneNumberText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    store.twilioSaveInProgress
+                )
+            }
+
+            HStack(spacing: VSpacing.sm) {
+                TextField("Area code (optional)", text: $twilioAreaCodeText)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.md)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+
+                TextField("Country", text: $twilioCountryText)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.md)
+                    .frame(width: 90)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+
+                VButton(label: "Provision", style: .secondary) {
+                    store.provisionTwilioNumber(
+                        areaCode: twilioAreaCodeText,
+                        country: twilioCountryText
+                    )
+                }
+                .disabled(store.twilioSaveInProgress)
+            }
+
+            HStack(spacing: VSpacing.sm) {
+                if store.twilioListInProgress {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                VButton(label: "Refresh Numbers", style: .tertiary) {
+                    store.refreshTwilioNumbers()
+                }
+                .disabled(store.twilioListInProgress)
+            }
+
+            if !store.twilioNumbers.isEmpty {
+                ForEach(store.twilioNumbers, id: \.phoneNumber) { number in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(number.phoneNumber)
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textPrimary)
+                            Text(number.friendlyName)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                        VButton(label: "Use", style: .secondary) {
+                            store.assignTwilioNumber(phoneNumber: number.phoneNumber)
+                        }
+                        .disabled(store.twilioSaveInProgress)
+                    }
+                }
+            }
+
+            if let warning = store.twilioWarning {
+                Text(warning)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.warning)
+            }
+
+            if let error = store.twilioError {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)

@@ -91,6 +91,16 @@ public final class SettingsStore: ObservableObject {
     @Published var telegramSaveInProgress: Bool = false
     @Published var telegramError: String?
 
+    // MARK: - Twilio SMS Integration State
+
+    @Published var twilioHasCredentials: Bool = false
+    @Published var twilioPhoneNumber: String?
+    @Published var twilioNumbers: [TwilioNumberInfo] = []
+    @Published var twilioSaveInProgress: Bool = false
+    @Published var twilioListInProgress: Bool = false
+    @Published var twilioWarning: String?
+    @Published var twilioError: String?
+
     // MARK: - Ingress Config State
 
     @Published var ingressEnabled: Bool = false
@@ -120,6 +130,9 @@ public final class SettingsStore: ObservableObject {
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle sessions.
     private var lastDaemonModel: String?
+    private let twilioAssistantScope = "self"
+    private var twilioPhoneRefreshPending = false
+    private var twilioNumbersRefreshPending = false
 
     init(daemonClient: DaemonClient? = nil, configPath: String? = nil) {
         self.daemonClient = daemonClient
@@ -265,6 +278,31 @@ public final class SettingsStore: ObservableObject {
             }
         }
 
+        // Wire up Twilio config IPC response
+        daemonClient?.onTwilioConfigResponse = { [weak self] response in
+            guard let self else { return }
+            self.twilioSaveInProgress = false
+            self.twilioListInProgress = false
+            if response.success {
+                self.twilioHasCredentials = response.hasCredentials
+                if self.twilioPhoneRefreshPending || response.phoneNumber != nil {
+                    self.twilioPhoneNumber = response.phoneNumber
+                }
+                if self.twilioNumbersRefreshPending {
+                    self.twilioNumbers = response.numbers ?? []
+                } else if let numbers = response.numbers {
+                    self.twilioNumbers = numbers
+                }
+                self.twilioWarning = response.warning
+                self.twilioError = nil
+            } else {
+                self.twilioWarning = response.warning
+                self.twilioError = response.error
+            }
+            self.twilioPhoneRefreshPending = false
+            self.twilioNumbersRefreshPending = false
+        }
+
         // Refresh Vercel key state on init
         refreshVercelKeyState()
 
@@ -280,6 +318,9 @@ public final class SettingsStore: ObservableObject {
 
         // Refresh Telegram integration status on init
         refreshTelegramStatus()
+
+        // Refresh Twilio integration status on init
+        refreshTwilioStatus()
 
         // Ingress config is refreshed by onAppear in SettingsPanel /
         // SettingsView, not here, to avoid duplicate get requests whose
@@ -546,6 +587,135 @@ public final class SettingsStore: ObservableObject {
             try daemonClient.sendTelegramConfig(action: "clear")
         } catch {
             log.error("Failed to send Telegram config clear: \(error)")
+        }
+    }
+
+    // MARK: - Twilio SMS Actions
+
+    func refreshTwilioStatus() {
+        twilioSaveInProgress = true
+        twilioPhoneRefreshPending = true
+        twilioError = nil
+        do {
+            guard let daemonClient else {
+                twilioSaveInProgress = false
+                twilioPhoneRefreshPending = false
+                return
+            }
+            try daemonClient.sendTwilioConfig(action: "get", assistantId: twilioAssistantScope)
+        } catch {
+            twilioSaveInProgress = false
+            twilioPhoneRefreshPending = false
+            twilioError = "Failed to load Twilio config: \(error.localizedDescription)"
+        }
+    }
+
+    func saveTwilioCredentials(accountSid: String, authToken: String) {
+        let trimmedSid = accountSid.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSid.isEmpty, !trimmedToken.isEmpty else { return }
+        twilioSaveInProgress = true
+        twilioError = nil
+        twilioWarning = nil
+        do {
+            guard let daemonClient else {
+                twilioSaveInProgress = false
+                return
+            }
+            try daemonClient.sendTwilioConfig(
+                action: "set_credentials",
+                accountSid: trimmedSid,
+                authToken: trimmedToken,
+                assistantId: twilioAssistantScope
+            )
+        } catch {
+            twilioSaveInProgress = false
+            twilioError = "Failed to save Twilio credentials: \(error.localizedDescription)"
+        }
+    }
+
+    func clearTwilioCredentials() {
+        twilioSaveInProgress = true
+        twilioError = nil
+        twilioWarning = nil
+        do {
+            guard let daemonClient else {
+                twilioSaveInProgress = false
+                return
+            }
+            try daemonClient.sendTwilioConfig(action: "clear_credentials", assistantId: twilioAssistantScope)
+        } catch {
+            twilioSaveInProgress = false
+            twilioError = "Failed to clear Twilio credentials: \(error.localizedDescription)"
+        }
+    }
+
+    func assignTwilioNumber(phoneNumber: String) {
+        let trimmed = phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        twilioSaveInProgress = true
+        twilioPhoneRefreshPending = true
+        twilioError = nil
+        twilioWarning = nil
+        do {
+            guard let daemonClient else {
+                twilioSaveInProgress = false
+                twilioPhoneRefreshPending = false
+                return
+            }
+            try daemonClient.sendTwilioConfig(
+                action: "assign_number",
+                phoneNumber: trimmed,
+                assistantId: twilioAssistantScope
+            )
+        } catch {
+            twilioSaveInProgress = false
+            twilioPhoneRefreshPending = false
+            twilioError = "Failed to assign Twilio number: \(error.localizedDescription)"
+        }
+    }
+
+    func provisionTwilioNumber(areaCode: String?, country: String?) {
+        let trimmedAreaCode = areaCode?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedCountry = country?.trimmingCharacters(in: .whitespacesAndNewlines)
+        twilioSaveInProgress = true
+        twilioPhoneRefreshPending = true
+        twilioError = nil
+        twilioWarning = nil
+        do {
+            guard let daemonClient else {
+                twilioSaveInProgress = false
+                twilioPhoneRefreshPending = false
+                return
+            }
+            try daemonClient.sendTwilioConfig(
+                action: "provision_number",
+                areaCode: (trimmedAreaCode?.isEmpty == false) ? trimmedAreaCode : nil,
+                country: (trimmedCountry?.isEmpty == false) ? trimmedCountry?.uppercased() : nil,
+                assistantId: twilioAssistantScope
+            )
+        } catch {
+            twilioSaveInProgress = false
+            twilioPhoneRefreshPending = false
+            twilioError = "Failed to provision Twilio number: \(error.localizedDescription)"
+        }
+    }
+
+    func refreshTwilioNumbers() {
+        twilioListInProgress = true
+        twilioNumbersRefreshPending = true
+        twilioError = nil
+        do {
+            guard let daemonClient else {
+                twilioListInProgress = false
+                twilioNumbersRefreshPending = false
+                return
+            }
+            try daemonClient.sendTwilioConfig(action: "list_numbers", assistantId: twilioAssistantScope)
+        } catch {
+            twilioListInProgress = false
+            twilioNumbersRefreshPending = false
+            twilioError = "Failed to load Twilio numbers: \(error.localizedDescription)"
         }
     }
 

@@ -384,6 +384,7 @@ export async function handleChannelInbound(
         await deliverChannelReply(replyCallbackUrl, {
           chatId: externalChatId,
           text: replyText,
+          assistantId,
         }, bearerToken);
       } catch (err) {
         log.error({ err, externalChatId }, 'Failed to deliver guardian verification reply');
@@ -507,6 +508,7 @@ export async function handleChannelInbound(
       senderExternalUserId: body.senderExternalUserId,
       senderUsername: body.senderUsername,
       replyCallbackUrl,
+      assistantId,
     });
 
     const contentToCheck = content ?? '';
@@ -557,6 +559,7 @@ export async function handleChannelInbound(
         metadataUxBrief,
         replyCallbackUrl,
         bearerToken,
+        assistantId,
       });
     }
   }
@@ -580,6 +583,7 @@ interface BackgroundProcessingParams {
   metadataUxBrief?: string;
   replyCallbackUrl?: string;
   bearerToken?: string;
+  assistantId?: string;
 }
 
 function processChannelMessageInBackground(params: BackgroundProcessingParams): void {
@@ -595,6 +599,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     metadataUxBrief,
     replyCallbackUrl,
     bearerToken,
+    assistantId,
   } = params;
 
   (async () => {
@@ -616,7 +621,13 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
       channelDeliveryStore.markProcessed(eventId);
 
       if (replyCallbackUrl) {
-        await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+        await deliverReplyViaCallback(
+          conversationId,
+          externalChatId,
+          replyCallbackUrl,
+          bearerToken,
+          assistantId,
+        );
       }
     } catch (err) {
       log.error({ err, conversationId }, 'Background channel message processing failed');
@@ -734,6 +745,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
               await deliverChannelReply(replyCallbackUrl, {
                 chatId: externalChatId,
                 text: denialText,
+                assistantId,
               }, bearerToken);
             } catch (err) {
               log.error({ err, runId: run.id }, 'Failed to deliver unverified-channel denial notice');
@@ -774,6 +786,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
                 guardianCtx.guardianChatId,
                 guardianText,
                 uiMetadata,
+                assistantId,
                 bearerToken,
               );
               guardianNotified = true;
@@ -789,6 +802,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
                 await deliverChannelReply(replyCallbackUrl, {
                   chatId: guardianCtx.requesterChatId ?? externalChatId,
                   text: `Your request to run "${pending[0].toolName}" could not be sent to the guardian for approval. The action has been denied.`,
+                  assistantId,
                 }, bearerToken);
               } catch (notifyErr) {
                 log.error({ err: notifyErr, runId: run.id }, 'Failed to notify requester of guardian delivery failure');
@@ -801,6 +815,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
                 await deliverChannelReply(replyCallbackUrl, {
                   chatId: guardianCtx.requesterChatId ?? externalChatId,
                   text: `Your request to run "${pending[0].toolName}" has been sent to the guardian for approval.`,
+                  assistantId,
                 }, bearerToken);
               } catch (err) {
                 log.error({ err, runId: run.id }, 'Failed to notify requester of pending guardian approval');
@@ -823,6 +838,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
                   externalChatId,
                   promptTextForChannel,
                   uiMetadata,
+                  assistantId,
                   bearerToken,
                 );
               } catch (err) {
@@ -867,7 +883,13 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
         // rather than permanently losing the reply.
         if (channelDeliveryStore.claimRunDelivery(run.id)) {
           try {
-            await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+            await deliverReplyViaCallback(
+              conversationId,
+              externalChatId,
+              replyCallbackUrl,
+              bearerToken,
+              assistantId,
+            );
           } catch (deliveryErr) {
             channelDeliveryStore.resetRunDeliveryClaim(run.id);
             throw deliveryErr;
@@ -1003,6 +1025,7 @@ async function handleApprovalInterception(
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
             text: `You have ${allPending.length} pending approval requests. Please use the approval buttons to respond to a specific request.`,
+            assistantId,
           }, bearerToken);
         } catch (err) {
           log.error({ err, externalChatId }, 'Failed to deliver disambiguation notice');
@@ -1035,6 +1058,7 @@ async function handleApprovalInterception(
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
             text: 'Only the verified guardian can approve or deny this request.',
+            assistantId,
           }, bearerToken);
         } catch (err) {
           log.error({ err, externalChatId }, 'Failed to deliver guardian identity rejection notice');
@@ -1075,6 +1099,7 @@ async function handleApprovalInterception(
             await deliverChannelReply(replyCallbackUrl, {
               chatId: guardianApproval.requesterChatId,
               text: outcomeText,
+              assistantId,
             }, bearerToken);
           } catch (err) {
             log.error({ err, conversationId: guardianApproval.conversationId }, 'Failed to notify requester of guardian decision');
@@ -1090,6 +1115,7 @@ async function handleApprovalInterception(
               guardianApproval.requesterChatId,
               replyCallbackUrl,
               bearerToken,
+              assistantId,
             );
           }
         }
@@ -1117,6 +1143,7 @@ async function handleApprovalInterception(
             externalChatId,
             reminderText,
             uiMetadata,
+            assistantId,
             bearerToken,
           );
         } catch (err) {
@@ -1150,6 +1177,7 @@ async function handleApprovalInterception(
         await deliverChannelReply(replyCallbackUrl, {
           chatId: externalChatId,
           text: denialText,
+          assistantId,
         }, bearerToken);
       } catch (err) {
         log.error({ err, conversationId }, 'Failed to deliver unverified-channel denial notice during interception');
@@ -1170,6 +1198,7 @@ async function handleApprovalInterception(
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
             text: 'Your request is pending guardian approval. Only the verified guardian can approve or deny this request.',
+            assistantId,
           }, bearerToken);
         } catch (err) {
           log.error({ err, conversationId }, 'Failed to deliver guardian-pending notice to requester');
@@ -1196,6 +1225,7 @@ async function handleApprovalInterception(
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
             text: 'Your guardian approval request has expired and the action has been denied. Please try again.',
+            assistantId,
           }, bearerToken);
         } catch (err) {
           log.error({ err, conversationId }, 'Failed to deliver guardian-expiry notice to requester');
@@ -1247,6 +1277,7 @@ async function handleApprovalInterception(
         externalChatId,
         replyCallbackUrl,
         bearerToken,
+        assistantId,
       );
     }
 
@@ -1269,6 +1300,7 @@ async function handleApprovalInterception(
         externalChatId,
         reminderText,
         uiMetadata,
+        assistantId,
         bearerToken,
       );
     } catch (err) {
@@ -1296,6 +1328,7 @@ function schedulePostDecisionDelivery(
   externalChatId: string,
   replyCallbackUrl: string,
   bearerToken?: string,
+  assistantId?: string,
 ): void {
   (async () => {
     try {
@@ -1307,7 +1340,13 @@ function schedulePostDecisionDelivery(
         if (current.status === 'completed' || current.status === 'failed') {
           if (channelDeliveryStore.claimRunDelivery(runId)) {
             try {
-              await deliverReplyViaCallback(conversationId, externalChatId, replyCallbackUrl, bearerToken);
+              await deliverReplyViaCallback(
+                conversationId,
+                externalChatId,
+                replyCallbackUrl,
+                bearerToken,
+                assistantId,
+              );
             } catch (deliveryErr) {
               channelDeliveryStore.resetRunDeliveryClaim(runId);
               throw deliveryErr;
@@ -1331,6 +1370,7 @@ async function deliverReplyViaCallback(
   externalChatId: string,
   callbackUrl: string,
   bearerToken?: string,
+  assistantId?: string,
 ): Promise<void> {
   const msgs = conversationStore.getMessages(conversationId);
   for (let i = msgs.length - 1; i >= 0; i--) {
@@ -1353,6 +1393,7 @@ async function deliverReplyViaCallback(
           chatId: externalChatId,
           text: rendered.text || undefined,
           attachments: replyAttachments.length > 0 ? replyAttachments : undefined,
+          assistantId,
         }, bearerToken);
       }
       break;
@@ -1453,6 +1494,7 @@ export function sweepExpiredGuardianApprovals(
     deliverChannelReply(deliverUrl, {
       chatId: approval.requesterChatId,
       text: `Your guardian approval request for "${approval.toolName}" has expired and the action has been denied. Please try again.`,
+      assistantId: approval.assistantId,
     }, bearerToken).catch((err) => {
       log.error({ err, runId: approval.runId }, 'Failed to notify requester of guardian approval expiry');
     });
@@ -1461,6 +1503,7 @@ export function sweepExpiredGuardianApprovals(
     deliverChannelReply(deliverUrl, {
       chatId: approval.guardianChatId,
       text: `The approval request for "${approval.toolName}" from user ${approval.requesterExternalUserId} has expired and was automatically denied.`,
+      assistantId: approval.assistantId,
     }, bearerToken).catch((err) => {
       log.error({ err, runId: approval.runId }, 'Failed to notify guardian of approval expiry');
     });

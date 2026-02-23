@@ -34,6 +34,17 @@ async function sendTwilioSms(
   }
 }
 
+function resolveFromNumber(
+  config: GatewayConfig,
+  assistantId?: string,
+): string | undefined {
+  if (assistantId) {
+    const mapped = config.assistantPhoneNumbers?.[assistantId];
+    if (mapped) return mapped;
+  }
+  return config.twilioPhoneNumber;
+}
+
 export function createSmsDeliverHandler(config: GatewayConfig) {
   return async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
@@ -66,7 +77,7 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
     }
 
     // Verify Twilio SMS sending is configured
-    if (!config.twilioAccountSid || !config.twilioAuthToken || !config.twilioPhoneNumber) {
+    if (!config.twilioAccountSid || !config.twilioAuthToken) {
       tlog.error("Twilio SMS credentials not configured");
       return Response.json(
         { error: "SMS integration not configured" },
@@ -78,6 +89,7 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       to?: string;
       chatId?: string;
       text?: string;
+      assistantId?: string;
     };
     try {
       body = (await req.json()) as typeof body;
@@ -86,6 +98,7 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
     }
 
     const { text } = body;
+    const assistantId = typeof body.assistantId === "string" ? body.assistantId : undefined;
     // Accept `chatId` as an alias for `to` so runtime channel callbacks
     // (which send `{ chatId, text }`) work without translation.
     const to = body.to ?? body.chatId;
@@ -98,11 +111,20 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "text is required" }, { status: 400 });
     }
 
+    const from = resolveFromNumber(config, assistantId);
+    if (!from) {
+      tlog.error({ assistantId }, "Twilio SMS phone number not configured");
+      return Response.json(
+        { error: "SMS integration not configured" },
+        { status: 503 },
+      );
+    }
+
     try {
       await sendTwilioSms(
         config.twilioAccountSid,
         config.twilioAuthToken,
-        config.twilioPhoneNumber,
+        from,
         to,
         text,
       );

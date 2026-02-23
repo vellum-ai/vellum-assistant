@@ -13,6 +13,11 @@ public struct SettingsView: View {
     @State private var twitterClientId = ""
     @State private var twitterClientSecret = ""
     @State private var telegramBotTokenText = ""
+    @State private var twilioAccountSidText = ""
+    @State private var twilioAuthTokenText = ""
+    @State private var twilioPhoneNumberText = ""
+    @State private var twilioAreaCodeText = ""
+    @State private var twilioCountryText = "US"
     @State private var ingressUrlText = ""
     @FocusState private var isIngressUrlFocused: Bool
     @State private var accessibilityGranted = false
@@ -407,6 +412,133 @@ public struct SettingsView: View {
                 }
             }
 
+            Section("SMS (Twilio)") {
+                if store.twilioHasCredentials {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 14))
+                        Text("Credentials configured")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if store.twilioSaveInProgress {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Button("Clear Credentials") {
+                                store.clearTwilioCredentials()
+                            }
+                            .tint(.red)
+                        }
+                    }
+                } else {
+                    TextField("Account SID", text: $twilioAccountSidText)
+                        .textFieldStyle(.roundedBorder)
+                    SecureField("Auth Token", text: $twilioAuthTokenText)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Spacer()
+                        if store.twilioSaveInProgress {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Button("Save Credentials") {
+                                store.saveTwilioCredentials(
+                                    accountSid: twilioAccountSidText,
+                                    authToken: twilioAuthTokenText
+                                )
+                                twilioAuthTokenText = ""
+                            }
+                            .disabled(
+                                twilioAccountSidText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                                twilioAuthTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            )
+                        }
+                    }
+                }
+
+                Divider()
+
+                HStack {
+                    Text("Assigned Number")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(store.twilioPhoneNumber ?? "Not assigned")
+                        .font(.body.monospaced())
+                        .foregroundStyle(store.twilioPhoneNumber == nil ? .tertiary : .primary)
+                }
+
+                HStack {
+                    TextField("Assign existing number (+1555...)", text: $twilioPhoneNumberText)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Assign") {
+                        store.assignTwilioNumber(phoneNumber: twilioPhoneNumberText)
+                        twilioPhoneNumberText = ""
+                    }
+                    .disabled(
+                        twilioPhoneNumberText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        store.twilioSaveInProgress
+                    )
+                }
+
+                HStack {
+                    TextField("Area code (optional)", text: $twilioAreaCodeText)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Country", text: $twilioCountryText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                    Button("Provision") {
+                        store.provisionTwilioNumber(
+                            areaCode: twilioAreaCodeText,
+                            country: twilioCountryText
+                        )
+                    }
+                    .disabled(store.twilioSaveInProgress)
+                }
+
+                HStack {
+                    if store.twilioListInProgress {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Button("Refresh Numbers") {
+                        store.refreshTwilioNumbers()
+                    }
+                    .disabled(store.twilioListInProgress)
+                }
+
+                if !store.twilioNumbers.isEmpty {
+                    ForEach(store.twilioNumbers, id: \.phoneNumber) { number in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(number.phoneNumber)
+                                    .font(.body.monospaced())
+                                Text(number.friendlyName)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Use") {
+                                store.assignTwilioNumber(phoneNumber: number.phoneNumber)
+                            }
+                            .disabled(store.twilioSaveInProgress)
+                        }
+                    }
+                }
+
+                if let warning = store.twilioWarning {
+                    Text(warning)
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+
+                if let error = store.twilioError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+
             Section("Public Ingress") {
                 Toggle("Enable Public Ingress", isOn: Binding(
                     get: { store.ingressEnabled },
@@ -662,6 +794,7 @@ public struct SettingsView: View {
             store.refreshVercelKeyState()
             store.refreshTwitterStatus()
             store.refreshTelegramStatus()
+            store.refreshTwilioStatus()
             store.refreshIngressConfig()
             ingressUrlText = store.ingressPublicBaseUrl
             checkPermissions()

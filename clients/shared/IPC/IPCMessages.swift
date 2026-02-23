@@ -46,13 +46,6 @@ import Foundation
 // │                                 │ generated contract                      │
 // │ SubagentEventMessage            │ Contains recursive ServerMessage ref;   │
 // │                                 │ codegen skips ServerMessage              │
-// │ TwilioConfigRequestMessage      │ Code generator has not yet produced     │
-// │                                 │ this type from the TS contract          │
-// │ TwilioConfigResponseMessage     │ Code generator has not yet produced     │
-// │                                 │ this type from the TS contract          │
-// │ TwilioNumberInfo                │ Nested type within                      │
-// │                                 │ TwilioConfigResponseMessage             │
-// │ TwilioNumberCapabilities        │ Nested type within TwilioNumberInfo     │
 // └─────────────────────────────────┴──────────────────────────────────────────┘
 //
 // **Do not add new manual structs** without documenting the reason here.
@@ -1830,55 +1823,41 @@ public typealias TelegramConfigResponseMessage = IPCTelegramConfigResponse
 // MARK: - Twilio Config Messages
 
 /// Sent to get/set/clear Twilio credentials and manage phone numbers.
-/// Manually defined because the code generator has not yet produced this type.
-public struct TwilioConfigRequestMessage: Encodable, Sendable {
-    public let type: String = "twilio_config"
-    public let action: String
-    public let accountSid: String?
-    public let authToken: String?
-    public let phoneNumber: String?
-    public let areaCode: String?
-    public let country: String?
+/// Backed by generated `IPCTwilioConfigRequest`.
+public typealias TwilioConfigRequestMessage = IPCTwilioConfigRequest
 
+extension IPCTwilioConfigRequest {
     public init(
         action: String,
         accountSid: String? = nil,
         authToken: String? = nil,
         phoneNumber: String? = nil,
         areaCode: String? = nil,
-        country: String? = nil
+        country: String? = nil,
+        assistantId: String? = nil
     ) {
-        self.action = action
-        self.accountSid = accountSid
-        self.authToken = authToken
-        self.phoneNumber = phoneNumber
-        self.areaCode = areaCode
-        self.country = country
+        self.init(
+            type: "twilio_config",
+            action: action,
+            accountSid: accountSid,
+            authToken: authToken,
+            phoneNumber: phoneNumber,
+            areaCode: areaCode,
+            country: country,
+            assistantId: assistantId
+        )
     }
 }
 
 /// Number entry returned in `twilio_config_response` `numbers` array.
-public struct TwilioNumberInfo: Decodable, Sendable {
-    public let phoneNumber: String
-    public let friendlyName: String
-    public let capabilities: TwilioNumberCapabilities
-}
+public typealias TwilioNumberInfo = IPCTwilioConfigResponseNumber
 
 /// Capabilities of a Twilio phone number.
-public struct TwilioNumberCapabilities: Decodable, Sendable {
-    public let voice: Bool
-    public let sms: Bool
-}
+public typealias TwilioNumberCapabilities = IPCTwilioConfigResponseNumberCapabilities
 
 /// Response from Twilio config operations.
-/// Manually defined because the code generator has not yet produced this type.
-public struct TwilioConfigResponseMessage: Decodable, Sendable {
-    public let success: Bool
-    public let hasCredentials: Bool
-    public let phoneNumber: String?
-    public let numbers: [TwilioNumberInfo]?
-    public let error: String?
-}
+/// Backed by generated `IPCTwilioConfigResponse`.
+public typealias TwilioConfigResponseMessage = IPCTwilioConfigResponse
 
 // MARK: - Twitter Integration Config Messages
 

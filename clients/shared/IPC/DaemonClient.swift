@@ -972,7 +972,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         authToken: String? = nil,
         phoneNumber: String? = nil,
         areaCode: String? = nil,
-        country: String? = nil
+        country: String? = nil,
+        assistantId: String? = nil
     ) throws {
         try send(TwilioConfigRequestMessage(
             action: action,
@@ -980,7 +981,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             authToken: authToken,
             phoneNumber: phoneNumber,
             areaCode: areaCode,
-            country: country
+            country: country,
+            assistantId: assistantId
         ))
     }
 
