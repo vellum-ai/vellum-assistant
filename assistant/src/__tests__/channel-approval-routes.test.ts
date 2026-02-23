@@ -2931,14 +2931,17 @@ describe('guardian enforcement independence from approval flag', () => {
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
     // The unknown actor should be treated as unverified_channel and
-    // sensitive actions should be auto-denied with a setup notice.
+    // sensitive actions should be auto-denied via the no_identity branch.
     // deliverChannelReply args: (callbackUrl, payload, bearerToken?)
     // The denial notice is in payload.text (index 1 of the call args).
     expect(deliverSpy).toHaveBeenCalled();
-    const denialCalls = deliverSpy.mock.calls.filter(
-      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.includes('no guardian has been set up'),
+    const denialTexts = deliverSpy.mock.calls
+      .map((call) => (typeof call[1] === 'object' ? (call[1] as { text?: string }).text : undefined))
+      .filter(Boolean) as string[];
+    const denialMatch = denialTexts.find(
+      (t) => t.includes('identity could not be determined') && t.includes('denied'),
     );
-    expect(denialCalls.length).toBeGreaterThanOrEqual(1);
+    expect(denialMatch).toBeDefined();
 
     deliverSpy.mockRestore();
     approvalSpy.mockRestore();
