@@ -169,7 +169,43 @@ Confirm:
 - `hasCredentials` is `true`
 - `phoneNumber` is set to the expected number
 
-Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneNumber}. This number is used for both voice calls and SMS messaging."**
+Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneNumber}. This number is used for both voice calls and SMS messaging. Guardian identity: {verified | not configured}."**
+
+## Step 5.5: Guardian Verification (SMS)
+
+Now link the user's phone number as the trusted SMS guardian for this assistant. Tell the user: "Now let's verify your guardian identity for SMS. This links your phone number as the trusted guardian for SMS messaging."
+
+1. Send the `guardian_verification` IPC message with `action: "create_challenge"` and `channel: "sms"`:
+
+```json
+{
+  "type": "guardian_verification",
+  "action": "create_challenge",
+  "channel": "sms"
+}
+```
+
+2. The daemon returns a `guardian_verification_response` with `success: true`, `secret`, and `instruction`. Display the instruction to the user. It will look like: "Send `/guardian_verify <secret>` to your bot via SMS within 10 minutes."
+
+3. Wait for the user to confirm they have sent the verification code via SMS to the assistant's phone number.
+
+4. Check verification status by sending `guardian_verification` with `action: "status"` and `channel: "sms"`:
+
+```json
+{
+  "type": "guardian_verification",
+  "action": "status",
+  "channel": "sms"
+}
+```
+
+5. If `bound` is `true`: "Guardian verified! Your phone number is now the trusted SMS guardian."
+
+6. If `bound` is `false` and the user claims they sent the code: "The verification doesn't appear to have succeeded. Let's generate a new challenge." Repeat from substep 1.
+
+**Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 6 without blocking.
+
+To re-check guardian status later, send `guardian_verification` with `action: "status"` and `channel: "sms"`.
 
 ## Step 6: Enable Features
 

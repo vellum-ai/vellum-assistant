@@ -103,12 +103,17 @@ Before reporting success, confirm the guardian binding was actually created. Sen
 
 ### Step 8: Report Success
 
+First, retrieve the bot identity by sending a `telegram_config` IPC message with `action: "get"` and reading the `botUsername` field from the response.
+
 Summarize what was done:
+- Bot identity: @{botUsername}
 - Bot verified and credentials stored securely via daemon
 - Webhook registration: handled automatically by the gateway
 - Bot commands registered: /new, /guardian_verify
-- Guardian identity verified (if completed and binding confirmed)
+- Guardian identity: {verified | not configured}
+- Guardian verification status: {verified via challenge | skipped}
 - Routing configuration validated
+- To re-check guardian status later, send `guardian_verification` with `action: "status"` and `channel: "telegram"`
 
 The gateway automatically detects credentials from the vault, reconciles the Telegram webhook registration, and begins accepting Telegram webhooks shortly. In single-assistant mode, routing is automatically configured — no manual environment variable configuration or webhook registration is needed. If the webhook secret changes later, the gateway's credential watcher will automatically re-register the webhook. If the ingress URL changes (e.g., tunnel restart), the assistant daemon triggers an immediate internal reconcile so the webhook re-registers automatically without a gateway restart.
 
