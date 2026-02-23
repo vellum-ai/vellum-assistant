@@ -41,17 +41,21 @@ All UI and feature code lives in `Features/`, organized by domain:
 
 | Module | Purpose |
 |--------|---------|
+| `Ambient/` | Background screen monitoring UI |
+| `Avatar/` | Avatar customization |
+| `BrowserPiP/` | Browser picture-in-picture |
 | `Chat/` | ChatView, ChatViewModel (multi-turn messaging), ChatMessage model |
-| `MainWindow/` | MainWindowView shell, ThreadTabBar, NavigationToolbar, ThreadManager, 6 side panels |
+| `MainWindow/` | MainWindowView shell, ThreadTabBar, NavigationToolbar, ThreadManager, side panels |
+| `MainWindow/Panels/` | Side panels including DebugPanel (real-time trace viewer with metrics + timeline) |
+| `MenuBar/` | NSStatusItem and popover lifecycle |
 | `Onboarding/` | Multi-step first-launch flow (OnboardingFlowView → OnboardingState) |
 | `Session/` | Session overlay UI for computer-use task execution |
-| `Settings/` | API key entry, hotkey config, permission status, tool permission tester |
-| `Ambient/` | Background screen monitoring UI |
-| `Voice/` | Voice input UI (VoiceTranscriptionWindow) |
-| `MenuBar/` | NSStatusItem and popover lifecycle |
+| `Settings/` | Tabbed settings panels (Appearance, Advanced, Connect, Trust, Skills, etc.) |
+| `Sharing/` | Content sharing and export |
 | `Surfaces/` | Daemon surface rendering (HTML/JSON overlays) |
 | `TaskInput/` | Quick task input popover |
-| `MainWindow/Panels/` | Side panels including DebugPanel (real-time trace viewer with metrics + timeline) |
+| `Tasks/` | Task management UI |
+| `Voice/` | Voice input UI (VoiceTranscriptionWindow) |
 
 **Main window layout** (`MainWindowView`):
 ```

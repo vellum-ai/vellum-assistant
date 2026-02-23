@@ -266,9 +266,9 @@ The package is split into a library target (`VellumAssistantLib`) and a thin exe
 1. **Select the library scheme.** At the very top center of the Xcode window, there's a dropdown button that shows the current scheme (it probably says `vellum-assistant > My Mac`). Click it and switch to **`VellumAssistantLib`**. Previews only work on the library target — the executable target will show an error about `ENABLE_DEBUG_DYLIB`.
 
 2. **Open a SwiftUI file.** In the left sidebar (file navigator), expand `vellum-assistant` and navigate to any SwiftUI view, for example:
-   - `Features/Settings/SettingsView.swift`
    - `Features/Onboarding/OnboardingFlowView.swift`
-   - `UI/SessionOverlayView.swift`
+   - `Features/Session/SessionOverlayView.swift`
+   - `Features/Settings/SettingsAppearanceTab.swift`
 
 3. **Show the Canvas.** Go to the menu bar: **Editor → Canvas** (or press `⌥⌘↩` / Option+Command+Return). A preview panel appears on the right side of the editor.
 
@@ -286,11 +286,11 @@ To add a preview, put this at the bottom of the file (outside any struct):
 }
 ```
 
-For example, `SettingsView` requires an argument:
+For example, views with dependencies need them passed in:
 
 ```swift
 #Preview {
-    SettingsView(ambientAgent: AmbientAgent())
+    OnboardingFlowView()
 }
 ```
 
@@ -314,21 +314,13 @@ ComputerUse/          Core perception + action pipeline
   ActionExecutor      CGEvent mouse/keyboard injection
   ActionVerifier      Safety checks (sensitive data, loops, limits)
   ChromeAccessibilityHelper  Auto-restart Chrome with --force-renderer-accessibility
+  RecipeExecutor      Recipe-based onboarding (computer-use driven setup)
   ScreenCapture       ScreenCaptureKit screenshot capture
   Session             Main orchestration loop
 Inference/            AI action selection
   AnthropicClient     Shared HTTP client with retry logic (used by KnowledgeCron)
   ToolDefinitions     Tool schemas for function calling
-IPC/                  Daemon communication
-  DaemonClient        Unix domain socket IPC client (auto-reconnect, ping/pong,
-                      blob probe for zero-copy transport)
-  IpcBlobStore        Local blob file writer for zero-copy IPC payloads
-  Generated/
-    IPCContractGenerated  Auto-generated Codable DTOs from the TS IPC contract
-  IPCMessages         Typealiases to generated types, convenience inits,
-                      ServerMessage routing enum, and a few hand-maintained
-                      types that require Swift-specific logic (SessionErrorCode
-                      enum, polymorphic surface data, typed ClaWHub wrappers)
+Services/             Singleton service containers
 Ambient/              Background screen-watching agent
   AmbientAgent        Periodic capture → OCR → analyze via daemon IPC
   AmbientAnalyzer     Type definitions (AmbientDecision, AmbientAnalysisResult)
@@ -336,16 +328,21 @@ Ambient/              Background screen-watching agent
   KnowledgeCron       Triggers periodic insight analysis
   InsightStore        Higher-level insights derived from observations
   ScreenOCR           Vision framework OCR
-Features/Chat/        Main window chat interface
-  ChatMessage         Message model (role, text, streaming state)
-  ChatView            Presentational view (bubbles, composer, thinking, error banner)
-  ChatViewModel       Session bootstrap, streaming, cancel via daemon IPC
-Features/MainWindow/Panels/
-  DebugPanel          Real-time trace viewer (metrics strip + timeline)
-  TraceTimelineView   Events grouped by requestId with status indicators
-  TraceRowView        Individual trace event display
-UI/                   SwiftUI views + overlay windows
+Features/
+  Ambient/            Background screen monitoring UI
+  Avatar/             Avatar customization
+  BrowserPiP/         Browser picture-in-picture
+  Chat/               Chat interface (ChatView, ChatViewModel, ChatMessage)
+  MainWindow/         Main window shell, ThreadTabBar, PanelCoordinator, side panels
+  MenuBar/            NSStatusItem and popover lifecycle
   Onboarding/         First-launch setup flow (permissions, naming, Fn key)
+  Session/            Session overlay UI for computer-use task execution
+  Settings/           Tabbed settings panels (Appearance, Advanced, Connect, Trust, etc.)
+  Sharing/            Content sharing and export
+  Surfaces/           Daemon surface rendering (HTML/JSON overlays)
+  TaskInput/          Quick task input popover
+  Tasks/              Task management UI
+  Voice/              Voice input UI (VoiceTranscriptionWindow)
 Logging/
   TraceStore          In-memory trace event store (per-session, dedup, retention cap)
   Session recording   JSON logs to ~/Library/App Support/
