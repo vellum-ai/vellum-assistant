@@ -48,6 +48,7 @@ final class ComputerUseSession: ObservableObject {
     private var isPaused = false
     private var confirmationContinuation: CheckedContinuation<Bool, Never>?
     private var messageLoopTask: Task<Void, Never>?
+    private var cancelSafetyNetTask: Task<Void, Never>?
 
     private let enumerator: AccessibilityTreeProviding
     private let screenCapture: ScreenCaptureProviding
@@ -182,6 +183,11 @@ final class ComputerUseSession: ObservableObject {
         } else {
             state = .failed(reason: "No focused window and screen capture failed")
             logger.finishSession(result: "failed: no window")
+            // Disarm the cancel safety net — run() reached the post-loop and will
+            // handle finalization + abort itself.
+            cancelSafetyNetTask?.cancel()
+            cancelSafetyNetTask = nil
+
             // Finalize QA recording BEFORE sending abort — the daemon's handleCuSessionAbort
             // deletes cuSessionMetadata, so cu_session_finalized must arrive first for
             // summary injection to work.
@@ -275,6 +281,11 @@ final class ComputerUseSession: ObservableObject {
                 logger.finishSession(result: "failed: stream ended unexpectedly")
             }
         }
+
+        // Disarm the cancel safety net — run() reached the post-loop and will
+        // handle finalization + abort itself.
+        cancelSafetyNetTask?.cancel()
+        cancelSafetyNetTask = nil
 
         // Finalize QA recording and send cu_session_finalized
         if qaMode {
@@ -1050,7 +1061,7 @@ final class ComputerUseSession: ObservableObject {
             // Deferred abort: give run() a chance to send finalization first,
             // but guarantee abort eventually fires as a safety net in case
             // run() never reaches the post-loop block (e.g., throws or gets stuck).
-            Task { @MainActor in
+            cancelSafetyNetTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
                 guard self.isCancelled else { return } // in case state changed
                 try? self.daemonClient.send(CuSessionAbortMessage(sessionId: self.id))
