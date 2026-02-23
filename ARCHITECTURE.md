@@ -1424,7 +1424,7 @@ CU observations can carry large payloads (screenshots as JPEG, AX trees as UTF-8
 
 Blob transport is opt-in per connection. On every macOS socket connect, the client writes a random nonce file to the blob directory and sends an `ipc_blob_probe` message with the SHA-256 of the nonce. The daemon reads the file, computes the hash, and responds with `ipc_blob_probe_result`. If hashes match, the client sets `isBlobTransportAvailable = true` for that connection. The flag resets to `false` on disconnect or reconnect.
 
-On iOS (TCP connections), the probe code is compiled out via `#if os(macOS)` — `isBlobTransportAvailable` stays `false` and inline payloads are always used. Over SSH-forwarded Unix sockets on macOS, the probe runs but fails because the client and daemon don't share a filesystem, so blob transport stays disabled and inline payloads are used transparently.
+On iOS (HTTP+SSE connections via the gateway), blob transport is not applicable — `isBlobTransportAvailable` stays `false` and inline payloads are always used. Over SSH-forwarded Unix sockets on macOS, the probe runs but fails because the client and daemon don't share a filesystem, so blob transport stays disabled and inline payloads are used transparently.
 
 ### Blob Directory
 
@@ -3491,6 +3491,55 @@ The avatar evolves during onboarding based on conversation and identity choices.
 
 **Persistence:** Evolution state in UserDefaults, resolved appearance in LOOKS.md
 
+## iOS Connection Architecture
+
+The iOS app connects to the macOS assistant exclusively via HTTPS through the gateway. There is no direct TCP or Unix socket connection path.
+
+### Connection Flow
+
+```
+iOS App  --HTTPS-->  Ingress (tunnel/public URL)  -->  Gateway  -->  Runtime
+         <--SSE---                                 <--          <--
+```
+
+1. **Pairing** provides the iOS app with an ingress URL and bearer token, either via QR code scan or manual entry.
+2. **HTTP+SSE transport**: The iOS `HTTPDaemonClient` sends commands via HTTP POST to the gateway and receives events via Server-Sent Events (SSE). All communication is authenticated with the bearer token.
+3. **Gateway proxy**: The gateway's runtime proxy forwards `/v1/*` requests to the local runtime, validating the bearer token on each request.
+
+### Pairing Methods
+
+| Method | Flow |
+|--------|------|
+| **QR code** (primary) | macOS generates a v2 QR payload containing `{"type":"vellum-daemon","v":2,"id":"<host-hash>","g":"<ingress-url>","bt":"<bearer-token>"}`. iOS scans, parses, stores config, and connects. |
+| **Manual entry** | User copies the gateway URL and bearer token from the macOS pairing sheet into the iOS manual setup fields. iOS stores config and connects. |
+
+### Prerequisites
+
+- **Ingress must be enabled** on the Mac for iOS pairing. The gateway must be reachable at a public URL (via ngrok, Cloudflare Tunnel, or similar).
+- The bearer token is read from `~/.vellum/http-token` and persists across daemon restarts.
+- A conversation key is auto-generated on first connect and stored in UserDefaults.
+
+### Configuration Storage (iOS)
+
+| Data | Storage | Key |
+|------|---------|-----|
+| Gateway URL | UserDefaults | `gateway_base_url` |
+| Bearer token | Keychain | provider: `runtime-bearer-token` |
+| Conversation key | UserDefaults | `conversation_key` |
+| Host ID (migration) | UserDefaults | `gateway_host_id` |
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `clients/ios/Views/Settings/QRPairingSheet.swift` | QR scan, parse v2 payload, store config, connect |
+| `clients/ios/Views/Settings/ConnectionSettingsSection.swift` | Manual gateway URL + bearer token entry |
+| `clients/macos/vellum-assistant/Features/Settings/PairingQRCodeSheet.swift` | macOS QR generation + manual pairing info display |
+| `clients/shared/IPC/DaemonConfig.swift` | Transport config; iOS uses `.http` exclusively |
+| `clients/shared/IPC/HTTPDaemonClient.swift` | HTTP+SSE client implementation |
+
+---
+
 ## Ingress Boundary Architecture — Gateway-Only Public Ingress
 
 All external webhook endpoints (Telegram, Twilio, OAuth, future channels) are handled exclusively by the gateway. The runtime never exposes webhook ingress. The runtime-proxy explicitly blocks forwarding of `/webhooks/*` paths.
@@ -4132,7 +4181,7 @@ graph TB
 
     subgraph "Clients"
         MACOS["macOS App<br/>(DaemonClient / ServerMessage)"]
-        IOS["iOS App<br/>(DaemonClient / ServerMessage)"]
+        IOS["iOS App<br/>(HTTP+SSE via gateway)"]
         WEB["Web / Remote clients<br/>(EventSource / fetch)"]
     end
 
@@ -4143,7 +4192,7 @@ graph TB
     HUB -->|"subscriber callback"| SSE_ROUTE
 
     SOCK --> MACOS
-    SOCK --> IOS
+    SSE_ROUTE --> IOS
     SSE_ROUTE --> WEB
 ```
 
