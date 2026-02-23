@@ -87,9 +87,7 @@ struct QRPairingSheet: View {
 
             if let payload = scannedPayload {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    infoRow(label: "Mac IP", value: payload.host)
-                    infoRow(label: "Port", value: "\(payload.port)")
-                    infoRow(label: "TLS", value: "Enabled")
+                    infoRow(label: "Gateway", value: payload.gatewayURL)
                 }
                 .padding(VSpacing.lg)
                 .background(VColor.surface)
@@ -207,34 +205,26 @@ struct QRPairingSheet: View {
             return
         }
 
-        guard let version = json["v"] as? Int, version == 1 else {
-            errorMessage = "QR code version not supported. Please update the Vellum app on your Mac."
+        let version = json["v"] as? Int ?? 0
+
+        // Reject v1 and older payloads — require v2 with gateway URL
+        guard version >= 2, json["g"] != nil else {
+            errorMessage = "This QR code is from an older version of Vellum. Please update Vellum on your Mac to pair."
             phase = .error
             return
         }
 
-        guard let host = json["h"] as? String,
-              let port = json["p"] as? Int,
-              let token = json["t"] as? String,
-              let fingerprint = json["f"] as? String else {
+        guard let gatewayURL = json["g"] as? String,
+              let bearerToken = json["bt"] as? String,
+              let hostId = json["id"] as? String else {
             errorMessage = "QR code is missing required fields. Please regenerate the QR code on your Mac."
             phase = .error
             return
         }
 
-        guard port >= 1 && port <= 65535 else {
-            errorMessage = "QR code contains an invalid port number (\(port)). Please regenerate the QR code on your Mac."
-            phase = .error
-            return
-        }
-
-        let hostId = json["id"] as? String ?? ""
-
         scannedPayload = DaemonQRPayload(
-            host: host,
-            port: port,
-            token: token,
-            fingerprint: fingerprint,
+            gatewayURL: gatewayURL,
+            bearerToken: bearerToken,
             hostId: hostId
         )
         phase = .confirming
@@ -244,34 +234,32 @@ struct QRPairingSheet: View {
         guard let payload = scannedPayload else { return }
         phase = .connecting
 
-        // Check if this hostId matches a previously-stored host with a different IP.
-        // If so, update the stored hostname (same Mac, new IP).
+        // Check if this hostId matches a previously-stored host with a different gateway URL.
+        // If so, clean up old config (same Mac, new gateway).
         detectAndMigrateHost(payload: payload)
 
-        // Save connection config
-        let hostname = payload.host
-        let port = payload.port
+        // Store gateway URL
+        UserDefaults.standard.set(payload.gatewayURL, forKey: UserDefaultsKeys.gatewayBaseURL)
 
-        UserDefaults.standard.set(hostname, forKey: UserDefaultsKeys.daemonHostname)
-        UserDefaults.standard.set(port, forKey: UserDefaultsKeys.daemonPort)
-        UserDefaults.standard.set(true, forKey: UserDefaultsKeys.daemonTLSEnabled)
+        // Store bearer token in Keychain
+        _ = APIKeyManager.shared.setAPIKey(payload.bearerToken, provider: "runtime-bearer-token")
 
-        // Store token with host-specific key
-        let hostSpecificProvider = "daemon-token:\(hostname):\(port)"
-        _ = APIKeyManager.shared.setAPIKey(payload.token, provider: hostSpecificProvider)
-        // Also store as bare key for backwards compatibility
-        _ = APIKeyManager.shared.setAPIKey(payload.token, provider: "daemon-token")
-
-        // Store fingerprint and hostId per host:port
-        let fpKey = UserDefaultsKeys.daemonCertFingerprint(host: hostname, port: UInt16(port))
-        UserDefaults.standard.set(payload.fingerprint, forKey: fpKey)
-
-        if !payload.hostId.isEmpty {
-            let idKey = UserDefaultsKeys.daemonHostId(host: hostname, port: UInt16(port))
-            UserDefaults.standard.set(payload.hostId, forKey: idKey)
+        // Generate and store a conversation key if one doesn't already exist
+        if UserDefaults.standard.string(forKey: UserDefaultsKeys.conversationKey)?.isEmpty != false {
+            UserDefaults.standard.set(UUID().uuidString, forKey: UserDefaultsKeys.conversationKey)
         }
 
-        // Rebuild the client so the new TCP config takes effect
+        // Store host ID for migration detection
+        if !payload.hostId.isEmpty {
+            UserDefaults.standard.set(payload.hostId, forKey: "gateway_host_id")
+        }
+
+        // Clear old TCP-related UserDefaults from v1 pairing
+        UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.daemonHostname)
+        UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.daemonPort)
+        UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.daemonTLSEnabled)
+
+        // Rebuild the client so the new gateway config takes effect
         clientProvider.rebuildClient()
 
         // Connect
@@ -283,43 +271,40 @@ struct QRPairingSheet: View {
                 }
             } catch {
                 await MainActor.run {
-                    let nsError = error as NSError
-                    if nsError.domain == "NWError" {
-                        if nsError.localizedDescription.contains("TLS") || nsError.localizedDescription.contains("SSL") {
-                            errorMessage = "TLS handshake failed. The certificate may have changed — try regenerating the QR code on your Mac."
-                        } else if nsError.localizedDescription.contains("refused") {
-                            errorMessage = "Connection refused. Make sure the Vellum daemon is running on your Mac and iOS pairing is enabled."
-                        } else {
-                            errorMessage = "Connection failed: \(error.localizedDescription)"
-                        }
-                    } else {
-                        errorMessage = "Connection failed: \(error.localizedDescription)"
-                    }
+                    errorMessage = "Connection failed: \(error.localizedDescription)"
                     phase = .error
                 }
             }
         }
     }
 
-    /// If the scanned hostId matches a stored hostId for a different hostname,
-    /// this is the same Mac with a new IP. Clean up old Keychain entries.
+    /// If the scanned hostId matches a stored hostId for a different gateway URL,
+    /// this is the same Mac with a new gateway. Clean up old config.
     private func detectAndMigrateHost(payload: DaemonQRPayload) {
         guard !payload.hostId.isEmpty else { return }
 
-        let currentHostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? ""
-        let currentPort = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
-        guard currentPort > 0 else { return }
+        let storedHostId = UserDefaults.standard.string(forKey: "gateway_host_id") ?? ""
+        let storedGatewayURL = UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL) ?? ""
 
-        let oldIdKey = UserDefaultsKeys.daemonHostId(host: currentHostname, port: UInt16(currentPort))
-        let storedHostId = UserDefaults.standard.string(forKey: oldIdKey)
+        // Same Mac (matching hostId) but different gateway URL — clean up old bearer token
+        if storedHostId == payload.hostId && !storedGatewayURL.isEmpty && storedGatewayURL != payload.gatewayURL {
+            _ = APIKeyManager.shared.deleteAPIKey(provider: "runtime-bearer-token")
+        }
 
-        // Same Mac (matching hostId) but different IP — clean up old keys
-        if storedHostId == payload.hostId && currentHostname != payload.host {
-            let oldTokenProvider = "daemon-token:\(currentHostname):\(currentPort)"
-            _ = APIKeyManager.shared.deleteAPIKey(provider: oldTokenProvider)
-            let oldFpKey = UserDefaultsKeys.daemonCertFingerprint(host: currentHostname, port: UInt16(currentPort))
-            UserDefaults.standard.removeObject(forKey: oldFpKey)
-            UserDefaults.standard.removeObject(forKey: oldIdKey)
+        // Also clean up any legacy TCP pairing config if a host ID was stored per-host:port
+        let oldHostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? ""
+        let oldPort = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
+        if oldPort > 0 {
+            let oldIdKey = UserDefaultsKeys.daemonHostId(host: oldHostname, port: UInt16(oldPort))
+            let oldTcpHostId = UserDefaults.standard.string(forKey: oldIdKey)
+            if oldTcpHostId == payload.hostId {
+                let oldTokenProvider = "daemon-token:\(oldHostname):\(oldPort)"
+                _ = APIKeyManager.shared.deleteAPIKey(provider: oldTokenProvider)
+                _ = APIKeyManager.shared.deleteAPIKey(provider: "daemon-token")
+                let oldFpKey = UserDefaultsKeys.daemonCertFingerprint(host: oldHostname, port: UInt16(oldPort))
+                UserDefaults.standard.removeObject(forKey: oldFpKey)
+                UserDefaults.standard.removeObject(forKey: oldIdKey)
+            }
         }
     }
 
@@ -337,12 +322,10 @@ struct QRPairingSheet: View {
     }
 }
 
-/// Parsed QR code payload from the macOS pairing QR code.
+/// Parsed QR code payload from the macOS pairing QR code (v2 gateway format).
 struct DaemonQRPayload {
-    let host: String
-    let port: Int
-    let token: String
-    let fingerprint: String
+    let gatewayURL: String
+    let bearerToken: String
     let hostId: String
 }
 #endif
