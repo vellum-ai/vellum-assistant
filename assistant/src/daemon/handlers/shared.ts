@@ -104,6 +104,14 @@ export interface SessionCreateOptions {
   strictPrivateSideEffects?: boolean;
 }
 
+/** Metadata stored alongside a CU session for QA workflow plumbing. */
+export interface CuSessionMetadata {
+  /** Origin chat session to inject results into on finalization. */
+  reportToSessionId?: string;
+  /** Whether this CU run is a QA/test workflow. */
+  qaMode?: boolean;
+}
+
 /**
  * Shared context that handlers need from the DaemonServer.
  * Keeps handlers decoupled from the server class itself.
@@ -113,6 +121,7 @@ export interface HandlerContext {
   socketToSession: Map<net.Socket, string>;
   cuSessions: Map<string, ComputerUseSession>;
   socketToCuSession: Map<net.Socket, Set<string>>;
+  cuSessionMetadata: Map<string, CuSessionMetadata>;
   cuObservationParseSequence: Map<string, number>;
   socketSandboxOverride: Map<net.Socket, boolean>;
   sharedRequestTimestamps: number[];

@@ -11,7 +11,8 @@ import type {
   CuObservation,
   ServerMessage,
 } from '../ipc-protocol.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+import * as conversationStore from '../../memory/conversation-store.js';
+import { log, defineHandlers, findSocketForSession, type HandlerContext, type CuSessionMetadata } from './shared.js';
 
 const cuObservationSequenceBySession = new Map<string, number>();
 
@@ -25,6 +26,7 @@ function removeCuSessionReferences(
     return;
   }
   ctx.cuSessions.delete(sessionId);
+  ctx.cuSessionMetadata.delete(sessionId);
   cuObservationSequenceBySession.delete(sessionId);
   ctx.cuObservationParseSequence.delete(sessionId);
   for (const [sock, ids] of ctx.socketToCuSession) {
@@ -78,6 +80,15 @@ export function handleCuSessionCreate(
   sessionRef.current = session;
 
   ctx.cuSessions.set(msg.sessionId, session);
+
+  // Store QA metadata so handleCuSessionFinalized can inject results
+  // into the originating chat session.
+  if (msg.reportToSessionId || msg.qaMode) {
+    const meta: CuSessionMetadata = {};
+    if (msg.reportToSessionId) meta.reportToSessionId = msg.reportToSessionId;
+    if (msg.qaMode) meta.qaMode = msg.qaMode;
+    ctx.cuSessionMetadata.set(msg.sessionId, meta);
+  }
 
   // Track all CU sessions per socket so disconnect cleans up all of them
   let sessionIds = ctx.socketToCuSession.get(socket);
@@ -184,8 +195,10 @@ export async function handleCuObservation(
 export function handleCuSessionFinalized(
   msg: CuSessionFinalized,
   _socket: net.Socket,
-  _ctx: HandlerContext,
+  ctx: HandlerContext,
 ): void {
+  const meta = ctx.cuSessionMetadata.get(msg.sessionId);
+
   log.info(
     {
       sessionId: msg.sessionId,
@@ -194,9 +207,76 @@ export function handleCuSessionFinalized(
       hasRecording: !!msg.recording,
       recordingSizeBytes: msg.recording?.sizeBytes,
       recordingDurationMs: msg.recording?.durationMs,
+      reportToSessionId: meta?.reportToSessionId,
+      qaMode: meta?.qaMode,
     },
     'CU session finalized by client',
   );
+
+  // If recording metadata is present, log it for future M3 file-backed attachment support.
+  if (msg.recording) {
+    log.info(
+      {
+        sessionId: msg.sessionId,
+        localPath: msg.recording.localPath,
+        mimeType: msg.recording.mimeType,
+        sizeBytes: msg.recording.sizeBytes,
+        durationMs: msg.recording.durationMs,
+        width: msg.recording.width,
+        height: msg.recording.height,
+        captureScope: msg.recording.captureScope,
+      },
+      'CU session recording metadata (stored for M3)',
+    );
+  }
+
+  // Inject a summary message into the originating chat session if configured.
+  if (meta?.reportToSessionId && msg.summary) {
+    const reportSessionId = meta.reportToSessionId;
+    const reportSocket = findSocketForSession(reportSessionId, ctx);
+
+    // Persist the assistant message in the conversation store so it appears
+    // in history even if the client is not currently connected.
+    const conversation = conversationStore.getConversation(reportSessionId);
+    if (conversation) {
+      const assistantContent = JSON.stringify([{ type: 'text', text: msg.summary }]);
+      conversationStore.addMessage(reportSessionId, 'assistant', assistantContent, {
+        source: 'cu_session_finalized',
+        cuSessionId: msg.sessionId,
+        cuStatus: msg.status,
+        cuStepCount: msg.stepCount,
+        qaMode: meta.qaMode ?? false,
+        ...(msg.recording ? { recordingPath: msg.recording.localPath } : {}),
+      });
+
+      // If the reporting session has a connected client, stream the summary
+      // so it appears in real time.
+      if (reportSocket) {
+        ctx.send(reportSocket, {
+          type: 'assistant_text_delta',
+          text: msg.summary,
+          sessionId: reportSessionId,
+        });
+        ctx.send(reportSocket, {
+          type: 'message_complete',
+          sessionId: reportSessionId,
+        });
+      }
+
+      log.info(
+        { cuSessionId: msg.sessionId, reportToSessionId: reportSessionId },
+        'Injected CU finalization summary into reporting session',
+      );
+    } else {
+      log.warn(
+        { cuSessionId: msg.sessionId, reportToSessionId: reportSessionId },
+        'Reporting session conversation not found; summary not persisted',
+      );
+    }
+  }
+
+  // Clean up all CU session state.
+  removeCuSessionReferences(ctx, msg.sessionId);
 }
 
 export const computerUseHandlers = defineHandlers({
