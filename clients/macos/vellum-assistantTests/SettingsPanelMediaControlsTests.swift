@@ -87,33 +87,25 @@ final class SettingsPanelMediaControlsTests: XCTestCase {
         XCTAssertEqual(store.mediaEmbedVideoAllowlistDomains, MediaEmbedSettings.defaultDomains)
     }
 
-    // MARK: - Both surfaces stay in sync through shared store
+    // MARK: - Store updates reflect across observers
 
-    func testBothSurfacesShareStoreToggle() {
-        // A single SettingsStore instance drives both SettingsView and
-        // SettingsPanel. Toggling via the store API should be visible to
-        // any view observing that store.
+    func testStoreToggleReflectsAcrossSurfaces() {
         let store = makeStore(enabled: false)
 
-        // Simulate SettingsPanel toggling embeds on
+        // Toggling via the store API should be visible to any observer.
         store.setMediaEmbedsEnabled(true)
 
-        // SettingsView reading the same store sees the updated value
-        let view = SettingsView(store: store)
-        XCTAssertTrue(view.store.mediaEmbedsEnabled)
+        XCTAssertTrue(store.mediaEmbedsEnabled)
     }
 
-    func testBothSurfacesShareStoreDomains() {
+    func testStoreDomainUpdateReflectsAcrossSurfaces() {
         let store = makeStore(enabled: true, domains: ["youtube.com"])
 
-        // Simulate SettingsPanel adding a domain
         var domains = store.mediaEmbedVideoAllowlistDomains
         domains.append("newsite.com")
         store.setMediaEmbedVideoAllowlistDomains(domains)
 
-        // SettingsView reading the same store sees the updated domains
-        let view = SettingsView(store: store)
-        XCTAssertEqual(view.store.mediaEmbedVideoAllowlistDomains, ["youtube.com", "newsite.com"])
+        XCTAssertEqual(store.mediaEmbedVideoAllowlistDomains, ["youtube.com", "newsite.com"])
     }
 
     func testToggleChangePersistedAndReloadable() {

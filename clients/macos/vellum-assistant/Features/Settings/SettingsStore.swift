@@ -5,8 +5,8 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SettingsStore")
 
-/// Single source of truth for settings state shared between `SettingsView`
-/// (standalone window) and `SettingsPanel` (main window side panel).
+/// Single source of truth for settings state shared between `SettingsPanel`
+/// (main window side panel) and its extracted tab views.
 @MainActor
 public final class SettingsStore: ObservableObject {
     // MARK: - API Key State
@@ -421,8 +421,8 @@ public final class SettingsStore: ObservableObject {
         refreshChannelGuardianStatus(channel: "telegram")
         refreshChannelGuardianStatus(channel: "sms")
 
-        // Ingress config is refreshed by onAppear in SettingsPanel /
-        // SettingsView, not here, to avoid duplicate get requests whose
+        // Ingress config is refreshed by onAppear in SettingsPanel,
+        // not here, to avoid duplicate get requests whose
         // stale responses could overwrite an optimistic toggle.
     }
 
@@ -996,7 +996,7 @@ public final class SettingsStore: ObservableObject {
     func saveIngressPublicBaseUrl(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         // Update local state optimistically so the focus-leave onChange handler
-        // in SettingsPanel/SettingsView reads the new value instead of reverting
+        // in SettingsPanel reads the new value instead of reverting
         // the text field to a stale URL. The daemon's success response
         // (handled by onIngressConfigResponse) will confirm or correct.
         let previous = ingressPublicBaseUrl
