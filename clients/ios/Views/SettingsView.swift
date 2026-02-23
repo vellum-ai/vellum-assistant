@@ -6,6 +6,7 @@ struct SettingsView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
     @AppStorage(UserDefaultsKeys.appearanceMode) private var appearanceMode: String = "system"
+    @Binding var navigateToConnect: Bool
 
     var body: some View {
         NavigationStack {
@@ -16,13 +17,17 @@ struct SettingsView: View {
                 if authManager.isAuthenticated {
                     AccountSection(authManager: authManager)
                 }
-                TwilioSettingsSection()
 
                 Section {
                     NavigationLink {
                         DaemonConnectionSection()
                     } label: {
                         Label("Connect", systemImage: "desktopcomputer")
+                    }
+                    NavigationLink {
+                        TwilioSettingsSection()
+                    } label: {
+                        Label("Twilio", systemImage: "phone")
                     }
                     NavigationLink {
                         IntegrationsSection()
@@ -65,6 +70,9 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .navigationDestination(isPresented: $navigateToConnect) {
+                DaemonConnectionSection()
+            }
         }
     }
 }
@@ -125,7 +133,7 @@ extension Bundle {
 }
 
 #Preview {
-    SettingsView(authManager: AuthManager())
+    SettingsView(authManager: AuthManager(), navigateToConnect: .constant(false))
         .environmentObject(ClientProvider(client: DaemonClient(config: .fromUserDefaults())))
 }
 #endif

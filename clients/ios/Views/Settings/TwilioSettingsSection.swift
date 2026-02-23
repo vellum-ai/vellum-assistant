@@ -22,158 +22,162 @@ struct TwilioSettingsSection: View {
     @State private var assigningNumber: String?
 
     var body: some View {
-        Section("Twilio (Calls & SMS)") {
-            if isLoading {
-                HStack {
-                    Text("Loading...")
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            } else {
-                // Connection status
-                HStack {
-                    Text("Credentials")
-                    Spacer()
-                    if hasCredentials {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                        Text("Connected")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Image(systemName: "xmark.circle")
-                            .foregroundColor(VColor.error)
-                        Text("Not configured")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        Form {
+            Section {
+                if isLoading {
+                    HStack {
+                        Text("Loading...")
+                        Spacer()
+                        ProgressView()
+                            .controlSize(.small)
                     }
-                }
-
-                // Phone number
-                HStack {
-                    Text("Phone Number")
-                    Spacer()
-                    if let number = phoneNumber {
-                        Text(number)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("None assigned")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                // Actions when credentials are configured
-                if hasCredentials {
-                    // List available numbers
-                    Button {
-                        listNumbers()
-                    } label: {
-                        HStack {
-                            Text("List Account Numbers")
-                            Spacer()
-                            if isLoadingNumbers {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Image(systemName: "phone.badge.waveform")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .disabled(isLoadingNumbers)
-
-                    // Show available numbers for assignment
-                    if !availableNumbers.isEmpty {
-                        ForEach(availableNumbers, id: \.phoneNumber) { number in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(number.phoneNumber)
-                                        .font(.body)
-                                    HStack(spacing: 4) {
-                                        Text(number.friendlyName)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                        if number.capabilities.voice {
-                                            Text("Voice")
-                                                .font(.caption2)
-                                                .padding(.horizontal, 4)
-                                                .padding(.vertical, 1)
-                                                .background(Color.blue.opacity(0.15))
-                                                .cornerRadius(4)
-                                        }
-                                        if number.capabilities.sms {
-                                            Text("SMS")
-                                                .font(.caption2)
-                                                .padding(.horizontal, 4)
-                                                .padding(.vertical, 1)
-                                                .background(Color.green.opacity(0.15))
-                                                .cornerRadius(4)
-                                        }
-                                    }
-                                }
-                                Spacer()
-                                if number.phoneNumber == phoneNumber {
-                                    Text("Active")
-                                        .font(.caption)
-                                        .foregroundColor(VColor.success)
-                                } else if assigningNumber == number.phoneNumber {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                } else {
-                                    Button("Assign") {
-                                        assignNumber(number.phoneNumber)
-                                    }
-                                    .font(.caption)
-                                    .disabled(isAssigning)
-                                }
-                            }
-                        }
-                    }
-
-                    // Provision new number
-                    Button {
-                        showProvisionSheet = true
-                    } label: {
-                        HStack {
-                            Text("Provision New Number")
-                            Spacer()
-                            Image(systemName: "plus.circle")
+                } else {
+                    // Connection status
+                    HStack {
+                        Text("Credentials")
+                        Spacer()
+                        if hasCredentials {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(VColor.success)
+                            Text("Connected")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Image(systemName: "xmark.circle")
+                                .foregroundColor(VColor.error)
+                            Text("Not configured")
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .disabled(isProvisioning)
 
-                    // Clear credentials
-                    Button(role: .destructive) {
-                        showClearConfirmation = true
-                    } label: {
-                        HStack {
-                            if isClearing {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Clearing...")
-                            } else {
-                                Text("Clear Credentials")
-                            }
+                    // Phone number
+                    HStack {
+                        Text("Phone Number")
+                        Spacer()
+                        if let number = phoneNumber {
+                            Text(number)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("None assigned")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .disabled(isClearing)
-                } else {
-                    Text("Use the Twilio Setup skill in chat to configure credentials and phone number.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
 
-                if let error = errorMessage {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundColor(VColor.error)
+                    // Actions when credentials are configured
+                    if hasCredentials {
+                        // List available numbers
+                        Button {
+                            listNumbers()
+                        } label: {
+                            HStack {
+                                Text("List Account Numbers")
+                                Spacer()
+                                if isLoadingNumbers {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Image(systemName: "phone.badge.waveform")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .disabled(isLoadingNumbers)
+
+                        // Show available numbers for assignment
+                        if !availableNumbers.isEmpty {
+                            ForEach(availableNumbers, id: \.phoneNumber) { number in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(number.phoneNumber)
+                                            .font(.body)
+                                        HStack(spacing: 4) {
+                                            Text(number.friendlyName)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                            if number.capabilities.voice {
+                                                Text("Voice")
+                                                    .font(.caption2)
+                                                    .padding(.horizontal, 4)
+                                                    .padding(.vertical, 1)
+                                                    .background(Color.blue.opacity(0.15))
+                                                    .cornerRadius(4)
+                                            }
+                                            if number.capabilities.sms {
+                                                Text("SMS")
+                                                    .font(.caption2)
+                                                    .padding(.horizontal, 4)
+                                                    .padding(.vertical, 1)
+                                                    .background(Color.green.opacity(0.15))
+                                                    .cornerRadius(4)
+                                            }
+                                        }
+                                    }
+                                    Spacer()
+                                    if number.phoneNumber == phoneNumber {
+                                        Text("Active")
+                                            .font(.caption)
+                                            .foregroundColor(VColor.success)
+                                    } else if assigningNumber == number.phoneNumber {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                    } else {
+                                        Button("Assign") {
+                                            assignNumber(number.phoneNumber)
+                                        }
+                                        .font(.caption)
+                                        .disabled(isAssigning)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Provision new number
+                        Button {
+                            showProvisionSheet = true
+                        } label: {
+                            HStack {
+                                Text("Provision New Number")
+                                Spacer()
+                                Image(systemName: "plus.circle")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .disabled(isProvisioning)
+
+                        // Clear credentials
+                        Button(role: .destructive) {
+                            showClearConfirmation = true
+                        } label: {
+                            HStack {
+                                if isClearing {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Clearing...")
+                                } else {
+                                    Text("Clear Credentials")
+                                }
+                            }
+                        }
+                        .disabled(isClearing)
+                    } else {
+                        Text("Use the Twilio Setup skill in chat to configure credentials and phone number.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let error = errorMessage {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(VColor.error)
+                    }
                 }
             }
         }
+        .navigationTitle("Twilio")
+        .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog("Clear Twilio Credentials", isPresented: $showClearConfirmation, titleVisibility: .visible) {
             Button("Clear", role: .destructive) {
                 clearCredentials()

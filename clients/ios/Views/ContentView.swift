@@ -7,6 +7,7 @@ struct ContentView: View {
     @Bindable var authManager: AuthManager
     @State private var connectPhase: ConnectPhase = .initial
     @State private var selectedTab: Tab = .home
+    @State private var navigateToConnect = false
 
     private enum Tab { case home, chats, identity, settings }
 
@@ -112,6 +113,7 @@ struct ContentView: View {
                 Button {
                     selectedTab = .settings
                     connectPhase = .ready
+                    navigateToConnect = true
                 } label: {
                     Text("Go to Settings")
                 }
@@ -149,7 +151,7 @@ struct ContentView: View {
                     Label("Identity", systemImage: "person.text.rectangle")
                 }
 
-            SettingsView(authManager: authManager)
+            SettingsView(authManager: authManager, navigateToConnect: $navigateToConnect)
                 .environmentObject(clientProvider)
                 .tag(Tab.settings)
                 .tabItem {
