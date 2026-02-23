@@ -31,10 +31,7 @@ import type { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
 import {
   applyRuntimeInjections,
-  stripActiveSurfaceContext,
-  stripWorkspaceTopLevelContext,
-  stripChannelCapabilityContext,
-  stripTemporalContext,
+  stripInjectedContext,
 } from './session-runtime-assembly.js';
 import { buildTemporalContext } from './date-context.js';
 import type { ActiveSurfaceContext, ChannelCapabilities } from './session-runtime-assembly.js';
@@ -740,16 +737,10 @@ export async function runAgentLoopImpl(
     }
 
     const restoredHistory = [...preRepairMessages, ...newMessages];
-    const recallStripped = stripMemoryRecallMessages(restoredHistory, recall.injectedText, recallInjectionStrategy);
-    ctx.messages = stripTemporalContext(
-      stripChannelCapabilityContext(
-        stripWorkspaceTopLevelContext(
-          stripActiveSurfaceContext(
-            stripDynamicProfileMessages(recallStripped, dynamicProfile.text),
-          ),
-        ),
-      ),
-    );
+    ctx.messages = stripInjectedContext(restoredHistory, {
+      stripRecall: (msgs) => stripMemoryRecallMessages(msgs, recall.injectedText, recallInjectionStrategy),
+      stripDynamicProfile: (msgs) => stripDynamicProfileMessages(msgs, dynamicProfile.text),
+    });
 
     emitUsage(ctx, exchangeInputTokens, exchangeOutputTokens, model, onEvent, 'main_agent', reqId);
 

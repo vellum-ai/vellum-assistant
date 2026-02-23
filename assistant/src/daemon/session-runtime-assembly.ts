@@ -264,21 +264,38 @@ export function injectChannelCapabilityContext(message: Message, caps: ChannelCa
   };
 }
 
+// ---------------------------------------------------------------------------
+// Prefix-based stripping primitive
+// ---------------------------------------------------------------------------
+
 /**
- * Strip `<channel_capabilities>` blocks injected by
- * `injectChannelCapabilityContext`.
+ * Remove text blocks from user messages whose text starts with any of the
+ * given prefixes.  If stripping removes all content blocks from a message,
+ * the message itself is dropped.
+ *
+ * This is the shared primitive behind the individual strip* functions and
+ * the `stripInjectedContext` pipeline.
  */
-export function stripChannelCapabilityContext(messages: Message[]): Message[] {
+export function stripUserTextBlocksByPrefix(messages: Message[], prefixes: string[]): Message[] {
   return messages.map((message) => {
     if (message.role !== 'user') return message;
     const nextContent = message.content.filter((block) => {
       if (block.type !== 'text') return true;
-      return !block.text.startsWith('<channel_capabilities>');
+      return !prefixes.some((p) => block.text.startsWith(p));
     });
     if (nextContent.length === message.content.length) return message;
     if (nextContent.length === 0) return null;
     return { ...message, content: nextContent };
   }).filter((message): message is NonNullable<typeof message> => message !== null);
+}
+
+// ---------------------------------------------------------------------------
+// Individual strip functions (thin wrappers around the primitive)
+// ---------------------------------------------------------------------------
+
+/** Strip `<channel_capabilities>` blocks injected by `injectChannelCapabilityContext`. */
+export function stripChannelCapabilityContext(messages: Message[]): Message[] {
+  return stripUserTextBlocksByPrefix(messages, ['<channel_capabilities>']);
 }
 
 /**
@@ -294,22 +311,9 @@ export function injectWorkspaceTopLevelContext(message: Message, contextText: st
   };
 }
 
-/**
- * Strip `<workspace_top_level>` blocks injected by
- * `injectWorkspaceTopLevelContext`.  Called after the agent run to prevent
- * workspace context from persisting in session history.
- */
+/** Strip `<workspace_top_level>` blocks injected by `injectWorkspaceTopLevelContext`. */
 export function stripWorkspaceTopLevelContext(messages: Message[]): Message[] {
-  return messages.map((message) => {
-    if (message.role !== 'user') return message;
-    const nextContent = message.content.filter((block) => {
-      if (block.type !== 'text') return true;
-      return !block.text.startsWith('<workspace_top_level>');
-    });
-    if (nextContent.length === message.content.length) return message;
-    if (nextContent.length === 0) return null;
-    return { ...message, content: nextContent };
-  }).filter((message): message is NonNullable<typeof message> => message !== null);
+  return stripUserTextBlocksByPrefix(messages, ['<workspace_top_level>']);
 }
 
 /**
@@ -328,8 +332,6 @@ export function injectTemporalContext(message: Message, temporalContext: string)
 
 /**
  * Strip `<temporal_context>` blocks injected by `injectTemporalContext`.
- * Called after the agent run to prevent temporal context from persisting
- * in session history.
  *
  * Uses a specific prefix (`<temporal_context>\nToday:`) so that
  * user-authored text that happens to start with `<temporal_context>`
@@ -338,35 +340,49 @@ export function injectTemporalContext(message: Message, temporalContext: string)
 const TEMPORAL_INJECTED_PREFIX = '<temporal_context>\nToday:';
 
 export function stripTemporalContext(messages: Message[]): Message[] {
-  return messages.map((message) => {
-    if (message.role !== 'user') return message;
-    const nextContent = message.content.filter((block) => {
-      if (block.type !== 'text') return true;
-      return !block.text.startsWith(TEMPORAL_INJECTED_PREFIX);
-    });
-    if (nextContent.length === message.content.length) return message;
-    if (nextContent.length === 0) return null;
-    return { ...message, content: nextContent };
-  }).filter((message): message is NonNullable<typeof message> => message !== null);
+  return stripUserTextBlocksByPrefix(messages, [TEMPORAL_INJECTED_PREFIX]);
 }
 
 /**
  * Strip `<active_workspace>` (and legacy `<active_dynamic_page>`) blocks
- * injected by `injectActiveSurfaceContext`.  Called after the agent run to
- * prevent the (potentially 100 KB) surface HTML from persisting in session
- * history.
+ * injected by `injectActiveSurfaceContext`.
  */
 export function stripActiveSurfaceContext(messages: Message[]): Message[] {
-  return messages.map((message) => {
-    if (message.role !== 'user') return message;
-    const nextContent = message.content.filter((block) => {
-      if (block.type !== 'text') return true;
-      return !block.text.startsWith('<active_workspace>') && !block.text.startsWith('<active_dynamic_page>');
-    });
-    if (nextContent.length === message.content.length) return message;
-    if (nextContent.length === 0) return null;
-    return { ...message, content: nextContent };
-  }).filter((message): message is NonNullable<typeof message> => message !== null);
+  return stripUserTextBlocksByPrefix(messages, ['<active_workspace>', '<active_dynamic_page>']);
+}
+
+// ---------------------------------------------------------------------------
+// Declarative strip pipeline
+// ---------------------------------------------------------------------------
+
+/** Prefixes stripped by the pipeline (order doesn't matter — single pass). */
+const RUNTIME_INJECTION_PREFIXES = [
+  '<channel_capabilities>',
+  '<workspace_top_level>',
+  TEMPORAL_INJECTED_PREFIX,
+  '<active_workspace>',
+  '<active_dynamic_page>',
+];
+
+/**
+ * Strip all runtime-injected context from message history in a single pass.
+ *
+ * Composes:
+ * 1. `stripMemoryRecallMessages` (caller-supplied, handles its own logic)
+ * 2. `stripDynamicProfileMessages` (caller-supplied, handles its own logic)
+ * 3. Prefix-based stripping for channel capabilities, workspace top-level,
+ *    temporal context, and active surface context (single pass).
+ */
+export function stripInjectedContext(
+  messages: Message[],
+  options: {
+    stripRecall: (msgs: Message[]) => Message[];
+    stripDynamicProfile: (msgs: Message[]) => Message[];
+  },
+): Message[] {
+  const afterRecall = options.stripRecall(messages);
+  const afterProfile = options.stripDynamicProfile(afterRecall);
+  return stripUserTextBlocksByPrefix(afterProfile, RUNTIME_INJECTION_PREFIXES);
 }
 
 /**
