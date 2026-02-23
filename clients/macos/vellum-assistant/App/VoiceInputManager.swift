@@ -98,6 +98,7 @@ final class VoiceInputManager {
             localKeyDownMonitor = nil
         }
         stopRecording()
+        overlayWindow.dismiss()
     }
 
     /// Directly toggle recording on/off — used by UI mic buttons that bypass the Fn-key hold flow.
@@ -402,6 +403,7 @@ final class VoiceInputManager {
         if !awaitingDaemonResponse {
             overlayWindow.dismiss()
         }
+        awaitingDaemonResponse = false  // reset for next recording
         log.info("Voice recording stopped")
 
         if audioEngine.isRunning {
