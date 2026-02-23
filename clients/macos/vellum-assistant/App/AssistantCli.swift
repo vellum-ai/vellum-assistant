@@ -289,9 +289,18 @@ final class AssistantCli {
     }
 
     /// Start a periodic health check that restarts the daemon if it dies.
-    /// No-op in dev mode (no bundled CLI binary).
+    /// No-op in dev mode (no bundled CLI binary) or when the assistant
+    /// is not registered in the lock file.
     func startMonitoring() {
         guard cliBinaryURL != nil else { return }
+
+        // Don't start monitoring if the assistant isn't in the lock file
+        let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        if let assistantId, !isAssistantInLockFile(assistantId: assistantId) {
+            log.info("Assistant '\(assistantId)' not in lock file — skipping monitor start")
+            return
+        }
+
         isStopping = false
         hasGivenUp = false
         consecutiveCrashes = 0
@@ -456,11 +465,9 @@ final class AssistantCli {
     // MARK: - Private Helpers
 
     /// Path to the lock file that tracks registered assistants.
+    /// Always at `~/.vellum.lock.json` (home directory), matching the CLI's `getLockfilePath()`.
     private var lockFileURL: URL {
-        if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
-            return URL(fileURLWithPath: baseDir).appendingPathComponent(".vellum.lock.json")
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".vellum.lock.json")
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".vellum.lock.json")
     }
 
     /// Returns `true` if the given assistant ID is present in `~/.vellum.lock.json`.
