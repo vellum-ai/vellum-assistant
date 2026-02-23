@@ -123,7 +123,11 @@ export async function runMemoryJobsOnce(
             completeMemoryJob(job.id);
             groupProcessed += 1;
           } catch (err) {
-            handleJobError(job, err);
+            try {
+              handleJobError(job, err);
+            } catch (handlerErr) {
+              log.error({ err: handlerErr, jobId: job.id, type: job.type }, 'handleJobError itself threw, job left in running status');
+            }
           }
         }
         return groupProcessed;
