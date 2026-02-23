@@ -4253,6 +4253,51 @@ Keep-alive heartbeats (every 30 s by default):
 
 ---
 
+## QA Recording — Automated Video Capture and Retention
+
+### QA Recording Data Flow
+
+```
+User asks to test → QA intent detection → CU session created with qaMode + reportToSessionId
+→ macOS ScreenRecorder starts → CU action loop executes
+→ Session terminates → ScreenRecorder stops → .mp4 saved to ~/Library/Application Support/vellum-assistant/recordings/
+→ cu_session_finalized sent to daemon with recording metadata
+→ Daemon handler creates file-backed attachment + assistant message in source chat
+→ Client loads video from GET /v1/attachments/:id/content (with Range support)
+→ Video playable inline + draggable to Finder
+→ Retention cleanup removes expired recordings after configurable period (default 7 days)
+```
+
+### File-Backed Attachment Storage
+
+The attachments table supports two storage kinds:
+
+| `storageKind` | Data location | Use case |
+|---------------|---------------|----------|
+| `inline_base64` | `dataBase64` column in SQLite | Small attachments (images, documents, up to 20 MB) |
+| `file` | On-disk file referenced by `filePath` column | Large files (QA recordings, videos) |
+
+File-backed attachments store only metadata in SQLite (filename, MIME type, size, SHA-256 hash, expiry timestamp). Binary content is served via `GET /v1/attachments/:id/content` with HTTP Range header support for streaming video playback.
+
+### Retention Cleanup
+
+A periodic cleanup worker (`recording-cleanup.ts`) runs on a configurable interval (default: every 6 hours, set via `qaRecording.cleanupIntervalMs`). It also runs one pass on daemon startup to catch recordings that expired while the daemon was offline.
+
+The cleanup pass:
+1. Queries `getExpiredFileAttachments()` for file-backed attachments where `expiresAt < now`
+2. Deletes the underlying file from disk via `fs.unlinkSync`
+3. Removes the DB row via `deleteFileBackedAttachment(id)`
+4. Logs a summary of cleaned-up recordings and freed disk space
+
+| Key files | Purpose |
+|-----------|---------|
+| `assistant/src/daemon/recording-cleanup.ts` | Cleanup worker (start/stop/runPass) |
+| `assistant/src/memory/attachments-store.ts` | `createFileBackedAttachment`, `getExpiredFileAttachments`, `deleteFileBackedAttachment` |
+| `assistant/src/config/schema.ts` | `QaRecordingConfigSchema` (retention days, cleanup interval) |
+| `assistant/src/daemon/lifecycle.ts` | Wires cleanup worker start/stop into daemon init/shutdown |
+
+---
+
 ## Storage Summary
 
 | What | Where | Format | ORM/Driver | Retention |
@@ -4270,7 +4315,8 @@ Keep-alive heartbeats (every 30 s by default):
 | Entity graph (entities/relations/item links) | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, deduped by unique relation edge |
 | Embeddings | `~/.vellum/workspace/data/db/assistant.db` | JSON float arrays | Drizzle ORM | Permanent |
 | Async job queue | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Completed jobs persist |
-| Attachments | `~/.vellum/workspace/data/db/assistant.db` | Base64 in SQLite | Drizzle ORM | Permanent |
+| Attachments (inline) | `~/.vellum/workspace/data/db/assistant.db` | Base64 in SQLite | Drizzle ORM | Permanent |
+| Attachments (file-backed) | `~/Library/Application Support/vellum-assistant/recordings/` + metadata in SQLite | Binary on disk, metadata in SQLite | Drizzle ORM + fs | Configurable (`qaRecording.defaultRetentionDays`, default 7 days) |
 | Sandbox filesystem | `~/.vellum/workspace` | Real filesystem tree | Node FS APIs | Persistent across sessions |
 | Tool permission rules | `~/.vellum/protected/trust.json` | JSON | File I/O | Permanent |
 | Web users & assistants | PostgreSQL | Relational | Drizzle ORM (pg) | Permanent |
