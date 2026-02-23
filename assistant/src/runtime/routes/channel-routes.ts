@@ -169,13 +169,22 @@ export async function handleDeleteConversation(req: Request, assistantId: string
     return Response.json({ error: 'externalChatId is required' }, { status: 400 });
   }
 
-  // Delete both legacy and scoped conversation key aliases to handle
-  // migration scenarios where either or both keys may exist.
+  // Delete the assistant-scoped key unconditionally. The legacy key is
+  // canonical for the self assistant and must not be deleted from non-self
+  // routes, otherwise a non-self reset can accidentally reset self state.
   const legacyKey = `${sourceChannel}:${externalChatId}`;
   const scopedKey = `asst:${assistantId}:${sourceChannel}:${externalChatId}`;
-  deleteConversationKey(legacyKey);
   deleteConversationKey(scopedKey);
-  externalConversationStore.deleteBindingByChannelChat(sourceChannel, externalChatId);
+  if (assistantId === 'self') {
+    deleteConversationKey(legacyKey);
+  }
+  // external_conversation_bindings is currently assistant-agnostic
+  // (unique by sourceChannel + externalChatId). Restrict mutations to the
+  // canonical self-assistant route so multi-assistant legacy routes do not
+  // clobber each other's bindings.
+  if (assistantId === 'self') {
+    externalConversationStore.deleteBindingByChannelChat(sourceChannel, externalChatId);
+  }
 
   return Response.json({ ok: true });
 }
@@ -338,15 +347,19 @@ export async function handleChannelInbound(
     { sourceMessageId, assistantId },
   );
 
-  // Upsert external conversation binding with sender metadata
-  externalConversationStore.upsertBinding({
-    conversationId: result.conversationId,
-    sourceChannel,
-    externalChatId,
-    externalUserId: body.senderExternalUserId ?? null,
-    displayName: body.senderName ?? null,
-    username: body.senderUsername ?? null,
-  });
+  // external_conversation_bindings is assistant-agnostic. Restrict writes to
+  // self so assistant-scoped legacy routes do not overwrite each other's
+  // channel binding metadata for the same chat.
+  if (assistantId === 'self') {
+    externalConversationStore.upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel,
+      externalChatId,
+      externalUserId: body.senderExternalUserId ?? null,
+      displayName: body.senderName ?? null,
+      username: body.senderUsername ?? null,
+    });
+  }
 
   const metadataHintsRaw = sourceMetadata?.hints;
   const metadataHints = Array.isArray(metadataHintsRaw)
@@ -403,9 +416,9 @@ export async function handleChannelInbound(
   // When a guardian binding exists, non-guardian actors get stricter
   // side-effect controls and their approvals route to the guardian's chat.
   //
-  // Guardian enforcement runs independently of CHANNEL_APPROVALS_ENABLED.
-  // The approval flag only gates the interactive approval prompting UX;
-  // actor-role resolution and fail-closed denial are always active.
+  // Guardian actor-role resolution always runs. Guardian enforcement for
+  // non-guardian/unverified actors is active even when
+  // CHANNEL_APPROVALS_ENABLED is disabled.
   let guardianCtx: GuardianContext = { actorRole: 'guardian' };
   if (body.senderExternalUserId) {
     const senderIsGuardian = isGuardian(assistantId, sourceChannel, body.senderExternalUserId);
@@ -449,9 +462,11 @@ export async function handleChannelInbound(
     }
   }
 
-  // ── Approval interception (gated behind feature flag) ──
+  // ── Approval interception ──
+  // Keep this active whenever orchestrator + callback context are available so
+  // guardian decisions can still be applied even when CHANNEL_APPROVALS_ENABLED
+  // is disabled for generic self-approval UX.
   if (
-    isChannelApprovalsEnabled() &&
     runOrchestrator &&
     replyCallbackUrl &&
     !result.duplicate
@@ -522,13 +537,16 @@ export async function handleChannelInbound(
       throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
     }
 
-    // When approval flow is enabled and we have an orchestrator, use the
-    // orchestrator-backed path which properly intercepts confirmation_request
-    // events and sends proactive approval prompts to the channel.
-    const useApprovalPath =
-      isChannelApprovalsEnabled() && runOrchestrator && replyCallbackUrl;
+    // Use the approval-aware orchestrator path when:
+    // 1) generic channel approvals are enabled, or
+    // 2) guardian enforcement is required for non-guardian/unverified actors.
+    const useApprovalPath = Boolean(
+      runOrchestrator &&
+      replyCallbackUrl &&
+      (isChannelApprovalsEnabled() || guardianCtx.actorRole !== 'guardian'),
+    );
 
-    if (useApprovalPath) {
+    if (useApprovalPath && runOrchestrator && replyCallbackUrl) {
       processChannelMessageWithApprovals({
         orchestrator: runOrchestrator,
         conversationId: result.conversationId,

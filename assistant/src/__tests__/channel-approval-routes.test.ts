@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterAll, afterEach, mock, spyOn } 
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { eq } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
@@ -41,7 +42,7 @@ mock.module('../daemon/handlers.js', () => ({
 }));
 
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { conversations } from '../memory/schema.js';
+import { conversations, externalConversationBindings } from '../memory/schema.js';
 import {
   createRun,
   setRunConfirmation,
@@ -204,7 +205,7 @@ describe('feature flag disabled → normal flow', () => {
     delete process.env.CHANNEL_APPROVALS_ENABLED;
   });
 
-  test('proceeds normally even when pending approvals exist', async () => {
+  test('ignores stale callback payloads even when pending approvals exist', async () => {
     ensureConversation('conv-1');
     const run = createRun('conv-1');
     setRunConfirmation(run.id, sampleConfirmation);
@@ -218,9 +219,10 @@ describe('feature flag disabled → normal flow', () => {
     const res = await handleChannelInbound(req, noopProcessMessage, undefined, orchestrator);
     const body = await res.json() as Record<string, unknown>;
 
-    // Should proceed normally — no approval interception
+    // With generic approvals disabled, callback payloads without a matching
+    // pending approval are still treated as stale and ignored.
     expect(body.accepted).toBe(true);
-    expect(body.approval).toBeUndefined();
+    expect(body.approval).toBe('stale_ignored');
   });
 });
 
@@ -2856,6 +2858,37 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     deliverSpy.mockRestore();
     approvalSpy.mockRestore();
   });
+
+  test('non-self assistant inbound does not mutate assistant-agnostic external bindings', async () => {
+    const db = getDb();
+    const now = Date.now();
+    ensureConversation('conv-existing-binding');
+    db.insert(externalConversationBindings).values({
+      conversationId: 'conv-existing-binding',
+      sourceChannel: 'telegram',
+      externalChatId: 'chat-123',
+      externalUserId: 'existing-user',
+      createdAt: now,
+      updatedAt: now,
+      lastInboundAt: now,
+    }).run();
+
+    const req = makeInboundRequest({
+      content: 'hello from non-self assistant',
+      senderExternalUserId: 'incoming-user',
+    });
+
+    const res = await handleChannelInbound(req, undefined, 'token', undefined, 'asst-non-self');
+    expect(res.status).toBe(200);
+
+    const binding = db
+      .select()
+      .from(externalConversationBindings)
+      .where(eq(externalConversationBindings.conversationId, 'conv-existing-binding'))
+      .get();
+    expect(binding).not.toBeNull();
+    expect(binding!.externalUserId).toBe('existing-user');
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2863,7 +2896,7 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('guardian enforcement independence from approval flag', () => {
-  test('actor role resolution runs when CHANNEL_APPROVALS_ENABLED is off', async () => {
+  test('non-guardian sensitive action routes approval to guardian when CHANNEL_APPROVALS_ENABLED is off', async () => {
     delete process.env.CHANNEL_APPROVALS_ENABLED;
 
     // Create a guardian binding — user-guardian is the guardian
@@ -2874,31 +2907,29 @@ describe('guardian enforcement independence from approval flag', () => {
       guardianDeliveryChatId: 'chat-guardian',
     });
 
-    // A non-guardian user sends a message with approvals disabled.
-    // Actor role resolution should still classify them as non-guardian
-    // even though the approval UX is off.
-    const orchestrator = makeMockOrchestrator();
+    const orchestrator = makeSensitiveOrchestrator({ runId: 'run-flag-off-guardian', terminalStatus: 'completed' });
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
 
     const req = makeInboundRequest({
-      content: 'hello world',
+      content: 'do something dangerous',
       senderExternalUserId: 'user-non-guardian',
     });
 
     const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
     expect(res.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
 
-    // The message should proceed normally since approval UX is off,
-    // but actor role resolution still ran (verified by the fact that
-    // the message processed successfully without error)
-    const body = await res.json() as Record<string, unknown>;
-    expect(body.accepted).toBe(true);
+    expect(approvalSpy).toHaveBeenCalled();
+    const approvalArgs = approvalSpy.mock.calls[0];
+    expect(approvalArgs[1]).toBe('chat-guardian');
 
     deliverSpy.mockRestore();
+    approvalSpy.mockRestore();
   });
 
   test('missing senderExternalUserId with guardian binding fails closed', async () => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+    delete process.env.CHANNEL_APPROVALS_ENABLED;
 
     // Create a guardian binding — guardian enforcement is active
     createBinding({
@@ -2951,7 +2982,7 @@ describe('guardian enforcement independence from approval flag', () => {
   });
 
   test('missing senderExternalUserId without guardian binding uses default flow', async () => {
-    process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+    delete process.env.CHANNEL_APPROVALS_ENABLED;
 
     // No guardian binding exists — default behavior should be preserved
     const orchestrator = makeMockOrchestrator();

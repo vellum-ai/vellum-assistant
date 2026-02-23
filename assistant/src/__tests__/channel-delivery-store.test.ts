@@ -24,7 +24,7 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { channelInboundEvents, conversations, messages } from '../memory/schema.js';
+import { channelInboundEvents, conversations, externalConversationBindings, messages } from '../memory/schema.js';
 import {
   recordInbound,
   linkMessage,
@@ -470,7 +470,7 @@ describe('channel-delivery-store', () => {
 
   // ── handleDeleteConversation assistantId parameter ───────────────
 
-  test('handleDeleteConversation uses route assistantId param to delete scoped key', async () => {
+  test('handleDeleteConversation with non-self assistant deletes only scoped key', async () => {
     // Set up a scoped conversation key like the one created by recordInbound
     // with a specific assistantId.
     const convId = 'conv-delete-test';
@@ -488,6 +488,13 @@ describe('channel-delivery-store', () => {
     }).run();
     setConversationKey(scopedKey, convId);
     setConversationKey(legacyKey, convId);
+    db.insert(externalConversationBindings).values({
+      conversationId: convId,
+      sourceChannel: 'telegram',
+      externalChatId: 'chat-del',
+      createdAt: now,
+      updatedAt: now,
+    }).run();
 
     // Verify both keys exist
     expect(getConversationByKey(scopedKey)).not.toBeNull();
@@ -510,9 +517,15 @@ describe('channel-delivery-store', () => {
     const json = await res.json() as { ok: boolean };
     expect(json.ok).toBe(true);
 
-    // Both the legacy key and the scoped key should be deleted
+    // Non-self delete should only remove the scoped key and preserve legacy.
     expect(getConversationByKey(scopedKey)).toBeNull();
-    expect(getConversationByKey(legacyKey)).toBeNull();
+    expect(getConversationByKey(legacyKey)).not.toBeNull();
+    // Non-self delete should not mutate assistant-agnostic external bindings.
+    const remainingBinding = db.select()
+      .from(externalConversationBindings)
+      .where(eq(externalConversationBindings.conversationId, convId))
+      .get();
+    expect(remainingBinding).not.toBeNull();
   });
 
   test('handleDeleteConversation defaults to "self" when no assistantId provided', async () => {
@@ -530,6 +543,13 @@ describe('channel-delivery-store', () => {
     }).run();
     setConversationKey(scopedKey, convId);
     setConversationKey(legacyKey, convId);
+    db.insert(externalConversationBindings).values({
+      conversationId: convId,
+      sourceChannel: 'telegram',
+      externalChatId: 'chat-def',
+      createdAt: now,
+      updatedAt: now,
+    }).run();
 
     const req = new Request('http://localhost/channels/conversation', {
       method: 'DELETE',
@@ -546,5 +566,11 @@ describe('channel-delivery-store', () => {
 
     expect(getConversationByKey(scopedKey)).toBeNull();
     expect(getConversationByKey(legacyKey)).toBeNull();
+    // Self delete should keep external bindings in sync for the canonical route.
+    const remainingBinding = db.select()
+      .from(externalConversationBindings)
+      .where(eq(externalConversationBindings.conversationId, convId))
+      .get();
+    expect(remainingBinding).toBeUndefined();
   });
 });

@@ -3587,7 +3587,7 @@ The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-clos
 
 ### Channel Approval Flow
 
-When the assistant requires tool-use confirmation during a channel session (e.g., Telegram), the approval flow intercepts the run and surfaces an interactive prompt to the user. The entire approval flow -- including guardian enforcement (fail-closed denial for unknown actors, `forceStrictSideEffects`, approval prompt routing) -- is gated behind the `CHANNEL_APPROVALS_ENABLED` feature flag. Actor-role *resolution* (classifying senders as guardian/non-guardian/unverified) runs unconditionally, but the enforcement actions that depend on those roles only execute when the flag is enabled.
+When the assistant requires tool-use confirmation during a channel session (e.g., Telegram), the approval flow intercepts the run and surfaces an interactive prompt to the user. Generic self-approval UX is gated behind `CHANNEL_APPROVALS_ENABLED`; guardian enforcement (fail-closed denial for unknown actors, `forceStrictSideEffects`, guardian-routed approval prompts) for non-guardian/unverified actors remains active regardless of the flag when orchestrator + callback context are available.
 
 **State machine:**
 
@@ -3623,7 +3623,7 @@ Runtime detects needs_confirmation
 
 **Guardian-aware routing:** When a guardian binding exists for the channel, the approval flow resolves the sender's actor role (`guardian` vs `non-guardian`). Non-guardian actors have `forceStrictSideEffects` set on the session so all side-effect tools trigger approval prompts regardless of existing allow rules. Approval prompts for non-guardian actions are routed to the guardian's delivery chat (not the requester's chat), and a `channelGuardianApprovalRequest` record is created. When the guardian approves or denies, the decision is applied to the underlying run and the requester's chat is notified of the outcome. Guardian actors follow the standard approval flow. All guardian state (bindings, challenges, approval requests) is scoped to the `(assistantId, channel)` pair -- the `assistantId` parameter flows through `handleChannelInbound`, `validateAndConsumeChallenge`, `isGuardian`, `getGuardianBinding`, and `createApprovalRequest`.
 
-**Proactive expiry sweep:** The runtime runs a periodic sweep every 60 seconds (`sweepExpiredGuardianApprovals`) that finds guardian approval requests past the 30-minute TTL, auto-denies the underlying runs, and notifies both the requester and guardian via the gateway's per-channel `/deliver/<channel>` endpoint. This ensures expired approvals are closed without waiting for follow-up traffic from either party. The sweep is started automatically when `CHANNEL_APPROVALS_ENABLED=true` and a run orchestrator is available.
+**Proactive expiry sweep:** The runtime runs a periodic sweep every 60 seconds (`sweepExpiredGuardianApprovals`) that finds guardian approval requests past the 30-minute TTL, auto-denies the underlying runs, and notifies both the requester and guardian via the gateway's per-channel `/deliver/<channel>` endpoint. This ensures expired approvals are closed without waiting for follow-up traffic from either party. The sweep is started automatically whenever a run orchestrator is available.
 
 **Gateway-origin ingress contract:** The `/channels/inbound` endpoint requires a valid `X-Gateway-Origin` header to prove the request originated from the gateway. When `RUNTIME_GATEWAY_ORIGIN_SECRET` is set, it is the expected header value. When not set, the runtime falls back to the bearer token. When neither is configured (local dev), validation is skipped. The gateway sends this header on all runtime-bound requests via its `runtimeHeaders()` helper. Constant-time comparison prevents timing attacks.
 
@@ -3679,11 +3679,11 @@ The raw secret is shown only once in the desktop UI. Only the SHA-256 hash is pe
 
 #### Actor Role Resolution
 
-When a message arrives on a channel, the runtime resolves the sender's role. Role *classification* runs unconditionally, but enforcement (`forceStrictSideEffects`, fail-closed denial, approval routing) only applies when `CHANNEL_APPROVALS_ENABLED=true`:
+When a message arrives on a channel, the runtime resolves the sender's role. Role *classification* runs unconditionally. Guardian enforcement (`forceStrictSideEffects`, fail-closed denial, guardian approval routing) applies to non-guardian/unverified actors regardless of `CHANNEL_APPROVALS_ENABLED` when orchestrator + callback context are available:
 
-- **Guardian**: `externalUserId` matches the binding's `guardianExternalUserId` for the `(assistantId, channel)` pair. Standard approval flow applies.
-- **Non-guardian**: A known sender who is not the guardian. When enforcement is active (`CHANNEL_APPROVALS_ENABLED=true`), all side-effect tools are forced through the confirmation flow (`forceStrictSideEffects`), and approval prompts are routed to the guardian's chat instead of the requester's chat.
-- **Unverified channel**: No guardian binding exists for the channel, or `senderExternalUserId` is absent while a binding exists. When enforcement is active, sensitive actions are auto-denied immediately (fail-closed). This prevents unverified senders from self-approving actions or bypassing guardian enforcement by omitting identity data. When `CHANNEL_APPROVALS_ENABLED=false`, the role is still classified but no enforcement action is taken.
+- **Guardian**: `externalUserId` matches the binding's `guardianExternalUserId` for the `(assistantId, channel)` pair. Generic self-approval UX is controlled by `CHANNEL_APPROVALS_ENABLED`.
+- **Non-guardian**: A known sender who is not the guardian. Side-effect tools are forced through the confirmation flow (`forceStrictSideEffects`), and approval prompts are routed to the guardian's chat instead of the requester's chat.
+- **Unverified channel**: No guardian binding exists for the channel, or `senderExternalUserId` is absent while a binding exists. Sensitive actions are auto-denied immediately (fail-closed). This prevents unverified senders from self-approving actions or bypassing guardian enforcement by omitting identity data.
 
 #### Sensitive Action Gating (Non-Guardian Approval)
 

@@ -414,8 +414,10 @@ export class RuntimeHttpServer {
       }, 30_000);
     }
 
-    // Start proactive guardian approval expiry sweep when approvals are enabled
-    if (isChannelApprovalsEnabled() && this.runOrchestrator) {
+    // Start proactive guardian approval expiry sweep whenever orchestrator
+    // support is available. Guardian approvals can be created even when the
+    // generic channel-approval UX flag is disabled.
+    if (this.runOrchestrator) {
       startGuardianExpirySweep(this.runOrchestrator, getGatewayBaseUrl(), this.bearerToken);
       log.info('Guardian approval expiry sweep started');
     }
