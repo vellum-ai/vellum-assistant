@@ -81,7 +81,7 @@ function extractSummary(content: string): string {
   if (fmMatch) {
     body = content.slice(fmMatch[0].length);
   } else if (/^---\r?\n/.test(content)) {
-    if (content.length >= SUMMARY_READ_BYTES) {
+    if (Buffer.byteLength(content, 'utf-8') >= SUMMARY_READ_BYTES) {
       // Content starts with a frontmatter opening delimiter but the closing
       // delimiter was not found. The content length reached SUMMARY_READ_BYTES,
       // so the read was likely truncated — the missing closing `---` is

@@ -303,6 +303,32 @@ describe('summary extraction', () => {
     expect(entry!.summary).toBe('');
   });
 
+  test('returns empty summary when frontmatter is truncated with multibyte UTF-8 characters', () => {
+    // When frontmatter contains multibyte UTF-8 characters (e.g., CJK text),
+    // the JavaScript string length (UTF-16 code units) is smaller than the
+    // byte length. The truncation guard must compare byte length, not
+    // string length, against SUMMARY_READ_BYTES (1024).
+    //
+    // Each CJK character is 3 bytes in UTF-8 but 1 code unit in UTF-16.
+    // We need the total byte count to reach 1024 while string length stays
+    // well below 1024 to exercise the bug.
+    const cjkChars = '\u4e00'.repeat(340); // 340 chars * 3 bytes = 1020 bytes
+    // '---\n' is 4 bytes, so total = 4 + 1020 = 1024 bytes, but string
+    // length = 4 + 340 = 344 chars — well under 1024.
+    const truncatedContent = '---\n' + cjkChars;
+    createCommandsDir(tmpDir, {
+      'multibyte-frontmatter.md': truncatedContent,
+    });
+
+    const registry = discoverCCCommands(tmpDir);
+    const entry = registry.entries.get('multibyte-frontmatter');
+    expect(entry).toBeDefined();
+    // Should return '' because the frontmatter opening delimiter is present
+    // but the closing delimiter is missing and the byte length reached the
+    // read limit — indicating truncation.
+    expect(entry!.summary).toBe('');
+  });
+
   test('returns summary for small file starting with thematic break ---', () => {
     // A small markdown file that starts with "---" as a thematic break (not
     // frontmatter) should still have its first content line extracted as a
