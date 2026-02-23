@@ -1,7 +1,14 @@
-name: PR Assistant Checks
+name: CI Assistant Checks
 
 on:
   pull_request:
+    paths:
+      - 'assistant/**'
+      - 'clients/shared/IPC/**'
+      - '.githooks/**'
+      - '.github/workflows/ci-assistant.yml'
+  push:
+    branches: [main]
     paths:
       - 'assistant/**'
       - 'clients/shared/IPC/**'
@@ -50,9 +57,11 @@ jobs:
           EXCLUDE_EXPERIMENTAL: 'true'
 
       - name: Zip assistant artifact
+        if: github.event_name == 'pull_request'
         run: zip -r ../assistant-pr-${{ github.event.pull_request.number }}.zip . -x "node_modules/*"
 
       - name: Upload assistant artifact
+        if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: assistant-pr-${{ github.event.pull_request.number }}
@@ -61,7 +70,7 @@ jobs:
           retention-days: 7
 
       - name: Generate GitHub App token
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         id: app-token
         uses: actions/create-github-app-token@v2
         with:
@@ -69,7 +78,7 @@ jobs:
           private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
 
       - name: Comment artifact link on PR
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
