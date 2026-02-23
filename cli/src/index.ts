@@ -1,5 +1,8 @@
 #!/usr/bin/env bun
 
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { spawn } from "node:child_process";
 import { client } from "./commands/client";
 import { hatch } from "./commands/hatch";
 import { ps } from "./commands/ps";
@@ -23,7 +26,7 @@ async function main() {
   const commandName = args[0];
 
   if (!commandName || commandName === "--help" || commandName === "-h") {
-    console.log("Usage: vellum-cli <command> [options]");
+    console.log("Usage: vellum <command> [options]");
     console.log("");
     console.log("Commands:");
     console.log("  client   Connect to a hatched assistant");
@@ -38,9 +41,30 @@ async function main() {
   const command = commands[commandName as CommandName];
 
   if (!command) {
-    console.error(`Error: Unknown command '${commandName}'`);
-    console.error("Run 'vellum-cli --help' for usage information.");
-    process.exit(1);
+    try {
+      const require = createRequire(import.meta.url);
+      const assistantPkgPath = require.resolve(
+        "@vellumai/assistant/package.json"
+      );
+      const assistantEntry = join(
+        dirname(assistantPkgPath),
+        "src",
+        "index.ts"
+      );
+      const child = spawn("bun", ["run", assistantEntry, ...args], {
+        stdio: "inherit",
+      });
+      child.on("exit", (code) => {
+        process.exit(code ?? 1);
+      });
+    } catch {
+      console.error(`Unknown command: ${commandName}`);
+      console.error(
+        "Install the full stack with: bun install -g vellum"
+      );
+      process.exit(1);
+    }
+    return;
   }
 
   try {

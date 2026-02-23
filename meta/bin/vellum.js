@@ -1,2 +1,2 @@
 #!/usr/bin/env bun
-import("@vellumai/assistant/src/index.ts");
+import("@vellumai/cli/src/index.ts");

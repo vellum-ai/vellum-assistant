@@ -2,8 +2,6 @@
 
 import { Command } from 'commander';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
-import { spawn } from 'node:child_process';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json') as { version: string };
@@ -58,24 +56,4 @@ registerCompletionsCommand(program);
 registerTwitterCommand(program);
 registerMapCommand(program);
 
-const knownCommands = new Set(program.commands.map(cmd => cmd.name()));
-const firstArg = process.argv[2];
-
-if (firstArg && !firstArg.startsWith('-') && !knownCommands.has(firstArg)) {
-  try {
-    const cliPkgPath = require.resolve('@vellumai/cli/package.json');
-    const cliEntry = join(dirname(cliPkgPath), 'src', 'index.ts');
-    const child = spawn('bun', ['run', cliEntry, ...process.argv.slice(2)], {
-      stdio: 'inherit',
-    });
-    child.on('exit', (code) => {
-      process.exit(code ?? 1);
-    });
-  } catch {
-    console.error(`Unknown command: ${firstArg}`);
-    console.error('Install the full stack with: bun install -g vellum');
-    process.exit(1);
-  }
-} else {
-  program.parse();
-}
+program.parse();
