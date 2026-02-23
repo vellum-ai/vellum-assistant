@@ -7,7 +7,7 @@ struct VellumAssistantApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView(store: appDelegate.services.settingsStore, daemonClient: appDelegate.services.daemonClient)
+            EmptyView()
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -18,6 +18,14 @@ struct VellumAssistantApp: App {
                     appDelegate.updateManager.checkForUpdates()
                 }
                 .disabled(!appDelegate.updateManager.canCheckForUpdates)
+            }
+            // Replace the default Settings menu item (which opens the SwiftUI
+            // Settings scene window) with one that opens the in-app panel.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings...") {
+                    appDelegate.showSettingsWindow(nil)
+                }
+                .keyboardShortcut(",", modifiers: .command)
             }
         }
     }

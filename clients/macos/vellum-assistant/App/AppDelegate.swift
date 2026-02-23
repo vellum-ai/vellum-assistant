@@ -84,7 +84,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var authWindow: NSWindow?
     let authManager = AuthManager()
     var mainWindow: MainWindow?
-    private var settingsWindow: NSWindow?
     var bundleConfirmationWindow: BundleConfirmationWindow?
     private var tasksWindow: TasksWindow?
     /// Tracks file paths of .vellumapp bundles awaiting daemon responses (FIFO).
@@ -95,7 +94,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var galleryWindow: ComponentGalleryWindow?
     #endif
     private var windowObserver: Any?
-    private var settingsWindowObserver: Any?
     private weak var recordingViewModel: ChatViewModel?
     private var statusIconCancellable: AnyCancellable?
     var cachedSkills: [SkillInfo] = []
@@ -316,8 +314,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
             mainWindow?.close()
             mainWindow = nil
-            settingsWindow?.close()
-            settingsWindow = nil
 
             if let hotKeyMonitor {
                 NSEvent.removeMonitor(hotKeyMonitor)
@@ -408,8 +404,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName }
         if let next = remaining.first {
             // Auto-switch to the next available assistant
-            settingsWindow?.close()
-            settingsWindow = nil
             performSwitchAssistant(to: next)
             return true
         }
@@ -419,8 +413,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         mainWindow?.close()
         mainWindow = nil
-        settingsWindow?.close()
-        settingsWindow = nil
 
         if let hotKeyMonitor {
             NSEvent.removeMonitor(hotKeyMonitor)
@@ -1298,52 +1290,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Settings
 
-    /// Explicit settings window entrypoint for NSApp.sendAction("showSettingsWindow:")
-    /// and direct calls from SwiftUI views. This avoids responder-chain misses.
+    /// Opens the settings panel in the main window.
+    /// All entry points (Cmd+,, menu bar, onboarding skip, task input) use this.
     @objc public func showSettingsWindow(_ sender: Any?) {
-        NSApp.setActivationPolicy(.regular)
-
-        if let existing = settingsWindow {
-            existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        let hostingController = NSHostingController(rootView: SettingsView(store: services.settingsStore, daemonClient: services.daemonClient))
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 450, height: 700),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Vellum Settings"
-        window.contentViewController = hostingController
-        window.isReleasedWhenClosed = false
-        window.center()
-
-        if let existing = settingsWindowObserver {
-            NotificationCenter.default.removeObserver(existing)
-            settingsWindowObserver = nil
-        }
-
-        settingsWindowObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor [weak self] in
-                self?.settingsWindow = nil
-                if let observer = self?.settingsWindowObserver {
-                    NotificationCenter.default.removeObserver(observer)
-                }
-                self?.settingsWindowObserver = nil
-            }
-        }
-
-        settingsWindow = window
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        showMainWindow()
+        mainWindow?.windowState.selection = .panel(.settings)
     }
 
     // MARK: - Tasks Window
@@ -1379,9 +1330,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(monitor)
         }
         if let observer = windowObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = settingsWindowObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         statusIconCancellable?.cancel()
