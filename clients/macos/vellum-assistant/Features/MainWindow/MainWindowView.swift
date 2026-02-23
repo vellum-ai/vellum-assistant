@@ -771,9 +771,8 @@ struct MainWindowView: View {
     @ViewBuilder
     private func threadItem(_ thread: ThreadModel) -> some View {
         let isSelected: Bool = {
-            // Top-level nav panels deselect all threads
-            if case .panel(let panel) = windowState.selection,
-               panel == .directory || panel == .identity {
+            // Any panel selection deselects all threads
+            if case .panel = windowState.selection {
                 return false
             }
             if thread.id == windowState.persistentThreadId { return true }

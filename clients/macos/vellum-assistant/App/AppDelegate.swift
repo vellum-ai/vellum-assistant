@@ -110,6 +110,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
 
+        // Remove stale SwiftUI Settings window frame to prevent a ghost
+        // window from being restored on launch (the Settings scene now
+        // renders EmptyView — we handle settings in the main window panel).
+        UserDefaults.standard.removeObject(forKey: "NSWindow Frame com_apple_SwiftUI_Settings_window")
+
         if let envPath = FeatureFlagManager.findRepoEnvFile() {
             FeatureFlagManager.shared.loadFromFile(at: envPath)
         }
