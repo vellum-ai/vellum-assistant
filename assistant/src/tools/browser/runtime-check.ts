@@ -30,7 +30,7 @@ export async function checkBrowserRuntime(): Promise<BrowserRuntimeStatus> {
       playwrightAvailable: true,
       chromiumInstalled: installed,
       chromiumPath: installed ? execPath : null,
-      error: installed ? null : `Chromium not found at ${execPath}. Run: bunx playwright install chromium`,
+      error: installed ? null : `Chromium not found at ${execPath}. Run: bun x playwright install chromium`,
     };
   } catch (err) {
     return {

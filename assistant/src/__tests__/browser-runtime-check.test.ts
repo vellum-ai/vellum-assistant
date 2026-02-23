@@ -41,7 +41,7 @@ describe('browser runtime check', () => {
     expect(status.chromiumInstalled).toBe(false);
     expect(status.chromiumPath).toBeNull();
     expect(status.error).toContain('Chromium not found');
-    expect(status.error).toContain('bunx playwright install chromium');
+    expect(status.error).toContain('bun x playwright install chromium');
   });
 
   test('handles executablePath throwing an error', async () => {

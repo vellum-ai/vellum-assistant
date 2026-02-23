@@ -273,7 +273,7 @@ class BrowserManager {
         const status = await checkBrowserRuntime();
         if (status.playwrightAvailable && !status.chromiumInstalled) {
           log.info('Chromium not installed, installing via playwright...');
-          const proc = Bun.spawn(['bunx', 'playwright', 'install', 'chromium'], {
+          const proc = Bun.spawn([process.execPath, 'x', 'playwright', 'install', 'chromium'], {
             stdout: 'pipe',
             stderr: 'pipe',
           });
@@ -293,7 +293,7 @@ class BrowserManager {
           } else {
             const stderr = await new Response(proc.stderr).text();
             const msg = stderr.trim() || `exited with code ${exitCode}`;
-            throw new Error(`Failed to install Chromium: ${msg}`);
+            throw new Error(`Failed to install Chromium via "${process.execPath} x playwright install chromium": ${msg}`);
           }
         }
       }
