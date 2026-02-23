@@ -399,3 +399,36 @@ export function collectTypedNeighbors(
 
   return currentSeeds;
 }
+
+/**
+ * Find entities reachable from ALL given seeds via their respective
+ * typed traversal steps, then return the intersection.
+ */
+export function intersectReachable(
+  queries: Array<{
+    seedEntityIds: string[];
+    steps: TraversalStep[];
+  }>,
+  opts?: { maxResultsPerStep?: number; maxEdgesPerStep?: number },
+): string[] {
+  if (queries.length === 0) return [];
+
+  const resultSets: Set<string>[] = [];
+  for (const query of queries) {
+    const result = collectTypedNeighbors(
+      query.seedEntityIds,
+      query.steps,
+      opts,
+    );
+    resultSets.push(new Set(result));
+  }
+
+  if (resultSets.length === 0) return [];
+
+  // Intersect all sets: keep only entities present in ALL sets
+  const intersection = [...resultSets[0]].filter(id =>
+    resultSets.every(set => set.has(id)),
+  );
+
+  return intersection;
+}

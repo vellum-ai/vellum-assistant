@@ -25,7 +25,7 @@ mock.module('../util/logger.js', () => ({
 
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { upsertEntity, upsertEntityRelation } from '../memory/entity-extractor.js';
-import { findNeighborEntities, findMatchedEntities, getEntityLinkedItemCandidates, collectTypedNeighbors } from '../memory/search/entity.js';
+import { findNeighborEntities, findMatchedEntities, getEntityLinkedItemCandidates, collectTypedNeighbors, intersectReachable } from '../memory/search/entity.js';
 import { memoryItems, memoryItemEntities } from '../memory/schema.js';
 import { Database } from 'bun:sqlite';
 
@@ -547,6 +547,67 @@ describe('entity search', () => {
         ],
       );
 
+      expect(result).toEqual([]);
+    });
+  });
+
+  // ── intersectReachable ───────────────────────────────────────────────
+
+  describe('intersectReachable', () => {
+    test('finds shared projects between two people', () => {
+      const alice = upsertEntity({ name: 'IntersectAlice', type: 'person', aliases: [] });
+      const bob = upsertEntity({ name: 'IntersectBob', type: 'person', aliases: [] });
+      const sharedProject = upsertEntity({ name: 'IntersectSharedProj', type: 'project', aliases: [] });
+      const aliceOnly = upsertEntity({ name: 'IntersectAliceProj', type: 'project', aliases: [] });
+      const bobOnly = upsertEntity({ name: 'IntersectBobProj', type: 'project', aliases: [] });
+
+      upsertEntityRelation({ sourceEntityId: alice, targetEntityId: sharedProject, relation: 'works_on' });
+      upsertEntityRelation({ sourceEntityId: alice, targetEntityId: aliceOnly, relation: 'works_on' });
+      upsertEntityRelation({ sourceEntityId: bob, targetEntityId: sharedProject, relation: 'works_on' });
+      upsertEntityRelation({ sourceEntityId: bob, targetEntityId: bobOnly, relation: 'works_on' });
+
+      const result = intersectReachable([
+        { seedEntityIds: [alice], steps: [{ relationTypes: ['works_on'], entityTypes: ['project'] }] },
+        { seedEntityIds: [bob], steps: [{ relationTypes: ['works_on'], entityTypes: ['project'] }] },
+      ]);
+
+      expect(result).toContain(sharedProject);
+      expect(result).not.toContain(aliceOnly);
+      expect(result).not.toContain(bobOnly);
+    });
+
+    test('returns empty when no overlap', () => {
+      const alice = upsertEntity({ name: 'IntersectAlice2', type: 'person', aliases: [] });
+      const bob = upsertEntity({ name: 'IntersectBob2', type: 'person', aliases: [] });
+      const projA = upsertEntity({ name: 'IntersectProjA', type: 'project', aliases: [] });
+      const projB = upsertEntity({ name: 'IntersectProjB', type: 'project', aliases: [] });
+
+      upsertEntityRelation({ sourceEntityId: alice, targetEntityId: projA, relation: 'works_on' });
+      upsertEntityRelation({ sourceEntityId: bob, targetEntityId: projB, relation: 'works_on' });
+
+      const result = intersectReachable([
+        { seedEntityIds: [alice], steps: [{ relationTypes: ['works_on'], entityTypes: ['project'] }] },
+        { seedEntityIds: [bob], steps: [{ relationTypes: ['works_on'], entityTypes: ['project'] }] },
+      ]);
+
+      expect(result).toEqual([]);
+    });
+
+    test('single query is equivalent to collectTypedNeighbors', () => {
+      const person = upsertEntity({ name: 'IntersectSingle', type: 'person', aliases: [] });
+      const tool = upsertEntity({ name: 'IntersectTool', type: 'tool', aliases: [] });
+
+      upsertEntityRelation({ sourceEntityId: person, targetEntityId: tool, relation: 'uses' });
+
+      const result = intersectReachable([
+        { seedEntityIds: [person], steps: [{ relationTypes: ['uses'], entityTypes: ['tool'] }] },
+      ]);
+
+      expect(result).toContain(tool);
+    });
+
+    test('returns empty for empty queries array', () => {
+      const result = intersectReachable([]);
       expect(result).toEqual([]);
     });
   });
