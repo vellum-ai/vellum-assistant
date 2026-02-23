@@ -152,18 +152,6 @@ struct DaemonConnectionSection: View {
                 Text("Enter the gateway URL and bearer token shown in your Mac's Settings.")
             }
 
-            if let url = gatewayURL {
-                Section("Connection") {
-                    HStack {
-                        Text("Gateway")
-                        Spacer()
-                        Text(url)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                }
-            }
         }
         .navigationTitle("Connect")
         .navigationBarTitleDisplayMode(.inline)
@@ -182,7 +170,9 @@ struct DaemonConnectionSection: View {
     private func connectManually() {
         // Validate the URL format
         let trimmedURL = manualGatewayURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmedURL), url.scheme == "https" || url.scheme == "http" else {
+        guard let url = URL(string: trimmedURL),
+              url.scheme == "https" || url.scheme == "http",
+              url.host != nil && !url.host!.isEmpty else {
             alertMessage = "Please enter a valid URL (e.g., https://my-mac.example.com)."
             showingAlert = true
             return
