@@ -105,6 +105,7 @@ struct ChatView: View {
                             isRecording: isRecording,
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
+                            errorText: errorText,
                             onSend: onSend,
                             onStop: onStop,
                             onAcceptSuggestion: onAcceptSuggestion,
@@ -112,6 +113,7 @@ struct ChatView: View {
                             onRemoveAttachment: onRemoveAttachment,
                             onPaste: onPaste,
                             onMicrophoneToggle: onMicrophoneToggle,
+                            onDismissError: onDismissError,
                             editorContentHeight: $editorContentHeight,
                             isComposerExpanded: $isComposerExpanded
                         )
@@ -123,6 +125,7 @@ struct ChatView: View {
                             isRecording: isRecording,
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
+                            errorText: errorText,
                             onSend: onSend,
                             onStop: onStop,
                             onAcceptSuggestion: onAcceptSuggestion,
@@ -130,6 +133,7 @@ struct ChatView: View {
                             onRemoveAttachment: onRemoveAttachment,
                             onPaste: onPaste,
                             onMicrophoneToggle: onMicrophoneToggle,
+                            onDismissError: onDismissError,
                             editorContentHeight: $editorContentHeight,
                             isComposerExpanded: $isComposerExpanded
                         )
