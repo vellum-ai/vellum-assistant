@@ -5,7 +5,7 @@
  *
  * The canonical public base URL is resolved through a two-level chain:
  *
- *   1. **User Settings** (`config.ingress.publicBaseUrl`) — set via the
+ *   1. **User Settings** (`config.ingress.publicBaseUrl`) — set via
  *      the in-chat config flow, the Settings UI, or `config set ingress.publicBaseUrl`. This is the
  *      primary source of truth. When the assistant spawns or restarts
  *      the gateway, this value is forwarded as the `INGRESS_PUBLIC_BASE_URL`
