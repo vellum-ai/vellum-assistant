@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { getLogger, type LogFileConfig } from "./logger.js";
+import { getRootDir, readKeychainCredential, readCredential, readTwilioCredentials } from "./credential-reader.js";
 
 const log = getLogger("config");
 
@@ -247,9 +248,31 @@ export function loadConfig(): GatewayConfig {
     );
   }
 
-  const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN || undefined;
-  const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID || undefined;
-  const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER || undefined;
+  // Twilio credentials: env var > credential store (keychain / encrypted file)
+  const twilioCreds = readTwilioCredentials();
+  const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN || twilioCreds?.authToken || undefined;
+  const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID || twilioCreds?.accountSid || undefined;
+
+  // Phone number: env var > config file sms.phoneNumber > credential store
+  let twilioPhoneNumber: string | undefined = process.env.TWILIO_PHONE_NUMBER || undefined;
+  if (!twilioPhoneNumber) {
+    try {
+      const cfgPath = join(getRootDir(), "workspace", "config.json");
+      const raw = readFileSync(cfgPath, "utf-8");
+      const data = JSON.parse(raw);
+      if (data?.sms?.phoneNumber && typeof data.sms.phoneNumber === "string") {
+        twilioPhoneNumber = data.sms.phoneNumber;
+      }
+    } catch {
+      // config file may not exist yet
+    }
+  }
+  if (!twilioPhoneNumber) {
+    twilioPhoneNumber =
+      readKeychainCredential("credential:twilio:phone_number")
+      || readCredential("credential:twilio:phone_number")
+      || undefined;
+  }
 
   const smsDeliverAuthBypassRaw = process.env.GATEWAY_SMS_DELIVER_AUTH_BYPASS;
   if (
