@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import Anthropic from '@anthropic-ai/sdk';
-import { getConfig } from '../../../../config/defaults.js';
+import { getConfig } from '../../../../config/loader.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import {
   getMediaAssetById,

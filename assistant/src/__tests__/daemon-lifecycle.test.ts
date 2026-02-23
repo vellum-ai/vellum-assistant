@@ -165,7 +165,7 @@ function internals(server: DaemonServer): DaemonServerInternals {
 
 function createFakeSocket(overrides?: Partial<net.Socket>) {
   const writes: string[] = [];
-  const socket = {
+  const base: Record<string, unknown> = {
     destroyed: false,
     writable: true,
     remoteAddress: '127.0.0.1',
@@ -174,16 +174,17 @@ function createFakeSocket(overrides?: Partial<net.Socket>) {
       return true;
     },
     destroy(): void {
-      this.destroyed = true;
+      base.destroyed = true;
     },
     on(_event: string, _handler: (...args: unknown[]) => void): unknown {
-      return this;
+      return socket;
     },
     once(_event: string, _handler: (...args: unknown[]) => void): unknown {
-      return this;
+      return socket;
     },
     ...overrides,
-  } as unknown as net.Socket;
+  };
+  const socket = base as unknown as net.Socket;
   return { socket, writes };
 }
 
@@ -586,7 +587,7 @@ describe('IPC protocol', () => {
       const parser = createMessageParser();
       const messages = parser.feed('{"type":"ping"}\n');
       expect(messages).toHaveLength(1);
-      expect((messages[0] as Record<string, unknown>).type).toBe('ping');
+      expect((messages[0] as unknown as Record<string, unknown>).type).toBe('ping');
     });
 
     test('buffers partial messages until newline arrives', () => {
@@ -597,22 +598,22 @@ describe('IPC protocol', () => {
 
       const partial2 = parser.feed('"ping"}\n');
       expect(partial2).toHaveLength(1);
-      expect((partial2[0] as Record<string, unknown>).type).toBe('ping');
+      expect((partial2[0] as unknown as Record<string, unknown>).type).toBe('ping');
     });
 
     test('handles multiple messages in a single chunk', () => {
       const parser = createMessageParser();
       const messages = parser.feed('{"type":"ping"}\n{"type":"pong"}\n');
       expect(messages).toHaveLength(2);
-      expect((messages[0] as Record<string, unknown>).type).toBe('ping');
-      expect((messages[1] as Record<string, unknown>).type).toBe('pong');
+      expect((messages[0] as unknown as Record<string, unknown>).type).toBe('ping');
+      expect((messages[1] as unknown as Record<string, unknown>).type).toBe('pong');
     });
 
     test('skips malformed JSON lines gracefully', () => {
       const parser = createMessageParser();
       const messages = parser.feed('not json\n{"type":"valid"}\n');
       expect(messages).toHaveLength(1);
-      expect((messages[0] as Record<string, unknown>).type).toBe('valid');
+      expect((messages[0] as unknown as Record<string, unknown>).type).toBe('valid');
     });
 
     test('throws when line exceeds maxLineSize', () => {
