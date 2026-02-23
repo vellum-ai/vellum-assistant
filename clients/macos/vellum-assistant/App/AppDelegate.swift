@@ -1100,8 +1100,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showOnboarding() {
-        setupDaemonClient()
-
         let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
