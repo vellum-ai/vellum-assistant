@@ -1,6 +1,12 @@
 import CoreGraphics
 import AppKit
 import ApplicationServices
+import os
+
+private let log = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    category: "ActionExecutor"
+)
 
 enum ExecutorError: LocalizedError {
     case eventCreationFailed
@@ -10,6 +16,7 @@ enum ExecutorError: LocalizedError {
     case unknownKey(String)
     case accessibilityNotGranted
     case appNotFound(String)
+    case appMismatch(requested: String, resolved: String)
     case appleScriptError(String)
     case appleScriptMissingScript
     case appleScriptTimeout
@@ -22,7 +29,8 @@ enum ExecutorError: LocalizedError {
         case .missingKey: return "Key action requires key name"
         case .unknownKey(let key): return "Unknown key: \(key)"
         case .accessibilityNotGranted: return "Accessibility permission not granted"
-        case .appNotFound(let name): return "Application not found: \(name)"
+        case .appNotFound(let name): return "app_not_found: \(name)"
+        case .appMismatch(let requested, let resolved): return "app_mismatch: requested=\(requested) resolved=\(resolved)"
         case .appleScriptError(let msg): return "AppleScript error: \(msg)"
         case .appleScriptMissingScript: return "run_applescript requires a script"
         case .appleScriptTimeout: return "AppleScript timed out after 5 seconds"
@@ -330,25 +338,72 @@ final class ActionExecutor: ActionExecuting {
         "outlook": "Microsoft Outlook",
         "teams": "Microsoft Teams",
         "iterm": "iTerm",
+        "vellum": "Vellum Assistant",
+        "velly": "Vellum Assistant",
     ]
 
-    func openApp(name: String) async throws {
+    /// Strips non-alphanumeric characters and lowercases for fuzzy comparison.
+    private static func normalizeAppName(_ value: String) -> String {
+        value.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+
+    func openApp(name: String, bundleId: String? = nil) async throws {
         let workspace = NSWorkspace.shared
 
-        // 1. Check running apps for exact or case-insensitive match
-        let nameLower = name.lowercased()
-        if let runningApp = workspace.runningApplications.first(where: {
-            $0.localizedName?.lowercased() == nameLower
+        // 1. Bundle-ID resolution — most precise, avoids name ambiguity
+        if let bundleId, !bundleId.isEmpty {
+            if let runningApp = workspace.runningApplications.first(where: {
+                $0.bundleIdentifier == bundleId
+            }) {
+                log.info("openApp resolved via bundle-id (running): \(bundleId, privacy: .public)")
+                runningApp.activate()
+                try await Task.sleep(nanoseconds: 300_000_000)
+                return
+            }
+            if let appURL = workspace.urlForApplication(withBundleIdentifier: bundleId) {
+                log.info("openApp resolved via bundle-id (installed): \(bundleId, privacy: .public)")
+                let config = NSWorkspace.OpenConfiguration()
+                config.activates = true
+                try await workspace.openApplication(at: appURL, configuration: config)
+                return
+            }
+            log.warning("openApp bundle-id not found, falling back to name: \(bundleId, privacy: .public)")
+        }
+
+        // 2. Normalized/fuzzy name matching against running apps
+        let normalizedName = Self.normalizeAppName(name)
+        if let runningApp = workspace.runningApplications.first(where: { app in
+            guard let localizedName = app.localizedName else { return false }
+            let normalized = Self.normalizeAppName(localizedName)
+            return normalized == normalizedName
+                || normalized.contains(normalizedName)
+                || normalizedName.contains(normalized)
         }) {
+            log.info("openApp resolved via fuzzy name match (running): \(name, privacy: .public) -> \(runningApp.localizedName ?? "?", privacy: .public)")
             runningApp.activate()
-            try await Task.sleep(nanoseconds: 300_000_000) // 300ms for app to come forward
+            try await Task.sleep(nanoseconds: 300_000_000)
             return
         }
 
-        // 2. Resolve aliases
+        // 3. Resolve aliases
+        let nameLower = name.lowercased()
         let resolvedName = Self.appAliases[nameLower] ?? name
 
-        // 3. Search common application directories
+        if resolvedName != name {
+            log.info("openApp resolved via alias: \(name, privacy: .public) -> \(resolvedName, privacy: .public)")
+            // Re-check running apps with the aliased name
+            let normalizedResolved = Self.normalizeAppName(resolvedName)
+            if let runningApp = workspace.runningApplications.first(where: { app in
+                guard let localizedName = app.localizedName else { return false }
+                return Self.normalizeAppName(localizedName) == normalizedResolved
+            }) {
+                runningApp.activate()
+                try await Task.sleep(nanoseconds: 300_000_000)
+                return
+            }
+        }
+
+        // 4. Filesystem search in common application directories
         let searchDirs = [
             "/Applications",
             "/System/Applications",
@@ -360,6 +415,7 @@ final class ActionExecutor: ActionExecuting {
             let appPath = "\(dir)/\(resolvedName).app"
             let appURL = URL(fileURLWithPath: appPath)
             if FileManager.default.fileExists(atPath: appPath) {
+                log.info("openApp resolved via filesystem (exact): \(appPath, privacy: .public)")
                 let config = NSWorkspace.OpenConfiguration()
                 config.activates = true
                 try await workspace.openApplication(at: appURL, configuration: config)
@@ -367,18 +423,20 @@ final class ActionExecutor: ActionExecuting {
             }
         }
 
-        // 4. Try case-insensitive filesystem search in /Applications
+        // 5. Case-insensitive filesystem search in /Applications
         if let found = try? FileManager.default.contentsOfDirectory(atPath: "/Applications")
             .first(where: {
                 $0.lowercased() == "\(resolvedName.lowercased()).app"
             }) {
             let appURL = URL(fileURLWithPath: "/Applications/\(found)")
+            log.info("openApp resolved via filesystem (case-insensitive): \(found, privacy: .public)")
             let config = NSWorkspace.OpenConfiguration()
             config.activates = true
             try await workspace.openApplication(at: appURL, configuration: config)
             return
         }
 
+        log.error("openApp failed: app_not_found name=\(name, privacy: .public) bundleId=\(bundleId ?? "nil", privacy: .public)")
         throw ExecutorError.appNotFound(name)
     }
 

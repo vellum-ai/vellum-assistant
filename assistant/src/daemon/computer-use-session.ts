@@ -245,10 +245,27 @@ export class ComputerUseSession {
     return value.toLowerCase().replace(/[^a-z0-9]/g, '');
   }
 
-  private shouldBlockKnownVellumConfusionApp(candidateAppName: string): boolean {
-    if (this.targetAppBundleId !== 'com.vellum.vellum-assistant') return false;
-    const candidate = ComputerUseSession.normalizeAppLabel(candidateAppName);
-    return candidate.includes('slack') || candidate.includes('notion');
+  /**
+   * Returns true when the original user task text explicitly requests a
+   * cross-app workflow (e.g. "copy from Chrome and paste into Vellum").
+   * Only the user's original task counts — model-generated reasoning
+   * about switching apps does NOT qualify as an escape.
+   */
+  private taskExplicitlyRequestsCrossApp(): boolean {
+    if (!this.task) return false;
+    const t = this.task.toLowerCase();
+    // Matches patterns like "copy from X", "paste into Y", "switch to Z",
+    // "open X and Y", "drag from X to Y", "move … to <app>", etc.
+    const crossAppPatterns = [
+      /\bcopy\s+from\s+\w+.*\bpaste\s+(in|into|to)\b/,
+      /\bswitch\s+to\s+\w+/,
+      /\bopen\s+\w+.*\band\s+(then\s+)?open\b/,
+      /\bdrag\s+from\s+\w+.*\bto\s+\w+/,
+      /\bmove\s+.*\bto\s+\w+/,
+      /\bfrom\s+\w+.*\b(into|to)\s+\w+/,
+      /\buse\s+\w+.*\band\s+\w+/,
+    ];
+    return crossAppPatterns.some((p) => p.test(t));
   }
 
   /**
@@ -455,7 +472,9 @@ export class ComputerUseSession {
         });
       }
 
-      // Guard app switching when this session has an explicit target app.
+      // Fail-closed guard: when a target app is set, block ALL non-matching
+      // open_app and run_applescript activations. The only escape is when the
+      // user's original task text explicitly requests a cross-app workflow.
       if (toolName === 'computer_use_open_app') {
         const requestedApp =
           (typeof input.app_name === 'string' ? input.app_name : undefined)
@@ -463,10 +482,17 @@ export class ComputerUseSession {
         if (
           requestedApp
           && !this.isTargetAppMatch(requestedApp)
-          && this.shouldBlockKnownVellumConfusionApp(requestedApp)
+          && !this.taskExplicitlyRequestsCrossApp()
         ) {
+          log.warn({
+            sessionId: this.sessionId,
+            toolName,
+            requestedApp,
+            targetApp: this.targetAppName,
+            crossAppEscapeChecked: true,
+          }, 'Blocked non-target app activation');
           return {
-            content: `Blocked: this task is scoped to "${this.targetAppName}". Do not switch to "${requestedApp}" unless the user explicitly requests a cross-app workflow.`,
+            content: `Blocked: this task is scoped to "${this.targetAppName}". Do not switch to "${requestedApp}". Only the user can authorize cross-app workflows.`,
             isError: true,
           };
         }
@@ -478,10 +504,17 @@ export class ComputerUseSession {
         if (
           activatedApp
           && !this.isTargetAppMatch(activatedApp)
-          && this.shouldBlockKnownVellumConfusionApp(activatedApp)
+          && !this.taskExplicitlyRequestsCrossApp()
         ) {
+          log.warn({
+            sessionId: this.sessionId,
+            toolName,
+            requestedApp: activatedApp,
+            targetApp: this.targetAppName,
+            crossAppEscapeChecked: true,
+          }, 'Blocked non-target AppleScript activation');
           return {
-            content: `Blocked: this task is scoped to "${this.targetAppName}". AppleScript cannot activate "${activatedApp}" unless the user explicitly requests a cross-app workflow.`,
+            content: `Blocked: this task is scoped to "${this.targetAppName}". AppleScript cannot activate "${activatedApp}". Only the user can authorize cross-app workflows.`,
             isError: true,
           };
         }
