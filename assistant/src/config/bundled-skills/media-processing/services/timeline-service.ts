@@ -117,7 +117,10 @@ export function generateTimeline(
       if (shouldMergeIntoSegment(currentSegment, vo)) {
         // Extend the current segment
         currentSegment.endTime = kf.timestamp;
-        currentSegment.confidence = (currentSegment.confidence + (vo.confidence ?? 0.5)) / 2;
+        const newConfidence = vo.confidence ?? 0.5;
+        currentSegment.confidence =
+          (currentSegment.confidence * currentSegment.frameCount + newConfidence) / (currentSegment.frameCount + 1);
+        currentSegment.frameCount++;
         mergeSubjects(currentSegment.attributes, vo.output);
         mergeActions(currentSegment.attributes, vo.output);
       } else {
@@ -167,6 +170,7 @@ interface PendingSegment {
   segmentType: string;
   attributes: Record<string, unknown>;
   confidence: number;
+  frameCount: number;
 }
 
 function createSegmentFromOutput(
@@ -188,6 +192,7 @@ function createSegmentFromOutput(
       context: (vo.output.context as string) ?? '',
     },
     confidence: vo.confidence ?? 0.5,
+    frameCount: 1,
   };
 }
 
