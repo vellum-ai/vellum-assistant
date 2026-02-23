@@ -765,7 +765,7 @@ export function buildSchema(): Record<string, unknown> {
             chatId: { type: "string", description: "Alias for `to` — recipient phone number in E.164 format. Used by the runtime channel callback payload." },
             text: { type: "string", description: "Text content to send", minLength: 1 },
             assistantId: { type: "string", description: "Optional assistant ID for per-assistant phone number resolution in multi-assistant setups" },
-            attachments: { type: "array", items: { type: "object" }, description: "Media attachments. When text is empty but attachments are present, a fallback text message is sent instead." },
+            attachments: { type: "array", items: { type: "object" }, minItems: 1, description: "Media attachments. When text is empty but attachments are present, a fallback text message is sent instead." },
           },
           allOf: [
             { anyOf: [{ required: ["to"] }, { required: ["chatId"] }] },
