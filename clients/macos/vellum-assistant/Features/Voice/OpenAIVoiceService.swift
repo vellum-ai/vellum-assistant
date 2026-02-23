@@ -436,7 +436,9 @@ final class OpenAIVoiceService: ObservableObject {
         speakingTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.audioPlayer?.isPlaying == true else { return }
-                self.speakingAmplitude = Float.random(in: 0.3...0.8)
+                let target = Float.random(in: 0.3...0.8)
+                // Smooth toward target to avoid jerky jumps
+                self.speakingAmplitude = self.speakingAmplitude * 0.7 + target * 0.3
             }
         }
     }
