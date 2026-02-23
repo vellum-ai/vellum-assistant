@@ -26,6 +26,7 @@ import { identityHandlers } from './identity.js';
 // Re-export types and utilities for backwards compatibility
 export type {
   HandlerContext,
+  CuSessionMetadata,
   SessionCreateOptions,
   HistoryToolCall,
   HistorySurface,
