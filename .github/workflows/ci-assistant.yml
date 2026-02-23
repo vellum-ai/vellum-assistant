@@ -2,6 +2,7 @@ name: CI Assistant Checks
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, closed]
     paths:
       - 'assistant/**'
       - 'clients/shared/IPC/**'
@@ -15,8 +16,13 @@ on:
       - '.githooks/**'
       - '.github/workflows/ci-assistant.yml'
 
+concurrency:
+  group: ci-assistant-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   checks:
+    if: github.event.action != 'closed'
     name: Lint, Type Check & Test
     runs-on: ubuntu-latest
     timeout-minutes: 15
