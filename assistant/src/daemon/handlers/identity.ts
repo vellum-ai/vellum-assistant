@@ -2,7 +2,7 @@ import * as net from 'node:net';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getWorkspacePromptPath } from '../../util/platform.js';
+import { getWorkspacePromptPath, readLockfile } from '../../util/platform.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
 
 function handleIdentityGet(socket: net.Socket, ctx: HandlerContext): void {
@@ -68,28 +68,19 @@ function handleIdentityGet(socket: net.Socket, ctx: HandlerContext): void {
     let cloud: string | undefined;
     let originSystem: string | undefined;
     try {
-      const homedir = process.env.HOME ?? process.env.USERPROFILE ?? '';
-      const lockfilePaths = [
-        join(homedir, '.vellum.lock.json'),
-        join(homedir, '.vellum.lockfile.json'),
-      ];
-      for (const lockPath of lockfilePaths) {
-        if (!existsSync(lockPath)) continue;
-        const lockData = JSON.parse(readFileSync(lockPath, 'utf-8'));
-        const assistants = lockData.assistants as Array<Record<string, unknown>> | undefined;
-        if (assistants && assistants.length > 0) {
-          // Use the most recently hatched assistant
-          const sorted = [...assistants].sort((a, b) => {
-            const dateA = new Date(a.hatchedAt as string || 0).getTime();
-            const dateB = new Date(b.hatchedAt as string || 0).getTime();
-            return dateB - dateA;
-          });
-          const latest = sorted[0];
-          assistantId = latest.assistantId as string | undefined;
-          cloud = latest.cloud as string | undefined;
-          originSystem = cloud === 'local' ? 'local' : cloud;
-        }
-        break;
+      const lockData = readLockfile();
+      const assistants = lockData?.assistants as Array<Record<string, unknown>> | undefined;
+      if (assistants && assistants.length > 0) {
+        // Use the most recently hatched assistant
+        const sorted = [...assistants].sort((a, b) => {
+          const dateA = new Date(a.hatchedAt as string || 0).getTime();
+          const dateB = new Date(b.hatchedAt as string || 0).getTime();
+          return dateB - dateA;
+        });
+        const latest = sorted[0];
+        assistantId = latest.assistantId as string | undefined;
+        cloud = latest.cloud as string | undefined;
+        originSystem = cloud === 'local' ? 'local' : cloud;
       }
     } catch {
       // ignore — lockfile may not exist

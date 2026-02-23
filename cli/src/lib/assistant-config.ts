@@ -22,30 +22,33 @@ interface LockfileData {
   [key: string]: unknown;
 }
 
-function getLockfilePath(): string {
-  return join(homedir(), ".vellum.lock.json");
+function getBaseDir(): string {
+  return process.env.BASE_DATA_DIR?.trim() || homedir();
 }
 
 function readLockfile(): LockfileData {
-  const lockfilePath = getLockfilePath();
-  if (!existsSync(lockfilePath)) {
-    return {};
-  }
-
-  try {
-    const raw = readFileSync(lockfilePath, "utf-8");
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as LockfileData;
+  const base = getBaseDir();
+  const candidates = [
+    join(base, ".vellum.lock.json"),
+    join(base, ".vellum.lockfile.json"),
+  ];
+  for (const lockfilePath of candidates) {
+    if (!existsSync(lockfilePath)) continue;
+    try {
+      const raw = readFileSync(lockfilePath, "utf-8");
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as LockfileData;
+      }
+    } catch {
+      // Malformed lockfile; try next
     }
-  } catch {
-    // Malformed lockfile; return empty
   }
   return {};
 }
 
 function writeLockfile(data: LockfileData): void {
-  const lockfilePath = getLockfilePath();
+  const lockfilePath = join(getBaseDir(), ".vellum.lock.json");
   writeFileSync(lockfilePath, JSON.stringify(data, null, 2) + "\n");
 }
 

@@ -464,16 +464,9 @@ final class AssistantCli {
 
     // MARK: - Private Helpers
 
-    /// Path to the lock file that tracks registered assistants.
-    /// Always at `~/.vellum.lock.json` (home directory), matching the CLI's `getLockfilePath()`.
-    private var lockFileURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".vellum.lock.json")
-    }
-
-    /// Returns `true` if the given assistant ID is present in `~/.vellum.lock.json`.
+    /// Returns `true` if the given assistant ID is present in the lockfile.
     private func isAssistantInLockFile(assistantId: String) -> Bool {
-        guard let data = try? Data(contentsOf: lockFileURL),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard let json = LockfilePaths.read(),
               let assistants = json["assistants"] as? [[String: Any]] else {
             return false
         }
