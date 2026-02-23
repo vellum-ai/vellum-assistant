@@ -57,7 +57,7 @@ struct MainWindowView: View {
     let onSendWakeUp: (() -> Void)?
 
     /// Whether the "coming alive" overlay is currently showing.
-    @State private var showComingAlive: Bool = false
+    @State private var showComingAlive: Bool
 
     init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
         self.threadManager = threadManager
@@ -74,6 +74,7 @@ struct MainWindowView: View {
         self.onMicrophoneToggle = onMicrophoneToggle
         self.voiceModeManager = voiceModeManager
         self.onSendWakeUp = onSendWakeUp
+        self._showComingAlive = State(initialValue: onSendWakeUp != nil)
     }
 
     // MARK: - Layout Constants
@@ -309,12 +310,6 @@ struct MainWindowView: View {
                         }
                     })
                     .transition(.opacity)
-                }
-            }
-            .onAppear {
-                // Trigger the "coming alive" transition on first launch
-                if onSendWakeUp != nil {
-                    showComingAlive = true
                 }
             }
             .onChange(of: windowState.selection) { oldSelection, newSelection in
