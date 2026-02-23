@@ -86,6 +86,7 @@ final class ToolPermissionTesterModel: ObservableObject {
 
     private let daemonClient: DaemonClientProtocol
     private var cancellables = Set<AnyCancellable>()
+    private var hasFetchedToolNames = false
 
     // Snapshot of form values captured at simulate() time so
     // handleSimulateResponse uses the values that produced the request,
@@ -113,6 +114,9 @@ final class ToolPermissionTesterModel: ObservableObject {
     /// to avoid polluting test `sentMessages` and to allow connection-state
     /// retries.
     func fetchToolNames() {
+        guard !hasFetchedToolNames else { return }
+        hasFetchedToolNames = true
+
         guard let dc = daemonClient as? DaemonClient else { return }
 
         dc.onToolNamesListResponse = { [weak self] response in
@@ -128,8 +132,9 @@ final class ToolPermissionTesterModel: ObservableObject {
             }
         }
 
-        // Retry when the daemon connection (re)connects, so the dropdown
-        // populates even if the initial send fails.
+        // Send when the daemon connection (re)connects. The $isConnected
+        // publisher emits its current value immediately on subscription, so
+        // this also covers the already-connected case without a separate call.
         dc.$isConnected
             .removeDuplicates()
             .filter { $0 }
@@ -139,13 +144,6 @@ final class ToolPermissionTesterModel: ObservableObject {
                 try? dc.sendToolNamesList()
             }
             .store(in: &cancellables)
-
-        // Also attempt immediately if already connected.
-        do {
-            try dc.sendToolNamesList()
-        } catch {
-            // Non-critical — the retry subscription above will handle reconnects.
-        }
     }
 
     // MARK: - Schema Parsing
