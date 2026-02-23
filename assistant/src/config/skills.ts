@@ -5,12 +5,11 @@ import { getConfig } from './loader.js';
 import { getWorkspaceSkillsDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { stripCommentLines } from './system-prompt.js';
+import { parseFrontmatterFields } from '../skills/frontmatter.js';
 import { parseToolManifestFile } from '../skills/tool-manifest.js';
 import { computeSkillVersionHash } from '../skills/version-hash.js';
 
 const log = getLogger('skills');
-
-const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 
 // ─── New interfaces for extended skill metadata ──────────────────────────────
 
@@ -266,39 +265,13 @@ function parseIncludes(raw: string | undefined, skillFilePath: string): string[]
 }
 
 function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontmatter | null {
-  const match = content.match(FRONTMATTER_REGEX);
-  if (!match) {
+  const result = parseFrontmatterFields(content);
+  if (!result) {
     log.warn({ skillFilePath }, 'Skipping skill without YAML frontmatter');
     return null;
   }
 
-  const frontmatter = match[1];
-  const fields: Record<string, string> = {};
-  for (const line of frontmatter.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const separatorIndex = trimmed.indexOf(':');
-    if (separatorIndex === -1) continue;
-
-    const key = trimmed.slice(0, separatorIndex).trim();
-    let value = trimmed.slice(separatorIndex + 1).trim();
-    const isDoubleQuoted = value.startsWith('"') && value.endsWith('"');
-    const isSingleQuoted = value.startsWith('\'') && value.endsWith('\'');
-    if (isDoubleQuoted || isSingleQuoted) {
-      value = value.slice(1, -1);
-      if (isDoubleQuoted) {
-        // Unescape sequences produced by buildSkillMarkdown's esc().
-        // Only for double-quoted values — single-quoted YAML treats backslashes literally.
-        // Single-pass to avoid misinterpreting \\n (escaped backslash + n) as a newline.
-        value = value.replace(/\\(["\\nr])/g, (_, ch) => {
-          if (ch === 'n') return '\n';
-          if (ch === 'r') return '\r';
-          return ch; // handles \\ → \ and \" → "
-        });
-      }
-    }
-    fields[key] = value;
-  }
+  const { fields, body } = result;
 
   const name = fields.name?.trim();
   const description = fields.description?.trim();
@@ -335,7 +308,7 @@ function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontma
   return {
     name,
     description,
-    body: stripCommentLines(content.slice(match[0].length)),
+    body: stripCommentLines(body),
     homepage,
     userInvocable,
     disableModelInvocation,
