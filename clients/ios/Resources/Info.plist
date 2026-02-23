@@ -33,6 +33,8 @@
     <string>Vellum Assistant uses the camera to scan QR codes for pairing with your Mac.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Select photos to attach to your message</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Vellum Assistant connects to the Vellum daemon on your local network to send and receive messages.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
@@ -47,8 +49,34 @@
     </array>
     <key>NSAppTransportSecurity</key>
     <dict>
-        <key>NSAllowsArbitraryLoads</key>
+        <!-- Allow HTTP on the local network only -->
+        <key>NSAllowsLocalNetworking</key>
         <true/>
+
+        <key>NSExceptionDomains</key>
+        <dict>
+            <key>localhost</key>
+            <dict>
+                <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+                <key>NSIncludesSubdomains</key>
+                <true/>
+            </dict>
+            <key>127.0.0.1</key>
+            <dict>
+                <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+                <key>NSIncludesSubdomains</key>
+                <true/>
+            </dict>
+            <key>vellum.local</key>
+            <dict>
+                <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+                <key>NSIncludesSubdomains</key>
+                <true/>
+            </dict>
+        </dict>
     </dict>
 </dict>
 </plist>
