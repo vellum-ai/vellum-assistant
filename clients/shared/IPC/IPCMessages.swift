@@ -810,6 +810,9 @@ extension IPCDictationRequest {
     }
 }
 
+/// Progress update from a ride shotgun auto-navigation session.
+public typealias RideShotgunProgressMessage = IPCRideShotgunProgress
+
 /// Result from a ride shotgun observation session.
 public typealias RideShotgunResultMessage = IPCRideShotgunResult
 
@@ -2055,6 +2058,7 @@ public enum ServerMessage: Decodable, Sendable {
     case taskRouted(TaskRoutedMessage)
     case dictationResponse(DictationResponseMessage)
     case error(ErrorMessage)
+    case rideShotgunProgress(RideShotgunProgressMessage)
     case rideShotgunResult(RideShotgunResultMessage)
     case uiSurfaceShow(UiSurfaceShowMessage)
     case uiSurfaceUpdate(UiSurfaceUpdateMessage)
@@ -2215,6 +2219,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "error":
             let message = try ErrorMessage(from: decoder)
             self = .error(message)
+        case "ride_shotgun_progress":
+            let message = try RideShotgunProgressMessage(from: decoder)
+            self = .rideShotgunProgress(message)
         case "ride_shotgun_result":
             let message = try RideShotgunResultMessage(from: decoder)
             self = .rideShotgunResult(message)

@@ -177,7 +177,7 @@ export async function handleRideShotgunStart(
                   type: 'ride_shotgun_progress',
                   watchId,
                   message: `[${progress.pageNumber || '?'}] ${shortUrl}`,
-                } as any);
+                });
               }
             }).then(visited => {
               clearInterval(checkInterval);

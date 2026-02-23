@@ -19,8 +19,6 @@ import {
   updateProcessingStage,
   updateMediaAssetStatus,
   type ProcessingStage,
-  type MediaAssetStatus,
-  type StageStatus,
 } from '../../../../memory/media-store.js';
 import { computeRetryDelay, sleep } from '../../../../util/retry.js';
 

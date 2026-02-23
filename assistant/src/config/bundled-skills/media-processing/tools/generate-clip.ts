@@ -7,7 +7,7 @@
  */
 
 import { tmpdir } from 'node:os';
-import { join, basename } from 'node:path';
+import { join } from 'node:path';
 import { mkdir, unlink, stat, rmdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';

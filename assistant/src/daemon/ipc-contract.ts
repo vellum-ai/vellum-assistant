@@ -1543,6 +1543,12 @@ export interface TaskRouted {
   escalatedFrom?: string;
 }
 
+export interface RideShotgunProgress {
+  type: 'ride_shotgun_progress';
+  watchId: string;
+  message: string;
+}
+
 export interface RideShotgunResult {
   type: 'ride_shotgun_result';
   sessionId: string;
@@ -2422,6 +2428,7 @@ export type ServerMessage =
   | CuError
   | SessionErrorMessage
   | TaskRouted
+  | RideShotgunProgress
   | RideShotgunResult
   | UiSurfaceShow
   | UiSurfaceUpdate

@@ -7,7 +7,7 @@
  * All interfaces are generic — works for any event type.
  */
 
-import { getFeedbackForAsset, type EventFeedback, type FeedbackType } from './feedback-store.js';
+import { getFeedbackForAsset, type EventFeedback } from './feedback-store.js';
 import { getEventsForAsset } from '../../../../memory/media-store.js';
 
 // ---------------------------------------------------------------------------
