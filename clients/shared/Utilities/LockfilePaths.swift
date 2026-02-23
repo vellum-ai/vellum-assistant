@@ -5,7 +5,7 @@ public enum LockfilePaths {
         if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
             return URL(fileURLWithPath: baseDir)
         }
-        return FileManager.default.homeDirectoryForCurrentUser
+        return URL(fileURLWithPath: NSHomeDirectory())
     }
 
     public static var primary: URL {
