@@ -385,16 +385,9 @@ struct SettingsAdvancedTab: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
                         TextField("https://custom-gateway.example.com", text: $iosPairingGatewayOverride)
-                            .textFieldStyle(.plain)
+                            .textFieldStyle(VInputStyle())
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
                     }
 
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -402,16 +395,9 @@ struct SettingsAdvancedTab: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
                         SecureField("Custom bearer token", text: $iosPairingTokenOverride)
-                            .textFieldStyle(.plain)
+                            .textFieldStyle(VInputStyle())
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
                     }
                 }
             }
