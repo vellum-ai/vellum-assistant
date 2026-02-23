@@ -93,6 +93,12 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
       "SMS webhook received",
     );
 
+    // Phone-number routing takes priority, then fall through to standard routing.
+    // We resolve once so gateway-originated replies (/new + MMS notices) can use
+    // the correct assistant-scoped Twilio sender number.
+    const routing = resolveAssistantByPhoneNumber(config, params.To || "")
+      ?? resolveAssistant(config, params.From || "", params.From || "");
+
     // --- MMS intercept: detect media attachments and reply with unsupported notice ---
     // Treat as MMS when NumMedia > 0, or when any MediaUrl/MediaContentType
     // fields are present (some Twilio configurations omit NumMedia).
@@ -104,11 +110,14 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
     );
     if (numMedia > 0 || hasMediaFields) {
       tlog.info({ messageSid, numMedia, hasMediaFields }, "MMS payload detected, replying with unsupported notice");
-      sendSmsReply(config, params.From, "MMS (images, video, and other media) is not supported yet. Please send a text-only message.").catch(
-        (err) => {
-          tlog.error({ err, to: params.From }, "Failed to send MMS unsupported notice");
-        },
-      );
+      sendSmsReply(
+        config,
+        params.From,
+        "MMS (images, video, and other media) is not supported yet. Please send a text-only message.",
+        isRejection(routing) ? undefined : routing.assistantId,
+      ).catch((err) => {
+        tlog.error({ err, to: params.From }, "Failed to send MMS unsupported notice");
+      });
       dedupCache.mark(messageSid);
       return Response.json({ ok: true });
     }
@@ -117,14 +126,6 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
 
     // --- /new intercept: reset conversation before it reaches the runtime ---
     if (normalized.message.content.trim().toLowerCase() === "/new") {
-      // Phone-number routing takes priority: match the "To" number to an assistant
-      const routing = resolveAssistantByPhoneNumber(config, params.To || "")
-        ?? resolveAssistant(
-          config,
-          normalized.message.externalChatId,
-          normalized.sender.externalUserId,
-        );
-
       if (isRejection(routing)) {
         tlog.warn(
           { from: params.From, reason: routing.reason },
@@ -145,28 +146,21 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
             normalized.sourceChannel,
             normalized.message.externalChatId,
           );
-          sendSmsReply(config, params.From, "Starting a new conversation!").catch((err) => {
+          sendSmsReply(config, params.From, "Starting a new conversation!", routing.assistantId).catch((err) => {
             tlog.error({ err }, "Failed to send /new confirmation");
           });
         } catch (err) {
           tlog.error({ err }, "Failed to reset conversation");
-          sendSmsReply(config, params.From, "Failed to reset conversation. Please try again.").catch((replyErr) => {
-            tlog.error({ err: replyErr }, "Failed to send /new error reply");
-          });
+          sendSmsReply(config, params.From, "Failed to reset conversation. Please try again.", routing.assistantId)
+            .catch((replyErr) => {
+              tlog.error({ err: replyErr }, "Failed to send /new error reply");
+            });
         }
       }
 
       dedupCache.mark(messageSid);
       return Response.json({ ok: true });
     }
-
-    // Phone-number routing takes priority, then fall through to standard routing
-    const routing = resolveAssistantByPhoneNumber(config, params.To || "")
-      ?? resolveAssistant(
-        config,
-        normalized.message.externalChatId,
-        normalized.sender.externalUserId,
-      );
 
     if (isRejection(routing)) {
       tlog.warn(

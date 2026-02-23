@@ -958,6 +958,79 @@ describe('Twilio config handler', () => {
     expect(body).toContain('new-tunnel.ngrok.io');
   });
 
+  test('ingress config update reconciles all unique assigned Twilio numbers (legacy + assistant mapping)', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    rawConfigStore = {
+      sms: {
+        phoneNumber: '+15551234567',
+        assistantPhoneNumbers: {
+          'ast-alpha': '+15551234567', // duplicate of legacy; should only sync once
+          'ast-beta': '+15553333333',
+        },
+      },
+    };
+
+    const fetchCalls: Array<{ url: string; method: string; body?: string }> = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      fetchCalls.push({ url: urlStr, method: init?.method ?? 'GET', body: init?.body?.toString() });
+
+      if (urlStr.includes('/internal/telegram/reconcile')) {
+        return new Response('{}', { status: 200 });
+      }
+      if (urlStr.includes('IncomingPhoneNumbers.json?PhoneNumber=')) {
+        if (urlStr.includes('%2B15551234567')) {
+          return new Response(JSON.stringify({
+            incoming_phone_numbers: [{ sid: 'PN-legacy', phone_number: '+15551234567' }],
+          }), { status: 200 });
+        }
+        if (urlStr.includes('%2B15553333333')) {
+          return new Response(JSON.stringify({
+            incoming_phone_numbers: [{ sid: 'PN-beta', phone_number: '+15553333333' }],
+          }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ incoming_phone_numbers: [] }), { status: 200 });
+      }
+      if (urlStr.includes('IncomingPhoneNumbers/PN-legacy.json') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ sid: 'PN-legacy' }), { status: 200 });
+      }
+      if (urlStr.includes('IncomingPhoneNumbers/PN-beta.json') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ sid: 'PN-beta' }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+
+    const msg: IngressConfigRequest = {
+      type: 'ingress_config',
+      action: 'set',
+      publicBaseUrl: 'https://multi-number.ngrok.io',
+      enabled: true,
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleIngressConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; enabled: boolean };
+    expect(res.type).toBe('ingress_config_response');
+    expect(res.success).toBe(true);
+    expect(res.enabled).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const lookupCalls = fetchCalls.filter((c) => c.url.includes('IncomingPhoneNumbers.json?PhoneNumber='));
+    const lookedUpNumbers = lookupCalls
+      .map((c) => decodeURIComponent(c.url.split('PhoneNumber=')[1] ?? ''))
+      .sort();
+    expect(lookedUpNumbers).toEqual(['+15551234567', '+15553333333']);
+
+    const updateCalls = fetchCalls.filter((c) => c.method === 'POST' && c.url.includes('IncomingPhoneNumbers/PN-'));
+    const updatedSids = updateCalls.map((c) => (c.url.includes('PN-legacy') ? 'PN-legacy' : 'PN-beta')).sort();
+    expect(updatedSids).toEqual(['PN-beta', 'PN-legacy']);
+    expect(updateCalls[0]?.body ?? '').toContain('multi-number.ngrok.io');
+  });
+
   test('webhook sync failure on ingress update does not fail the ingress update', async () => {
     secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
     secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';

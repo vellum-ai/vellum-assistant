@@ -5,22 +5,32 @@ const log = getLogger("twilio-send-sms");
 
 /**
  * Send an SMS message via the Twilio Messages API.
- * Requires `twilioAccountSid`, `twilioAuthToken`, and `twilioPhoneNumber`
- * to be configured. Silently returns if any are missing.
+ * Requires `twilioAccountSid` and `twilioAuthToken`, plus either an
+ * assistant-scoped phone number mapping or `twilioPhoneNumber`.
+ * Silently returns if any required values are missing.
  */
 export async function sendSmsReply(
   config: GatewayConfig,
   to: string,
   body: string,
+  assistantId?: string,
 ): Promise<void> {
-  if (!config.twilioAccountSid || !config.twilioAuthToken || !config.twilioPhoneNumber) {
+  if (!config.twilioAccountSid || !config.twilioAuthToken) {
     log.warn("Cannot send SMS reply: Twilio credentials not configured");
+    return;
+  }
+
+  const from = assistantId
+    ? (config.assistantPhoneNumbers?.[assistantId] ?? config.twilioPhoneNumber)
+    : config.twilioPhoneNumber;
+  if (!from) {
+    log.warn({ assistantId }, "Cannot send SMS reply: Twilio phone number not configured");
     return;
   }
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${config.twilioAccountSid}/Messages.json`;
   const params = new URLSearchParams({
-    From: config.twilioPhoneNumber,
+    From: from,
     To: to,
     Body: body,
   });

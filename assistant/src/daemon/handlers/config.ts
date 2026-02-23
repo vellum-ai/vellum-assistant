@@ -628,20 +628,36 @@ export async function handleIngressConfig(
       triggerGatewayReconcile(effectiveUrl);
 
       // Best-effort Twilio webhook reconciliation: when ingress is being
-      // enabled/updated and a Twilio number is assigned with valid credentials,
+      // enabled/updated and Twilio numbers are assigned with valid credentials,
       // push the new webhook URLs to Twilio so calls and SMS route correctly.
       if (isEnabled && hasTwilioCredentials()) {
         const currentConfig = loadRawConfig();
         const smsConfig = (currentConfig?.sms ?? {}) as Record<string, unknown>;
-        const assignedNumber = (smsConfig.phoneNumber as string) ?? '';
-        if (assignedNumber) {
+        const assignedNumbers = new Set<string>();
+        const legacyNumber = (smsConfig.phoneNumber as string) ?? '';
+        if (legacyNumber) assignedNumbers.add(legacyNumber);
+
+        const assistantPhoneNumbers = smsConfig.assistantPhoneNumbers;
+        if (assistantPhoneNumbers && typeof assistantPhoneNumbers === 'object' && !Array.isArray(assistantPhoneNumbers)) {
+          for (const number of Object.values(assistantPhoneNumbers as Record<string, unknown>)) {
+            if (typeof number === 'string' && number) {
+              assignedNumbers.add(number);
+            }
+          }
+        }
+
+        if (assignedNumbers.size > 0) {
           const acctSid = getSecureKey('credential:twilio:account_sid')!;
           const acctToken = getSecureKey('credential:twilio:auth_token')!;
-          // Fire-and-forget: webhook sync failure must not block the ingress save
-          syncTwilioWebhooks(assignedNumber, acctSid, acctToken, currentConfig as IngressConfig)
-            .catch(() => {
-              // Already logged inside syncTwilioWebhooks
-            });
+          // Fire-and-forget: webhook sync failure must not block the ingress save.
+          // Reconcile every assigned number so assistant-scoped mappings do not
+          // retain stale Twilio webhook URLs after ingress URL changes.
+          for (const assignedNumber of assignedNumbers) {
+            syncTwilioWebhooks(assignedNumber, acctSid, acctToken, currentConfig as IngressConfig)
+              .catch(() => {
+                // Already logged inside syncTwilioWebhooks
+              });
+          }
         }
       }
     } else {
