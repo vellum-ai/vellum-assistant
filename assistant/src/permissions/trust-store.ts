@@ -27,13 +27,17 @@ let cachedStarterBundleAccepted: boolean | null = null;
  * on every tool-call permission check.
  */
 const compiledPatterns = new Map<string, Minimatch>();
+/** Patterns that failed compilation — cached to avoid repeated attempts and log spam. */
+const invalidPatterns = new Set<string>();
 
 /** Get or compile a Minimatch object for the given pattern. Returns null if the pattern is invalid. */
 function getCompiledPattern(pattern: string): Minimatch | null {
+  if (invalidPatterns.has(pattern)) return null;
   let compiled = compiledPatterns.get(pattern);
   if (!compiled) {
     if (typeof pattern !== 'string') {
       log.warn({ pattern }, 'Cannot compile non-string pattern');
+      invalidPatterns.add(pattern as string);
       return null;
     }
     try {
@@ -41,6 +45,7 @@ function getCompiledPattern(pattern: string): Minimatch | null {
       compiledPatterns.set(pattern, compiled);
     } catch (err) {
       log.warn({ pattern, err }, 'Failed to compile pattern');
+      invalidPatterns.add(pattern);
       return null;
     }
   }
@@ -50,6 +55,7 @@ function getCompiledPattern(pattern: string): Minimatch | null {
 /** Rebuild the compiled pattern cache from the current rule set. */
 function rebuildPatternCache(rules: TrustRule[]): void {
   compiledPatterns.clear();
+  invalidPatterns.clear();
   for (const rule of rules) {
     if (typeof rule.pattern !== 'string') {
       log.warn({ ruleId: rule.id, pattern: rule.pattern }, 'Skipping rule with non-string pattern during cache rebuild');
@@ -509,6 +515,7 @@ export function clearCache(): void {
   cachedRules = null;
   cachedStarterBundleAccepted = null;
   compiledPatterns.clear();
+  invalidPatterns.clear();
 }
 
 // ─── Starter approval bundle ────────────────────────────────────────────────
