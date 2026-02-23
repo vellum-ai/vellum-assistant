@@ -482,8 +482,7 @@ struct MainWindowView: View {
                     .padding(.leading, trafficLightPadding)
                     .padding(.trailing, VSpacing.lg)
                     .frame(height: 36)
-
-                    Divider().background(VColor.surfaceBorder)
+                    .background(adaptiveColor(light: Moss._50, dark: Moss._950))
 
                     // Content area: sidebar always pushes chat content right
                     HStack(spacing: 0) {
@@ -859,8 +858,8 @@ struct MainWindowView: View {
                 collapsedSidebarContent
             }
         }
-        .padding(sidebarExpanded ? VSpacing.xs : VSpacing.xs)
-        .background(adaptiveColor(light: Moss._50, dark: Moss._700))
+        .padding(VSpacing.xs)
+        .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .padding(sidebarOuterMargin)
         .frame(width: sidebarExpanded ? sidebarExpandedWidth + sidebarOuterMargin * 2 : sidebarCollapsedWidth + sidebarOuterMargin * 2)
