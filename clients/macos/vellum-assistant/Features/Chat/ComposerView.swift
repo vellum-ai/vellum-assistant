@@ -640,7 +640,6 @@ private struct ComposerTextView: NSViewRepresentable {
 
         if context.coordinator.isWritingFromView == false, textView.string != text {
             textView.string = text
-            textView.highlightSlashCommand()
             textView.needsDisplay = true
         }
 
@@ -775,7 +774,7 @@ private final class ComposerNativeTextView: NSTextView {
         highlightSlashCommand()
     }
 
-    func highlightSlashCommand() {
+    private func highlightSlashCommand() {
         guard let layoutManager = layoutManager, let textStorage = textStorage else { return }
         let fullRange = NSRange(location: 0, length: textStorage.length)
         guard fullRange.length > 0 else { return }
