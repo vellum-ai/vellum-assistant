@@ -43,6 +43,8 @@ export class CallOrchestrator {
   private task: string | null;
   /** Instructions queued while an LLM turn is in-flight or during waiting_on_user */
   private pendingInstructions: string[] = [];
+  /** Monotonic run id used to suppress stale turn side effects after interruption. */
+  private llmRunVersion = 0;
 
   constructor(callSessionId: string, relay: RelayConnection, task: string | null) {
     this.callSessionId = callSessionId;
@@ -239,6 +241,8 @@ export class CallOrchestrator {
     }
 
     const client = new Anthropic({ apiKey });
+    const runVersion = ++this.llmRunVersion;
+    const runSignal = this.abortController.signal;
 
     try {
       this.state = 'speaking';
@@ -255,7 +259,7 @@ export class CallOrchestrator {
             content: m.content,
           })),
         },
-        { signal: this.abortController.signal },
+        { signal: runSignal },
       );
 
       // Buffer incoming tokens so we can strip control markers ([ASK_USER:...], [END_CALL])
@@ -264,6 +268,7 @@ export class CallOrchestrator {
       let ttsBuffer = '';
 
       const flushSafeText = (_force: boolean): void => {
+        if (!this.isCurrentRun(runVersion)) return;
         if (ttsBuffer.length === 0) return;
         const bracketIdx = ttsBuffer.indexOf('[');
         if (bracketIdx === -1) {
@@ -312,6 +317,7 @@ export class CallOrchestrator {
       };
 
       stream.on('text', (text) => {
+        if (!this.isCurrentRun(runVersion)) return;
         ttsBuffer += text;
 
         // If the buffer contains a complete control marker, strip it
@@ -326,6 +332,7 @@ export class CallOrchestrator {
       });
 
       const finalMessage = await stream.finalMessage();
+      if (!this.isCurrentRun(runVersion)) return;
 
       // Final sweep: strip any remaining control markers from the buffer
       ttsBuffer = ttsBuffer.replace(ASK_USER_REGEX, '').replace(END_CALL_MARKER, '');
@@ -412,8 +419,25 @@ export class CallOrchestrator {
       this.flushPendingInstructions();
     } catch (err: unknown) {
       // Aborted requests are expected (interruptions, rapid utterances)
-      if (err instanceof Error && err.name === 'AbortError') {
-        log.debug({ callSessionId: this.callSessionId }, 'LLM request aborted');
+      if (this.isExpectedAbortError(err) || runSignal.aborted) {
+        log.debug(
+          {
+            callSessionId: this.callSessionId,
+            errName: err instanceof Error ? err.name : typeof err,
+            stale: !this.isCurrentRun(runVersion),
+          },
+          'LLM request aborted',
+        );
+        if (this.isCurrentRun(runVersion)) {
+          this.state = 'idle';
+        }
+        return;
+      }
+      if (!this.isCurrentRun(runVersion)) {
+        log.debug(
+          { callSessionId: this.callSessionId, errName: err instanceof Error ? err.name : typeof err },
+          'Ignoring stale LLM streaming error from superseded turn',
+        );
         return;
       }
       log.error({ err, callSessionId: this.callSessionId }, 'LLM streaming error');
@@ -421,6 +445,15 @@ export class CallOrchestrator {
       this.state = 'idle';
       this.flushPendingInstructions();
     }
+  }
+
+  private isExpectedAbortError(err: unknown): boolean {
+    if (!(err instanceof Error)) return false;
+    return err.name === 'AbortError' || err.name === 'APIUserAbortError';
+  }
+
+  private isCurrentRun(runVersion: number): boolean {
+    return runVersion === this.llmRunVersion;
   }
 
   /**

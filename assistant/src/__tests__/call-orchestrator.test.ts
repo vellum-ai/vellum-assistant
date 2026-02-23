@@ -414,6 +414,68 @@ describe('call-orchestrator', () => {
     orchestrator.destroy();
   });
 
+  test('LLM APIUserAbortError: treats as expected abort without technical-issue fallback', async () => {
+    mockStreamFn.mockImplementation(() => {
+      const emitter = new EventEmitter();
+      return {
+        on: (event: string, handler: (...args: unknown[]) => void) => {
+          emitter.on(event, handler);
+          return { on: () => ({ on: () => ({}) }) };
+        },
+        finalMessage: () => {
+          const err = new Error('user abort');
+          err.name = 'APIUserAbortError';
+          return Promise.reject(err);
+        },
+      };
+    });
+
+    const { relay, orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('Hello');
+
+    const errorTokens = relay.sentTokens.filter((t) => t.token.includes('technical issue'));
+    expect(errorTokens.length).toBe(0);
+    expect(orchestrator.getState()).toBe('idle');
+
+    orchestrator.destroy();
+  });
+
+  test('stale superseded turn errors do not emit technical-issue fallback', async () => {
+    let callCount = 0;
+    mockStreamFn.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        const emitter = new EventEmitter();
+        return {
+          on: (event: string, handler: (...args: unknown[]) => void) => {
+            emitter.on(event, handler);
+            return { on: () => ({ on: () => ({}) }) };
+          },
+          finalMessage: () =>
+            new Promise((_, reject) => {
+              setTimeout(() => reject(new Error('stale stream failure')), 20);
+            }),
+        };
+      }
+      return createMockStream(['Second turn response.']);
+    });
+
+    const { relay, orchestrator } = setupOrchestrator();
+
+    const firstTurnPromise = orchestrator.handleCallerUtterance('First utterance');
+    // Allow the first turn to enter runLlm before the second utterance interrupts it.
+    await new Promise((r) => setTimeout(r, 5));
+    const secondTurnPromise = orchestrator.handleCallerUtterance('Second utterance');
+
+    await Promise.all([firstTurnPromise, secondTurnPromise]);
+
+    const allTokens = relay.sentTokens.map((t) => t.token).join('');
+    expect(allTokens).toContain('Second turn response.');
+    expect(allTokens).not.toContain('technical issue');
+
+    orchestrator.destroy();
+  });
+
   test('handleUserAnswer: returns false when not in waiting_on_user state', async () => {
     const { orchestrator } = setupOrchestrator();
 
