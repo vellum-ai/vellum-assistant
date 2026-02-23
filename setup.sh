@@ -2,8 +2,9 @@
 #
 # setup.sh — One-time local development setup for vellum-assistant.
 #
-# Installs dependencies for all packages (cli, gateway, assistant, meta)
-# and links the global `vellum` command to the local meta entry point.
+# Installs dependencies for each package, registers local packages as
+# linkable, links them into the meta package, and then links the global
+# `vellum` command to the local meta entry point.
 #
 # Usage:
 #   ./setup.sh
@@ -23,12 +24,20 @@ if ! command -v bun &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# Install dependencies for each package
+# Install dependencies and register local packages as linkable
 # ---------------------------------------------------------------------------
-for dir in cli gateway assistant meta; do
+for dir in cli gateway assistant; do
   info "Installing dependencies in ${dir}/"
   (cd "${REPO_ROOT}/${dir}" && bun install)
+  info "Registering ${dir}/ as a linkable package"
+  (cd "${REPO_ROOT}/${dir}" && bun link)
 done
+
+# ---------------------------------------------------------------------------
+# Link local packages into meta so it resolves to local source
+# ---------------------------------------------------------------------------
+info "Linking local packages into meta/"
+(cd "${REPO_ROOT}/meta" && bun link @vellumai/cli @vellumai/assistant @vellumai/vellum-gateway)
 
 # ---------------------------------------------------------------------------
 # Link the global `vellum` command to this repo's meta package
