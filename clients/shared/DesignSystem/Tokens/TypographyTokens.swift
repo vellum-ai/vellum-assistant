@@ -85,6 +85,7 @@ public enum VFont {
     public static let onboardingEmoji = Font.system(size: adaptiveSize(80))
     public static let mono       = dmMono("DMMono-Regular", size: 13)
     public static let monoSmall  = dmMono("DMMono-Regular", size: 11)
+    public static let monoBodyMedium = dmMono("DMMono-Medium", size: 13)
     public static let monoMedium = dmMono("DMMono-Medium", size: 16)
 
     /// Display font (used for panel headers like "AGENT", "GENERATED CONTENT")

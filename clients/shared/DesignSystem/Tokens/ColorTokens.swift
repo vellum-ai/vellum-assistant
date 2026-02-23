@@ -180,5 +180,5 @@ public enum VColor {
     public static let buttonPrimaryPressed = adaptiveColor(light: Color(hex: 0x3D5739), dark: Color(hex: 0x3D5739))
     public static let buttonSecondaryBorder = adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._500)
     public static let buttonSecondaryText = adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
-    public static let buttonTertiaryBackground = adaptiveColor(light: Forest._100, dark: Forest._900)
+    public static let buttonTertiaryBackground = adaptiveColor(light: Moss._200, dark: Moss._700)
 }

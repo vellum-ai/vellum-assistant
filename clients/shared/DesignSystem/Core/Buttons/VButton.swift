@@ -75,7 +75,7 @@ public struct VButton: View {
     private var labelFont: Font {
         switch size {
         case .small: return VFont.monoSmall
-        case .medium: return VFont.monoSmall
+        case .medium: return VFont.monoBodyMedium
         case .large: return VFont.monoMedium
         }
     }
@@ -145,8 +145,8 @@ private struct VButtonStyle: ButtonStyle {
             if isHovered { return VColor.buttonPrimaryHover }
             return VColor.buttonPrimary
         case .secondary:
-            if isPressed { return VColor.ghostPressed }
-            if isHovered { return adaptiveColor(light: Forest._200, dark: Forest._800) }
+            if isPressed { return adaptiveColor(light: Moss._300, dark: Moss._600) }
+            if isHovered { return adaptiveColor(light: Moss._300, dark: Moss._600) }
             return VColor.buttonTertiaryBackground
         case .danger:
             if isPressed { return Color(hex: 0xE0745A) }
@@ -163,7 +163,7 @@ private struct VButtonStyle: ButtonStyle {
         switch style {
         case .primary: return .white
         case .tertiary: return VColor.buttonSecondaryText
-        case .secondary: return VColor.iconAccent
+        case .secondary: return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
         case .danger: return .white
         }
     }
