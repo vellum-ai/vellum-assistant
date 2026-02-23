@@ -369,6 +369,9 @@ struct MainWindowView: View {
                         lastAppliedBootstrapTurn = turnCount
                     }
                 }
+                // Enable Home Base dashboard as soon as bootstrap completes
+                // within the same session (BOOTSTRAP.md deleted by the AI).
+                requestHomeBaseDashboardIfNeeded()
             }
             .preferredColorScheme(themePreference == "light" ? .light : themePreference == "dark" ? .dark : systemIsDark ? .dark : .light)
             .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("AppleInterfaceThemeChangedNotification"))) { _ in
