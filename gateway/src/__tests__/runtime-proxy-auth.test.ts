@@ -5,7 +5,7 @@ import type { GatewayConfig } from "../config.js";
 const TOKEN = "test-secret-token";
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
-  return {
+  const merged: GatewayConfig = {
     telegramBotToken: "tok",
     telegramWebhookSecret: "wh-ver",
     telegramApiBaseUrl: "https://api.telegram.org",
@@ -15,6 +15,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     unmappedPolicy: "reject",
     port: 7830,
     runtimeBearerToken: undefined,
+    runtimeGatewayOriginSecret: undefined,
     runtimeProxyEnabled: true,
     runtimeProxyRequireAuth: true,
     runtimeProxyBearerToken: TOKEN,
@@ -38,6 +39,10 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     ...overrides,
   };
+  if (merged.runtimeGatewayOriginSecret === undefined) {
+    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
+  }
+  return merged;
 }
 
 const originalFetch = globalThis.fetch;

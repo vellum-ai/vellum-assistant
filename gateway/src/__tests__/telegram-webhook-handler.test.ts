@@ -3,7 +3,7 @@ import type { GatewayConfig } from "../config.js";
 import { createTelegramWebhookHandler } from "../http/routes/telegram-webhook.js";
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
-  return {
+  const merged: GatewayConfig = {
     telegramBotToken: "test-bot-token",
     telegramWebhookSecret: "test-webhook-secret",
     telegramApiBaseUrl: "https://api.telegram.org",
@@ -13,6 +13,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     unmappedPolicy: "reject",
     port: 7830,
     runtimeBearerToken: undefined,
+    runtimeGatewayOriginSecret: undefined,
     runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: false,
     runtimeProxyBearerToken: undefined,
@@ -36,6 +37,10 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     ...overrides,
   };
+  if (merged.runtimeGatewayOriginSecret === undefined) {
+    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
+  }
+  return merged;
 }
 
 function makeTelegramPayload(text: string, updateId = 1001) {

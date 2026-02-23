@@ -30,6 +30,7 @@ const baseConfig: GatewayConfig = {
   port: 7830,
   routingEntries: [],
   runtimeBearerToken: undefined,
+  runtimeGatewayOriginSecret: undefined,
   runtimeInitialBackoffMs: 500,
   runtimeMaxRetries: 2,
   runtimeProxyBearerToken: undefined,

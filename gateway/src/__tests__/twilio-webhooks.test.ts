@@ -7,39 +7,46 @@ import { createTwilioConnectActionWebhookHandler } from "../http/routes/twilio-c
 
 const AUTH_TOKEN = "test-twilio-auth-token";
 
-const makeConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
-  telegramBotToken: "tok",
-  telegramWebhookSecret: "wh-ver",
-  telegramApiBaseUrl: "https://api.telegram.org",
-  assistantRuntimeBaseUrl: "http://localhost:7821",
-  routingEntries: [],
-  defaultAssistantId: undefined,
-  unmappedPolicy: "reject",
-  port: 7830,
-  runtimeBearerToken: "rt-token",
-  runtimeProxyEnabled: false,
-  runtimeProxyRequireAuth: true,
-  runtimeProxyBearerToken: undefined,
-  shutdownDrainMs: 5000,
-  runtimeTimeoutMs: 30000,
-  runtimeMaxRetries: 2,
-  runtimeInitialBackoffMs: 500,
-  telegramDeliverAuthBypass: false,
-  telegramInitialBackoffMs: 1000,
-  telegramMaxRetries: 3,
-  telegramTimeoutMs: 15000,
-  maxWebhookPayloadBytes: 1048576,
-  logFile: { dir: undefined, retentionDays: 30 },
-  maxAttachmentBytes: 20971520,
-  maxAttachmentConcurrency: 3,
-  twilioAuthToken: AUTH_TOKEN,
-  twilioAccountSid: undefined,
-  twilioPhoneNumber: undefined,
-  smsDeliverAuthBypass: false,
-  ingressPublicBaseUrl: undefined,
-  gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-  ...overrides,
-});
+function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
+  const merged: GatewayConfig = {
+    telegramBotToken: "tok",
+    telegramWebhookSecret: "wh-ver",
+    telegramApiBaseUrl: "https://api.telegram.org",
+    assistantRuntimeBaseUrl: "http://localhost:7821",
+    routingEntries: [],
+    defaultAssistantId: undefined,
+    unmappedPolicy: "reject",
+    port: 7830,
+    runtimeBearerToken: "rt-token",
+    runtimeGatewayOriginSecret: undefined,
+    runtimeProxyEnabled: false,
+    runtimeProxyRequireAuth: true,
+    runtimeProxyBearerToken: undefined,
+    shutdownDrainMs: 5000,
+    runtimeTimeoutMs: 30000,
+    runtimeMaxRetries: 2,
+    runtimeInitialBackoffMs: 500,
+    telegramDeliverAuthBypass: false,
+    telegramInitialBackoffMs: 1000,
+    telegramMaxRetries: 3,
+    telegramTimeoutMs: 15000,
+    maxWebhookPayloadBytes: 1048576,
+    logFile: { dir: undefined, retentionDays: 30 },
+    maxAttachmentBytes: 20971520,
+    maxAttachmentConcurrency: 3,
+    twilioAuthToken: AUTH_TOKEN,
+    twilioAccountSid: undefined,
+    twilioPhoneNumber: undefined,
+    smsDeliverAuthBypass: false,
+    ingressPublicBaseUrl: undefined,
+    gatewayInternalBaseUrl: "http://127.0.0.1:7830",
+    ...overrides,
+  };
+  if (merged.runtimeGatewayOriginSecret === undefined) {
+    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
+  }
+  return merged;
+}
 
 /**
  * Compute a valid Twilio signature for the given URL + params.
