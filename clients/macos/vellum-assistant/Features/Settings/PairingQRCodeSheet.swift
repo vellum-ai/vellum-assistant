@@ -47,10 +47,17 @@ struct PairingQRCodeSheet: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 32))
                         .foregroundColor(VColor.error)
-                    Text("Enable ingress and set a public URL in Settings to pair with iOS")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.error)
-                        .multilineTextAlignment(.center)
+                    if !ingressEnabled || ingressPublicBaseUrl.isEmpty {
+                        Text("Enable ingress and set a public URL in Settings to pair with iOS")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.error)
+                            .multilineTextAlignment(.center)
+                    } else {
+                        Text("Bearer token not found. Restart the daemon to generate it.")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.error)
+                            .multilineTextAlignment(.center)
+                    }
                 }
                 .frame(width: 220, height: 220)
             }
@@ -182,12 +189,9 @@ struct PairingQRCodeSheet: View {
         return QRCodeGenerator.generate(from: jsonString, size: 220)
     }
 
-    /// Read the HTTP bearer token from ~/.vellum/http-token (same file the gateway uses).
+    /// Read the HTTP bearer token using the shared helper that respects `BASE_DATA_DIR`.
     private static func readBearerToken() -> String {
-        let tokenPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".vellum/http-token").path
-        return (try? String(contentsOfFile: tokenPath, encoding: .utf8))?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return readHttpToken() ?? ""
     }
 
     /// Compute a stable, privacy-safe host identifier.
