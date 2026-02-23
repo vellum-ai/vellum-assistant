@@ -247,37 +247,37 @@ export function findNeighborEntities(
       if (directed) {
         rows = raw.query(q1).all(...params1) as Array<{ sourceEntityId: string; targetEntityId: string }>;
       } else {
-        // Direction 2: frontier is target, neighbor is source
-        const q2 = `
-          SELECT r.source_entity_id AS sourceEntityId, r.target_entity_id AS targetEntityId
-          FROM memory_entity_relations r
-          INNER JOIN memory_entities me ON me.id = r.source_entity_id
-          WHERE r.target_entity_id IN (${frontierPlaceholders})
-          ${relationTypeCondition} ${entityTypeFilter}
-          ORDER BY r.last_seen_at DESC
+        // Combine both directions in a single query with global recency
+        // ordering so the edge budget isn't direction-biased.
+        const q = `
+          SELECT sourceEntityId, targetEntityId FROM (
+            SELECT r.source_entity_id AS sourceEntityId, r.target_entity_id AS targetEntityId, r.last_seen_at
+            FROM memory_entity_relations r
+            INNER JOIN memory_entities me ON me.id = r.target_entity_id
+            WHERE r.source_entity_id IN (${frontierPlaceholders})
+            ${relationTypeCondition} ${entityTypeFilter}
+            UNION ALL
+            SELECT r.source_entity_id AS sourceEntityId, r.target_entity_id AS targetEntityId, r.last_seen_at
+            FROM memory_entity_relations r
+            INNER JOIN memory_entities me ON me.id = r.source_entity_id
+            WHERE r.target_entity_id IN (${frontierPlaceholders})
+            ${relationTypeCondition} ${entityTypeFilter}
+          )
+          GROUP BY sourceEntityId, targetEntityId
+          ORDER BY MAX(last_seen_at) DESC
           LIMIT ?
         `;
-        const params2 = [
+        const params = [
+          ...frontier,
+          ...(relationTypes && relationTypes.length > 0 ? relationTypes : []),
+          ...entityTypes,
           ...frontier,
           ...(relationTypes && relationTypes.length > 0 ? relationTypes : []),
           ...entityTypes,
           limit,
         ];
 
-        const rows1 = raw.query(q1).all(...params1) as Array<{ sourceEntityId: string; targetEntityId: string }>;
-        const rows2 = raw.query(q2).all(...params2) as Array<{ sourceEntityId: string; targetEntityId: string }>;
-
-        // Merge both directions, deduplicate by (source, target) pair, and
-        // respect the overall edge budget.
-        const seen = new Set<string>();
-        rows = [];
-        for (const r of [...rows1, ...rows2]) {
-          const key = `${r.sourceEntityId}:${r.targetEntityId}`;
-          if (!seen.has(key) && rows.length < limit) {
-            seen.add(key);
-            rows.push(r);
-          }
-        }
+        rows = raw.query(q).all(...params) as Array<{ sourceEntityId: string; targetEntityId: string }>;
       }
     } else {
       const frontierCondition = directed
