@@ -105,6 +105,7 @@ export async function handleTaskSubmit(
         type: 'task_routed',
         sessionId,
         interactionType: 'computer_use',
+        ...(targetApp ? { targetAppName: targetApp.appName, targetAppBundleId: targetApp.bundleId } : {}),
         ...(isQa ? {
           qaMode: true,
           reportToSessionId: msg.conversationId,

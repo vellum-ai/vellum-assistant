@@ -1567,6 +1567,10 @@ export interface TaskRouted {
   captureScope?: 'window' | 'display';
   /** Whether to include audio in QA recording (from daemon config). */
   includeAudio?: boolean;
+  /** Target app name for frontmost-app guard (from target-app-hints). */
+  targetAppName?: string;
+  /** Target app bundle ID for frontmost-app guard (from target-app-hints). */
+  targetAppBundleId?: string;
 }
 
 export interface RideShotgunResult {
