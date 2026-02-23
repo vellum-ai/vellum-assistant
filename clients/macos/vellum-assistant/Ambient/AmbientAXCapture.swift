@@ -71,15 +71,15 @@ enum AmbientAXCapture {
             log.debug("No focused window for \(appName, privacy: .public)")
             return nil
         }
-        let windowElement = windowRef as! AXUIElement
+        guard let windowElement = windowRef as? AXUIElement else { return nil }
         let windowTitle = getStringAttribute(windowElement, kAXTitleAttribute as CFString) ?? "Untitled"
 
         // Get focused element
         var focusedRef: CFTypeRef?
         var focusedElement: (role: String, label: String?)?
         if AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
-           let focused = focusedRef {
-            let fe = focused as! AXUIElement
+           let focused = focusedRef,
+           let fe = focused as? AXUIElement {
             let role = getStringAttribute(fe, kAXRoleAttribute as CFString) ?? "unknown"
             let label = getStringAttribute(fe, kAXTitleAttribute as CFString)
                 ?? getStringAttribute(fe, kAXDescriptionAttribute as CFString)
