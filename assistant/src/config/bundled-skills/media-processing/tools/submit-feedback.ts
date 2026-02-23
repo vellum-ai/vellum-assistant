@@ -62,9 +62,9 @@ export async function run(
     feedbackType: feedbackType as FeedbackType,
     originalStartTime: event.startTime,
     originalEndTime: event.endTime,
-    correctedStartTime: correctedStartTime ?? null,
-    correctedEndTime: correctedEndTime ?? null,
-    notes: notes ?? null,
+    correctedStartTime: correctedStartTime ?? undefined,
+    correctedEndTime: correctedEndTime ?? undefined,
+    notes: notes ?? undefined,
   });
 
   return {
@@ -128,11 +128,11 @@ function handleMissedEvent(
     assetId,
     eventId: newEvent.id,
     feedbackType,
-    originalStartTime: null,
-    originalEndTime: null,
+    originalStartTime: undefined,
+    originalEndTime: undefined,
     correctedStartTime: startTime,
     correctedEndTime: endTime,
-    notes: notes ?? null,
+    notes: notes ?? undefined,
   });
 
   return {
