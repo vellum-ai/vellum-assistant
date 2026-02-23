@@ -336,6 +336,41 @@ describe("/deliver/sms", () => {
     expect(sentParams.get("From")).toBe("+15551234567");
   });
 
+  it("attachment-only request (no text) uses fallback text", async () => {
+    const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+    globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      fetchCalls.push({ url: urlStr, init: init ?? {} });
+      return new Response(JSON.stringify({ sid: "SM-sent" }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const handler = createSmsDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+    );
+    const req = makeRequest({
+      to: "+15559876543",
+      attachments: [{ url: "https://example.com/image.png" }],
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Verify the Twilio Messages API was called
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].url).toContain("AC-test-sid/Messages.json");
+
+    // Verify the Body parameter contains the fallback text
+    const sentBody = fetchCalls[0].init.body as string;
+    const sentParams = new URLSearchParams(sentBody);
+    expect(sentParams.get("Body")).toBe(
+      "I have a media attachment to share, but SMS currently supports text only.",
+    );
+  });
+
   it("returns 503 when no From number is available", async () => {
     const handler = createSmsDeliverHandler(
       makeConfig({
