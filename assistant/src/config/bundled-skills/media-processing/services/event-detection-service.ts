@@ -26,7 +26,7 @@ import {
   getMediaAssetById,
   getTimelineForAsset,
   insertEventsBatch,
-  deleteEventsForAsset,
+  deleteEventsForAssetByType,
   type MediaTimeline,
   type MediaEvent,
 } from '../../../../memory/media-store.js';
@@ -254,8 +254,8 @@ export function detectEvents(
 
   onProgress?.(`Found ${candidates.length} event candidates. Storing results...`);
 
-  // Replace existing events of this type for the asset
-  deleteEventsForAsset(assetId);
+  // Replace existing events of this type for the asset (scoped to eventType)
+  deleteEventsForAssetByType(assetId, config.eventType);
 
   const eventRows = candidates.map((c) => ({
     assetId,

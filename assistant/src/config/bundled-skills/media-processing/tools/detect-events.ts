@@ -43,7 +43,11 @@ export async function run(
     // Accept rules as a JSON string or as an already-parsed array
     if (typeof rawRules === 'string') {
       try {
-        rules = JSON.parse(rawRules) as DetectionRule[];
+        const parsed = JSON.parse(rawRules);
+        if (!Array.isArray(parsed)) {
+          return { content: 'detection_rules must be a valid JSON array of rule objects.', isError: true };
+        }
+        rules = parsed as DetectionRule[];
       } catch {
         return { content: 'detection_rules must be a valid JSON array of rule objects.', isError: true };
       }

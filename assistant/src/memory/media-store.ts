@@ -644,6 +644,13 @@ export function deleteEventsForAsset(assetId: string): void {
   db.delete(mediaEvents).where(eq(mediaEvents.assetId, assetId)).run();
 }
 
+export function deleteEventsForAssetByType(assetId: string, eventType: string): void {
+  const db = getDb();
+  db.delete(mediaEvents)
+    .where(and(eq(mediaEvents.assetId, assetId), eq(mediaEvents.eventType, eventType)))
+    .run();
+}
+
 function parseEventRow(row: typeof mediaEvents.$inferSelect): MediaEvent {
   let reasons: string[] = [];
   try { reasons = JSON.parse(row.reasons) as string[]; } catch { reasons = []; }
