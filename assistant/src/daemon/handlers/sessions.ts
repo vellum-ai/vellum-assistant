@@ -395,10 +395,12 @@ export function handleHistoryRequest(
         // the client, so non-video attachments always keep their inline data.
         const MAX_INLINE_B64_SIZE = 512 * 1024;
         attachments = linked.map((a) => {
-          const omit = a.mimeType.startsWith('video/') && a.dataBase64.length > MAX_INLINE_B64_SIZE;
+          const isFileBacked = a.storageKind === 'file';
+          const omit = isFileBacked || (a.mimeType.startsWith('video/') && a.dataBase64.length > MAX_INLINE_B64_SIZE);
 
           // Lazily generate thumbnails for existing video attachments on first history load.
-          if (a.mimeType.startsWith('video/') && !a.thumbnailBase64) {
+          // Skip for file-backed attachments since they have no inline base64 to extract from.
+          if (a.mimeType.startsWith('video/') && !a.thumbnailBase64 && !isFileBacked) {
             const attachmentId = a.id;
             const base64 = a.dataBase64;
             generateVideoThumbnail(base64).then((thumb) => {
