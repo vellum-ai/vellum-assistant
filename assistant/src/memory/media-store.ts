@@ -14,7 +14,7 @@ import { mediaAssets, processingStages, mediaKeyframes, mediaVisionOutputs, medi
 // Types
 // ---------------------------------------------------------------------------
 
-export type MediaAssetStatus = 'registered' | 'processing' | 'indexed' | 'failed';
+export type MediaAssetStatus = 'registered' | 'processing' | 'indexed' | 'failed' | 'cancelled';
 export type MediaType = 'video' | 'audio' | 'image';
 export type StageStatus = 'pending' | 'running' | 'completed' | 'failed';
 

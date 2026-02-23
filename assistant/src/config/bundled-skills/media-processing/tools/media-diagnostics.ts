@@ -77,8 +77,11 @@ interface DiagnosticReport {
 
 function computeStageDuration(stage: ProcessingStage): number | null {
   if (stage.startedAt == null) return null;
-  const end = stage.completedAt ?? Date.now();
-  return end - stage.startedAt;
+  if (stage.completedAt != null) return stage.completedAt - stage.startedAt;
+  // Only use Date.now() as a fallback for currently running stages
+  if (stage.status === 'running') return Date.now() - stage.startedAt;
+  // For failed/pending stages without completedAt, duration is unknown
+  return null;
 }
 
 // ---------------------------------------------------------------------------

@@ -119,6 +119,18 @@ export async function runPipeline(
     throw new Error(`Media asset not found: ${assetId}`);
   }
 
+  // Check if asset is already cancelled before forcing processing
+  if ((asset.status as string) === 'cancelled') {
+    return {
+      assetId,
+      completedStages: [],
+      failedStage: null,
+      failureReason: null,
+      cancelled: true,
+      resumedFrom: null,
+    };
+  }
+
   // Mark asset as processing
   updateMediaAssetStatus(assetId, 'processing');
 
