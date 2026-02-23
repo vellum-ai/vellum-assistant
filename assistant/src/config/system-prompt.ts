@@ -114,6 +114,7 @@ export function buildSystemPrompt(): string {
   if (!isOnboardingComplete()) {
     parts.push(buildStarterTaskPlaybookSection());
   }
+  parts.push(buildInChatConfigurationSection());
   parts.push(buildToolPermissionSection());
   parts.push(buildSystemPermissionSection());
   parts.push(buildChannelAwarenessSection());
@@ -288,6 +289,23 @@ export function buildStarterTaskPlaybookSection(): string {
     '- Respect trust gating: do NOT ask for elevated permissions during any starter task flow. These are introductory experiences.',
     '- Keep responses concise and action-oriented. Avoid lengthy explanations of what you\'re about to do.',
     '- If the user deviates from the flow, adapt gracefully. Complete the task if possible, or mark it as `deferred_to_dashboard`.',
+  ].join('\n');
+}
+
+function buildInChatConfigurationSection(): string {
+  return [
+    '## In-Chat Configuration',
+    '',
+    'When the user needs to configure a value (API keys, OAuth credentials, webhook URLs, or any setting that can be changed from the Settings page), **always collect it conversationally in the chat first** rather than directing them to the Settings page.',
+    '',
+    '**How to collect credentials and secrets:**',
+    '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation.',
+    '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser.',
+    '- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate IPC or config tool to persist the value.',
+    '',
+    '**After saving a value**, confirm success with a message like: "Great, saved! You can always update this from the Settings page."',
+    '',
+    '**Never tell the user to go to Settings to enter a value.** The Settings page is for reviewing and updating existing configuration, not for initial setup. Always prefer the in-chat flow for first-time configuration.',
   ].join('\n');
 }
 

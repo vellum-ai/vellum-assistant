@@ -12,7 +12,7 @@ You are helping your user create a Slack App and OAuth credentials so the Messag
 
 ## Prerequisites
 
-Before starting, check that `ingress.publicBaseUrl` is configured (Settings > Public Ingress, or `INGRESS_PUBLIC_BASE_URL` env var). If it is not set, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the public URL. The OAuth redirect URI depends on this value.
+Before starting, check that `ingress.publicBaseUrl` is configured (`INGRESS_PUBLIC_BASE_URL` env var or workspace config). If it is not set, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the public URL. The OAuth redirect URI depends on this value.
 
 ## Before You Start
 
@@ -89,7 +89,7 @@ Tell the user: "Permissions configured! Now let's set up the redirect URL and ge
 
 Navigate to the "OAuth & Permissions" page if not already there.
 
-The redirect URL must point to the gateway's OAuth callback endpoint. Determine the URL by reading the `ingress.publicBaseUrl` value from the assistant's workspace config (Settings > Public Ingress) or the `INGRESS_PUBLIC_BASE_URL` environment variable. The callback path is `/webhooks/oauth/callback`.
+The redirect URL must point to the gateway's OAuth callback endpoint. Determine the URL by reading the `ingress.publicBaseUrl` value from the assistant's workspace config or the `INGRESS_PUBLIC_BASE_URL` environment variable. The callback path is `/webhooks/oauth/callback`.
 
 In the "Redirect URLs" section:
 1. Click "Add New Redirect URL"
@@ -98,7 +98,7 @@ In the "Redirect URLs" section:
 
 Take a `browser_snapshot` to confirm.
 
-Tell the user: "Redirect URL configured. Make sure your tunnel is running and `ingress.publicBaseUrl` is set in Settings so the callback can reach the gateway."
+Tell the user: "Redirect URL configured. Make sure your tunnel is running and `ingress.publicBaseUrl` is set so the callback can reach the gateway. You can always check or update this from the Settings page."
 
 ## Step 5: Extract Client ID and Client Secret
 

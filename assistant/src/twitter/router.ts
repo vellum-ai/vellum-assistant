@@ -41,7 +41,7 @@ export async function routedPostTweet(
   if (strategy === 'oauth') {
     // User explicitly wants OAuth
     if (!oauthIsAvailable()) {
-      throw Object.assign(new Error('OAuth is not configured. Set up OAuth credentials in Settings, or switch to browser strategy: `vellum x strategy set browser`.'), {
+      throw Object.assign(new Error('OAuth is not configured. Provide your X developer credentials here in the chat to set up OAuth, or switch to browser strategy: `vellum x strategy set browser`.'), {
         pathUsed: 'oauth' as const,
         suggestAlternative: 'browser' as const,
       });

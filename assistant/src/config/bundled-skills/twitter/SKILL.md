@@ -17,7 +17,7 @@ OAuth uses the official X API v2. It is the most reliable connection method and 
 
 - Supports: **post** and **reply**
 - Read-only operations (timeline, search, home, bookmarks, notifications, likes, followers, following, media) always use the browser path directly, regardless of the strategy setting.
-- Setup: The user connects OAuth credentials through the Settings UI or the `twitter_auth_start` IPC flow.
+- Setup: Collect the OAuth Client ID (and optional Client Secret) from the user in chat using `credential_store` with `action: "prompt"`, then initiate the `twitter_auth_start` IPC flow. See the **First-Use Decision Flow** for the full sequence.
 - Set the strategy: `vellum x strategy set oauth`
 
 ### Browser session (no developer credentials needed)
@@ -45,14 +45,30 @@ When the user triggers a Twitter operation and no strategy has been configured y
    Look at `oauthConnected`, `browserSessionActive`, `preferredStrategy`, and `strategyConfigured` in the response. If `strategyConfigured` is `false`, the user has not yet chosen a strategy and should be guided through setup.
 
 2. **Present both options with trade-offs:**
-   - **OAuth**: Most reliable and official. Requires X developer app credentials (OAuth Client ID and optional Client Secret). Supports posting and replying. Set up through Settings UI.
+   - **OAuth**: Most reliable and official. Requires X developer app credentials (OAuth Client ID and optional Client Secret). Supports posting and replying. Set up right here in the chat.
    - **Browser session**: Quick to start, no developer credentials needed. Supports all operations including reading timelines and searching. Set up with `vellum x refresh`.
 
 3. **Ask the user which they prefer.** Do not choose for them.
 
 4. **Execute setup for the chosen path:**
-   - If OAuth: Guide the user to the Settings UI to connect their X developer credentials, or initiate the `twitter_auth_start` IPC flow.
+   - If OAuth: Collect the credentials in-chat using the secure credential prompt, then connect. Follow the **OAuth Setup Sequence** below.
    - If browser: Run `vellum x refresh` to capture session cookies from Chrome.
+
+### OAuth Setup Sequence
+
+When the user chooses OAuth, collect their X developer credentials conversationally using the secure UI:
+
+1. **Collect the Client ID securely:**
+   Call `credential_store` with `action: "prompt"`, `service: "integration:twitter"`, `field: "oauth_client_id"`, `label: "X (Twitter) OAuth Client ID"`, `description: "Enter the Client ID from your X Developer App"`, and `placeholder: "your-client-id"`.
+
+2. **Collect the Client Secret (if applicable):**
+   Ask the user if their X app uses a confidential client (has a Client Secret). If yes, call `credential_store` with `action: "prompt"`, `service: "integration:twitter"`, `field: "oauth_client_secret"`, `label: "X (Twitter) OAuth Client Secret"`, `description: "Enter the Client Secret from your X Developer App (leave blank if using a public client)"`, and `placeholder: "your-client-secret"`.
+
+3. **Initiate the OAuth flow:**
+   Send the `twitter_auth_start` IPC message. This opens the X authorization page in the user's browser. Wait for the flow to complete.
+
+4. **Confirm success:**
+   Tell the user: "Great, your X account is connected! You can always update these credentials from the Settings page."
 
 5. **Set the preferred strategy:**
    ```bash

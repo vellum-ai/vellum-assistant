@@ -12,7 +12,7 @@ You are helping your user create Google Cloud OAuth credentials so the Gmail and
 
 ## Prerequisites
 
-Before starting, check that `ingress.publicBaseUrl` is configured (Settings > Public Ingress, or `INGRESS_PUBLIC_BASE_URL` env var). If it is not set, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the public URL. The OAuth redirect URI depends on this value.
+Before starting, check that `ingress.publicBaseUrl` is configured (`INGRESS_PUBLIC_BASE_URL` env var or workspace config). If it is not set, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the public URL. The OAuth redirect URI depends on this value.
 
 ## Before You Start
 
@@ -139,7 +139,7 @@ Use `browser_click` on "+ Create Credentials" at the top, then select "OAuth cli
 Take a `browser_snapshot` and fill in:
 1. **Application type:** Select "Web application" from the dropdown
 2. **Name:** "Vellum Assistant"
-3. **Authorized redirect URIs:** Click "Add URI" and enter `${ingress.publicBaseUrl}/webhooks/oauth/callback` (e.g. `https://abc123.ngrok-free.app/webhooks/oauth/callback`). Read the `ingress.publicBaseUrl` value from the assistant's workspace config (Settings > Public Ingress) or the `INGRESS_PUBLIC_BASE_URL` environment variable.
+3. **Authorized redirect URIs:** Click "Add URI" and enter `${ingress.publicBaseUrl}/webhooks/oauth/callback` (e.g. `https://abc123.ngrok-free.app/webhooks/oauth/callback`). Read the `ingress.publicBaseUrl` value from the assistant's workspace config or the `INGRESS_PUBLIC_BASE_URL` environment variable.
 
 Use `browser_click` on the "Create" button.
 
@@ -194,6 +194,6 @@ Summarize what was accomplished:
 - **Consent screen already configured with different settings:** Don't overwrite; skip to credential creation and tell the user you're using their existing configuration.
 - **Element not found for click/type:** Take a fresh `browser_snapshot` to re-assess the page layout. GCP UI may have changed; adapt your selectors. Tell the user what you're looking for if you get stuck.
 - **User declines an approval gate:** Don't push back aggressively. Explain briefly why the step matters, offer to try again, or offer to cancel the whole setup gracefully. Never proceed without approval.
-- **OAuth flow timeout or failure:** Tell the user what happened and offer to retry the connect step. The client ID is already stored, so they can also connect later from Settings.
+- **OAuth flow timeout or failure:** Tell the user what happened and offer to retry the connect step right here in the chat. The client ID is already stored, so reconnecting only requires re-running the authorization flow. They can also manage credentials from the Settings page.
 - **"This app isn't verified" warning:** Guide the user through clicking "Advanced" → "Go to Vellum Assistant (unsafe)". Reassure them this is expected for personal-use OAuth apps.
 - **Any unexpected state:** Take a `browser_screenshot` and `browser_snapshot`, describe what you see, and ask the user for guidance rather than guessing.
