@@ -298,6 +298,53 @@ describe('handleChannelDecision', () => {
     expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'deny');
   });
 
+  test('uses decision.runId to target the matching pending run', () => {
+    ensureConversation('conv-1');
+    const olderRun = createRun('conv-1');
+    setRunConfirmation(olderRun.id, {
+      ...sampleConfirmation,
+      toolName: 'shell',
+      toolUseId: 'req-older',
+    });
+    const newerRun = createRun('conv-1');
+    setRunConfirmation(newerRun.id, {
+      ...sampleConfirmation,
+      toolName: 'browser',
+      toolUseId: 'req-newer',
+    });
+
+    const orchestrator = makeMockOrchestrator();
+    const decision: ApprovalDecisionResult = {
+      action: 'approve_once',
+      source: 'telegram_button',
+      runId: newerRun.id,
+    };
+
+    const result = handleChannelDecision('conv-1', decision, orchestrator);
+    expect(result.applied).toBe(true);
+    expect(result.runId).toBe(newerRun.id);
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(newerRun.id, 'allow');
+    expect(orchestrator.submitDecision).not.toHaveBeenCalledWith(olderRun.id, 'allow');
+  });
+
+  test('returns applied: false when decision.runId does not match a pending run', () => {
+    ensureConversation('conv-1');
+    const run = createRun('conv-1');
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    const orchestrator = makeMockOrchestrator();
+    const decision: ApprovalDecisionResult = {
+      action: 'approve_once',
+      source: 'telegram_button',
+      runId: 'run-missing',
+    };
+
+    const result = handleChannelDecision('conv-1', decision, orchestrator);
+    expect(result.applied).toBe(false);
+    expect(result.runId).toBeUndefined();
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+  });
+
   test('approve_always adds a trust rule and submits "allow"', () => {
     ensureConversation('conv-1');
     const run = createRun('conv-1');

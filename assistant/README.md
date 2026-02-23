@@ -181,7 +181,7 @@ Guardian actor-role *classification* (determining whether a sender is guardian, 
 | `CHANNEL_APPROVALS_ENABLED=true` | Enables generic self-approval UX: approval prompts, callback/text decisions, and reminder messages for guardian actors. |
 | `forceStrictSideEffects` | Automatically set on runs triggered by non-guardian or unverified-channel senders so all side-effect tools require approval. Applied regardless of `CHANNEL_APPROVALS_ENABLED` for guardian-enforced actors. |
 | **Fail-closed no-binding** | When no guardian binding exists for a channel, the sender is classified as `unverified_channel`. Any sensitive action is auto-denied with a notice that no guardian has been configured. Enforced regardless of `CHANNEL_APPROVALS_ENABLED`. |
-| **Fail-closed no-identity** | When `senderExternalUserId` is absent but a guardian binding exists for the channel, the actor is classified as `unverified_channel`. Enforced regardless of `CHANNEL_APPROVALS_ENABLED`. |
+| **Fail-closed no-identity** | When `senderExternalUserId` is absent, the actor is classified as `unverified_channel` (even if no guardian binding exists yet). Enforced regardless of `CHANNEL_APPROVALS_ENABLED`. |
 | **Guardian-only approval** | Non-guardian senders cannot approve their own pending actions. Only the verified guardian can approve or deny. |
 | **Expired approval auto-deny** | A proactive sweep runs every 60 seconds to find expired guardian approval requests (30-minute TTL). Expired approvals are auto-denied, and both the requester and guardian are notified. If a non-guardian interacts before the sweep runs, the expiry is also detected reactively. |
 

@@ -3683,7 +3683,7 @@ When a message arrives on a channel, the runtime resolves the sender's role. Rol
 
 - **Guardian**: `externalUserId` matches the binding's `guardianExternalUserId` for the `(assistantId, channel)` pair. Generic self-approval UX is controlled by `CHANNEL_APPROVALS_ENABLED`.
 - **Non-guardian**: A known sender who is not the guardian. Side-effect tools are forced through the confirmation flow (`forceStrictSideEffects`), and approval prompts are routed to the guardian's chat instead of the requester's chat.
-- **Unverified channel**: No guardian binding exists for the channel, or `senderExternalUserId` is absent while a binding exists. Sensitive actions are auto-denied immediately (fail-closed). This prevents unverified senders from self-approving actions or bypassing guardian enforcement by omitting identity data.
+- **Unverified channel**: No guardian binding exists for the channel, or `senderExternalUserId` is absent. Sensitive actions are auto-denied immediately (fail-closed). This prevents unverified senders from self-approving actions or bypassing guardian enforcement by omitting identity data.
 
 #### Sensitive Action Gating (Non-Guardian Approval)
 

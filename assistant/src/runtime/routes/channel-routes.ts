@@ -449,18 +449,15 @@ export async function handleChannelInbound(
       }
     }
   } else {
-    // No sender identity available — fail-closed when guardian enforcement
-    // is active for this channel. If a binding exists, unknown actors must
-    // not be granted default guardian permissions.
-    const binding = getGuardianBinding(assistantId, sourceChannel);
-    if (binding) {
-      guardianCtx = {
-        actorRole: 'unverified_channel',
-        denialReason: 'no_identity',
-        requesterExternalUserId: undefined,
-        requesterChatId: externalChatId,
-      };
-    }
+    // No sender identity available — treat as unverified and fail closed.
+    // Multi-actor channels must not grant default guardian permissions when
+    // the inbound actor cannot be identified.
+    guardianCtx = {
+      actorRole: 'unverified_channel',
+      denialReason: 'no_identity',
+      requesterExternalUserId: undefined,
+      requesterChatId: externalChatId,
+    };
   }
 
   // ── Approval interception ──
@@ -1189,11 +1186,6 @@ async function handleApprovalInterception(
       }
 
       return { handled: true, type: 'reminder_sent' };
-    }
-
-    // Callback with a run ID that no longer has a pending approval — stale button
-    if (decision?.runId) {
-      return { handled: true, type: 'stale_ignored' };
     }
   }
 

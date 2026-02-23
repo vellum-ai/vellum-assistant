@@ -105,7 +105,12 @@ export function handleChannelDecision(
   const pending = getPendingConfirmationsByConversation(conversationId);
   if (pending.length === 0) return { applied: false };
 
-  const info = pending[0];
+  // Callback-based decisions include a run ID and must resolve to that exact
+  // pending confirmation. Plain-text decisions still apply to the first prompt.
+  const info = decision.runId
+    ? pending.find((candidate) => candidate.runId === decision.runId)
+    : pending[0];
+  if (!info) return { applied: false };
 
   if (decision.action === 'approve_always') {
     // Only persist a trust rule when the confirmation explicitly allows persistence

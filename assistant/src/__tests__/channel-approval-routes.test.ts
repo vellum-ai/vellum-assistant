@@ -142,6 +142,7 @@ function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
   const body = {
     sourceChannel: 'telegram',
     externalChatId: 'chat-123',
+    senderExternalUserId: 'telegram-user-default',
     externalMessageId: `msg-${Date.now()}-${Math.random()}`,
     content: 'hello',
     replyCallbackUrl: 'https://gateway.test/deliver',
@@ -233,6 +234,12 @@ describe('feature flag disabled → normal flow', () => {
 describe('inbound callback metadata triggers decision handling', () => {
   beforeEach(() => {
     process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
   });
 
   test('callback data "apr:<runId>:approve_once" is parsed and applied', async () => {
@@ -325,6 +332,12 @@ describe('inbound callback metadata triggers decision handling', () => {
 describe('inbound text matching approval phrases triggers decision handling', () => {
   beforeEach(() => {
     process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
   });
 
   test('text "approve" triggers approve_once decision', async () => {
@@ -390,6 +403,12 @@ describe('inbound text matching approval phrases triggers decision handling', ()
 describe('non-decision messages during pending approval trigger reminder', () => {
   beforeEach(() => {
     process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
   });
 
   test('sends a reminder prompt when message is not a decision', async () => {
@@ -564,6 +583,12 @@ describe('empty content with callbackData bypasses validation', () => {
 describe('callback run ID validation', () => {
   beforeEach(() => {
     process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
   });
 
   test('ignores stale callback when run ID does not match pending run', async () => {
@@ -868,6 +893,12 @@ describe('terminal state check before markProcessed', () => {
 describe('no immediate reply after approval decision', () => {
   beforeEach(() => {
     process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
   });
 
   test('deliverChannelReply is NOT called from interception after decision is applied', async () => {
@@ -1409,12 +1440,19 @@ describe('sourceChannel passed to orchestrator.startRun', () => {
 describe('SMS channel approval decisions', () => {
   beforeEach(() => {
     process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+    createBinding({
+      assistantId: 'self',
+      channel: 'sms',
+      guardianExternalUserId: 'sms-user-default',
+      guardianDeliveryChatId: 'sms-chat-123',
+    });
   });
 
   function makeSmsInboundRequest(overrides: Record<string, unknown> = {}): Request {
     const body = {
       sourceChannel: 'sms',
       externalChatId: 'sms-chat-123',
+      senderExternalUserId: 'sms-user-default',
       externalMessageId: `msg-${Date.now()}-${Math.random()}`,
       content: 'hello',
       replyCallbackUrl: 'https://gateway.test/deliver',
@@ -1716,6 +1754,18 @@ describe('SMS non-guardian actor gating', () => {
 describe('plain-text fallback surfacing for non-rich channels', () => {
   beforeEach(() => {
     process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
+    createBinding({
+      assistantId: 'self',
+      channel: 'http-api',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
   });
 
   test('reminder prompt includes plainTextFallback for non-rich channel (http-api)', async () => {
@@ -2074,6 +2124,53 @@ describe('guardian-with-binding path regression', () => {
 
     deliverSpy.mockRestore();
     approvalSpy.mockRestore();
+  });
+
+  test('guardian callback for own pending run is handled by standard interception', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-self-callback',
+      guardianDeliveryChatId: 'chat-123',
+    });
+
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Establish the conversation mapping for chat-123.
+    const initReq = makeInboundRequest({
+      content: 'init',
+      senderExternalUserId: 'guardian-user-self-callback',
+      externalChatId: 'chat-123',
+    });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    // Button callback includes a runId but there is no guardian approval request
+    // because this is the guardian's own approval flow.
+    const req = makeInboundRequest({
+      content: '',
+      senderExternalUserId: 'guardian-user-self-callback',
+      externalChatId: 'chat-123',
+      callbackData: `apr:${run.id}:approve_once`,
+    });
+
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('decision_applied');
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+    expect(getPendingApprovalForRun(run.id)).toBeNull();
+
+    deliverSpy.mockRestore();
   });
 });
 
@@ -2544,6 +2641,12 @@ describe('deliver-once idempotency guard', () => {
 describe('final reply idempotency — no duplicate delivery', () => {
   beforeEach(() => {
     process.env.CHANNEL_APPROVALS_ENABLED = 'true';
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
   });
 
   test('main poll wins: deliverChannelReply called exactly once when main poll delivers first', async () => {
@@ -3051,25 +3154,40 @@ describe('guardian enforcement independence from approval flag', () => {
     approvalSpy.mockRestore();
   });
 
-  test('missing senderExternalUserId without guardian binding uses default flow', async () => {
+  test('missing senderExternalUserId without guardian binding fails closed', async () => {
     delete process.env.CHANNEL_APPROVALS_ENABLED;
 
-    // No guardian binding exists — default behavior should be preserved
-    const orchestrator = makeMockOrchestrator();
+    // No guardian binding exists, but identity is missing — treat sender as
+    // unverified_channel and auto-deny sensitive actions.
+    const orchestrator = makeSensitiveOrchestrator({ runId: 'run-failclosed-noid-nobinding', terminalStatus: 'failed' });
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
 
     const req = makeInboundRequest({
-      content: 'hello world',
+      content: 'do something dangerous',
       senderExternalUserId: undefined,
     });
 
     const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
     expect(res.status).toBe(200);
 
-    const body = await res.json() as Record<string, unknown>;
-    expect(body.accepted).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    expect(deliverSpy).toHaveBeenCalled();
+    const denialCalls = deliverSpy.mock.calls.filter(
+      (call) => {
+        if (typeof call[1] !== 'object') return false;
+        const text = (call[1] as { text?: string }).text ?? '';
+        return text.includes('requires guardian approval')
+          && text.includes('identity could not be determined')
+          && text.includes('denied');
+      },
+    );
+    expect(denialCalls.length).toBeGreaterThanOrEqual(1);
+    expect(approvalSpy).not.toHaveBeenCalled();
 
     deliverSpy.mockRestore();
+    approvalSpy.mockRestore();
   });
 });
 
