@@ -1,9 +1,6 @@
 import Foundation
 import Network
 import os
-#if os(iOS)
-import CryptoKit
-#endif
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DaemonClient")
 
@@ -19,8 +16,9 @@ extension DaemonClient {
 
     /// Connect to the daemon. If already connected, disconnects first.
     /// - macOS (socket): Connects to Unix domain socket at `~/.vellum/vellum.sock`
+    /// - macOS (tcp): Connects to TCP endpoint
     /// - HTTP: Connects to remote assistant via HTTP REST + SSE (both platforms)
-    /// - iOS (tcp): Connects to TCP endpoint (hostname from UserDefaults or localhost:8765)
+    /// - iOS: Uses HTTP+SSE exclusively (no TCP)
     public func connect() async throws {
         // Disconnect any existing connection without triggering reconnect.
         disconnectInternal(triggerReconnect: false)
@@ -37,10 +35,10 @@ extension DaemonClient {
             return
         }
 
+        #if os(macOS)
         let endpoint: NWEndpoint
         let parameters: NWParameters
 
-        #if os(macOS)
         if case .socket(let path) = config.transport {
             log.info("Connecting to daemon socket at \(path, privacy: .public)")
             endpoint = NWEndpoint.unix(path: path)
@@ -54,42 +52,6 @@ extension DaemonClient {
             isConnecting = false
             return
         }
-        #elseif os(iOS)
-        // HTTP transport is already handled above; only TCP should reach here on iOS.
-        guard case .tcp(let configHostname, let configPort, _, _) = config.transport else {
-            log.error("Unexpected transport type on iOS — HTTP should have been handled above")
-            isConnecting = false
-            return
-        }
-
-        // Check UserDefaults first to pick up runtime changes, fall back to config
-        // This allows reconnects to pick up changed settings while preserving custom configs for tests
-        let hostname: String
-        let port: UInt16
-
-        if let userHostname = UserDefaults.standard.string(forKey: "daemon_hostname"), !userHostname.isEmpty {
-            hostname = userHostname
-        } else {
-            hostname = configHostname
-        }
-
-        let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
-        if rawPort > 0 && rawPort <= 65535 {
-            port = UInt16(rawPort)
-        } else {
-            port = configPort
-        }
-
-        // iOS always enforces TLS for TCP connections with certificate pinning
-        log.info("Connecting to daemon at \(hostname):\(port) (tls=true)")
-        endpoint = NWEndpoint.hostPort(
-            host: NWEndpoint.Host(hostname),
-            port: NWEndpoint.Port(integerLiteral: port)
-        )
-        parameters = Self.makePinnedTLSParameters(hostname: hostname, port: port)
-        #else
-        #error("DaemonClient is only supported on macOS and iOS")
-        #endif
 
         let conn = NWConnection(to: endpoint, using: parameters)
         self.connection = conn
@@ -127,22 +89,14 @@ extension DaemonClient {
                             self.startReceiveLoop()
                             Task { @MainActor in
                                 do {
-                                    #if os(macOS)
                                     try await self.authenticate()
-                                    #elseif os(iOS)
-                                    try await self.authenticateIfNeeded()
-                                    #else
-                                    self.isAuthenticated = true
-                                    #endif
                                     self.isConnected = true
                                     self.isConnecting = false
                                     self.startNetworkMonitor()
                                     NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
                                     self.reconnectDelay = 1.0
                                     self.startPingTimer()
-                                    #if os(macOS)
                                     self.runBlobProbe()
-                                    #endif
                                     checkedContinuation.resume()
                                 } catch {
                                     log.error("Daemon authentication failed: \(error.localizedDescription)")
@@ -196,6 +150,11 @@ extension DaemonClient {
 
             conn.start(queue: self.queue)
         }
+        #else
+        // iOS: only HTTP transport reaches connect(). If we get here, something is wrong.
+        log.error("Non-HTTP transport is not supported on iOS")
+        isConnecting = false
+        #endif
     }
 
     // MARK: - Authentication
@@ -241,103 +200,10 @@ extension DaemonClient {
     }
     #endif
 
-    #if os(iOS)
-    /// Perform token-based authentication if `config.authToken` is set.
-    /// Sends an `AuthMessage` and waits for an `auth_result` response before
-    /// allowing the connection to be marked as ready.
-    /// If no token is configured, marks the connection as authenticated immediately.
-    func authenticateIfNeeded() async throws {
-        // Re-read hostname/port from UserDefaults to match connect()'s resolution logic,
-        // so the token lookup key matches the actual connection target.
-        let resolvedHostname = UserDefaults.standard.string(forKey: "daemon_hostname").flatMap { $0.isEmpty ? nil : $0 } ?? config.hostname
-        let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
-        let resolvedPort: UInt16 = (rawPort > 0 && rawPort <= 65535) ? UInt16(rawPort) : config.port
-        // Check host-specific key first (QR pairing), fall back to bare key (single-Mac compat),
-        // then legacy UserDefaults migration — same precedence as DaemonConfig.fromUserDefaults().
-        let hostSpecificProvider = "daemon-token:\(resolvedHostname):\(resolvedPort)"
-        let tokenFromKeychain = APIKeyManager.shared.getAPIKey(provider: hostSpecificProvider)
-            ?? APIKeyManager.shared.getAPIKey(provider: "daemon-token")
-            ?? DaemonConfig.migrateAuthToken()
-        guard let token = tokenFromKeychain ?? config.authToken else {
-            // No token configured — treat as unauthenticated (plain TCP, no handshake).
-            isAuthenticated = true
-            return
-        }
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            authContinuation?.resume(throwing: AuthError.rejected("Authentication superseded"))
-            authContinuation = continuation
-
-            authTimeoutTask?.cancel()
-            authTimeoutTask = Task { @MainActor [weak self] in
-                do {
-                    try await Task.sleep(nanoseconds: UInt64(Self.authTimeout * 1_000_000_000))
-                } catch {
-                    return
-                }
-                guard let self, let pending = self.authContinuation else { return }
-                self.authContinuation = nil
-                self.authTimeoutTask = nil
-                self.isAuthenticated = false
-                pending.resume(throwing: AuthError.timeout)
-            }
-
-            do {
-                try self.send(AuthMessage(token: token))
-            } catch {
-                authContinuation = nil
-                authTimeoutTask?.cancel()
-                authTimeoutTask = nil
-                continuation.resume(throwing: error)
-            }
-        }
-    }
-    #endif
-
-    // MARK: - TLS Certificate Pinning (iOS)
-
-    #if os(iOS)
-    /// Create NWParameters with TLS and optional certificate pinning.
-    /// If a fingerprint is stored for this host:port, the TLS verify block
-    /// compares the server's leaf certificate SHA-256 against the stored value.
-    /// If no fingerprint is stored, accepts any valid TLS connection (TOFU model).
-    static func makePinnedTLSParameters(hostname: String, port: UInt16) -> NWParameters {
-        let fpKey = "daemon_fingerprint:\(hostname):\(port)"
-        let storedFingerprint = UserDefaults.standard.string(forKey: fpKey)
-
-        let tlsOptions = NWProtocolTLS.Options()
-
-        sec_protocol_options_set_verify_block(
-            tlsOptions.securityProtocolOptions,
-            { metadata, trust, completionHandler in
-                // If no fingerprint stored, accept any cert (first connection / TOFU)
-                guard let expected = storedFingerprint, !expected.isEmpty else {
-                    completionHandler(true)
-                    return
-                }
-
-                // Extract the leaf certificate
-                let secTrust = sec_trust_copy_ref(trust).takeRetainedValue()
-                guard SecTrustGetCertificateCount(secTrust) > 0,
-                      let leafCert = SecTrustCopyCertificateChain(secTrust) as? [SecCertificate],
-                      let cert = leafCert.first else {
-                    completionHandler(false)
-                    return
-                }
-
-                // Compute SHA-256 fingerprint of the DER-encoded certificate
-                let certData = SecCertificateCopyData(cert) as Data
-                let hash = SHA256.hash(data: certData)
-                let fingerprint = hash.compactMap { String(format: "%02x", $0) }.joined()
-
-                completionHandler(fingerprint == expected)
-            },
-            .main
-        )
-
-        return NWParameters(tls: tlsOptions)
-    }
-    #endif
+    // NOTE: iOS TCP authentication (authenticateIfNeeded) and TLS certificate pinning
+    // (makePinnedTLSParameters) have been removed. iOS now uses HTTP+SSE exclusively
+    // via the gateway. Bearer token auth is handled by HTTPTransport at the HTTP level.
+    // System TLS handles HTTPS certificate validation — no custom pinning needed.
 
     // MARK: - HTTP Transport
 

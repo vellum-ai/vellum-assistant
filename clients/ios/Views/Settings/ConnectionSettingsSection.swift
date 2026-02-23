@@ -47,14 +47,14 @@ struct APIKeySection: View {
 
 struct DaemonConnectionSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
-    @State private var daemonHostname: String = ""
-    @State private var daemonPort: String = ""
-    @State private var sessionToken: String = ""
     @State private var showingAlert = false
     @State private var alertMessage = ""
     @State private var showingQRPairing = false
 
-    @State private var showManualSetup = false
+    /// The currently configured gateway URL, shown as read-only status.
+    private var gatewayURL: String? {
+        UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL).flatMap { $0.isEmpty ? nil : $0 }
+    }
 
     var body: some View {
         Form {
@@ -78,60 +78,21 @@ struct DaemonConnectionSection: View {
                 Text("Open Vellum on your Mac, then go to Settings > Show QR Code.")
             }
 
-            Section {
-                DisclosureGroup("Manual Setup", isExpanded: $showManualSetup) {
+            if let url = gatewayURL {
+                Section("Connection") {
                     HStack {
-                        Text("Hostname")
+                        Text("Gateway")
                         Spacer()
-                        TextField("e.g. 192.168.1.100", text: $daemonHostname)
-                            .multilineTextAlignment(.trailing)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
+                        Text(url)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
-                    HStack {
-                        Text("Port")
-                        Spacer()
-                        TextField("8765", text: $daemonPort)
-                            .multilineTextAlignment(.trailing)
-                            .keyboardType(.numberPad)
-                    }
-                    HStack {
-                        Text("Session Token")
-                        Spacer()
-                        SecureField("From ~/.vellum/session-token", text: $sessionToken)
-                            .multilineTextAlignment(.trailing)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
-                    }
-                    Button("Update") {
-                        guard let port = Int(daemonPort), port > 0, port <= 65535 else {
-                            alertMessage = "Port must be a valid number between 1 and 65535"
-                            showingAlert = true
-                            return
-                        }
-                        UserDefaults.standard.set(daemonHostname, forKey: UserDefaultsKeys.daemonHostname)
-                        UserDefaults.standard.set(port, forKey: UserDefaultsKeys.daemonPort)
-                        // iOS always uses TLS for TCP connections
-                        UserDefaults.standard.set(true, forKey: UserDefaultsKeys.daemonTLSEnabled)
-                        if sessionToken.isEmpty {
-                            _ = APIKeyManager.shared.deleteAPIKey(provider: "daemon-token")
-                            UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.legacyDaemonToken)
-                        } else {
-                            _ = APIKeyManager.shared.setAPIKey(sessionToken, provider: "daemon-token")
-                        }
-                        // Rebuild the client so the new transport config takes effect,
-                        // then reconnect. DaemonClient transport is fixed at init, so
-                        // just calling connect() wouldn't pick up hostname/port changes.
-                        clientProvider.rebuildClient()
-                        Task {
-                            try? await clientProvider.client.connect()
-                        }
-                        alertMessage = "Daemon connection settings updated"
-                        showingAlert = true
-                    }
-                    .disabled(daemonHostname.isEmpty || daemonPort.isEmpty)
                 }
             }
+
+            // Manual TCP setup removed — iOS uses HTTP+SSE exclusively via the gateway.
+            // Gateway URL configuration will be added in M5.
         }
         .navigationTitle("Connect")
         .navigationBarTitleDisplayMode(.inline)
@@ -140,22 +101,9 @@ struct DaemonConnectionSection: View {
         } message: {
             Text(alertMessage)
         }
-        .sheet(isPresented: $showingQRPairing, onDismiss: {
-            // Re-read settings after QR pairing in case they changed
-            reloadSettings()
-        }) {
+        .sheet(isPresented: $showingQRPairing) {
             QRPairingSheet()
         }
-        .onAppear {
-            reloadSettings()
-        }
-    }
-
-    private func reloadSettings() {
-        daemonHostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? ""
-        let portValue = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
-        daemonPort = portValue > 0 ? String(portValue) : "8765"
-        sessionToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token") ?? ""
     }
 }
 #endif

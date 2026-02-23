@@ -41,9 +41,9 @@ public struct DaemonConfig {
         /// Local Unix domain socket (macOS only).
         #if os(macOS)
         case socket(path: String)
-        #endif
-        /// TCP connection to a daemon (typically iOS → Mac).
+        /// TCP connection to a daemon (macOS only — iOS uses HTTP+SSE exclusively).
         case tcp(hostname: String, port: UInt16, tlsEnabled: Bool, authToken: String?)
+        #endif
         /// HTTP + SSE via a remote gateway URL (for cloud/custom assistants).
         case http(baseURL: String, bearerToken: String?, conversationKey: String)
     }
@@ -77,43 +77,16 @@ public struct DaemonConfig {
     }
 
     #if os(iOS)
-    // MARK: - iOS convenience accessors (backwards compatible)
+    // MARK: - iOS defaults (HTTP+SSE only — no TCP)
 
-    /// Hostname for TCP transport. Returns "localhost" for non-TCP transports.
-    public var hostname: String {
-        if case .tcp(let h, _, _, _) = transport { return h }
-        return "localhost"
-    }
-
-    /// Port for TCP transport. Returns 8765 for non-TCP transports.
-    public var port: UInt16 {
-        if case .tcp(_, let p, _, _) = transport { return p }
-        return 8765
-    }
-
-    /// TLS setting for TCP transport.
-    public var tlsEnabled: Bool {
-        if case .tcp(_, _, let tls, _) = transport { return tls }
-        return false
-    }
-
-    /// Auth token for TCP transport.
-    public var authToken: String? {
-        if case .tcp(_, _, _, let token) = transport { return token }
-        return nil
-    }
-
-    /// Backwards-compatible initializer for TCP transport.
-    public init(hostname: String, port: UInt16, tlsEnabled: Bool = false, authToken: String? = nil) {
-        self.transport = .tcp(hostname: hostname, port: port, tlsEnabled: tlsEnabled, authToken: authToken)
-    }
-
+    /// iOS uses HTTP+SSE exclusively. Default returns an HTTP config if a gateway/runtime
+    /// URL is configured, otherwise a non-connecting placeholder.
     public static var `default`: DaemonConfig {
-        return DaemonConfig(hostname: "localhost", port: 8765)
+        return fromUserDefaults()
     }
 
-    /// Create a `DaemonConfig` populated from UserDefaults / Keychain, falling back to safe defaults.
-    /// Checks for gateway URL (QR pairing v2) or runtime URL, then falls back to TCP.
+    /// Create a `DaemonConfig` populated from UserDefaults / Keychain.
+    /// iOS only supports HTTP+SSE transport via the gateway — no TCP fallback.
     public static func fromUserDefaults() -> DaemonConfig {
         // Check for a stored gateway or runtime URL — if present, use HTTP transport.
         // gateway_base_url is set by QR pairing v2; runtime_url is the legacy/cloud key.
@@ -131,32 +104,9 @@ public struct DaemonConfig {
             return DaemonConfig(transport: .http(baseURL: baseURL, bearerToken: bearerToken, conversationKey: conversationKey))
         }
 
-        // Fall back to TCP transport (connect to Mac daemon)
-        let hostname = UserDefaults.standard.string(forKey: "daemon_hostname").flatMap { $0.isEmpty ? nil : $0 } ?? "localhost"
-        let rawPort = UserDefaults.standard.integer(forKey: "daemon_port")
-        let finalPort: UInt16 = (rawPort > 0 && rawPort <= 65535) ? UInt16(rawPort) : 8765
-        let tlsEnabled = UserDefaults.standard.bool(forKey: "daemon_tls_enabled")
-        // Check host-specific Keychain key first (QR pairing), fall back to bare key (single-Mac compat)
-        let hostSpecificProvider = "daemon-token:\(hostname):\(finalPort)"
-        let authToken = APIKeyManager.shared.getAPIKey(provider: hostSpecificProvider)
-            ?? APIKeyManager.shared.getAPIKey(provider: "daemon-token")
-            ?? migrateAuthToken()
-        return DaemonConfig(hostname: hostname, port: finalPort, tlsEnabled: tlsEnabled, authToken: authToken)
-    }
-
-    /// One-time migration: reads the legacy `daemon_auth_token` UserDefaults key, persists it
-    /// to Keychain, removes the old key, and returns the value. Returns nil if no legacy token exists.
-    static func migrateAuthToken() -> String? {
-        // Constructed at runtime to avoid pre-commit hook false positive
-        let legacyKey = ["daemon", "auth", "token"].joined(separator: "_")
-        guard let legacy = UserDefaults.standard.string(forKey: legacyKey), !legacy.isEmpty else {
-            return nil
-        }
-        guard APIKeyManager.shared.setAPIKey(legacy, provider: "daemon-token") else {
-            return legacy
-        }
-        UserDefaults.standard.removeObject(forKey: legacyKey)
-        return legacy
+        // No gateway URL configured — return a placeholder HTTP config that won't connect.
+        // The user needs to pair via QR code (which sets gateway_base_url) before connecting.
+        return DaemonConfig(transport: .http(baseURL: "", bearerToken: nil, conversationKey: ""))
     }
     #endif
 }

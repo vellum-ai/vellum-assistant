@@ -19,11 +19,12 @@ struct ContentView: View {
     }
 
     /// Whether the user has previously saved daemon connection settings.
+    /// iOS uses HTTP+SSE only — checks for gateway URL or runtime URL.
     private var hasSavedSettings: Bool {
-        if let url = UserDefaults.standard.string(forKey: "runtime_url"), !url.isEmpty {
+        if let url = UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL), !url.isEmpty {
             return true
         }
-        if let hostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname), !hostname.isEmpty {
+        if let url = UserDefaults.standard.string(forKey: "runtime_url"), !url.isEmpty {
             return true
         }
         return false
