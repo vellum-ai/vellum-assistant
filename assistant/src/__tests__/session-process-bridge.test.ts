@@ -33,6 +33,7 @@ mock.module('../config/loader.js', () => ({
     provider: 'anthropic',
     memory: { enabled: false },
     calls: { enabled: false },
+    contextWindow: { maxInputTokens: 200000 },
   }),
 }));
 
@@ -75,6 +76,7 @@ function createMockSession(overrides?: Partial<ProcessSessionContext>): ProcessS
     traceEmitter: {
       emit: () => {},
     } as unknown as ProcessSessionContext['traceEmitter'],
+    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     persistUserMessage: mock((_content: string, _attachments: unknown[], _requestId?: string) => 'mock-msg-id'),
     runAgentLoop: mock(async () => {}),
     ...overrides,

@@ -1900,6 +1900,7 @@ public struct IPCTwilioConfigRequest: Codable, Sendable {
     public let phoneNumber: String?
     public let areaCode: String?
     public let country: String?
+    public let assistantId: String?
 }
 
 public struct IPCTwilioConfigResponse: Codable, Sendable {
@@ -1909,6 +1910,8 @@ public struct IPCTwilioConfigResponse: Codable, Sendable {
     public let phoneNumber: String?
     public let numbers: [IPCTwilioConfigResponseNumber]?
     public let error: String?
+    /// Non-fatal warning message (e.g. webhook sync failure that did not prevent the primary operation).
+    public let warning: String?
 }
 
 public struct IPCTwilioConfigResponseNumber: Codable, Sendable {

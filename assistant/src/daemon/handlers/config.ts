@@ -5,7 +5,7 @@ import { addRule, removeRule, updateRule, getAllRules, acceptStarterBundle } fro
 import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } from '../../permissions/checker.js';
 import { isSideEffectTool } from '../../tools/executor.js';
 import { resolveExecutionTarget } from '../../tools/execution-target.js';
-import { getAllTools, getTool } from '../../tools/registry.js';
+import { getAllTools } from '../../tools/registry.js';
 import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression } from '../../schedule/schedule-store.js';
 import { listReminders, cancelReminder } from '../../tools/reminder/reminder-store.js';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
@@ -40,7 +40,6 @@ import {
   updatePhoneNumberWebhooks,
 } from '../../calls/twilio-rest.js';
 import {
-  getPublicBaseUrl,
   getTwilioVoiceWebhookUrl,
   getTwilioStatusCallbackUrl,
   getTwilioSmsWebhookUrl,
@@ -1509,7 +1508,7 @@ export function handleGuardianVerification(
         guardianExternalUserId: binding?.guardianExternalUserId,
       });
     } else if (msg.action === 'revoke') {
-      const revoked = revokeGuardianBinding(assistantId, channel);
+      revokeGuardianBinding(assistantId, channel);
       ctx.send(socket, {
         type: 'guardian_verification_response',
         success: true,
@@ -1566,11 +1565,10 @@ export async function handleToolPermissionSimulate(
 
     const workingDir = msg.workingDir ?? process.cwd();
 
-    // Only infer execution target when the tool is actually registered;
-    // for unresolved tools, leave it undefined so trust rules are unscoped.
-    const isRegistered = getTool(msg.toolName) !== undefined;
-    const executionTarget = isRegistered ? resolveExecutionTarget(msg.toolName) : undefined;
-    const policyContext = executionTarget ? { executionTarget } : undefined;
+    // Resolve execution target using manifest metadata or prefix heuristics.
+    // resolveExecutionTarget handles unregistered tools via prefix fallback.
+    const executionTarget = resolveExecutionTarget(msg.toolName);
+    const policyContext = { executionTarget };
 
     const riskLevel = await classifyRisk(msg.toolName, msg.input, workingDir);
     const result = await check(msg.toolName, msg.input, workingDir, policyContext);

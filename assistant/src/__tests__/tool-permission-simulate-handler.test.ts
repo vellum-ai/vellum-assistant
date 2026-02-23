@@ -314,9 +314,9 @@ describe('tool_permission_simulate handler', () => {
 
     const res = getResponse(sent);
     expect(res.success).toBe(true);
-    // The sandbox-scoped rule should not match a host tool
+    // The sandbox-scoped allow rule should not match a host tool — falls
+    // through to the default ask rule instead.
     expect(res.decision).toBe('prompt');
-    expect(res.matchedRuleId).toBeUndefined();
     expect(res.executionTarget).toBe('host');
   });
 

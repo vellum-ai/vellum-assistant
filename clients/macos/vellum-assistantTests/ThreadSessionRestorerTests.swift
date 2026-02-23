@@ -9,6 +9,9 @@ import VellumAssistantShared
 final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
     var threads: [ThreadModel] = []
     var restoreRecentThreads: Bool = true
+    var isLoadingMoreThreads: Bool = false
+    var hasMoreThreads: Bool = false
+    var serverOffset: Int = 0
     var viewModels: [UUID: ChatViewModel] = [:]
     var activatedThreadId: UUID?
     var createThreadCallCount = 0
@@ -53,6 +56,10 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
     }
 
     func restoreLastActiveThread() {
+        // no-op for tests
+    }
+
+    func appendThreads(from response: SessionListResponseMessage) {
         // no-op for tests
     }
 }
@@ -293,7 +300,7 @@ struct ThreadSessionRestorerTests {
     }
 
     @Test @MainActor
-    func sessionListCapsAtFive() {
+    func sessionListRestoresAllAndSetsOffset() {
         let dc = DaemonClient()
         let restorer = ThreadSessionRestorer(daemonClient: dc)
         let delegate = MockThreadRestorerDelegate(daemonClient: dc)
@@ -308,8 +315,9 @@ struct ThreadSessionRestorerTests {
         }
         restorer.handleSessionListResponse(makeSessionListResponse(sessions: sessions))
 
-        // Only 5 sessions should be restored
-        #expect(delegate.threads.count == 5)
+        // Client restores all sessions from the response; pagination is server-side
+        #expect(delegate.threads.count == 10)
+        #expect(delegate.serverOffset == 10)
     }
 
     // MARK: - All-Archived Restore

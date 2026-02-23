@@ -54,8 +54,6 @@ import {
   createApprovalRequest,
   getPendingApprovalForRun,
   getUnresolvedApprovalForRun,
-  getExpiredPendingApprovals,
-  updateApprovalDecision,
 } from '../memory/channel-guardian-store.js';
 import type { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import {

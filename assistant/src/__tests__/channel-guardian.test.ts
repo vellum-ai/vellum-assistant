@@ -949,7 +949,7 @@ describe('guardian service rate limiting', () => {
 
   test('valid challenge still succeeds when under threshold', () => {
     // Record a couple invalid attempts
-    const { secret } = createVerificationChallenge('asst-1', 'telegram');
+    const { secret: _secret } = createVerificationChallenge('asst-1', 'telegram');
     validateAndConsumeChallenge('asst-1', 'telegram', 'wrong-1', 'user-42', 'chat-42');
     validateAndConsumeChallenge('asst-1', 'telegram', 'wrong-2', 'user-42', 'chat-42');
 
