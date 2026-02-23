@@ -31,6 +31,11 @@ export function bumpMemoryVersion(): void {
   _version++;
 }
 
+/** Return the current memory version (for snapshot-based staleness checks). */
+export function getMemoryVersion(): number {
+  return _version;
+}
+
 /** Build a deterministic cache key from the recall inputs. */
 function buildCacheKey(
   query: string,
@@ -66,13 +71,25 @@ export function getCachedRecall(
   return entry.result;
 }
 
-/** Store a recall result in the cache. Evicts oldest entries when full. */
+/**
+ * Store a recall result in the cache. Evicts oldest entries when full.
+ *
+ * When `snapshotVersion` is provided, the entry is only stored if the
+ * snapshot still matches the current global version — this prevents a
+ * stale result from being cached under a version that was bumped while
+ * the retrieval pipeline was in flight.
+ */
 export function setCachedRecall(
   query: string,
   conversationId: string,
   options: MemoryRecallOptions | undefined,
   result: MemoryRecallResult,
+  snapshotVersion?: number,
 ): void {
+  // If a snapshot version was provided, only cache when it still matches
+  // the current version — otherwise the result may be stale.
+  if (snapshotVersion !== undefined && snapshotVersion !== _version) return;
+
   const key = buildCacheKey(query, conversationId, options);
 
   // Evict oldest entries if at capacity

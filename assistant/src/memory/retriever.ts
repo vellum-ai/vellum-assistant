@@ -19,7 +19,7 @@ import { semanticSearch, isQdrantConnectionError } from './search/semantic.js';
 import { entitySearch } from './search/entity.js';
 import { mergeCandidates, applySourceCaps, rerankWithLLM, trimToTokenBudget, markItemUsage } from './search/ranking.js';
 import { buildInjectedText, MEMORY_CONTEXT_ACK } from './search/formatting.js';
-import { getCachedRecall, setCachedRecall } from './recall-cache.js';
+import { getCachedRecall, setCachedRecall, getMemoryVersion } from './recall-cache.js';
 
 // Re-export public types and functions so existing importers continue to work
 export type {
@@ -226,6 +226,7 @@ export async function buildMemoryRecall(
   options?: MemoryRecallOptions,
 ): Promise<MemoryRecallResult> {
   const start = Date.now();
+  const versionSnapshot = getMemoryVersion();
   const excludeMessageIds = options?.excludeMessageIds?.filter((id) => id.length > 0) ?? [];
   const signal = options?.signal;
   if (!config.memory.enabled) {
@@ -428,7 +429,12 @@ export async function buildMemoryRecall(
     topCandidates,
   };
 
-  setCachedRecall(query, conversationId, options, result);
+  // Only cache non-degraded results — degraded results (e.g. lexical-only
+  // fallback when embeddings fail) would delay quality recovery once the
+  // embedding backend comes back.
+  if (!result.degraded) {
+    setCachedRecall(query, conversationId, options, result, versionSnapshot);
+  }
   return result;
 }
 
