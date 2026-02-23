@@ -1,5 +1,5 @@
 import { join, dirname } from 'node:path';
-import { mkdir, readdir } from 'node:fs/promises';
+import { mkdir, readdir, rm } from 'node:fs/promises';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import {
   getMediaAssetById,
@@ -64,6 +64,7 @@ export async function run(
 
   // Store keyframes in a durable directory alongside the source file
   const outputDir = join(dirname(asset.filePath), 'keyframes', assetId);
+  await rm(outputDir, { recursive: true, force: true });
   await mkdir(outputDir, { recursive: true });
 
   try {
