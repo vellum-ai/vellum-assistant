@@ -53,7 +53,10 @@ extension AppDelegate {
                 maxSteps: maxSteps,
                 sessionId: routed.sessionId,
                 skipSessionCreate: true,
-                notificationService: self.services.activityNotificationService
+                notificationService: self.services.activityNotificationService,
+                screenRecorder: (routed.qaMode == true) ? ScreenRecorder() : nil,
+                reportToSessionId: routed.reportToSessionId,
+                qaMode: routed.qaMode ?? false
             )
             // Don't bind relatedViewModel for escalated sessions — the active view model
             // may be unrelated if the user switched threads. Tool calls for escalated
@@ -193,7 +196,10 @@ extension AppDelegate {
                     attachments: submission.attachments,
                     sessionId: routed.sessionId,
                     skipSessionCreate: true,
-                    notificationService: self.services.activityNotificationService
+                    notificationService: self.services.activityNotificationService,
+                    screenRecorder: (routed.qaMode == true) ? ScreenRecorder() : nil,
+                    reportToSessionId: routed.reportToSessionId,
+                    qaMode: routed.qaMode ?? false
                 )
                 // Don't bind relatedViewModel — sessions started via startSession() don't
                 // originate from a chat thread, so there's no ChatViewModel to extract
