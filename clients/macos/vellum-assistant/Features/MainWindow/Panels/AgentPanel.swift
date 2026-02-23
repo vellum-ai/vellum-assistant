@@ -479,6 +479,10 @@ struct AgentPanelContent: View {
                         .font(VFont.small)
                         .foregroundColor(Amber._500)
                 }
+
+                Spacer()
+
+                detailInstallButton(slug: slug)
             }
 
             // Author/source row
@@ -590,8 +594,6 @@ struct AgentPanelContent: View {
                 }
             }
 
-            // Install button — always visible
-            detailInstallButton(slug: slug)
         }
     }
 
@@ -697,7 +699,8 @@ struct AgentPanelContent: View {
             label: isSuccess ? "Installed!" : (isInstalling ? "Installing..." : "Install"),
             icon: isSuccess ? "checkmark.circle.fill" : (isInstalling ? nil : "arrow.down.circle.fill"),
             style: .primary,
-            isFullWidth: true,
+            size: .small,
+            isFullWidth: false,
             isDisabled: isInstalling || isSuccess
         ) {
             guard installingSlug == nil, !isSuccess else { return }
