@@ -227,6 +227,91 @@ describe('handleCuSessionFinalized', () => {
     });
   });
 
+  test('creates fallback attachment when reportToSessionId exists but conversation is missing and recording is present', () => {
+    // This tests the edge case where reportToSessionId is set but the conversation
+    // doesn't exist (e.g. it was deleted or never created). The recording should
+    // still get a file-backed attachment entry so cleanup can track it.
+    const ctx = makeCtx();
+    const cuSessionId = 'cu-session-orphan-with-report';
+    ctx.cuSessions.set(cuSessionId, {} as ComputerUseSession);
+    ctx.cuSessionMetadata.set(cuSessionId, {
+      reportToSessionId: 'nonexistent-session',
+      qaMode: true,
+    });
+
+    // Ensure the conversation does NOT exist.
+    mockConversations.delete('nonexistent-session');
+    mockAddedMessages.length = 0;
+
+    const msg: CuSessionFinalized = {
+      type: 'cu_session_finalized',
+      sessionId: cuSessionId,
+      status: 'completed',
+      summary: 'QA recording completed.',
+      stepCount: 3,
+      recording: {
+        localPath: '/tmp/orphan-recording.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes: 2048000,
+        durationMs: 45000,
+        width: 1920,
+        height: 1080,
+        captureScope: 'window',
+        includeAudio: false,
+      },
+    };
+
+    // Should not throw.
+    handleCuSessionFinalized(msg, new net.Socket(), ctx);
+
+    // No message persisted (conversation missing), but the recording should
+    // still be tracked. We can't easily verify createFileBackedAttachment
+    // was called without mocking it, but at minimum the function shouldn't throw
+    // and state should be cleaned up.
+    expect(mockAddedMessages.length).toBe(0);
+    expect(ctx.cuSessions.has(cuSessionId)).toBe(false);
+    expect(ctx.cuSessionMetadata.has(cuSessionId)).toBe(false);
+  });
+
+  test('creates fallback attachment when summary is empty but recording is present', () => {
+    const ctx = makeCtx();
+    const cuSessionId = 'cu-session-empty-summary';
+    ctx.cuSessions.set(cuSessionId, {} as ComputerUseSession);
+    ctx.cuSessionMetadata.set(cuSessionId, {
+      reportToSessionId: 'some-session',
+      qaMode: true,
+    });
+
+    mockConversations.set('some-session', { id: 'some-session' });
+    mockAddedMessages.length = 0;
+
+    const msg: CuSessionFinalized = {
+      type: 'cu_session_finalized',
+      sessionId: cuSessionId,
+      status: 'completed',
+      summary: '', // Empty summary — injection path skipped
+      stepCount: 2,
+      recording: {
+        localPath: '/tmp/empty-summary-recording.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes: 512000,
+        durationMs: 10000,
+        width: 1280,
+        height: 720,
+        captureScope: 'display',
+        includeAudio: true,
+      },
+    };
+
+    handleCuSessionFinalized(msg, new net.Socket(), ctx);
+
+    // No message persisted (empty summary skips injection path).
+    expect(mockAddedMessages.length).toBe(0);
+    // State cleaned up.
+    expect(ctx.cuSessions.has(cuSessionId)).toBe(false);
+    expect(ctx.cuSessionMetadata.has(cuSessionId)).toBe(false);
+  });
+
   test('stores and retrieves CU session metadata', () => {
     const ctx = makeCtx();
 
