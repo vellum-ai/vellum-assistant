@@ -113,14 +113,11 @@ mock.module('../security/secure-keys.js', () => ({
   deleteSecureKey: () => {},
 }));
 
-mock.module('../inbound/public-ingress-urls.js', () => ({
-  getPublicBaseUrl: () => 'https://test.example.com',
-  getTwilioRelayUrl: () => 'wss://test.example.com/webhooks/twilio/relay',
-  getTwilioVoiceWebhookUrl: (_cfg: unknown, id: string) => `https://test.example.com/webhooks/twilio/voice?callSessionId=${id}`,
-  getTwilioStatusCallbackUrl: () => 'https://test.example.com/webhooks/twilio/status',
-  getTwilioConnectActionUrl: () => 'https://test.example.com/webhooks/twilio/connect-action',
-  getOAuthCallbackUrl: () => 'https://test.example.com/webhooks/oauth/callback',
-}));
+// NOTE: Do NOT mock '../inbound/public-ingress-urls.js' here.
+// Those are pure functions that derive URLs from the config object returned by
+// loadConfig() (which is already mocked above). Mocking them at the module level
+// leaks into other test files (e.g. ingress-url-consistency.test.ts) that need
+// the real implementations, causing cross-test contamination.
 
 // Mock the oauth callback registry
 mock.module('../security/oauth-callback-registry.js', () => ({
