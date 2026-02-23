@@ -743,6 +743,12 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
       const startTime = Date.now();
       const pollMaxWait = getEffectivePollMaxWait();
       let lastStatus = run.status;
+      // Track whether the run entered the approval-waiting state at any point
+      // during polling. When true, a post-decision delivery path has been (or
+      // will be) scheduled by handleApprovalInterception, so non-terminal
+      // states at timeout (e.g. running after approval) should not trigger
+      // the retry/dead-letter machinery.
+      let sawNeedsConfirmation = false;
 
       while (Date.now() - startTime < pollMaxWait) {
         await new Promise((resolve) => setTimeout(resolve, RUN_POLL_INTERVAL_MS));
@@ -751,6 +757,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
         if (!current) break;
 
         if (current.status === 'needs_confirmation' && lastStatus !== 'needs_confirmation') {
+          sawNeedsConfirmation = true;
           const pending = getPendingConfirmationsByConversation(conversationId);
 
           if (isUnverifiedChannel && pending.length > 0) {
@@ -924,23 +931,35 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
             updateApprovalDecision(approvalReq.id, { status: outcomeStatus });
           }
         }
-      } else if (finalRun?.status === 'needs_confirmation') {
-        // The run is waiting for an approval decision but the poll window has
-        // elapsed. Mark the event as processed rather than failed — the run
-        // will resume when the user clicks approve/reject, and
-        // `handleApprovalInterception` will deliver the reply via its own
-        // post-decision poll. Marking it failed would cause the generic retry
-        // sweep to replay through `processMessage`, which throws "Session is
+      } else if (
+        finalRun?.status === 'needs_confirmation' ||
+        (sawNeedsConfirmation && finalRun?.status === 'running')
+      ) {
+        // The run is either still waiting for an approval decision or was
+        // recently approved and has resumed execution. In both cases, mark
+        // the event as processed rather than failed:
+        //
+        // - needs_confirmation: the run will resume when the user clicks
+        //   approve/reject, and `handleApprovalInterception` will deliver
+        //   the reply via `schedulePostDecisionDelivery`.
+        //
+        // - running (after needs_confirmation): an approval was applied near
+        //   the poll deadline and the run resumed but hasn't reached terminal
+        //   state yet. `handleApprovalInterception` has already scheduled
+        //   post-decision delivery, so the final reply will be delivered.
+        //
+        // Marking either state as failed would cause the generic retry sweep
+        // to replay through `processMessage`, which throws "Session is
         // already processing a message" and dead-letters a valid conversation.
         log.warn(
-          { runId: run.id, status: finalRun.status, conversationId },
-          'Approval-path poll loop timed out while run awaits approval decision; marking event as processed',
+          { runId: run.id, status: finalRun.status, conversationId, sawNeedsConfirmation },
+          'Approval-path poll loop timed out while run is in approval-related state; marking event as processed',
         );
         channelDeliveryStore.markProcessed(eventId);
       } else {
-        // The run is in a non-terminal, non-approval state (e.g. running,
-        // needs_secret, or disappeared). Record a processing failure so the
-        // retry/dead-letter machinery can handle it.
+        // The run is in a non-terminal, non-approval state (e.g. running
+        // without prior approval, needs_secret, or disappeared). Record a
+        // processing failure so the retry/dead-letter machinery can handle it.
         const timeoutErr = new Error(
           `Approval poll timeout: run did not reach terminal state within ${pollMaxWait}ms (status: ${finalRun?.status ?? 'null'})`,
         );

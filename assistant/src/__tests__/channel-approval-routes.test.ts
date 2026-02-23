@@ -1063,7 +1063,7 @@ describe('poll timeout handling by run state', () => {
   test('marks event as processed when run is in needs_confirmation state after poll timeout', async () => {
     // Use a short poll timeout so the test can exercise the timeout path
     // without waiting 5 minutes.
-    _setTestPollMaxWait(600);
+    _setTestPollMaxWait(100);
 
     const linkSpy = spyOn(channelDeliveryStore, 'linkMessage').mockImplementation(() => {});
     const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
@@ -1085,23 +1085,92 @@ describe('poll timeout handling by run state', () => {
       updatedAt: Date.now(),
     };
 
-    // getRun returns needs_confirmation — run is waiting for approval decision.
-    // The event should be marked as processed because the post-decision delivery
-    // in handleApprovalInterception will deliver the reply when the user decides.
+    // getRun returns null on the first call (causing the poll loop to break
+    // immediately), then returns needs_confirmation on the post-loop call.
+    // This exercises the timeout path deterministically without spinning for
+    // the full poll duration.
+    let getRunCalls = 0;
     const orchestrator = {
       submitDecision: mock(() => 'applied' as const),
-      getRun: mock(() => ({ ...mockRun, status: 'needs_confirmation' as const })),
+      getRun: mock(() => {
+        getRunCalls++;
+        if (getRunCalls <= 1) return null;
+        return { ...mockRun, status: 'needs_confirmation' as const };
+      }),
       startRun: mock(async () => mockRun),
     } as unknown as RunOrchestrator;
 
     const req = makeInboundRequest({ content: 'hello needs_confirm' });
     await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
 
-    // Wait for the background async to complete (poll timeout is 600ms + one poll interval of 500ms)
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    // Wait for the background async to complete
+    await new Promise((resolve) => setTimeout(resolve, 800));
 
     // markProcessed SHOULD have been called — the run is waiting for approval,
     // and the post-decision delivery path will handle the final reply.
+    expect(markSpy).toHaveBeenCalled();
+
+    // recordProcessingFailure should NOT have been called
+    expect(failureSpy).not.toHaveBeenCalled();
+
+    linkSpy.mockRestore();
+    markSpy.mockRestore();
+    failureSpy.mockRestore();
+    deliverSpy.mockRestore();
+    _setTestPollMaxWait(null);
+  });
+
+  test('marks event as processed when run transitions from needs_confirmation to running at poll timeout', async () => {
+    // When an approval is applied near the poll deadline, the run transitions
+    // from needs_confirmation to running. The post-decision delivery path
+    // in handleApprovalInterception handles the final reply, so the main poll
+    // should mark the event as processed rather than recording a failure.
+    _setTestPollMaxWait(100);
+
+    const linkSpy = spyOn(channelDeliveryStore, 'linkMessage').mockImplementation(() => {});
+    const markSpy = spyOn(channelDeliveryStore, 'markProcessed');
+    const failureSpy = spyOn(channelDeliveryStore, 'recordProcessingFailure').mockImplementation(() => {});
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const mockRun = {
+      id: 'run-post-approval',
+      conversationId: 'conv-1',
+      messageId: 'user-msg-203',
+      status: 'running' as const,
+      pendingConfirmation: null,
+      pendingSecret: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    // Simulate a run that transitions from needs_confirmation back to running
+    // (approval applied) before the poll exits, then stays running past timeout.
+    let getRunCalls = 0;
+    const orchestrator = {
+      submitDecision: mock(() => 'applied' as const),
+      getRun: mock(() => {
+        getRunCalls++;
+        // First call inside the loop: needs_confirmation (triggers approval prompt delivery)
+        if (getRunCalls <= 1) return { ...mockRun, status: 'needs_confirmation' as const };
+        // Subsequent calls: running (approval was applied, run resumed)
+        return { ...mockRun, status: 'running' as const };
+      }),
+      startRun: mock(async () => mockRun),
+    } as unknown as RunOrchestrator;
+
+    const req = makeInboundRequest({ content: 'hello post-approval running' });
+    await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+
+    // Wait for background async to complete (poll timeout + buffer)
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // markProcessed SHOULD have been called — the run was in needs_confirmation
+    // and then transitioned to running (post-approval), so the post-decision
+    // delivery path handles the final reply.
     expect(markSpy).toHaveBeenCalled();
 
     // recordProcessingFailure should NOT have been called
