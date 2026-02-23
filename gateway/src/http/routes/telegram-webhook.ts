@@ -185,10 +185,19 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         chat_id: chatId,
         message_id: parsedMessageId,
       };
+      const deleteApprovalPrompt = (primaryErr: unknown, fallbackErr: unknown): void => {
+        callTelegramApi(config, "deleteMessage", basePayload).catch((deleteErr) => {
+          tlog.error(
+            { primaryErr, fallbackErr, deleteErr, chatId, messageId: parsedMessageId, phase },
+            "Failed to clear inline approval buttons and delete prompt message",
+          );
+        });
+      };
 
       // Bot API behavior differs across wrappers/clients for "remove markup".
       // Try the explicit null form first, then fall back to an empty inline
-      // keyboard payload if needed.
+      // keyboard payload if needed. If both fail, delete the prompt message
+      // so users are not left with stale actionable buttons.
       callTelegramApi(config, "editMessageReplyMarkup", {
         ...basePayload,
         reply_markup: null,
@@ -196,12 +205,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         callTelegramApi(config, "editMessageReplyMarkup", {
           ...basePayload,
           reply_markup: { inline_keyboard: [] },
-        }).catch((fallbackErr) => {
-          tlog.error(
-            { primaryErr, fallbackErr, chatId, messageId: parsedMessageId, phase },
-            "Failed to clear inline approval buttons",
-          );
-        })
+        }).catch((fallbackErr) => deleteApprovalPrompt(primaryErr, fallbackErr))
       );
     };
 

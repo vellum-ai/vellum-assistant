@@ -385,6 +385,10 @@ describe("telegram-webhook callback query acknowledgment", () => {
       message_id: 10,
       reply_markup: { inline_keyboard: [] },
     });
+    const deleteCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "deleteMessage",
+    );
+    expect(deleteCalls.length).toBe(0);
   });
 
   it("does not fail webhook when clearing inline approval buttons fails", async () => {
@@ -417,5 +421,49 @@ describe("telegram-webhook callback query acknowledgment", () => {
       (c) => c[1] === "editMessageReplyMarkup",
     );
     expect(clearCalls.length).toBe(2);
+    const deleteCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "deleteMessage",
+    );
+    expect(deleteCalls.length).toBe(1);
+    expect(deleteCalls[0][2]).toEqual({
+      chat_id: "42",
+      message_id: 10,
+    });
+  });
+
+  it("does not fail webhook if delete fallback also fails", async () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({
+        forwarded: true,
+        rejected: false,
+        runtimeResponse: {
+          accepted: true,
+          duplicate: false,
+          eventId: "evt-5",
+          approval: "decision_applied",
+        },
+      }),
+    );
+    callTelegramApiMock.mockImplementation((_config: GatewayConfig, method: string) => {
+      if (method === "editMessageReplyMarkup" || method === "deleteMessage") {
+        return Promise.reject(new Error("hard failure"));
+      }
+      return Promise.resolve({});
+    });
+
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = makeCallbackQueryBody("apr:run1:approve_once", 312);
+    const res = await handler(postRequest(body));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(res.status).toBe(200);
+    const clearCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "editMessageReplyMarkup",
+    );
+    expect(clearCalls.length).toBe(2);
+    const deleteCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "deleteMessage",
+    );
+    expect(deleteCalls.length).toBe(1);
   });
 });
