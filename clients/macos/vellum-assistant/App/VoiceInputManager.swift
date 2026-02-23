@@ -354,7 +354,7 @@ final class VoiceInputManager {
                     cursorInTextField: context.cursorInTextField
                 )
             )
-            if context.selectedText != nil {
+            if let selected = context.selectedText, !selected.isEmpty {
                 overlayWindow.show(state: .transforming(text))
             } else {
                 overlayWindow.show(state: .processing)
