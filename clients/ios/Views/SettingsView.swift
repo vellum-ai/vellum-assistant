@@ -17,11 +17,30 @@ struct SettingsView: View {
                     AccountSection(authManager: authManager)
                 }
                 DaemonConnectionSection()
-                IntegrationsSection()
                 TwilioSettingsSection()
-                TrustRulesSection()
-                SchedulesSection()
-                RemindersSection()
+
+                Section {
+                    NavigationLink {
+                        IntegrationsSection()
+                    } label: {
+                        Label("Integrations", systemImage: "link")
+                    }
+                    NavigationLink {
+                        SchedulesSection()
+                    } label: {
+                        Label("Scheduled Tasks", systemImage: "clock")
+                    }
+                    NavigationLink {
+                        TrustRulesSection()
+                    } label: {
+                        Label("Trust Rules", systemImage: "shield.lefthalf.filled")
+                    }
+                    NavigationLink {
+                        RemindersSection()
+                    } label: {
+                        Label("Reminders", systemImage: "bell")
+                    }
+                }
 
                 Section("Appearance") {
                     Picker("Theme", selection: $appearanceMode) {

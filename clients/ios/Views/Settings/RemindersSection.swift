@@ -8,29 +8,33 @@ struct RemindersSection: View {
     @State private var loading = false
 
     var body: some View {
-        Section("Reminders") {
-            if loading {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
-            } else if reminders.isEmpty {
-                Text("No active reminders")
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-            } else {
-                ForEach(reminders, id: \.id) { reminder in
-                    reminderRow(reminder)
-                }
-                .onDelete { indexSet in
-                    let remindersToCancel = indexSet.map { reminders[$0] }
-                    for reminder in remindersToCancel {
-                        cancelReminder(reminder.id)
+        Form {
+            Section {
+                if loading {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    }
+                } else if reminders.isEmpty {
+                    Text("No active reminders")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                } else {
+                    ForEach(reminders, id: \.id) { reminder in
+                        reminderRow(reminder)
+                    }
+                    .onDelete { indexSet in
+                        let remindersToCancel = indexSet.map { reminders[$0] }
+                        for reminder in remindersToCancel {
+                            cancelReminder(reminder.id)
+                        }
                     }
                 }
             }
         }
+        .navigationTitle("Reminders")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadReminders() }
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { loadReminders() }

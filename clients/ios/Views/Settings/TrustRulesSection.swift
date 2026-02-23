@@ -9,29 +9,33 @@ struct TrustRulesSection: View {
     @State private var editingRule: TrustRuleItem?
 
     var body: some View {
-        Section("Trust Rules") {
-            if trustRules.isEmpty {
-                Text("No trust rules configured")
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-            } else {
-                ForEach(trustRules, id: \.id) { rule in
-                    trustRuleRow(rule)
-                }
-                .onDelete { indexSet in
-                    let rulesToDelete = indexSet.map { trustRules[$0] }
-                    for rule in rulesToDelete {
-                        deleteRule(rule)
+        Form {
+            Section {
+                if trustRules.isEmpty {
+                    Text("No trust rules configured")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                } else {
+                    ForEach(trustRules, id: \.id) { rule in
+                        trustRuleRow(rule)
+                    }
+                    .onDelete { indexSet in
+                        let rulesToDelete = indexSet.map { trustRules[$0] }
+                        for rule in rulesToDelete {
+                            deleteRule(rule)
+                        }
                     }
                 }
-            }
 
-            Button {
-                showingAddRule = true
-            } label: {
-                Label("Add Rule", systemImage: "plus")
+                Button {
+                    showingAddRule = true
+                } label: {
+                    Label("Add Rule", systemImage: "plus")
+                }
             }
         }
+        .navigationTitle("Trust Rules")
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingAddRule) {
             TrustRuleFormView(daemon: clientProvider.client as? DaemonClient) { _ in
                 loadTrustRules()

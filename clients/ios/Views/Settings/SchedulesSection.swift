@@ -8,29 +8,33 @@ struct SchedulesSection: View {
     @State private var loading = false
 
     var body: some View {
-        Section("Scheduled Tasks") {
-            if loading {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
-            } else if schedules.isEmpty {
-                Text("No scheduled tasks")
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-            } else {
-                ForEach(schedules, id: \.id) { schedule in
-                    scheduleRow(schedule)
-                }
-                .onDelete { indexSet in
-                    let schedulesToDelete = indexSet.map { schedules[$0] }
-                    for schedule in schedulesToDelete {
-                        deleteSchedule(schedule.id)
+        Form {
+            Section {
+                if loading {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    }
+                } else if schedules.isEmpty {
+                    Text("No scheduled tasks")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                } else {
+                    ForEach(schedules, id: \.id) { schedule in
+                        scheduleRow(schedule)
+                    }
+                    .onDelete { indexSet in
+                        let schedulesToDelete = indexSet.map { schedules[$0] }
+                        for schedule in schedulesToDelete {
+                            deleteSchedule(schedule.id)
+                        }
                     }
                 }
             }
         }
+        .navigationTitle("Scheduled Tasks")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear { loadSchedules() }
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { loadSchedules() }
