@@ -151,6 +151,10 @@ public final class SettingsStore: ObservableObject {
     private var twilioNumbersRefreshPending = false
     private var pendingGuardianChallengeChannel: String?
     private var guardianChallengeTimeoutWorkItem: DispatchWorkItem?
+    private var guardianStatusPollingWorkItems: [String: DispatchWorkItem] = [:]
+    private var guardianStatusPollingDeadlines: [String: Date] = [:]
+    private let guardianStatusPollInterval: TimeInterval
+    private let guardianStatusPollWindow: TimeInterval
     private var guardianAssistantScope: String {
         let stored = UserDefaults.standard.string(forKey: "connectedAssistantId")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -160,9 +164,16 @@ public final class SettingsStore: ObservableObject {
         return "self"
     }
 
-    init(daemonClient: DaemonClient? = nil, configPath: String? = nil) {
+    init(
+        daemonClient: DaemonClient? = nil,
+        configPath: String? = nil,
+        guardianStatusPollInterval: TimeInterval = 2,
+        guardianStatusPollWindow: TimeInterval = 600
+    ) {
         self.daemonClient = daemonClient
         self.configPath = configPath
+        self.guardianStatusPollInterval = max(0.05, guardianStatusPollInterval)
+        self.guardianStatusPollWindow = max(self.guardianStatusPollInterval, guardianStatusPollWindow)
 
         // Seed from UserDefaults / Keychain
         let anthropicKey = APIKeyManager.getKey()
@@ -358,6 +369,16 @@ public final class SettingsStore: ObservableObject {
                 }
             default:
                 break
+            }
+
+            if response.success {
+                if response.secret != nil || response.instruction != nil {
+                    self.startGuardianStatusPolling(for: channel)
+                } else if response.bound == true {
+                    self.stopGuardianStatusPolling(for: channel)
+                }
+            } else {
+                self.stopGuardianStatusPolling(for: channel)
             }
         }
 
@@ -792,6 +813,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     func startChannelGuardianVerification(channel: String) {
+        stopGuardianStatusPolling(for: channel)
         switch channel {
         case "telegram":
             telegramGuardianVerificationInProgress = true
@@ -839,6 +861,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     func revokeChannelGuardian(channel: String) {
+        stopGuardianStatusPolling(for: channel)
         do {
             try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel, assistantId: guardianAssistantScope)
         } catch {
@@ -890,6 +913,35 @@ public final class SettingsStore: ObservableObject {
         }
         guardianChallengeTimeoutWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: workItem)
+    }
+
+    private func startGuardianStatusPolling(for channel: String) {
+        guard channel == "telegram" || channel == "sms" else { return }
+        stopGuardianStatusPolling(for: channel)
+        guardianStatusPollingDeadlines[channel] = Date().addingTimeInterval(guardianStatusPollWindow)
+        scheduleGuardianStatusPoll(for: channel, delay: guardianStatusPollInterval)
+    }
+
+    private func stopGuardianStatusPolling(for channel: String) {
+        guardianStatusPollingWorkItems[channel]?.cancel()
+        guardianStatusPollingWorkItems[channel] = nil
+        guardianStatusPollingDeadlines[channel] = nil
+    }
+
+    private func scheduleGuardianStatusPoll(for channel: String, delay: TimeInterval) {
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard let deadline = self.guardianStatusPollingDeadlines[channel] else { return }
+            if Date() >= deadline {
+                self.stopGuardianStatusPolling(for: channel)
+                return
+            }
+            self.refreshChannelGuardianStatus(channel: channel)
+            self.scheduleGuardianStatusPoll(for: channel, delay: self.guardianStatusPollInterval)
+        }
+        guardianStatusPollingWorkItems[channel]?.cancel()
+        guardianStatusPollingWorkItems[channel] = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
     // MARK: - Ingress Config Actions
