@@ -1,4 +1,4 @@
-Cut a new macOS desktop app release by creating a tagged GitHub Release, which triggers the CI build pipeline.
+Cut a new release by triggering the Release workflow via GitHub Actions workflow dispatch.
 
 The user may pass `$ARGUMENTS` as the version (e.g. `0.2.0` or `v0.2.0`). If not provided, auto-increment the patch version from the latest tag.
 
@@ -12,7 +12,7 @@ git checkout main && git pull
 
 ### 2. Determine the version
 
-If the user provided `$ARGUMENTS`, use it as the version (strip leading `v` if present, then re-add it for the tag).
+If the user provided `$ARGUMENTS`, use it as the version (strip leading `v` if present).
 
 If no version was provided, find the latest tag and auto-increment the patch version:
 
@@ -32,49 +32,35 @@ git tag -l "v<version>"
 
 If the tag already exists, stop and tell the user.
 
-### 4. Generate release notes
-
-Look at the commits since the last tag to build release notes:
+### 4. Trigger the Release workflow
 
 ```bash
-git log <previous-tag>..HEAD --oneline
-```
-
-Group changes into categories:
-- **Features**: new functionality
-- **Fixes**: bug fixes
-- **Infrastructure**: CI, build, tooling changes
-- **Other**: anything else
-
-Write concise, user-facing descriptions (not raw commit messages).
-
-### 5. Create the GitHub Release
-
-```bash
-gh release create v<version> \
+gh workflow run release.yml \
   --repo vellum-ai/vellum-assistant \
-  --title "v<version>" \
-  --notes "<release notes>"
+  --ref main \
+  --field version=<version>
 ```
 
-This automatically:
-- Creates the git tag
-- Triggers the `Build and Release macOS App` workflow via `on: release`
-- The workflow builds, signs, notarizes, and publishes the DMG to the public updates repo
+This triggers the unified Release workflow which automatically handles:
+- Version bumping across all packages
+- Creating a release branch, PR, and merging it
+- Tagging the release
+- Publishing npm packages
+- Building, signing, notarizing, and publishing the macOS DMG
+- Creating GitHub Releases on both `vellum-ai/vellum-assistant` and `vellum-ai/velly`
+- Updating the `vellum-assistant-platform` dependency
 
-### 6. Verify the workflow started
+### 5. Verify the workflow started
 
 ```bash
-gh run list --repo vellum-ai/vellum-assistant --workflow="Build and Release macOS App" --limit 1
+gh run list --repo vellum-ai/vellum-assistant --workflow="Release" --limit 1
 ```
 
-Confirm the build was triggered.
+Confirm the workflow was triggered.
 
-### 7. Report
+### 6. Report
 
 Output:
-- The release URL
 - The version number
-- The release notes
 - A link to the running workflow
-- Remind the user that the build takes ~15-20 minutes and will auto-publish to `vellum-ai/velly` when done
+- Remind the user that the full release pipeline takes ~15-20 minutes and will auto-publish everything when done
