@@ -56,7 +56,7 @@ const EVENT_TYPE_KEYWORDS: Record<string, string> = {
  * Returns undefined if no limit phrase is found.
  */
 function parseLimit(query: string): number | undefined {
-  const match = query.match(/(?:top|first|last|show|find|get)\s+(\d+)/i);
+  const match = query.match(/(?:top|first|last|show|find|get)\s+(\d+)(?!\s*min)/i);
   if (match) return parseInt(match[1], 10);
   // Also match trailing "N events/moments"
   const trailingMatch = query.match(/(\d+)\s+(?:events?|moments?|plays?|clips?)/i);

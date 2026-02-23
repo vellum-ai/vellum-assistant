@@ -8,7 +8,7 @@
 
 import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
-import { mkdir, unlink, stat } from 'node:fs/promises';
+import { mkdir, unlink, stat, rmdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
@@ -188,7 +188,8 @@ export async function run(
       isError: true,
     };
   } finally {
-    // Clean up temp file
+    // Clean up temp file and directory
     try { await unlink(clipPath); } catch { /* ignore */ }
+    try { await rmdir(clipDir); } catch { /* ignore */ }
   }
 }
