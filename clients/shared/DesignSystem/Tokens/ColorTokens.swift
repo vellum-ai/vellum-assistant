@@ -127,7 +127,7 @@ public enum Forest {
 public enum VColor {
     // Backgrounds
     public static let background = adaptiveColor(light: Moss._100, dark: Moss._950)
-    public static let backgroundSubtle = adaptiveColor(light: Stone._100, dark: Moss._950)
+    public static let backgroundSubtle = adaptiveColor(light: Moss._50, dark: Moss._950)
     public static let chatBackground = adaptiveColor(light: Moss._100, dark: Moss._950)
     public static let surface = adaptiveColor(light: .white, dark: Moss._700)
     public static let surfaceBorder = adaptiveColor(light: Stone._200, dark: Moss._600)
@@ -140,6 +140,9 @@ public enum VColor {
 
     // Accent
     public static let accent = adaptiveColor(light: Color(hex: 0x262624), dark: Forest._600)
+
+    // Icon & button accent
+    public static let iconAccent = adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._500)
 
     // Send button — always green
     public static let sendButton = Color(hex: 0x216C37)
@@ -170,4 +173,12 @@ public enum VColor {
 
     // Slash command highlight — green tint for /command tokens in composer and chat
     public static let slashCommand = adaptiveColor(light: Forest._500, dark: Forest._300)
+
+    // Button colors
+    public static let buttonPrimary = adaptiveColor(light: Color(hex: 0x4B6845), dark: Color(hex: 0x4B6845))
+    public static let buttonPrimaryHover = adaptiveColor(light: Color(hex: 0x5A7B54), dark: Color(hex: 0x5A7B54))
+    public static let buttonPrimaryPressed = adaptiveColor(light: Color(hex: 0x3D5739), dark: Color(hex: 0x3D5739))
+    public static let buttonSecondaryBorder = adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._500)
+    public static let buttonSecondaryText = adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
+    public static let buttonTertiaryBackground = adaptiveColor(light: Forest._100, dark: Forest._900)
 }
