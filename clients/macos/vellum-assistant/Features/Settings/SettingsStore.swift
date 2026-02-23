@@ -124,6 +124,13 @@ public final class SettingsStore: ObservableObject {
     /// Read-only gateway target derived from daemon config (GATEWAY_PORT env var, default 7830).
     @Published var localGatewayTarget: String = "http://127.0.0.1:7830"
 
+    // MARK: - Connection Health Check State
+
+    @Published var gatewayReachable: Bool?
+    @Published var ingressReachable: Bool?
+    @Published var gatewayLastChecked: Date?
+    @Published var isCheckingGateway: Bool = false
+
     // MARK: - Trust Rules Coordination
 
     /// Whether any settings surface currently has a trust rules sheet open.
@@ -1018,6 +1025,51 @@ public final class SettingsStore: ObservableObject {
             try daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: ingressPublicBaseUrl, enabled: enabled))
         } catch {
             log.error("Failed to send ingress config set (enabled): \(error)")
+        }
+    }
+
+    // MARK: - Connection Health Check
+
+    /// Tests reachability of both the local gateway process and the public ingress tunnel.
+    /// Updates `gatewayReachable`, `ingressReachable`, and `gatewayLastChecked` with results.
+    func testGatewayConnection() async {
+        isCheckingGateway = true
+        defer {
+            isCheckingGateway = false
+            gatewayLastChecked = Date()
+        }
+
+        // Test local gateway
+        gatewayReachable = await Self.checkHealthEndpoint(
+            baseUrl: localGatewayTarget,
+            timeoutSeconds: 3
+        )
+
+        // Test public ingress (only if URL is non-empty)
+        let trimmedUrl = ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedUrl.isEmpty {
+            ingressReachable = nil
+        } else {
+            ingressReachable = await Self.checkHealthEndpoint(
+                baseUrl: trimmedUrl,
+                timeoutSeconds: 5
+            )
+        }
+    }
+
+    /// Performs an HTTP GET to `<baseUrl>/healthz` and returns whether a 2xx response was received.
+    private static func checkHealthEndpoint(baseUrl: String, timeoutSeconds: TimeInterval) async -> Bool {
+        guard let url = URL(string: "\(baseUrl)/healthz") else { return false }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeoutSeconds
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse {
+                return (200..<300).contains(httpResponse.statusCode)
+            }
+            return false
+        } catch {
+            return false
         }
     }
 
