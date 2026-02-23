@@ -75,13 +75,18 @@ export function startRecordingCleanup(intervalMs: number): void {
     log.warn({ err }, 'Initial recording cleanup pass failed');
   }
 
+  // setInterval uses a 32-bit signed int internally; values above 2^31-1 ms
+  // (~24.8 days) wrap around and fire near-continuously.
+  const MAX_INTERVAL_MS = 2_147_483_647;
+  const safeInterval = Math.min(intervalMs, MAX_INTERVAL_MS);
+
   cleanupTimer = setInterval(() => {
     try {
       runCleanupPass();
     } catch (err) {
       log.warn({ err }, 'Periodic recording cleanup pass failed');
     }
-  }, intervalMs);
+  }, safeInterval);
 
   // Don't keep the process alive just for cleanup
   cleanupTimer.unref();
