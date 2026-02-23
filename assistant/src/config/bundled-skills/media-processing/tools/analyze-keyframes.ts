@@ -30,6 +30,7 @@ export async function analyzeKeyframesForAsset(
   analysisType?: string,
   batchSize?: number,
   onProgress?: (msg: string) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const type = analysisType ?? 'scene_description';
   const batch = batchSize ?? 10;
@@ -82,13 +83,17 @@ export async function analyzeKeyframesForAsset(
   const client = new Anthropic({ apiKey });
   let analyzedCount = analyzedKeyframeIds.size;
   const totalKeyframes = keyframes.length;
-  let errorCount = 0;
 
   onProgress?.(`Analyzing ${pendingKeyframes.length} keyframes (${analyzedKeyframeIds.size} already done)...\n`);
 
   try {
     // Process in batches
     for (let i = 0; i < pendingKeyframes.length; i += batch) {
+      if (signal?.aborted) {
+        onProgress?.('Aborted.\n');
+        break;
+      }
+
       const currentBatch = pendingKeyframes.slice(i, i + batch);
       const batchResults: Array<{
         assetId: string;
@@ -99,6 +104,11 @@ export async function analyzeKeyframesForAsset(
       }> = [];
 
       for (const keyframe of currentBatch) {
+        if (signal?.aborted) {
+          onProgress?.('Aborted.\n');
+          break;
+        }
+
         try {
           const result = await analyzeKeyframe(client, keyframe);
           batchResults.push({
@@ -110,7 +120,6 @@ export async function analyzeKeyframesForAsset(
           });
           analyzedCount++;
         } catch (err) {
-          errorCount++;
           onProgress?.(`  Warning: failed to analyze frame at ${keyframe.timestamp}s: ${(err as Error).message}\n`);
         }
       }
@@ -176,7 +185,7 @@ export async function run(
       };
     }
 
-    await analyzeKeyframesForAsset(assetId, analysisType, batchSize, context.onOutput);
+    await analyzeKeyframesForAsset(assetId, analysisType, batchSize, context.onOutput, context.signal);
 
     // Gather final stats
     const allKeyframes = getKeyframesForAsset(assetId);
