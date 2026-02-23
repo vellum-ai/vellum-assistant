@@ -16,22 +16,20 @@ Only proceed if the user explicitly asks you to create or set up your email addr
 Before doing anything, check whether you already have an email address configured:
 
 ```bash
-vellum email inbox list --json
+vellum email status
 ```
 
-If the response contains one or more inboxes, you already have an email address. Tell the user your existing email address and stop — do NOT create another one.
+This will return your email address, the callback URL that inbound email will hit, and the path to the inbox locally. If you already have an email address, tell the user your existing email address and stop — do NOT create another one.
 
 ## Step 2: Create Your Email
 
 Call the Vellum hosted API to provision your email. Use `host_bash` to make the request:
 
 ```bash
-vellum email inbox create --username <your-name> --json
+vellum email create <your-username>
 ```
 
-For `<your-name>`, use your assistant name (lowercased, alphanumeric only). Check your identity from `IDENTITY.md` or `USER.md` to determine your name. If you don't have a name yet, ask the user what username they'd like for your email.
-
-The inbox will be created on the default AgentMail domain (e.g. `<your-name>@agentmail.to`).
+For `<your-username>`, use your assistant name (lowercased, alphanumeric only). Check your identity from `IDENTITY.md` or `USER.md` to determine your name. If you don't have a name yet, ask the user what username they'd like for your email.
 
 ## Step 3: Confirm Setup
 
@@ -46,15 +44,13 @@ After the inbox is created successfully:
 - **One-time only.** If an inbox already exists (Step 1), do not create another. Inform the user of the existing address.
 - **User-initiated only.** Never run this skill unless the user asks you to set up or create an email.
 - **No custom domains.** Use the default provider domain. Do not attempt domain setup.
-- **No API key prompting.** The AgentMail API key should already be configured. If the `vellum email` command fails with an API key error, tell the user the AgentMail integration is not yet configured and suggest loading the `agentmail` skill for full setup instructions.
+- **No API key prompting.** The email API key should already be configured. If the `vellum email` command fails with an API key error, tell the user the email integration is not yet configured and ask them to set it up.
 
 ## Troubleshooting
 
 ### API key not configured
-If you get an error about a missing API key, the AgentMail provider has not been set up. Tell the user:
-> "AgentMail isn't configured yet. Would you like me to walk you through the full email setup? I can load the email configuration guide."
-
-Then load the `agentmail` skill for detailed setup instructions.
+If you get an error about a missing API key, the email provider has not been set up. Tell the user:
+> "Email isn't configured yet. Please set up the email integration first."
 
 ### Inbox creation failed
 If inbox creation returns an error (e.g. username taken), try a variation of the name (append a number or use a nickname) and retry once. If it still fails, report the error to the user.
