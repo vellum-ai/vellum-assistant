@@ -1,5 +1,6 @@
 import { join, dirname } from 'node:path';
-import { mkdir, readdir, rm } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import {
   getMediaAssetById,
@@ -62,10 +63,11 @@ export async function run(
 
   updateProcessingStage(stage.id, { status: 'running', startedAt: Date.now() });
 
-  // Store keyframes in a durable directory alongside the source file
+  // Store keyframes in a durable directory alongside the source file.
+  // Extract to a temp dir first so that if ffmpeg fails the old frames remain intact.
   const outputDir = join(dirname(asset.filePath), 'keyframes', assetId);
-  await rm(outputDir, { recursive: true, force: true });
-  await mkdir(outputDir, { recursive: true });
+  const tempDir = outputDir + '-tmp-' + randomUUID();
+  await mkdir(tempDir, { recursive: true });
 
   try {
     context.onOutput?.(`Extracting keyframes every ${intervalSeconds}s from ${asset.title}...\n`);
@@ -76,10 +78,11 @@ export async function run(
       '-i', asset.filePath,
       '-vf', `fps=1/${intervalSeconds}`,
       '-q:v', '2',
-      join(outputDir, 'frame-%06d.jpg'),
+      join(tempDir, 'frame-%06d.jpg'),
     ], FFMPEG_TIMEOUT_MS);
 
     if (result.exitCode !== 0) {
+      await rm(tempDir, { recursive: true, force: true });
       updateProcessingStage(stage.id, {
         status: 'failed',
         lastError: result.stderr.slice(0, 500),
@@ -88,18 +91,23 @@ export async function run(
     }
 
     // List extracted frames
-    const files = await readdir(outputDir);
+    const files = await readdir(tempDir);
     const frameFiles = files
       .filter((f) => f.startsWith('frame-') && f.endsWith('.jpg'))
       .sort();
 
     if (frameFiles.length === 0) {
+      await rm(tempDir, { recursive: true, force: true });
       updateProcessingStage(stage.id, {
         status: 'failed',
         lastError: 'No frames extracted',
       });
       return { content: 'No frames were extracted from the video.', isError: true };
     }
+
+    // Extraction succeeded — atomically swap temp dir into the durable path
+    await rm(outputDir, { recursive: true, force: true });
+    await rename(tempDir, outputDir);
 
     context.onOutput?.(`Extracted ${frameFiles.length} frames. Registering in database...\n`);
 
@@ -137,6 +145,7 @@ export async function run(
       isError: false,
     };
   } catch (err) {
+    await rm(tempDir, { recursive: true, force: true });
     updateProcessingStage(stage.id, {
       status: 'failed',
       lastError: (err as Error).message.slice(0, 500),
