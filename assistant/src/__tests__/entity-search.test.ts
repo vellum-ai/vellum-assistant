@@ -254,6 +254,43 @@ describe('entity search', () => {
       expect(result.neighborEntityIds).toContain(na);
       expect(result.neighborEntityIds).toContain(nb);
     });
+
+    test('relationTypes filter: only follows specified edge types', () => {
+      const idA = upsertEntity({ name: 'PersonAlpha', type: 'person', aliases: [] });
+      const idB = upsertEntity({ name: 'ToolBeta', type: 'tool', aliases: [] });
+      const idC = upsertEntity({ name: 'ProjectGamma', type: 'project', aliases: [] });
+
+      upsertEntityRelation({ sourceEntityId: idA, targetEntityId: idB, relation: 'uses' });
+      upsertEntityRelation({ sourceEntityId: idA, targetEntityId: idC, relation: 'works_on' });
+
+      const result = findNeighborEntities([idA], {
+        maxEdges: 10,
+        maxNeighborEntities: 10,
+        maxDepth: 1,
+        relationTypes: ['uses'],
+      });
+
+      expect(result.neighborEntityIds).toContain(idB);
+      expect(result.neighborEntityIds).not.toContain(idC);
+    });
+
+    test('relationTypes filter: omitting filter follows all edge types', () => {
+      const idA = upsertEntity({ name: 'PersonDelta', type: 'person', aliases: [] });
+      const idB = upsertEntity({ name: 'ToolEpsilon', type: 'tool', aliases: [] });
+      const idC = upsertEntity({ name: 'ProjectZeta', type: 'project', aliases: [] });
+
+      upsertEntityRelation({ sourceEntityId: idA, targetEntityId: idB, relation: 'uses' });
+      upsertEntityRelation({ sourceEntityId: idA, targetEntityId: idC, relation: 'works_on' });
+
+      const result = findNeighborEntities([idA], {
+        maxEdges: 10,
+        maxNeighborEntities: 10,
+        maxDepth: 1,
+      });
+
+      expect(result.neighborEntityIds).toContain(idB);
+      expect(result.neighborEntityIds).toContain(idC);
+    });
   });
 
   // ── findMatchedEntities ────────────────────────────────────────────

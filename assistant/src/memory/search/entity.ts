@@ -153,7 +153,7 @@ export function findNeighborEntities(
   seedEntityIds: string[],
   opts: TraversalOptions,
 ): { neighborEntityIds: string[]; traversedEdgeCount: number } {
-  const { maxEdges, maxNeighborEntities, maxDepth = 3 } = opts;
+  const { maxEdges, maxNeighborEntities, maxDepth = 3, relationTypes } = opts;
   if (seedEntityIds.length === 0 || maxEdges <= 0 || maxNeighborEntities <= 0 || maxDepth <= 0) {
     return { neighborEntityIds: [], traversedEdgeCount: 0 };
   }
@@ -172,16 +172,21 @@ export function findNeighborEntities(
     const edgeBudget = maxEdges - totalEdgesTraversed;
     if (edgeBudget <= 0) break;
 
+    const frontierCondition = or(
+      inArray(memoryEntityRelations.sourceEntityId, frontier),
+      inArray(memoryEntityRelations.targetEntityId, frontier),
+    );
+    const whereCondition = relationTypes && relationTypes.length > 0
+      ? and(frontierCondition, inArray(memoryEntityRelations.relation, relationTypes))
+      : frontierCondition;
+
     const rows = db
       .select({
         sourceEntityId: memoryEntityRelations.sourceEntityId,
         targetEntityId: memoryEntityRelations.targetEntityId,
       })
       .from(memoryEntityRelations)
-      .where(or(
-        inArray(memoryEntityRelations.sourceEntityId, frontier),
-        inArray(memoryEntityRelations.targetEntityId, frontier),
-      ))
+      .where(whereCondition)
       .orderBy(desc(memoryEntityRelations.lastSeenAt))
       .limit(Math.max(1, edgeBudget))
       .all();
