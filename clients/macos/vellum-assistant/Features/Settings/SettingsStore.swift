@@ -153,7 +153,14 @@ public final class SettingsStore: ObservableObject {
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle sessions.
     private var lastDaemonModel: String?
-    private let twilioAssistantScope = "self"
+    private var twilioAssistantScope: String {
+        let stored = UserDefaults.standard.string(forKey: "connectedAssistantId")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let stored, !stored.isEmpty {
+            return stored
+        }
+        return "self"
+    }
     private var twilioPhoneRefreshPending = false
     private var twilioNumbersRefreshPending = false
     private var pendingGuardianChallengeChannel: String?
