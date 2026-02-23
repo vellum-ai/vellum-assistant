@@ -1,7 +1,14 @@
-name: PR iOS Build Check
+name: CI iOS Build Check
 
 on:
   pull_request:
+    paths:
+      - 'clients/ios/**'
+      - 'clients/shared/**'
+      - 'clients/Package.swift'
+      - '.github/workflows/ci-ios.yml'
+  push:
+    branches: [main]
     paths:
       - 'clients/ios/**'
       - 'clients/shared/**'
