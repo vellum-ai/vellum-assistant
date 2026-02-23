@@ -147,6 +147,8 @@ export interface TraversalOptions {
   maxDepth?: number; // default 3
   relationTypes?: EntityRelationType[];
   entityTypes?: EntityType[];
+  /** When true, only follow source→target edges (frontier must be on source side). */
+  directed?: boolean;
 }
 
 export interface TraversalResult {

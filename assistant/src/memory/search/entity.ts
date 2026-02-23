@@ -191,7 +191,7 @@ export function findNeighborEntities(
   seedEntityIds: string[],
   opts: TraversalOptions,
 ): TraversalResult {
-  const { maxEdges, maxNeighborEntities, maxDepth = 3, relationTypes, entityTypes } = opts;
+  const { maxEdges, maxNeighborEntities, maxDepth = 3, relationTypes, entityTypes, directed } = opts;
   if (seedEntityIds.length === 0 || maxEdges <= 0 || maxNeighborEntities <= 0 || maxDepth <= 0) {
     return { neighborEntityIds: [], traversedEdgeCount: 0, neighborDepths: new Map() };
   }
@@ -242,43 +242,50 @@ export function findNeighborEntities(
         limit,
       ];
 
-      // Direction 2: frontier is target, neighbor is source
-      const q2 = `
-        SELECT r.source_entity_id AS sourceEntityId, r.target_entity_id AS targetEntityId
-        FROM memory_entity_relations r
-        INNER JOIN memory_entities me ON me.id = r.source_entity_id
-        WHERE r.target_entity_id IN (${frontierPlaceholders})
-        ${relationTypeCondition} ${entityTypeFilter}
-        ORDER BY r.last_seen_at DESC
-        LIMIT ?
-      `;
-      const params2 = [
-        ...frontier,
-        ...(relationTypes && relationTypes.length > 0 ? relationTypes : []),
-        ...entityTypes,
-        limit,
-      ];
-
       const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
-      const rows1 = raw.query(q1).all(...params1) as Array<{ sourceEntityId: string; targetEntityId: string }>;
-      const rows2 = raw.query(q2).all(...params2) as Array<{ sourceEntityId: string; targetEntityId: string }>;
 
-      // Merge both directions, deduplicate by (source, target) pair, and
-      // respect the overall edge budget.
-      const seen = new Set<string>();
-      rows = [];
-      for (const r of [...rows1, ...rows2]) {
-        const key = `${r.sourceEntityId}:${r.targetEntityId}`;
-        if (!seen.has(key) && rows.length < limit) {
-          seen.add(key);
-          rows.push(r);
+      if (directed) {
+        rows = raw.query(q1).all(...params1) as Array<{ sourceEntityId: string; targetEntityId: string }>;
+      } else {
+        // Direction 2: frontier is target, neighbor is source
+        const q2 = `
+          SELECT r.source_entity_id AS sourceEntityId, r.target_entity_id AS targetEntityId
+          FROM memory_entity_relations r
+          INNER JOIN memory_entities me ON me.id = r.source_entity_id
+          WHERE r.target_entity_id IN (${frontierPlaceholders})
+          ${relationTypeCondition} ${entityTypeFilter}
+          ORDER BY r.last_seen_at DESC
+          LIMIT ?
+        `;
+        const params2 = [
+          ...frontier,
+          ...(relationTypes && relationTypes.length > 0 ? relationTypes : []),
+          ...entityTypes,
+          limit,
+        ];
+
+        const rows1 = raw.query(q1).all(...params1) as Array<{ sourceEntityId: string; targetEntityId: string }>;
+        const rows2 = raw.query(q2).all(...params2) as Array<{ sourceEntityId: string; targetEntityId: string }>;
+
+        // Merge both directions, deduplicate by (source, target) pair, and
+        // respect the overall edge budget.
+        const seen = new Set<string>();
+        rows = [];
+        for (const r of [...rows1, ...rows2]) {
+          const key = `${r.sourceEntityId}:${r.targetEntityId}`;
+          if (!seen.has(key) && rows.length < limit) {
+            seen.add(key);
+            rows.push(r);
+          }
         }
       }
     } else {
-      const frontierCondition = or(
-        inArray(memoryEntityRelations.sourceEntityId, frontier),
-        inArray(memoryEntityRelations.targetEntityId, frontier),
-      );
+      const frontierCondition = directed
+        ? inArray(memoryEntityRelations.sourceEntityId, frontier)
+        : or(
+            inArray(memoryEntityRelations.sourceEntityId, frontier),
+            inArray(memoryEntityRelations.targetEntityId, frontier),
+          );
       const whereCondition = relationTypes && relationTypes.length > 0
         ? and(frontierCondition, inArray(memoryEntityRelations.relation, relationTypes))
         : frontierCondition;
@@ -301,12 +308,14 @@ export function findNeighborEntities(
     const frontierSet = new Set(frontier);
     for (const row of rows) {
       if (neighbors.length >= maxNeighborEntities) break;
+      // In directed mode, only follow source→target (frontier is always on source side)
       if (frontierSet.has(row.sourceEntityId) && !visited.has(row.targetEntityId)) {
         visited.add(row.targetEntityId);
         neighbors.push(row.targetEntityId);
         nextFrontier.push(row.targetEntityId);
         neighborDepths.set(row.targetEntityId, depth + 1);
       }
+      if (directed) continue;
       if (neighbors.length >= maxNeighborEntities) break;
       if (frontierSet.has(row.targetEntityId) && !visited.has(row.sourceEntityId)) {
         visited.add(row.sourceEntityId);
@@ -433,6 +442,7 @@ export function collectTypedNeighbors(
       maxDepth: 1,
       relationTypes: step.relationTypes,
       entityTypes: step.entityTypes,
+      directed: true,
     });
 
     currentSeeds = result.neighborEntityIds;
