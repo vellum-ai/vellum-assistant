@@ -180,41 +180,63 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupWindowObserver()
         setupNotifications()
         setupAutoUpdate()
-        showMainWindow(initialMessage: isFirstLaunch ? wakeUpGreeting() : nil, isFirstLaunch: isFirstLaunch)
-        debugStateWriter.start(appDelegate: self)
 
         if isFirstLaunch {
-            ensureDaemonConnected()
+            // Gate showMainWindow on daemon readiness so the wake-up
+            // message isn't sent before the daemon is connected.
+            Task {
+                let ready = await awaitDaemonReady(timeout: 15)
+                if !ready {
+                    log.warning("Daemon not ready after timeout — proceeding without connection")
+                }
+                showMainWindow(initialMessage: wakeUpGreeting(), isFirstLaunch: true)
+                debugStateWriter.start(appDelegate: self)
+            }
+        } else {
+            showMainWindow()
+            debugStateWriter.start(appDelegate: self)
         }
     }
 
-    private func ensureDaemonConnected() {
-        // Skip if already connected or if a connection attempt is in progress
-        // (setupDaemonClient already started connecting — don't interfere).
-        guard !daemonClient.isConnected, !daemonClient.isConnecting else { return }
+    /// Waits for the daemon to become connected, with bounded retries.
+    ///
+    /// Polls daemon connection state at ~0.5s intervals. If a connection
+    /// attempt is already in flight (from `setupDaemonClient()`), waits
+    /// for it to finish. Otherwise, attempts a single `connect()` call
+    /// per loop iteration. Returns once connected or the timeout elapses.
+    private func awaitDaemonReady(timeout: TimeInterval) async -> Bool {
+        log.info("Waiting for daemon to become ready (timeout: \(timeout)s)")
+        let start = CFAbsoluteTimeGetCurrent()
 
-        Task {
-            if !isCurrentAssistantRemote {
-                do {
-                    try await assistantCli.hatch(daemonOnly: true)
-                } catch {
-                    log.error("Failed to hatch assistant in ensureDaemonConnected: \(error)")
-                }
-                assistantCli.startMonitoring()
+        while CFAbsoluteTimeGetCurrent() - start < timeout {
+            if daemonClient.isConnected {
+                log.info("Daemon is connected")
+                return true
             }
-            // Only connect if setupDaemonClient's connect hasn't already started
-            guard !daemonClient.isConnected, !daemonClient.isConnecting else { return }
+
+            if daemonClient.isConnecting {
+                // Let the in-flight connect from setupDaemonClient() finish
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                continue
+            }
+
+            // Not connected and not connecting — try one connect attempt
             do {
                 try await daemonClient.connect()
             } catch {
-                log.error("Failed to connect to daemon in ensureDaemonConnected: \(error)")
+                log.error("awaitDaemonReady connect attempt failed: \(error)")
             }
+
             if daemonClient.isConnected {
-                setupAmbientAgent()
-                refreshAppsCache()
-                refreshSkillsCache()
+                log.info("Daemon is connected after retry")
+                return true
             }
+
+            try? await Task.sleep(nanoseconds: 500_000_000)
         }
+
+        log.warning("awaitDaemonReady timed out after \(timeout)s")
+        return daemonClient.isConnected
     }
 
     private func showAuthWindow() {
