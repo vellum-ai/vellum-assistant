@@ -47,7 +47,7 @@ struct ToolPermissionTesterView: View {
                 .font(VFont.mono)
                 .foregroundColor(VColor.textPrimary)
                 .padding(VSpacing.sm)
-                .background(VColor.surface)
+                .background(VColor.inputBackground)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
@@ -140,7 +140,7 @@ struct ToolPermissionTesterView: View {
                 .font(VFont.mono)
                 .foregroundColor(VColor.textPrimary)
                 .padding(VSpacing.sm)
-                .background(VColor.surface)
+                .background(VColor.inputBackground)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
@@ -153,7 +153,7 @@ struct ToolPermissionTesterView: View {
                 .font(VFont.mono)
                 .foregroundColor(VColor.textPrimary)
                 .padding(VSpacing.sm)
-                .background(VColor.surface)
+                .background(VColor.inputBackground)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
@@ -180,7 +180,7 @@ struct ToolPermissionTesterView: View {
             .font(VFont.mono)
             .padding(.vertical, VSpacing.xs)
             .padding(.horizontal, VSpacing.sm)
-            .background(VColor.surface)
+            .background(VColor.inputBackground)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.sm)
@@ -194,7 +194,7 @@ struct ToolPermissionTesterView: View {
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 60, maxHeight: 120)
                 .padding(VSpacing.sm)
-                .background(VColor.surface)
+                .background(VColor.inputBackground)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
@@ -345,7 +345,7 @@ struct ToolPermissionTesterView: View {
                 .font(VFont.mono)
                 .foregroundColor(VColor.textPrimary)
                 .padding(VSpacing.sm)
-                .background(VColor.surface)
+                .background(VColor.inputBackground)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
@@ -366,7 +366,7 @@ struct ToolPermissionTesterView: View {
             .font(VFont.mono)
             .padding(.vertical, VSpacing.xs)
             .padding(.horizontal, VSpacing.sm)
-            .background(VColor.surface)
+            .background(VColor.inputBackground)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.sm)

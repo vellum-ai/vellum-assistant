@@ -1,5 +1,22 @@
 import SwiftUI
 
+/// A TextFieldStyle that matches the design system input background.
+/// Use on raw TextField / SecureField instances: `.textFieldStyle(VInputStyle())`
+public struct VInputStyle: TextFieldStyle {
+    public init() {}
+
+    public func _body(configuration: TextField<Self._Label>) -> some View {
+        configuration
+            .padding(VSpacing.md)
+            .background(VColor.inputBackground)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
+    }
+}
+
 public struct VTextField: View {
     public let placeholder: String
     @Binding public var text: String
@@ -43,7 +60,7 @@ public struct VTextField: View {
             }
         }
         .padding(VSpacing.md)
-        .background(VColor.surface)
+        .background(VColor.inputBackground)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)

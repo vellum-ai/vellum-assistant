@@ -265,7 +265,7 @@ struct SkillsSettingsView: View {
                     // Browse section (placeholder)
                     Section("Browse") {
                         TextField("Search skills...", text: $searchText)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(VInputStyle())
 
                         HStack {
                             Image(systemName: "sparkles")

@@ -72,16 +72,7 @@ struct SettingsAppearanceTab: View {
 
                     HStack(spacing: VSpacing.sm) {
                         TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
-                            .textFieldStyle(.plain)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
+                            .textFieldStyle(VInputStyle())
 
                         VButton(label: "Add", style: .primary) {
                             let domain = newAllowlistDomain

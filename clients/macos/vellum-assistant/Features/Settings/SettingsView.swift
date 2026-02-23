@@ -65,7 +65,7 @@ public struct SettingsView: View {
                     }
                 } else {
                     SecureField("Enter API key", text: $apiKeyText)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(VInputStyle())
                     HStack {
                         Text("Get your API key at console.anthropic.com")
                             .font(.caption)
@@ -111,7 +111,7 @@ public struct SettingsView: View {
                     }
                 } else {
                     SecureField("Enter Perplexity API key", text: $perplexityKeyText)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(VInputStyle())
                     HStack {
                         Text("Get your API key at perplexity.ai/settings/api")
                             .font(.caption)
@@ -143,7 +143,7 @@ public struct SettingsView: View {
                     }
                 } else {
                     SecureField("Enter Brave Search API key", text: $braveKeyText)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(VInputStyle())
                     HStack {
                         Text("Get your API key at brave.com/search/api")
                             .font(.caption)
@@ -185,7 +185,7 @@ public struct SettingsView: View {
                     }
                 } else {
                     SecureField("Enter Gemini API key", text: $imageGenKeyText)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(VInputStyle())
                     HStack {
                         Text("Get your API key at aistudio.google.com/apikey")
                             .font(.caption)
@@ -217,7 +217,7 @@ public struct SettingsView: View {
                     }
                 } else {
                     SecureField("Enter OpenAI API key", text: $openaiKeyText)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(VInputStyle())
                     HStack {
                         Text("Get your API key at platform.openai.com/api-keys")
                             .font(.caption)
@@ -246,7 +246,7 @@ public struct SettingsView: View {
                     }
                 } else {
                     SecureField("Enter Vercel API token", text: $vercelKeyText)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(VInputStyle())
                     HStack {
                         Text("Get your API token at vercel.com/account/tokens")
                             .font(.caption)
@@ -284,9 +284,9 @@ public struct SettingsView: View {
                     if !store.twitterLocalClientConfigured {
                         VStack(alignment: .leading, spacing: 6) {
                             TextField("OAuth Client ID", text: $twitterClientId)
-                                .textFieldStyle(.roundedBorder)
+                                .textFieldStyle(VInputStyle())
                             SecureField("OAuth Client Secret (optional)", text: $twitterClientSecret)
-                                .textFieldStyle(.roundedBorder)
+                                .textFieldStyle(VInputStyle())
                             HStack {
                                 Text("Create an app at developer.x.com")
                                     .font(.caption)
@@ -382,6 +382,7 @@ public struct SettingsView: View {
                     }
                 } else {
                     SecureField("Enter bot token", text: $telegramBotTokenText)
+                        .textFieldStyle(VInputStyle())
                     Text("Get your bot token from @BotFather on Telegram")
                         .font(.caption).foregroundStyle(.secondary)
                     HStack {
@@ -427,9 +428,9 @@ public struct SettingsView: View {
                     }
                 } else {
                     TextField("Account SID", text: $twilioAccountSidText)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(VInputStyle())
                     SecureField("Auth Token", text: $twilioAuthTokenText)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(VInputStyle())
                     HStack {
                         Spacer()
                         if store.twilioSaveInProgress {
@@ -464,7 +465,7 @@ public struct SettingsView: View {
 
                 HStack {
                     TextField("Assign existing number (+1555...)", text: $twilioPhoneNumberText)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(VInputStyle())
                     Button("Assign") {
                         store.assignTwilioNumber(phoneNumber: twilioPhoneNumberText)
                         twilioPhoneNumberText = ""
@@ -477,9 +478,9 @@ public struct SettingsView: View {
 
                 HStack {
                     TextField("Area code (optional)", text: $twilioAreaCodeText)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(VInputStyle())
                     TextField("Country", text: $twilioCountryText)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(VInputStyle())
                         .frame(width: 80)
                     Button("Provision") {
                         store.provisionTwilioNumber(
@@ -556,7 +557,7 @@ public struct SettingsView: View {
 
                 TextField("Public Ingress URL (e.g. https://abc123.ngrok-free.app)", text: $ingressUrlText)
                     .focused($isIngressUrlFocused)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(VInputStyle())
 
                 HStack {
                     Spacer()
@@ -649,7 +650,7 @@ public struct SettingsView: View {
 
                     HStack {
                         TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(VInputStyle())
                         Button("Add") {
                             let domain = newAllowlistDomain
                                 .trimmingCharacters(in: .whitespacesAndNewlines)

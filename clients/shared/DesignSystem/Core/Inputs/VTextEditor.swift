@@ -35,7 +35,7 @@ public struct VTextEditor: View {
                 .accessibilityLabel(text.isEmpty ? placeholder : text)
         }
         .padding(VSpacing.xs)
-        .background(VColor.surface)
+        .background(VColor.inputBackground)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)

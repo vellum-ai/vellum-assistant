@@ -173,7 +173,6 @@ extension MainWindowView {
                 dynamicWorkspaceView(surface: surface, data: dpData)
                     .background(VColor.backgroundSubtle)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                    .padding(VSpacing.sm)
             } else {
                 // Gallery mode fallback
                 GeneratedPanel(
@@ -210,6 +209,8 @@ extension MainWindowView {
                     },
                     panel: {
                         dynamicWorkspaceView(surface: surface, data: dpData)
+                            .background(adaptiveColor(light: Moss._100, dark: Moss._900))
+                            .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.xl, bottomLeadingRadius: VRadius.xl))
                     }
                 )
             } else {
@@ -240,6 +241,7 @@ extension MainWindowView {
                     }
                 )
                 .overlay(alignment: .topTrailing) { panelDismissButton }
+                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(
@@ -333,6 +335,7 @@ extension MainWindowView {
         switch panel {
         case .settings:
             SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
+                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         case .agent:
             AgentPanel(onClose: { windowState.dismissOverlay() }, onInvokeSkill: { skill in
                 if threadManager.activeViewModel == nil {
@@ -351,6 +354,7 @@ extension MainWindowView {
                 windowState.dismissOverlay()
             }, daemonClient: daemonClient)
                 .overlay(alignment: .topTrailing) { panelDismissButton }
+                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
@@ -769,9 +773,12 @@ struct DynamicWorkspaceWrapper: View {
                         .accessibilityLabel("Close workspace")
                     }
                 }
-                .padding(.leading, isChatDockOpen ? VSpacing.lg : trafficLightPadding)
-                .padding(.trailing, VSpacing.xl)
-                .padding(.top, VSpacing.md)
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+                .background(
+                    adaptiveColor(light: Moss._50, dark: Moss._950)
+                        .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.lg, topTrailingRadius: VRadius.lg))
+                )
 
                 if let error = publishError {
                     HStack {
