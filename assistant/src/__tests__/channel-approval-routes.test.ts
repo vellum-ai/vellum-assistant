@@ -2935,13 +2935,18 @@ describe('guardian enforcement independence from approval flag', () => {
     // deliverChannelReply args: (callbackUrl, payload, bearerToken?)
     // The denial notice is in payload.text (index 1 of the call args).
     expect(deliverSpy).toHaveBeenCalled();
-    const denialTexts = deliverSpy.mock.calls
-      .map((call) => (typeof call[1] === 'object' ? (call[1] as { text?: string }).text : undefined))
-      .filter(Boolean) as string[];
-    const denialMatch = denialTexts.find(
-      (t) => t.includes('identity could not be determined') && t.includes('denied'),
+    const denialCalls = deliverSpy.mock.calls.filter(
+      (call) => {
+        if (typeof call[1] !== 'object') return false;
+        const text = (call[1] as { text?: string }).text ?? '';
+        return text.includes('requires guardian approval') &&
+          (text.includes('identity could not be determined') || text.includes('no guardian has been set up'));
+      },
     );
-    expect(denialMatch).toBeDefined();
+    expect(denialCalls.length).toBeGreaterThanOrEqual(1);
+
+    // Auto-deny path should never prompt for approval
+    expect(approvalSpy).not.toHaveBeenCalled();
 
     deliverSpy.mockRestore();
     approvalSpy.mockRestore();
