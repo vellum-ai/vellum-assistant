@@ -67,7 +67,7 @@ func readSessionToken(environment: [String: String]? = nil) -> String? {
 public func resolveVellumDir(environment: [String: String]? = nil) -> String {
     let env = environment ?? ProcessInfo.processInfo.environment
     if let baseDir = env["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
-        let resolved = baseDir.hasPrefix("~/") ? NSHomeDirectory() + "/" + String(baseDir.dropFirst(2)) : baseDir
+        let resolved = baseDir == "~" ? NSHomeDirectory() : (baseDir.hasPrefix("~/") ? NSHomeDirectory() + "/" + String(baseDir.dropFirst(2)) : baseDir)
         return resolved + "/.vellum"
     }
     return NSHomeDirectory() + "/.vellum"
