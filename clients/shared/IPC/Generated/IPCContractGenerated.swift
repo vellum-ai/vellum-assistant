@@ -503,6 +503,27 @@ public struct IPCDiagnosticsExportResponse: Codable, Sendable {
     public let error: String?
 }
 
+public struct IPCDictationContext: Codable, Sendable {
+    public let bundleIdentifier: String
+    public let appName: String
+    public let windowTitle: String
+    public let selectedText: String?
+    public let cursorInTextField: Bool
+}
+
+public struct IPCDictationRequest: Codable, Sendable {
+    public let type: String
+    public let transcription: String
+    public let context: IPCDictationContext
+}
+
+public struct IPCDictationResponse: Codable, Sendable {
+    public let type: String
+    public let text: String
+    public let mode: String
+    public let actionPlan: String?
+}
+
 public struct IPCDocumentEditorShow: Codable, Sendable {
     public let type: String
     public let sessionId: String
