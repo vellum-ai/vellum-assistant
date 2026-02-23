@@ -177,11 +177,35 @@ export interface CuSessionCreate {
   screenHeight: number;
   attachments?: UserMessageAttachment[];
   interactionType?: 'computer_use' | 'text_qa';
+  /** Origin chat session for result injection (QA workflow). */
+  reportToSessionId?: string;
+  /** Marks this CU run as a QA/test workflow. */
+  qaMode?: boolean;
 }
 
 export interface CuSessionAbort {
   type: 'cu_session_abort';
   sessionId: string;
+}
+
+export interface CuSessionFinalized {
+  type: 'cu_session_finalized';
+  sessionId: string;
+  status: 'completed' | 'responded' | 'failed' | 'cancelled';
+  summary: string;
+  stepCount: number;
+  recording?: {
+    localPath: string;
+    mimeType: 'video/mp4';
+    sizeBytes: number;
+    durationMs: number;
+    width: number;
+    height: number;
+    captureScope: 'window' | 'display';
+    includeAudio: boolean;
+    targetBundleId?: string;
+    expiresAt?: number;
+  };
 }
 
 export interface CuObservation {
@@ -1048,6 +1072,7 @@ export type ClientMessage =
   | SandboxSetRequest
   | CuSessionCreate
   | CuSessionAbort
+  | CuSessionFinalized
   | CuObservation
   | RideShotgunStart
   | RideShotgunStop
