@@ -835,6 +835,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: 'sess-routed-001',
     interactionType: 'computer_use',
   },
+  ride_shotgun_progress: {
+    type: 'ride_shotgun_progress',
+    watchId: 'watch-shotgun-001',
+    message: 'Observing user activity...',
+  },
   ride_shotgun_result: {
     type: 'ride_shotgun_result',
     sessionId: 'sess-shotgun-001',
