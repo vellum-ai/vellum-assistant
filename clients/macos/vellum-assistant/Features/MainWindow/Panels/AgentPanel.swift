@@ -1011,6 +1011,7 @@ struct AgentPanel: View {
             }
             .frame(maxWidth: maxContentWidth)
             .padding(.horizontal, VSpacing.xxl)
+            .padding(.bottom, VSpacing.xxl)
             .frame(maxWidth: .infinity)
         }
     }
