@@ -1,7 +1,14 @@
-name: PR macOS Build Check
+name: CI macOS Build Check
 
 on:
   pull_request:
+    paths:
+      - 'clients/macos/**'
+      - 'clients/shared/**'
+      - 'cli/**'
+      - '.github/workflows/ci-macos.yml'
+  push:
+    branches: [main]
     paths:
       - 'clients/macos/**'
       - 'clients/shared/**'
