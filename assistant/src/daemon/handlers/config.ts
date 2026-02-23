@@ -406,7 +406,7 @@ export async function handleShareToSlack(
       ctx.send(socket, {
         type: 'share_to_slack_response',
         success: false,
-        error: 'No Slack webhook URL configured. Set one in Settings.',
+        error: 'No Slack webhook URL configured. Provide one here in the chat, or set it from the Settings page.',
       });
       return;
     }

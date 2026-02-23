@@ -630,7 +630,7 @@ class CredentialStoreTool implements Tool {
                 const dmChannel = await conversationsOpen(botToken, installingUserId);
                 const welcomeMsg =
                   `You have installed ${identity.user}, an AI Assistant, on ${identity.team}. ` +
-                  `Manage the assistant experience for this workspace in the workspace settings page.`;
+                  `You can manage the assistant experience for this workspace by chatting with the assistant or from the Settings page.`;
                 await postMessage(botToken, dmChannel.channel.id, welcomeMsg);
               }
             } catch (err) {

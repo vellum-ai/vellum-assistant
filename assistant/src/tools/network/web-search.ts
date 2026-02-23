@@ -268,7 +268,7 @@ class WebSearchTool implements Tool {
         apiKey = fallbackKey;
       } else {
         return {
-          content: 'Error: No web search API key configured. Set PERPLEXITY_API_KEY or BRAVE_API_KEY environment variable, or configure a key in settings.',
+          content: 'Error: No web search API key configured. Provide a PERPLEXITY_API_KEY or BRAVE_API_KEY here in the chat using the secure credential prompt, or set it from the Settings page.',
           isError: true,
         };
       }

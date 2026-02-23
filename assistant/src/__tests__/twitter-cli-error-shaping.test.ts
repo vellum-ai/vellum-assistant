@@ -100,7 +100,7 @@ describe('CLI error shaping', () => {
 
   test('routed non-session error with suggestAlternative emits structured JSON', () => {
     const err = Object.assign(
-      new Error('OAuth is not configured. Set up OAuth credentials in Settings, or switch to browser strategy.'),
+      new Error('OAuth is not configured. Provide your X developer credentials here in the chat to set up OAuth, or switch to browser strategy.'),
       {
         pathUsed: 'oauth' as const,
         suggestAlternative: 'browser' as const,
@@ -110,7 +110,7 @@ describe('CLI error shaping', () => {
 
     expect(payload).toEqual({
       ok: false,
-      error: 'OAuth is not configured. Set up OAuth credentials in Settings, or switch to browser strategy.',
+      error: 'OAuth is not configured. Provide your X developer credentials here in the chat to set up OAuth, or switch to browser strategy.',
       pathUsed: 'oauth',
       suggestAlternative: 'browser',
     });

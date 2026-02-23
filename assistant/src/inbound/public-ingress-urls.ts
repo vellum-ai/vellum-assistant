@@ -6,7 +6,7 @@
  * The canonical public base URL is resolved through a two-level chain:
  *
  *   1. **User Settings** (`config.ingress.publicBaseUrl`) — set via the
- *      Settings UI or `config set ingress.publicBaseUrl`. This is the
+ *      the in-chat config flow, the Settings UI, or `config set ingress.publicBaseUrl`. This is the
  *      primary source of truth. When the assistant spawns or restarts
  *      the gateway, this value is forwarded as the `INGRESS_PUBLIC_BASE_URL`
  *      environment variable so both processes agree on the same URL.
@@ -51,7 +51,7 @@ function normalizeUrl(url: string): string {
 export function getPublicBaseUrl(config: IngressConfig): string {
   if (config.ingress?.enabled === false) {
     throw new Error(
-      'Public ingress is disabled. Enable it in Settings to use public-facing webhooks.',
+      'Public ingress is disabled. Ask the assistant to enable it, or update it from the Settings page.',
     );
   }
 
