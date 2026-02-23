@@ -34,9 +34,8 @@
   --v-stone-50:  #FAFAF9;
 
   /* ── Palette: Moss (warm neutral, dark mode) ─────────────── */
-  --v-moss-950: #262624;
+  --v-moss-950: #20201E;
   --v-moss-900: #2A2A28;
-  --v-moss-800: #2F2F2D;
   --v-moss-700: #3A3A37;
   --v-moss-600: #4A4A46;
   --v-moss-500: #6B6B65;
@@ -46,17 +45,17 @@
   --v-moss-100: #E8E6DA;
   --v-moss-50:  #F5F3EB;
 
-  /* ── Palette: Forest (green accent, dark mode) ───────────── */
-  --v-forest-950: #0A2A14;
-  --v-forest-900: #123D1F;
-  --v-forest-800: #18522A;
-  --v-forest-700: #1C5F30;
-  --v-forest-600: #216C37;
-  --v-forest-500: #3A8A4F;
-  --v-forest-400: #5AAB6A;
-  --v-forest-300: #85C991;
-  --v-forest-200: #B5E1BC;
-  --v-forest-100: #E2F4E5;
+  /* ── Palette: Forest / Sage (green accent, dark mode) ────── */
+  --v-forest-950: #1A2316;
+  --v-forest-900: #2A3825;
+  --v-forest-800: #3D4F36;
+  --v-forest-700: #516748;
+  --v-forest-600: #657D5B;
+  --v-forest-500: #7A8B6F;
+  --v-forest-400: #98A88F;
+  --v-forest-300: #B5C3AE;
+  --v-forest-200: #D4DFD0;
+  --v-forest-100: #EDF2EB;
 
   /* ── Palette: Emerald ───────────────────────────────────────── */
   --v-emerald-950: #073D2E;
@@ -71,16 +70,16 @@
   --v-emerald-100: #ECFDF5;
 
   /* ── Palette: Danger ─────────────────────────────────────────── */
-  --v-danger-950: #620F21;
-  --v-danger-900: #85142F;
-  --v-danger-800: #A8183E;
-  --v-danger-700: #D02050;
-  --v-danger-600: #E84060;
-  --v-danger-500: #F06A86;
-  --v-danger-400: #F99AAE;
-  --v-danger-300: #FCBFC9;
-  --v-danger-200: #FFE1E6;
-  --v-danger-100: #FFF1F3;
+  --v-danger-950: #4E281D;
+  --v-danger-900: #803017;
+  --v-danger-800: #AB3F1C;
+  --v-danger-700: #DA491A;
+  --v-danger-600: #E86B40;
+  --v-danger-500: #F39B74;
+  --v-danger-400: #F9C0A2;
+  --v-danger-300: #F7DAC9;
+  --v-danger-200: #FFE4D5;
+  --v-danger-100: #FFF3EE;
 
   /* ── Palette: Amber ─────────────────────────────────────────── */
   --v-amber-950: #5E3207;
@@ -156,7 +155,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --v-bg:             var(--v-moss-950);
-    --v-surface:        var(--v-moss-800);
+    --v-surface:        var(--v-moss-700);
     --v-surface-border: var(--v-moss-700);
     --v-text:           var(--v-moss-50);
     --v-text-secondary: var(--v-moss-400);

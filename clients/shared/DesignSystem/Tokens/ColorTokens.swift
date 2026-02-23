@@ -52,16 +52,16 @@ public enum Emerald {
 }
 
 public enum Danger {
-    public static let _950 = Color(hex: 0x620F21)
-    public static let _900 = Color(hex: 0x85142F)
-    public static let _800 = Color(hex: 0xA8183E)
-    public static let _700 = Color(hex: 0xD02050)
-    public static let _600 = Color(hex: 0xE84060)
-    public static let _500 = Color(hex: 0xF06A86)
-    public static let _400 = Color(hex: 0xF99AAE)
-    public static let _300 = Color(hex: 0xFCBFC9)
-    public static let _200 = Color(hex: 0xFFE1E6)
-    public static let _100 = Color(hex: 0xFFF1F3)
+    public static let _950 = Color(hex: 0x4E281D)
+    public static let _900 = Color(hex: 0x803017)
+    public static let _800 = Color(hex: 0xAB3F1C)
+    public static let _700 = Color(hex: 0xDA491A)
+    public static let _600 = Color(hex: 0xE86B40)
+    public static let _500 = Color(hex: 0xF39B74)
+    public static let _400 = Color(hex: 0xF9C0A2)
+    public static let _300 = Color(hex: 0xF7DAC9)
+    public static let _200 = Color(hex: 0xFFE4D5)
+    public static let _100 = Color(hex: 0xFFF3EE)
 }
 
 public enum Amber {
@@ -96,9 +96,8 @@ public enum Stone {
 
 /// Warm neutral scale for dark mode backgrounds & text.
 public enum Moss {
-    public static let _950 = Color(hex: 0x262624)
+    public static let _950 = Color(hex: 0x20201E)
     public static let _900 = Color(hex: 0x2A2A28)
-    public static let _800 = Color(hex: 0x2F2F2D)
     public static let _700 = Color(hex: 0x3A3A37)
     public static let _600 = Color(hex: 0x4A4A46)
     public static let _500 = Color(hex: 0x6B6B65)
@@ -109,18 +108,18 @@ public enum Moss {
     public static let _50  = Color(hex: 0xF5F3EB)
 }
 
-/// Forest green accent scale for dark mode.
+/// Sage green accent scale for dark mode.
 public enum Forest {
-    public static let _950 = Color(hex: 0x0A2A14)
-    public static let _900 = Color(hex: 0x123D1F)
-    public static let _800 = Color(hex: 0x18522A)
-    public static let _700 = Color(hex: 0x1C5F30)
-    public static let _600 = Color(hex: 0x216C37)
-    public static let _500 = Color(hex: 0x3A8A4F)
-    public static let _400 = Color(hex: 0x5AAB6A)
-    public static let _300 = Color(hex: 0x85C991)
-    public static let _200 = Color(hex: 0xB5E1BC)
-    public static let _100 = Color(hex: 0xE2F4E5)
+    public static let _950 = Color(hex: 0x1A2316)
+    public static let _900 = Color(hex: 0x2A3825)
+    public static let _800 = Color(hex: 0x3D4F36)
+    public static let _700 = Color(hex: 0x516748)
+    public static let _600 = Color(hex: 0x657D5B)
+    public static let _500 = Color(hex: 0x7A8B6F)
+    public static let _400 = Color(hex: 0x98A88F)
+    public static let _300 = Color(hex: 0xB5C3AE)
+    public static let _200 = Color(hex: 0xD4DFD0)
+    public static let _100 = Color(hex: 0xEDF2EB)
 }
 
 // MARK: - Semantic Color Tokens
@@ -130,7 +129,7 @@ public enum VColor {
     public static let background = adaptiveColor(light: .white, dark: Moss._950)
     public static let backgroundSubtle = adaptiveColor(light: Stone._100, dark: Moss._950)
     public static let chatBackground = adaptiveColor(light: .white, dark: Moss._950)
-    public static let surface = adaptiveColor(light: .white, dark: Moss._800)
+    public static let surface = adaptiveColor(light: .white, dark: Moss._700)
     public static let surfaceBorder = adaptiveColor(light: Stone._200, dark: Moss._700)
     public static let surfaceSubtle = adaptiveColor(light: Stone._50, dark: Moss._900)
 

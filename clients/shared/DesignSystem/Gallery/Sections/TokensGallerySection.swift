@@ -62,7 +62,7 @@ struct TokensGallerySection: View {
                         Stone._500, Stone._400, Stone._300, Stone._200, Stone._100
                     ])
                     colorScaleRow(name: "Moss", colors: [
-                        Moss._950, Moss._900, Moss._800, Moss._700, Moss._600,
+                        Moss._950, Moss._900, Moss._700, Moss._600,
                         Moss._500, Moss._400, Moss._300, Moss._200, Moss._100
                     ])
                     colorScaleRow(name: "Forest", colors: [
