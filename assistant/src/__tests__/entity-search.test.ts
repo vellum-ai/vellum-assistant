@@ -25,7 +25,7 @@ mock.module('../util/logger.js', () => ({
 
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { upsertEntity, upsertEntityRelation } from '../memory/entity-extractor.js';
-import { findNeighborEntities, findMatchedEntities, getEntityLinkedItemCandidates, collectTypedNeighbors, intersectReachable } from '../memory/search/entity.js';
+import { findNeighborEntities, findMatchedEntities, getEntityLinkedItemCandidates, collectTypedNeighbors, intersectReachable, detectRelationTypes } from '../memory/search/entity.js';
 import { memoryItems, memoryItemEntities } from '../memory/schema.js';
 import { Database } from 'bun:sqlite';
 
@@ -609,6 +609,41 @@ describe('entity search', () => {
     test('returns empty for empty queries array', () => {
       const result = intersectReachable([]);
       expect(result).toEqual([]);
+    });
+  });
+
+  // ── detectRelationTypes ──────────────────────────────────────────────
+
+  describe('detectRelationTypes', () => {
+    test('detects "uses" keyword', () => {
+      const result = detectRelationTypes('what tools does the project use?');
+      expect(result).toContain('uses');
+    });
+
+    test('detects "works on" keyword', () => {
+      const result = detectRelationTypes('who works on this project?');
+      expect(result).toContain('works_on');
+    });
+
+    test('detects "depends on" keyword', () => {
+      const result = detectRelationTypes('what does this package depends on?');
+      expect(result).toContain('depends_on');
+    });
+
+    test('detects multiple relation types', () => {
+      const result = detectRelationTypes('who uses and works on this?');
+      expect(result).toContain('uses');
+      expect(result).toContain('works_on');
+    });
+
+    test('returns undefined for no keyword matches', () => {
+      const result = detectRelationTypes('tell me about the weather');
+      expect(result).toBeUndefined();
+    });
+
+    test('case insensitive matching', () => {
+      const result = detectRelationTypes('What TOOLS does Alice USE?');
+      expect(result).toContain('uses');
     });
   });
 });
