@@ -29,6 +29,7 @@ import { checkContradictionsJob, cleanupStaleSupersededItemsJob } from './job-ha
 import { buildConversationSummaryJob, buildGlobalSummaryJob } from './job-handlers/summarization.js';
 import { backfillJob, backfillEntityRelationsJob } from './job-handlers/backfill.js';
 import { rebuildIndexJob, deleteQdrantVectorsJob } from './job-handlers/index-maintenance.js';
+import { mediaProcessingJob } from './job-handlers/media-processing.js';
 
 // Re-export public utilities consumed by tests and other modules
 export { currentWeekWindow } from './job-utils.js';
@@ -230,10 +231,7 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
       await deleteQdrantVectorsJob(job);
       return;
     case 'media_processing':
-      // Stub: actual media processing is orchestrated by the media-processing
-      // skill tools, not the job worker.  We just acknowledge the job so it
-      // doesn't fail with "Unknown memory job type".
-      log.info({ jobId: job.id, payload: job.payload }, 'media_processing job received');
+      await mediaProcessingJob(job);
       return;
     default:
       throw new Error(`Unknown memory job type: ${(job as { type: string }).type}`);
