@@ -695,32 +695,34 @@ struct AgentPanelContent: View {
         let isError = result?.slug == slug && result?.success == false
         let errorMessage = result?.error
 
-        VButton(
-            label: isSuccess ? "Installed!" : (isInstalling ? "Installing..." : "Install"),
-            icon: isSuccess ? "checkmark.circle.fill" : (isInstalling ? nil : "arrow.down.circle.fill"),
-            style: .primary,
-            size: .small,
-            isFullWidth: false,
-            isDisabled: isInstalling || isSuccess
-        ) {
-            guard installingSlug == nil, !isSuccess else { return }
-            let attemptId = UUID()
-            installingSlug = slug
-            installAttemptId = attemptId
-            skillsManager.installSkill(slug: slug)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                if installingSlug == slug && installAttemptId == attemptId {
-                    installingSlug = nil
-                    installAttemptId = nil
+        VStack(alignment: .trailing, spacing: VSpacing.xs) {
+            VButton(
+                label: isSuccess ? "Installed!" : (isInstalling ? "Installing..." : "Install"),
+                icon: isSuccess ? "checkmark.circle.fill" : (isInstalling ? nil : "arrow.down.circle.fill"),
+                style: .primary,
+                size: .small,
+                isFullWidth: false,
+                isDisabled: isInstalling || isSuccess
+            ) {
+                guard installingSlug == nil, !isSuccess else { return }
+                let attemptId = UUID()
+                installingSlug = slug
+                installAttemptId = attemptId
+                skillsManager.installSkill(slug: slug)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                    if installingSlug == slug && installAttemptId == attemptId {
+                        installingSlug = nil
+                        installAttemptId = nil
+                    }
                 }
             }
-        }
 
-        // Error message
-        if isError, let msg = errorMessage {
-            Text(msg)
-                .font(VFont.caption)
-                .foregroundColor(Danger._500)
+            // Error message
+            if isError, let msg = errorMessage {
+                Text(msg)
+                    .font(VFont.caption)
+                    .foregroundColor(Danger._500)
+            }
         }
     }
 
