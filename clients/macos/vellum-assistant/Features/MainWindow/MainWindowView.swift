@@ -692,7 +692,7 @@ struct MainWindowView: View {
             .padding(.vertical, VSpacing.sm)
             .background {
                 if isSelected {
-                    adaptiveColor(light: Forest._100.opacity(0.6), dark: Moss._700)
+                    adaptiveColor(light: Color(hex: 0xE8E6DA), dark: Moss._700)
                 } else if isHovered {
                     adaptiveColor(light: Stone._200, dark: Moss._700)
                 } else if thread.kind == .private {
