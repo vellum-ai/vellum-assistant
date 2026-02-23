@@ -240,6 +240,9 @@ extension MainWindowView {
                     }
                 )
                 .overlay(alignment: .topTrailing) { panelDismissButton }
+                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                .padding(16)
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(
@@ -334,6 +337,9 @@ extension MainWindowView {
         case .settings:
             SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
                 .overlay(alignment: .topTrailing) { panelDismissButton }
+                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                .padding(16)
         case .agent:
             AgentPanel(onClose: { windowState.dismissOverlay() }, onInvokeSkill: { skill in
                 if threadManager.activeViewModel == nil {
@@ -352,6 +358,9 @@ extension MainWindowView {
                 windowState.dismissOverlay()
             }, daemonClient: daemonClient)
                 .overlay(alignment: .topTrailing) { panelDismissButton }
+                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                .padding(16)
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
@@ -360,14 +369,26 @@ extension MainWindowView {
                 onClose: { windowState.dismissOverlay() }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
+            .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+            .padding(16)
         case .doctor:
             DoctorPanel(onClose: { windowState.dismissOverlay() })
                 .overlay(alignment: .topTrailing) { panelDismissButton }
+                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                .padding(16)
         case .identity:
             IdentityPanel(onClose: { windowState.dismissOverlay() }, onCustomizeAvatar: { windowState.selection = .panel(.avatarCustomization) }, daemonClient: daemonClient)
                 .overlay(alignment: .topTrailing) { panelDismissButton }
+                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                .padding(16)
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(.identity) })
+                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                .padding(16)
         case .generated:
             // Generated panel is handled inline in chatContentView when expanded;
             // if we reach here, isDynamicExpanded is false — clear selection so

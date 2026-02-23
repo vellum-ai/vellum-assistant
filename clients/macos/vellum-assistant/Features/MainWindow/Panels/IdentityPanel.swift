@@ -78,7 +78,6 @@ struct IdentityPanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(VColor.background)
         }
-        .background(VColor.backgroundSubtle)
         .overlay {
             if let path = viewingFilePath {
                 // Dismiss backdrop

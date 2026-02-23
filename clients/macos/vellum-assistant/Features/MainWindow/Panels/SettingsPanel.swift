@@ -85,7 +85,6 @@ struct SettingsPanel: View {
                 }
             }
         }
-        .background(VColor.backgroundSubtle)
         .task {
             // Refresh permission status when the view appears
             refreshPermissionStatus()
