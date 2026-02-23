@@ -342,7 +342,11 @@ final class VoiceInputManager {
                     cursorInTextField: context.cursorInTextField
                 )
             )
-            overlayWindow.show(state: .processing)
+            if context.selectedText != nil {
+                overlayWindow.show(state: .transforming(text))
+            } else {
+                overlayWindow.show(state: .processing)
+            }
             try? daemonClient?.send(request)
             log.info("Sent dictation_request to daemon for app=\(context.appName, privacy: .public)")
         }
