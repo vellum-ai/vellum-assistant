@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { eq, and } from 'drizzle-orm';
 import { getLogger } from '../util/logger.js';
-import { embedWithBackend, getMemoryBackendStatus, getFallbackProviders } from './embedding-backend.js';
+import { embedWithBackend, getMemoryBackendStatus } from './embedding-backend.js';
 import { getDb } from './db.js';
 import { getQdrantClient } from './qdrant-client.js';
 import { memoryEmbeddings } from './schema.js';
@@ -120,30 +120,23 @@ export async function embedAndUpsert(
   let model = status.model!;
   let vector: number[];
 
-  // Check SQLite embedding cache for a matching content hash.
-  // Try the primary provider first, then fallback providers — embeddings may
-  // have been persisted under a fallback's key during a prior primary failure.
+  // Check SQLite embedding cache for a matching content hash (primary provider only).
   const db = getDb();
   const expectedDim = config.memory.qdrant.vectorSize;
-  const providersToCheck = [{ provider, model }, ...getFallbackProviders(config)];
-  let cachedRow: { vectorJson: string; dimensions: number } | undefined;
-  for (const { provider: p, model: m } of providersToCheck) {
-    cachedRow = db
-      .select({ vectorJson: memoryEmbeddings.vectorJson, dimensions: memoryEmbeddings.dimensions })
-      .from(memoryEmbeddings)
-      .where(
-        and(
-          eq(memoryEmbeddings.contentHash, contentHash),
-          eq(memoryEmbeddings.provider, p),
-          eq(memoryEmbeddings.model, m),
-        ),
-      )
-      .get();
-    if (cachedRow && cachedRow.dimensions === expectedDim) break;
-    cachedRow = undefined;
-  }
+  let cachedRow = db
+    .select({ vectorJson: memoryEmbeddings.vectorJson, dimensions: memoryEmbeddings.dimensions })
+    .from(memoryEmbeddings)
+    .where(
+      and(
+        eq(memoryEmbeddings.contentHash, contentHash),
+        eq(memoryEmbeddings.provider, provider),
+        eq(memoryEmbeddings.model, model),
+      ),
+    )
+    .get();
+  if (cachedRow && cachedRow.dimensions !== expectedDim) cachedRow = undefined;
 
-  if (cachedRow && cachedRow.dimensions === expectedDim) {
+  if (cachedRow) {
     vector = JSON.parse(cachedRow.vectorJson);
   } else {
     const embedded = await embedWithBackend(config, [text]);

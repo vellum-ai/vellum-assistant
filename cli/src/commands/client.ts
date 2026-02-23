@@ -1,3 +1,6 @@
+import { readFileSync } from "fs";
+import { join } from "path";
+
 import { ANSI, renderChatApp } from "../components/DefaultMainScreen";
 import { findAssistantByName, loadLatestAssistant } from "../lib/assistant-config";
 import { GATEWAY_PORT, type Species } from "../lib/constants";
@@ -42,7 +45,19 @@ function parseArgs(): ParsedArgs {
 
   let runtimeUrl = process.env.RUNTIME_URL || entry?.runtimeUrl || FALLBACK_RUNTIME_URL;
   let assistantId = process.env.ASSISTANT_ID || entry?.assistantId || FALLBACK_ASSISTANT_ID;
-  const bearerToken = process.env.RUNTIME_PROXY_BEARER_TOKEN || entry?.bearerToken || undefined;
+  let bearerToken = process.env.RUNTIME_PROXY_BEARER_TOKEN || entry?.bearerToken || undefined;
+
+  // For local assistants, read the daemon's http-token file as a fallback
+  // when the lockfile doesn't include a bearer token.
+  if (!bearerToken && entry?.cloud === "local") {
+    const tokenDir = entry.baseDataDir ?? join(process.env.HOME ?? "", ".vellum");
+    try {
+      const token = readFileSync(join(tokenDir, "http-token"), "utf-8").trim();
+      if (token) bearerToken = token;
+    } catch {
+      // Token file may not exist
+    }
+  }
   const species: Species = (entry?.species as Species) ?? "vellum";
 
   for (let i = 0; i < flagArgs.length; i++) {
