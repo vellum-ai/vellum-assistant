@@ -405,6 +405,19 @@ function emitStruct(s: SwiftStruct): string {
     lines.push(`    public let ${p.swiftName}: ${p.swiftType}`);
   }
 
+  // Emit public memberwise init (Swift only auto-generates internal inits for public structs)
+  if (s.properties.length > 0) {
+    lines.push('');
+    const params = s.properties
+      .map((p) => `${p.swiftName}: ${p.swiftType}`)
+      .join(', ');
+    lines.push(`    public init(${params}) {`);
+    for (const p of s.properties) {
+      lines.push(`        self.${p.swiftName} = ${p.swiftName}`);
+    }
+    lines.push('    }');
+  }
+
   if (needsCodingKeys(s.properties)) {
     lines.push('');
     lines.push('    private enum CodingKeys: String, CodingKey {');
