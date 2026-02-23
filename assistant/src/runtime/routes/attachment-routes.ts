@@ -206,9 +206,9 @@ function handleFileContent(
   }
 
   const start = parseInt(rangeMatch[1], 10);
-  const end = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : fileSize - 1;
+  const end = rangeMatch[2] ? Math.min(parseInt(rangeMatch[2], 10), fileSize - 1) : fileSize - 1;
 
-  if (start >= fileSize || end >= fileSize || start > end) {
+  if (start >= fileSize || start > end) {
     return new Response('Range not satisfiable', {
       status: 416,
       headers: { 'Content-Range': `bytes */${fileSize}` },
