@@ -31,6 +31,9 @@ final class VoiceInputManager {
     /// Context captured at activation time, describing the frontmost app state.
     private var currentDictationContext: DictationContext?
 
+    /// Floating overlay showing dictation state (recording/processing/done).
+    private let overlayWindow = DictationOverlayWindow()
+
     private var isRecording = false
     private var globalMonitor: Any?
     private var localMonitor: Any?
@@ -60,6 +63,13 @@ final class VoiceInputManager {
 
     func start() {
         setupFnKeyMonitors()
+
+        // Wire the dictation response callback to insert text and manage the overlay
+        if onDictationResponse == nil {
+            onDictationResponse = { [weak self] response in
+                self?.handleDictationResponse(text: response.text, mode: response.mode)
+            }
+        }
     }
 
     func stop() {
@@ -236,6 +246,9 @@ final class VoiceInputManager {
 
         isRecording = true
         onRecordingStateChanged?(true)
+        if currentMode == .dictation {
+            overlayWindow.show(state: .recording)
+        }
         log.info("Voice recording started")
 
         let request = SFSpeechAudioBufferRecognitionRequest()
@@ -325,8 +338,20 @@ final class VoiceInputManager {
                     cursorInTextField: context.cursorInTextField
                 )
             )
+            overlayWindow.show(state: .processing)
             try? daemonClient?.send(request)
             log.info("Sent dictation_request to daemon for app=\(context.appName, privacy: .public)")
+        }
+    }
+
+    /// Handle the daemon's dictation response — insert cleaned text or dismiss for action mode.
+    func handleDictationResponse(text: String, mode: String) {
+        if mode == "dictation" || mode == "command" {
+            DictationTextInserter.insertText(text)
+            overlayWindow.showDoneAndDismiss()
+        } else if mode == "action" {
+            // Action mode handled elsewhere (M7)
+            overlayWindow.dismiss()
         }
     }
 
@@ -336,6 +361,8 @@ final class VoiceInputManager {
         isRecording = false
         onRecordingStateChanged?(false)
         currentDictationContext = nil
+        // Overlay stays visible if we're transitioning to processing state (dictation sent
+        // to daemon). Otherwise dismiss it — recording stopped without producing a result.
         log.info("Voice recording stopped")
 
         if audioEngine.isRunning {
