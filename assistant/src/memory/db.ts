@@ -1672,12 +1672,18 @@ function migrateRemoveAssistantIdColumns(database: ReturnType<typeof drizzle<typ
           data_base64 TEXT NOT NULL,
           content_hash TEXT,
           thumbnail_base64 TEXT,
-          created_at INTEGER NOT NULL
+          created_at INTEGER NOT NULL,
+          storage_kind TEXT DEFAULT 'inline_base64',
+          file_path TEXT,
+          sha256 TEXT,
+          expires_at INTEGER
         )
       `);
       raw.exec(/*sql*/ `
-        INSERT INTO attachments_new (id, original_filename, mime_type, size_bytes, kind, data_base64, content_hash, thumbnail_base64, created_at)
-        SELECT id, original_filename, mime_type, size_bytes, kind, data_base64, content_hash, thumbnail_base64, created_at FROM attachments
+        INSERT INTO attachments_new (id, original_filename, mime_type, size_bytes, kind, data_base64, content_hash, thumbnail_base64, created_at, storage_kind, file_path, sha256, expires_at)
+        SELECT id, original_filename, mime_type, size_bytes, kind, data_base64, content_hash, thumbnail_base64, created_at,
+          COALESCE(storage_kind, 'inline_base64'), file_path, sha256, expires_at
+        FROM attachments
       `);
       raw.exec(/*sql*/ `DROP TABLE attachments`);
       raw.exec(/*sql*/ `ALTER TABLE attachments_new RENAME TO attachments`);
