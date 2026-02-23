@@ -107,7 +107,9 @@ extension AppDelegate {
                 qaMode: routed.qaMode ?? false,
                 retentionDays: routed.retentionDays.flatMap { Int($0) } ?? 7,
                 captureScope: routed.captureScope ?? "display",
-                includeAudio: routed.includeAudio ?? false
+                includeAudio: routed.includeAudio ?? false,
+                targetAppName: routed.targetAppName,
+                targetAppBundleId: routed.targetAppBundleId
             )
             // Don't bind relatedViewModel for escalated sessions — the active view model
             // may be unrelated if the user switched threads. Tool calls for escalated
@@ -256,7 +258,9 @@ extension AppDelegate {
                     qaMode: routed.qaMode ?? false,
                     retentionDays: routed.retentionDays.flatMap { Int($0) } ?? 7,
                     captureScope: routed.captureScope ?? "display",
-                    includeAudio: routed.includeAudio ?? false
+                    includeAudio: routed.includeAudio ?? false,
+                    targetAppName: routed.targetAppName,
+                    targetAppBundleId: routed.targetAppBundleId
                 )
                 // Don't bind relatedViewModel — sessions started via startSession() don't
                 // originate from a chat thread, so there's no ChatViewModel to extract

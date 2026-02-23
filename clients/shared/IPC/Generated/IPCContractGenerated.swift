@@ -480,6 +480,10 @@ public struct IPCCuSessionCreate: Codable, Sendable {
     public let reportToSessionId: String?
     /// Marks this CU run as a QA/test workflow.
     public let qaMode: Bool?
+    /// Optional target app name constraint for disambiguation.
+    public let targetAppName: String?
+    /// Optional target app bundle identifier for disambiguation.
+    public let targetAppBundleId: String?
 }
 
 public struct IPCCuSessionFinalized: Codable, Sendable {
@@ -1756,6 +1760,10 @@ public struct IPCTaskRouted: Codable, Sendable {
     public let captureScope: String?
     /// Whether to include audio in QA recording (from daemon config).
     public let includeAudio: Bool?
+    /// Target app name for frontmost-app guard (from target-app-hints).
+    public let targetAppName: String?
+    /// Target app bundle ID for frontmost-app guard (from target-app-hints).
+    public let targetAppBundleId: String?
 }
 
 /// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread.

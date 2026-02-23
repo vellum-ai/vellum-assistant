@@ -55,6 +55,11 @@ final class ComputerUseSession: ObservableObject {
     /// Whether to include audio in QA recording (from daemon config, default false).
     let includeAudio: Bool
 
+    /// Target app name for frontmost-app guard — nil means no constraint.
+    let targetAppName: String?
+    /// Target app bundle ID for frontmost-app guard — nil means no constraint.
+    let targetAppBundleId: String?
+
     /// Weak reference to the chat view model for extracting tool calls for notifications.
     weak var relatedViewModel: ChatViewModel?
 
@@ -102,7 +107,9 @@ final class ComputerUseSession: ObservableObject {
         qaMode: Bool = false,
         retentionDays: Int = 7,
         captureScope: String = "display",
-        includeAudio: Bool = false
+        includeAudio: Bool = false,
+        targetAppName: String? = nil,
+        targetAppBundleId: String? = nil
     ) {
         self.id = sessionId ?? UUID().uuidString
         self.task = task
@@ -123,6 +130,8 @@ final class ComputerUseSession: ObservableObject {
         self.retentionDays = retentionDays
         self.captureScope = captureScope
         self.includeAudio = includeAudio
+        self.targetAppName = targetAppName
+        self.targetAppBundleId = targetAppBundleId
         self.verifier = ActionVerifier(maxSteps: maxSteps)
         self.logger = SessionLogger(task: task, attachments: attachments)
     }
@@ -465,6 +474,23 @@ final class ComputerUseSession: ObservableObject {
             return
         }
 
+        // FRONTMOST-APP GUARD — block destructive actions when the wrong app is in front.
+        // Non-destructive actions (screenshot, open_app, wait, runAppleScript) are allowed
+        // regardless of which app is focused.
+        if let guardError = await checkFrontmostAppGuard(for: agentAction) {
+            log.error("Frontmost guard BLOCKED action \(agentAction.type.rawValue): \(guardError)")
+            let obs = await buildObservation(executionResult: nil, executionError: guardError)
+            if let obs {
+                do {
+                    try daemonClient.send(obs)
+                } catch {
+                    log.error("Failed to send frontmost-guard blocked observation: \(error)")
+                }
+            }
+            state = .thinking(step: action.stepNumber + 1, maxSteps: maxSteps)
+            return
+        }
+
         // EXECUTE
         var executionResult: String? = nil
         var executionError: String? = nil
@@ -508,6 +534,49 @@ final class ComputerUseSession: ObservableObject {
         }
 
         state = .thinking(step: action.stepNumber + 1, maxSteps: maxSteps)
+    }
+
+    // MARK: - Frontmost App Guard
+
+    /// Returns an error message if the frontmost app doesn't match the target and
+    /// activation retry failed; returns nil if the action should proceed normally.
+    private func checkFrontmostAppGuard(for action: AgentAction) async -> String? {
+        let destructiveTypes: Set<ActionType> = [.click, .doubleClick, .rightClick, .type, .key, .scroll, .drag]
+        guard destructiveTypes.contains(action.type) else { return nil }
+
+        // When we have a bundle ID, match on that (most reliable)
+        if let targetBundleId = targetAppBundleId {
+            let frontmost = NSWorkspace.shared.frontmostApplication
+            let frontmostBundleId = frontmost?.bundleIdentifier
+            let frontmostName = frontmost?.localizedName ?? "unknown"
+
+            guard frontmostBundleId != targetBundleId else { return nil }
+
+            log.warning("Frontmost guard: frontmost=\(frontmostName) (\(frontmostBundleId ?? "nil")), target=\(self.targetAppName ?? "nil") (\(targetBundleId)). Attempting activation retry.")
+
+            // Attempt to activate the target app once
+            if let targetRunning = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == targetBundleId }) {
+                targetRunning.activate()
+                try? await Task.sleep(nanoseconds: 300_000_000) // 300ms for focus to settle
+                if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == targetBundleId {
+                    log.info("Frontmost guard: activation retry succeeded for \(self.targetAppName ?? targetBundleId)")
+                    return nil
+                }
+            }
+
+            return "Action blocked: frontmost app is '\(frontmostName)' but target is '\(self.targetAppName ?? targetBundleId)'. Please switch to the target app first."
+        }
+
+        // Fall back to name-based matching when no bundle ID is available
+        if let targetName = targetAppName {
+            let frontmostName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+            guard frontmostName != targetName else { return nil }
+
+            log.warning("Frontmost guard (name): frontmost=\(frontmostName), target=\(targetName). No bundle ID for activation retry.")
+            return "Action blocked: frontmost app is '\(frontmostName)' but target is '\(targetName)'. Please switch to the target app first."
+        }
+
+        return nil
     }
 
     // MARK: - Observation Builder
