@@ -38,10 +38,28 @@ struct DictationContextCapture {
         }
 
         let bundleIdentifier = frontApp.bundleIdentifier ?? ""
+
+        // Skip capturing our own app's context during voice activation
+        // (Bundle.main.bundleIdentifier is nil in SPM builds, so use hardcoded ID)
+        if bundleIdentifier == "com.vellum.vellum-assistant" {
+            log.info("Frontmost app is self — returning default context")
+            return DictationContext(
+                bundleIdentifier: bundleIdentifier,
+                appName: frontApp.localizedName ?? "vellum-assistant",
+                windowTitle: "",
+                selectedText: nil,
+                cursorInTextField: false
+            )
+        }
+
         let appName = frontApp.localizedName ?? "Unknown"
         let pid = frontApp.processIdentifier
 
         let appElement = AXUIElementCreateApplication(pid)
+
+        // Prevent indefinite blocking if the target app is hung (matches
+        // AccessibilityTree.swift and AmbientAXCapture.swift patterns)
+        AXUIElementSetMessagingTimeout(appElement, 5.0)
 
         // Window title via focused window
         let windowTitle = axWindowTitle(appElement: appElement)
