@@ -57,29 +57,29 @@ struct TokensGallerySection: View {
                         .font(VFont.headline)
                         .foregroundColor(VColor.textPrimary)
 
-                    colorScaleRow(name: "Slate", colors: [
-                        Slate._900, Slate._800, Slate._700, Slate._600, Slate._500,
-                        Slate._400, Slate._300, Slate._200, Slate._100, Slate._50
+                    colorScaleRow(name: "Stone", colors: [
+                        Stone._950, Stone._900, Stone._800, Stone._700, Stone._600,
+                        Stone._500, Stone._400, Stone._300, Stone._200, Stone._100
                     ])
-                    colorScaleRow(name: "Violet", colors: [
-                        Violet._950, Violet._900, Violet._800, Violet._700, Violet._600,
-                        Violet._500, Violet._400, Violet._300, Violet._200, Violet._100
+                    colorScaleRow(name: "Moss", colors: [
+                        Moss._950, Moss._900, Moss._700, Moss._600,
+                        Moss._500, Moss._400, Moss._300, Moss._200, Moss._100
+                    ])
+                    colorScaleRow(name: "Forest", colors: [
+                        Forest._950, Forest._900, Forest._800, Forest._700, Forest._600,
+                        Forest._500, Forest._400, Forest._300, Forest._200, Forest._100
                     ])
                     colorScaleRow(name: "Emerald", colors: [
                         Emerald._950, Emerald._900, Emerald._800, Emerald._700, Emerald._600,
                         Emerald._500, Emerald._400, Emerald._300, Emerald._200, Emerald._100
                     ])
-                    colorScaleRow(name: "Rose", colors: [
-                        Rose._950, Rose._900, Rose._800, Rose._700, Rose._600,
-                        Rose._500, Rose._400, Rose._300, Rose._200, Rose._100
+                    colorScaleRow(name: "Danger", colors: [
+                        Danger._950, Danger._900, Danger._800, Danger._700, Danger._600,
+                        Danger._500, Danger._400, Danger._300, Danger._200, Danger._100
                     ])
                     colorScaleRow(name: "Amber", colors: [
                         Amber._950, Amber._900, Amber._800, Amber._700, Amber._600,
                         Amber._500, Amber._400, Amber._300, Amber._200, Amber._100
-                    ])
-                    colorScaleRow(name: "Indigo", colors: [
-                        Indigo._950, Indigo._900, Indigo._800, Indigo._700, Indigo._600,
-                        Indigo._500, Indigo._400, Indigo._300, Indigo._200, Indigo._100
                     ])
                 }
             }

@@ -20,18 +20,42 @@
 /* ─── Layer 1: Tokens ────────────────────────────────────────── */
 
 :root {
-  /* ── Palette: Slate ─────────────────────────────────────────── */
-  --v-slate-950: #070D19;
-  --v-slate-900: #0F172A;
-  --v-slate-800: #1E293B;
-  --v-slate-700: #334155;
-  --v-slate-600: #475569;
-  --v-slate-500: #64748B;
-  --v-slate-400: #94A3B8;
-  --v-slate-300: #CBD5E1;
-  --v-slate-200: #E2E8F0;
-  --v-slate-100: #F1F5F9;
-  --v-slate-50:  #F8FAFC;
+  /* ── Palette: Stone (warm neutral, light mode) ─────────────── */
+  --v-stone-950: #1C1917;
+  --v-stone-900: #292524;
+  --v-stone-800: #44403C;
+  --v-stone-700: #57534E;
+  --v-stone-600: #78716C;
+  --v-stone-500: #97918B;
+  --v-stone-400: #A8A29E;
+  --v-stone-300: #D6D3D1;
+  --v-stone-200: #E7E5E4;
+  --v-stone-100: #F5F5F4;
+  --v-stone-50:  #FAFAF9;
+
+  /* ── Palette: Moss (warm neutral, dark mode) ─────────────── */
+  --v-moss-950: #20201E;
+  --v-moss-900: #2A2A28;
+  --v-moss-700: #3A3A37;
+  --v-moss-600: #4A4A46;
+  --v-moss-500: #6B6B65;
+  --v-moss-400: #A1A096;
+  --v-moss-300: #BDB9A9;
+  --v-moss-200: #D4D1C1;
+  --v-moss-100: #E8E6DA;
+  --v-moss-50:  #F5F3EB;
+
+  /* ── Palette: Forest / Sage (green accent, dark mode) ────── */
+  --v-forest-950: #1A2316;
+  --v-forest-900: #2A3825;
+  --v-forest-800: #3D4F36;
+  --v-forest-700: #516748;
+  --v-forest-600: #657D5B;
+  --v-forest-500: #7A8B6F;
+  --v-forest-400: #98A88F;
+  --v-forest-300: #B5C3AE;
+  --v-forest-200: #D4DFD0;
+  --v-forest-100: #EDF2EB;
 
   /* ── Palette: Emerald ───────────────────────────────────────── */
   --v-emerald-950: #073D2E;
@@ -45,41 +69,17 @@
   --v-emerald-200: #D2F9E8;
   --v-emerald-100: #ECFDF5;
 
-  /* ── Palette: Violet ────────────────────────────────────────── */
-  --v-violet-950: #321669;
-  --v-violet-900: #4A2390;
-  --v-violet-800: #5C2FB2;
-  --v-violet-700: #7240CC;
-  --v-violet-600: #8A5BE0;
-  --v-violet-500: #9878EA;
-  --v-violet-400: #B8A6F1;
-  --v-violet-300: #D4C8F7;
-  --v-violet-200: #E8E1FB;
-  --v-violet-100: #F4F0FD;
-
-  /* ── Palette: Indigo ────────────────────────────────────────── */
-  --v-indigo-950: #180F66;
-  --v-indigo-900: #261A96;
-  --v-indigo-800: #3525C4;
-  --v-indigo-700: #4636E8;
-  --v-indigo-600: #5B4EFF;
-  --v-indigo-500: #7B6BFF;
-  --v-indigo-400: #9488FF;
-  --v-indigo-300: #B8B4FF;
-  --v-indigo-200: #D8D8FF;
-  --v-indigo-100: #EEEEFF;
-
-  /* ── Palette: Rose ──────────────────────────────────────────── */
-  --v-rose-950: #620F21;
-  --v-rose-900: #85142F;
-  --v-rose-800: #A8183E;
-  --v-rose-700: #D02050;
-  --v-rose-600: #E84060;
-  --v-rose-500: #F06A86;
-  --v-rose-400: #F99AAE;
-  --v-rose-300: #FCBFC9;
-  --v-rose-200: #FFE1E6;
-  --v-rose-100: #FFF1F3;
+  /* ── Palette: Danger ─────────────────────────────────────────── */
+  --v-danger-950: #4E281D;
+  --v-danger-900: #803017;
+  --v-danger-800: #AB3F1C;
+  --v-danger-700: #DA491A;
+  --v-danger-600: #E86B40;
+  --v-danger-500: #F39B74;
+  --v-danger-400: #F9C0A2;
+  --v-danger-300: #F7DAC9;
+  --v-danger-200: #FFE4D5;
+  --v-danger-100: #FFF3EE;
 
   /* ── Palette: Amber ─────────────────────────────────────────── */
   --v-amber-950: #5E3207;
@@ -100,10 +100,12 @@
   --v-text:           #1D1D1F;
   --v-text-secondary: #86868B;
   --v-text-muted:     #AEAEB2;
-  --v-accent:         var(--v-violet-600);
-  --v-accent-hover:   var(--v-violet-700);
+  --v-accent:         var(--v-forest-600);
+  --v-accent-hover:   var(--v-forest-700);
+  --v-user-bubble:    var(--v-moss-300);
+  --v-user-bubble-text: var(--v-stone-900);
   --v-success:        var(--v-emerald-600);
-  --v-danger:         var(--v-rose-600);
+  --v-danger:         var(--v-danger-600);
   --v-warning:        var(--v-amber-600);
 
   /* ── Spacing (4pt grid) ─────────────────────────────────────── */
@@ -152,12 +154,15 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --v-bg:             var(--v-slate-950);
-    --v-surface:        var(--v-slate-800);
-    --v-surface-border: var(--v-slate-700);
-    --v-text:           var(--v-slate-50);
-    --v-text-secondary: var(--v-slate-400);
-    --v-text-muted:     var(--v-slate-500);
+    --v-bg:             var(--v-moss-950);
+    --v-surface:        var(--v-moss-700);
+    --v-surface-border: var(--v-moss-600);
+    --v-text:           var(--v-moss-50);
+    --v-text-secondary: var(--v-moss-400);
+    --v-text-muted:     var(--v-moss-500);
+
+    --v-user-bubble:    var(--v-forest-900);
+    --v-user-bubble-text: var(--v-moss-50);
 
     --v-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
     --v-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.4);
@@ -190,7 +195,7 @@ body > *:not(#vellum-bottom-fade):not(#vellum-branding):not(#v-toast-container) 
 @media (prefers-color-scheme: dark) {
   body {
     background:
-      radial-gradient(ellipse at 50% 0%, var(--v-slate-900) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 0%, var(--v-moss-900) 0%, transparent 50%),
       var(--v-bg);
   }
 }
@@ -1004,7 +1009,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   height: 36px;
   border-radius: 50%;
   background: var(--v-accent);
-  color: var(--v-slate-50);
+  color: var(--v-moss-50);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1539,7 +1544,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 /* Hero — top-of-page banner with gradient background */
 .v-hero {
   position: relative;
-  background: linear-gradient(135deg, var(--v-violet-950) 0%, var(--v-indigo-950) 100%);
+  background: linear-gradient(135deg, var(--v-forest-950) 0%, var(--v-forest-900) 100%);
   border-radius: var(--v-radius-xl);
   padding: var(--v-spacing-xxxl) var(--v-spacing-xl);
   text-align: center;
@@ -1557,7 +1562,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   transform: translateX(-50%);
   width: 120%;
   height: 80%;
-  background: radial-gradient(ellipse, color-mix(in srgb, var(--v-violet-700) 30%, transparent) 0%, transparent 70%);
+  background: radial-gradient(ellipse, color-mix(in srgb, var(--v-forest-700) 30%, transparent) 0%, transparent 70%);
   pointer-events: none;
 }
 .v-hero-badge {
@@ -1572,13 +1577,13 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--v-slate-300);
+  color: var(--v-moss-300);
   position: relative;
 }
 .v-hero h1 {
   font-size: 2.5rem;
   font-weight: 800;
-  background: linear-gradient(180deg, #fff 30%, var(--v-slate-200) 100%);
+  background: linear-gradient(180deg, #fff 30%, var(--v-moss-200) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -1588,7 +1593,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 }
 .v-hero-subtitle {
   font-size: var(--v-font-size-base);
-  color: var(--v-slate-400);
+  color: var(--v-moss-400);
   max-width: 500px;
   margin: 0 auto;
   line-height: 1.5;
@@ -1636,7 +1641,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   top: var(--v-spacing-lg);
   bottom: var(--v-spacing-lg);
   width: 3px;
-  background: linear-gradient(180deg, var(--v-violet-600) 0%, var(--v-indigo-600) 100%);
+  background: linear-gradient(180deg, var(--v-forest-600) 0%, var(--v-forest-400) 100%);
   border-radius: var(--v-radius-pill);
 }
 .v-pullquote-text {
@@ -1750,9 +1755,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   line-height: 1.4;
 }
 
-/* Gradient Text — violet→indigo text fill */
+/* Gradient Text — forest gradient text fill */
 .v-gradient-text {
-  background: linear-gradient(135deg, var(--v-violet-500) 0%, var(--v-indigo-500) 100%);
+  background: linear-gradient(135deg, var(--v-forest-500) 0%, var(--v-forest-300) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -1975,7 +1980,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   opacity: 1 !important;
 }
 #vellum-branding a {
-  color: var(--v-accent, #6366f1);
+  color: var(--v-accent, #216C37);
   text-decoration: none;
   font-weight: 600;
   cursor: pointer;

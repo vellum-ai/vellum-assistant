@@ -254,7 +254,7 @@ struct CloudCredentialsStepView: View {
             Link(destination: URL(string: "https://console.aws.amazon.com/iam/home#/roles")!) {
                 Text("Open AWS IAM Console")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(adaptiveColor(light: VColor.accent, dark: Sage._400))
+                    .foregroundColor(adaptiveColor(light: VColor.accent, dark: Forest._400))
             }
             .onHover { hovering in
                 if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
@@ -300,7 +300,7 @@ struct CloudCredentialsStepView: View {
             Link(destination: URL(string: "https://console.cloud.google.com/iam-admin/serviceaccounts")!) {
                 Text("Open Google Cloud Console")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(adaptiveColor(light: VColor.accent, dark: Sage._400))
+                    .foregroundColor(adaptiveColor(light: VColor.accent, dark: Forest._400))
             }
             .onHover { hovering in
                 if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
@@ -354,7 +354,7 @@ struct CloudCredentialsStepView: View {
             HStack(spacing: VSpacing.sm) {
                 Image(systemName: "doc.fill")
                     .font(.system(size: 14))
-                    .foregroundColor(adaptiveColor(light: Stone._900, dark: Sage._600))
+                    .foregroundColor(adaptiveColor(light: Stone._900, dark: Forest._600))
                 Text(fileName)
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
@@ -375,7 +375,7 @@ struct CloudCredentialsStepView: View {
             .padding(.vertical, VSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(adaptiveColor(light: Stone._900.opacity(0.3), dark: Sage._600.opacity(0.3)), lineWidth: 1)
+                    .stroke(adaptiveColor(light: Stone._900.opacity(0.3), dark: Forest._600.opacity(0.3)), lineWidth: 1)
             )
         }
     }
@@ -436,11 +436,11 @@ struct CloudCredentialsStepView: View {
                         .fill(continueDisabled
                             ? adaptiveColor(
                                 light: Stone._900.opacity(0.3),
-                                dark: Sage._600.opacity(0.3)
+                                dark: Forest._600.opacity(0.3)
                             )
                             : adaptiveColor(
                                 light: Stone._900,
-                                dark: Sage._600
+                                dark: Forest._600
                             )
                         )
                 )

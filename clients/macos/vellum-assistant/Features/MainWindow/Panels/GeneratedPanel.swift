@@ -120,7 +120,7 @@ struct GeneratedPanel: View {
                     }
                 }
                 .padding(VSpacing.md)
-                .background(Slate._800)
+                .background(Moss._700)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
@@ -344,11 +344,11 @@ struct GeneratedPanel: View {
             }
         }
         .padding(VSpacing.lg)
-        .background(isHovered ? Slate._800 : Slate._900)
+        .background(isHovered ? Moss._700 : Moss._900)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(item.isShared ? Sage._700.opacity(0.4) : Emerald._700.opacity(0.4), lineWidth: 1)
+                .stroke(item.isShared ? Forest._700.opacity(0.4) : Emerald._700.opacity(0.4), lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -374,10 +374,10 @@ struct GeneratedPanel: View {
             Text("Shared")
                 .font(VFont.small)
         }
-        .foregroundColor(Sage._400)
+        .foregroundColor(Forest._400)
         .padding(.horizontal, 5)
         .padding(.vertical, 1)
-        .background(Sage._900.opacity(0.5))
+        .background(Forest._900.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 

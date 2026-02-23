@@ -114,7 +114,7 @@ public struct InlineTaskProgressWidget: View {
             ForEach(Array(data.steps.enumerated()), id: \.element.id) { index, step in
                 stepRow(step)
                 if index < data.steps.count - 1 {
-                    Divider().background(Slate._700.opacity(0.3))
+                    Divider().background(Moss._700.opacity(0.3))
                 }
             }
         }
@@ -159,10 +159,10 @@ public struct InlineTaskProgressWidget: View {
                 .foregroundColor(Amber._500)
         case "failed":
             Image(systemName: "xmark.circle.fill")
-                .foregroundColor(Rose._500)
+                .foregroundColor(Danger._500)
         default:
             Image(systemName: "circle")
-                .foregroundColor(Slate._500)
+                .foregroundColor(Moss._500)
         }
     }
 
@@ -175,9 +175,9 @@ public struct InlineTaskProgressWidget: View {
         case "waiting":
             return ("Waiting", "clock.fill", Amber._500)
         case "failed":
-            return ("Failed", "xmark.circle.fill", Rose._500)
+            return ("Failed", "xmark.circle.fill", Danger._500)
         default:
-            return ("Pending", "circle", Slate._500)
+            return ("Pending", "circle", Moss._500)
         }
     }
 }

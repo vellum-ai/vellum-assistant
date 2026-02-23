@@ -5,11 +5,11 @@ public enum Meadow {
     // Panel
     public static let panelBackground = adaptiveColor(
         light: Color.white.opacity(0.85),
-        dark: Slate._900.opacity(0.75)
+        dark: Moss._900.opacity(0.75)
     )
     public static let panelBorder = adaptiveColor(
         light: Stone._200.opacity(0.6),
-        dark: Slate._700.opacity(0.4)
+        dark: Moss._700.opacity(0.4)
     )
 
     // Egg glow
@@ -30,8 +30,8 @@ public enum Meadow {
     public static let artPixelSize: CGFloat = 5.0
 
     // Interview palette
-    public static let avatarGradientStart = Sage._600
-    public static let avatarGradientEnd = Sage._400
-    public static let userBubbleGradientStart = Sage._600
-    public static let userBubbleGradientEnd = Sage._400
+    public static let avatarGradientStart = Forest._600
+    public static let avatarGradientEnd = Forest._400
+    public static let userBubbleGradientStart = Forest._600
+    public static let userBubbleGradientEnd = Forest._400
 }

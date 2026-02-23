@@ -80,7 +80,7 @@ struct TraceTimelineView: View {
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
                         .foregroundColor(Amber._500)
-                        .background(Slate._800)
+                        .background(Moss._700)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.sm)
@@ -117,11 +117,11 @@ struct TraceTimelineView: View {
                 } else if groupStatus == .handedOff {
                     Text("Handed off")
                         .font(VFont.small)
-                        .foregroundColor(Sage._400)
+                        .foregroundColor(Forest._400)
                 } else if groupStatus == .error {
                     Text("Error")
                         .font(VFont.small)
-                        .foregroundColor(Rose._500)
+                        .foregroundColor(Danger._500)
                 }
 
                 Rectangle()
@@ -150,8 +150,8 @@ struct TraceTimelineView: View {
         case .active: return Emerald._400
         case .completed: return Emerald._400
         case .cancelled: return Amber._500
-        case .handedOff: return Sage._400
-        case .error: return Rose._500
+        case .handedOff: return Forest._400
+        case .error: return Danger._500
         }
     }
 
@@ -204,7 +204,7 @@ struct TraceTimelineView: View {
                 .padding(.leading, 26)
                 .padding(.vertical, VSpacing.xs)
                 .padding(.trailing, VSpacing.sm)
-                .background(Slate._800.opacity(0.5))
+                .background(Moss._700.opacity(0.5))
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             }
         }

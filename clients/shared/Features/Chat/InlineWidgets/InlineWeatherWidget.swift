@@ -195,17 +195,17 @@ public struct InlineWeatherWidget: View {
         VStack(alignment: .leading, spacing: 0) {
             heroSection
             if !data.hourly.isEmpty {
-                Divider().background(Slate._700.opacity(0.3))
+                Divider().background(Moss._700.opacity(0.3))
                 hourlySection
             }
-            Divider().background(Slate._700.opacity(0.3))
+            Divider().background(Moss._700.opacity(0.3))
             dailyForecastHeader
-            Divider().background(Slate._700.opacity(0.3))
+            Divider().background(Moss._700.opacity(0.3))
 
             ForEach(Array(data.forecast.enumerated()), id: \.element.id) { index, item in
                 forecastRow(item, isFirst: index == 0)
                 if index < data.forecast.count - 1 {
-                    Divider().background(Slate._700.opacity(0.3))
+                    Divider().background(Moss._700.opacity(0.3))
                 }
             }
         }
@@ -312,7 +312,7 @@ public struct InlineWeatherWidget: View {
             }
             .padding(.vertical, VSpacing.sm)
 
-            Divider().background(Slate._700.opacity(0.3))
+            Divider().background(Moss._700.opacity(0.3))
 
             // Scrollable hourly row
             ScrollView(.horizontal, showsIndicators: false) {
@@ -419,14 +419,14 @@ public struct InlineWeatherWidget: View {
             ZStack(alignment: .leading) {
                 // Background track
                 Capsule()
-                    .fill(Slate._700.opacity(0.3))
+                    .fill(Moss._700.opacity(0.3))
                     .frame(height: 4)
 
                 // Filled portion with gradient
                 Capsule()
                     .fill(
                         LinearGradient(
-                            colors: [Sage._400, Emerald._400],
+                            colors: [Forest._400, Emerald._400],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
@@ -455,11 +455,11 @@ public struct InlineWeatherWidget: View {
         switch sfSymbol {
         case "sun.max.fill": return Amber._400
         case "cloud.sun.fill": return Amber._300
-        case "moon.fill": return Sage._200
-        case "cloud.moon.fill": return Sage._300
+        case "moon.fill": return Forest._200
+        case "cloud.moon.fill": return Forest._300
         case "cloud.fill": return Stone._400
-        case "cloud.rain.fill": return Sage._400
-        case "snowflake": return Sage._300
+        case "cloud.rain.fill": return Forest._400
+        case "snowflake": return Forest._300
         case "cloud.bolt.fill": return Amber._500
         case "cloud.fog.fill": return Stone._500
         default: return VColor.textSecondary
