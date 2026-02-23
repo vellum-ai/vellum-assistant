@@ -207,6 +207,10 @@ function main() {
       config.twilioPhoneNumber = event.smsPhoneNumber;
     }
 
+    if (event.assistantPhoneNumbersChanged) {
+      config.assistantPhoneNumbers = event.assistantPhoneNumbers;
+    }
+
     if (event.ingressChanged) {
       config.ingressPublicBaseUrl = event.ingressPublicBaseUrl;
       if (isTelegramConfigured()) {

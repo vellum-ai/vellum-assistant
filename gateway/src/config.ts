@@ -49,6 +49,8 @@ export type GatewayConfig = {
   twilioAccountSid: string | undefined;
   /** Twilio phone number (E.164) used as the "From" for outbound SMS. */
   twilioPhoneNumber: string | undefined;
+  /** Per-assistant phone number mapping (assistantId -> E.164 phone number). */
+  assistantPhoneNumbers?: Record<string, string>;
   /**
    * When true, the /deliver/sms endpoint allows unauthenticated access
    * even when no bearer token is configured. Intended for local development only.

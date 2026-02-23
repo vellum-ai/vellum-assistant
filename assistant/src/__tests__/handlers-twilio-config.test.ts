@@ -1136,6 +1136,102 @@ describe('Twilio config handler', () => {
     expect(res.warning).toContain('Webhook configuration skipped');
   });
 
+  // ── Assistant-scoped phone number assignment ─────────────────────────
+
+  test('get action with assistantId returns assistant-specific phone number', async () => {
+    rawConfigStore = {
+      sms: {
+        phoneNumber: '+15551111111',
+        assistantPhoneNumbers: { 'ast-alpha': '+15552222222', 'ast-beta': '+15553333333' },
+      },
+    };
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'get',
+      assistantId: 'ast-alpha',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; phoneNumber?: string };
+    expect(res.success).toBe(true);
+    // Should return the assistant-specific number, not the legacy one
+    expect(res.phoneNumber).toBe('+15552222222');
+  });
+
+  test('get action with assistantId falls back to legacy phoneNumber when no mapping exists', async () => {
+    rawConfigStore = {
+      sms: { phoneNumber: '+15551111111' },
+    };
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'get',
+      assistantId: 'ast-unknown',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; phoneNumber?: string };
+    expect(res.success).toBe(true);
+    // Should fall back to the legacy phoneNumber
+    expect(res.phoneNumber).toBe('+15551111111');
+  });
+
+  test('assign_number with assistantId persists into assistantPhoneNumbers mapping', async () => {
+    rawConfigStore = { sms: { phoneNumber: '+15551111111' } };
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'assign_number',
+      phoneNumber: '+15554444444',
+      assistantId: 'ast-gamma',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; phoneNumber?: string };
+    expect(res.success).toBe(true);
+    expect(res.phoneNumber).toBe('+15554444444');
+
+    // Legacy field should also be updated for backward compatibility
+    const sms = rawConfigStore.sms as Record<string, unknown>;
+    expect(sms.phoneNumber).toBe('+15554444444');
+
+    // Per-assistant mapping should contain the new assignment
+    const mapping = sms.assistantPhoneNumbers as Record<string, string>;
+    expect(mapping['ast-gamma']).toBe('+15554444444');
+  });
+
+  test('assign_number without assistantId does not write assistantPhoneNumbers', async () => {
+    rawConfigStore = { sms: {} };
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'assign_number',
+      phoneNumber: '+15555555555',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean };
+    expect(res.success).toBe(true);
+
+    const sms = rawConfigStore.sms as Record<string, unknown>;
+    expect(sms.phoneNumber).toBe('+15555555555');
+    // No assistantPhoneNumbers should have been created
+    expect(sms.assistantPhoneNumbers).toBeUndefined();
+  });
+
   // ── Security ────────────────────────────────────────────────────────
 
   test('response messages never contain raw credential values', async () => {

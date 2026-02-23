@@ -2931,7 +2931,7 @@ describe('guardian enforcement independence from approval flag', () => {
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
     // The unknown actor should be treated as unverified_channel and
-    // sensitive actions should be auto-denied with a setup notice.
+    // sensitive actions should be auto-denied via the no_identity branch.
     // deliverChannelReply args: (callbackUrl, payload, bearerToken?)
     // The denial notice is in payload.text (index 1 of the call args).
     expect(deliverSpy).toHaveBeenCalled();

@@ -561,6 +561,7 @@ export interface TwilioConfigRequest {
   phoneNumber?: string;       // Only for action: 'assign_number'
   areaCode?: string;          // Only for action: 'provision_number'
   country?: string;           // Only for action: 'provision_number' (ISO 3166-1 alpha-2, default 'US')
+  assistantId?: string;       // Scope number assignment/lookup to a specific assistant
 }
 
 export interface TwilioConfigResponse {
