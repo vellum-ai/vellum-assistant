@@ -51,6 +51,7 @@ import { AgentHeartbeatService } from '../agent-heartbeat/agent-heartbeat-servic
 import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
 import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
+import { startRecordingCleanup, stopRecordingCleanup } from './recording-cleanup.js';
 
 const log = getLogger('lifecycle');
 
@@ -484,6 +485,9 @@ export async function runDaemon(): Promise<void> {
     }
   }
 
+  // Start periodic cleanup of expired file-backed QA recording attachments.
+  startRecordingCleanup(config.qaRecording.cleanupIntervalMs);
+
   // Start workspace heartbeat service. This periodically checks all
   // tracked workspaces for uncommitted changes and auto-commits when
   // thresholds are exceeded (age > 5 min OR > 20 files changed).
@@ -558,6 +562,7 @@ export async function runDaemon(): Promise<void> {
 
     if (runtimeHttp) await runtimeHttp.stop();
     await browserManager.closeAllPages();
+    stopRecordingCleanup();
     scheduler.stop();
     memoryWorker.stop();
     await qdrantManager.stop();
