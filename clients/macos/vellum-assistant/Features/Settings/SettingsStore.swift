@@ -885,9 +885,9 @@ public final class SettingsStore: ObservableObject {
     private func clearGuardianChallengePending(for channel: String) {
         if pendingGuardianChallengeChannel == channel {
             pendingGuardianChallengeChannel = nil
+            guardianChallengeTimeoutWorkItem?.cancel()
+            guardianChallengeTimeoutWorkItem = nil
         }
-        guardianChallengeTimeoutWorkItem?.cancel()
-        guardianChallengeTimeoutWorkItem = nil
     }
 
     private func armGuardianChallengeTimeout(for channel: String) {
