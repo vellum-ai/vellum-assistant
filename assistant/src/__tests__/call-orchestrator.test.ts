@@ -27,6 +27,14 @@ mock.module('../util/logger.js', () => ({
     }),
 }));
 
+// ── User reference mock ──────────────────────────────────────────────
+
+let mockUserReference = 'my human';
+
+mock.module('../config/user-reference.js', () => ({
+  resolveUserReference: () => mockUserReference,
+}));
+
 // ── Config mock ─────────────────────────────────────────────────────
 
 let mockCallModel: string | undefined = undefined;
@@ -197,6 +205,7 @@ describe('call-orchestrator', () => {
   beforeEach(() => {
     resetTables();
     mockCallModel = undefined;
+    mockUserReference = 'my human';
     // Reset the stream mock to default behaviour
     mockStreamFn.mockImplementation(() => createMockStream(['Hello', ' there']));
   });
@@ -811,6 +820,77 @@ describe('call-orchestrator', () => {
     const instructionEvents = events.filter((e) => e.eventType === 'user_instruction_relayed');
     expect(instructionEvents.length).toBe(1);
 
+    orchestrator.destroy();
+  });
+
+  // ── System prompt: identity phrasing ────────────────────────────────
+
+  test('system prompt contains resolved user reference (default)', async () => {
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { system: string };
+      expect(firstArg.system).toContain('on behalf of my human');
+      return createMockStream(['Hello.']);
+    });
+
+    const { orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('Hi');
+    orchestrator.destroy();
+  });
+
+  test('system prompt contains resolved user reference when set to a name', async () => {
+    mockUserReference = 'John';
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { system: string };
+      expect(firstArg.system).toContain('on behalf of John');
+      return createMockStream(['Hello John\'s contact.']);
+    });
+
+    const { orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('Hi');
+    orchestrator.destroy();
+  });
+
+  test('system prompt does not hardcode "your user" in the opening line', async () => {
+    mockUserReference = 'Alice';
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { system: string };
+      expect(firstArg.system).not.toContain('on behalf of your user');
+      expect(firstArg.system).toContain('on behalf of Alice');
+      return createMockStream(['Hi there.']);
+    });
+
+    const { orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('Hello');
+    orchestrator.destroy();
+  });
+
+  test('system prompt includes assistant identity bias rule', async () => {
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { system: string };
+      expect(firstArg.system).toContain('refer to yourself as an assistant');
+      expect(firstArg.system).toContain('Avoid the phrase "AI assistant" unless directly asked');
+      return createMockStream(['Sure thing.']);
+    });
+
+    const { orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('Hi');
+    orchestrator.destroy();
+  });
+
+  test('assistant identity rule appears before disclosure rule in prompt', async () => {
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { system: string };
+      const prompt = firstArg.system;
+      const identityIdx = prompt.indexOf('refer to yourself as an assistant');
+      const disclosureIdx = prompt.indexOf('Be concise');
+      expect(identityIdx).toBeGreaterThan(-1);
+      expect(disclosureIdx).toBeGreaterThan(-1);
+      expect(identityIdx).toBeLessThan(disclosureIdx);
+      return createMockStream(['OK.']);
+    });
+
+    const { orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('Test');
     orchestrator.destroy();
   });
 });
