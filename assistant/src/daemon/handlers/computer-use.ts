@@ -26,7 +26,11 @@ function removeCuSessionReferences(
     return;
   }
   ctx.cuSessions.delete(sessionId);
-  ctx.cuSessionMetadata.delete(sessionId);
+  // NOTE: cuSessionMetadata is intentionally NOT deleted here.
+  // onTerminal fires before cu_session_finalized arrives from the client,
+  // so deleting metadata here would race with handleCuSessionFinalized
+  // which still needs to read it. Metadata is cleaned up explicitly at the
+  // end of handleCuSessionFinalized instead.
   cuObservationSequenceBySession.delete(sessionId);
   ctx.cuObservationParseSequence.delete(sessionId);
   for (const [sock, ids] of ctx.socketToCuSession) {
@@ -48,6 +52,9 @@ export function handleCuSessionCreate(
   if (existingSession) {
     existingSession.abort();
     removeCuSessionReferences(ctx, msg.sessionId, existingSession);
+    // Clean up stale metadata from the replaced session; the new session
+    // will set its own metadata below if needed.
+    ctx.cuSessionMetadata.delete(msg.sessionId);
   }
 
   const config = getConfig();
@@ -113,6 +120,8 @@ export function handleCuSessionAbort(
   }
   session.abort();
   removeCuSessionReferences(ctx, msg.sessionId, session);
+  // On explicit abort, clean up metadata too — no finalized event is guaranteed.
+  ctx.cuSessionMetadata.delete(msg.sessionId);
   log.info({ sessionId: msg.sessionId }, 'Computer-use session aborted by client');
 }
 
@@ -249,6 +258,16 @@ export function handleCuSessionFinalized(
         ...(msg.recording ? { recordingPath: msg.recording.localPath } : {}),
       });
 
+      // Also append to the in-memory Session.messages so subsequent turns
+      // in the same session see the injected summary without a reload.
+      const activeSession = ctx.sessions.get(reportSessionId);
+      if (activeSession) {
+        activeSession.messages.push({
+          role: 'assistant',
+          content: [{ type: 'text', text: msg.summary }],
+        });
+      }
+
       // If the reporting session has a connected client, stream the summary
       // so it appears in real time.
       if (reportSocket) {
@@ -277,6 +296,9 @@ export function handleCuSessionFinalized(
 
   // Clean up all CU session state.
   removeCuSessionReferences(ctx, msg.sessionId);
+  // Delete metadata last — after it has been consumed for summary injection
+  // above and after removeCuSessionReferences (which intentionally skips it).
+  ctx.cuSessionMetadata.delete(msg.sessionId);
 }
 
 export const computerUseHandlers = defineHandlers({
