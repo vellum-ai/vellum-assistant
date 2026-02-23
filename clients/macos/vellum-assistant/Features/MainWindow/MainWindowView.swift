@@ -191,6 +191,64 @@ struct MainWindowView: View {
         }
     }
 
+    /// Resolve a thread ID for the chat bubble toggle using strict priority:
+    /// 1. activeThreadId (currently selected thread)
+    /// 2. persistentThreadId (app's last-used thread)
+    /// 3. visibleThreads.first (first available thread)
+    /// 4. create a new thread
+    private func resolveThreadId() -> UUID {
+        if let id = threadManager.activeThreadId { return id }
+        if let id = windowState.persistentThreadId { return id }
+        if let id = threadManager.visibleThreads.first?.id { return id }
+        threadManager.createThread()
+        return threadManager.activeThreadId!
+    }
+
+    private func toggleChatBubble() {
+        switch windowState.selection {
+        case .app(let appId):
+            // Toggle ON: open chat alongside app
+            let threadId = resolveThreadId()
+            threadManager.selectThread(id: threadId)
+            windowState.setAppEditing(appId: appId, threadId: threadId)
+            isAppChatOpen = true
+
+        case .appEditing(let appId, _):
+            // Toggle OFF: close chat, return to app-only view
+            windowState.selection = .app(appId)
+            isAppChatOpen = false
+
+        case .panel(.directory):
+            // Toggle: flip isAppChatOpen
+            isAppChatOpen.toggle()
+
+        default:
+            break
+        }
+    }
+
+    /// Whether the chat bubble toggle should be visible for the current selection.
+    private var isChatBubbleVisible: Bool {
+        switch windowState.selection {
+        case .app, .appEditing, .panel(.directory):
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Whether the chat bubble toggle is active (chat is open).
+    private var isChatBubbleActive: Bool {
+        switch windowState.selection {
+        case .appEditing:
+            return true
+        case .panel(.directory):
+            return isAppChatOpen
+        default:
+            return false
+        }
+    }
+
     private func requestHomeBaseDashboardIfNeeded() {
         guard !isBootstrapOnboardingActive else { return }
         // Auto-enable the dashboard once after bootstrap completes.
@@ -427,6 +485,13 @@ struct MainWindowView: View {
                             }
                         }
                         Spacer()
+                        if isChatBubbleVisible {
+                            ChatBubbleToggle(
+                                isActive: isChatBubbleActive,
+                                tooltip: isChatBubbleActive ? "Hide chat" : "Show chat",
+                                onToggle: { toggleChatBubble() }
+                            )
+                        }
                         if windowState.isShowingChat {
                             // Copy Thread button — only visible when there's content to copy
                             if threadManager.activeViewModel?.messages.contains(where: {
