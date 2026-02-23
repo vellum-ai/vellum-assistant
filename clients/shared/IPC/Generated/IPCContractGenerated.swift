@@ -940,7 +940,7 @@ public struct IPCCuSessionFinalizedRecording: Codable, Sendable {
     public let localPath: String
     public let mimeType: String
     public let sizeBytes: Int
-    public let durationMs: Double
+    public let durationMs: Int
     public let width: Int
     public let height: Int
     public let captureScope: String
@@ -2012,7 +2012,7 @@ public struct IPCMemoryRecalled: Codable, Sendable {
     public let selectedCount: Int
     public let rerankApplied: Bool
     public let injectedTokens: Int
-    public let latencyMs: Double
+    public let latencyMs: Int
     public let topCandidates: [IPCMemoryRecalledCandidateDebug]
 
     public init(type: String, provider: String, model: String, lexicalHits: Double, semanticHits: Double, recencyHits: Double, entityHits: Double, relationSeedEntityCount: Int?, relationTraversedEdgeCount: Int?, relationNeighborEntityCount: Int?, relationExpandedItemCount: Int?, earlyTerminated: Bool?, mergedCount: Int, selectedCount: Int, rerankApplied: Bool, injectedTokens: Int, latencyMs: Double, topCandidates: [IPCMemoryRecalledCandidateDebug]) {
@@ -2066,7 +2066,7 @@ public struct IPCMemoryStatus: Codable, Sendable {
     public let model: String?
     public let conflictsPending: Double
     public let conflictsResolved: Double
-    public let oldestPendingConflictAgeMs: Double?
+    public let oldestPendingConflictAgeMs: Int?
     public let cleanupResolvedJobsPending: Double
     public let cleanupSupersededJobsPending: Double
     public let cleanupResolvedJobsCompleted24h: Double
