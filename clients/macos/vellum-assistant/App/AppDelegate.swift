@@ -633,6 +633,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self.handleEscalationToComputerUse(routed: routed)
         }
 
+        // Forward dictation responses from the daemon to VoiceInputManager
+        daemonClient.onDictationResponse = { [weak self] msg in
+            self?.voiceInput?.onDictationResponse?(msg)
+        }
+
         daemonClient.onDocumentEditorShow = { [weak self] msg in
             self?.mainWindow?.handleDocumentEditorShow(msg)
         }
@@ -1042,6 +1047,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // Priority 2: Route to active TextResponseWindow conversation
             if let textSession = self?.currentTextSession, textSession.state == .ready {
                 self?.textResponseWindow?.updatePartialTranscription(text)
+            }
+        }
+        voiceInput?.daemonClient = daemonClient
+        voiceInput?.onActionModeTriggered = { [weak self] text in
+            guard let self else { return }
+            log.info("Action mode triggered from voice dictation — submitting task")
+            let screenBounds = CGDisplayBounds(CGMainDisplayID())
+            do {
+                try self.daemonClient.send(TaskSubmitMessage(
+                    task: text,
+                    screenWidth: Int(screenBounds.width),
+                    screenHeight: Int(screenBounds.height),
+                    attachments: nil,
+                    source: "voice_action"
+                ))
+            } catch {
+                log.error("Failed to send task_submit for voice action: \(error)")
             }
         }
         voiceInput?.onRecordingStateChanged = { [weak self] isRecording in

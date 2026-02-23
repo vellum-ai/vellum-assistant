@@ -28,6 +28,10 @@ final class VoiceInputManager {
     /// Called when the daemon returns a dictation response (cleaned-up text + action plan).
     var onDictationResponse: ((IPCDictationResponse) -> Void)?
 
+    /// Called when the daemon classifies dictation as an action (e.g. "Slack Alex about the standup").
+    /// The callback receives the original transcription text for routing to a full agent session.
+    var onActionModeTriggered: ((String) -> Void)?
+
     /// Context captured at activation time, describing the frontmost app state.
     private var currentDictationContext: DictationContext?
 
@@ -344,14 +348,15 @@ final class VoiceInputManager {
         }
     }
 
-    /// Handle the daemon's dictation response — insert cleaned text or dismiss for action mode.
+    /// Handle the daemon's dictation response — insert cleaned text or route action mode to a task.
     func handleDictationResponse(text: String, mode: String) {
         if mode == "dictation" || mode == "command" {
             DictationTextInserter.insertText(text)
             overlayWindow.showDoneAndDismiss()
         } else if mode == "action" {
-            // Action mode handled elsewhere (M7)
             overlayWindow.dismiss()
+            log.info("Action mode detected — routing transcription to task submission: \(text, privacy: .public)")
+            onActionModeTriggered?(text)
         }
     }
 

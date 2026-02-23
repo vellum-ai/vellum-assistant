@@ -75,6 +75,8 @@ extension DaemonClient {
             onSecretRequest?(msg)
         case .taskRouted(let msg):
             onTaskRouted?(msg)
+        case .dictationResponse(let msg):
+            onDictationResponse?(msg)
         case .reminderFired(let msg):
             onReminderFired?(msg)
         case .scheduleComplete(let msg):
