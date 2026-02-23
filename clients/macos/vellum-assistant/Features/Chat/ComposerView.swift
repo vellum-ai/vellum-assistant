@@ -67,6 +67,7 @@ struct ComposerView: View {
     @State private var showSlashMenu = false
     @State private var slashFilter = ""
     @State private var slashSelectedIndex = 0
+    @State private var suppressSlashReopen = false
     @State private var avatarSeed: String = "default"
 
     /// The portion of the suggestion that extends beyond the current input.
@@ -490,6 +491,10 @@ struct ComposerView: View {
     }
 
     private func updateSlashState() {
+        if suppressSlashReopen {
+            suppressSlashReopen = false
+            return
+        }
         let text = inputText
 
         if text.hasPrefix("/") && !text.contains(" ") {
@@ -529,6 +534,7 @@ struct ComposerView: View {
                 selectSlashCommand(filtered[slashSelectedIndex])
             case .tab:
                 let command = filtered[slashSelectedIndex]
+                suppressSlashReopen = true
                 inputText = "/\(command.name)"
                 withAnimation(VAnimation.fast) { showSlashMenu = false }
             case .dismiss:

@@ -297,9 +297,17 @@ export function resolveSlash(content: string, context?: SlashContext): SlashReso
 
   // Handle /commands command
   if (content.trim() === '/commands') {
+    const lines = [
+      '/commands — List all available commands',
+      '/model — Show or switch the current model',
+      '/models — List all available models',
+    ];
+    if (context) {
+      lines.push('/status — Show session status and context usage');
+    }
     return {
       kind: 'unknown',
-      message: '/commands — List all available commands\n/model — Show or switch the current model\n/models — List all available models\n/status — Show session status and context usage',
+      message: lines.join('\n'),
     };
   }
 
