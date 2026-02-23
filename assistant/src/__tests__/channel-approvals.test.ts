@@ -366,14 +366,16 @@ describe('handleChannelDecision', () => {
     expect(result.applied).toBe(true);
     expect(result.runId).toBe(run.id);
 
-    // Trust rule added with first allowlist and scope option
+    // Trust rule added with first allowlist and scope option.
+    // executionTarget is undefined for core tools like 'shell' — only
+    // skill-origin tools persist it (see channel-approvals.ts).
     expect(addRuleSpy).toHaveBeenCalledWith(
       'shell',
       'rm -rf *',
       '/tmp/project',
       'allow',
       100,
-      { executionTarget: 'sandbox' },
+      { executionTarget: undefined },
     );
 
     // The run is still approved with a simple "allow"
