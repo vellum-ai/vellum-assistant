@@ -755,3 +755,11 @@ export const mediaEvents = sqliteTable('media_events', {
   metadata: text('metadata'),                                    // JSON
   createdAt: integer('created_at').notNull(),
 });
+
+export const mediaTrackingProfiles = sqliteTable('media_tracking_profiles', {
+  id: text('id').primaryKey(),
+  assetId: text('asset_id').notNull()
+    .references(() => mediaAssets.id, { onDelete: 'cascade' }),
+  capabilities: text('capabilities').notNull(),                  // JSON: { [capName]: { enabled, tier } }
+  createdAt: integer('created_at').notNull(),
+});

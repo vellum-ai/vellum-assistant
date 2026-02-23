@@ -9,6 +9,8 @@
 
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { retrieveEvents, type RetrievalFilters } from '../services/retrieval-service.js';
+import { getTrackingProfile, type CapabilityTier } from '../../../../memory/media-store.js';
+import { getCapabilitiesByTier, getCapabilityByName } from '../services/capability-registry.js';
 
 // ---------------------------------------------------------------------------
 // NL query parsing
@@ -193,25 +195,84 @@ export async function run(
   const filters = parseQuery(query, assetId);
   const result = retrieveEvents(filters);
 
-  if (result.totalReturned === 0) {
+  // Determine which capabilities are allowed based on the tracking profile
+  const profile = getTrackingProfile(assetId);
+
+  let allowedEventTypes: Set<string> | null = null;
+  const tierForEventType = new Map<string, CapabilityTier>();
+
+  if (profile) {
+    // Use the explicit profile: only enabled capabilities pass
+    allowedEventTypes = new Set<string>();
+    for (const [capName, entry] of Object.entries(profile.capabilities)) {
+      if (entry.enabled) {
+        allowedEventTypes.add(capName);
+        tierForEventType.set(capName, entry.tier);
+      }
+    }
+  } else {
+    // No profile: default to 'ready' tier capabilities only
+    const readyCaps = getCapabilitiesByTier('ready');
+    if (readyCaps.length > 0) {
+      allowedEventTypes = new Set(readyCaps.map((c) => c.name));
+      for (const cap of readyCaps) {
+        tierForEventType.set(cap.name, 'ready');
+      }
+    }
+    // If no capabilities are registered at all, allow everything (pass null)
+  }
+
+  // Filter events by allowed capabilities
+  let filteredEvents = result.events;
+  if (allowedEventTypes !== null) {
+    filteredEvents = filteredEvents.filter((e) => allowedEventTypes!.has(e.eventType));
+  }
+
+  if (filteredEvents.length === 0) {
     const parts = ['No matching events found'];
     if (filters.eventType) parts.push(`for event type "${filters.eventType}"`);
     if (filters.minConfidence) parts.push(`with confidence >= ${filters.minConfidence}`);
+    if (!profile) parts.push('(defaulting to ready-tier capabilities only)');
     parts.push(`in asset ${assetId}.`);
     return { content: parts.join(' '), isError: false };
   }
 
-  const eventSummaries = result.events.map((e, i) => ({
-    rank: i + 1,
-    id: e.id,
-    eventType: e.eventType,
-    timeRange: `${formatTimestamp(e.startTime)} – ${formatTimestamp(e.endTime)}`,
-    startTime: e.startTime,
-    endTime: e.endTime,
-    confidence: Math.round(e.confidence * 100) / 100,
-    reasons: e.reasons,
-    metadata: e.metadata,
-  }));
+  const tierLabels: Record<string, string> = {
+    ready: '[Ready]',
+    beta: '[Beta]',
+    experimental: '[Experimental]',
+  };
+
+  const tierDisclaimers: Record<string, string> = {
+    beta: 'Beta results may have accuracy gaps.',
+    experimental: 'Experimental results are early-stage; expect noise.',
+  };
+
+  const eventSummaries = filteredEvents.map((e, i) => {
+    const tier = tierForEventType.get(e.eventType) ?? getCapabilityByName(e.eventType)?.tier;
+    const tierLabel = tier ? tierLabels[tier] ?? `[${tier}]` : '[Ready]';
+    const disclaimer = tier ? tierDisclaimers[tier] : undefined;
+
+    return {
+      rank: i + 1,
+      id: e.id,
+      eventType: e.eventType,
+      tierLabel,
+      ...(disclaimer ? { confidenceDisclaimer: disclaimer } : {}),
+      timeRange: `${formatTimestamp(e.startTime)} – ${formatTimestamp(e.endTime)}`,
+      startTime: e.startTime,
+      endTime: e.endTime,
+      confidence: Math.round(e.confidence * 100) / 100,
+      reasons: e.reasons,
+      metadata: e.metadata,
+    };
+  });
+
+  // Collect disclaimers for any non-ready tiers present in results
+  const activeTiers = new Set(eventSummaries.map((e) => e.tierLabel));
+  const disclaimers: string[] = [];
+  if (activeTiers.has('[Beta]')) disclaimers.push(tierDisclaimers.beta);
+  if (activeTiers.has('[Experimental]')) disclaimers.push(tierDisclaimers.experimental);
 
   return {
     content: JSON.stringify({
@@ -223,7 +284,9 @@ export async function run(
         startTimeMin: filters.startTimeMin ?? null,
         startTimeMax: filters.startTimeMax ?? null,
       },
-      totalResults: result.totalReturned,
+      trackingProfile: profile ? 'custom' : 'default (ready tier only)',
+      ...(disclaimers.length > 0 ? { disclaimers } : {}),
+      totalResults: eventSummaries.length,
       events: eventSummaries,
     }, null, 2),
     isError: false,
