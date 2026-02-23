@@ -168,7 +168,7 @@ DAEMON_BIN_NEEDS_BUILD=false
 if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     if [ ! -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
         DAEMON_BIN_NEEDS_BUILD=true
-    elif [ -n "$(find "$ASSISTANT_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/daemon-bin/vellum-daemon" -print -quit 2>/dev/null)" ]; then
+    elif [ -n "$(find "$ASSISTANT_SRC_DIR/src" \( -name '*.ts' -o -name '*.json' \) -newer "$SCRIPT_DIR/daemon-bin/vellum-daemon" -print -quit 2>/dev/null)" ]; then
         DAEMON_BIN_NEEDS_BUILD=true
     elif [ "$ASSISTANT_SRC_DIR/package.json" -nt "$SCRIPT_DIR/daemon-bin/vellum-daemon" ] || \
          [ "$ASSISTANT_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then

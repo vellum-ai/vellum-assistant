@@ -131,8 +131,8 @@ echo "Building release archive..."
 echo "  Version: $DISPLAY_VERSION ($BUILD_VERSION)"
 echo "  Team: $DEVELOPMENT_TEAM"
 
-# Clean previous artifacts
-rm -rf "$ARCHIVE_PATH" "$EXPORT_PATH"
+# Clean previous artifacts (including DerivedData to avoid stale asset caches)
+rm -rf "$ARCHIVE_PATH" "$EXPORT_PATH" "$DIST_DIR/DerivedData"
 
 # Archive using the native .xcodeproj (Application target produces a proper
 # .app bundle in Products/Applications/ without build setting workarounds).
@@ -141,6 +141,7 @@ xcodebuild archive \
     -scheme "$SCHEME" \
     -destination 'generic/platform=iOS' \
     -archivePath "$ARCHIVE_PATH" \
+    -derivedDataPath "$DIST_DIR/DerivedData" \
     -configuration Release \
     DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
     CODE_SIGN_STYLE=Manual \
