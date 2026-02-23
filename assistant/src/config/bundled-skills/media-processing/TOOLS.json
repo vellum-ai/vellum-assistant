@@ -281,6 +281,24 @@
       "execution_target": "host"
     },
     {
+      "name": "media_diagnostics",
+      "description": "Get a diagnostic report for a media asset including processing stats, per-stage timing, failure reasons, cost estimation, and feedback summary.",
+      "category": "media",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "ID of the media asset to diagnose"
+          }
+        },
+        "required": ["asset_id"]
+      },
+      "executor": "tools/media-diagnostics.ts",
+      "execution_target": "host"
+    },
+    {
       "name": "recalibrate",
       "description": "Recalibrate event detection for a media asset based on accumulated feedback. Analyzes correction patterns (false positive rates, missed events, boundary adjustments), re-ranks existing events by adjusting confidence scores, and returns a summary of adjustments made. Works for any event type.",
       "category": "media",
