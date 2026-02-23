@@ -190,7 +190,7 @@ struct SecretPromptView: View {
 
                 // Secure input
                 SecureField(placeholder, text: $secretValue)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(VInputStyle())
                     .font(VFont.mono)
 
                 // Safety explainer

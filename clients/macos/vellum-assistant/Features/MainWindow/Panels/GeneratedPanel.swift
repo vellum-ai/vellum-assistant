@@ -106,7 +106,7 @@ struct GeneratedPanel: View {
                         .foregroundColor(VColor.textMuted)
 
                     TextField("Filter pages...", text: $searchText)
-                        .textFieldStyle(.plain)
+                        .textFieldStyle(VInputStyle())
                         .font(VFont.mono)
                         .foregroundColor(VColor.textPrimary)
 
@@ -119,9 +119,6 @@ struct GeneratedPanel: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(VSpacing.md)
-                .background(Moss._700)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
             }
