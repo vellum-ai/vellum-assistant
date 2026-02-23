@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { client } from "./commands/client";
+import { email } from "./commands/email";
 import { hatch } from "./commands/hatch";
 import { ps } from "./commands/ps";
 import { retire } from "./commands/retire";
@@ -12,6 +13,7 @@ import { wake } from "./commands/wake";
 
 const commands = {
   client,
+  email,
   hatch,
   ps,
   retire,
@@ -30,6 +32,7 @@ async function main() {
     console.log("");
     console.log("Commands:");
     console.log("  client   Connect to a hatched assistant");
+    console.log("  email    Email operations (provider-agnostic)");
     console.log("  hatch    Create a new assistant instance");
     console.log("  ps       List assistants (or processes for a specific assistant)");
     console.log("  retire   Delete an assistant instance");
