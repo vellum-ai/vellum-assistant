@@ -554,4 +554,48 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertTrue(createMessages.allSatisfy { $0.assistantId == "self" })
         XCTAssertTrue(revokeMessages.allSatisfy { $0.assistantId == "self" })
     }
+
+    // MARK: - Cross-channel timeout isolation
+
+    func testResponseForChannelADoesNotCancelTimeoutForChannelB() {
+        // Use a short timeout so the test completes quickly
+        sentMessages.removeAll()
+        let shortTimeoutStore = SettingsStore(
+            daemonClient: daemonClient,
+            guardianChallengeTimeoutDuration: 0.3,
+            guardianStatusPollInterval: 0.05,
+            guardianStatusPollWindow: 2.0
+        )
+
+        // Start SMS verification — this arms the timeout for SMS
+        shortTimeoutStore.startChannelGuardianVerification(channel: "sms")
+        XCTAssertTrue(shortTimeoutStore.smsGuardianVerificationInProgress)
+
+        // A telegram response arrives — this must NOT cancel the SMS timeout
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: true,
+            secret: nil,
+            instruction: nil,
+            bound: true,
+            guardianExternalUserId: "tg_user_123",
+            channel: "telegram",
+            assistantId: testAssistantId,
+            guardianDeliveryChatId: "chat_456",
+            error: nil
+        ))
+
+        // SMS should still be in progress right after the telegram response
+        XCTAssertTrue(shortTimeoutStore.smsGuardianVerificationInProgress)
+        XCTAssertNil(shortTimeoutStore.smsGuardianError)
+
+        // Wait for the SMS timeout to fire (0.3s + buffer)
+        let predicate = NSPredicate { _, _ in !shortTimeoutStore.smsGuardianVerificationInProgress }
+        let timeoutExpectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [timeoutExpectation], timeout: 2.0)
+
+        // The SMS timeout should have fired, clearing the spinner and setting an error
+        XCTAssertFalse(shortTimeoutStore.smsGuardianVerificationInProgress)
+        XCTAssertEqual(shortTimeoutStore.smsGuardianError, "Timed out waiting for verification instructions. Try again.")
+    }
 }

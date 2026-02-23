@@ -153,6 +153,7 @@ public final class SettingsStore: ObservableObject {
     private var guardianChallengeTimeoutWorkItem: DispatchWorkItem?
     private var guardianStatusPollingWorkItems: [String: DispatchWorkItem] = [:]
     private var guardianStatusPollingDeadlines: [String: Date] = [:]
+    private let guardianChallengeTimeoutDuration: TimeInterval
     private let guardianStatusPollInterval: TimeInterval
     private let guardianStatusPollWindow: TimeInterval
     private var guardianAssistantScope: String {
@@ -167,11 +168,13 @@ public final class SettingsStore: ObservableObject {
     init(
         daemonClient: DaemonClient? = nil,
         configPath: String? = nil,
+        guardianChallengeTimeoutDuration: TimeInterval = 12,
         guardianStatusPollInterval: TimeInterval = 2,
         guardianStatusPollWindow: TimeInterval = 600
     ) {
         self.daemonClient = daemonClient
         self.configPath = configPath
+        self.guardianChallengeTimeoutDuration = max(0.05, guardianChallengeTimeoutDuration)
         self.guardianStatusPollInterval = max(0.05, guardianStatusPollInterval)
         self.guardianStatusPollWindow = max(self.guardianStatusPollInterval, guardianStatusPollWindow)
 
@@ -922,7 +925,7 @@ public final class SettingsStore: ObservableObject {
             }
         }
         guardianChallengeTimeoutWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + guardianChallengeTimeoutDuration, execute: workItem)
     }
 
     private func startGuardianStatusPolling(for channel: String) {
