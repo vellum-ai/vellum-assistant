@@ -32,7 +32,7 @@ async function main() {
     console.log("");
     console.log("Commands:");
     console.log("  client   Connect to a hatched assistant");
-    console.log("  email    Email operations (provider-agnostic)");
+    console.log("  email    Email operations (status, create inbox)");
     console.log("  hatch    Create a new assistant instance");
     console.log("  ps       List assistants (or processes for a specific assistant)");
     console.log("  retire   Delete an assistant instance");
