@@ -18,6 +18,15 @@ This skill manages the full Twilio lifecycle:
 
 All operations go through the `twilio_config` IPC handler on the daemon, which validates inputs, stores credentials securely, and manages phone number state.
 
+### Multi-Assistant Setups
+
+In a multi-assistant environment (multiple assistants sharing the same daemon), every `twilio_config` IPC message should include an `assistantId` field to scope the configuration to the correct assistant instance. If `assistantId` is omitted, the daemon uses the default assistant. Include `assistantId` whenever:
+- Multiple assistants share the same Twilio account but use different phone numbers
+- You want to ensure configuration changes only affect a specific assistant
+- The user has explicitly selected or referenced a particular assistant
+
+All IPC examples below include the optional `assistantId` field. Omit it in single-assistant setups.
+
 ## Step 1: Check Current Configuration
 
 First, check whether Twilio is already configured by sending the `twilio_config` IPC message with `action: "get"`:
@@ -25,7 +34,8 @@ First, check whether Twilio is already configured by sending the `twilio_config`
 ```json
 {
   "type": "twilio_config",
-  "action": "get"
+  "action": "get",
+  "assistantId": "<optional — omit for single-assistant setups>"
 }
 ```
 
@@ -56,7 +66,8 @@ After both credentials are collected, retrieve them from secure storage and pass
   "type": "twilio_config",
   "action": "set_credentials",
   "accountSid": "<value from credential_store for twilio/account_sid>",
-  "authToken": "<value from credential_store for twilio/auth_token>"
+  "authToken": "<value from credential_store for twilio/auth_token>",
+  "assistantId": "<optional — omit for single-assistant setups>"
 }
 ```
 
@@ -75,7 +86,8 @@ If the user wants to buy a new number through Twilio, send:
   "type": "twilio_config",
   "action": "provision_number",
   "areaCode": "415",
-  "country": "US"
+  "country": "US",
+  "assistantId": "<optional — omit for single-assistant setups>"
 }
 ```
 
@@ -100,7 +112,8 @@ If the user already has a Twilio phone number, first list available numbers:
 ```json
 {
   "type": "twilio_config",
-  "action": "list_numbers"
+  "action": "list_numbers",
+  "assistantId": "<optional — omit for single-assistant setups>"
 }
 ```
 
@@ -112,7 +125,8 @@ Then assign the chosen number:
 {
   "type": "twilio_config",
   "action": "assign_number",
-  "phoneNumber": "+14155551234"
+  "phoneNumber": "+14155551234",
+  "assistantId": "<optional — omit for single-assistant setups>"
 }
 ```
 
@@ -132,7 +146,8 @@ Then assign it through the IPC:
 {
   "type": "twilio_config",
   "action": "assign_number",
-  "phoneNumber": "+14155551234"
+  "phoneNumber": "+14155551234",
+  "assistantId": "<optional — omit for single-assistant setups>"
 }
 ```
 
@@ -181,7 +196,8 @@ Now link the user's phone number as the trusted SMS guardian for this assistant.
 {
   "type": "guardian_verification",
   "action": "create_challenge",
-  "channel": "sms"
+  "channel": "sms",
+  "assistantId": "<optional — omit for single-assistant setups>"
 }
 ```
 
@@ -195,7 +211,8 @@ Now link the user's phone number as the trusted SMS guardian for this assistant.
 {
   "type": "guardian_verification",
   "action": "status",
-  "channel": "sms"
+  "channel": "sms",
+  "assistantId": "<optional — omit for single-assistant setups>"
 }
 ```
 
@@ -228,7 +245,8 @@ If the user wants to disconnect Twilio, send:
 ```json
 {
   "type": "twilio_config",
-  "action": "clear_credentials"
+  "action": "clear_credentials",
+  "assistantId": "<optional — omit for single-assistant setups>"
 }
 ```
 
