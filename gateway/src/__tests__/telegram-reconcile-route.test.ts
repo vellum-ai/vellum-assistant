@@ -16,7 +16,7 @@ function makeTelegramResponse(result: unknown) {
 }
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
-  return {
+  const merged: GatewayConfig = {
     assistantRuntimeBaseUrl: "http://localhost:7821",
     defaultAssistantId: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
@@ -27,6 +27,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     port: 7830,
     routingEntries: [],
     runtimeBearerToken: undefined,
+    runtimeGatewayOriginSecret: undefined,
     runtimeInitialBackoffMs: 500,
     runtimeMaxRetries: 2,
     runtimeProxyBearerToken: "test-token",
@@ -49,6 +50,10 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     unmappedPolicy: "reject",
     ...overrides,
   };
+  if (merged.runtimeGatewayOriginSecret === undefined) {
+    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
+  }
+  return merged;
 }
 
 function makeRequest(
