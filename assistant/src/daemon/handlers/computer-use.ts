@@ -33,11 +33,13 @@ function removeCuSessionReferences(
   // end of handleCuSessionFinalized instead.
   cuObservationSequenceBySession.delete(sessionId);
   ctx.cuObservationParseSequence.delete(sessionId);
-  for (const [sock, ids] of ctx.socketToCuSession) {
-    if (ids.delete(sessionId) && ids.size === 0) {
-      ctx.socketToCuSession.delete(sock);
-    }
-  }
+  // NOTE: socketToCuSession is intentionally NOT cleaned up here.
+  // The socket close handler in server.ts is the sole owner of
+  // socketToCuSession cleanup — it uses the mapping to find and delete
+  // cuSessionMetadata entries. Removing the session here would race:
+  // if a CU session reaches terminal state (triggering this function)
+  // and then the socket disconnects before cu_session_finalized,
+  // the close handler wouldn't see the session and metadata would leak.
 }
 
 export function handleCuSessionCreate(
