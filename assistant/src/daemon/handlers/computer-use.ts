@@ -217,6 +217,7 @@ export function handleCuSessionFinalized(
   ctx: HandlerContext,
 ): void {
   const meta = ctx.cuSessionMetadata.get(msg.sessionId);
+  let recordingTracked = false;
 
   log.info(
     {
@@ -264,6 +265,7 @@ export function handleCuSessionFinalized(
             expiresAt: msg.recording.expiresAt,
           });
           linkAttachmentToMessage(persistedMessage.id, attachment.id, 0);
+          recordingTracked = true;
           recordingAttachment = {
             id: attachment.id,
             filename: attachment.originalFilename,
@@ -332,9 +334,10 @@ export function handleCuSessionFinalized(
     }
   }
 
-  // Create a file-backed attachment for recordings without a reporting session
-  // so cleanup can track orphan files.
-  if (msg.recording && !(meta?.reportToSessionId)) {
+  // Create a fallback file-backed attachment for any recording that wasn't
+  // already tracked (no reportToSessionId, missing conversation, empty summary,
+  // or attachment creation failure) so cleanup can track the file on disk.
+  if (msg.recording && !recordingTracked) {
     try {
       createFileBackedAttachment({
         filename: `qa-recording-${msg.sessionId}.mp4`,
@@ -344,7 +347,7 @@ export function handleCuSessionFinalized(
         sha256: undefined,
         expiresAt: msg.recording.expiresAt,
       });
-      log.info({ sessionId: msg.sessionId }, 'Created orphan file-backed attachment for cleanup tracking (no reportToSessionId)');
+      log.info({ sessionId: msg.sessionId }, 'Created fallback file-backed attachment for cleanup tracking');
     } catch (err) {
       log.error({ err, sessionId: msg.sessionId }, 'Failed to create file-backed attachment for orphan recording');
     }
