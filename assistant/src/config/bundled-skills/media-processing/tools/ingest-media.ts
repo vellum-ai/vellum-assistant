@@ -1,13 +1,12 @@
 import { basename, extname } from 'node:path';
-import { createReadStream } from 'node:fs';
 import { access } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import {
   registerMediaAsset,
   getMediaAssetByHash,
   createProcessingStage,
   updateMediaAssetStatus,
+  computeFileHash,
   type MediaType,
 } from '../../../../memory/media-store.js';
 import { enqueueMemoryJob } from '../../../../memory/jobs-store.js';
@@ -118,15 +117,11 @@ export async function run(
     return { content: `Could not classify media type for MIME: ${mimeType}`, isError: true };
   }
 
-  // Compute content hash for dedup using streaming to avoid loading entire file into memory
-  context.onOutput?.('Computing content hash (streaming)...\n');
-  const fileHash = await new Promise<string>((resolve, reject) => {
-    const hash = createHash('sha256');
-    const stream = createReadStream(filePath);
-    stream.on('data', (chunk) => hash.update(chunk));
-    stream.on('end', () => resolve(hash.digest('hex')));
-    stream.on('error', reject);
-  });
+  // Compute content hash for dedup – uses the same Bun.hash (wyhash) as
+  // media-store.ts so that hashes are consistent across ingest and lookup.
+  context.onOutput?.('Computing content hash...\n');
+  const fileBytes = await Bun.file(filePath).arrayBuffer();
+  const fileHash = computeFileHash(new Uint8Array(fileBytes));
 
   // Check for existing asset with same hash
   const existingAsset = getMediaAssetByHash(fileHash);

@@ -229,6 +229,12 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
     case 'delete_qdrant_vectors':
       await deleteQdrantVectorsJob(job);
       return;
+    case 'media_processing':
+      // Stub: actual media processing is orchestrated by the media-processing
+      // skill tools, not the job worker.  We just acknowledge the job so it
+      // doesn't fail with "Unknown memory job type".
+      log.info({ jobId: job.id, payload: job.payload }, 'media_processing job received');
+      return;
     default:
       throw new Error(`Unknown memory job type: ${(job as { type: string }).type}`);
   }

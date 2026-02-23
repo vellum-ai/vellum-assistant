@@ -1033,6 +1033,8 @@ export function initializeDb(): void {
     )
   `);
 
+  // Drop the old non-unique index so it can be recreated as UNIQUE (migration for existing databases)
+  database.run(/*sql*/ `DROP INDEX IF EXISTS idx_media_assets_file_hash`);
   database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_assets_file_hash ON media_assets(file_hash)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_assets_status ON media_assets(status)`);
 
