@@ -679,3 +679,31 @@ export const channelGuardianRateLimits = sqliteTable('channel_guardian_rate_limi
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+// ── Media Assets ─────────────────────────────────────────────────────
+
+export const mediaAssets = sqliteTable('media_assets', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  filePath: text('file_path').notNull(),
+  mimeType: text('mime_type').notNull(),
+  durationSeconds: real('duration_seconds'),
+  fileHash: text('file_hash').notNull(),
+  status: text('status').notNull().default('registered'),       // registered | processing | indexed | failed
+  mediaType: text('media_type').notNull(),                      // video | audio | image
+  metadata: text('metadata'),                                   // JSON
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const processingStages = sqliteTable('processing_stages', {
+  id: text('id').primaryKey(),
+  assetId: text('asset_id').notNull()
+    .references(() => mediaAssets.id, { onDelete: 'cascade' }),
+  stage: text('stage').notNull(),
+  status: text('status').notNull().default('pending'),          // pending | running | completed | failed
+  progress: integer('progress').notNull().default(0),           // 0-100
+  lastError: text('last_error'),
+  startedAt: integer('started_at'),
+  completedAt: integer('completed_at'),
+});

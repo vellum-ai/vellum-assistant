@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "ingest_media",
+      "description": "Ingest a media file (video, audio, or image) for processing. Validates the file, detects MIME type, extracts duration for video/audio, registers the asset with content-hash dedup, and enqueues an initial processing job.",
+      "category": "media",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Absolute path to a local media file (video, audio, or image)"
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional human-readable title for the media asset. Defaults to the filename."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Optional JSON metadata to attach to the asset (e.g., pipeline config, source info)"
+          }
+        },
+        "required": ["file_path"]
+      },
+      "executor": "tools/ingest-media.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "media_status",
+      "description": "Query the processing status of one or more media assets, including per-stage progress details.",
+      "category": "media",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "ID of a specific media asset to query"
+          },
+          "file_path": {
+            "type": "string",
+            "description": "File path to look up a media asset by its original path"
+          },
+          "status_filter": {
+            "type": "string",
+            "enum": ["registered", "processing", "indexed", "failed"],
+            "description": "Filter assets by processing status"
+          }
+        }
+      },
+      "executor": "tools/media-status.ts",
+      "execution_target": "host"
+    }
+  ]
+}
