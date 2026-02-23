@@ -251,6 +251,10 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       allowPerCallOverride: true,
     },
   },
+  qaRecording: {
+    defaultRetentionDays: 7,
+    cleanupIntervalMs: 6 * 60 * 60 * 1000, // 6 hours
+  },
   sms: {
     enabled: false,
     provider: 'twilio' as const,
