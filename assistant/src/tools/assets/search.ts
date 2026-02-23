@@ -183,7 +183,7 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
     }
     const limit = Math.min(params.limit ?? DEFAULT_LIMIT, MAX_RESULTS);
     const stmt = raw.prepare(
-      `SELECT a.id, a.original_filename, a.mime_type, a.size_bytes, a.kind, a.thumbnail_base64, a.created_at
+      `SELECT a.id, a.original_filename, a.mime_type, a.size_bytes, a.kind, a.thumbnail_base64, a.storage_kind, a.file_path, a.sha256, a.expires_at, a.created_at
        FROM attachments a
        WHERE ${whereParts.join(' AND ')}
        ORDER BY a.created_at DESC
@@ -197,6 +197,10 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       size_bytes: number;
       kind: string;
       thumbnail_base64: string | null;
+      storage_kind: string;
+      file_path: string | null;
+      sha256: string | null;
+      expires_at: number | null;
       created_at: number;
     }>;
 
@@ -207,6 +211,10 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       sizeBytes: r.size_bytes,
       kind: r.kind,
       thumbnailBase64: r.thumbnail_base64,
+      storageKind: r.storage_kind as 'inline_base64' | 'file',
+      filePath: r.file_path,
+      sha256: r.sha256,
+      expiresAt: r.expires_at,
       createdAt: r.created_at,
     }));
   }
@@ -223,16 +231,25 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       sizeBytes: attachments.sizeBytes,
       kind: attachments.kind,
       thumbnailBase64: attachments.thumbnailBase64,
+      storageKind: attachments.storageKind,
+      filePath: attachments.filePath,
+      sha256: attachments.sha256,
+      expiresAt: attachments.expiresAt,
       createdAt: attachments.createdAt,
     })
     .from(attachments)
     .orderBy(desc(attachments.createdAt))
     .limit(limit);
 
+  const castRow = (r: { storageKind: string } & Omit<StoredAttachment, 'storageKind'>): StoredAttachment => ({
+    ...r,
+    storageKind: r.storageKind as 'inline_base64' | 'file',
+  });
+
   if (where) {
-    return query.where(where).all();
+    return query.where(where).all().map(castRow);
   }
-  return query.all();
+  return query.all().map(castRow);
 }
 
 // ---------------------------------------------------------------------------

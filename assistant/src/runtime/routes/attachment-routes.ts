@@ -1,6 +1,7 @@
 /**
  * Route handlers for attachment upload, download, and deletion.
  */
+import { existsSync, statSync } from 'node:fs';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import { validateAttachmentUpload, AttachmentUploadError } from '../../memory/attachments-store.js';
 
@@ -129,5 +130,103 @@ export function handleGetAttachment(attachmentId: string): Response {
     sizeBytes: attachment.sizeBytes,
     kind: attachment.kind,
     data: attachment.dataBase64,
+  });
+}
+
+/**
+ * Stream attachment content as binary. Supports Range requests for video seek.
+ *
+ * For file-backed attachments: reads from disk with optional partial content.
+ * For inline_base64 attachments: decodes the base64 data and returns it.
+ */
+export function handleGetAttachmentContent(attachmentId: string, req: Request): Response {
+  const attachment = attachmentsStore.getAttachmentById(attachmentId);
+  if (!attachment) {
+    return Response.json({ error: 'Attachment not found' }, { status: 404 });
+  }
+
+  if (attachment.storageKind === 'file') {
+    return handleFileContent(attachment, req);
+  }
+
+  // inline_base64 fallback — decode and return full content
+  const buffer = Buffer.from(attachment.dataBase64, 'base64');
+  return new Response(buffer, {
+    status: 200,
+    headers: {
+      'Content-Type': attachment.mimeType,
+      'Content-Length': String(buffer.length),
+      'Accept-Ranges': 'bytes',
+      'Content-Disposition': 'inline',
+    },
+  });
+}
+
+/**
+ * Serve file-backed attachment content with Range header support.
+ */
+function handleFileContent(
+  attachment: attachmentsStore.StoredAttachment & { dataBase64: string },
+  req: Request,
+): Response {
+  const filePath = attachment.filePath;
+  if (!filePath || !existsSync(filePath)) {
+    return Response.json({ error: 'Attachment file not found on disk' }, { status: 404 });
+  }
+
+  let fileSize: number;
+  try {
+    fileSize = statSync(filePath).size;
+  } catch {
+    return Response.json({ error: 'Failed to read attachment file' }, { status: 500 });
+  }
+
+  const rangeHeader = req.headers.get('range');
+  if (!rangeHeader) {
+    // Full file response
+    const file = Bun.file(filePath);
+    return new Response(file, {
+      status: 200,
+      headers: {
+        'Content-Type': attachment.mimeType,
+        'Content-Length': String(fileSize),
+        'Accept-Ranges': 'bytes',
+        'Content-Disposition': 'inline',
+      },
+    });
+  }
+
+  // Parse Range header (only supports single byte ranges)
+  const rangeMatch = rangeHeader.match(/^bytes=(\d+)-(\d*)$/);
+  if (!rangeMatch) {
+    return new Response('Invalid Range header', {
+      status: 416,
+      headers: { 'Content-Range': `bytes */${fileSize}` },
+    });
+  }
+
+  const start = parseInt(rangeMatch[1], 10);
+  const end = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : fileSize - 1;
+
+  if (start >= fileSize || end >= fileSize || start > end) {
+    return new Response('Range not satisfiable', {
+      status: 416,
+      headers: { 'Content-Range': `bytes */${fileSize}` },
+    });
+  }
+
+  const contentLength = end - start + 1;
+  const file = Bun.file(filePath);
+  const slice = file.slice(start, end + 1);
+
+  return new Response(slice, {
+    status: 206,
+    headers: {
+      'Content-Type': attachment.mimeType,
+      'Content-Length': String(contentLength),
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Disposition': 'inline',
+    },
   });
 }
