@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
 
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { client } from "./commands/client";
 import { hatch } from "./commands/hatch";
 import { ps } from "./commands/ps";
@@ -20,6 +22,32 @@ const commands = {
 } as const;
 
 type CommandName = keyof typeof commands;
+
+function resolveAssistantEntry(): string | undefined {
+  // When installed globally, resolve from node_modules
+  try {
+    const require = createRequire(import.meta.url);
+    const assistantPkgPath = require.resolve(
+      "@vellumai/assistant/package.json"
+    );
+    return join(dirname(assistantPkgPath), "src", "index.ts");
+  } catch {
+    // For local development, resolve from sibling directory
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const localPath = join(
+      __dirname,
+      "..",
+      "..",
+      "assistant",
+      "src",
+      "index.ts"
+    );
+    if (existsSync(localPath)) {
+      return localPath;
+    }
+  }
+  return undefined;
+}
 
 async function main() {
   const args = process.argv.slice(2);
@@ -41,23 +69,15 @@ async function main() {
   const command = commands[commandName as CommandName];
 
   if (!command) {
-    try {
-      const require = createRequire(import.meta.url);
-      const assistantPkgPath = require.resolve(
-        "@vellumai/assistant/package.json"
-      );
-      const assistantEntry = join(
-        dirname(assistantPkgPath),
-        "src",
-        "index.ts"
-      );
+    const assistantEntry = resolveAssistantEntry();
+    if (assistantEntry) {
       const child = spawn("bun", ["run", assistantEntry, ...args], {
         stdio: "inherit",
       });
       child.on("exit", (code) => {
         process.exit(code ?? 1);
       });
-    } catch {
+    } else {
       console.error(`Unknown command: ${commandName}`);
       console.error(
         "Install the full stack with: bun install -g vellum"
