@@ -74,15 +74,12 @@ public struct SubagentThreadView: View {
     }
 
     public var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            // Vertical connecting line (links this thread to the parent message above)
-            VStack(spacing: 0) {
-                Rectangle()
-                    .fill(statusColor.opacity(0.4))
-                    .frame(width: 2)
-            }
-            .frame(width: 2)
-            .padding(.trailing, VSpacing.sm)
+        HStack(alignment: .center, spacing: 0) {
+            // L-shaped connector: vertical line from parent → curves right into the thread bar
+            LConnector()
+                .stroke(statusColor.opacity(0.4), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .frame(width: 14, height: 28)
+                .padding(.trailing, VSpacing.xs)
 
             // Thread indicator content
             threadBar
@@ -249,5 +246,27 @@ public struct SubagentThreadView: View {
 
     private func truncated(_ s: String, to length: Int) -> String {
         s.count > length ? String(s.prefix(length - 1)) + "…" : s
+    }
+}
+
+// MARK: - L-Shaped Connector
+
+/// Draws a smooth L-shaped path: vertical line down from top-left, then curves
+/// right toward the thread bar. Uses a quarter-circle arc for a polished look.
+private struct LConnector: Shape {
+    func path(in rect: CGRect) -> Path {
+        let radius: CGFloat = 6
+        var path = Path()
+        path.move(to: CGPoint(x: 1, y: 0))
+        path.addLine(to: CGPoint(x: 1, y: rect.midY - radius))
+        path.addArc(
+            center: CGPoint(x: 1 + radius, y: rect.midY - radius),
+            radius: radius,
+            startAngle: .degrees(180),
+            endAngle: .degrees(90),
+            clockwise: true
+        )
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        return path
     }
 }
