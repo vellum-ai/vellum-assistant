@@ -681,7 +681,7 @@ describe('AssistantConfigSchema', () => {
       userConsultTimeoutSeconds: 120,
       disclosure: {
         enabled: true,
-        text: 'At the very beginning of the call, introduce yourself as an assistant calling on behalf of my human.',
+        text: 'At the very beginning of the call, introduce yourself as an assistant calling on behalf of the person you represent. Do not say "AI assistant".',
       },
       safety: {
         denyCategories: [],
