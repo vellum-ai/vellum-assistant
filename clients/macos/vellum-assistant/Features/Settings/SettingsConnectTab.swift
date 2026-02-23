@@ -31,6 +31,9 @@ struct SettingsConnectTab: View {
     // Twilio number picker
     @State private var twilioNumberPickerExpanded = false
 
+    // Guardian copy state (tracks which channel's command was just copied)
+    @State private var guardianCommandCopiedChannel: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             gatewaySection
@@ -639,24 +642,7 @@ struct SettingsConnectTab: View {
                     .foregroundColor(VColor.textMuted)
                     .padding(.leading, 90 + VSpacing.sm)
             } else if let instruction {
-                HStack(spacing: VSpacing.sm) {
-                    Text("Guardian")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                        .frame(width: 90, alignment: .leading)
-                    Text(instruction)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
-                        .textSelection(.enabled)
-                }
+                guardianInstructionView(channel: channel, instruction: instruction)
             } else {
                 channelStatusRow(
                     label: "Guardian",
@@ -674,6 +660,106 @@ struct SettingsConnectTab: View {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
+                    .padding(.leading, 90 + VSpacing.sm)
+            }
+        }
+    }
+
+    /// Extracts the `/guardian_verify <hex>` command from a raw instruction string.
+    private func extractGuardianCommand(from instruction: String) -> String? {
+        guard let range = instruction.range(of: #"/guardian_verify\s+[0-9a-fA-F]+"#, options: .regularExpression) else {
+            return nil
+        }
+        return String(instruction[range])
+    }
+
+    @ViewBuilder
+    private func guardianInstructionView(channel: String, instruction: String) -> some View {
+        let command = extractGuardianCommand(from: instruction)
+        let isCopied = guardianCommandCopiedChannel == channel
+        let channelName = channel == "telegram" ? "Telegram" : "SMS"
+
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                Text("Guardian")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                    .frame(width: 90, alignment: .leading)
+                Image(systemName: "shield.lefthalf.filled")
+                    .foregroundColor(VColor.warning)
+                    .font(.system(size: 12))
+                Text("Verification pending")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.warning)
+                Spacer()
+                VButton(label: "Cancel", style: .tertiary) {
+                    store.cancelGuardianChallenge(channel: channel)
+                }
+            }
+
+            if let command {
+                Text("Send this command via \(channelName) to verify:")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .padding(.leading, 90 + VSpacing.sm)
+
+                HStack(spacing: VSpacing.sm) {
+                    Text(command)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+
+                    Spacer()
+
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(command, forType: .string)
+                        guardianCommandCopiedChannel = channel
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            if guardianCommandCopiedChannel == channel {
+                                guardianCommandCopiedChannel = nil
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 12, weight: .medium))
+                            Text(isCopied ? "Copied" : "Copy")
+                                .font(VFont.caption)
+                        }
+                        .foregroundColor(isCopied ? VColor.success : VColor.textSecondary)
+                        .frame(height: 28)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy verification command")
+                    .help("Copy command")
+                }
+                .padding(VSpacing.md)
+                .background(VColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                )
+                .padding(.leading, 90 + VSpacing.sm)
+            } else {
+                // Fallback: show raw instruction if command can't be parsed
+                Text(instruction)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(VSpacing.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+                    .textSelection(.enabled)
                     .padding(.leading, 90 + VSpacing.sm)
             }
         }

@@ -890,6 +890,21 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    func cancelGuardianChallenge(channel: String) {
+        stopGuardianStatusPolling(for: channel)
+        clearGuardianChallengePending(for: channel)
+        switch channel {
+        case "telegram":
+            telegramGuardianVerificationInProgress = false
+            telegramGuardianInstruction = nil
+        case "sms":
+            smsGuardianVerificationInProgress = false
+            smsGuardianInstruction = nil
+        default:
+            break
+        }
+    }
+
     func revokeChannelGuardian(channel: String) {
         stopGuardianStatusPolling(for: channel)
         // Eagerly clear instruction so the "Verify Guardian" button reappears
