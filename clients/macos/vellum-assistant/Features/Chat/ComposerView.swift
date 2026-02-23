@@ -137,11 +137,7 @@ struct ComposerView: View {
             .padding(.trailing, VSpacing.lg)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(VColor.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.surfaceSubtle.opacity(0.4))
-                    )
+                    .fill(adaptiveColor(light: Moss._200, dark: Moss._700))
             )
             .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
             .overlay(
@@ -287,7 +283,7 @@ struct ComposerView: View {
                 Button(action: onAttach) {
                     Image(systemName: "paperclip")
                         .font(.system(size: composerActionIconSize, weight: .regular))
-                        .foregroundColor(VColor.textSecondary.opacity(0.82))
+                        .foregroundColor(adaptiveColor(light: Forest._500, dark: Moss._400))
                 }
                 .buttonStyle(ComposerActionButtonStyle(
                     isHovered: isAttachmentHovered,
@@ -624,7 +620,7 @@ private struct ComposerTextView: NSViewRepresentable {
         let oldPlaceholder = textView.placeholderText
         let oldGhostSuffix = textView.hasGhostSuffix
         textView.placeholderText = placeholder
-        textView.placeholderColor = NSColor(VColor.textSecondary).withAlphaComponent(0.92)
+        textView.placeholderColor = NSColor(Moss._400)
         textView.hasGhostSuffix = hasGhostSuffix
         textView.isSlashMenuOpen = isSlashMenuOpen
 
@@ -912,7 +908,7 @@ private struct MicrophoneButton: View {
 
                 Image(systemName: isRecording ? "mic.fill" : "mic")
                     .font(.system(size: iconSize, weight: .regular))
-                    .foregroundColor(isRecording ? VColor.error : VColor.textSecondary.opacity(0.82))
+                    .foregroundColor(isRecording ? VColor.error : adaptiveColor(light: Forest._500, dark: Moss._400))
             }
         }
         .accessibilityLabel(isRecording ? "Stop recording" : "Start voice input")
