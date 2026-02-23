@@ -798,6 +798,18 @@ public typealias TaskRoutedMessage = IPCTaskRouted
 /// Daemon response to a dictation_request with cleaned text and mode classification.
 public typealias DictationResponseMessage = IPCDictationResponse
 
+extension IPCDictationContext {
+    public static func create(bundleIdentifier: String, appName: String, windowTitle: String, selectedText: String?, cursorInTextField: Bool) -> IPCDictationContext {
+        IPCDictationContext(bundleIdentifier: bundleIdentifier, appName: appName, windowTitle: windowTitle, selectedText: selectedText, cursorInTextField: cursorInTextField)
+    }
+}
+
+extension IPCDictationRequest {
+    public init(transcription: String, context: IPCDictationContext) {
+        self.init(type: "dictation_request", transcription: transcription, context: context)
+    }
+}
+
 /// Result from a ride shotgun observation session.
 public typealias RideShotgunResultMessage = IPCRideShotgunResult
 
