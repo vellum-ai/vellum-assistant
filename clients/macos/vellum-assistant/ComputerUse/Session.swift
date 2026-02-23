@@ -280,9 +280,9 @@ final class ComputerUseSession: ObservableObject {
         if qaMode {
             await finalizeQARecording()
 
-            // Now that finalization is complete, send the deferred abort for cancelled
-            // QA sessions. cancel() skips sending it so cu_session_finalized arrives
-            // before the abort (the daemon's handleCuSessionAbort deletes metadata).
+            // Send the abort immediately after finalization for cancelled QA sessions.
+            // This arrives before cancel()'s 2-second safety-net abort fires.
+            // The daemon deduplicates aborts, so the safety net is harmless if we get here.
             if isCancelled {
                 do {
                     try daemonClient.send(CuSessionAbortMessage(sessionId: id))
@@ -1045,10 +1045,17 @@ final class ComputerUseSession: ObservableObject {
         messageLoopTask?.cancel()
         confirmationContinuation?.resume(returning: false)
         confirmationContinuation = nil
-        // In QA mode, defer the abort until after finalizeQARecording() in run(),
-        // because the daemon's handleCuSessionAbort deletes cuSessionMetadata and
-        // cu_session_finalized must arrive first for summary injection to work.
-        if !qaMode {
+
+        if qaMode {
+            // Deferred abort: give run() a chance to send finalization first,
+            // but guarantee abort eventually fires as a safety net in case
+            // run() never reaches the post-loop block (e.g., throws or gets stuck).
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+                guard self.isCancelled else { return } // in case state changed
+                try? self.daemonClient.send(CuSessionAbortMessage(sessionId: self.id))
+            }
+        } else {
             do {
                 try daemonClient.send(CuSessionAbortMessage(sessionId: id))
             } catch {
