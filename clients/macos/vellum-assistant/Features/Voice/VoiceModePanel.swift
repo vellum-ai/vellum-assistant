@@ -270,17 +270,17 @@ struct VoiceModePanel: View {
         switch manager.state {
         case .listening: return VColor.accent
         case .speaking: return VColor.success
-        case .processing: return Violet._700
-        default: return Slate._600
+        case .processing: return Forest._700
+        default: return Moss._500
         }
     }
 
     private var orbGradient: [Color] {
         switch manager.state {
-        case .listening: return [Violet._500, Violet._700]
+        case .listening: return [Forest._500, Forest._700]
         case .speaking: return [Emerald._500, Emerald._700]
-        case .processing: return [Violet._600, Violet._800]
-        default: return [Slate._500, Slate._700]
+        case .processing: return [Forest._600, Forest._800]
+        default: return [Moss._500, Moss._400]
         }
     }
 

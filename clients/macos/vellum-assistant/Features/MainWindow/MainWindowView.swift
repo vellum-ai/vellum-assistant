@@ -20,6 +20,7 @@ struct MainWindowView: View {
     @State private var isHoveredApp: String?
     @State private var requestedHomeBaseAtLaunch = false
     @State private var threadPendingDeletion: UUID?
+    @State private var showAllThreads: Bool = false
     @State private var showAllApps: Bool = false
     @State private var showControlCenterDrawer: Bool = false
     @AppStorage("isAppChatOpen") private var isAppChatOpen: Bool = false
@@ -871,7 +872,7 @@ struct MainWindowView: View {
                     } label: {
                         Text(showAllThreads ? "Show less" : "Show more")
                             .font(VFont.caption)
-                            .foregroundColor(Forest._600)
+                            .foregroundColor(adaptiveColor(light: Forest._600, dark: Forest._400))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.leading, 20)
                             .padding(.vertical, VSpacing.xs)
@@ -1129,13 +1130,13 @@ private struct SidebarThreadsHeader: View {
             Button(action: onNewThread) {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(Forest._700)
+                    .foregroundColor(adaptiveColor(light: Forest._700, dark: Forest._400))
                     .frame(width: 22, height: 22)
                     .background(Color.clear)
                     .clipShape(Circle())
                     .overlay(
                         Circle()
-                            .stroke(Forest._700, lineWidth: 1.5)
+                            .stroke(adaptiveColor(light: Forest._700, dark: Forest._400), lineWidth: 1.5)
                     )
             }
             .buttonStyle(.plain)

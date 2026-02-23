@@ -156,7 +156,7 @@
   :root {
     --v-bg:             var(--v-moss-950);
     --v-surface:        var(--v-moss-700);
-    --v-surface-border: var(--v-moss-700);
+    --v-surface-border: var(--v-moss-600);
     --v-text:           var(--v-moss-50);
     --v-text-secondary: var(--v-moss-400);
     --v-text-muted:     var(--v-moss-500);
