@@ -87,6 +87,9 @@ struct InlineVideoAttachmentView: View {
         .frame(maxWidth: 360)
         .aspectRatio(videoAspectRatio, contentMode: .fit)
         .onHover { isHovering = $0 }
+        .onDrag {
+            dragItemProvider()
+        }
         .onDisappear {
             player?.pause()
             player = nil
@@ -337,6 +340,56 @@ struct InlineVideoAttachmentView: View {
                 await MainActor.run { isSaving = false }
             }
         }
+    }
+
+    /// Creates an NSItemProvider for drag-and-drop to Finder or other apps.
+    /// Uses the cached temp file if available, otherwise writes inline data to disk first.
+    private func dragItemProvider() -> NSItemProvider {
+        if let fileURL = cachedFileURL {
+            return NSItemProvider(contentsOf: fileURL) ?? NSItemProvider()
+        }
+
+        // Write inline base64 data to a temp file for dragging
+        if !attachment.data.isEmpty, let data = Data(base64Encoded: attachment.data) {
+            let fileURL = safeTempURL()
+            do {
+                try data.write(to: fileURL)
+                return NSItemProvider(contentsOf: fileURL) ?? NSItemProvider()
+            } catch {
+                log.warning("Failed to write video for drag: \(error.localizedDescription)")
+            }
+        }
+
+        // Fallback: provide the filename as a promise (lazy-loaded attachments)
+        if attachment.isLazyLoad, let port = daemonHttpPort, !attachment.id.isEmpty {
+            let provider = NSItemProvider()
+            let fileURL = safeTempURL()
+            let attachmentId = attachment.id
+            provider.suggestedName = (attachment.filename as NSString).lastPathComponent
+            provider.registerFileRepresentation(
+                forTypeIdentifier: "public.mpeg-4",
+                fileOptions: [],
+                visibility: .all
+            ) { completion in
+                Task {
+                    do {
+                        let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
+                        guard let data = Data(base64Encoded: base64) else {
+                            completion(nil, false, URLError(.cannotDecodeContentData))
+                            return
+                        }
+                        try data.write(to: fileURL)
+                        completion(fileURL, true, nil)
+                    } catch {
+                        completion(nil, false, error)
+                    }
+                }
+                return nil
+            }
+            return provider
+        }
+
+        return NSItemProvider()
     }
 
     private func openInExternalPlayer() {
