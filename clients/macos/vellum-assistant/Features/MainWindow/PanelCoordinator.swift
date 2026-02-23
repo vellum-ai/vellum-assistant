@@ -429,9 +429,11 @@ extension MainWindowView {
                 onToggleChatDock: {
                     if case .appEditing(let appId, _) = windowState.selection {
                         // Toggle off: go back to full-screen app view
+                        isAppChatOpen = false
                         windowState.selection = .app(appId)
                     } else if case .app(let appId) = windowState.selection {
                         // Toggle on: find most recent thread and enter editing mode
+                        isAppChatOpen = true
                         let threadId = threadManager.activeThreadId ?? threadManager.visibleThreads.first?.id
                         if let threadId {
                             threadManager.selectThread(id: threadId)

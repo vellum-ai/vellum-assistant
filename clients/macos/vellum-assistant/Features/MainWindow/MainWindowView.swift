@@ -337,6 +337,25 @@ struct MainWindowView: View {
                     }
                 }
 
+                // Sticky behavior: if isAppChatOpen is true and we just navigated to .app,
+                // auto-transition to .appEditing so the chat dock stays open.
+                // Guard: only auto-transition from .app (not .appEditing) to avoid infinite loops.
+                if case .app(let appId) = newSelection, isAppChatOpen {
+                    let threadId = threadManager.activeThreadId
+                        ?? threadManager.visibleThreads.first?.id
+                    if let threadId {
+                        threadManager.selectThread(id: threadId)
+                        windowState.setAppEditing(appId: appId, threadId: threadId)
+                    } else {
+                        // No threads exist — create one, then transition
+                        threadManager.createThread()
+                        if let newThreadId = threadManager.activeThreadId {
+                            windowState.setAppEditing(appId: appId, threadId: newThreadId)
+                        }
+                    }
+                    return
+                }
+
                 // Sync surface and chat dock state when selection changes
                 let expanded = windowState.isDynamicExpanded
                 let docked = windowState.isChatDockOpen
