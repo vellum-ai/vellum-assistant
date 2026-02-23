@@ -240,6 +240,7 @@ struct ToastInfo {
     enum Style {
         case success
         case error
+        case warning
     }
 
     let message: String
