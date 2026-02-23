@@ -300,7 +300,7 @@ struct ThreadSessionRestorerTests {
     }
 
     @Test @MainActor
-    func sessionListCapsAtFive() {
+    func sessionListRestoresAllAndSetsOffset() {
         let dc = DaemonClient()
         let restorer = ThreadSessionRestorer(daemonClient: dc)
         let delegate = MockThreadRestorerDelegate(daemonClient: dc)
@@ -315,8 +315,9 @@ struct ThreadSessionRestorerTests {
         }
         restorer.handleSessionListResponse(makeSessionListResponse(sessions: sessions))
 
-        // Only 5 sessions should be restored
-        #expect(delegate.threads.count == 5)
+        // Client restores all sessions from the response; pagination is server-side
+        #expect(delegate.threads.count == 10)
+        #expect(delegate.serverOffset == 10)
     }
 
     // MARK: - All-Archived Restore
