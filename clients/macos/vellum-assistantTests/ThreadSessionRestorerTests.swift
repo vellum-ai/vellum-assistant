@@ -9,6 +9,9 @@ import VellumAssistantShared
 final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
     var threads: [ThreadModel] = []
     var restoreRecentThreads: Bool = true
+    var isLoadingMoreThreads: Bool = false
+    var hasMoreThreads: Bool = false
+    var serverOffset: Int = 0
     var viewModels: [UUID: ChatViewModel] = [:]
     var activatedThreadId: UUID?
     var createThreadCallCount = 0
@@ -53,6 +56,10 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
     }
 
     func restoreLastActiveThread() {
+        // no-op for tests
+    }
+
+    func appendThreads(from response: SessionListResponseMessage) {
         // no-op for tests
     }
 }
