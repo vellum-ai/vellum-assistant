@@ -18,7 +18,7 @@ struct SlashCommand {
 }
 
 enum SlashNavigation {
-    case up, down, select, dismiss
+    case up, down, select, tab, dismiss
 }
 
 struct ComposerView: View {
@@ -527,6 +527,10 @@ struct ComposerView: View {
                 slashSelectedIndex = (slashSelectedIndex + 1) % filtered.count
             case .select:
                 selectSlashCommand(filtered[slashSelectedIndex])
+            case .tab:
+                let command = filtered[slashSelectedIndex]
+                inputText = "/\(command.name)"
+                withAnimation(VAnimation.fast) { showSlashMenu = false }
             case .dismiss:
                 withAnimation(VAnimation.fast) { showSlashMenu = false }
                 inputText = ""
@@ -794,6 +798,12 @@ private final class ComposerNativeTextView: NSTextView {
 
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection([.shift, .command, .control, .option])
+
+        // Tab autocompletes the selected slash command when the menu is open.
+        if event.keyCode == 48, !modifiers.contains(.shift), isSlashMenuOpen {
+            onSlashNavigate?(.tab)
+            return
+        }
 
         // Tab accepts ghost suggestions in-place when available.
         if event.keyCode == 48, !modifiers.contains(.shift), hasGhostSuffix {
