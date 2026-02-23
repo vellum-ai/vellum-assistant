@@ -146,22 +146,23 @@ final class ComputerUseSession: ObservableObject {
                 var windowID: CGWindowID?
                 var displayID: CGDirectDisplayID?
                 if captureScope == "window" {
-                    // Resolve the frontmost window's CGWindowID for window-scoped capture.
-                    if let frontApp = NSWorkspace.shared.frontmostApplication {
-                        let pid = frontApp.processIdentifier
-                        if let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
-                            for info in windowList {
-                                if let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
-                                   ownerPID == pid,
-                                   let wid = info[kCGWindowNumber as String] as? CGWindowID {
-                                    windowID = wid
-                                    break
-                                }
+                    // Resolve a target window's CGWindowID for window-scoped capture.
+                    // Exclude our own PID so we never accidentally record Vellum's
+                    // window or overlay (which may still be frontmost in direct-start flow).
+                    let myPID = ProcessInfo.processInfo.processIdentifier
+                    if let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
+                        for info in windowList {
+                            if let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
+                               ownerPID != myPID,
+                               let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
+                               let wid = info[kCGWindowNumber as String] as? CGWindowID {
+                                windowID = wid
+                                break
                             }
                         }
                     }
                     if windowID == nil {
-                        log.warning("QA mode: captureScope is 'window' but no frontmost window found — falling back to display capture")
+                        log.warning("QA mode: captureScope is 'window' but no suitable target window found — falling back to display capture")
                     }
                 } else {
                     displayID = CGMainDisplayID()
