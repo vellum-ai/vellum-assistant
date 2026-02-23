@@ -5,10 +5,10 @@
  * Uses content-hash deduplication (same pattern as attachments-store.ts).
  */
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, gte, desc, asc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
-import { mediaAssets, processingStages, mediaKeyframes, mediaVisionOutputs, mediaTimelines } from './schema.js';
+import { mediaAssets, processingStages, mediaKeyframes, mediaVisionOutputs, mediaTimelines, mediaEvents } from './schema.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -515,6 +515,151 @@ function parseTimelineRow(row: typeof mediaTimelines.$inferSelect): MediaTimelin
     segmentType: row.segmentType,
     attributes,
     confidence: row.confidence,
+    createdAt: row.createdAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Media event types & CRUD
+// ---------------------------------------------------------------------------
+
+export interface MediaEvent {
+  id: string;
+  assetId: string;
+  eventType: string;
+  startTime: number;
+  endTime: number;
+  confidence: number;
+  reasons: string[];
+  metadata: Record<string, unknown> | null;
+  createdAt: number;
+}
+
+export function insertEvent(params: {
+  assetId: string;
+  eventType: string;
+  startTime: number;
+  endTime: number;
+  confidence: number;
+  reasons: string[];
+  metadata?: Record<string, unknown>;
+}): MediaEvent {
+  const db = getDb();
+  const now = Date.now();
+  const record = {
+    id: uuid(),
+    assetId: params.assetId,
+    eventType: params.eventType,
+    startTime: params.startTime,
+    endTime: params.endTime,
+    confidence: params.confidence,
+    reasons: JSON.stringify(params.reasons),
+    metadata: params.metadata ? JSON.stringify(params.metadata) : null,
+    createdAt: now,
+  };
+  db.insert(mediaEvents).values(record).run();
+  return { ...record, reasons: params.reasons, metadata: params.metadata ?? null };
+}
+
+export function insertEventsBatch(
+  rows: Array<{
+    assetId: string;
+    eventType: string;
+    startTime: number;
+    endTime: number;
+    confidence: number;
+    reasons: string[];
+    metadata?: Record<string, unknown>;
+  }>,
+): MediaEvent[] {
+  const db = getDb();
+  const now = Date.now();
+  const records = rows.map((r) => ({
+    id: uuid(),
+    assetId: r.assetId,
+    eventType: r.eventType,
+    startTime: r.startTime,
+    endTime: r.endTime,
+    confidence: r.confidence,
+    reasons: JSON.stringify(r.reasons),
+    metadata: r.metadata ? JSON.stringify(r.metadata) : null,
+    createdAt: now,
+  }));
+  if (records.length > 0) {
+    db.insert(mediaEvents).values(records).run();
+  }
+  return records.map((rec, i) => ({
+    ...rec,
+    reasons: rows[i].reasons,
+    metadata: rows[i].metadata ?? null,
+  }));
+}
+
+export function getEventsForAsset(
+  assetId: string,
+  filters?: {
+    eventType?: string;
+    minConfidence?: number;
+    limit?: number;
+    sortBy?: 'confidence' | 'startTime';
+  },
+): MediaEvent[] {
+  const db = getDb();
+  const conditions = [eq(mediaEvents.assetId, assetId)];
+  if (filters?.eventType) {
+    conditions.push(eq(mediaEvents.eventType, filters.eventType));
+  }
+  if (filters?.minConfidence !== undefined) {
+    conditions.push(gte(mediaEvents.confidence, filters.minConfidence));
+  }
+
+  let query = db
+    .select()
+    .from(mediaEvents)
+    .where(and(...conditions))
+    .$dynamic();
+
+  if (filters?.sortBy === 'confidence') {
+    query = query.orderBy(desc(mediaEvents.confidence));
+  } else {
+    query = query.orderBy(asc(mediaEvents.startTime));
+  }
+
+  if (filters?.limit) {
+    query = query.limit(filters.limit);
+  }
+
+  const rows = query.all();
+  return rows.map(parseEventRow);
+}
+
+export function getEventById(id: string): MediaEvent | null {
+  const db = getDb();
+  const row = db.select().from(mediaEvents).where(eq(mediaEvents.id, id)).get();
+  return row ? parseEventRow(row) : null;
+}
+
+export function deleteEventsForAsset(assetId: string): void {
+  const db = getDb();
+  db.delete(mediaEvents).where(eq(mediaEvents.assetId, assetId)).run();
+}
+
+function parseEventRow(row: typeof mediaEvents.$inferSelect): MediaEvent {
+  let reasons: string[] = [];
+  try { reasons = JSON.parse(row.reasons) as string[]; } catch { reasons = []; }
+  let metadata: Record<string, unknown> | null = null;
+  if (row.metadata) {
+    try { metadata = JSON.parse(row.metadata) as Record<string, unknown>; } catch { metadata = null; }
+  }
+  return {
+    id: row.id,
+    assetId: row.assetId,
+    eventType: row.eventType,
+    startTime: row.startTime,
+    endTime: row.endTime,
+    confidence: row.confidence,
+    reasons,
+    metadata,
     createdAt: row.createdAt,
   };
 }

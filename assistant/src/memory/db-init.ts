@@ -1103,5 +1103,25 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_timelines_asset_id ON media_timelines(asset_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_timelines_asset_time ON media_timelines(asset_id, start_time)`);
 
+  // ── Media Events ──────────────────────────────────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS media_events (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL REFERENCES media_assets(id) ON DELETE CASCADE,
+      event_type TEXT NOT NULL,
+      start_time REAL NOT NULL,
+      end_time REAL NOT NULL,
+      confidence REAL NOT NULL,
+      reasons TEXT NOT NULL,
+      metadata TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_events_asset_id ON media_events(asset_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_events_asset_type ON media_events(asset_id, event_type)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_events_confidence ON media_events(confidence DESC)`);
+
   migrateMemoryFtsBackfill(database);
 }
