@@ -862,6 +862,20 @@ struct AgentPanelContent: View {
                         .font(VFont.small)
                         .foregroundColor(Amber._500)
                 }
+
+                Spacer()
+
+                HStack(spacing: VSpacing.sm) {
+                    VButton(label: "Use", icon: "bolt.fill", style: .primary, size: .small) {
+                        onInvokeSkill?(skill)
+                    }
+
+                    if skill.source == "managed" {
+                        VButton(label: "Delete", icon: "trash", style: .danger, size: .small) {
+                            skillToDelete = skill
+                        }
+                    }
+                }
             }
 
             // Description
@@ -906,18 +920,6 @@ struct AgentPanelContent: View {
                     .stroke(VColor.surfaceBorder, lineWidth: 1)
             )
 
-            // Action buttons
-            HStack(spacing: VSpacing.md) {
-                VButton(label: "Use", icon: "bolt.fill", style: .primary, isFullWidth: true) {
-                    onInvokeSkill?(skill)
-                }
-
-                if skill.source == "managed" {
-                    VButton(label: "Delete", icon: "trash", style: .danger) {
-                        skillToDelete = skill
-                    }
-                }
-            }
         }
     }
 
