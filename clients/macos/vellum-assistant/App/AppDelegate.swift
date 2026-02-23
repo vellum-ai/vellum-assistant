@@ -180,7 +180,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupWindowObserver()
         setupNotifications()
         setupAutoUpdate()
-        showMainWindow(initialMessage: isFirstLaunch ? "Wake up, my friend" : nil, isFirstLaunch: isFirstLaunch)
+        showMainWindow(initialMessage: isFirstLaunch ? wakeUpGreeting() : nil, isFirstLaunch: isFirstLaunch)
         debugStateWriter.start(appDelegate: self)
 
         if isFirstLaunch {
@@ -1073,6 +1073,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
 
+            // Persist the assistant name in case it was changed during replay.
+            let trimmedName = state.assistantName.trimmingCharacters(in: .whitespaces)
+            if !trimmedName.isEmpty {
+                UserDefaults.standard.set(trimmedName, forKey: "assistantName")
+            }
+
             onboarding.close()
             self?.onboardingWindow = nil
 
@@ -1105,6 +1111,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
 
+            // Persist the assistant name chosen during onboarding so the
+            // wake-up greeting can use it (IDENTITY.md may not be written yet).
+            let trimmedName = state.assistantName.trimmingCharacters(in: .whitespaces)
+            if !trimmedName.isEmpty {
+                UserDefaults.standard.set(trimmedName, forKey: "assistantName")
+            }
+
             onboarding.close()
             self?.onboardingWindow = nil
 
@@ -1118,6 +1131,28 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         onboarding.show()
         onboardingWindow = onboarding
+    }
+
+    // MARK: - Wake-Up Greeting
+
+    /// Generates a time-aware, name-aware greeting for the assistant's first message.
+    private func wakeUpGreeting() -> String {
+        let name = IdentityInfo.load()?.name
+            ?? UserDefaults.standard.string(forKey: "assistantName")
+            ?? "friend"
+
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<12:
+            return "Good morning, \(name). Time to wake up."
+        case 12..<18:
+            return "Hey \(name), I'm here."
+        case 18..<22:
+            return "Evening, \(name). Ready when you are."
+        default:
+            // 22–4 (late night)
+            return "Burning the midnight oil? Let's go, \(name)."
+        }
     }
 
     // MARK: - Main Window
