@@ -18,11 +18,19 @@ enum SessionState: Equatable {
     case cancelled
 }
 
+struct PendingToolPermissionPrompt: Equatable {
+    let requestId: String
+    let toolName: String
+    let riskLevel: String
+    let summary: String
+}
+
 @MainActor
 final class ComputerUseSession: ObservableObject {
     @Published var state: SessionState = .idle
     @Published var undoCount = 0
     @Published var autoApproveTools = false
+    @Published var pendingToolPermissionPrompt: PendingToolPermissionPrompt?
 
     let task: String
     let id: String
@@ -123,6 +131,7 @@ final class ComputerUseSession: ObservableObject {
         verifier.reset()
         isCancelled = false
         isPaused = false
+        pendingToolPermissionPrompt = nil
         previousAXTreeText = nil
         previousElements = nil
         previousFlatElements = nil
@@ -205,6 +214,15 @@ final class ComputerUseSession: ObservableObject {
                 ))
             } catch {
                 log.error("Failed to send session create message: \(error)")
+                state = .failed(reason: "Assistant connection lost before session start")
+                logger.finishSession(result: "failed: session_create send failed")
+                // Disarm cancel safety net — this run is terminating early.
+                cancelSafetyNetTask?.cancel()
+                cancelSafetyNetTask = nil
+                if qaMode {
+                    await finalizeQARecording()
+                }
+                return
             }
         }
 
@@ -215,6 +233,15 @@ final class ComputerUseSession: ObservableObject {
                 try daemonClient.send(obs)
             } catch {
                 log.error("Failed to send initial observation: \(error)")
+                state = .failed(reason: "Assistant connection lost before first action")
+                logger.finishSession(result: "failed: initial observation send failed")
+                // Disarm cancel safety net — this run is terminating early.
+                cancelSafetyNetTask?.cancel()
+                cancelSafetyNetTask = nil
+                if qaMode {
+                    await finalizeQARecording()
+                }
+                return
             }
         } else {
             state = .failed(reason: "No focused window and screen capture failed")
@@ -1092,6 +1119,7 @@ final class ComputerUseSession: ObservableObject {
         messageLoopTask?.cancel()
         confirmationContinuation?.resume(returning: false)
         confirmationContinuation = nil
+        pendingToolPermissionPrompt = nil
 
         if qaMode {
             // Deferred abort: give run() a chance to send finalization first,
@@ -1131,5 +1159,60 @@ final class ComputerUseSession: ObservableObject {
                 log.error("Undo failed: \(error.localizedDescription)")
             }
         }
+    }
+
+    func presentToolPermissionPrompt(_ message: ConfirmationRequestMessage) {
+        pendingToolPermissionPrompt = PendingToolPermissionPrompt(
+            requestId: message.requestId,
+            toolName: message.toolName,
+            riskLevel: message.riskLevel,
+            summary: Self.summarizeToolPermissionInput(message.input)
+        )
+        log.info("CU prompt surfaced in overlay: requestId=\(message.requestId, privacy: .public), tool=\(message.toolName, privacy: .public)")
+    }
+
+    func approveToolPermissionPrompt() {
+        respondToToolPermissionPrompt(decision: "allow")
+    }
+
+    func denyToolPermissionPrompt() {
+        respondToToolPermissionPrompt(decision: "deny")
+    }
+
+    private func respondToToolPermissionPrompt(decision: String) {
+        guard let pending = pendingToolPermissionPrompt else { return }
+        do {
+            try daemonClient.send(ConfirmationResponseMessage(
+                requestId: pending.requestId,
+                decision: decision
+            ))
+            pendingToolPermissionPrompt = nil
+            log.info("CU prompt resolved in overlay: requestId=\(pending.requestId, privacy: .public), decision=\(decision, privacy: .public)")
+        } catch {
+            log.error("Failed to send CU tool confirmation response: \(error.localizedDescription)")
+        }
+    }
+
+    private static func summarizeToolPermissionInput(_ input: [String: AnyCodable]) -> String {
+        if let appName = input["appName"]?.value as? String, !appName.isEmpty {
+            return "Target app: \(appName)"
+        }
+        if let reasoning = input["reasoning"]?.value as? String, !reasoning.isEmpty {
+            return reasoning
+        }
+        if let command = input["command"]?.value as? String, !command.isEmpty {
+            return command
+        }
+        if input.isEmpty {
+            return "No additional details provided."
+        }
+        let text = input
+            .sorted { $0.key < $1.key }
+            .map { key, value in
+                let rendered = value.value.map { String(describing: $0) } ?? "null"
+                return "\(key)=\(rendered)"
+            }
+            .joined(separator: ", ")
+        return text.count > 220 ? String(text.prefix(220)) + "..." : text
     }
 }

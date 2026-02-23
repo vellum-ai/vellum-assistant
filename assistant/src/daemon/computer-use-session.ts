@@ -60,6 +60,8 @@ export class ComputerUseSession {
   private readonly interactionType: 'computer_use' | 'text_qa';
   private readonly onTerminal?: (sessionId: string) => void;
   private readonly preactivatedSkillIds: string[];
+  private readonly targetAppName?: string;
+  private readonly targetAppBundleId?: string;
   private readonly skillProjectionState = new Map<string, string>();
   private readonly skillProjectionCache: SkillProjectionCache = {};
 
@@ -95,6 +97,8 @@ export class ComputerUseSession {
     interactionType?: 'computer_use' | 'text_qa',
     onTerminal?: (sessionId: string) => void,
     preactivatedSkillIds?: string[],
+    targetAppName?: string,
+    targetAppBundleId?: string,
   ) {
     this.sessionId = sessionId;
     this.task = task;
@@ -105,6 +109,8 @@ export class ComputerUseSession {
     this.interactionType = interactionType ?? 'computer_use';
     this.onTerminal = onTerminal;
     this.preactivatedSkillIds = preactivatedSkillIds ?? ['computer-use'];
+    this.targetAppName = targetAppName;
+    this.targetAppBundleId = targetAppBundleId;
   }
 
   // ---------------------------------------------------------------------------
@@ -222,6 +228,29 @@ export class ComputerUseSession {
     return this.state;
   }
 
+  private isTargetAppMatch(candidateAppName: string): boolean {
+    if (!this.targetAppName) return true;
+    const candidate = ComputerUseSession.normalizeAppLabel(candidateAppName);
+    const target = ComputerUseSession.normalizeAppLabel(this.targetAppName);
+    if (!candidate || !target) return true;
+    return candidate === target || target.includes(candidate) || candidate.includes(target);
+  }
+
+  private extractAppleScriptActivationTarget(script: string): string | undefined {
+    const match = /tell\s+application\s+"([^"]+)"\s+to\s+activate/i.exec(script);
+    return match?.[1];
+  }
+
+  private static normalizeAppLabel(value: string): string {
+    return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  private shouldBlockKnownVellumConfusionApp(candidateAppName: string): boolean {
+    if (this.targetAppBundleId !== 'com.vellum.vellum-assistant') return false;
+    const candidate = ComputerUseSession.normalizeAppLabel(candidateAppName);
+    return candidate.includes('slack') || candidate.includes('notion');
+  }
+
   /**
    * Compute CU tool definitions from the bundled computer-use skill via
    * skill projection. Returns null if projection fails so the caller can
@@ -278,7 +307,12 @@ export class ComputerUseSession {
   // ---------------------------------------------------------------------------
 
   private async runAgentLoop(messages: Message[]): Promise<void> {
-    const systemPrompt = buildComputerUseSystemPrompt(this.screenWidth, this.screenHeight);
+    const systemPrompt = buildComputerUseSystemPrompt(
+      this.screenWidth,
+      this.screenHeight,
+      this.targetAppName,
+      this.targetAppBundleId,
+    );
 
     let cuToolDefs = this.getProjectedCuToolDefinitions();
     if (!cuToolDefs) {
@@ -419,6 +453,38 @@ export class ComputerUseSession {
         return new Promise<ToolExecutionResult>((resolve) => {
           this.pendingSurfaceActions.set(surfaceId, { resolve });
         });
+      }
+
+      // Guard app switching when this session has an explicit target app.
+      if (toolName === 'computer_use_open_app') {
+        const requestedApp =
+          (typeof input.app_name === 'string' ? input.app_name : undefined)
+          ?? (typeof input.appName === 'string' ? input.appName : undefined);
+        if (
+          requestedApp
+          && !this.isTargetAppMatch(requestedApp)
+          && this.shouldBlockKnownVellumConfusionApp(requestedApp)
+        ) {
+          return {
+            content: `Blocked: this task is scoped to "${this.targetAppName}". Do not switch to "${requestedApp}" unless the user explicitly requests a cross-app workflow.`,
+            isError: true,
+          };
+        }
+      }
+
+      if (toolName === 'computer_use_run_applescript') {
+        const script = typeof input.script === 'string' ? input.script : undefined;
+        const activatedApp = script ? this.extractAppleScriptActivationTarget(script) : undefined;
+        if (
+          activatedApp
+          && !this.isTargetAppMatch(activatedApp)
+          && this.shouldBlockKnownVellumConfusionApp(activatedApp)
+        ) {
+          return {
+            content: `Blocked: this task is scoped to "${this.targetAppName}". AppleScript cannot activate "${activatedApp}" unless the user explicitly requests a cross-app workflow.`,
+            isError: true,
+          };
+        }
       }
 
       // ── Computer-use tool proxying ─────────────────────────────────
@@ -747,6 +813,17 @@ export class ComputerUseSession {
 
     // Text block
     const textParts: string[] = [];
+    if (this.targetAppName) {
+      textParts.push(`TARGET APP: ${this.targetAppName}`);
+      if (this.targetAppBundleId) {
+        textParts.push(`TARGET BUNDLE ID: ${this.targetAppBundleId}`);
+      }
+      textParts.push(
+        'Constraint: Treat similarly named workspaces/documents in other apps as unrelated. Stay in the target app unless the user explicitly asks for a cross-app workflow.',
+      );
+      textParts.push('');
+    }
+
     const trimmedTask = this.task.trim();
     if (trimmedTask) {
       textParts.push(`TASK: ${trimmedTask}`);

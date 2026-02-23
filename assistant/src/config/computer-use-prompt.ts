@@ -18,12 +18,22 @@ function currentDateString(): string {
 export function buildComputerUseSystemPrompt(
   screenWidth: number,
   screenHeight: number,
+  targetAppName?: string,
+  targetAppBundleId?: string,
 ): string {
   const dateStr = currentDateString();
+  const targetAppSection = targetAppName
+    ? `
+TARGET APP CONSTRAINT:
+- This task is scoped to app "${targetAppName}"${targetAppBundleId ? ` (bundle id: ${targetAppBundleId})` : ''}.
+- Do NOT interpret similarly named workspaces, channels, or documents in other apps as the target app.
+- Do NOT switch to other apps unless the user explicitly requested a cross-app workflow.`
+    : '';
 
   return `You are vellum-assistant's computer use agent. You control the user's Mac to accomplish tasks.
 
 The screen is ${screenWidth}\u00d7${screenHeight} pixels.
+${targetAppSection}
 
 ACTION EXECUTION HIERARCHY:
 Not all actions require the same execution method. Always prefer the least invasive, most reliable approach. Foreground computer use (clicking, typing, scrolling) takes over the user's cursor and keyboard — it is disruptive and should be your LAST resort, not your first instinct.

@@ -866,18 +866,35 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
 
+                // Active CU sessions do not have reliable inline-chat confirmation UX.
+                // Always surface permission prompts directly in the CU overlay.
+                if let currentSession = self.currentSession {
+                    currentSession.presentToolPermissionPrompt(msg)
+                    self.overlayWindow?.bringToFront()
+                    return
+                }
+
                 // When the chat window is visible AND the confirmation belongs to the
                 // active thread, the inline ToolConfirmationBubble handles the
                 // confirmation UX — skip the native notification to avoid showing a
                 // duplicate prompt.  If the confirmation is for a background thread,
                 // the inline bubble won't be visible, so we must still fire the
                 // native notification.
-                if NSApp.isActive, let mainWindow = self.mainWindow, mainWindow.isVisible {
-                    let activeSessionId = mainWindow.threadManager.activeViewModel?.sessionId
-                    let confirmationIsForActiveThread = msg.sessionId == nil || msg.sessionId == activeSessionId
-                    if confirmationIsForActiveThread {
-                        return
-                    }
+                //
+                // Important: do NOT treat a nil sessionId as "active thread". CU
+                // sessions may omit the sessionId, and suppressing their prompts
+                // causes the permission request to time out and auto-deny silently.
+                // Also skip suppression entirely when a CU session is running —
+                // CU prompts are never handled by the inline chat bubble.
+                if NSApp.isActive,
+                   let mainWindow = self.mainWindow,
+                   mainWindow.isVisible,
+                   let promptSessionId = msg.sessionId,
+                   let activeSessionId = mainWindow.threadManager.activeViewModel?.sessionId,
+                   promptSessionId == activeSessionId
+                {
+                    log.info("Suppressing native notification for confirmation \(msg.requestId) — inline bubble handles it (sessionId=\(promptSessionId))")
+                    return
                 }
 
                 let decision = await self.toolConfirmationNotificationService.showConfirmation(msg)

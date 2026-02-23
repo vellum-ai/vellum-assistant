@@ -6,7 +6,7 @@ import SwiftUI
 final class SessionOverlayWindow {
     private var panel: NSPanel?
     private let session: ComputerUseSession
-    private var stateCancellable: AnyCancellable?
+    private var layoutCancellable: AnyCancellable?
 
     init(session: ComputerUseSession) {
         self.session = session
@@ -34,19 +34,25 @@ final class SessionOverlayWindow {
 
         // Size window to fit SwiftUI content and resize on every state change
         sizeAndPosition(panel)
-        stateCancellable = session.$state
+        layoutCancellable = session.objectWillChange
             .sink { [weak self, weak panel] _ in
                 guard let self, let panel else { return }
-                self.sizeAndPosition(panel)
+                DispatchQueue.main.async {
+                    self.sizeAndPosition(panel)
+                }
             }
 
         panel.orderFront(nil)
         self.panel = panel
     }
 
+    func bringToFront() {
+        panel?.orderFrontRegardless()
+    }
+
     func close() {
-        stateCancellable?.cancel()
-        stateCancellable = nil
+        layoutCancellable?.cancel()
+        layoutCancellable = nil
         panel?.close()
         panel = nil
     }
