@@ -159,6 +159,10 @@ mock.module('../security/secret-allowlist.js', () => ({
   resetAllowlist: () => {},
 }));
 
+mock.module('../memory/external-conversation-store.js', () => ({
+  getBindingsForConversations: () => new Map(),
+}));
+
 mock.module('../memory/conversation-store.js', () => ({
   getLatestConversation: () => conversation,
   createConversation: (titleOrOpts?: string | { title?: string; threadType?: string }) => {
@@ -181,6 +185,7 @@ mock.module('../memory/conversation-store.js', () => ({
   },
   getMessages: () => [],
   listConversations: () => [conversation],
+  countConversations: () => 1,
 }));
 
 mock.module('../daemon/session.js', () => ({
