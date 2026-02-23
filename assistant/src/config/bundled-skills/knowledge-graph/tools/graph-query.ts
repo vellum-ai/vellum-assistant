@@ -57,6 +57,22 @@ export async function run(
     };
   }
 
+  // For intersection queries, all seeds must resolve — dropping any seed silently
+  // changes semantics from "reachable from ALL seeds" to "reachable from resolved seeds"
+  if (params.query_type === 'intersection' && seedEntityIds.length < params.seeds.length) {
+    const unresolvedSeeds = params.seeds.filter(
+      name => !resolvedSeeds.some(s => s.name === name),
+    );
+    return {
+      content: JSON.stringify({
+        error: 'Some seed entities could not be resolved. Intersection requires all seeds to match.',
+        unresolved_seeds: unresolvedSeeds,
+        resolved_seeds: resolvedSeeds,
+      }),
+      isError: true,
+    };
+  }
+
   let resultEntityIds: string[];
 
   switch (params.query_type) {
@@ -142,12 +158,13 @@ export async function run(
       if (includeItems) {
         const candidates = getEntityLinkedItemCandidates([row.id], {
           source: 'entity_direct',
+          scopeIds: _context.memoryScopeId ? [_context.memoryScopeId] : undefined,
         });
         entity.items = candidates.slice(0, 5).map(c => {
           const parts = c.text.split(': ');
           return {
             subject: parts[0] ?? '',
-            statement: parts.slice(1).join(': ') ?? c.text,
+            statement: parts.slice(1).join(': ') || c.text,
           };
         });
       }
