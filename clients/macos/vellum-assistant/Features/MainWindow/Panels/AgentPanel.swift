@@ -201,6 +201,10 @@ struct AgentPanelContent: View {
             .padding(VSpacing.md)
             .background(VColor.inputBackground)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
 
             // Sort picker
             HStack(spacing: VSpacing.sm) {
