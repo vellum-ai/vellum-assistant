@@ -383,8 +383,10 @@ struct SettingsConnectTab: View {
             return ConnectionStatusInfo(label: "Not configured", color: VColor.textMuted, icon: "minus.circle.fill")
         }
 
-        // URL is non-empty but not a valid URL
-        if URL(string: trimmedUrl) == nil {
+        // URL is non-empty but not a valid absolute HTTP(S) URL
+        if let parsed = URL(string: trimmedUrl), let scheme = parsed.scheme, ["http", "https"].contains(scheme.lowercased()) {
+            // valid — fall through to reachability check below
+        } else {
             return ConnectionStatusInfo(label: "Invalid URL format", color: VColor.error, icon: "exclamationmark.circle.fill")
         }
 

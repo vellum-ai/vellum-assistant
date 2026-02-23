@@ -1009,6 +1009,9 @@ public final class SettingsStore: ObservableObject {
         let previous = ingressPublicBaseUrl
         ingressPublicBaseUrl = trimmed
         pendingIngressUrl = previous
+        // Reset stale health status so the UI doesn't show results from the old URL
+        ingressReachable = nil
+        gatewayLastChecked = nil
         do {
             try daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed, enabled: ingressEnabled))
         } catch {
@@ -1059,7 +1062,8 @@ public final class SettingsStore: ObservableObject {
 
     /// Performs an HTTP GET to `<baseUrl>/healthz` and returns whether a 2xx response was received.
     private static func checkHealthEndpoint(baseUrl: String, timeoutSeconds: TimeInterval) async -> Bool {
-        guard let url = URL(string: "\(baseUrl)/healthz") else { return false }
+        let normalizedBase = baseUrl.hasSuffix("/") ? String(baseUrl.dropLast()) : baseUrl
+        guard let url = URL(string: "\(normalizedBase)/healthz") else { return false }
         var request = URLRequest(url: url)
         request.timeoutInterval = timeoutSeconds
         do {
