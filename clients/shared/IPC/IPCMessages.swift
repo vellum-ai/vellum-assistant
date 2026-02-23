@@ -795,6 +795,9 @@ public typealias MemoryStatusMessage = IPCMemoryStatus
 /// Daemon response after classifying and routing a task_submit.
 public typealias TaskRoutedMessage = IPCTaskRouted
 
+/// Daemon response to a dictation_request with cleaned text and mode classification.
+public typealias DictationResponseMessage = IPCDictationResponse
+
 /// Result from a ride shotgun observation session.
 public typealias RideShotgunResultMessage = IPCRideShotgunResult
 
@@ -2038,6 +2041,7 @@ public enum ServerMessage: Decodable, Sendable {
     case historyResponse(HistoryResponseMessage)
     case memoryStatus(MemoryStatusMessage)
     case taskRouted(TaskRoutedMessage)
+    case dictationResponse(DictationResponseMessage)
     case error(ErrorMessage)
     case rideShotgunResult(RideShotgunResultMessage)
     case uiSurfaceShow(UiSurfaceShowMessage)
@@ -2193,6 +2197,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "task_routed":
             let message = try TaskRoutedMessage(from: decoder)
             self = .taskRouted(message)
+        case "dictation_response":
+            let message = try DictationResponseMessage(from: decoder)
+            self = .dictationResponse(message)
         case "error":
             let message = try ErrorMessage(from: decoder)
             self = .error(message)

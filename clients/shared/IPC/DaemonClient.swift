@@ -216,6 +216,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `task_routed` message (e.g. escalation from text_qa to CU).
     public var onTaskRouted: ((TaskRoutedMessage) -> Void)?
 
+    /// Called when the daemon sends a `dictation_response` message.
+    public var onDictationResponse: ((DictationResponseMessage) -> Void)?
+
     /// Called when a reminder fires.
     public var onReminderFired: ((ReminderFiredMessage) -> Void)?
 
