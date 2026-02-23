@@ -276,6 +276,33 @@ describe('summary extraction', () => {
     expect(entry!.summary).toBe('');
   });
 
+  test('returns empty summary when frontmatter is truncated by partial read', () => {
+    // Simulate frontmatter that exceeds SUMMARY_READ_BYTES (1024).
+    // The closing --- delimiter will be cut off, causing FRONTMATTER_REGEX to
+    // fail. extractSummary should return '' instead of '---'.
+    const largeFrontmatter = '---\n' + 'key: ' + 'x'.repeat(1100) + '\n---\n\nActual summary.';
+    createCommandsDir(tmpDir, {
+      'big-frontmatter.md': largeFrontmatter,
+    });
+
+    const registry = discoverCCCommands(tmpDir);
+    const entry = registry.entries.get('big-frontmatter');
+    expect(entry).toBeDefined();
+    expect(entry!.summary).toBe('');
+  });
+
+  test('returns empty summary when frontmatter is truncated (CRLF)', () => {
+    const largeFrontmatter = '---\r\n' + 'key: ' + 'x'.repeat(1100) + '\r\n---\r\n\r\nActual summary.';
+    createCommandsDir(tmpDir, {
+      'big-frontmatter-crlf.md': largeFrontmatter,
+    });
+
+    const registry = discoverCCCommands(tmpDir);
+    const entry = registry.entries.get('big-frontmatter-crlf');
+    expect(entry).toBeDefined();
+    expect(entry!.summary).toBe('');
+  });
+
   test('handles frontmatter with Windows-style line endings', () => {
     createCommandsDir(tmpDir, {
       'crlf.md': '---\r\ntitle: Test\r\n---\r\n\r\nSummary with CRLF.',

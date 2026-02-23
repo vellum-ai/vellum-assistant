@@ -80,6 +80,11 @@ function extractSummary(content: string): string {
   const fmMatch = content.match(FRONTMATTER_REGEX);
   if (fmMatch) {
     body = content.slice(fmMatch[0].length);
+  } else if (/^---\r?\n/.test(content)) {
+    // Content starts with a frontmatter opening delimiter but the closing
+    // delimiter was not found — the frontmatter was truncated by the partial
+    // read (SUMMARY_READ_BYTES). Return empty rather than surfacing "---".
+    return '';
   }
 
   // Find first non-empty line
