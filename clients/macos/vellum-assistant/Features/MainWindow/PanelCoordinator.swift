@@ -773,7 +773,8 @@ struct DynamicWorkspaceWrapper: View {
                         .accessibilityLabel("Close workspace")
                     }
                 }
-                .padding(.horizontal, VSpacing.md)
+                .padding(.leading, isChatDockOpen ? VSpacing.md : trafficLightPadding)
+                .padding(.trailing, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
                 .background(
                     adaptiveColor(light: Moss._50, dark: Moss._950)

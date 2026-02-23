@@ -135,20 +135,10 @@ struct ChatBubble: View {
         HStack(alignment: .top, spacing: 0) {
             if isUser { Spacer(minLength: 0) }
 
-            // Inner HStack: avatar/button and bubble are grouped so the button
-            // is always immediately adjacent to the bubble, not the screen edge.
-            HStack(alignment: .top, spacing: VSpacing.sm) {
-                if !isUser && isLatestAssistantMessage {
-                    Image(nsImage: appearance.chatAvatarImage)
-                        .interpolation(.none)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 28, height: 28)
-                        .clipShape(Circle())
-                        .padding(.top, 2)
-                }
-
-                VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
+            // Content group with absolutely-positioned avatar so text alignment
+            // stays consistent whether or not the avatar is visible.
+            // Assistant messages reserve left space (28pt avatar + 8pt gap) for the overlay avatar.
+            VStack(alignment: isUser ? .trailing : .leading, spacing: VSpacing.sm) {
                     if !isUser && hasInterleavedContent {
                         interleavedContent
                     } else {
@@ -199,8 +189,18 @@ struct ChatBubble: View {
                             .offset(x: 24 + VSpacing.sm)
                     }
                 }
-
-            }
+                .overlay(alignment: .topLeading) {
+                    if !isUser && isLatestAssistantMessage {
+                        Image(nsImage: appearance.chatAvatarImage)
+                            .interpolation(.none)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 28, height: 28)
+                            .clipShape(Circle())
+                            .offset(x: -(28 + VSpacing.sm), y: 2)
+                    }
+                }
+                .padding(.leading, isUser ? 0 : 28 + VSpacing.sm)
 
             if !isUser { Spacer(minLength: 0) }
         }
