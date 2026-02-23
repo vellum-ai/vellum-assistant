@@ -11,6 +11,47 @@ import type { GatewayInboundEventV1 } from "../../types.js";
 
 const log = getLogger("twilio-sms-webhook");
 
+// Rate limiter for routing rejection notices — at most one reply per phone
+// number within the cooldown window to avoid spamming the user.
+const REJECTION_NOTICE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_REJECTION_CACHE_SIZE = 10_000;
+const SWEEP_INTERVAL = 100; // sweep every N calls
+const rejectionNoticeTimestamps = new Map<string, number>();
+let rejectionCallCount = 0;
+
+function sweepRejectionCache(now: number): void {
+  for (const [key, ts] of rejectionNoticeTimestamps) {
+    if (now - ts >= REJECTION_NOTICE_COOLDOWN_MS) {
+      rejectionNoticeTimestamps.delete(key);
+    }
+  }
+
+  if (rejectionNoticeTimestamps.size > MAX_REJECTION_CACHE_SIZE) {
+    const sorted = [...rejectionNoticeTimestamps.entries()].sort((a, b) => a[1] - b[1]);
+    const toRemove = sorted.length - MAX_REJECTION_CACHE_SIZE;
+    for (let i = 0; i < toRemove; i++) {
+      rejectionNoticeTimestamps.delete(sorted[i][0]);
+    }
+  }
+}
+
+function shouldSendRejectionNotice(phoneNumber: string): boolean {
+  const now = Date.now();
+
+  rejectionCallCount++;
+  if (rejectionCallCount >= SWEEP_INTERVAL) {
+    rejectionCallCount = 0;
+    sweepRejectionCache(now);
+  }
+
+  const lastSent = rejectionNoticeTimestamps.get(phoneNumber);
+  if (lastSent !== undefined && now - lastSent < REJECTION_NOTICE_COOLDOWN_MS) {
+    return false;
+  }
+  rejectionNoticeTimestamps.set(phoneNumber, now);
+  return true;
+}
+
 export const SMS_CHANNEL_TRANSPORT_HINTS = [
   "chat-first-medium",
   "channel-safe-onboarding",
@@ -169,6 +210,15 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
         { from: params.From, reason: routing.reason },
         "Routing rejected inbound SMS",
       );
+      if (shouldSendRejectionNotice(params.From)) {
+        sendSmsReply(
+          config,
+          params.From,
+          "This message could not be routed to an assistant. Please check your gateway routing configuration.",
+        ).catch((err) => {
+          tlog.error({ err, to: params.From }, "Failed to send routing rejection notice");
+        });
+      }
       dedupCache.mark(messageSid);
       return Response.json({ ok: true });
     }
@@ -186,6 +236,15 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
           { from: params.From, reason: result.rejectionReason },
           "Routing rejected inbound SMS",
         );
+        if (shouldSendRejectionNotice(params.From)) {
+          sendSmsReply(
+            config,
+            params.From,
+            "This message could not be routed to an assistant. Please check your gateway routing configuration.",
+          ).catch((err) => {
+            tlog.error({ err, to: params.From }, "Failed to send routing rejection notice");
+          });
+        }
         dedupCache.mark(messageSid);
         return Response.json({ ok: true });
       }

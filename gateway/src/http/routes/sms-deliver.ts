@@ -90,6 +90,7 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       chatId?: string;
       text?: string;
       assistantId?: string;
+      attachments?: unknown[];
     };
     try {
       body = (await req.json()) as typeof body;
@@ -107,7 +108,16 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "to is required" }, { status: 400 });
     }
 
-    if (!text || typeof text !== "string") {
+    // When text is missing but attachments are present, the assistant produced
+    // a media-only reply that SMS cannot deliver. Use a graceful fallback
+    // instead of rejecting outright so the user gets visible feedback.
+    const hasAttachments = Array.isArray(body.attachments) && body.attachments.length > 0;
+    const effectiveText =
+      (!text || (typeof text === "string" && text.trim().length === 0)) && hasAttachments
+        ? "I have a media attachment to share, but SMS currently supports text only."
+        : text;
+
+    if (!effectiveText || typeof effectiveText !== "string") {
       return Response.json({ error: "text is required" }, { status: 400 });
     }
 
@@ -126,14 +136,14 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
         config.twilioAuthToken,
         from,
         to,
-        text,
+        effectiveText,
       );
     } catch (err) {
       tlog.error({ err, to }, "Failed to send SMS via Twilio");
       return Response.json({ error: "SMS delivery failed" }, { status: 502 });
     }
 
-    tlog.info({ to, textLength: text.length }, "SMS delivered");
+    tlog.info({ to, textLength: effectiveText.length }, "SMS delivered");
     return Response.json({ ok: true });
   };
 }
