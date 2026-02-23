@@ -292,6 +292,11 @@ export function getKeyframesForAsset(assetId: string): MediaKeyframe[] {
   return rows.map(parseKeyframeRow);
 }
 
+export function deleteKeyframesForAsset(assetId: string): void {
+  const db = getDb();
+  db.delete(mediaKeyframes).where(eq(mediaKeyframes.assetId, assetId)).run();
+}
+
 export function getKeyframeById(id: string): MediaKeyframe | null {
   const db = getDb();
   const row = db.select().from(mediaKeyframes).where(eq(mediaKeyframes.id, id)).get();

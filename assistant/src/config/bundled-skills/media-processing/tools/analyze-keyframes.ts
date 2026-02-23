@@ -36,6 +36,10 @@ export async function run(
   const analysisType = (input.analysis_type as string) || 'scene_description';
   const batchSize = (input.batch_size as number) || 10;
 
+  if (batchSize <= 0) {
+    return { content: 'batch_size must be greater than 0.', isError: true };
+  }
+
   const asset = getMediaAssetById(assetId);
   if (!asset) {
     return { content: `Media asset not found: ${assetId}`, isError: true };

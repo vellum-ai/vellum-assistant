@@ -1,11 +1,10 @@
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
 import { mkdir, readdir } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import {
   getMediaAssetById,
   insertKeyframesBatch,
+  deleteKeyframesForAsset,
   createProcessingStage,
   updateProcessingStage,
   getProcessingStagesForAsset,
@@ -63,8 +62,8 @@ export async function run(
 
   updateProcessingStage(stage.id, { status: 'running', startedAt: Date.now() });
 
-  // Create output directory for frames
-  const outputDir = join(tmpdir(), `vellum-keyframes-${randomUUID()}`);
+  // Store keyframes in a durable directory alongside the source file
+  const outputDir = join(dirname(asset.filePath), 'keyframes', assetId);
   await mkdir(outputDir, { recursive: true });
 
   try {
@@ -110,6 +109,9 @@ export async function run(
       filePath: join(outputDir, file),
       metadata: { frameIndex: index, intervalSeconds },
     }));
+
+    // Clear existing keyframes to prevent duplicates on re-extraction
+    deleteKeyframesForAsset(assetId);
 
     // Batch insert
     const keyframes = insertKeyframesBatch(keyframeRows);
