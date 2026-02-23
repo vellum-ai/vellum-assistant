@@ -1,6 +1,10 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { eq, and } from 'drizzle-orm';
 import { getLogger } from '../util/logger.js';
 import { embedWithBackend, getMemoryBackendStatus } from './embedding-backend.js';
+import { getDb } from './db.js';
 import { getQdrantClient } from './qdrant-client.js';
+import { memoryEmbeddings } from './schema.js';
 import type { AssistantConfig } from '../config/types.js';
 
 const log = getLogger('memory-jobs-worker');
@@ -111,9 +115,64 @@ export async function embedAndUpsert(
     );
   }
 
-  const embedded = await embedWithBackend(config, [text]);
-  const vector = embedded.vectors[0];
-  if (!vector) return;
+  const contentHash = createHash('sha256').update(text).digest('hex');
+  let provider = status.provider;
+  let model = status.model!;
+  let vector: number[];
+
+  // Check SQLite embedding cache for a matching content hash
+  const db = getDb();
+  const cachedRow = db
+    .select({ vectorJson: memoryEmbeddings.vectorJson, dimensions: memoryEmbeddings.dimensions })
+    .from(memoryEmbeddings)
+    .where(
+      and(
+        eq(memoryEmbeddings.contentHash, contentHash),
+        eq(memoryEmbeddings.provider, provider),
+        eq(memoryEmbeddings.model, model),
+      ),
+    )
+    .get();
+
+  if (cachedRow && cachedRow.dimensions === config.memory.qdrant.vectorSize) {
+    vector = JSON.parse(cachedRow.vectorJson);
+  } else {
+    const embedded = await embedWithBackend(config, [text]);
+    vector = embedded.vectors[0];
+    if (!vector) return;
+    provider = embedded.provider;
+    model = embedded.model;
+  }
+
+  // Persist embedding in SQLite for cross-restart cache
+  const now = Date.now();
+  try {
+    db.insert(memoryEmbeddings)
+      .values({
+        id: randomUUID(),
+        targetType,
+        targetId,
+        provider,
+        model,
+        dimensions: vector.length,
+        vectorJson: JSON.stringify(vector),
+        contentHash,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [memoryEmbeddings.targetType, memoryEmbeddings.targetId, memoryEmbeddings.provider, memoryEmbeddings.model],
+        set: {
+          vectorJson: JSON.stringify(vector),
+          dimensions: vector.length,
+          contentHash,
+          updatedAt: now,
+        },
+      })
+      .run();
+  } catch (err) {
+    log.warn({ err, targetType, targetId }, 'Failed to write embedding cache');
+  }
 
   let qdrant;
   try {
@@ -123,7 +182,6 @@ export async function embedAndUpsert(
   }
 
   try {
-    const now = Date.now();
     await qdrant.upsert(targetType, targetId, vector, {
       text,
       created_at: (extraPayload?.created_at as number) ?? now,
