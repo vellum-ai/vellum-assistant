@@ -39,18 +39,16 @@ final class SettingsViewMediaAllowlistTests: XCTestCase {
         return SettingsStore(configPath: configPath)
     }
 
-    // MARK: - Allowlist domains from store are accessible via SettingsView
+    // MARK: - Allowlist domains from store are accessible
 
-    func testAllowlistDomainsAccessibleThroughView() {
+    func testAllowlistDomainsAccessibleThroughStore() {
         let store = makeStore(enabled: true, domains: ["youtube.com", "vimeo.com"])
-        let view = SettingsView(store: store)
-        XCTAssertEqual(view.store.mediaEmbedVideoAllowlistDomains, ["youtube.com", "vimeo.com"])
+        XCTAssertEqual(store.mediaEmbedVideoAllowlistDomains, ["youtube.com", "vimeo.com"])
     }
 
     func testDefaultDomainsLoadedWhenNoneConfigured() {
         let store = makeStore(enabled: true)
-        let view = SettingsView(store: store)
-        XCTAssertEqual(view.store.mediaEmbedVideoAllowlistDomains, MediaEmbedSettings.defaultDomains)
+        XCTAssertEqual(store.mediaEmbedVideoAllowlistDomains, MediaEmbedSettings.defaultDomains)
     }
 
     // MARK: - Adding a domain updates the store
