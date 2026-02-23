@@ -97,15 +97,9 @@ struct CloudCredentialsStepView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(VColor.textSecondary)
                 TextField("arn:aws:iam::123456789012:role/VellumAssistantRole", text: $state.awsRoleArn)
-                    .textFieldStyle(.plain)
+                    .textFieldStyle(VInputStyle())
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.vertical, VSpacing.md)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
                     .focused($arnFieldFocused)
                     .onSubmit {
                         saveAndContinue()
@@ -125,15 +119,9 @@ struct CloudCredentialsStepView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(VColor.textSecondary)
                 TextField("192.168.1.100 or my-mac-mini.local", text: $state.sshHost)
-                    .textFieldStyle(.plain)
+                    .textFieldStyle(VInputStyle())
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.vertical, VSpacing.md)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
                     .focused($sshHostFieldFocused)
             }
 
@@ -142,15 +130,9 @@ struct CloudCredentialsStepView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(VColor.textSecondary)
                 TextField("admin", text: $state.sshUser)
-                    .textFieldStyle(.plain)
+                    .textFieldStyle(VInputStyle())
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.vertical, VSpacing.md)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
             }
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -190,15 +172,9 @@ struct CloudCredentialsStepView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(VColor.textSecondary)
                 TextField("my-gcp-project-id", text: $state.gcpProjectId)
-                    .textFieldStyle(.plain)
+                    .textFieldStyle(VInputStyle())
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.vertical, VSpacing.md)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
                     .focused($projectIdFieldFocused)
             }
 

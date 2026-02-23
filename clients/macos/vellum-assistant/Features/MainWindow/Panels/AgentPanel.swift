@@ -185,7 +185,7 @@ struct AgentPanelContent: View {
                     .foregroundColor(VColor.textMuted)
 
                 TextField("Filter skills...", text: $skillSearchQuery)
-                    .textFieldStyle(.plain)
+                    .textFieldStyle(VInputStyle())
                     .font(VFont.mono)
                     .foregroundColor(VColor.textPrimary)
 
@@ -198,9 +198,6 @@ struct AgentPanelContent: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(VSpacing.md)
-            .background(VColor.backgroundSubtle)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
             // Sort picker
             HStack(spacing: VSpacing.sm) {

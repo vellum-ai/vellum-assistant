@@ -174,16 +174,10 @@ struct APIKeyStepView: View {
                     }
             } else {
                 SecureField("sk-ant-\u{2026}", text: $apiKey)
-                    .textFieldStyle(.plain)
+                    .textFieldStyle(VInputStyle())
                     .font(.system(size: 16, weight: .medium, design: .monospaced))
                     .foregroundColor(VColor.textPrimary)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, VSpacing.lg)
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
                     .focused($keyFieldFocused)
                     .onSubmit {
                         saveAndContinue()

@@ -43,16 +43,9 @@ struct ToolPermissionTesterView: View {
             // Working directory
             fieldLabel("Working Directory")
             TextField("Leave empty for daemon default", text: $model.workingDir)
-                .textFieldStyle(.plain)
+                .textFieldStyle(VInputStyle())
                 .font(VFont.mono)
                 .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.sm)
-                .background(VColor.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
 
             // Toggles
             HStack(spacing: VSpacing.lg) {
@@ -136,29 +129,15 @@ struct ToolPermissionTesterView: View {
         switch field.fieldType {
         case .string:
             TextField("", text: fieldValueBinding(for: field.id))
-                .textFieldStyle(.plain)
+                .textFieldStyle(VInputStyle())
                 .font(VFont.mono)
                 .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.sm)
-                .background(VColor.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
 
         case .number, .integer:
             TextField("", text: fieldValueBinding(for: field.id))
-                .textFieldStyle(.plain)
+                .textFieldStyle(VInputStyle())
                 .font(VFont.mono)
                 .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.sm)
-                .background(VColor.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
 
         case .boolean:
             Toggle("", isOn: fieldBoolBinding(for: field.id))
@@ -193,12 +172,12 @@ struct ToolPermissionTesterView: View {
                 .foregroundColor(VColor.textPrimary)
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 60, maxHeight: 120)
-                .padding(VSpacing.sm)
+                .padding(VSpacing.md)
                 .background(VColor.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.surfaceBorder, lineWidth: 1)
                 )
         }
     }
@@ -341,16 +320,9 @@ struct ToolPermissionTesterView: View {
         if model.availableToolNames.isEmpty {
             // Fallback to text field while loading or if fetch failed
             TextField("e.g. host_bash, host_file_write", text: $model.toolName)
-                .textFieldStyle(.plain)
+                .textFieldStyle(VInputStyle())
                 .font(VFont.mono)
                 .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.sm)
-                .background(VColor.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
         } else {
             Picker("", selection: $model.toolName) {
                 Text("Select a tool\u{2026}")

@@ -22,20 +22,10 @@ struct NamingStepView: View {
             .opacity(showInput ? 1 : 0)
 
             TextField("Name your agent\u{2026}", text: $state.assistantName)
-                .textFieldStyle(.plain)
+                .textFieldStyle(VInputStyle())
                 .font(.system(size: 18, weight: .medium))
                 .foregroundColor(VColor.textPrimary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 20)
-                .padding(.vertical, VSpacing.lg)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.surface.opacity(0.5))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
-                )
                 .frame(maxWidth: 260)
                 .focused($nameFieldFocused)
                 .opacity(showInput ? 1 : 0)

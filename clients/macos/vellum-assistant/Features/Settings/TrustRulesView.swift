@@ -246,10 +246,12 @@ private struct TrustRuleFormView: View {
                 }
 
                 TextField("Pattern", text: $pattern, prompt: Text("e.g., git *"))
+                    .textFieldStyle(VInputStyle())
 
                 Toggle("Everywhere", isOn: $isEverywhere)
                 if !isEverywhere {
                     TextField("Scope", text: $scope, prompt: Text("e.g., /Users/me/project"))
+                        .textFieldStyle(VInputStyle())
                 }
 
                 Picker("Decision", selection: $decision) {

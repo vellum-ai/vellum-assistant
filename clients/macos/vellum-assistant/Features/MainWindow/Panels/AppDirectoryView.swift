@@ -54,7 +54,7 @@ struct AppDirectoryView: View {
                                 .foregroundColor(VColor.textMuted)
 
                             TextField("Search apps...", text: $searchText)
-                                .textFieldStyle(.plain)
+                                .textFieldStyle(VInputStyle())
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textPrimary)
 
@@ -67,14 +67,6 @@ struct AppDirectoryView: View {
                                 .buttonStyle(.plain)
                             }
                         }
-                        .padding(.horizontal, VSpacing.sm)
-                        .frame(height: 26)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.sm)
-                                .stroke(VColor.surfaceBorder, lineWidth: 1)
-                        )
                         .frame(maxWidth: 220)
                     }
                 }
