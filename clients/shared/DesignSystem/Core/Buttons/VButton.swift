@@ -38,6 +38,9 @@ public struct VButton: View {
                 }
                 Text(label)
                     .font(labelFont)
+                if isFullWidth && (leftIcon != nil || rightIcon != nil) {
+                    Spacer(minLength: 0)
+                }
                 if let rightIcon {
                     Image(systemName: rightIcon)
                         .font(.system(size: iconSize, weight: .semibold))
