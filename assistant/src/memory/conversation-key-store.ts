@@ -68,6 +68,26 @@ export function setConversationKey(conversationKey: string, conversationId: stri
 }
 
 /**
+ * Insert a conversation-key mapping only if the key does not already exist.
+ *
+ * Uses `onConflictDoNothing` on the unique `conversationKey` column to
+ * avoid unique-constraint races when concurrent first messages attempt
+ * to migrate a legacy key to a new scoped alias.
+ */
+export function setConversationKeyIfAbsent(conversationKey: string, conversationId: string): void {
+  const db = getDb();
+  db.insert(conversationKeys)
+    .values({
+      id: uuid(),
+      conversationKey,
+      conversationId,
+      createdAt: Date.now(),
+    })
+    .onConflictDoNothing()
+    .run();
+}
+
+/**
  * Get or create a conversation for the given conversationKey.
  *
  * If a mapping already exists, returns the existing conversation ID.

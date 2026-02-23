@@ -272,7 +272,7 @@ export async function handleChannelInbound(
       sourceChannel,
       externalChatId,
       externalMessageId,
-      { sourceMessageId },
+      { sourceMessageId, assistantId },
     );
 
     if (editResult.duplicate) {
@@ -331,7 +331,7 @@ export async function handleChannelInbound(
     sourceChannel,
     externalChatId,
     externalMessageId,
-    { sourceMessageId },
+    { sourceMessageId, assistantId },
   );
 
   // Upsert external conversation binding with sender metadata

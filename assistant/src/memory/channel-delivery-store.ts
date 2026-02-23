@@ -15,7 +15,7 @@ import { eq, and, lte, isNotNull } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { channelInboundEvents, conversations } from './schema.js';
-import { getOrCreateConversation } from './conversation-key-store.js';
+import { getConversationByKey, getOrCreateConversation, setConversationKeyIfAbsent } from './conversation-key-store.js';
 import {
   classifyError,
   retryDelayForAttempt,
@@ -31,6 +31,7 @@ export interface InboundResult {
 
 export interface RecordInboundOptions {
   sourceMessageId?: string;
+  assistantId?: string;
 }
 
 /**
@@ -69,8 +70,30 @@ export function recordInbound(
     };
   }
 
-  const conversationKey = `${sourceChannel}:${externalChatId}`;
-  const mapping = getOrCreateConversation(conversationKey);
+  const assistantId = options?.assistantId;
+  const legacyKey = `${sourceChannel}:${externalChatId}`;
+  const scopedKey = assistantId ? `asst:${assistantId}:${sourceChannel}:${externalChatId}` : legacyKey;
+
+  // Resolve conversation mapping with assistant-scoped keying:
+  // 1. If scoped key exists, use it directly.
+  // 2. If assistantId is "self" and legacy key exists, reuse the legacy
+  //    conversation and create a scoped alias to prevent future bleed.
+  // 3. Otherwise, create/get conversation from the scoped key.
+  let mapping: { conversationId: string; created: boolean };
+  const scopedMapping = assistantId ? getConversationByKey(scopedKey) : null;
+  if (scopedMapping) {
+    mapping = { conversationId: scopedMapping.conversationId, created: false };
+  } else if (assistantId === 'self') {
+    const legacyMapping = getConversationByKey(legacyKey);
+    if (legacyMapping) {
+      mapping = { conversationId: legacyMapping.conversationId, created: false };
+      setConversationKeyIfAbsent(scopedKey, legacyMapping.conversationId);
+    } else {
+      mapping = getOrCreateConversation(scopedKey);
+    }
+  } else {
+    mapping = getOrCreateConversation(scopedKey);
+  }
   const now = Date.now();
   const eventId = uuid();
 
