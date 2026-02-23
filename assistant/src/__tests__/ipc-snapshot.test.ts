@@ -104,6 +104,13 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'cu_session_abort',
     sessionId: 'cu-sess-001',
   },
+  cu_session_finalized: {
+    type: 'cu_session_finalized',
+    sessionId: 'cu-sess-001',
+    status: 'completed',
+    summary: 'Task completed successfully',
+    stepCount: 5,
+  },
   cu_observation: {
     type: 'cu_observation',
     sessionId: 'cu-sess-001',
