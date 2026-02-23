@@ -347,7 +347,7 @@ public final class SettingsStore: ObservableObject {
         daemonClient?.onGuardianVerificationResponse = { [weak self] response in
             guard let self else { return }
             guard let channel = self.resolveGuardianResponseChannel(response.channel) else { return }
-            let isStatusPoll = response.secret == nil && response.instruction == nil && response.bound != true
+            let isStatusPoll = response.success && response.secret == nil && response.instruction == nil && response.bound != true
             if !isStatusPoll {
                 self.clearGuardianChallengePending(for: channel)
             }
