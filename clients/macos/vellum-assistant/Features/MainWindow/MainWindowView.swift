@@ -229,12 +229,7 @@ struct MainWindowView: View {
 
     /// Whether the chat bubble toggle should be visible for the current selection.
     private var isChatBubbleVisible: Bool {
-        switch windowState.selection {
-        case .app, .appEditing, .panel(.directory):
-            return true
-        default:
-            return false
-        }
+        true
     }
 
     /// Whether the chat bubble toggle is active (chat is open).
