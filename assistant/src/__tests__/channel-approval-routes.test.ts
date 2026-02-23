@@ -2938,7 +2938,8 @@ describe('guardian enforcement independence from approval flag', () => {
         if (typeof call[1] !== 'object') return false;
         const text = (call[1] as { text?: string }).text ?? '';
         return text.includes('requires guardian approval') &&
-          (text.includes('identity could not be determined') || text.includes('no guardian has been set up'));
+          text.includes('identity could not be determined') &&
+          text.includes('denied');
       },
     );
     expect(denialCalls.length).toBeGreaterThanOrEqual(1);
