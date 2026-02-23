@@ -196,7 +196,7 @@ export async function run(
 
   // Retrieve without limit so we can apply capability filtering first, then limit
   const userLimit = filters.limit;
-  const result = retrieveEvents({ ...filters, limit: undefined });
+  const result = retrieveEvents({ ...filters, limit: 0 });
 
   // Determine which capabilities are allowed based on the tracking profile
   const profile = getTrackingProfile(assetId);
