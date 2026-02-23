@@ -14,6 +14,7 @@ struct SettingsAdvancedTab: View {
 
     @State private var sessionToken: String = ""
     @State private var tokenCopied: Bool = false
+    @State private var tokenRevealed: Bool = false
     @State private var fingerprint: String = ""
     @State private var iosPairingEnabled: Bool = false
     @State private var showingPairingQR: Bool = false
@@ -332,9 +333,17 @@ struct SettingsAdvancedTab: View {
                             Text("Token:")
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
-                            Text(String(sessionToken.prefix(16)) + "...")
+                            Text(tokenRevealed ? sessionToken : String(sessionToken.prefix(16)) + "...")
                                 .font(VFont.mono)
                                 .foregroundColor(VColor.textSecondary)
+                                .textSelection(.enabled)
+                            Button(action: { tokenRevealed.toggle() }) {
+                                Image(systemName: tokenRevealed ? "eye.slash" : "eye")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(tokenRevealed ? "Hide token" : "Reveal token")
                         }
                     }
 
