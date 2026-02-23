@@ -562,6 +562,8 @@ export async function handleChannelInbound(
         bearerToken,
         guardianCtx,
         assistantId,
+        metadataHints,
+        metadataUxBrief,
       });
     } else {
       // Fire-and-forget: process the message and deliver the reply in the background.
@@ -695,6 +697,8 @@ interface ApprovalProcessingParams {
   bearerToken?: string;
   guardianCtx: GuardianContext;
   assistantId: string;
+  metadataHints: string[];
+  metadataUxBrief?: string;
 }
 
 /**
@@ -722,6 +726,8 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
     bearerToken,
     guardianCtx,
     assistantId,
+    metadataHints,
+    metadataUxBrief,
   } = params;
 
   const isNonGuardian = guardianCtx.actorRole === 'non-guardian';
@@ -736,6 +742,8 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
         {
           ...((isNonGuardian || isUnverifiedChannel) ? { forceStrictSideEffects: true } : {}),
           sourceChannel,
+          hints: metadataHints.length > 0 ? metadataHints : undefined,
+          uxBrief: metadataUxBrief,
         },
       );
 

@@ -37,7 +37,11 @@ interface PendingRunState {
 }
 
 export interface RunOrchestratorDeps {
-  getOrCreateSession: (conversationId: string) => Promise<Session>;
+  getOrCreateSession: (conversationId: string, transport?: {
+    channelId: string;
+    hints?: string[];
+    uxBrief?: string;
+  }) => Promise<Session>;
   resolveAttachments: (attachmentIds: string[]) => Array<{
     id: string;
     filename: string;
@@ -67,6 +71,16 @@ export interface RunStartOptions {
    * default 'http-api'.
    */
   sourceChannel?: string;
+  /**
+   * Transport hints from sourceMetadata (e.g. reply-context cues).
+   * Forwarded to the session so the agent loop can incorporate them.
+   */
+  hints?: string[];
+  /**
+   * Brief UX context from sourceMetadata (e.g. UI surface description).
+   * Forwarded to the session so the agent loop can tailor its response.
+   */
+  uxBrief?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +118,17 @@ export class RunOrchestrator {
       throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
     }
 
-    const session = await this.deps.getOrCreateSession(conversationId);
+    // Build transport metadata when channel context is available so the
+    // session receives the same hints/uxBrief as the non-orchestrator path.
+    const transport = options?.sourceChannel
+      ? {
+          channelId: options.sourceChannel,
+          hints: options.hints,
+          uxBrief: options.uxBrief,
+        }
+      : undefined;
+
+    const session = await this.deps.getOrCreateSession(conversationId, transport);
 
     if (session.isProcessing()) {
       throw new Error('Session is already processing a message');

@@ -790,8 +790,8 @@ export class DaemonServer {
 
   createRunOrchestrator(): RunOrchestrator {
     return new RunOrchestrator({
-      getOrCreateSession: (conversationId) =>
-        this.getOrCreateSession(conversationId),
+      getOrCreateSession: (conversationId, transport) =>
+        this.getOrCreateSession(conversationId, undefined, true, transport ? { transport } : undefined),
       resolveAttachments: (attachmentIds) =>
         attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
           id: a.id,
