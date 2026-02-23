@@ -158,9 +158,13 @@ export async function handleDeleteConversation(req: Request): Promise<Response> 
   const body = await req.json() as {
     sourceChannel?: string;
     externalChatId?: string;
+    assistantId?: string;
   };
 
   const { sourceChannel, externalChatId } = body;
+  const assistantId = typeof body.assistantId === 'string' && body.assistantId.length > 0
+    ? body.assistantId
+    : 'self';
 
   if (!sourceChannel || typeof sourceChannel !== 'string') {
     return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
@@ -169,8 +173,12 @@ export async function handleDeleteConversation(req: Request): Promise<Response> 
     return Response.json({ error: 'externalChatId is required' }, { status: 400 });
   }
 
-  const conversationKey = `${sourceChannel}:${externalChatId}`;
-  deleteConversationKey(conversationKey);
+  // Delete both legacy and scoped conversation key aliases to handle
+  // migration scenarios where either or both keys may exist.
+  const legacyKey = `${sourceChannel}:${externalChatId}`;
+  const scopedKey = `asst:${assistantId}:${sourceChannel}:${externalChatId}`;
+  deleteConversationKey(legacyKey);
+  deleteConversationKey(scopedKey);
   externalConversationStore.deleteBindingByChannelChat(sourceChannel, externalChatId);
 
   return Response.json({ ok: true });
