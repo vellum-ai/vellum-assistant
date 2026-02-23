@@ -7,11 +7,20 @@ import SwiftUI
 }
 
 struct ThinkingIndicatorView: View {
+    @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
+
+    private var thinkingText: String {
+        if completedConversationCount < 5, let name = IdentityInfo.load()?.name {
+            return "\(name) is thinking..."
+        }
+        return "Thinking..."
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             ProgressView()
                 .controlSize(.small)
-            Text("Thinking...")
+            Text(thinkingText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

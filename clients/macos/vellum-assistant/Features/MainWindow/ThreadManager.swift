@@ -16,6 +16,7 @@ private let titleGenerationModel = "claude-haiku-4-5-20251001"
 final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @AppStorage("restoreRecentThreads") private(set) var restoreRecentThreads = true
     @AppStorage("lastActiveThreadId") private var lastActiveThreadIdString: String?
+    @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @Published var threads: [ThreadModel] = []
     @Published var hasMoreThreads: Bool = false
     @Published var isLoadingMoreThreads: Bool = false
@@ -121,6 +122,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         viewModel.isHistoryLoaded = true  // No session yet — nothing to load
         let threadId = thread.id
         viewModel.onFirstUserMessage = { [weak self] text in
+            self?.completedConversationCount += 1
             self?.updateThreadTitle(id: threadId, title: "Untitled")
             self?.updateLastInteracted(threadId: threadId)
             Task { @MainActor in
@@ -139,6 +141,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         viewModel.isHistoryLoaded = true  // No session yet — nothing to load
         let threadId = thread.id
         viewModel.onFirstUserMessage = { [weak self] text in
+            self?.completedConversationCount += 1
             self?.updateThreadTitle(id: threadId, title: "Untitled")
             self?.updateLastInteracted(threadId: threadId)
             Task { @MainActor in

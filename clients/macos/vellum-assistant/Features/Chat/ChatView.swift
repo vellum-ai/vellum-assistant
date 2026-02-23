@@ -74,6 +74,7 @@ struct ChatView: View {
     @State private var identity: IdentityInfo? = IdentityInfo.load()
     @State private var appearance = AvatarAppearanceManager.shared
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
+    @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
 
     private var isEmptyState: Bool {
         messages.isEmpty && isHistoryLoaded
@@ -556,7 +557,11 @@ struct ChatView: View {
                                 .padding(.top, 2)
 
                             RunningIndicator(
-                                label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user }) ? "Waking up..." : "Thinking",
+                                label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
+                                    ? "Waking up..."
+                                    : completedConversationCount < 5 && identity?.name != nil
+                                        ? "\(identity!.name) is thinking"
+                                        : "Thinking",
                                 showIcon: false
                             )
                         }
