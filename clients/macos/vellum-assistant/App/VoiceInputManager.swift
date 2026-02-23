@@ -6,11 +6,30 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "VoiceInput")
 
+/// Determines how voice transcriptions are routed after speech recognition completes.
+enum VoiceInputMode {
+    case conversation  // existing behavior — transcription goes to chat
+    case dictation     // transcription goes to daemon for cleanup, then inserted at cursor
+}
+
 @MainActor
 final class VoiceInputManager {
     var onTranscription: ((String) -> Void)?
     var onPartialTranscription: ((String) -> Void)?
     var onRecordingStateChanged: ((Bool) -> Void)?
+
+    /// Controls how completed transcriptions are routed. Defaults to `.dictation` so
+    /// voice input goes through the daemon cleanup path for cursor insertion.
+    var currentMode: VoiceInputMode = .dictation
+
+    /// Daemon client used to send dictation requests in `.dictation` mode.
+    var daemonClient: DaemonClient?
+
+    /// Called when the daemon returns a dictation response (cleaned-up text + action plan).
+    var onDictationResponse: ((IPCDictationResponse) -> Void)?
+
+    /// Context captured at activation time, describing the frontmost app state.
+    private var currentDictationContext: DictationContext?
 
     private var isRecording = false
     private var globalMonitor: Any?
@@ -147,6 +166,11 @@ final class VoiceInputManager {
                 guard let self = self else { return }
                 // Don't start recording if any key was pressed during hold (Control+C, etc.)
                 guard !self.otherKeyPressedDuringHold else { return }
+                // Capture frontmost app context before recording starts so the daemon
+                // knows where to insert the cleaned-up text after dictation completes.
+                if self.currentMode == .dictation {
+                    self.currentDictationContext = DictationContextCapture.capture()
+                }
                 self.beginRecording()
             }
         } else if keyPressed && hasOtherModifiers {
@@ -244,7 +268,7 @@ final class VoiceInputManager {
                     if result.isFinal {
                         log.info("Transcription: \(text, privacy: .public)")
                         if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            self.onTranscription?(text)
+                            self.handleFinalTranscription(text)
                         }
                         self.recognitionTask = nil
                         self.stopRecording()
@@ -279,11 +303,39 @@ final class VoiceInputManager {
         }
     }
 
+    /// Routes a final transcription based on the current mode.
+    private func handleFinalTranscription(_ text: String) {
+        switch currentMode {
+        case .conversation:
+            onTranscription?(text)
+        case .dictation:
+            guard let context = currentDictationContext else {
+                // No context captured (e.g. continuous recording path) — fall back to conversation
+                onTranscription?(text)
+                return
+            }
+            let request = IPCDictationRequest(
+                type: "dictation_request",
+                transcription: text,
+                context: IPCDictationContext(
+                    bundleIdentifier: context.bundleIdentifier,
+                    appName: context.appName,
+                    windowTitle: context.windowTitle,
+                    selectedText: context.selectedText,
+                    cursorInTextField: context.cursorInTextField
+                )
+            )
+            try? daemonClient?.send(request)
+            log.info("Sent dictation_request to daemon for app=\(context.appName, privacy: .public)")
+        }
+    }
+
     private func stopRecording() {
         guard isRecording else { return }
 
         isRecording = false
         onRecordingStateChanged?(false)
+        currentDictationContext = nil
         log.info("Voice recording stopped")
 
         if audioEngine.isRunning {
