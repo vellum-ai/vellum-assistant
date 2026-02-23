@@ -437,6 +437,10 @@ The SMS channel provides text-only messaging via Twilio, sharing the same teleph
 
 **Setup**: Twilio credentials (Account SID, Auth Token) and phone number are managed via the `twilio_config` IPC contract and the `twilio-setup` skill. A single phone number is shared across voice and SMS for each assistant. Both `provision_number` and `assign_number` auto-persist the number to config and secure storage, and auto-configure Twilio webhooks (voice URL, status callback, SMS URL) via the Twilio IncomingPhoneNumber API when a public ingress URL is available. Webhook configuration is best-effort — if ingress is not yet set up, the number is still assigned and webhooks can be configured later. Non-fatal webhook failures are surfaced as a `warning` field in the `twilio_config_response`.
 
+**Phone Number Resolution**: At runtime, `getTwilioConfig()` resolves the phone number using this priority chain: (1) `TWILIO_PHONE_NUMBER` env var — highest priority, explicit override; (2) `sms.phoneNumber` in config — primary source of truth written by `provision_number`/`assign_number`; (3) `credential:twilio:phone_number` secure key — backward-compatible fallback. An error is thrown if no number is found after all sources are checked.
+
+**Credential Clearing Semantics**: `clear_credentials` removes only the authentication credentials (Account SID and Auth Token) from secure storage. The phone number is preserved in both the config file (`sms.phoneNumber`) and the secure key (`credential:twilio:phone_number`) so that re-entering credentials resumes working without needing to reassign the number.
+
 **Webhook Lifecycle**: Twilio webhook URLs are managed through a shared `syncTwilioWebhooks` helper in `config.ts` that computes voice, status-callback, and SMS URLs from the ingress config and pushes them to Twilio. Webhooks are synchronized at three points:
 1. **Number provisioning** (`provision_number`) — immediately after purchasing a number.
 2. **Number assignment** (`assign_number`) — when an existing number is assigned to the assistant.
@@ -4261,5 +4265,6 @@ This section tracks the SMS channel's feature parity with the Telegram channel a
 | **Ingress Boundary** | `MessageSid` deduplication prevents reprocessing retried webhooks | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
 | **Settings UI** | `list_numbers` IPC action lists all incoming phone numbers with capabilities | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |
 | **Settings UI** | `set_credentials` validates and stores Account SID and Auth Token in secure storage | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |
-| **Settings UI** | `clear_credentials` removes all Twilio credentials from secure storage | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |
+| **Settings UI** | `clear_credentials` removes auth credentials but preserves phone number in config and secure key | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |
+| **Settings UI** | `getTwilioConfig()` resolves phone number with priority: env var > config > secure key | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/calls/twilio-config.ts` |
 | **Settings UI** | Single-number-per-assistant model: number stored at `sms.phoneNumber` in config | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |

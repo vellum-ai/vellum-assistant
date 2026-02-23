@@ -10,8 +10,8 @@ const testDir = mkdtempSync(join(tmpdir(), 'handlers-twilio-cfg-test-'));
 let rawConfigStore: Record<string, unknown> = {};
 
 mock.module('../config/loader.js', () => ({
-  getConfig: () => ({}),
-  loadConfig: () => ({}),
+  getConfig: () => ({ sms: rawConfigStore.sms ?? {} }),
+  loadConfig: () => ({ sms: rawConfigStore.sms ?? {} }),
   loadRawConfig: () => ({ ...rawConfigStore }),
   saveRawConfig: (cfg: Record<string, unknown>) => {
     rawConfigStore = { ...cfg };
@@ -19,6 +19,28 @@ mock.module('../config/loader.js', () => ({
   saveConfig: () => {},
   invalidateConfigCache: () => {},
 }));
+
+// Provide a thin mock of public-ingress-urls that computes real-looking
+// webhook URLs from the raw config store so that both getTwilioConfig()
+// and the syncTwilioWebhooks() helper used by ingress tests work correctly.
+mock.module('../inbound/public-ingress-urls.js', () => {
+  function getBase(config: Record<string, unknown>): string {
+    const ingress = (config?.ingress ?? {}) as Record<string, unknown>;
+    const url = (ingress.publicBaseUrl as string) ?? '';
+    if (!url) throw new Error('No public ingress URL configured');
+    return url;
+  }
+  return {
+    getPublicBaseUrl: (config: Record<string, unknown>) => getBase(config),
+    getTwilioRelayUrl: (config: Record<string, unknown>) => {
+      const base = getBase(config);
+      return base.replace(/^http(s?)/, 'ws$1') + '/webhooks/twilio/relay';
+    },
+    getTwilioVoiceWebhookUrl: (config: Record<string, unknown>) => getBase(config) + '/webhooks/twilio/voice',
+    getTwilioStatusCallbackUrl: (config: Record<string, unknown>) => getBase(config) + '/webhooks/twilio/status',
+    getTwilioSmsWebhookUrl: (config: Record<string, unknown>) => getBase(config) + '/webhooks/twilio/sms',
+  };
+});
 
 mock.module('../util/platform.js', () => ({
   getRootDir: () => testDir,
@@ -114,6 +136,7 @@ mock.module('../tools/credentials/metadata-store.js', () => ({
 const originalFetch = globalThis.fetch;
 
 import { handleTwilioConfig, handleIngressConfig } from '../daemon/handlers/config.js';
+import { getTwilioConfig } from '../calls/twilio-config.js';
 import type { HandlerContext } from '../daemon/handlers.js';
 import type {
   TwilioConfigRequest,
@@ -383,9 +406,11 @@ describe('Twilio config handler', () => {
 
   // ── clear_credentials ───────────────────────────────────────────────
 
-  test('clear_credentials removes stored credentials', async () => {
+  test('clear_credentials removes stored credentials but preserves phone number', async () => {
     secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
     secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    secureKeyStore['credential:twilio:phone_number'] = '+15551234567';
+    rawConfigStore = { sms: { phoneNumber: '+15551234567' } };
     credentialMetadataStore.push({ service: 'twilio', field: 'account_sid' });
     credentialMetadataStore.push({ service: 'twilio', field: 'auth_token' });
 
@@ -403,11 +428,15 @@ describe('Twilio config handler', () => {
     expect(res.success).toBe(true);
     expect(res.hasCredentials).toBe(false);
 
-    // Verify everything was cleaned up
+    // Verify auth credentials were cleaned up
     expect(secureKeyStore['credential:twilio:account_sid']).toBeUndefined();
     expect(secureKeyStore['credential:twilio:auth_token']).toBeUndefined();
     expect(deletedMetadata).toContainEqual({ service: 'twilio', field: 'account_sid' });
     expect(deletedMetadata).toContainEqual({ service: 'twilio', field: 'auth_token' });
+
+    // Verify phone number is preserved in both stores
+    expect(secureKeyStore['credential:twilio:phone_number']).toBe('+15551234567');
+    expect((rawConfigStore.sms as Record<string, unknown>)?.phoneNumber).toBe('+15551234567');
   });
 
   test('clear_credentials is idempotent when no credentials exist', async () => {
@@ -423,6 +452,75 @@ describe('Twilio config handler', () => {
     const res = sent[0] as { type: string; success: boolean; hasCredentials: boolean };
     expect(res.success).toBe(true);
     expect(res.hasCredentials).toBe(false);
+  });
+
+  // ── Phone number resolution order ──────────────────────────────────
+
+  test('getTwilioConfig resolves phone number from config when secure key also present', () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    secureKeyStore['credential:twilio:phone_number'] = '+15559999999';
+    rawConfigStore = {
+      sms: { phoneNumber: '+15551234567' },
+      ingress: { enabled: true, publicBaseUrl: 'https://test.ngrok.io' },
+    };
+
+    // Clean env var to test config-only resolution
+    const savedEnv = process.env.TWILIO_PHONE_NUMBER;
+    delete process.env.TWILIO_PHONE_NUMBER;
+
+    try {
+      const config = getTwilioConfig();
+      // Config value (+15551234567) should take priority over secure key (+15559999999)
+      expect(config.phoneNumber).toBe('+15551234567');
+    } finally {
+      if (savedEnv !== undefined) process.env.TWILIO_PHONE_NUMBER = savedEnv;
+    }
+  });
+
+  test('getTwilioConfig falls back to secure key when config has no phone number', () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    secureKeyStore['credential:twilio:phone_number'] = '+15559999999';
+    rawConfigStore = {
+      ingress: { enabled: true, publicBaseUrl: 'https://test.ngrok.io' },
+    };
+
+    const savedEnv = process.env.TWILIO_PHONE_NUMBER;
+    delete process.env.TWILIO_PHONE_NUMBER;
+
+    try {
+      const config = getTwilioConfig();
+      // Secure key should be used as fallback
+      expect(config.phoneNumber).toBe('+15559999999');
+    } finally {
+      if (savedEnv !== undefined) process.env.TWILIO_PHONE_NUMBER = savedEnv;
+    }
+  });
+
+  test('getTwilioConfig env var overrides both config and secure key', () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    secureKeyStore['credential:twilio:phone_number'] = '+15559999999';
+    rawConfigStore = {
+      sms: { phoneNumber: '+15551234567' },
+      ingress: { enabled: true, publicBaseUrl: 'https://test.ngrok.io' },
+    };
+
+    const savedEnv = process.env.TWILIO_PHONE_NUMBER;
+    process.env.TWILIO_PHONE_NUMBER = '+15550000000';
+
+    try {
+      const config = getTwilioConfig();
+      // Env var should take highest priority
+      expect(config.phoneNumber).toBe('+15550000000');
+    } finally {
+      if (savedEnv !== undefined) {
+        process.env.TWILIO_PHONE_NUMBER = savedEnv;
+      } else {
+        delete process.env.TWILIO_PHONE_NUMBER;
+      }
+    }
   });
 
   // ── assign_number ───────────────────────────────────────────────────

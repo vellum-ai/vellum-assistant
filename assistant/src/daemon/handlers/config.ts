@@ -1253,9 +1253,12 @@ export async function handleTwilioConfig(
         hasCredentials: true,
       });
     } else if (msg.action === 'clear_credentials') {
+      // Only clear authentication credentials (Account SID and Auth Token).
+      // Preserve the phone number in both config (sms.phoneNumber) and secure
+      // key (credential:twilio:phone_number) so that re-entering credentials
+      // resumes working without needing to reassign the number.
       deleteSecureKey('credential:twilio:account_sid');
       deleteSecureKey('credential:twilio:auth_token');
-      deleteSecureKey('credential:twilio:phone_number');
       deleteCredentialMetadata('twilio', 'account_sid');
       deleteCredentialMetadata('twilio', 'auth_token');
 
