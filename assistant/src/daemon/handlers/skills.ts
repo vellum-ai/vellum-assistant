@@ -7,7 +7,7 @@ import { resolveSkillStates } from '../../config/skill-state.js';
 import { getWorkspaceSkillsDir } from '../../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect, type ClawhubSearchResultItem } from '../../skills/clawhub.js';
 import { removeSkillsIndexEntry, deleteManagedSkill, validateManagedSkillId } from '../../skills/managed-store.js';
-import { listCatalogEntries, installFromVellumCatalog } from '../../tools/skills/vellum-catalog.js';
+import { listCatalogEntries, installFromVellumCatalog, isVellumSkill } from '../../tools/skills/vellum-catalog.js';
 import type {
   SkillDetailRequest,
   SkillsEnableRequest,
@@ -188,14 +188,13 @@ export async function handleSkillsInstall(
 ): Promise<void> {
   try {
     // Check if the slug matches a vellum-skills catalog entry first
-    const catalogEntries = listCatalogEntries();
-    const isVellumSkill = catalogEntries.some((e) => e.id === msg.slug);
+    const isVellum = await isVellumSkill(msg.slug);
 
     let skillId: string;
 
-    if (isVellumSkill) {
-      // Install from vellum-skills catalog (local copy)
-      const result = installFromVellumCatalog(msg.slug);
+    if (isVellum) {
+      // Install from vellum-skills catalog (remote with bundled fallback)
+      const result = await installFromVellumCatalog(msg.slug);
       if (!result.success) {
         ctx.send(socket, {
           type: 'skills_operation_response',
@@ -424,8 +423,8 @@ export async function handleSkillsSearch(
   ctx: HandlerContext,
 ): Promise<void> {
   try {
-    // Search vellum-skills catalog locally
-    const catalogEntries = listCatalogEntries();
+    // Search vellum-skills catalog (remote with bundled fallback)
+    const catalogEntries = await listCatalogEntries();
     const query = (msg.query ?? '').toLowerCase();
     const matchingCatalog = catalogEntries.filter((e) => {
       if (!query) return true;

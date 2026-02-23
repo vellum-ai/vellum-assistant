@@ -1,19 +1,10 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, join } from 'node:path';
-
 import { RiskLevel } from '../../permissions/types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { createManagedSkill } from '../../skills/managed-store.js';
-import { getLogger } from '../../util/logger.js';
+import { fetchCatalogEntries, fetchSkillContent, isVellumSkill } from '../../skills/vellum-catalog-remote.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
-const log = getLogger('vellum-skills-catalog');
-
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
-
-function getVellumSkillsDir(): string {
-  return join(import.meta.dir, '..', '..', 'config', 'vellum-skills');
-}
 
 export interface CatalogEntry {
   id: string;
@@ -23,122 +14,90 @@ export interface CatalogEntry {
   includes?: string[];
 }
 
-function parseCatalogEntry(directory: string): CatalogEntry | null {
-  const skillFilePath = join(directory, 'SKILL.md');
-  if (!existsSync(skillFilePath)) return null;
-
-  try {
-    const stat = statSync(skillFilePath);
-    if (!stat.isFile()) return null;
-
-    const content = readFileSync(skillFilePath, 'utf-8');
-    const match = content.match(FRONTMATTER_REGEX);
-    if (!match) return null;
-
-    const fields: Record<string, string> = {};
-    for (const line of match[1].split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const separatorIndex = trimmed.indexOf(':');
-      if (separatorIndex === -1) continue;
-
-      const key = trimmed.slice(0, separatorIndex).trim();
-      let value = trimmed.slice(separatorIndex + 1).trim();
-      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.slice(1, -1);
-      }
-      fields[key] = value;
-    }
-
-    const name = fields.name?.trim();
-    const description = fields.description?.trim();
-    if (!name || !description) return null;
-
-    let emoji: string | undefined;
-    const metadataRaw = fields.metadata?.trim();
-    if (metadataRaw) {
-      try {
-        const parsed = JSON.parse(metadataRaw);
-        if (parsed?.vellum?.emoji) {
-          emoji = parsed.vellum.emoji as string;
-        }
-      } catch {
-        // ignore malformed metadata
-      }
-    }
-
-    let includes: string[] | undefined;
-    const includesRaw = fields.includes?.trim();
-    if (includesRaw) {
-      try {
-        const parsed = JSON.parse(includesRaw);
-        if (Array.isArray(parsed) && parsed.every((item: unknown) => typeof item === 'string')) {
-          const filtered = (parsed as string[]).map((s) => s.trim()).filter((s) => s.length > 0);
-          if (filtered.length > 0) includes = filtered;
-        }
-      } catch {
-        // ignore malformed includes
-      }
-    }
-
-    return { id: basename(directory), name, description, emoji, includes };
-  } catch (err) {
-    log.warn({ err, directory }, 'Failed to read catalog entry');
-    return null;
-  }
-}
-
-export function listCatalogEntries(): CatalogEntry[] {
-  const catalogDir = getVellumSkillsDir();
-  if (!existsSync(catalogDir)) return [];
-
-  const entries: CatalogEntry[] = [];
-  try {
-    const dirEntries = readdirSync(catalogDir, { withFileTypes: true });
-    for (const entry of dirEntries) {
-      if (!entry.isDirectory()) continue;
-      const parsed = parseCatalogEntry(join(catalogDir, entry.name));
-      if (parsed) entries.push(parsed);
-    }
-  } catch (err) {
-    log.warn({ err, catalogDir }, 'Failed to list catalog entries');
-  }
-
-  return entries.sort((a, b) => a.id.localeCompare(b.id));
-}
+export { fetchCatalogEntries as listCatalogEntries, isVellumSkill };
 
 /**
  * Install a skill from the vellum-skills catalog by ID.
+ * Fetches SKILL.md from GitHub (with bundled fallback) and creates a managed skill.
  * Returns { success, skillName, error }.
  */
-export function installFromVellumCatalog(skillId: string): { success: boolean; skillName?: string; error?: string } {
-  const catalogDir = getVellumSkillsDir();
-  const skillDir = join(catalogDir, skillId.trim());
-  const skillFilePath = join(skillDir, 'SKILL.md');
+export async function installFromVellumCatalog(skillId: string): Promise<{ success: boolean; skillName?: string; error?: string }> {
+  const trimmedId = skillId.trim();
 
-  if (!existsSync(skillFilePath)) {
-    return { success: false, error: `Skill "${skillId}" not found in the Vellum catalog` };
+  // Verify skill exists in catalog
+  const exists = await isVellumSkill(trimmedId);
+  if (!exists) {
+    return { success: false, error: `Skill "${trimmedId}" not found in the Vellum catalog` };
   }
 
-  const content = readFileSync(skillFilePath, 'utf-8');
+  // Fetch SKILL.md content (remote with bundled fallback)
+  const content = await fetchSkillContent(trimmedId);
+  if (!content) {
+    return { success: false, error: `Skill "${trimmedId}" SKILL.md not found` };
+  }
+
   const match = content.match(FRONTMATTER_REGEX);
   if (!match) {
-    return { success: false, error: `Skill "${skillId}" has invalid SKILL.md` };
+    return { success: false, error: `Skill "${trimmedId}" has invalid SKILL.md` };
   }
 
-  const entry = parseCatalogEntry(skillDir);
-  if (!entry) {
-    return { success: false, error: `Skill "${skillId}" has invalid SKILL.md` };
+  // Parse frontmatter to get name/description/emoji/includes
+  const fields: Record<string, string> = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const separatorIndex = trimmed.indexOf(':');
+    if (separatorIndex === -1) continue;
+
+    const key = trimmed.slice(0, separatorIndex).trim();
+    let value = trimmed.slice(separatorIndex + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    fields[key] = value;
+  }
+
+  const name = fields.name?.trim();
+  const description = fields.description?.trim();
+  if (!name || !description) {
+    return { success: false, error: `Skill "${trimmedId}" has invalid SKILL.md (missing name or description)` };
+  }
+
+  let emoji: string | undefined;
+  const metadataRaw = fields.metadata?.trim();
+  if (metadataRaw) {
+    try {
+      const parsed = JSON.parse(metadataRaw);
+      if (parsed?.vellum?.emoji) {
+        emoji = parsed.vellum.emoji as string;
+      }
+    } catch {
+      // ignore malformed metadata
+    }
+  }
+
+  let includes: string[] | undefined;
+  const includesRaw = fields.includes?.trim();
+  if (includesRaw) {
+    try {
+      const parsed = JSON.parse(includesRaw);
+      if (Array.isArray(parsed) && parsed.every((item: unknown) => typeof item === 'string')) {
+        const filtered = (parsed as string[]).map((s) => s.trim()).filter((s) => s.length > 0);
+        if (filtered.length > 0) includes = filtered;
+      }
+    } catch {
+      // ignore malformed includes
+    }
   }
 
   const bodyMarkdown = content.slice(match[0].length);
   const result = createManagedSkill({
-    id: entry.id,
-    name: entry.name,
-    description: entry.description,
+    id: trimmedId,
+    name,
+    description,
     bodyMarkdown,
-    emoji: entry.emoji,
-    includes: entry.includes,
+    emoji,
+    includes,
     overwrite: true,
     addToIndex: true,
   });
@@ -147,7 +106,7 @@ export function installFromVellumCatalog(skillId: string): { success: boolean; s
     return { success: false, error: result.error };
   }
 
-  return { success: true, skillName: entry.id };
+  return { success: true, skillName: trimmedId };
 }
 
 class VellumSkillsCatalogTool implements Tool {
@@ -187,7 +146,7 @@ class VellumSkillsCatalogTool implements Tool {
 
     switch (action) {
       case 'list': {
-        const entries = listCatalogEntries();
+        const entries = await fetchCatalogEntries();
         if (entries.length === 0) {
           return { content: 'No Vellum-provided skills available in the catalog.', isError: false };
         }
@@ -200,52 +159,15 @@ class VellumSkillsCatalogTool implements Tool {
           return { content: 'Error: skill_id is required for install action', isError: true };
         }
 
-        const catalogDir = getVellumSkillsDir();
-        const skillDir = join(catalogDir, skillId.trim());
-        const skillFilePath = join(skillDir, 'SKILL.md');
-
-        if (!existsSync(skillFilePath)) {
-          const available = listCatalogEntries().map((e) => e.id);
-          return {
-            content: `Error: skill "${skillId}" not found in the Vellum catalog. Available: ${available.join(', ') || 'none'}`,
-            isError: true,
-          };
-        }
-
-        const content = readFileSync(skillFilePath, 'utf-8');
-        const match = content.match(FRONTMATTER_REGEX);
-        if (!match) {
-          return { content: `Error: skill "${skillId}" has invalid SKILL.md (missing frontmatter)`, isError: true };
-        }
-
-        const entry = parseCatalogEntry(skillDir);
-        if (!entry) {
-          return { content: `Error: skill "${skillId}" has invalid SKILL.md`, isError: true };
-        }
-
-        const bodyMarkdown = content.slice(match[0].length);
-
-        const result = createManagedSkill({
-          id: entry.id,
-          name: entry.name,
-          description: entry.description,
-          bodyMarkdown,
-          emoji: entry.emoji,
-          includes: entry.includes,
-          overwrite: input.overwrite === true,
-          addToIndex: true,
-        });
-
-        if (!result.created) {
+        const result = await installFromVellumCatalog(skillId);
+        if (!result.success) {
           return { content: `Error: ${result.error}`, isError: true };
         }
 
         return {
           content: JSON.stringify({
             installed: true,
-            skill_id: entry.id,
-            name: entry.name,
-            path: result.path,
+            skill_id: result.skillName,
           }),
           isError: false,
         };
