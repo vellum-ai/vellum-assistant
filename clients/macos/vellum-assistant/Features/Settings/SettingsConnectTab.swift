@@ -668,10 +668,10 @@ struct SettingsConnectTab: View {
 
     /// Extracts the `/guardian_verify <hex>` command from a raw instruction string.
     private func extractGuardianCommand(from instruction: String) -> String? {
-        guard let range = instruction.range(of: #"/guardian_verify\s+[0-9a-fA-F]+"#, options: .regularExpression) else {
+        guard let range = instruction.range(of: #"`?/guardian_verify\s+[0-9a-fA-F]+`?"#, options: .regularExpression) else {
             return nil
         }
-        return String(instruction[range])
+        return String(instruction[range]).trimmingCharacters(in: CharacterSet(charactersIn: "`"))
     }
 
     @ViewBuilder
