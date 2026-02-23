@@ -517,11 +517,46 @@ function triggerGatewayReconcile(ingressPublicBaseUrl: string | undefined): void
   });
 }
 
-export function handleIngressConfig(
+/**
+ * Best-effort Twilio webhook sync helper.
+ *
+ * Computes the voice, status-callback, and SMS webhook URLs from the current
+ * ingress config and pushes them to the Twilio IncomingPhoneNumber API.
+ *
+ * Returns `{ success, warning }`. When the update fails, `success` is false
+ * and `warning` contains a human-readable message. Callers should treat
+ * failure as non-fatal so that the primary operation (provision, assign,
+ * ingress save) still succeeds.
+ */
+async function syncTwilioWebhooks(
+  phoneNumber: string,
+  accountSid: string,
+  authToken: string,
+  ingressConfig: IngressConfig,
+): Promise<{ success: boolean; warning?: string }> {
+  try {
+    const voiceUrl = getTwilioVoiceWebhookUrl(ingressConfig);
+    const statusCallbackUrl = getTwilioStatusCallbackUrl(ingressConfig);
+    const smsUrl = getTwilioSmsWebhookUrl(ingressConfig);
+    await updatePhoneNumberWebhooks(accountSid, authToken, phoneNumber, {
+      voiceUrl,
+      statusCallbackUrl,
+      smsUrl,
+    });
+    log.info({ phoneNumber }, 'Twilio webhooks configured successfully');
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn({ err, phoneNumber }, `Webhook configuration skipped: ${message}`);
+    return { success: false, warning: `Webhook configuration skipped: ${message}` };
+  }
+}
+
+export async function handleIngressConfig(
   msg: IngressConfigRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   const localGatewayTarget = computeGatewayTarget();
   try {
     if (msg.action === 'get') {
@@ -592,6 +627,24 @@ export function handleIngressConfig(
       // fallback branch above) rather than the raw `value` from the UI.
       const effectiveUrl = isEnabled ? process.env.INGRESS_PUBLIC_BASE_URL : undefined;
       triggerGatewayReconcile(effectiveUrl);
+
+      // Best-effort Twilio webhook reconciliation: when ingress is being
+      // enabled/updated and a Twilio number is assigned with valid credentials,
+      // push the new webhook URLs to Twilio so calls and SMS route correctly.
+      if (isEnabled && hasTwilioCredentials()) {
+        const currentConfig = loadRawConfig();
+        const smsConfig = (currentConfig?.sms ?? {}) as Record<string, unknown>;
+        const assignedNumber = (smsConfig.phoneNumber as string) ?? '';
+        if (assignedNumber) {
+          const acctSid = getSecureKey('credential:twilio:account_sid')!;
+          const acctToken = getSecureKey('credential:twilio:auth_token')!;
+          // Fire-and-forget: webhook sync failure must not block the ingress save
+          syncTwilioWebhooks(assignedNumber, acctSid, acctToken, currentConfig as IngressConfig)
+            .catch(() => {
+              // Already logged inside syncTwilioWebhooks
+            });
+        }
+      }
     } else {
       ctx.send(socket, { type: 'ingress_config_response', enabled: false, publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
     }
@@ -1271,27 +1324,19 @@ export async function handleTwilioConfig(
 
       // Best-effort webhook configuration — non-fatal so the number is
       // still usable even if ingress isn't configured yet.
-      try {
-        const ingressConfig: IngressConfig = loadRawConfig();
-        const voiceUrl = getTwilioVoiceWebhookUrl(ingressConfig);
-        const statusCallbackUrl = getTwilioStatusCallbackUrl(ingressConfig);
-        const smsUrl = getTwilioSmsWebhookUrl(ingressConfig);
-        await updatePhoneNumberWebhooks(accountSid, authToken, purchased.phoneNumber, {
-          voiceUrl,
-          statusCallbackUrl,
-          smsUrl,
-        });
-        log.info({ phoneNumber: purchased.phoneNumber }, 'Twilio webhooks configured for provisioned number');
-      } catch (webhookErr) {
-        const webhookMsg = webhookErr instanceof Error ? webhookErr.message : String(webhookErr);
-        log.warn({ err: webhookErr, phoneNumber: purchased.phoneNumber }, `Webhook configuration skipped: ${webhookMsg}`);
-      }
+      const webhookResult = await syncTwilioWebhooks(
+        purchased.phoneNumber,
+        accountSid,
+        authToken,
+        loadRawConfig() as IngressConfig,
+      );
 
       ctx.send(socket, {
         type: 'twilio_config_response',
         success: true,
         hasCredentials: true,
         phoneNumber: purchased.phoneNumber,
+        warning: webhookResult.warning,
       });
     } else if (msg.action === 'assign_number') {
       if (!msg.phoneNumber) {
@@ -1333,24 +1378,17 @@ export async function handleTwilioConfig(
       ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
 
       // Best-effort webhook configuration when credentials are available
+      let webhookWarning: string | undefined;
       if (hasTwilioCredentials()) {
-        try {
-          const acctSid = getSecureKey('credential:twilio:account_sid')!;
-          const acctToken = getSecureKey('credential:twilio:auth_token')!;
-          const ingressConfig: IngressConfig = loadRawConfig();
-          const voiceUrl = getTwilioVoiceWebhookUrl(ingressConfig);
-          const statusCallbackUrl = getTwilioStatusCallbackUrl(ingressConfig);
-          const smsUrl = getTwilioSmsWebhookUrl(ingressConfig);
-          await updatePhoneNumberWebhooks(acctSid, acctToken, msg.phoneNumber, {
-            voiceUrl,
-            statusCallbackUrl,
-            smsUrl,
-          });
-          log.info({ phoneNumber: msg.phoneNumber }, 'Twilio webhooks configured for assigned number');
-        } catch (webhookErr) {
-          const webhookMsg = webhookErr instanceof Error ? webhookErr.message : String(webhookErr);
-          log.warn({ err: webhookErr, phoneNumber: msg.phoneNumber }, `Webhook configuration skipped: ${webhookMsg}`);
-        }
+        const acctSid = getSecureKey('credential:twilio:account_sid')!;
+        const acctToken = getSecureKey('credential:twilio:auth_token')!;
+        const webhookResult = await syncTwilioWebhooks(
+          msg.phoneNumber,
+          acctSid,
+          acctToken,
+          loadRawConfig() as IngressConfig,
+        );
+        webhookWarning = webhookResult.warning;
       }
 
       ctx.send(socket, {
@@ -1358,6 +1396,7 @@ export async function handleTwilioConfig(
         success: true,
         hasCredentials: hasTwilioCredentials(),
         phoneNumber: msg.phoneNumber,
+        warning: webhookWarning,
       });
     } else if (msg.action === 'list_numbers') {
       if (!hasTwilioCredentials()) {

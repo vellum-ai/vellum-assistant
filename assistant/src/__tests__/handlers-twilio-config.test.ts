@@ -113,10 +113,11 @@ mock.module('../tools/credentials/metadata-store.js', () => ({
 // Mock fetch for Twilio API validation
 const originalFetch = globalThis.fetch;
 
-import { handleTwilioConfig } from '../daemon/handlers/config.js';
+import { handleTwilioConfig, handleIngressConfig } from '../daemon/handlers/config.js';
 import type { HandlerContext } from '../daemon/handlers.js';
 import type {
   TwilioConfigRequest,
+  IngressConfigRequest,
   ServerMessage,
 } from '../daemon/ipc-contract.js';
 import { DebouncerMap } from '../util/debounce.js';
@@ -796,6 +797,245 @@ describe('Twilio config handler', () => {
     expect(res.success).toBe(false);
     expect(res.error).toContain('Unknown action');
     expect(res.error).toContain('nonexistent_action');
+  });
+
+  // ── Ingress webhook reconciliation ──────────────────────────────────
+
+  test('ingress config update triggers Twilio webhook sync when assigned number and credentials exist', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    rawConfigStore = { sms: { phoneNumber: '+15551234567' } };
+
+    const fetchCalls: Array<{ url: string; method: string; body?: string }> = [];
+
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      fetchCalls.push({ url: urlStr, method: init?.method ?? 'GET', body: init?.body?.toString() });
+
+      // Webhook number lookup
+      if (urlStr.includes('IncomingPhoneNumbers.json') && urlStr.includes('PhoneNumber=')) {
+        return new Response(JSON.stringify({
+          incoming_phone_numbers: [{ sid: 'PN123abc', phone_number: '+15551234567' }],
+        }), { status: 200 });
+      }
+      // Webhook update
+      if (urlStr.includes('IncomingPhoneNumbers/PN123abc.json') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ sid: 'PN123abc' }), { status: 200 });
+      }
+      // Gateway reconcile (ignore)
+      if (urlStr.includes('/internal/telegram/reconcile')) {
+        return new Response('{}', { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+
+    const msg: IngressConfigRequest = {
+      type: 'ingress_config',
+      action: 'set',
+      publicBaseUrl: 'https://new-tunnel.ngrok.io',
+      enabled: true,
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleIngressConfig(msg, {} as net.Socket, ctx);
+
+    // Ingress save should succeed
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; enabled: boolean; publicBaseUrl: string };
+    expect(res.type).toBe('ingress_config_response');
+    expect(res.success).toBe(true);
+    expect(res.enabled).toBe(true);
+    expect(res.publicBaseUrl).toBe('https://new-tunnel.ngrok.io');
+
+    // Wait a tick for the fire-and-forget webhook sync to complete
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Verify webhook update was attempted with the new ingress URL
+    const webhookUpdate = fetchCalls.find((c) =>
+      c.url.includes('IncomingPhoneNumbers/PN123abc.json') && c.method === 'POST',
+    );
+    expect(webhookUpdate).toBeDefined();
+    const body = webhookUpdate!.body!;
+    expect(body).toContain('VoiceUrl=');
+    expect(body).toContain('new-tunnel.ngrok.io');
+  });
+
+  test('webhook sync failure on ingress update does not fail the ingress update', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    rawConfigStore = { sms: { phoneNumber: '+15551234567' } };
+
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      // Gateway reconcile (ignore)
+      if (urlStr.includes('/internal/telegram/reconcile')) {
+        return new Response('{}', { status: 200 });
+      }
+      // Webhook number lookup — simulate failure
+      if (urlStr.includes('IncomingPhoneNumbers.json') && urlStr.includes('PhoneNumber=')) {
+        return new Response('Internal Server Error', { status: 500 });
+      }
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+
+    const msg: IngressConfigRequest = {
+      type: 'ingress_config',
+      action: 'set',
+      publicBaseUrl: 'https://example.ngrok.io',
+      enabled: true,
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleIngressConfig(msg, {} as net.Socket, ctx);
+
+    // The ingress update must still succeed despite the webhook sync failure
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; enabled: boolean };
+    expect(res.type).toBe('ingress_config_response');
+    expect(res.success).toBe(true);
+    expect(res.enabled).toBe(true);
+
+    // Wait a tick for the fire-and-forget promise
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  test('ingress config update skips webhook sync when no Twilio credentials', async () => {
+    rawConfigStore = { sms: { phoneNumber: '+15551234567' } };
+
+    const fetchCalls: Array<{ url: string }> = [];
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      fetchCalls.push({ url: urlStr });
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+
+    const msg: IngressConfigRequest = {
+      type: 'ingress_config',
+      action: 'set',
+      publicBaseUrl: 'https://example.ngrok.io',
+      enabled: true,
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleIngressConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean };
+    expect(res.success).toBe(true);
+
+    // No Twilio API calls should have been made (only gateway reconcile)
+    const twilioApiCalls = fetchCalls.filter((c) => c.url.includes('api.twilio.com'));
+    expect(twilioApiCalls).toHaveLength(0);
+  });
+
+  test('ingress config update skips webhook sync when no assigned number', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    // No sms.phoneNumber in config
+
+    const fetchCalls: Array<{ url: string }> = [];
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      fetchCalls.push({ url: urlStr });
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+
+    const msg: IngressConfigRequest = {
+      type: 'ingress_config',
+      action: 'set',
+      publicBaseUrl: 'https://example.ngrok.io',
+      enabled: true,
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleIngressConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean };
+    expect(res.success).toBe(true);
+
+    // No Twilio API calls should have been made
+    const twilioApiCalls = fetchCalls.filter((c) => c.url.includes('api.twilio.com'));
+    expect(twilioApiCalls).toHaveLength(0);
+  });
+
+  // ── Warning field ─────────────────────────────────────────────────
+
+  test('provision_number surfaces webhook warning when ingress is missing', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    // No ingress config — webhook configuration will produce a warning
+
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('AvailablePhoneNumbers') && urlStr.includes('Local.json')) {
+        return new Response(JSON.stringify({
+          available_phone_numbers: [{
+            phone_number: '+15559999999',
+            friendly_name: '(555) 999-9999',
+            capabilities: { voice: true, sms: true },
+          }],
+        }), { status: 200 });
+      }
+      if (urlStr.includes('IncomingPhoneNumbers.json') && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          phone_number: '+15559999999',
+          friendly_name: '(555) 999-9999',
+          capabilities: { voice: true, sms: true },
+        }), { status: 201 });
+      }
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'provision_number',
+      country: 'US',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; phoneNumber?: string; warning?: string };
+    expect(res.success).toBe(true);
+    expect(res.phoneNumber).toBe('+15559999999');
+    // Warning should be present because no ingress URL is configured
+    expect(res.warning).toBeDefined();
+    expect(res.warning).toContain('Webhook configuration skipped');
+  });
+
+  test('assign_number surfaces webhook warning when Twilio API fails', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    rawConfigStore = { ingress: { enabled: true, publicBaseUrl: 'https://example.ngrok.io' } };
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      // Webhook number lookup — simulate Twilio API error
+      if (urlStr.includes('IncomingPhoneNumbers.json')) {
+        return new Response('Service Unavailable', { status: 503 });
+      }
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'assign_number',
+      phoneNumber: '+15551234567',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; phoneNumber?: string; warning?: string };
+    // Assignment itself succeeds
+    expect(res.success).toBe(true);
+    expect(res.phoneNumber).toBe('+15551234567');
+    // Warning should surface the webhook failure
+    expect(res.warning).toBeDefined();
+    expect(res.warning).toContain('Webhook configuration skipped');
   });
 
   // ── Security ────────────────────────────────────────────────────────

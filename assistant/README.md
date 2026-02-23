@@ -217,7 +217,17 @@ The daemon handles `twilio_config` messages with the following actions:
 | `assign_number` | Assigns an existing Twilio phone number (E.164 format) to the assistant and auto-configures webhooks when ingress is available |
 | `list_numbers` | Lists all incoming phone numbers on the Twilio account with their capabilities (voice, SMS) |
 
-Response type: `twilio_config_response` with `success`, `hasCredentials`, optional `phoneNumber`, optional `numbers` array, and optional `error`.
+Response type: `twilio_config_response` with `success`, `hasCredentials`, optional `phoneNumber`, optional `numbers` array, optional `error`, and optional `warning` (for non-fatal webhook sync failures).
+
+### Ingress Webhook Reconciliation
+
+When the public ingress URL is changed via the Settings UI (`ingress_config` set action), the daemon automatically reconciles Twilio webhooks in addition to triggering a Telegram webhook reconcile on the gateway. If all of the following conditions are met, the daemon pushes updated webhook URLs (voice, status callback, SMS) to Twilio:
+
+1. Ingress is being **enabled** (not disabled)
+2. Twilio **credentials** are configured (Account SID + Auth Token in secure storage)
+3. A phone number is **assigned** (persisted in `sms.phoneNumber` config)
+
+This reconciliation is **best-effort and fire-and-forget** -- failures are logged but do not block the ingress config save or produce an error response. This ensures that changing a tunnel URL (e.g., restarting ngrok) automatically updates Twilio's webhook routing without requiring manual re-assignment of the phone number.
 
 ### Single-Number-Per-Assistant Model
 

@@ -435,7 +435,14 @@ The SMS channel provides text-only messaging via Twilio, sharing the same teleph
 2. The gateway authenticates the request via bearer token (same fail-closed model as `/deliver/telegram`).
 3. The gateway sends the SMS via the Twilio Messages API using the configured `TWILIO_PHONE_NUMBER` as the `From` number.
 
-**Setup**: Twilio credentials (Account SID, Auth Token) and phone number are managed via the `twilio_config` IPC contract and the `twilio-setup` skill. A single phone number is shared across voice and SMS for each assistant. Both `provision_number` and `assign_number` auto-persist the number to config and secure storage, and auto-configure Twilio webhooks (voice URL, status callback, SMS URL) via the Twilio IncomingPhoneNumber API when a public ingress URL is available. Webhook configuration is best-effort — if ingress is not yet set up, the number is still assigned and webhooks can be configured later.
+**Setup**: Twilio credentials (Account SID, Auth Token) and phone number are managed via the `twilio_config` IPC contract and the `twilio-setup` skill. A single phone number is shared across voice and SMS for each assistant. Both `provision_number` and `assign_number` auto-persist the number to config and secure storage, and auto-configure Twilio webhooks (voice URL, status callback, SMS URL) via the Twilio IncomingPhoneNumber API when a public ingress URL is available. Webhook configuration is best-effort — if ingress is not yet set up, the number is still assigned and webhooks can be configured later. Non-fatal webhook failures are surfaced as a `warning` field in the `twilio_config_response`.
+
+**Webhook Lifecycle**: Twilio webhook URLs are managed through a shared `syncTwilioWebhooks` helper in `config.ts` that computes voice, status-callback, and SMS URLs from the ingress config and pushes them to Twilio. Webhooks are synchronized at three points:
+1. **Number provisioning** (`provision_number`) — immediately after purchasing a number.
+2. **Number assignment** (`assign_number`) — when an existing number is assigned to the assistant.
+3. **Ingress URL change** (`ingress_config` set) — when the public ingress URL is updated or enabled, the daemon automatically re-synchronizes Twilio webhooks (fire-and-forget) if credentials and an assigned number are present. This ensures tunnel URL changes (e.g., ngrok restart) propagate without manual re-assignment.
+
+All three paths are best-effort: webhook sync failures do not prevent the primary operation from succeeding.
 
 **Limitations (v1)**: Text-only — MMS payloads are explicitly rejected with a user-facing notice rather than silently dropped.
 
