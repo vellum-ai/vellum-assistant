@@ -332,6 +332,24 @@ export function handleCuSessionFinalized(
     }
   }
 
+  // Create a file-backed attachment for recordings without a reporting session
+  // so cleanup can track orphan files.
+  if (msg.recording && !(meta?.reportToSessionId)) {
+    try {
+      createFileBackedAttachment({
+        filename: `qa-recording-${msg.sessionId}.mp4`,
+        mimeType: msg.recording.mimeType || 'video/mp4',
+        sizeBytes: msg.recording.sizeBytes,
+        filePath: msg.recording.localPath,
+        sha256: undefined,
+        expiresAt: msg.recording.expiresAt,
+      });
+      log.info({ sessionId: msg.sessionId }, 'Created orphan file-backed attachment for cleanup tracking (no reportToSessionId)');
+    } catch (err) {
+      log.error({ err, sessionId: msg.sessionId }, 'Failed to create file-backed attachment for orphan recording');
+    }
+  }
+
   // Clean up all CU session state.
   removeCuSessionReferences(ctx, msg.sessionId);
   // Delete metadata last — after it has been consumed for summary injection

@@ -1750,6 +1750,8 @@ public struct IPCTaskRouted: Codable, Sendable {
     public let qaMode: Bool?
     /// The originating chat session ID for result injection.
     public let reportToSessionId: String?
+    /// Recording retention in days (from daemon config).
+    public let retentionDays: Double?
 }
 
 /// Server push — broadcast when a task run creates a conversation, so the client can show it as a chat thread.
@@ -1772,6 +1774,8 @@ public struct IPCTaskSubmit: Codable, Sendable {
     public let screenHeight: Int
     public let attachments: [IPCUserMessageAttachment]?
     public let source: String?
+    /// The originating conversation/thread ID, if submitting from a chat context.
+    public let conversationId: String?
 }
 
 public struct IPCTelegramConfigRequest: Codable, Sendable {

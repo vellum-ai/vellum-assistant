@@ -76,6 +76,7 @@ export async function handleTaskSubmit(
       // Create CU session (reuse handleCuSessionCreate logic)
       const sessionId = uuid();
       const isQa = detectQaIntent(msg.task);
+      const config = getConfig();
       const cuMsg: CuSessionCreate = {
         type: 'cu_session_create',
         sessionId,
@@ -84,7 +85,7 @@ export async function handleTaskSubmit(
         screenHeight: msg.screenHeight,
         attachments: msg.attachments,
         interactionType: 'computer_use',
-        ...(isQa ? { qaMode: true } : {}),
+        ...(isQa ? { qaMode: true, reportToSessionId: msg.conversationId } : {}),
       };
       handleCuSessionCreate(cuMsg, socket, ctx);
 
@@ -92,7 +93,11 @@ export async function handleTaskSubmit(
         type: 'task_routed',
         sessionId,
         interactionType: 'computer_use',
-        ...(isQa ? { qaMode: true } : {}),
+        ...(isQa ? {
+          qaMode: true,
+          reportToSessionId: msg.conversationId,
+          retentionDays: config.qaRecording.defaultRetentionDays,
+        } : {}),
       });
     } else {
       // Create text QA session and immediately start processing
