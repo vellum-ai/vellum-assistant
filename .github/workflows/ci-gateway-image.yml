@@ -2,6 +2,7 @@ name: CI Gateway Image Build
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, closed]
     paths:
       - 'gateway/**'
       - '.github/workflows/ci-gateway-image.yml'
@@ -11,8 +12,13 @@ on:
       - 'gateway/**'
       - '.github/workflows/ci-gateway-image.yml'
 
+concurrency:
+  group: ci-gateway-image-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   build:
+    if: github.event.action != 'closed'
     name: Build Docker Image
     runs-on: ubuntu-latest
 
