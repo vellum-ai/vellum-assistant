@@ -107,6 +107,7 @@ final class ComputerUseSession: ObservableObject {
     private var previousFlatElements: [AXElement]?
     private var consecutiveUnchangedSteps = 0
     private var currentStepNumber = 0
+    private var consecutiveFrontmostBlocks = 0
 
     /// Adaptive delay configuration
     private let adaptiveDelayEnabled: Bool
@@ -172,6 +173,7 @@ final class ComputerUseSession: ObservableObject {
         previousFlatElements = nil
         consecutiveUnchangedSteps = 0
         currentStepNumber = 0
+        consecutiveFrontmostBlocks = 0
         state = .running(step: 0, maxSteps: maxSteps, lastAction: "Starting...", reasoning: "")
 
         log.info("Session starting — task: \(self.task, privacy: .public)")
@@ -245,7 +247,9 @@ final class ComputerUseSession: ObservableObject {
                     attachments: ipcAttachments,
                     interactionType: interactionTypeString,
                     reportToSessionId: reportToSessionId,
-                    qaMode: qaMode ? true : nil
+                    qaMode: qaMode ? true : nil,
+                    targetAppName: targetAppName,
+                    targetAppBundleId: targetAppBundleId
                 ))
             } catch {
                 log.error("Failed to send session create message: \(error)")
@@ -504,7 +508,14 @@ final class ComputerUseSession: ObservableObject {
         // Non-destructive actions (screenshot, open_app, wait, runAppleScript) are allowed
         // regardless of which app is focused.
         if let guardError = await checkFrontmostAppGuard(for: agentAction) {
-            log.error("Frontmost guard BLOCKED action \(agentAction.type.rawValue): \(guardError)")
+            consecutiveFrontmostBlocks += 1
+            log.error("Frontmost guard BLOCKED action \(agentAction.type.rawValue) (\(self.consecutiveFrontmostBlocks) consecutive): \(guardError)")
+            if consecutiveFrontmostBlocks >= 3 {
+                isCancelled = true
+                state = .failed(reason: "Target app could not be activated after repeated attempts.")
+                logger.finishSession(result: "failed: frontmost guard — too many blocks")
+                return
+            }
             let obs = await buildObservation(executionResult: nil, executionError: guardError)
             if let obs {
                 do {
@@ -516,6 +527,7 @@ final class ComputerUseSession: ObservableObject {
             state = .thinking(step: action.stepNumber + 1, maxSteps: maxSteps)
             return
         }
+        consecutiveFrontmostBlocks = 0
 
         // EXECUTE
         var executionResult: String? = nil
