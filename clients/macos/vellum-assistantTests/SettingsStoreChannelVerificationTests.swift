@@ -8,10 +8,15 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     private var daemonClient: DaemonClient!
     private var sentMessages: [Any] = []
     private var store: SettingsStore!
+    private let connectedAssistantIdDefaultsKey = "connectedAssistantId"
+    private let testAssistantId = "ast-settings-tests"
+    private var previousConnectedAssistantId: String?
 
     override func setUp() {
         super.setUp()
         sentMessages = []
+        previousConnectedAssistantId = UserDefaults.standard.string(forKey: connectedAssistantIdDefaultsKey)
+        UserDefaults.standard.set(testAssistantId, forKey: connectedAssistantIdDefaultsKey)
         daemonClient = DaemonClient()
         daemonClient.isConnected = true
         daemonClient.sendOverride = { [weak self] message in
@@ -24,6 +29,12 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         store = nil
         daemonClient = nil
         sentMessages = []
+        if let previousConnectedAssistantId {
+            UserDefaults.standard.set(previousConnectedAssistantId, forKey: connectedAssistantIdDefaultsKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: connectedAssistantIdDefaultsKey)
+        }
+        previousConnectedAssistantId = nil
         super.tearDown()
     }
 
@@ -71,7 +82,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
         let challengeMessages = guardianMessages.filter { $0.action == "create_challenge" && $0.channel == "telegram" }
         XCTAssertEqual(challengeMessages.count, 1)
-        XCTAssertEqual(challengeMessages.first?.assistantId, "self")
+        XCTAssertEqual(challengeMessages.first?.assistantId, testAssistantId)
     }
 
     // MARK: - startChannelGuardianVerification (SMS)
@@ -85,7 +96,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
         let challengeMessages = guardianMessages.filter { $0.action == "create_challenge" && $0.channel == "sms" }
         XCTAssertEqual(challengeMessages.count, 1)
-        XCTAssertEqual(challengeMessages.first?.assistantId, "self")
+        XCTAssertEqual(challengeMessages.first?.assistantId, testAssistantId)
     }
 
     // MARK: - Successful status response
@@ -297,7 +308,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
         let revokeMessages = guardianMessages.filter { $0.action == "revoke" && $0.channel == "telegram" }
         XCTAssertEqual(revokeMessages.count, 1)
-        XCTAssertEqual(revokeMessages.first?.assistantId, "self")
+        XCTAssertEqual(revokeMessages.first?.assistantId, testAssistantId)
     }
 
     func testRevokeSmsGuardianSendsRevokeAction() {
@@ -306,7 +317,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
         let revokeMessages = guardianMessages.filter { $0.action == "revoke" && $0.channel == "sms" }
         XCTAssertEqual(revokeMessages.count, 1)
-        XCTAssertEqual(revokeMessages.first?.assistantId, "self")
+        XCTAssertEqual(revokeMessages.first?.assistantId, testAssistantId)
     }
 
     // MARK: - No daemon client doesn't crash
@@ -383,5 +394,25 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
         XCTAssertEqual(telegramStatus.count, 1)
         XCTAssertEqual(smsStatus.count, 1)
+        XCTAssertEqual(telegramStatus.first?.assistantId, testAssistantId)
+        XCTAssertEqual(smsStatus.first?.assistantId, testAssistantId)
+    }
+
+    func testGuardianRequestsFallBackToSelfWhenNoConnectedAssistantId() {
+        UserDefaults.standard.removeObject(forKey: connectedAssistantIdDefaultsKey)
+        sentMessages.removeAll()
+
+        let localStore = SettingsStore(daemonClient: daemonClient)
+        localStore.startChannelGuardianVerification(channel: "telegram")
+        localStore.revokeChannelGuardian(channel: "sms")
+
+        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let statusMessages = guardianMessages.filter { $0.action == "status" }
+        let createMessages = guardianMessages.filter { $0.action == "create_challenge" }
+        let revokeMessages = guardianMessages.filter { $0.action == "revoke" }
+
+        XCTAssertTrue(statusMessages.allSatisfy { $0.assistantId == "self" })
+        XCTAssertTrue(createMessages.allSatisfy { $0.assistantId == "self" })
+        XCTAssertTrue(revokeMessages.allSatisfy { $0.assistantId == "self" })
     }
 }
