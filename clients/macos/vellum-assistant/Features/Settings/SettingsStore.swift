@@ -792,7 +792,18 @@ public final class SettingsStore: ObservableObject {
             return
         }
         do {
-            try daemonClient?.sendGuardianVerification(action: "create_challenge", channel: channel, assistantId: "self")
+            guard let daemonClient else {
+                switch channel {
+                case "telegram":
+                    telegramGuardianVerificationInProgress = false
+                case "sms":
+                    smsGuardianVerificationInProgress = false
+                default:
+                    break
+                }
+                return
+            }
+            try daemonClient.sendGuardianVerification(action: "create_challenge", channel: channel, assistantId: "self")
         } catch {
             log.error("Failed to start \(channel) guardian verification: \(error)")
             switch channel {

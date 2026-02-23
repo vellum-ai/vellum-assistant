@@ -1500,12 +1500,12 @@ export function handleGuardianVerification(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  try {
-    // Use the assistant ID from the request when available; fall back to
-    // 'self' for backward compatibility with single-assistant mode.
-    const assistantId = msg.assistantId ?? 'self';
-    const channel = msg.channel ?? 'telegram';
+  // Use the assistant ID from the request when available; fall back to
+  // 'self' for backward compatibility with single-assistant mode.
+  const assistantId = msg.assistantId ?? 'self';
+  const channel = msg.channel ?? 'telegram';
 
+  try {
     if (msg.action === 'create_challenge') {
       const result = createVerificationChallenge(assistantId, channel, msg.sessionId);
 
@@ -1514,6 +1514,7 @@ export function handleGuardianVerification(
         success: true,
         secret: result.secret,
         instruction: result.instruction,
+        channel,
       });
     } else if (msg.action === 'status') {
       const binding = getGuardianBinding(assistantId, channel);
@@ -1532,12 +1533,14 @@ export function handleGuardianVerification(
         type: 'guardian_verification_response',
         success: true,
         bound: false,
+        channel,
       });
     } else {
       ctx.send(socket, {
         type: 'guardian_verification_response',
         success: false,
         error: `Unknown action: ${String(msg.action)}`,
+        channel,
       });
     }
   } catch (err) {
@@ -1547,6 +1550,7 @@ export function handleGuardianVerification(
       type: 'guardian_verification_response',
       success: false,
       error: message,
+      channel,
     });
   }
 }
