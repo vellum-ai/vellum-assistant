@@ -257,65 +257,80 @@ final class ScreenRecorder: NSObject, ScreenRecording {
             throw ScreenRecorderError.notRecording
         }
 
+        // Capture values needed for result computation before cleanup
+        let capturedStream = stream
+        let capturedWriter = writer
+        let capturedFileURL = fileURL
+        let capturedStartTime = recordingStartTime
+        let capturedVideoInput = videoInput
+        let capturedAudioInput = audioInput
+        let capturedWidth = captureWidth
+        let capturedHeight = captureHeight
+        let capturedScope = captureScope
+        let capturedIncludesAudio = includesAudio
+        let capturedTargetBundleId = targetBundleId
+
+        // Guarantee state cleanup on all paths (including throws)
+        defer {
+            self.stream = nil
+            self.assetWriter = nil
+            self.videoInput = nil
+            self.audioInput = nil
+            self.outputHandler = nil
+            self.recordingFileURL = nil
+            self.recordingStartTime = nil
+            self.isRecording = false
+        }
+
         // Stop the stream capture
         do {
-            try await stream.stopCapture()
+            try await capturedStream.stopCapture()
         } catch {
             log.warning("Error stopping stream capture: \(error.localizedDescription)")
         }
 
         // Mark inputs as finished
-        videoInput?.markAsFinished()
-        audioInput?.markAsFinished()
+        capturedVideoInput?.markAsFinished()
+        capturedAudioInput?.markAsFinished()
 
         // Finalize the asset writer
-        await writer.finishWriting()
+        await capturedWriter.finishWriting()
 
-        if writer.status == .failed {
-            let errorMsg = writer.error?.localizedDescription ?? "Unknown error"
+        if capturedWriter.status == .failed {
+            let errorMsg = capturedWriter.error?.localizedDescription ?? "Unknown error"
             log.error("Asset writer failed: \(errorMsg)")
             throw ScreenRecorderError.assetWriterFailed(errorMsg)
         }
 
         // Compute metadata
-        let fileAttributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let fileAttributes = try FileManager.default.attributesOfItem(atPath: capturedFileURL.path)
         let sizeBytes = (fileAttributes[.size] as? Int) ?? 0
 
         // Compute duration from the asset
-        let asset = AVAsset(url: fileURL)
+        let asset = AVAsset(url: capturedFileURL)
         let duration: CMTime
         if let tracks = try? await asset.load(.tracks), !tracks.isEmpty {
             duration = try await asset.load(.duration)
         } else {
             // Fallback: estimate from wall clock time
-            let elapsed = recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
+            let elapsed = capturedStartTime.map { Date().timeIntervalSince($0) } ?? 0
             duration = CMTime(seconds: elapsed, preferredTimescale: 1000)
         }
         let durationMs = Int(CMTimeGetSeconds(duration) * 1000)
 
         let result = RecordingResult(
-            fileURL: fileURL,
+            fileURL: capturedFileURL,
             mimeType: "video/mp4",
             sizeBytes: sizeBytes,
             durationMs: durationMs,
-            width: captureWidth,
-            height: captureHeight,
-            captureScope: captureScope,
-            includeAudio: includesAudio,
-            targetBundleId: targetBundleId
+            width: capturedWidth,
+            height: capturedHeight,
+            captureScope: capturedScope,
+            includeAudio: capturedIncludesAudio,
+            targetBundleId: capturedTargetBundleId
         )
 
-        // Clean up state
-        self.stream = nil
-        self.assetWriter = nil
-        self.videoInput = nil
-        self.audioInput = nil
-        self.outputHandler = nil
-        self.recordingFileURL = nil
-        self.recordingStartTime = nil
-        self.isRecording = false
-
-        log.info("Screen recording stopped: \(fileURL.lastPathComponent) (\(sizeBytes) bytes, \(durationMs)ms)")
+        log.info("Screen recording stopped: \(capturedFileURL.lastPathComponent) (\(sizeBytes) bytes, \(durationMs)ms)")
 
         return result
     }
