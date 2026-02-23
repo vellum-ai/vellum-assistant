@@ -500,14 +500,15 @@ struct ChatView: View {
                     // started an assistant turn so that stale incomplete tool
                     // calls from earlier turns (e.g. after daemon errors) don't
                     // permanently suppress the thinking indicator. When the
-                    // last message is .user while isSending and no assistant
-                    // message is still streaming, we return an empty slice so
-                    // stale tool calls don't suppress the indicator. When the
-                    // user queued a follow-up while the assistant is still
-                    // streaming, we fall through so active tool calls remain
-                    // visible. We still scan beyond lastVisible because
-                    // confirmation messages are inserted after the assistant
-                    // message that owns the tool call.
+                    // last message is .user while isSending and the assistant
+                    // isn't actively processing (not streaming and no pending
+                    // confirmation), we return an empty slice so stale tool
+                    // calls don't suppress the indicator. When the user queued
+                    // a follow-up while the assistant is still streaming or
+                    // awaiting confirmation, we fall through so active tool
+                    // calls remain visible. We still scan beyond lastVisible
+                    // because confirmation messages are inserted after the
+                    // assistant message that owns the tool call.
                     let currentTurnMessages: ArraySlice<ChatMessage> = {
                         // When the very last message is from the user and we're
                         // still sending, check whether the assistant is actively
@@ -515,17 +516,21 @@ struct ChatView: View {
                         // user messages (queued follow-ups) and examine the
                         // last non-user message. Only fall through to
                         // lastTurnStart (preserving active tool-call detection)
-                        // if that message is still streaming — meaning the
-                        // assistant is genuinely in-flight. A finalized
-                        // (non-streaming) assistant message with incomplete
-                        // tool calls is stale (daemon errored or completed),
-                        // so we return an empty slice to prevent those stale
-                        // tool calls from suppressing the thinking indicator.
+                        // if that message is still streaming or has a pending
+                        // confirmation — both indicate the assistant is
+                        // genuinely in-flight. A finalized (non-streaming)
+                        // assistant message with incomplete tool calls but no
+                        // pending confirmation is stale (daemon errored or
+                        // completed), so we return an empty slice to prevent
+                        // those stale tool calls from suppressing the thinking
+                        // indicator.
                         if isSending, let last = displayMessages.last, last.role == .user {
                             let lastNonUser = displayMessages.last(where: {
                                 $0.role != .user
                             })
-                            if lastNonUser?.isStreaming != true {
+                            let isActivelyProcessing = lastNonUser?.isStreaming == true
+                                || lastNonUser?.confirmation?.state == .pending
+                            if !isActivelyProcessing {
                                 return displayMessages[displayMessages.endIndex...]
                             }
                         }
