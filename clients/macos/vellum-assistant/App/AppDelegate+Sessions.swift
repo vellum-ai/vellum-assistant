@@ -6,6 +6,54 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 extension AppDelegate {
 
+    // MARK: - Computer Use Post-Run UX
+
+    /// Return a user-facing explanation when CU ended without a successful completion/response.
+    /// This avoids the "silent disappear" feeling when the overlay auto-closes.
+    private func computerUseEndMessage(for state: SessionState) -> String? {
+        func completionLooksUnsuccessful(_ text: String) -> Bool {
+            let lower = text.lowercased()
+            let signals = [
+                "wasn't able",
+                "couldn't",
+                "could not",
+                "unable",
+                "permission denied",
+                "denied",
+                "not able",
+                "failed",
+            ]
+            return signals.contains { lower.contains($0) }
+        }
+
+        func compact(_ text: String) -> String {
+            let singleLine = text.replacingOccurrences(of: "\n", with: " ")
+            if singleLine.count <= 220 { return singleLine }
+            return String(singleLine.prefix(220)) + "..."
+        }
+
+        switch state {
+        case .completed(let summary, _):
+            if completionLooksUnsuccessful(summary) {
+                return "Computer control finished with warnings: \(compact(summary))"
+            }
+            return nil
+        case .responded(let answer, _):
+            if completionLooksUnsuccessful(answer) {
+                return "Computer control finished with warnings: \(compact(answer))"
+            }
+            return nil
+        case .failed(let reason):
+            return "Computer control stopped: \(reason)"
+        case .cancelled:
+            return "Computer control was cancelled."
+        case .awaitingConfirmation(let reason):
+            return "Computer control stopped while waiting for confirmation: \(reason)"
+        case .running, .thinking, .paused, .idle:
+            return "Computer control ended unexpectedly before finishing the task."
+        }
+    }
+
     // MARK: - Accessibility Permission
 
     /// Poll for accessibility permission after prompting, giving the user time to grant it in System Settings.
@@ -83,6 +131,7 @@ extension AppDelegate {
             }
 
             await session.run()
+            let endMessage = self.computerUseEndMessage(for: session.state)
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             overlay.close()
             self.overlayWindow = nil
@@ -91,6 +140,9 @@ extension AppDelegate {
             self.ambientAgent.resume()
             if mainWindowWasVisible {
                 self.mainWindow?.show()
+            }
+            if let endMessage {
+                self.mainWindow?.windowState.showToast(message: endMessage, style: .error)
             }
         }
     }
@@ -220,11 +272,15 @@ extension AppDelegate {
                 self.overlayWindow = overlay
                 self.ambientAgent.pause()
                 await session.run()
+                let endMessage = self.computerUseEndMessage(for: session.state)
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 overlay.close()
                 self.overlayWindow = nil
                 self.currentSession = nil
                 self.ambientAgent.resume()
+                if let endMessage {
+                    self.mainWindow?.windowState.showToast(message: endMessage, style: .error)
+                }
 
             default: // text_qa
                 let session = TextSession(
