@@ -58,11 +58,10 @@ export function getHttpRetryDelay(
     const parsed = parseRetryAfterMs(retryAfter);
     if (parsed !== undefined) return parsed;
   }
-  // Double the base so that computeRetryDelay's equal-jitter range on attempt 0
-  // becomes [baseDelayMs, baseDelayMs*2) — above the floor AND with jitter preserved.
-  // Without the *2, Math.max clamps attempt-0 to exactly baseDelayMs (no jitter),
-  // causing all clients to retry simultaneously (thundering herd).
-  return Math.max(baseDelayMs, computeRetryDelay(attempt, baseDelayMs * 2));
+  // For attempt 0, double the base so jitter range [baseDelayMs, 2*baseDelayMs) stays above the floor.
+  // For attempt >= 1, use the original base — jitter is already above baseDelayMs.
+  const effectiveBase = attempt === 0 ? baseDelayMs * 2 : baseDelayMs;
+  return Math.max(baseDelayMs, computeRetryDelay(attempt, effectiveBase));
 }
 
 /**
