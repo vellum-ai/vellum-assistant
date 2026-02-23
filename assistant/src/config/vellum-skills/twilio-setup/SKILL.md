@@ -169,7 +169,7 @@ Confirm:
 - `hasCredentials` is `true`
 - `phoneNumber` is set to the expected number
 
-Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneNumber}. This number is used for both voice calls and SMS messaging. Guardian identity: {verified | not configured}."**
+Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneNumber}. This number is used for both voice calls and SMS messaging."**
 
 ## Step 5.5: Guardian Verification (SMS)
 
@@ -206,6 +206,8 @@ Now link the user's phone number as the trusted SMS guardian for this assistant.
 **Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 6 without blocking.
 
 To re-check guardian status later, send `guardian_verification` with `action: "status"` and `channel: "sms"`.
+
+Report the guardian verification result: **"Guardian identity: {verified | not configured}."**
 
 ## Step 6: Enable Features
 
