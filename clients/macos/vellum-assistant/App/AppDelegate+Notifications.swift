@@ -108,6 +108,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         // Handle activity completion notifications
         if categoryId == "ACTIVITY_COMPLETE" {
             await MainActor.run {
+                guard !self.isAwaitingFirstLaunchReady else { return }
                 self.showMainWindow()
             }
             return
@@ -127,7 +128,10 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             default:
                 // Default action (clicked banner) — deny and bring app forward
                 decision = "deny"
-                await MainActor.run { self.showMainWindow() }
+                await MainActor.run {
+                    guard !self.isAwaitingFirstLaunchReady else { return }
+                    self.showMainWindow()
+                }
             }
             await MainActor.run {
                 self.toolConfirmationNotificationService.handleResponse(requestId: requestId, decision: decision)
@@ -138,6 +142,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         // Handle voice response complete notifications
         if categoryId == "VOICE_RESPONSE_COMPLETE" {
             await MainActor.run {
+                guard !self.isAwaitingFirstLaunchReady else { return }
                 self.showMainWindow()
             }
             return
