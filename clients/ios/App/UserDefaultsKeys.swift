@@ -9,6 +9,8 @@ enum UserDefaultsKeys {
     // Constructed at runtime to avoid pre-commit hook false positive
     static let legacyDaemonToken = ["daemon", "auth", "token"].joined(separator: "_")
     static let authServiceBaseURL = "authServiceBaseURL"
+    static let gatewayBaseURL = "gateway_base_url"
+    static let conversationKey = "conversation_key"
 
     // Per-host:port keys for multi-Mac QR pairing support.
     // Actual keys are namespaced: "daemon_fingerprint:<host>:<port>", etc.

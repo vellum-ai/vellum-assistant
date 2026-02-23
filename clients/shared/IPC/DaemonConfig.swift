@@ -113,10 +113,13 @@ public struct DaemonConfig {
     }
 
     /// Create a `DaemonConfig` populated from UserDefaults / Keychain, falling back to safe defaults.
-    /// If a `runtime_url` is stored, uses HTTP transport; otherwise uses TCP.
+    /// Checks for gateway URL (QR pairing v2) or runtime URL, then falls back to TCP.
     public static func fromUserDefaults() -> DaemonConfig {
-        // Check for a stored runtime URL — if present, use HTTP transport
-        if let runtimeUrl = UserDefaults.standard.string(forKey: "runtime_url"), !runtimeUrl.isEmpty {
+        // Check for a stored gateway or runtime URL — if present, use HTTP transport.
+        // gateway_base_url is set by QR pairing v2; runtime_url is the legacy/cloud key.
+        let httpBaseURL = UserDefaults.standard.string(forKey: "gateway_base_url").flatMap { $0.isEmpty ? nil : $0 }
+            ?? UserDefaults.standard.string(forKey: "runtime_url").flatMap { $0.isEmpty ? nil : $0 }
+        if let baseURL = httpBaseURL {
             let bearerToken = APIKeyManager.shared.getAPIKey(provider: "runtime-bearer-token")
             let conversationKey: String
             if let stored = UserDefaults.standard.string(forKey: "conversation_key"), !stored.isEmpty {
@@ -125,7 +128,7 @@ public struct DaemonConfig {
                 conversationKey = UUID().uuidString
                 UserDefaults.standard.set(conversationKey, forKey: "conversation_key")
             }
-            return DaemonConfig(transport: .http(baseURL: runtimeUrl, bearerToken: bearerToken, conversationKey: conversationKey))
+            return DaemonConfig(transport: .http(baseURL: baseURL, bearerToken: bearerToken, conversationKey: conversationKey))
         }
 
         // Fall back to TCP transport (connect to Mac daemon)
