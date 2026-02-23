@@ -36,7 +36,7 @@ export interface ParsedCommand {
 }
 
 const SHELL_PROGRAMS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
-const OPAQUE_PROGRAMS = new Set(['eval', 'source']);
+const OPAQUE_PROGRAMS = new Set(['eval', 'source', 'alias']);
 const DANGEROUS_ENV_VARS = new Set([
   'LD_PRELOAD', 'LD_LIBRARY_PATH',
   'DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH', 'DYLD_FRAMEWORK_PATH',

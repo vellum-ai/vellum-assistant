@@ -391,13 +391,14 @@ describe('Shell parser property-based tests', () => {
       );
     });
 
-    test('opaque constructs are correctly flagged for eval/source/bash -c', async () => {
+    test('opaque constructs are correctly flagged for eval/source/alias/bash -c', async () => {
       await fc.assert(
         fc.asyncProperty(
           fc.constantFrom(
             'eval "ls"', 'source script.sh', '. script.sh',
             'bash -c "echo hi"', 'sh -c "ls"', 'zsh -c "test"',
-            '$CMD arg', '${CMD} arg', '$(get_cmd) arg'
+            '$CMD arg', '${CMD} arg', '$(get_cmd) arg',
+            "alias ll='ls -la'", 'alias rm="rm -i"'
           ),
           async (cmd) => {
             const result = await parse(cmd);
@@ -434,7 +435,7 @@ describe('Shell parser property-based tests', () => {
   // ── 7. Alias definitions ───────────────────────────────────────
 
   describe('alias definitions', () => {
-    test('alias with safe commands never crashes', async () => {
+    test('alias with safe commands never crashes and is flagged opaque', async () => {
       const safeCommands = ['ls -la', 'echo hello', 'cat file.txt', 'grep pattern',
         'git status', 'pwd', 'date', 'whoami'];
 
@@ -448,14 +449,16 @@ describe('Shell parser property-based tests', () => {
             expect(result).toBeDefined();
             expect(Array.isArray(result.segments)).toBe(true);
             expect(Array.isArray(result.dangerousPatterns)).toBe(true);
-            expect(typeof result.hasOpaqueConstructs).toBe('boolean');
+            // Even safe alias bodies are opaque — the parser cannot inspect
+            // the string content, so alias definitions are always opaque.
+            expect(result.hasOpaqueConstructs).toBe(true);
           }
         ),
         { numRuns: 100, ...FC_OPTS }
       );
     });
 
-    test('alias with dangerous commands never crashes', async () => {
+    test('alias with dangerous commands never crashes and is flagged opaque', async () => {
       const dangerousCommands = ['rm -rf /', 'sudo reboot', 'kill -9 1',
         'dd if=/dev/zero of=/dev/sda', 'mkfs.ext4 /dev/sda'];
 
@@ -468,6 +471,10 @@ describe('Shell parser property-based tests', () => {
             const result = await parse(command);
             expect(result).toBeDefined();
             expect(Array.isArray(result.segments)).toBe(true);
+            // Alias bodies contain shell code in strings that the parser
+            // cannot analyze — they must be flagged as opaque constructs
+            // so the permission system prompts the user.
+            expect(result.hasOpaqueConstructs).toBe(true);
           }
         ),
         { numRuns: 50, ...FC_OPTS }
