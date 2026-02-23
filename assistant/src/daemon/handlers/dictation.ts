@@ -129,7 +129,8 @@ export async function handleDictationRequest(
     const config = getConfig();
     if (!listProviders().includes(config.provider)) {
       log.warn({ provider: config.provider }, 'Dictation: no provider available, returning raw transcription');
-      ctx.send(socket, { type: 'dictation_response', text: msg.transcription, mode });
+      const fallbackText = mode === 'command' ? (msg.context.selectedText ?? msg.transcription) : msg.transcription;
+      ctx.send(socket, { type: 'dictation_response', text: fallbackText, mode });
       return;
     }
 
@@ -142,13 +143,15 @@ export async function handleDictationRequest(
     );
 
     const textBlock = response.content.find((b) => b.type === 'text');
-    const cleanedText = textBlock && 'text' in textBlock ? textBlock.text.trim() : msg.transcription;
+    const inlineFallback = mode === 'command' ? (msg.context.selectedText ?? msg.transcription) : msg.transcription;
+    const cleanedText = textBlock && 'text' in textBlock ? textBlock.text.trim() : inlineFallback;
 
     ctx.send(socket, { type: 'dictation_response', text: cleanedText, mode });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Dictation LLM call failed, returning raw transcription');
-    ctx.send(socket, { type: 'dictation_response', text: msg.transcription, mode });
+    const fallbackText = mode === 'command' ? (msg.context.selectedText ?? msg.transcription) : msg.transcription;
+    ctx.send(socket, { type: 'dictation_response', text: fallbackText, mode });
     ctx.send(socket, { type: 'error', message: `Dictation cleanup failed: ${message}` });
   }
 }
