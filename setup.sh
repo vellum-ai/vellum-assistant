@@ -50,7 +50,7 @@ info "Linking global 'vellum' command to meta/"
 # ---------------------------------------------------------------------------
 info "Installing shell completions for vellum"
 
-VELLUM_COMP_DIR="${HOME}/.vellum-cli"
+VELLUM_COMP_DIR="${HOME}/.config/vellum/completions"
 mkdir -p "${VELLUM_COMP_DIR}"
 
 LOCKFILE_PATH="${HOME}/.vellum.lock.json"
@@ -142,14 +142,14 @@ ZSH_COMP_END
 
 # — Source completions from shell rc files —
 if [ -f "${HOME}/.bashrc" ]; then
-  if ! grep -q '.vellum-cli/completions.bash' "${HOME}/.bashrc"; then
-    printf '\n# vellum completions\nsource ~/.vellum-cli/completions.bash\n' >> "${HOME}/.bashrc"
+  if ! grep -q '.config/vellum/completions/completions.bash' "${HOME}/.bashrc"; then
+    printf '\n# vellum completions\nsource ~/.config/vellum/completions/completions.bash\n' >> "${HOME}/.bashrc"
   fi
 fi
 
 if [ -f "${HOME}/.zshrc" ]; then
-  if ! grep -q '.vellum-cli/completions.zsh' "${HOME}/.zshrc"; then
-    printf '\n# vellum completions\nsource ~/.vellum-cli/completions.zsh\n' >> "${HOME}/.zshrc"
+  if ! grep -q '.config/vellum/completions/completions.zsh' "${HOME}/.zshrc"; then
+    printf '\n# vellum completions\nsource ~/.config/vellum/completions/completions.zsh\n' >> "${HOME}/.zshrc"
   fi
 fi
 
