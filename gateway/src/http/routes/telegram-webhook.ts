@@ -185,7 +185,23 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         chat_id: chatId,
         message_id: parsedMessageId,
       };
+      const isNoOpMarkupError = (err: unknown): boolean => {
+        const msg = err instanceof Error ? err.message : String(err);
+        return msg.includes("message is not modified");
+      };
+
       const deleteApprovalPrompt = (primaryErr: unknown, fallbackErr: unknown): void => {
+        // "message is not modified" means the inline keyboard was already
+        // removed (e.g. duplicate/stale callback clicks). The prompt is still
+        // valid — skip the delete so we don't remove audit-worthy messages.
+        if (isNoOpMarkupError(primaryErr) || isNoOpMarkupError(fallbackErr)) {
+          tlog.info(
+            { chatId, messageId: parsedMessageId, phase },
+            "Inline keyboard already cleared (no-op edit); skipping message delete",
+          );
+          return;
+        }
+
         callTelegramApi(config, "deleteMessage", basePayload).catch((deleteErr) => {
           tlog.error(
             { primaryErr, fallbackErr, deleteErr, chatId, messageId: parsedMessageId, phase },
@@ -197,7 +213,8 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       // Bot API behavior differs across wrappers/clients for "remove markup".
       // Try the explicit null form first, then fall back to an empty inline
       // keyboard payload if needed. If both fail, delete the prompt message
-      // so users are not left with stale actionable buttons.
+      // so users are not left with stale actionable buttons — unless the error
+      // indicates the markup was already removed (no-op).
       callTelegramApi(config, "editMessageReplyMarkup", {
         ...basePayload,
         reply_markup: null,
