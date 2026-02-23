@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Channels settings tab — Telegram and SMS (Twilio) channel configuration.
 /// Displays a compact, status-first layout optimized for viewing and light
