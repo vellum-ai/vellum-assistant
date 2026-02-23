@@ -81,10 +81,10 @@ private struct VIconButtonStyle: ButtonStyle {
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.buttonV)
             .background(backgroundColor(isPressed: configuration.isPressed))
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-            .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
-                RoundedRectangle(cornerRadius: VRadius.lg)
+                RoundedRectangle(cornerRadius: VRadius.md)
                     .stroke(isActive ? VColor.iconAccent : VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
             )
             .animation(VAnimation.fast, value: configuration.isPressed)
