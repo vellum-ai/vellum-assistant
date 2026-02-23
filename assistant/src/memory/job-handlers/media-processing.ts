@@ -41,6 +41,14 @@ export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
     return;
   }
 
+  if (asset.mediaType !== 'video') {
+    log.info(
+      { assetId: mediaAssetId, mediaType: asset.mediaType },
+      'Skipping media processing pipeline — only video assets are supported',
+    );
+    return;
+  }
+
   // Build detection config, allowing optional eventType override from payload
   const eventType = asString(job.payload.eventType);
   const detectionConfig: DetectionConfig = eventType
