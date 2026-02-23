@@ -1,7 +1,12 @@
-name: PR Gateway Checks
+name: CI Gateway Checks
 
 on:
   pull_request:
+    paths:
+      - 'gateway/**'
+      - '.github/workflows/ci-gateway.yml'
+  push:
+    branches: [main]
     paths:
       - 'gateway/**'
       - '.github/workflows/ci-gateway.yml'
