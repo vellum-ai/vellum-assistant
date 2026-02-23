@@ -31,7 +31,7 @@ public struct SkillInvocationChip: View {
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
-        .background(Moss._800)
+        .background(Moss._700)
         .clipShape(PixelBorderShape())
         .overlay(
             PixelBorderShape()

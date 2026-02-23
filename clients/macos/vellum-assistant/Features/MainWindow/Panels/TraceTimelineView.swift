@@ -80,7 +80,7 @@ struct TraceTimelineView: View {
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
                         .foregroundColor(Amber._500)
-                        .background(Moss._800)
+                        .background(Moss._700)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .overlay(
                             RoundedRectangle(cornerRadius: VRadius.sm)
@@ -204,7 +204,7 @@ struct TraceTimelineView: View {
                 .padding(.leading, 26)
                 .padding(.vertical, VSpacing.xs)
                 .padding(.trailing, VSpacing.sm)
-                .background(Moss._800.opacity(0.5))
+                .background(Moss._700.opacity(0.5))
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             }
         }
