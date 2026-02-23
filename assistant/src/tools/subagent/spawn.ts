@@ -8,6 +8,7 @@ export async function executeSubagentSpawn(
   const label = input.label as string;
   const objective = input.objective as string;
   const extraContext = input.context as string | undefined;
+  const sendResultToUser = input.send_result_to_user !== false;
 
   if (!label || !objective) {
     return { content: 'Both "label" and "objective" are required.', isError: true };
@@ -26,6 +27,7 @@ export async function executeSubagentSpawn(
         label,
         objective,
         context: extraContext,
+        sendResultToUser,
       },
       sendToClient as (msg: unknown) => void,
     );
