@@ -10,9 +10,9 @@ import { getLogger } from '../../util/logger.js';
 const log = getLogger('auto-navigate');
 
 const CDP_BASE = 'http://localhost:9222';
-const MAX_PAGES = 15;
-const PAGE_WAIT_MS = 3500;
-const SCROLL_WAIT_MS = 2000;
+const MAX_PAGES = 10;
+const PAGE_WAIT_MS = 2500;
+const SCROLL_WAIT_MS = 1000;
 
 /** Minimal CDP client — connects to one page tab. */
 class MiniCDP {
@@ -57,15 +57,28 @@ class MiniCDP {
   close() { this.ws?.close(); }
 }
 
+export interface AutoNavProgress {
+  type: 'visiting' | 'discovered' | 'done';
+  url?: string;
+  pageNumber?: number;
+  totalDiscovered?: number;
+  visitedCount?: number;
+}
+
 /**
  * Navigate Chrome through a domain's pages to trigger API calls.
  * Discovers internal links from the DOM and visits up to ~15 unique paths.
  *
  * @param domain The domain to crawl (e.g. "example.com").
  * @param abortSignal Optional signal to stop navigation early.
+ * @param onProgress Optional callback for live progress updates.
  * @returns List of visited page URLs.
  */
-export async function autoNavigate(domain: string, abortSignal?: { aborted: boolean }): Promise<string[]> {
+export async function autoNavigate(
+  domain: string,
+  abortSignal?: { aborted: boolean },
+  onProgress?: (p: AutoNavProgress) => void,
+): Promise<string[]> {
   let wsUrl: string | null = null;
   try {
     const res = await fetch(`${CDP_BASE}/json/list`);
@@ -108,6 +121,7 @@ export async function autoNavigate(domain: string, abortSignal?: { aborted: bool
 
   // Navigate to the domain root first
   try {
+    onProgress?.({ type: 'visiting', url: rootUrl, pageNumber: 1 });
     await cdp.send('Page.navigate', { url: rootUrl });
     await sleep(PAGE_WAIT_MS);
     visited.add('/');
@@ -125,12 +139,11 @@ export async function autoNavigate(domain: string, abortSignal?: { aborted: bool
   await scrollPage(cdp);
   await sleep(SCROLL_WAIT_MS);
 
-  // Click common interactive elements on the root page
-  await clickInteractiveElements(cdp);
-  await sleep(SCROLL_WAIT_MS);
-
   // Discover internal links from the current page
-  const discoveredLinks = await discoverInternalLinks(cdp, domain);
+  let discoveredLinks = await discoverInternalLinks(cdp, domain);
+  // Sort links: deeper paths first (more likely to be content pages), skip shallow nav links
+  discoveredLinks = rankLinks(discoveredLinks);
+  onProgress?.({ type: 'discovered', totalDiscovered: discoveredLinks.length });
   log.info({ count: discoveredLinks.length }, 'Discovered internal links from root');
 
   // Visit discovered pages
@@ -140,6 +153,7 @@ export async function autoNavigate(domain: string, abortSignal?: { aborted: bool
     if (visited.has(link.key)) continue;
 
     const url = link.url;
+    onProgress?.({ type: 'visiting', url, pageNumber: visited.size + 1, totalDiscovered: discoveredLinks.length });
     log.info({ url }, 'Auto-navigate visiting page');
 
     try {
@@ -152,9 +166,9 @@ export async function autoNavigate(domain: string, abortSignal?: { aborted: bool
       await scrollPage(cdp);
       await sleep(SCROLL_WAIT_MS);
 
-      // Click interactive elements to trigger more API calls
-      await clickInteractiveElements(cdp);
-      await sleep(1500);
+      // Click tabs/buttons within the page (NOT nav links — those navigate away)
+      await clickPageTabs(cdp);
+      await sleep(800);
 
       // Discover more links from this page
       const newLinks = await discoverInternalLinks(cdp, domain);
@@ -171,6 +185,7 @@ export async function autoNavigate(domain: string, abortSignal?: { aborted: bool
   }
 
   cdp.close();
+  onProgress?.({ type: 'done', visitedCount: visitedUrls.length, totalDiscovered: discoveredLinks.length });
   log.info({ visited: visitedUrls.length, total: discoveredLinks.length + 1 }, 'Auto-navigation finished');
   return visitedUrls;
 }
@@ -180,6 +195,56 @@ interface DiscoveredLink {
   url: string;
   /** Deduplication key: origin + pathname. */
   key: string;
+  /** Path depth (number of segments). */
+  depth: number;
+}
+
+/** Paths that are typically navigation chrome, not content pages. */
+const SKIP_PATHS = [
+  '/home', '/login', '/signup', '/register', '/sign-up', '/sign-in',
+  '/help', '/support', '/contact', '/about', '/terms', '/privacy',
+  '/careers', '/press', '/blog', '/faq', '/sitemap',
+];
+
+/** Path patterns that indicate high-value purchase/content flows. */
+const HIGH_VALUE_PATTERNS = [
+  /\/orders/i, /\/cart/i, /\/checkout/i, /\/account/i, /\/settings/i,
+  /\/store\//i, /\/restaurant\//i, /\/menu/i, /\/payment/i,
+  /\/profile/i, /\/history/i, /\/favorites/i, /\/saved/i,
+  /\/search/i, /\/category/i, /\/collection/i,
+];
+
+/** Sort links to prioritize purchase/content flows, deduplicate by pattern. */
+function rankLinks(links: DiscoveredLink[]): DiscoveredLink[] {
+  const filtered = links.filter(l => {
+    const path = new URL(l.url).pathname.toLowerCase();
+    if (SKIP_PATHS.some(skip => path === skip || path === skip + '/')) return false;
+    return true;
+  });
+
+  // Deduplicate by host+path pattern — keep only one of /store/123, /store/456
+  // but preserve different subdomains (shop.example.com vs admin.example.com)
+  const byPattern = new Map<string, DiscoveredLink>();
+  for (const link of filtered) {
+    const parsed = new URL(link.url);
+    // Collapse numeric/hash segments to find the pattern
+    const pathPattern = parsed.pathname.replace(/\/\d+/g, '/{id}').replace(/\/[a-f0-9]{8,}/gi, '/{id}');
+    const pattern = parsed.hostname + pathPattern;
+    if (!byPattern.has(pattern)) {
+      byPattern.set(pattern, link);
+    }
+  }
+
+  return [...byPattern.values()].sort((a, b) => {
+    const aPath = new URL(a.url).pathname.toLowerCase();
+    const bPath = new URL(b.url).pathname.toLowerCase();
+    // High-value paths first
+    const aHighValue = HIGH_VALUE_PATTERNS.some(p => p.test(aPath)) ? 1 : 0;
+    const bHighValue = HIGH_VALUE_PATTERNS.some(p => p.test(bPath)) ? 1 : 0;
+    if (aHighValue !== bHighValue) return bHighValue - aHighValue;
+    // Then by depth (deeper = more specific)
+    return Math.min(b.depth, 4) - Math.min(a.depth, 4);
+  });
 }
 
 /** Extract internal links from the current page DOM, preserving subdomains. */
@@ -204,7 +269,11 @@ async function discoverInternalLinks(cdp: MiniCDP, domain: string): Promise<Disc
               const key = url.origin + url.pathname;
               if (!seen.has(key)) {
                 seen.add(key);
-                links.push({ url: url.origin + url.pathname, key });
+                links.push({
+                  url: url.origin + url.pathname,
+                  key,
+                  depth: path.split('/').filter(Boolean).length,
+                });
               }
             } catch { /* skip malformed URLs */ }
           }
@@ -222,25 +291,64 @@ async function discoverInternalLinks(cdp: MiniCDP, domain: string): Promise<Disc
 
 /** Scroll the page to trigger lazy-loaded content. */
 async function scrollPage(cdp: MiniCDP): Promise<void> {
-  await cdp.send('Runtime.evaluate', {
-    expression: 'window.scrollBy(0, 800)',
-    awaitPromise: false,
-  }).catch(() => {});
+  // Scroll in increments to trigger multiple lazy-load thresholds
+  for (let i = 0; i < 3; i++) {
+    await cdp.send('Runtime.evaluate', {
+      expression: 'window.scrollBy(0, 600)',
+      awaitPromise: false,
+    }).catch(() => {});
+    await sleep(500);
+  }
 }
 
-/** Click common interactive elements (tabs, nav buttons) to trigger API calls. */
-async function clickInteractiveElements(cdp: MiniCDP): Promise<void> {
+/**
+ * Click tabs, buttons, and flow-relevant elements within the current page.
+ * Avoids clicking navigation links (which would navigate away).
+ */
+async function clickPageTabs(cdp: MiniCDP): Promise<void> {
   const selectors = [
-    'nav a:not([href="/"])',
-    '[role="tab"]',
-    '[role="tablist"] button',
+    '[role="tab"]:not(:first-child)',
+    '[role="tablist"] button:not(:first-child)',
     'button[data-tab]',
-    '.tab, .nav-tab, .nav-link',
+    '[data-testid*="tab"]',
+    'button[aria-expanded="false"]',
   ];
 
   for (const selector of selectors) {
     await clickInPage(cdp, selector);
-    await sleep(800);
+    await sleep(600);
+  }
+
+  // Also try clicking purchase-flow buttons to trigger API calls
+  // (Add to Cart, etc. — these fire API requests even if we don't complete the flow)
+  await clickByText(cdp, 'Add to Cart');
+  await clickByText(cdp, 'Add to Order');
+  await clickByText(cdp, 'Add Item');
+}
+
+/** Click a button by its visible text content. */
+async function clickByText(cdp: MiniCDP, text: string): Promise<boolean> {
+  try {
+    const result = await cdp.send('Runtime.evaluate', {
+      expression: `
+        (function() {
+          const buttons = document.querySelectorAll('button, [role="button"]');
+          for (const btn of buttons) {
+            if (btn.textContent && btn.textContent.trim().toLowerCase().includes(${JSON.stringify(text.toLowerCase())})) {
+              btn.scrollIntoView({ block: 'center' });
+              btn.click();
+              return true;
+            }
+          }
+          return false;
+        })()
+      `,
+      awaitPromise: false,
+      returnByValue: true,
+    }) as { result?: { value?: boolean } };
+    return result?.result?.value === true;
+  } catch {
+    return false;
   }
 }
 

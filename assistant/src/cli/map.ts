@@ -166,6 +166,12 @@ async function startLearnSession(
           continue;
         }
 
+        if (m.type === 'ride_shotgun_progress') {
+          // Live progress from auto-navigator
+          process.stderr.write(`  ${m.message}\n`);
+          continue;
+        }
+
         if (m.type === 'ride_shotgun_result') {
           clearTimeout(timeoutHandle);
           socket.destroy();

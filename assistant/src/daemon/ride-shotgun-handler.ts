@@ -169,7 +169,17 @@ export async function handleRideShotgunStart(
                 clearInterval(checkInterval);
               }
             }, 1000);
-            autoNavigate(navDomain, abortSignal).then(visited => {
+            autoNavigate(navDomain, abortSignal, (progress) => {
+              // Send progress to connected client
+              if (progress.type === 'visiting' && progress.url) {
+                const shortUrl = progress.url.replace(/^https?:\/\//, '');
+                ctx.send(socket, {
+                  type: 'ride_shotgun_progress',
+                  watchId,
+                  message: `[${progress.pageNumber || '?'}] ${shortUrl}`,
+                } as any);
+              }
+            }).then(visited => {
               clearInterval(checkInterval);
               log.info({ watchId, visitedPages: visited.length }, 'Generic auto-navigation finished');
               if (session.status === 'active') {
