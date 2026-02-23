@@ -8,6 +8,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { getConfig } from '../config/loader.js';
+import { resolveUserReference } from '../config/user-reference.js';
 import { getLogger } from '../util/logger.js';
 import {
   getCallSession,
@@ -214,13 +215,14 @@ export class CallOrchestrator {
       : '1. Begin the conversation naturally.';
 
     return [
-      'You are on a live phone call on behalf of your user.',
+      `You are on a live phone call on behalf of ${resolveUserReference()}.`,
       this.task ? `Task: ${this.task}` : '',
       '',
       'You are speaking directly to the person who answered the phone.',
       'Respond naturally and conversationally — speak as you would in a real phone conversation.',
       '',
       'IMPORTANT RULES:',
+      '0. When introducing yourself, refer to yourself as an assistant. Avoid the phrase "AI assistant" unless directly asked.',
       disclosureRule,
       '2. Be concise — phone conversations should be brief and natural.',
       '3. If the callee asks something you don\'t know, include [ASK_USER: your question here] in your response along with a hold message like "Let me check on that for you."',
