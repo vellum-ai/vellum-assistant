@@ -181,14 +181,17 @@ final class ComputerUseSession: ObservableObject {
             }
         } else {
             state = .failed(reason: "No focused window and screen capture failed")
+            logger.finishSession(result: "failed: no window")
+            // Finalize QA recording BEFORE sending abort — the daemon's handleCuSessionAbort
+            // deletes cuSessionMetadata, so cu_session_finalized must arrive first for
+            // summary injection to work.
+            if qaMode {
+                await finalizeQARecording()
+            }
             do {
                 try daemonClient.send(CuSessionAbortMessage(sessionId: id))
             } catch {
                 log.error("Failed to send session abort message: \(error)")
-            }
-            logger.finishSession(result: "failed: no window")
-            if qaMode {
-                await finalizeQARecording()
             }
             return
         }
