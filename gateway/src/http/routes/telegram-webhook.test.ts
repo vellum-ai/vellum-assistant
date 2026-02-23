@@ -112,6 +112,10 @@ function postRequest(body: string): Request {
 describe("telegram-webhook callback query acknowledgment", () => {
   beforeEach(() => {
     callTelegramApiMock.mockClear();
+    callTelegramApiMock.mockImplementation(
+      (_config: GatewayConfig, _method: string, _body: Record<string, unknown>) =>
+        Promise.resolve({}),
+    );
     sendTelegramReplyMock.mockClear();
     handleInboundMock.mockClear();
     resetConversationMock.mockClear();
@@ -224,5 +228,116 @@ describe("telegram-webhook callback query acknowledgment", () => {
       (c) => c[1] === "answerCallbackQuery",
     );
     expect(answerCalls.length).toBe(0);
+  });
+
+  it("clears inline approval buttons after a standard approval decision", async () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({
+        forwarded: true,
+        rejected: false,
+        runtimeResponse: {
+          accepted: true,
+          duplicate: false,
+          eventId: "evt-1",
+          approval: "decision_applied",
+        },
+      }),
+    );
+
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = makeCallbackQueryBody("apr:run1:approve", 306);
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(200);
+    const clearCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "editMessageReplyMarkup",
+    );
+    expect(clearCalls.length).toBe(1);
+    expect(clearCalls[0][2]).toEqual({
+      chat_id: "42",
+      message_id: 10,
+      reply_markup: { inline_keyboard: [] },
+    });
+  });
+
+  it("clears inline approval buttons for stale callback queries", async () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({
+        forwarded: true,
+        rejected: false,
+        runtimeResponse: {
+          accepted: true,
+          duplicate: false,
+          eventId: "evt-2",
+          approval: "stale_ignored",
+        },
+      }),
+    );
+
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = makeCallbackQueryBody("apr:stale:approve", 307);
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(200);
+    const clearCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "editMessageReplyMarkup",
+    );
+    expect(clearCalls.length).toBe(1);
+  });
+
+  it("does not clear inline approval buttons for non-decision callback handling", async () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({
+        forwarded: true,
+        rejected: false,
+        runtimeResponse: {
+          accepted: true,
+          duplicate: false,
+          eventId: "evt-3",
+          approval: "reminder_sent",
+        },
+      }),
+    );
+
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = makeCallbackQueryBody("apr:run1:approve", 308);
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(200);
+    const clearCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "editMessageReplyMarkup",
+    );
+    expect(clearCalls.length).toBe(0);
+  });
+
+  it("does not fail webhook when clearing inline approval buttons fails", async () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({
+        forwarded: true,
+        rejected: false,
+        runtimeResponse: {
+          accepted: true,
+          duplicate: false,
+          eventId: "evt-4",
+          approval: "guardian_decision_applied",
+        },
+      }),
+    );
+    callTelegramApiMock.mockImplementation((_config: GatewayConfig, method: string) => {
+      if (method === "editMessageReplyMarkup") {
+        return Promise.reject(new Error("edit failed"));
+      }
+      return Promise.resolve({});
+    });
+
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = makeCallbackQueryBody("gapr:run1:approve", 309);
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(200);
+    const clearCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "editMessageReplyMarkup",
+    );
+    expect(clearCalls.length).toBe(1);
   });
 });
