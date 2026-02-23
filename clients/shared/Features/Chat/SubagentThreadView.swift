@@ -1,0 +1,253 @@
+import SwiftUI
+
+/// Slack-style thread indicator for a subagent, rendered below the parent message.
+///
+/// Looks like Slack's "3 replies  Last reply 2m ago" bar with:
+/// - A vertical connecting line on the left linking it visually to the parent message
+/// - Subagent icon, label, status, reply preview, and reply count
+/// - Clicking opens the thread detail in the side panel (like Slack opens thread panel)
+///
+/// This replaces SubagentStatusChip with richer thread-style affordances.
+public struct SubagentThreadView: View {
+    let subagent: SubagentInfo
+    let events: [SubagentEventItem]
+    var onAbort: (() -> Void)?
+    var onTap: (() -> Void)?
+
+    @State private var isHovered: Bool = false
+    @State private var phase: Int = 0
+    @State private var timer: Timer?
+
+    private var isRunning: Bool { !subagent.isTerminal }
+
+    private var statusColor: Color {
+        switch subagent.status {
+        case .completed: return Emerald._500
+        case .failed, .aborted: return Danger._500
+        default: return Forest._500
+        }
+    }
+
+    private var statusIcon: String {
+        switch subagent.status {
+        case .completed: return "checkmark.circle.fill"
+        case .failed: return "xmark.circle.fill"
+        case .aborted: return "stop.circle.fill"
+        default: return "circle.dotted"
+        }
+    }
+
+    /// Count of visible steps (text + toolUse + error, excluding toolResults).
+    private var replyCount: Int {
+        events.filter { if case .toolResult = $0.kind { return false }; return true }.count
+    }
+
+    /// Preview text from the last meaningful event.
+    private var lastReplyPreview: String? {
+        let meaningful = events.reversed().first { event in
+            switch event.kind {
+            case .toolResult: return false
+            default: return true
+            }
+        }
+        guard let event = meaningful else { return nil }
+        switch event.kind {
+        case .text:
+            let line = event.content.components(separatedBy: .newlines).first ?? event.content
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return trimmed.count > 60 ? String(trimmed.prefix(57)) + "..." : trimmed
+        case .toolUse(let name):
+            return toolActionDescription(name: name, input: event.content)
+        case .error:
+            let line = event.content.components(separatedBy: .newlines).first ?? event.content
+            return line.count > 60 ? String(line.prefix(57)) + "..." : line
+        default:
+            return nil
+        }
+    }
+
+    public init(subagent: SubagentInfo, events: [SubagentEventItem], onAbort: (() -> Void)? = nil, onTap: (() -> Void)? = nil) {
+        self.subagent = subagent
+        self.events = events
+        self.onAbort = onAbort
+        self.onTap = onTap
+    }
+
+    public var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            // Vertical connecting line (links this thread to the parent message above)
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(statusColor.opacity(0.4))
+                    .frame(width: 2)
+            }
+            .frame(width: 2)
+            .padding(.trailing, VSpacing.sm)
+
+            // Thread indicator content
+            threadBar
+        }
+        .onAppear { startDotAnimation() }
+        .onDisappear { timer?.invalidate() }
+        .onChange(of: subagent.status) {
+            if subagent.status.isTerminal {
+                timer?.invalidate()
+                timer = nil
+            }
+        }
+    }
+
+    // MARK: - Thread Bar
+
+    private var threadBar: some View {
+        HStack(spacing: VSpacing.sm) {
+            // Subagent avatar circle
+            Image(systemName: "cpu")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(statusColor)
+                .frame(width: 22, height: 22)
+                .background(statusColor.opacity(0.12))
+                .clipShape(Circle())
+
+            // Label (clickable, turns blue on hover like Slack)
+            Text(subagent.label)
+                .font(VFont.captionMedium)
+                .foregroundColor(isHovered ? Forest._400 : VColor.textPrimary)
+
+            // Status icon
+            Image(systemName: statusIcon)
+                .font(.system(size: 9))
+                .foregroundColor(statusColor)
+
+            // Animated dots while running
+            if isRunning {
+                animatedDots
+            }
+
+            // Preview of latest reply
+            if let preview = lastReplyPreview {
+                Text(preview)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: VSpacing.xs)
+
+            // Reply count (like Slack's "3 replies")
+            if replyCount > 0 {
+                Text("\(replyCount) repl\(replyCount == 1 ? "y" : "ies")")
+                    .font(VFont.captionMedium)
+                    .foregroundColor(isHovered ? Forest._400 : Forest._500)
+            } else if isRunning {
+                Text("Working...")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .italic()
+            }
+
+            // Abort button
+            if isRunning, let onAbort {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(VColor.textMuted)
+                    .padding(VSpacing.xs)
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(TapGesture().onEnded { onAbort() })
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("Abort subagent")
+            }
+
+            // View thread arrow
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(isHovered ? Forest._400 : VColor.textMuted)
+        }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(isHovered ? VColor.backgroundSubtle.opacity(0.5) : VColor.backgroundSubtle.opacity(0.2))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .strokeBorder(isHovered ? statusColor.opacity(0.3) : Color.clear, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { onTap?() }
+        .onHover { hovering in
+            isHovered = hovering
+            #if os(macOS)
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            #endif
+        }
+        .accessibilityLabel("Thread: \(subagent.label)")
+        .accessibilityHint("Opens thread detail panel")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    // MARK: - Animated Dots
+
+    private var animatedDots: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(VColor.textSecondary)
+                    .frame(width: 4, height: 4)
+                    .opacity(phase % 3 == index ? 1.0 : 0.3)
+            }
+        }
+    }
+
+    private func startDotAnimation() {
+        guard isRunning else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                phase += 1
+            }
+        }
+    }
+
+    // MARK: - Tool Helpers
+
+    private func toolActionDescription(name: String, input: String) -> String {
+        let shortInput: String = {
+            guard !input.isEmpty else { return "" }
+            let lastComponent = URL(fileURLWithPath: input).lastPathComponent
+            return lastComponent.isEmpty ? input : lastComponent
+        }()
+
+        switch name.lowercased() {
+        case "read", "file_read":
+            return shortInput.isEmpty ? "Read a file" : "Read \(shortInput)"
+        case "edit", "file_edit":
+            return shortInput.isEmpty ? "Edited a file" : "Edited \(shortInput)"
+        case "write", "file_write":
+            return shortInput.isEmpty ? "Created a file" : "Created \(shortInput)"
+        case "bash":
+            return input.isEmpty ? "Ran a command" : "Ran \(truncated(input, to: 50))"
+        case "glob":
+            return input.isEmpty ? "Searched for files" : "Found \(truncated(input, to: 50))"
+        case "grep":
+            return input.isEmpty ? "Searched files" : "Searched for \"\(truncated(input, to: 40))\""
+        case "web_search", "websearch":
+            return input.isEmpty ? "Searched the web" : "Searched \"\(truncated(input, to: 40))\""
+        case "web_fetch", "webfetch":
+            if let host = URL(string: input)?.host { return "Fetched \(host)" }
+            return "Fetched a URL"
+        case "task":
+            return input.isEmpty ? "Ran an agent" : "Ran agent: \(truncated(input, to: 40))"
+        default:
+            return name
+                .replacingOccurrences(of: "_", with: " ")
+                .split(separator: " ")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                .joined(separator: " ")
+        }
+    }
+
+    private func truncated(_ s: String, to length: Int) -> String {
+        s.count > length ? String(s.prefix(length - 1)) + "…" : s
+    }
+}

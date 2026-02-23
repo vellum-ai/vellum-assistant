@@ -10,10 +10,28 @@ public struct SubagentEventItem: Identifiable {
         case toolUse(name: String)
         case toolResult(isError: Bool)
         case error
+
+        public var isError: Bool {
+            if case .error = self { return true }
+            return false
+        }
     }
 
     public let kind: Kind
     public var content: String
+
+    /// When a toolUse event is paired with its subsequent toolResult, the result content is attached here.
+    public var resultContent: String?
+    /// Whether the attached result is an error.
+    public var resultIsError: Bool
+
+    public init(timestamp: Date, kind: Kind, content: String, resultContent: String? = nil, resultIsError: Bool = false) {
+        self.timestamp = timestamp
+        self.kind = kind
+        self.content = content
+        self.resultContent = resultContent
+        self.resultIsError = resultIsError
+    }
 }
 
 /// Aggregated usage stats for a subagent session.

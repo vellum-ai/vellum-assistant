@@ -49,6 +49,7 @@ struct ChatView: View {
     var activeSubagents: [SubagentInfo] = []
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
+    var subagentDetailStore: SubagentDetailStore?
     var daemonHttpPort: Int?
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
@@ -465,11 +466,12 @@ struct ChatView: View {
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
 
-                        // Subagent chips anchored to the message that spawned them
+                        // Subagent thread indicators anchored to the message that spawned them
                         // Indent to align with message text (past the 28pt avatar + 8pt spacing)
                         ForEach(activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
-                            SubagentStatusChip(
+                            SubagentThreadView(
                                 subagent: subagent,
+                                events: subagentDetailStore?.eventsBySubagent[subagent.id] ?? [],
                                 onAbort: { onAbortSubagent?(subagent.id) },
                                 onTap: { onSubagentTap?(subagent.id) }
                             )
@@ -482,8 +484,9 @@ struct ChatView: View {
 
                     // Subagents with no parent message (e.g. from history load)
                     ForEach(activeSubagents.filter { $0.parentMessageId == nil }) { subagent in
-                        SubagentStatusChip(
+                        SubagentThreadView(
                             subagent: subagent,
+                            events: subagentDetailStore?.eventsBySubagent[subagent.id] ?? [],
                             onAbort: { onAbortSubagent?(subagent.id) },
                             onTap: { onSubagentTap?(subagent.id) }
                         )
