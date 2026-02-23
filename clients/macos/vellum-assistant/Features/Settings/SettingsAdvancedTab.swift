@@ -371,7 +371,7 @@ struct SettingsAdvancedTab: View {
                 regenerateSessionToken()
             }
         } message: {
-            Text("This will replace the current token with a new one. Any paired iOS devices will need to re-scan the QR code.")
+            Text("This will replace the current token and restart the daemon. Any paired iOS devices will need to re-scan the QR code.")
         }
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(
@@ -423,6 +423,13 @@ struct SettingsAdvancedTab: View {
         let newToken = bytes.map { String(format: "%02x", $0) }.joined()
         FileManager.default.createFile(atPath: tokenPath, contents: Data(newToken.utf8), attributes: [.posixPermissions: 0o600])
         sessionToken = newToken
+        // Kill the daemon so the health monitor restarts it with the new token.
+        // The daemon only reads the token at startup, so a restart is required.
+        let pidPath = NSHomeDirectory() + "/.vellum/vellum.pid"
+        if let pidStr = try? String(contentsOfFile: pidPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+           let pid = Int32(pidStr) {
+            kill(pid, SIGTERM)
+        }
     }
 
     private func getTCPPort() -> Int {
