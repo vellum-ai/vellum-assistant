@@ -143,8 +143,31 @@ final class ComputerUseSession: ObservableObject {
         // Start screen recording in QA mode
         if qaMode, let recorder = screenRecorder {
             do {
-                try await recorder.startRecording(windowID: nil, displayID: nil, includeAudio: self.includeAudio)
-                log.info("QA mode: screen recording started for session \(self.id)")
+                var windowID: CGWindowID?
+                var displayID: CGDirectDisplayID?
+                if captureScope == "window" {
+                    // Resolve the frontmost window's CGWindowID for window-scoped capture.
+                    if let frontApp = NSWorkspace.shared.frontmostApplication {
+                        let pid = frontApp.processIdentifier
+                        if let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
+                            for info in windowList {
+                                if let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
+                                   ownerPID == pid,
+                                   let wid = info[kCGWindowNumber as String] as? CGWindowID {
+                                    windowID = wid
+                                    break
+                                }
+                            }
+                        }
+                    }
+                    if windowID == nil {
+                        log.warning("QA mode: captureScope is 'window' but no frontmost window found — falling back to display capture")
+                    }
+                } else {
+                    displayID = CGMainDisplayID()
+                }
+                try await recorder.startRecording(windowID: windowID, displayID: displayID, includeAudio: self.includeAudio)
+                log.info("QA mode: screen recording started for session \(self.id) (scope: \(self.captureScope))")
             } catch {
                 log.error("QA mode: failed to start screen recording: \(error.localizedDescription)")
                 // Non-fatal — continue the session without recording
