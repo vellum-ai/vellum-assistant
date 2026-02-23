@@ -29,14 +29,7 @@ import {
   setOutboundPaused,
   type AddressRule,
 } from "./guardrails.js";
-import {
-  createProvider,
-  getActiveProviderName,
-  loadRawConfig,
-  saveRawConfig,
-  setNestedValue,
-  type SupportedProvider,
-} from "./providers/index.js";
+import { createProvider } from "./providers/index.js";
 
 // ---------------------------------------------------------------------------
 // Guardrail error
@@ -66,26 +59,6 @@ export class EmailService {
       this.providerInstance = await createProvider();
     }
     return this.providerInstance;
-  }
-
-  /** Force re-creation of the provider (e.g. after `provider set`). */
-  resetProvider(): void {
-    this.providerInstance = null;
-  }
-
-  // =========================================================================
-  // Provider info
-  // =========================================================================
-
-  getProviderName(): string {
-    return getActiveProviderName();
-  }
-
-  setProvider(name: SupportedProvider): void {
-    const raw = loadRawConfig();
-    setNestedValue(raw, "integrations.email.provider", name);
-    saveRawConfig(raw);
-    this.resetProvider();
   }
 
   // =========================================================================

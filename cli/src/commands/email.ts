@@ -12,10 +12,6 @@ import {
   getEmailService,
   GuardrailError,
 } from "../email/service.js";
-import {
-  SUPPORTED_PROVIDERS,
-  type SupportedProvider,
-} from "../email/providers/index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -105,8 +101,6 @@ function printUsage(): void {
   console.log(`Usage: vellum email <subcommand> [options]
 
 Subcommands:
-  provider get                  Show active email provider
-  provider set <provider>       Set email provider (${SUPPORTED_PROVIDERS.join(", ")})
   status                        Show provider health and guardrail state
 
   setup domain --domain <d>     Create/register a domain
@@ -147,29 +141,6 @@ Options:
 // ---------------------------------------------------------------------------
 // Subcommand handlers
 // ---------------------------------------------------------------------------
-
-async function handleProvider(
-  subArgs: string[],
-  json: boolean,
-): Promise<void> {
-  const svc = getEmailService();
-  const sub = subArgs[0];
-  if (sub === "get") {
-    output({ ok: true, provider: svc.getProviderName() }, json);
-  } else if (sub === "set") {
-    const name = subArgs[1];
-    if (!name || !SUPPORTED_PROVIDERS.includes(name as SupportedProvider)) {
-      exitError(
-        `Unknown provider: ${name}. Supported: ${SUPPORTED_PROVIDERS.join(", ")}`,
-      );
-      return;
-    }
-    svc.setProvider(name as SupportedProvider);
-    output({ ok: true, provider: name }, json);
-  } else {
-    exitError("Usage: vellum email provider <get|set>");
-  }
-}
 
 async function handleStatus(json: boolean): Promise<void> {
   const svc = getEmailService();
@@ -559,9 +530,6 @@ export async function email(): Promise<void> {
   const subArgs = filteredArgs.slice(1);
 
   switch (subcommand) {
-    case "provider":
-      await handleProvider(subArgs, json);
-      break;
     case "status":
       await handleStatus(json);
       break;
