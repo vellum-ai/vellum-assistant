@@ -33,6 +33,7 @@ mock.module('../config/loader.js', () => ({
     provider: 'anthropic',
     memory: { enabled: false },
     calls: { enabled: false },
+    contextWindow: { maxInputTokens: 200000 },
   }),
 }));
 
