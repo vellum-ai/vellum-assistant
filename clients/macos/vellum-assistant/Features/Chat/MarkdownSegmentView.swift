@@ -170,7 +170,7 @@ struct MarkdownSegmentView: View {
 
                     // Build paragraph style with hanging indent so wrapped lines
                     // align with the text column rather than the bullet/number.
-                    let paraStyle = NSMutableParagraphStyle()
+                    nonisolated(unsafe) let paraStyle = NSMutableParagraphStyle()
                     paraStyle.firstLineHeadIndent = leftMargin
                     paraStyle.headIndent = textColumn
                     paraStyle.tabStops = [NSTextTab(textAlignment: .left, location: textColumn)]
