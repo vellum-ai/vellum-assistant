@@ -316,11 +316,35 @@ export async function startGateway(): Promise<string> {
   }
 
   // If no token is available (first startup — daemon hasn't written it yet),
-  // disable proxy auth so the gateway doesn't crash. The gateway's own
-  // readHttpTokenFile() will pick up the token once the daemon writes it.
+  // poll for the file to appear. The daemon writes the token shortly after
+  // startup, so a short wait avoids starting the gateway without auth
+  // (which would leave it permanently unauthenticated since the gateway
+  // config is loaded once at startup and never reloads).
+  if (!runtimeProxyBearerToken) {
+    console.log("   Waiting for bearer token file...");
+    const maxWait = 10000;
+    const pollInterval = 500;
+    const start = Date.now();
+    while (Date.now() - start < maxWait) {
+      await new Promise((r) => setTimeout(r, pollInterval));
+      try {
+        const tok = readFileSync(httpTokenPath, "utf-8").trim();
+        if (tok) {
+          runtimeProxyBearerToken = tok;
+          break;
+        }
+      } catch {
+        // File still doesn't exist, keep polling.
+      }
+    }
+  }
+
+  // If the token still isn't available after polling, fall back to starting
+  // the gateway without auth so it doesn't block forever. This is a degraded
+  // mode — the proxy will be broken because the runtime expects a token.
   const proxyRequireAuth = runtimeProxyBearerToken ? "true" : "false";
   if (!runtimeProxyBearerToken) {
-    console.log("   ⚠️  Bearer token not found — gateway proxy auth disabled until daemon writes token");
+    console.log("   ⚠️  Bearer token not found after 10s — gateway proxy auth disabled");
   }
 
   const gatewayEnv: Record<string, string> = {
