@@ -190,7 +190,7 @@ struct ChatBubble: View {
                     }
                 }
                 .overlay(alignment: .topLeading) {
-                    if !isUser && isLatestAssistantMessage {
+                    if !isUser {
                         Image(nsImage: appearance.chatAvatarImage)
                             .interpolation(.none)
                             .resizable()
