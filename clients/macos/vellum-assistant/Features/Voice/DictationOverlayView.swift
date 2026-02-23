@@ -4,6 +4,7 @@ import VellumAssistantShared
 enum DictationState {
     case recording
     case processing
+    case transforming(String)
     case done
     case error(String)
 }
@@ -36,6 +37,9 @@ struct DictationOverlayView: View {
                 .frame(width: 8, height: 8)
         case .processing:
             VLoadingIndicator()
+        case .transforming:
+            Image(systemName: "wand.and.stars")
+                .foregroundStyle(VColor.accent)
         case .done:
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(VColor.success)
@@ -56,6 +60,12 @@ struct DictationOverlayView: View {
             Text("Processing...")
                 .font(VFont.caption)
                 .foregroundStyle(VColor.textSecondary)
+        case .transforming(let instruction):
+            Text("Transforming: \(instruction)")
+                .font(VFont.caption)
+                .foregroundStyle(VColor.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
         case .done:
             Text("Done")
                 .font(VFont.caption)
