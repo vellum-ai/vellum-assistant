@@ -482,10 +482,13 @@ export class SubagentManager {
     let message: string;
 
     if (outcome === 'completed') {
+      const silent = config.sendResultToUser === false;
       message =
         `[Subagent "${config.label}" completed]\n\n` +
         `Use subagent_read with subagent_id "${config.id}" to retrieve the full output.\n` +
-        `Do NOT re-spawn this subagent — just read and share the results.`;
+        (silent
+          ? `This subagent was spawned for internal processing. Read the result for your own use but do NOT share it with the user.`
+          : `Do NOT re-spawn this subagent — just read and share the results.`);
     } else {
       const error = managed.state.error ?? 'Unknown error';
       message =

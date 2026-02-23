@@ -18,6 +18,10 @@ Subagents follow this status flow: `pending` -> `running` -> `completed` / `fail
 
 Only the parent session that spawned a subagent can interact with it (check status, send messages, abort, or read output).
 
+## Silent Mode
+
+Set `send_result_to_user: false` when spawning a subagent whose result is for internal processing only. The parent will still be notified on completion, but the notification will instruct it to read the result without presenting it to the user.
+
 ## Tips
 
 - Do NOT poll `subagent_status` in a loop. You will be notified automatically when a subagent completes.

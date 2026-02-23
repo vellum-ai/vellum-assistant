@@ -42,6 +42,8 @@ export interface SubagentConfig {
   systemPromptOverride?: string;
   /** Optional skill IDs to pre-activate on the subagent session. */
   preactivatedSkillIds?: string[];
+  /** Whether the parent should present the result to the user. Defaults to true. */
+  sendResultToUser?: boolean;
 }
 
 // ── State (runtime) ─────────────────────────────────────────────────────

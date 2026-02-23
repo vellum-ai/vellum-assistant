@@ -20,6 +20,10 @@
           "context": {
             "type": "string",
             "description": "Optional additional context to pass to the subagent"
+          },
+          "send_result_to_user": {
+            "type": "boolean",
+            "description": "Whether to present the subagent's result to the user when it completes. Defaults to true. Set to false for internal/silent processing."
           }
         },
         "required": ["label", "objective"]
