@@ -106,6 +106,10 @@ function handleMissedEvent(
     return { content: 'start_time and end_time are required for "missed" feedback type.', isError: true };
   }
 
+  if (endTime <= startTime) {
+    return { content: 'end_time must be greater than start_time.', isError: true };
+  }
+
   const notes = input.notes as string | undefined;
 
   // Create the missing event with low confidence (user-reported)

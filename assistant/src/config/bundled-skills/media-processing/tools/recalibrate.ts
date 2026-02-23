@@ -74,6 +74,12 @@ export async function run(
     feedbackByEventId.get(fb.eventId)!.push(fb);
   }
 
+  // Build a map of event ID to event type for filtering feedback by type
+  const eventTypeById = new Map<string, string>();
+  for (const ev of allEvents) {
+    eventTypeById.set(ev.id, ev.eventType);
+  }
+
   const adjustments: RecalibrationAdjustment[] = [];
   const eventUpdates: EventUpdate[] = [];
   const db = getDb();
@@ -106,7 +112,7 @@ export async function run(
     // Pattern 3: Boundary edits — compute average adjustment
     if (boundaryEdit >= 1) {
       const boundaryFeedback = allFeedback.filter(
-        (fb) => fb.feedbackType === 'boundary_edit' && feedbackByEventId.has(fb.eventId),
+        (fb) => fb.feedbackType === 'boundary_edit' && eventTypeById.get(fb.eventId) === eventType,
       );
       let startAdjTotal = 0;
       let endAdjTotal = 0;
