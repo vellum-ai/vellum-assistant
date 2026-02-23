@@ -5,6 +5,7 @@ import { getLogger } from '../util/logger.js';
 import { loadSkillCatalog, type SkillSummary } from './skills.js';
 import { getConfig } from './loader.js';
 import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
+import { resolveUserReference } from './user-reference.js';
 
 const log = getLogger('system-prompt');
 
@@ -116,6 +117,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildToolPermissionSection());
   parts.push(buildSystemPermissionSection());
   parts.push(buildChannelAwarenessSection());
+  parts.push(buildExternalCommsIdentitySection());
   parts.push(buildSwarmGuidanceSection());
   parts.push(buildAccessPreferenceSection());
   parts.push(buildIntegrationSection());
@@ -375,6 +377,20 @@ export function buildChannelAwarenessSection(): string {
     '- Do not ask for microphone permissions on channels where `supports_voice_input` is `false`.',
     '- Do not ask for computer-control permissions on non-dashboard channels.',
     '- When you do request a permission, be transparent about what it enables and why you need it.',
+  ].join('\n');
+}
+
+export function buildExternalCommsIdentitySection(): string {
+  const userRef = resolveUserReference();
+  return [
+    '## External Communications Identity',
+    '',
+    'When communicating with people outside your user\'s household (phone calls, messages to non-guardian contacts, emails to third parties, etc.):',
+    '',
+    `- Refer to yourself as an **assistant**, not an "AI assistant" or "artificial intelligence". Keep identity framing simple and natural.`,
+    `- When introducing who you represent, say you are acting on behalf of **${userRef}**.`,
+    '- Do not volunteer that you are an AI unless directly asked. If asked, answer honestly.',
+    '- This is guidance for natural, human-like communication — not a hard constraint. Occasional variations are acceptable.',
   ].join('\n');
 }
 
