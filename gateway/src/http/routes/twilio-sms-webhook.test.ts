@@ -390,6 +390,41 @@ describe("twilio-sms-webhook", () => {
     expect(handleInboundMock).toHaveBeenCalledTimes(0);
   });
 
+  it("/new with routing rejection sends rejection notice SMS", async () => {
+    const rejectConfig: GatewayConfig = {
+      ...baseConfig,
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+    };
+    const handler = createTwilioSmsWebhookHandler(rejectConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    const params = {
+      Body: "/new",
+      From: "+15551234567",
+      To: "+15559876543",
+      MessageSid: "SM-new-reject",
+    };
+    const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // resetConversation should NOT have been called
+    expect(resetConversationMock).toHaveBeenCalledTimes(0);
+
+    // Rejection notice SMS should have been sent
+    expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
+    const [, to, text] = sendSmsReplyMock.mock.calls[0] as unknown[];
+    expect(to).toBe("+15551234567");
+    expect(typeof text).toBe("string");
+    expect((text as string).toLowerCase()).toContain("could not be routed");
+
+    // handleInbound should NOT have been called
+    expect(handleInboundMock).toHaveBeenCalledTimes(0);
+  });
+
   it("MMS payload (NumMedia > 0) returns unsupported notice and does not forward", async () => {
     const handler = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
@@ -401,6 +436,62 @@ describe("twilio-sms-webhook", () => {
       NumMedia: "1",
       MediaUrl0: "https://api.twilio.com/media/123",
       MediaContentType0: "image/jpeg",
+    };
+    const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Unsupported notice should have been sent
+    expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
+    const [, to, text] = sendSmsReplyMock.mock.calls[0] as unknown[];
+    expect(to).toBe("+15551234567");
+    expect(typeof text).toBe("string");
+    expect((text as string).toLowerCase()).toContain("not supported");
+
+    // handleInbound should NOT have been called
+    expect(handleInboundMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("MMS detected via MediaUrl0 when NumMedia is absent", async () => {
+    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    const params = {
+      Body: "Check out this photo",
+      From: "+15551234567",
+      To: "+15559876543",
+      MessageSid: "SM-mms-mediaurl",
+      MediaUrl0: "https://api.twilio.com/media/456",
+    };
+    const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Unsupported notice should have been sent
+    expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
+    const [, to, text] = sendSmsReplyMock.mock.calls[0] as unknown[];
+    expect(to).toBe("+15551234567");
+    expect(typeof text).toBe("string");
+    expect((text as string).toLowerCase()).toContain("not supported");
+
+    // handleInbound should NOT have been called
+    expect(handleInboundMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("MMS detected via MediaContentType0 when NumMedia is absent", async () => {
+    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    const params = {
+      Body: "Here is a file",
+      From: "+15551234567",
+      To: "+15559876543",
+      MessageSid: "SM-mms-contenttype",
+      MediaContentType0: "image/png",
     };
     const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
     const res = await handler(req);

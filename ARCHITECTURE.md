@@ -425,8 +425,8 @@ The SMS channel provides text-only messaging via Twilio, sharing the same teleph
 1. Twilio delivers an inbound SMS as a form-encoded POST to the gateway.
 2. The gateway validates the `X-Twilio-Signature` header using HMAC-SHA1 with the Twilio Auth Token against the canonical request URL (reconstructed from `INGRESS_PUBLIC_BASE_URL` when behind a tunnel).
 3. `MessageSid` deduplication prevents reprocessing retried webhooks.
-4. **MMS detection**: If `NumMedia > 0`, the gateway replies with an unsupported notice and does not forward the payload. MMS payloads are explicitly rejected rather than silently dropped.
-5. **`/new` command**: When the message body is exactly `/new` (case-insensitive, trimmed), the gateway resolves routing, calls `resetConversation(...)` on the runtime, and sends a confirmation SMS. The message is not forwarded — matching Telegram `/new` semantics.
+4. **MMS detection**: The gateway treats a message as MMS when any of: `NumMedia > 0`, any `MediaUrl<N>` key has a non-empty value, or any `MediaContentType<N>` key has a non-empty value. This catches media attachments even when Twilio omits `NumMedia`. The gateway replies with an unsupported notice and does not forward the payload. MMS payloads are explicitly rejected rather than silently dropped.
+5. **`/new` command**: When the message body is exactly `/new` (case-insensitive, trimmed), the gateway resolves routing first. If routing is rejected, a rejection notice SMS is sent to the sender (matching Telegram `/new` rejection semantics — "This message could not be routed to an assistant"). If routing succeeds, the gateway calls `resetConversation(...)` on the runtime and sends a confirmation SMS. The message is never forwarded to the runtime.
 6. The payload is normalized into a `GatewayInboundEventV1` with `sourceChannel: "sms"` and `externalChatId` set to the sender's phone number (E.164).
 7. The event is forwarded to the runtime via `POST /channels/inbound`, including SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
 
@@ -4238,7 +4238,10 @@ This section tracks the SMS channel's feature parity with the Telegram channel a
 | **SMS `/new` Reset** | `/new` command (case-insensitive, trimmed) resets conversation via runtime API | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
 | **SMS `/new` Reset** | Confirmation SMS sent after successful reset | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
 | **SMS `/new` Reset** | `/new` message is not forwarded to runtime (intercepted at gateway) | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
+| **SMS `/new` Rejection** | `/new` with routing rejection sends rejection notice SMS to sender (matching Telegram UX) | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
 | **MMS Unsupported** | `NumMedia > 0` triggers explicit unsupported notice to sender | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
+| **MMS Unsupported** | `MediaUrl<N>` with non-empty value triggers MMS detection even when `NumMedia` is absent | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
+| **MMS Unsupported** | `MediaContentType<N>` with non-empty value triggers MMS detection even when `NumMedia` is absent | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
 | **MMS Unsupported** | MMS payloads are not forwarded to the runtime | `gateway/src/http/routes/twilio-sms-webhook.test.ts` | `gateway/src/http/routes/twilio-sms-webhook.ts` |
 | **Twilio Setup** | `provision_number` auto-assigns number to config and secure storage | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |
 | **Twilio Setup** | `provision_number` auto-configures webhooks (voice, status, SMS) when ingress URL is available | `assistant/src/__tests__/handlers-twilio-config.test.ts` | `assistant/src/daemon/handlers/config.ts` |

@@ -93,9 +93,16 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
     );
 
     // --- MMS intercept: detect media attachments and reply with unsupported notice ---
+    // Treat as MMS when NumMedia > 0, or when any MediaUrl/MediaContentType
+    // fields are present (some Twilio configurations omit NumMedia).
     const numMedia = parseInt(params.NumMedia || "0", 10);
-    if (numMedia > 0) {
-      tlog.info({ messageSid, numMedia }, "MMS payload detected, replying with unsupported notice");
+    const hasMediaFields = Object.keys(params).some(
+      (key) =>
+        (/^MediaUrl\d+$/.test(key) && params[key] !== "") ||
+        (/^MediaContentType\d+$/.test(key) && params[key] !== ""),
+    );
+    if (numMedia > 0 || hasMediaFields) {
+      tlog.info({ messageSid, numMedia, hasMediaFields }, "MMS payload detected, replying with unsupported notice");
       sendSmsReply(config, params.From, "MMS (images, video, and other media) is not supported yet. Please send a text-only message.").catch(
         (err) => {
           tlog.error({ err, to: params.From }, "Failed to send MMS unsupported notice");
@@ -120,6 +127,13 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
           { from: params.From, reason: routing.reason },
           "Routing rejected /new command",
         );
+        sendSmsReply(
+          config,
+          params.From,
+          "This message could not be routed to an assistant. Please check your gateway routing configuration.",
+        ).catch((err) => {
+          tlog.error({ err, to: params.From }, "Failed to send /new routing rejection notice");
+        });
       } else {
         try {
           await resetConversation(
