@@ -2,6 +2,7 @@ name: CI macOS Build Check
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, closed]
     paths:
       - 'clients/macos/**'
       - 'clients/shared/**'
@@ -15,8 +16,13 @@ on:
       - 'cli/**'
       - '.github/workflows/ci-macos.yml'
 
+concurrency:
+  group: ci-macos-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   build-check:
+    if: github.event.action != 'closed'
     name: macOS Build
     runs-on: macos-14
     timeout-minutes: 15
