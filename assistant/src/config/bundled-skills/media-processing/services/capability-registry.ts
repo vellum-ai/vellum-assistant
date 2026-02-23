@@ -13,7 +13,7 @@ import type { CapabilityTier } from '../../../../memory/media-store.js';
 // ---------------------------------------------------------------------------
 
 export interface Capability {
-  /** Unique name used as the key in tracking profiles (e.g. 'turnovers'). */
+  /** Unique name used as the key in tracking profiles (e.g. 'turnover'). */
   name: string;
   /** Human-readable description of what this capability detects/tracks. */
   description: string;
@@ -83,7 +83,7 @@ export function getRegisteredDomains(): string[] {
 export function registerDefaults(): void {
   // Ready tier: production-quality detection
   registerCapability({
-    name: 'turnovers',
+    name: 'turnover',
     description: 'Team-level turnover detection',
     tier: 'ready',
     domain: 'basketball',
@@ -92,7 +92,7 @@ export function registerDefaults(): void {
 
   // Beta tier: functional but may have accuracy gaps
   registerCapability({
-    name: 'field_goals',
+    name: 'field_goal',
     description: 'Team-level field goal detection',
     tier: 'beta',
     domain: 'basketball',
@@ -100,7 +100,7 @@ export function registerDefaults(): void {
   });
 
   registerCapability({
-    name: 'rebounds',
+    name: 'rebound',
     description: 'Team-level rebound detection',
     tier: 'beta',
     domain: 'basketball',
@@ -108,7 +108,7 @@ export function registerDefaults(): void {
   });
 
   registerCapability({
-    name: 'turnovers_per_player',
+    name: 'turnover_per_player',
     description: 'Per-player turnover attribution',
     tier: 'beta',
     domain: 'basketball',
@@ -117,7 +117,7 @@ export function registerDefaults(): void {
 
   // Experimental tier: early-stage, expect noise
   registerCapability({
-    name: 'field_goals_per_player',
+    name: 'field_goal_per_player',
     description: 'Per-player field goal attribution',
     tier: 'experimental',
     domain: 'basketball',
@@ -125,7 +125,7 @@ export function registerDefaults(): void {
   });
 
   registerCapability({
-    name: 'rebounds_per_player',
+    name: 'rebound_per_player',
     description: 'Per-player rebound attribution',
     tier: 'experimental',
     domain: 'basketball',

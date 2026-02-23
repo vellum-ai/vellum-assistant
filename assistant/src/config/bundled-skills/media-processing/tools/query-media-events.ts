@@ -193,7 +193,10 @@ export async function run(
   }
 
   const filters = parseQuery(query, assetId);
-  const result = retrieveEvents(filters);
+
+  // Retrieve without limit so we can apply capability filtering first, then limit
+  const userLimit = filters.limit;
+  const result = retrieveEvents({ ...filters, limit: undefined });
 
   // Determine which capabilities are allowed based on the tracking profile
   const profile = getTrackingProfile(assetId);
@@ -222,10 +225,13 @@ export async function run(
     // If no capabilities are registered at all, allow everything (pass null)
   }
 
-  // Filter events by allowed capabilities
+  // Filter events by allowed capabilities, then apply the user-requested limit
   let filteredEvents = result.events;
   if (allowedEventTypes !== null) {
     filteredEvents = filteredEvents.filter((e) => allowedEventTypes!.has(e.eventType));
+  }
+  if (userLimit && filteredEvents.length > userLimit) {
+    filteredEvents = filteredEvents.slice(0, userLimit);
   }
 
   if (filteredEvents.length === 0) {

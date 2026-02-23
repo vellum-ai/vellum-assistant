@@ -182,7 +182,7 @@
           "capabilities": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Optional array of capability names to enable (e.g., ['turnovers', 'field_goals']). If omitted, returns the available capabilities for selection."
+            "description": "Optional array of capability names to enable (e.g., ['turnover', 'field_goal']). If omitted, returns the available capabilities for selection."
           }
         },
         "required": ["asset_id"]
