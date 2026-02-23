@@ -94,6 +94,8 @@ export interface CollectedCandidates {
   relationNeighborEntityCount: number;
   relationExpandedItemCount: number;
   earlyTerminated: boolean;
+  /** True when semantic search was attempted but threw an error. */
+  semanticSearchFailed: boolean;
   merged: Candidate[];
 }
 
