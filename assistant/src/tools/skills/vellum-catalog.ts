@@ -1,10 +1,9 @@
 import { RiskLevel } from '../../permissions/types.js';
 import type { ToolDefinition } from '../../providers/types.js';
+import { parseFrontmatterFields } from '../../skills/frontmatter.js';
 import { createManagedSkill } from '../../skills/managed-store.js';
 import { fetchCatalogEntries, fetchSkillContent, checkVellumSkill } from '../../skills/vellum-catalog-remote.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-
-const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 
 export interface CatalogEntry {
   id: string;
@@ -36,26 +35,12 @@ export async function installFromVellumCatalog(skillId: string, options?: { over
     return { success: false, error: `Skill "${trimmedId}" SKILL.md not found` };
   }
 
-  const match = content.match(FRONTMATTER_REGEX);
-  if (!match) {
+  const parsed = parseFrontmatterFields(content);
+  if (!parsed) {
     return { success: false, error: `Skill "${trimmedId}" has invalid SKILL.md` };
   }
 
-  // Parse frontmatter to get name/description/emoji/includes
-  const fields: Record<string, string> = {};
-  for (const line of match[1].split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const separatorIndex = trimmed.indexOf(':');
-    if (separatorIndex === -1) continue;
-
-    const key = trimmed.slice(0, separatorIndex).trim();
-    let value = trimmed.slice(separatorIndex + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    fields[key] = value;
-  }
+  const { fields, body: bodyMarkdown } = parsed;
 
   const name = fields.name?.trim();
   const description = fields.description?.trim();
@@ -67,9 +52,9 @@ export async function installFromVellumCatalog(skillId: string, options?: { over
   const metadataRaw = fields.metadata?.trim();
   if (metadataRaw) {
     try {
-      const parsed = JSON.parse(metadataRaw);
-      if (parsed?.vellum?.emoji) {
-        emoji = parsed.vellum.emoji as string;
+      const metaObj = JSON.parse(metadataRaw);
+      if (metaObj?.vellum?.emoji) {
+        emoji = metaObj.vellum.emoji as string;
       }
     } catch {
       // ignore malformed metadata
@@ -80,17 +65,15 @@ export async function installFromVellumCatalog(skillId: string, options?: { over
   const includesRaw = fields.includes?.trim();
   if (includesRaw) {
     try {
-      const parsed = JSON.parse(includesRaw);
-      if (Array.isArray(parsed) && parsed.every((item: unknown) => typeof item === 'string')) {
-        const filtered = (parsed as string[]).map((s) => s.trim()).filter((s) => s.length > 0);
+      const includesObj = JSON.parse(includesRaw);
+      if (Array.isArray(includesObj) && includesObj.every((item: unknown) => typeof item === 'string')) {
+        const filtered = (includesObj as string[]).map((s) => s.trim()).filter((s) => s.length > 0);
         if (filtered.length > 0) includes = filtered;
       }
     } catch {
       // ignore malformed includes
     }
   }
-
-  const bodyMarkdown = content.slice(match[0].length);
   const result = createManagedSkill({
     id: trimmedId,
     name,

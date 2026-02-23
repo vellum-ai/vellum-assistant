@@ -1,5 +1,6 @@
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
+import { FRONTMATTER_REGEX } from '../skills/frontmatter.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('cc-commands');
@@ -27,7 +28,6 @@ export interface CCCommandRegistry {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const COMMAND_NAME_REGEX = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const FRONTMATTER_REGEX = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/;
 const DEFAULT_CACHE_TTL_MS = 30_000;
 const MAX_SUMMARY_LENGTH = 100;
 
