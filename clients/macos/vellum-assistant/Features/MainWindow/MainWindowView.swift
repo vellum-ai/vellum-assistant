@@ -37,7 +37,6 @@ struct MainWindowView: View {
     @State private var systemIsDark: Bool = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     private let sidebarExpandedWidth: CGFloat = 240
     private let sidebarCollapsedWidth: CGFloat = 52
-    private let sidebarOuterMargin: CGFloat = 16
     @AppStorage("sidePanelWidth") var sidePanelWidth: Double = 400
     @AppStorage("appPanelWidth") var appPanelWidth: Double = -1
     @AppStorage("homeBaseDashboardDefaultEnabled") private var homeBaseDashboardDefaultEnabled: Bool = false
@@ -486,7 +485,7 @@ struct MainWindowView: View {
                             }
                         )
                         .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
-                        .offset(x: sidebarOuterMargin + VSpacing.sm, y: -52)
+                        .offset(x: VSpacing.sm, y: -52)
                         .zIndex(10)
                         .transition(.opacity)
                     }
@@ -802,7 +801,8 @@ struct MainWindowView: View {
     }
 
     private var displayedThreads: [ThreadModel] {
-        threadManager.visibleThreads
+        let all = threadManager.visibleThreads
+        return showAllThreads ? all : Array(all.prefix(5))
     }
 
     private var displayedApps: [AppListManager.AppItem] {
@@ -819,11 +819,9 @@ struct MainWindowView: View {
                 collapsedSidebarContent
             }
         }
-        .padding(sidebarExpanded ? VSpacing.lg : VSpacing.sm)
-        .background(adaptiveColor(light: Moss._50, dark: Moss._700))
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-        .padding(sidebarOuterMargin)
-        .frame(width: sidebarExpanded ? sidebarExpandedWidth + sidebarOuterMargin * 2 : sidebarCollapsedWidth + sidebarOuterMargin * 2)
+        .padding(.vertical, VSpacing.sm)
+        .padding(.horizontal, sidebarExpanded ? VSpacing.sm : VSpacing.xs)
+        .frame(width: sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
     }
 
     @ViewBuilder
