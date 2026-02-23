@@ -225,26 +225,22 @@ export function findNeighborEntities(
       const frontierPlaceholders = frontier.map(() => '?').join(',');
       const limit = Math.max(1, edgeBudget);
 
-      // Direction 1: frontier is source, neighbor is target
-      const q1 = `
-        SELECT r.source_entity_id AS sourceEntityId, r.target_entity_id AS targetEntityId
-        FROM memory_entity_relations r
-        INNER JOIN memory_entities me ON me.id = r.target_entity_id
-        WHERE r.source_entity_id IN (${frontierPlaceholders})
-        ${relationTypeCondition} ${entityTypeFilter}
-        ORDER BY r.last_seen_at DESC
-        LIMIT ?
-      `;
-      const params1 = [
-        ...frontier,
-        ...(relationTypes && relationTypes.length > 0 ? relationTypes : []),
-        ...entityTypes,
-        limit,
-      ];
-
       const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
+      const relationParams = relationTypes && relationTypes.length > 0 ? relationTypes : [];
 
       if (directed) {
+        // GROUP BY deduplicates entity pairs that have multiple relation rows
+        const q1 = `
+          SELECT r.source_entity_id AS sourceEntityId, r.target_entity_id AS targetEntityId
+          FROM memory_entity_relations r
+          INNER JOIN memory_entities me ON me.id = r.target_entity_id
+          WHERE r.source_entity_id IN (${frontierPlaceholders})
+          ${relationTypeCondition} ${entityTypeFilter}
+          GROUP BY r.source_entity_id, r.target_entity_id
+          ORDER BY MAX(r.last_seen_at) DESC
+          LIMIT ?
+        `;
+        const params1 = [...frontier, ...relationParams, ...entityTypes, limit];
         rows = raw.query(q1).all(...params1) as Array<{ sourceEntityId: string; targetEntityId: string }>;
       } else {
         // Combine both directions in a single query with global recency
@@ -269,10 +265,10 @@ export function findNeighborEntities(
         `;
         const params = [
           ...frontier,
-          ...(relationTypes && relationTypes.length > 0 ? relationTypes : []),
+          ...relationParams,
           ...entityTypes,
           ...frontier,
-          ...(relationTypes && relationTypes.length > 0 ? relationTypes : []),
+          ...relationParams,
           ...entityTypes,
           limit,
         ];
