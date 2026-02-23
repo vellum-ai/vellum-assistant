@@ -6,6 +6,10 @@ import {
   _isPlaceholder,
   _redact,
   _hasSecretContext,
+  _tryDecodeBase64,
+  _tryDecodePercentEncoded,
+  _tryDecodeHexEscapes,
+  _tryDecodeContinuousHex,
   type SecretMatch,
 } from '../security/secret-scanner.js';
 
@@ -896,5 +900,224 @@ describe('word-boundary context keywords', () => {
     const matches = scanText(input);
     const entropy = matches.filter((m) => m.type.startsWith('High-Entropy'));
     expect(entropy.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Encoded secret detection — decode + re-scan
+// ---------------------------------------------------------------------------
+describe('encoded secret detection', () => {
+  // -- Base64-encoded secrets --
+  describe('base64-encoded', () => {
+    test('detects base64-encoded Stripe key', () => {
+      const secret = 'sk_live_abcdefghijklmnopqrstuvwx';
+      const encoded = Buffer.from(secret).toString('base64');
+      const input = `config: ${encoded}`;
+      const matches = scanText(input);
+      const found = matches.find((m) => m.type === 'Stripe Secret Key (base64-encoded)');
+      expect(found).toBeDefined();
+    });
+
+    test('detects base64-encoded GitHub token', () => {
+      const secret = `ghp_${'A'.repeat(36)}`;
+      const encoded = Buffer.from(secret).toString('base64');
+      const input = `value=${encoded}`;
+      const matches = scanText(input);
+      const found = matches.find((m) => m.type === 'GitHub Token (base64-encoded)');
+      expect(found).toBeDefined();
+    });
+
+    test('detects base64-encoded private key header', () => {
+      const secret = '-----BEGIN RSA PRIVATE KEY-----';
+      const encoded = Buffer.from(secret).toString('base64');
+      const input = `data: ${encoded}`;
+      const matches = scanText(input);
+      const found = matches.find((m) => m.type === 'Private Key (base64-encoded)');
+      expect(found).toBeDefined();
+    });
+
+    test('does not flag base64 that decodes to non-secret text', () => {
+      const encoded = Buffer.from('Hello, this is just normal text!').toString('base64');
+      const input = `data: ${encoded}`;
+      const matches = scanText(input);
+      const encoded_matches = matches.filter((m) => m.type.includes('base64-encoded'));
+      expect(encoded_matches).toHaveLength(0);
+    });
+
+    test('does not flag base64 that decodes to binary data', () => {
+      // Create a base64 string that decodes to non-printable bytes
+      const binary = Buffer.from([0x00, 0x01, 0x02, 0x80, 0xff, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15]);
+      const encoded = binary.toString('base64');
+      const input = `data: ${encoded}`;
+      const matches = scanText(input);
+      const encoded_matches = matches.filter((m) => m.type.includes('base64-encoded'));
+      expect(encoded_matches).toHaveLength(0);
+    });
+
+    test('does not double-count secrets already detected by raw patterns', () => {
+      // A JWT is already detected directly — should not be re-detected as base64-encoded
+      const header = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9';
+      const payload = 'eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ';
+      const signature = 'SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+      const jwt = `${header}.${payload}.${signature}`;
+      const input = `token: ${jwt}`;
+      const matches = scanText(input);
+      const jwtMatches = matches.filter((m) => m.type === 'JSON Web Token');
+      const encodedMatches = matches.filter((m) => m.type.includes('base64-encoded'));
+      expect(jwtMatches).toHaveLength(1);
+      expect(encodedMatches).toHaveLength(0);
+    });
+  });
+
+  // -- Percent-encoded secrets --
+  describe('percent-encoded', () => {
+    test('detects percent-encoded database connection string', () => {
+      const secret = 'postgres://user:secret@db.example.com:5432/mydb';
+      const encoded = encodeURIComponent(secret);
+      const input = `url=${encoded}`;
+      const matches = scanText(input);
+      const found = matches.find((m) => m.type === 'Database Connection String (percent-encoded)');
+      expect(found).toBeDefined();
+    });
+
+    test('detects percent-encoded secret assignment', () => {
+      const encoded = 'password%3D%22SuperSecret123%21%22';
+      const input = `data=${encoded}`;
+      const matches = scanText(input);
+      const found = matches.find((m) => m.type.includes('percent-encoded'));
+      expect(found).toBeDefined();
+    });
+
+    test('does not flag percent-encoded non-secret text', () => {
+      const encoded = 'hello%20world%20this%20is%20normal';
+      const input = `text=${encoded}`;
+      const matches = scanText(input);
+      const encoded_matches = matches.filter((m) => m.type.includes('percent-encoded'));
+      expect(encoded_matches).toHaveLength(0);
+    });
+  });
+
+  // -- Hex-escaped secrets --
+  describe('hex-escaped', () => {
+    test('detects hex-escaped Stripe key', () => {
+      const secret = 'sk_live_abcdefghijklmnopqrstuvwx';
+      const escaped = Array.from(secret).map((c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`).join('');
+      const input = `value = "${escaped}"`;
+      const matches = scanText(input);
+      const found = matches.find((m) => m.type === 'Stripe Secret Key (hex-escaped)');
+      expect(found).toBeDefined();
+    });
+
+    test('does not flag hex-escaped non-secret text', () => {
+      const escaped = '\\x48\\x65\\x6c\\x6c\\x6f';
+      const input = `value = "${escaped}"`;
+      const matches = scanText(input);
+      const encoded_matches = matches.filter((m) => m.type.includes('hex-escaped'));
+      expect(encoded_matches).toHaveLength(0);
+    });
+  });
+
+  // -- Continuous hex-encoded secrets --
+  describe('hex-encoded (continuous)', () => {
+    test('detects hex-encoded GitHub token', () => {
+      const secret = `ghp_${'A'.repeat(36)}`;
+      const hexEncoded = Buffer.from(secret).toString('hex');
+      const input = `payload: ${hexEncoded}`;
+      const matches = scanText(input);
+      const found = matches.find((m) => m.type === 'GitHub Token (hex-encoded)');
+      expect(found).toBeDefined();
+    });
+
+    test('detects hex-encoded AWS access key', () => {
+      const secret = 'AKIAIOSFODNN7REALKEY';
+      const hexEncoded = Buffer.from(secret).toString('hex');
+      const input = `data: ${hexEncoded}`;
+      const matches = scanText(input);
+      const found = matches.find((m) => m.type === 'AWS Access Key (hex-encoded)');
+      expect(found).toBeDefined();
+    });
+
+    test('does not flag hex strings that decode to non-secret text', () => {
+      const hexEncoded = Buffer.from('This is just normal harmless text').toString('hex');
+      const input = `data: ${hexEncoded}`;
+      const matches = scanText(input);
+      const encoded_matches = matches.filter((m) => m.type.includes('hex-encoded'));
+      expect(encoded_matches).toHaveLength(0);
+    });
+
+    test('does not flag git SHAs or similar hex hashes', () => {
+      // 40-char hex SHA — too short to decode to a meaningful secret
+      const sha = '4b825dc642cb6eb9a060e54bf899d15f13fe1d7a';
+      const input = `commit: ${sha}`;
+      const matches = scanText(input);
+      const encoded_matches = matches.filter((m) => m.type.includes('hex-encoded'));
+      expect(encoded_matches).toHaveLength(0);
+    });
+  });
+
+  // -- Redaction of encoded secrets --
+  describe('redaction of encoded secrets', () => {
+    test('redactSecrets replaces base64-encoded secrets', () => {
+      const secret = 'sk_live_abcdefghijklmnopqrstuvwx';
+      const encoded = Buffer.from(secret).toString('base64');
+      const input = `config: ${encoded}`;
+      const result = redactSecrets(input);
+      expect(result).toContain('<redacted type="Stripe Secret Key (base64-encoded)" />');
+      expect(result).not.toContain(encoded);
+    });
+
+    test('redactSecrets replaces hex-encoded secrets', () => {
+      const secret = `ghp_${'A'.repeat(36)}`;
+      const hexEncoded = Buffer.from(secret).toString('hex');
+      const input = `data: ${hexEncoded}`;
+      const result = redactSecrets(input);
+      expect(result).toContain('<redacted type="GitHub Token (hex-encoded)" />');
+      expect(result).not.toContain(hexEncoded);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Decode helper unit tests
+// ---------------------------------------------------------------------------
+describe('decode helpers', () => {
+  test('tryDecodeBase64 returns decoded text for valid base64', () => {
+    const encoded = Buffer.from('sk_live_abcdefghijklmnopqrstuvwx').toString('base64');
+    expect(_tryDecodeBase64(encoded)).toBe('sk_live_abcdefghijklmnopqrstuvwx');
+  });
+
+  test('tryDecodeBase64 returns null for binary content', () => {
+    const binary = Buffer.from([0x00, 0x01, 0x80, 0xff]).toString('base64');
+    expect(_tryDecodeBase64(binary)).toBeNull();
+  });
+
+  test('tryDecodeBase64 returns null for invalid base64', () => {
+    expect(_tryDecodeBase64('not!!valid!!base64!!')).toBeNull();
+  });
+
+  test('tryDecodePercentEncoded returns decoded text', () => {
+    expect(_tryDecodePercentEncoded('hello%20world%21')).toBe('hello world!');
+  });
+
+  test('tryDecodePercentEncoded returns null when nothing to decode', () => {
+    expect(_tryDecodePercentEncoded('no-encoding-here')).toBeNull();
+  });
+
+  test('tryDecodeHexEscapes returns decoded text', () => {
+    expect(_tryDecodeHexEscapes('\\x48\\x65\\x6c\\x6c\\x6f')).toBe('Hello');
+  });
+
+  test('tryDecodeHexEscapes returns null when no escapes', () => {
+    expect(_tryDecodeHexEscapes('plain text')).toBeNull();
+  });
+
+  test('tryDecodeContinuousHex returns decoded text', () => {
+    const hex = Buffer.from('Hello').toString('hex');
+    expect(_tryDecodeContinuousHex(hex)).toBe('Hello');
+  });
+
+  test('tryDecodeContinuousHex returns null for non-printable result', () => {
+    // Hex that decodes to binary
+    expect(_tryDecodeContinuousHex('0001ff80')).toBeNull();
   });
 });
