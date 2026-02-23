@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./package.json": "./package.json",
     "./src/components/DefaultMainScreen": "./src/components/DefaultMainScreen.tsx",
-    "./src/lib/constants": "./src/lib/constants.ts"
+    "./src/lib/constants": "./src/lib/constants.ts",
+    "./src/commands/*": "./src/commands/*.ts"
   },
   "bin": {
     "vellum-cli": "./src/index.ts"
