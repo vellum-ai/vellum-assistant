@@ -2,18 +2,22 @@ import CryptoKit
 import SwiftUI
 import VellumAssistantShared
 
-/// Displays a QR code containing the connection payload for iOS pairing.
-/// Payload format: `{"type":"vellum-daemon","h":"<ip>","p":8765,"t":"<token>","f":"<fingerprint>","id":"<mac-hash>","v":1}`
+/// Displays a QR code containing the v2 connection payload for iOS pairing.
+/// Payload format: `{"type":"vellum-daemon","v":2,"id":"<mac-hash>","g":"<ingress-url>","bt":"<bearer-token>"}`
 @MainActor
 struct PairingQRCodeSheet: View {
     @Environment(\.dismiss) var dismiss
 
-    let sessionToken: String
-    let fingerprint: String
-    let tcpPort: Int
+    let ingressEnabled: Bool
+    let ingressPublicBaseUrl: String
 
-    @State private var localIP: String = "..."
     @State private var hostId: String = ""
+    @State private var bearerToken: String = ""
+
+    /// Whether the ingress configuration is sufficient for pairing.
+    private var canGenerateQR: Bool {
+        ingressEnabled && !ingressPublicBaseUrl.isEmpty && !bearerToken.isEmpty
+    }
 
     var body: some View {
         VStack(spacing: VSpacing.lg) {
@@ -25,7 +29,7 @@ struct PairingQRCodeSheet: View {
                 Button("Done") { dismiss() }
             }
 
-            if let qrImage = generateQRImage() {
+            if canGenerateQR, let qrImage = generateQRImage() {
                 Image(nsImage: qrImage)
                     .resizable()
                     .interpolation(.none)
@@ -35,10 +39,16 @@ struct PairingQRCodeSheet: View {
                     .background(Color.white)
                     .cornerRadius(VRadius.md)
             } else {
-                Text("Failed to generate QR code")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.error)
-                    .frame(width: 220, height: 220)
+                VStack(spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 32))
+                        .foregroundColor(VColor.error)
+                    Text("Enable ingress and set a public URL in Settings to pair with iOS")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.error)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(width: 220, height: 220)
             }
 
             Text("Scan this QR code with the Vellum iOS app to connect.")
@@ -47,15 +57,14 @@ struct PairingQRCodeSheet: View {
                 .multilineTextAlignment(.center)
 
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                infoRow(label: "IP Address", value: localIP)
-                infoRow(label: "Port", value: "\(tcpPort)")
-                infoRow(label: "TLS", value: "Enabled")
+                infoRow(label: "Gateway URL", value: ingressPublicBaseUrl.isEmpty ? "Not configured" : ingressPublicBaseUrl)
+                infoRow(label: "Ingress", value: ingressEnabled ? "Enabled" : "Disabled")
             }
             .padding(VSpacing.md)
             .background(VColor.surfaceSubtle)
             .cornerRadius(VRadius.md)
 
-            Text("Pairing persists until you regenerate the session token.")
+            Text("Pairing persists until you regenerate the bearer token.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .multilineTextAlignment(.center)
@@ -63,8 +72,8 @@ struct PairingQRCodeSheet: View {
         .padding(VSpacing.xl)
         .frame(width: 340)
         .onAppear {
-            localIP = NetworkInterfaceResolver.getLocalIPv4() ?? "unknown"
             hostId = Self.computeHostId()
+            bearerToken = Self.readBearerToken()
         }
     }
 
@@ -73,25 +82,25 @@ struct PairingQRCodeSheet: View {
             Text(label)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
-                .frame(width: 80, alignment: .leading)
+                .frame(width: 90, alignment: .leading)
             Text(value)
                 .font(VFont.mono)
                 .foregroundColor(VColor.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.middle)
             Spacer()
         }
     }
 
     private func generateQRImage() -> NSImage? {
-        guard localIP != "..." && localIP != "unknown" else { return nil }
+        guard canGenerateQR else { return nil }
 
         let payload: [String: Any] = [
             "type": "vellum-daemon",
-            "h": localIP,
-            "p": tcpPort,
-            "t": sessionToken,
-            "f": fingerprint,
+            "v": 2,
             "id": hostId,
-            "v": 1,
+            "g": ingressPublicBaseUrl,
+            "bt": bearerToken,
         ]
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payload),
@@ -100,6 +109,14 @@ struct PairingQRCodeSheet: View {
         }
 
         return QRCodeGenerator.generate(from: jsonString, size: 220)
+    }
+
+    /// Read the HTTP bearer token from ~/.vellum/http-token (same file the gateway uses).
+    private static func readBearerToken() -> String {
+        let tokenPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vellum/http-token").path
+        return (try? String(contentsOfFile: tokenPath, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     /// Compute a stable, privacy-safe host identifier.

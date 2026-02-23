@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import SwiftUI
 import VellumAssistantShared
@@ -15,7 +14,6 @@ struct SettingsAdvancedTab: View {
     @State private var sessionToken: String = ""
     @State private var tokenCopied: Bool = false
     @State private var tokenRevealed: Bool = false
-    @State private var fingerprint: String = ""
     @State private var iosPairingEnabled: Bool = false
     @State private var showingPairingQR: Bool = false
     @State private var showingPairingWarning: Bool = false
@@ -51,7 +49,6 @@ struct SettingsAdvancedTab: View {
         }
         .onAppear {
             refreshSessionToken()
-            refreshFingerprint()
             let flagPath = NSHomeDirectory() + "/.vellum/ios-pairing-enabled"
             iosPairingEnabled = FileManager.default.fileExists(atPath: flagPath)
             lockfileAssistants = LockfileAssistant.loadAll()
@@ -312,8 +309,6 @@ struct SettingsAdvancedTab: View {
                         VButton(label: "Show QR Code", style: .primary) {
                             showingPairingQR = true
                         }
-                        .disabled(sessionToken.isEmpty || fingerprint.isEmpty)
-
                         Spacer()
 
                         Button(tokenCopied ? "Copied!" : "Copy Token") {
@@ -347,8 +342,8 @@ struct SettingsAdvancedTab: View {
                         }
                     }
 
-                    if fingerprint.isEmpty {
-                        Text("TLS fingerprint not ready. Restart the daemon to generate certificates.")
+                    if !store.ingressEnabled || store.ingressPublicBaseUrl.isEmpty {
+                        Text("Enable ingress and set a public URL in Settings to pair with iOS.")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
@@ -384,9 +379,8 @@ struct SettingsAdvancedTab: View {
         }
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(
-                sessionToken: sessionToken,
-                fingerprint: fingerprint,
-                tcpPort: getTCPPort()
+                ingressEnabled: store.ingressEnabled,
+                ingressPublicBaseUrl: store.ingressPublicBaseUrl
             )
         }
     }
@@ -418,10 +412,6 @@ struct SettingsAdvancedTab: View {
         }
     }
 
-    private func refreshFingerprint() {
-        let fingerprintPath = NSHomeDirectory() + "/.vellum/tls/fingerprint"
-        fingerprint = (try? String(contentsOfFile: fingerprintPath, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }
 
     private func regenerateSessionToken() {
         let tokenPath = NSHomeDirectory() + "/.vellum/session-token"
@@ -442,12 +432,6 @@ struct SettingsAdvancedTab: View {
         }
     }
 
-    private func getTCPPort() -> Int {
-        // Read TCP port from daemon config or use default
-        let envPort = ProcessInfo.processInfo.environment["VELLUM_DAEMON_TCP_PORT"]
-        if let envPort, let port = Int(envPort) { return port }
-        return 8765
-    }
 
     // MARK: - Switch Assistant
 
