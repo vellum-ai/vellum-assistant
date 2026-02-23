@@ -148,6 +148,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hasSetupApp = false
     private var hasSetupDaemon = false
 
+    /// True while the first-launch readiness gate (`awaitDaemonReady`) is in
+    /// progress.  Other entry points (`applicationShouldHandleReopen`,
+    /// hotkey handler, menu bar actions) must not call `showMainWindow()`
+    /// while this flag is set, because doing so would create the window
+    /// without the wake-up greeting.  The readiness task clears this flag
+    /// before it calls `showMainWindow(initialMessage:isFirstLaunch:)`.
+    var isAwaitingFirstLaunchReady = false
+
     private func proceedToApp(isFirstLaunch: Bool = false) {
         authWindow?.close()
         authWindow = nil
@@ -184,11 +192,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if isFirstLaunch {
             // Gate showMainWindow on daemon readiness so the wake-up
             // message isn't sent before the daemon is connected.
+            // Set the flag so other entry points (dock reopen, hotkey)
+            // don't create the window prematurely and swallow the greeting.
+            isAwaitingFirstLaunchReady = true
             Task {
                 let ready = await awaitDaemonReady(timeout: 15)
                 if !ready {
                     log.warning("Daemon not ready after timeout — proceeding without connection")
                 }
+                isAwaitingFirstLaunchReady = false
                 showMainWindow(initialMessage: wakeUpGreeting(), isFirstLaunch: true)
                 debugStateWriter.start(appDelegate: self)
             }
@@ -948,6 +960,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
 
+        // Don't create the main window while the first-launch readiness
+        // gate is in progress — the readiness task will create it with
+        // the wake-up greeting once the daemon is connected.
+        if isAwaitingFirstLaunchReady { return true }
+
         showMainWindow()
         return true
     }
@@ -963,6 +980,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command, .shift],
                   event.charactersIgnoringModifiers?.lowercased() == "g" else { return }
             Task { @MainActor in
+                // Don't create the main window while the first-launch
+                // readiness gate is in progress.
+                guard self?.isAwaitingFirstLaunchReady != true else { return }
                 self?.showMainWindow()
             }
         }
