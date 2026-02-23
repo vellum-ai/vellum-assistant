@@ -25,6 +25,7 @@ struct SettingsConnectTab: View {
             bearerTokenSection
             pairingSection
             statusSection
+            testConnectionSection
         }
         .onAppear {
             store.refreshIngressConfig()
@@ -284,6 +285,149 @@ struct SettingsConnectTab: View {
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Test Connection Section
+
+    private var testConnectionSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Test Connection")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            // Test Connection button
+            HStack(spacing: VSpacing.sm) {
+                if store.isCheckingGateway {
+                    VLoadingIndicator(size: 14, color: VColor.accent)
+                    Text("Checking...")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                } else {
+                    VButton(
+                        label: "Test Connection",
+                        leftIcon: "antenna.radiowaves.left.and.right",
+                        style: .secondary,
+                        isDisabled: store.isCheckingGateway
+                    ) {
+                        Task { await store.testGatewayConnection() }
+                    }
+                }
+            }
+
+            // Gateway status row
+            connectionStatusRow(
+                label: "Gateway",
+                status: gatewayStatusInfo
+            )
+
+            // Tunnel status row
+            connectionStatusRow(
+                label: "Tunnel",
+                status: tunnelStatusInfo
+            )
+
+            // Diagnostic message when gateway is up but tunnel is down
+            if store.gatewayReachable == true,
+               !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               store.ingressReachable == false {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 12))
+                    Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.warning)
+                }
+            }
+
+            // Last verified timestamp
+            if let lastChecked = store.gatewayLastChecked {
+                Text("Last verified: \(relativeTimeString(from: lastChecked))")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+
+            // Helper text
+            Text("Gateway checks the local process. Tunnel checks the public URL.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Connection Status Helpers
+
+    private struct ConnectionStatusInfo {
+        let label: String
+        let color: Color
+        let icon: String
+    }
+
+    private var gatewayStatusInfo: ConnectionStatusInfo {
+        guard let reachable = store.gatewayReachable else {
+            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
+        }
+        if reachable {
+            return ConnectionStatusInfo(label: "Running", color: VColor.success, icon: "checkmark.circle.fill")
+        } else {
+            return ConnectionStatusInfo(label: "Stopped", color: VColor.error, icon: "xmark.circle.fill")
+        }
+    }
+
+    private var tunnelStatusInfo: ConnectionStatusInfo {
+        let trimmedUrl = store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // No URL configured
+        if trimmedUrl.isEmpty {
+            return ConnectionStatusInfo(label: "Not configured", color: VColor.textMuted, icon: "minus.circle.fill")
+        }
+
+        // URL is non-empty but not a valid URL
+        if URL(string: trimmedUrl) == nil {
+            return ConnectionStatusInfo(label: "Invalid URL format", color: VColor.error, icon: "exclamationmark.circle.fill")
+        }
+
+        // Haven't tested yet
+        guard let reachable = store.ingressReachable else {
+            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
+        }
+
+        if reachable {
+            return ConnectionStatusInfo(label: "Reachable", color: VColor.success, icon: "checkmark.circle.fill")
+        } else {
+            return ConnectionStatusInfo(label: "Unreachable", color: VColor.error, icon: "xmark.circle.fill")
+        }
+    }
+
+    private func connectionStatusRow(label: String, status: ConnectionStatusInfo) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            Text(label)
+                .font(VFont.bodyMedium)
+                .foregroundColor(VColor.textSecondary)
+                .frame(width: 60, alignment: .leading)
+
+            Image(systemName: status.icon)
+                .foregroundColor(status.color)
+                .font(.system(size: 12))
+
+            Text(status.label)
+                .font(VFont.body)
+                .foregroundColor(status.color)
+        }
+    }
+
+    /// Returns a human-readable relative time string (e.g. "just now", "2 minutes ago").
+    private func relativeTimeString(from date: Date) -> String {
+        let seconds = Int(-date.timeIntervalSinceNow)
+        if seconds < 5 { return "just now" }
+        if seconds < 60 { return "\(seconds) seconds ago" }
+        let minutes = seconds / 60
+        if minutes == 1 { return "1 minute ago" }
+        if minutes < 60 { return "\(minutes) minutes ago" }
+        let hours = minutes / 60
+        if hours == 1 { return "1 hour ago" }
+        return "\(hours) hours ago"
     }
 
     // MARK: - Token Helpers
