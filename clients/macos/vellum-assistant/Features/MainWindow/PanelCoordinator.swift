@@ -218,30 +218,82 @@ extension MainWindowView {
             }
         case .panel(let panelType):
             if panelType == .directory {
-                HomeBaseContainerView(
-                    daemonClient: daemonClient,
-                    onBack: { windowState.dismissOverlay() },
-                    onOpenApp: { surfaceMsg in
-                        windowState.activeDynamicSurface = surfaceMsg
-                        windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
-                        if let surface = windowState.activeDynamicParsedSurface,
-                           case .dynamicPage(let dpData) = surface.data,
-                           let appId = dpData.appId {
-                            windowState.selection = .app(appId)
-                        } else {
-                            windowState.selection = .app(surfaceMsg.surfaceId)
+                if isAppChatOpen {
+                    // VSplitView: ChatView (left) + Home Base (right)
+                    let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - Double(VSpacing.sm)
+                    let effectiveWidth = Binding<Double>(
+                        get: { appPanelWidth > 0 ? appPanelWidth : contentWidth * 0.7 },
+                        set: { appPanelWidth = $0 }
+                    )
+                    VSplitView(
+                        panelWidth: effectiveWidth,
+                        showPanel: true,
+                        main: {
+                            chatView
+                        },
+                        panel: {
+                            HomeBaseContainerView(
+                                daemonClient: daemonClient,
+                                onBack: { windowState.dismissOverlay() },
+                                onOpenApp: { surfaceMsg in
+                                    windowState.activeDynamicSurface = surfaceMsg
+                                    windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                                    if let surface = windowState.activeDynamicParsedSurface,
+                                       case .dynamicPage(let dpData) = surface.data,
+                                       let appId = dpData.appId {
+                                        windowState.selection = .app(appId)
+                                    } else {
+                                        windowState.selection = .app(surfaceMsg.surfaceId)
+                                    }
+                                },
+                                onRecordAppOpen: { id, name, icon, appType in
+                                    appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
+                                },
+                                onPinApp: { id, name, icon, appType in
+                                    appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
+                                    appListManager.pinApp(id: id)
+                                }
+                            )
+                            .background(adaptiveColor(light: Moss._100, dark: Moss._900))
+                            .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.xl, bottomLeadingRadius: VRadius.xl))
                         }
-                    },
-                    onRecordAppOpen: { id, name, icon, appType in
-                        appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
-                    },
-                    onPinApp: { id, name, icon, appType in
-                        appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
-                        appListManager.pinApp(id: id)
+                    )
+                    .onAppear {
+                        // Ensure an active thread exists for the chat panel
+                        if threadManager.activeViewModel == nil {
+                            if let firstThread = threadManager.visibleThreads.first {
+                                threadManager.selectThread(id: firstThread.id)
+                            } else {
+                                threadManager.createThread()
+                            }
+                        }
                     }
-                )
-                .overlay(alignment: .topTrailing) { panelDismissButton }
-                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+                } else {
+                    HomeBaseContainerView(
+                        daemonClient: daemonClient,
+                        onBack: { windowState.dismissOverlay() },
+                        onOpenApp: { surfaceMsg in
+                            windowState.activeDynamicSurface = surfaceMsg
+                            windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                            if let surface = windowState.activeDynamicParsedSurface,
+                               case .dynamicPage(let dpData) = surface.data,
+                               let appId = dpData.appId {
+                                windowState.selection = .app(appId)
+                            } else {
+                                windowState.selection = .app(surfaceMsg.surfaceId)
+                            }
+                        },
+                        onRecordAppOpen: { id, name, icon, appType in
+                            appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
+                        },
+                        onPinApp: { id, name, icon, appType in
+                            appListManager.recordAppOpen(id: id, name: name, icon: icon, appType: appType)
+                            appListManager.pinApp(id: id)
+                        }
+                    )
+                    .overlay(alignment: .topTrailing) { panelDismissButton }
+                    .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+                }
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(
