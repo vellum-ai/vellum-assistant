@@ -400,7 +400,7 @@ struct SettingsAdvancedTab: View {
             // Generate a token so pairing works immediately — the daemon
             // will reuse this file on its next (re)start.
             var bytes = [UInt8](repeating: 0, count: 32)
-            _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+            guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return }
             let newToken = bytes.map { String(format: "%02x", $0) }.joined()
             let dir = (tokenPath as NSString).deletingLastPathComponent
             try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
@@ -419,7 +419,7 @@ struct SettingsAdvancedTab: View {
         try? FileManager.default.removeItem(atPath: tokenPath)
         // Generate a new token immediately so the UI updates right away.
         var bytes = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return }
         let newToken = bytes.map { String(format: "%02x", $0) }.joined()
         FileManager.default.createFile(atPath: tokenPath, contents: Data(newToken.utf8), attributes: [.posixPermissions: 0o600])
         sessionToken = newToken
