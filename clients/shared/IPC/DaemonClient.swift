@@ -66,7 +66,7 @@ func readSessionToken(environment: [String: String]? = nil) -> String? {
 /// Resolve the runtime HTTP bearer token path.
 /// Uses BASE_DATA_DIR when set to match daemon root resolution.
 /// Available on all platforms since HTTP transport is used on both macOS and iOS.
-func resolveHttpTokenPath(environment: [String: String]? = nil) -> String {
+public func resolveHttpTokenPath(environment: [String: String]? = nil) -> String {
     let env = environment ?? ProcessInfo.processInfo.environment
     if let baseDir = env["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
         let resolved = baseDir.hasPrefix("~/") ? NSHomeDirectory() + "/" + String(baseDir.dropFirst(2)) : baseDir
@@ -77,7 +77,7 @@ func resolveHttpTokenPath(environment: [String: String]? = nil) -> String {
 
 /// Read the runtime HTTP bearer token from disk.
 /// Available on all platforms since HTTP transport is used on both macOS and iOS.
-func readHttpToken(environment: [String: String]? = nil) -> String? {
+public func readHttpToken(environment: [String: String]? = nil) -> String? {
     let tokenPath = resolveHttpTokenPath(environment: environment)
     let data: Data
     do {
