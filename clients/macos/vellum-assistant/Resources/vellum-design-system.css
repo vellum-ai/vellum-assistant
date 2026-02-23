@@ -103,8 +103,8 @@
   --v-text-muted:     #AEAEB2;
   --v-accent:         var(--v-forest-600);
   --v-accent-hover:   var(--v-forest-700);
-  --v-user-bubble:    var(--v-forest-800);
-  --v-user-bubble-text: #ffffff;
+  --v-user-bubble:    var(--v-moss-300);
+  --v-user-bubble-text: var(--v-stone-900);
   --v-success:        var(--v-emerald-600);
   --v-danger:         var(--v-danger-600);
   --v-warning:        var(--v-amber-600);

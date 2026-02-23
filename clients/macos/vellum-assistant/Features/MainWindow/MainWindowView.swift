@@ -869,15 +869,11 @@ struct MainWindowView: View {
                     }
                 )
             }
-            .padding(VSpacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.xxl)
-                    .fill(adaptiveColor(light: Moss._50, dark: Moss._800))
-            )
-            .padding(VSpacing.sm)
+            .padding(VSpacing.lg)
+            .background(adaptiveColor(light: Moss._50, dark: Moss._800))
         }
         .frame(width: threadDrawerWidth)
-        .background(adaptiveColor(light: Stone._200, dark: Moss._950))
+        .background(adaptiveColor(light: Moss._100, dark: Moss._950))
     }
 
     @ViewBuilder
