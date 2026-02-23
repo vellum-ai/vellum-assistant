@@ -497,6 +497,55 @@ describe('call-orchestrator', () => {
     orchestrator.destroy();
   });
 
+  test('handleInterrupt: increments llmRunVersion to suppress stale turn side effects', async () => {
+    // Use a stream whose finalMessage resolves immediately but whose
+    // continuation (the code after `await stream.finalMessage()`) will
+    // run asynchronously. This simulates the race where the promise
+    // microtask is queued right as handleInterrupt fires.
+    mockStreamFn.mockImplementation(() => {
+      const emitter = new EventEmitter();
+      return {
+        on: (event: string, handler: (...args: unknown[]) => void) => {
+          emitter.on(event, handler);
+          return { on: () => ({ on: () => ({}) }) };
+        },
+        finalMessage: () => {
+          // Emit some tokens synchronously
+          emitter.emit('text', 'Stale response that should be suppressed.');
+          return Promise.resolve({
+            content: [{ type: 'text', text: 'Stale response that should be suppressed.' }],
+          });
+        },
+      };
+    });
+
+    const { relay, orchestrator } = setupOrchestrator();
+
+    // Start an LLM turn (don't await — we want to interrupt mid-flight)
+    const turnPromise = orchestrator.handleCallerUtterance('Hello');
+
+    // Interrupt immediately. Because finalMessage resolves as a microtask,
+    // its continuation hasn't run yet. handleInterrupt increments
+    // llmRunVersion so the continuation's isCurrentRun check will fail.
+    orchestrator.handleInterrupt();
+
+    // Let the stale turn's microtask continuation execute
+    await turnPromise;
+
+    // The orchestrator should remain idle — the stale turn must not
+    // have pushed state to waiting_on_user or any other post-turn state.
+    expect(orchestrator.getState()).toBe('idle');
+
+    // No technical-issue fallback should have been sent
+    const errorTokens = relay.sentTokens.filter((t) => t.token.includes('technical issue'));
+    expect(errorTokens.length).toBe(0);
+
+    // endSession should NOT have been called by the stale turn
+    expect(relay.endCalled).toBe(false);
+
+    orchestrator.destroy();
+  });
+
   // ── destroy ───────────────────────────────────────────────────────
 
   test('destroy: unregisters orchestrator', () => {
