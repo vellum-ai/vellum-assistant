@@ -180,6 +180,7 @@ const INT_PATTERNS = [
   /[Ii]ndex$/,
   /[Ee]xpected$/,
   /[Uu]ndos$/,
+  /Ms$/,
 ];
 
 function shouldBeInt(propName: string): boolean {
