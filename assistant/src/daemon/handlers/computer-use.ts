@@ -188,7 +188,8 @@ export function handleRecordingStatus(
 ): void {
   const session = ctx.cuSessions.get(msg.sessionId);
   if (!session) {
-    log.debug({ sessionId: msg.sessionId, status: msg.status }, 'Recording status for unknown session (already finished?)');
+    // Session already cleaned up — still log the recording status for telemetry
+    log.info({ sessionId: msg.sessionId, status: msg.status, filePath: msg.filePath, durationMs: msg.durationMs }, 'Recording status for completed session');
     return;
   }
 

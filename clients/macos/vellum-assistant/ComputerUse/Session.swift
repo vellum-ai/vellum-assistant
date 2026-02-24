@@ -312,10 +312,16 @@ final class ComputerUseSession: ObservableObject {
         if requiresRecording && isDestructiveAction(agentAction.type) {
             let gateResult = await waitForRecordingReady()
             if !gateResult {
-                // Recording failed to start within timeout — fail the session
+                // Recording failed to start within timeout — abort the session
                 let reason = "Session stopped: screen recording failed to start within timeout"
                 isCancelled = true
                 state = .failed(reason: reason)
+                // Notify the daemon so it stops waiting for observations
+                do {
+                    try daemonClient.send(CuSessionAbortMessage(sessionId: id))
+                } catch {
+                    log.error("Failed to send session abort after recording gate failure: \(error)")
+                }
                 logger.finishSession(result: "failed: recording gate timeout")
                 return
             }

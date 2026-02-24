@@ -142,6 +142,11 @@ extension AppDelegate {
                 self.mainWindow?.hide()
             }
 
+            // Transition recording state so the recording gate inside run() can pass
+            if escalationRequiresRecording {
+                session.updateRecordingState(.started)
+            }
+
             await session.run()
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             overlay.close()
@@ -295,6 +300,12 @@ extension AppDelegate {
                 overlay.show()
                 self.overlayWindow = overlay
                 self.ambientAgent.pause()
+
+                // Transition recording state so the recording gate inside run() can pass
+                if sessionRequiresRecording {
+                    session.updateRecordingState(.started)
+                }
+
                 await session.run()
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 overlay.close()
