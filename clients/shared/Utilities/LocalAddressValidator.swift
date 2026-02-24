@@ -6,7 +6,7 @@ import Foundation
 public enum LocalAddressValidator {
 
     /// Returns `true` if the given host is a loopback, mDNS (.local), IPv6 link-local,
-    /// or RFC 1918 private address. Comparison is case-insensitive.
+    /// IPv4 link-local (169.254.0.0/16), or RFC 1918 private address. Comparison is case-insensitive.
     ///
     /// This validates the raw part count before checking IPv4 octets, preventing
     /// bypass via crafted hostnames like `10.0.0.1.evil.com`.
@@ -41,6 +41,8 @@ public enum LocalAddressValidator {
                 if octets[0] == 172 && (16...31).contains(octets[1]) { return true }
                 // 192.168.0.0/16 -- private
                 if octets[0] == 192 && octets[1] == 168 { return true }
+                // 169.254.0.0/16 -- IPv4 link-local (APIPA)
+                if octets[0] == 169 && octets[1] == 254 { return true }
             }
         }
 
