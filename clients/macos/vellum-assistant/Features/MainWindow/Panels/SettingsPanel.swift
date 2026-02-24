@@ -25,6 +25,7 @@ struct SettingsPanel: View {
     @State private var elevenLabsKeyText: String = ""
     @State private var showingTrustRules = false
     @State private var showingReminders = false
+    @State private var showingScheduledTasks = false
     @State private var twitterClientId: String = ""
     @State private var twitterClientSecret: String = ""
     @State private var integrations: [IPCIntegrationListResponseIntegration] = []
@@ -145,6 +146,11 @@ struct SettingsPanel: View {
         .sheet(isPresented: $showingReminders) {
             if let daemonClient {
                 RemindersView(daemonClient: daemonClient)
+            }
+        }
+        .sheet(isPresented: $showingScheduledTasks) {
+            if let daemonClient {
+                ScheduledTasksView(daemonClient: daemonClient)
             }
         }
     }
@@ -912,6 +918,29 @@ struct SettingsPanel: View {
                         Spacer()
                         VButton(label: "Manage...", style: .tertiary) {
                             showingReminders = true
+                        }
+                    }
+                }
+                .padding(VSpacing.lg)
+                .vCard(background: VColor.surfaceSubtle)
+
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Scheduled Tasks")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Manage Scheduled Tasks")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                            Text("View and manage recurring tasks (cron and RRULE schedules)")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                        VButton(label: "Manage...", style: .tertiary) {
+                            showingScheduledTasks = true
                         }
                     }
                 }
