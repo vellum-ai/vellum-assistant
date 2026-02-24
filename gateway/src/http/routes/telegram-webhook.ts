@@ -291,6 +291,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
             tlog.error({ err, chatId: normalized.message.externalChatId }, "Failed to send /start routing rejection notice");
           });
         }
+        acknowledgeCallbackQuery(normalized.message.callbackQueryId, "start_command_routing_rejected");
         return respond({ ok: true });
       }
 
@@ -347,6 +348,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         });
       }
 
+      acknowledgeCallbackQuery(normalized.message.callbackQueryId, "start_command");
       return respond({ ok: true });
     }
 
