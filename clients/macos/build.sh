@@ -125,9 +125,14 @@ SWIFT_FLAGS=""
 if [ "$CMD" = "release" ]; then
     CONFIG="release"
     SWIFT_FLAGS="-c release --arch arm64 --arch x86_64"
-    # Force clean for release builds to prevent stale artifacts in production
-    echo "Release build: forcing clean to ensure no stale artifacts..."
-    rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
+    if [ "${SKIP_CLEAN:-}" = "1" ]; then
+        echo "Release build: skipping .build clean (SKIP_CLEAN=1, using cached artifacts)"
+        rm -rf "$SCRIPT_DIR/dist"
+    else
+        # Force clean for release builds to prevent stale artifacts in production
+        echo "Release build: forcing clean to ensure no stale artifacts..."
+        rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
+    fi
 fi
 
 # 1. Build with SPM

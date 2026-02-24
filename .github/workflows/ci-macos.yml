@@ -59,6 +59,29 @@ jobs:
 
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
+      - name: Cache SPM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: clients/.build
+          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          restore-keys: |
+            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-
+
+      - name: Cache Bun dependencies (assistant)
+        uses: actions/cache@v4
+        with:
+          path: assistant/node_modules
+          key: macos-bun-assistant-${{ hashFiles('assistant/bun.lock') }}
+          restore-keys: macos-bun-assistant-
+
+      - name: Cache Bun dependencies (cli)
+        uses: actions/cache@v4
+        with:
+          path: cli/node_modules
+          key: macos-bun-cli-${{ hashFiles('cli/bun.lock') }}
+          restore-keys: macos-bun-cli-
+
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -109,6 +132,7 @@ jobs:
       - name: Build release .app
         working-directory: clients/macos
         run: |
+          SKIP_CLEAN=1 \
           SIGN_IDENTITY="Developer ID Application" \
           ./build.sh release
           ls -la "dist/Vellum.app"
