@@ -17,6 +17,7 @@ final class QuickInputWindow {
     private var panel: NSPanel?
     private var resignObserver: Any?
     private var previousApp: NSRunningApplication?
+    private var isDismissing = false
 
     /// Callback invoked when the user submits a message.
     var onSubmit: ((String) -> Void)?
@@ -91,12 +92,18 @@ final class QuickInputWindow {
     }
 
     func dismiss(restorePreviousApp: Bool = true) {
+        guard !isDismissing else { return }
+        isDismissing = true
+
         if let resignObserver {
             NotificationCenter.default.removeObserver(resignObserver)
         }
         resignObserver = nil
 
-        guard let panel else { return }
+        guard let panel else {
+            isDismissing = false
+            return
+        }
 
         let appToRestore = restorePreviousApp ? previousApp : nil
         previousApp = nil
@@ -108,6 +115,7 @@ final class QuickInputWindow {
         }, completionHandler: { [weak self] in
             panel.close()
             self?.panel = nil
+            self?.isDismissing = false
             appToRestore?.activate()
         })
     }
