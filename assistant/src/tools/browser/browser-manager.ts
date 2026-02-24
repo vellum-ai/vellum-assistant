@@ -441,6 +441,11 @@ class BrowserManager {
     this.pages.clear();
     this.rawPages.clear();
     this.snapshotMaps.clear();
+    this.downloads.clear();
+    for (const pending of this.pendingDownloads.values()) {
+      for (const waiter of pending) waiter.reject(new Error('Browser closed'));
+    }
+    this.pendingDownloads.clear();
 
     if (this.context) {
       // Remove the close listener before intentional close to avoid
@@ -785,12 +790,18 @@ class BrowserManager {
   }
 
   waitForDownload(sessionId: string, timeoutMs: number = 30_000): Promise<DownloadInfo> {
+    // Check if a download already completed for this session before enqueuing a waiter
+    const existing = this.downloads.get(sessionId);
+    if (existing && existing.length > 0) {
+      return Promise.resolve(existing[existing.length - 1]);
+    }
+
     return new Promise<DownloadInfo>((resolve, reject) => {
       const timer = setTimeout(() => {
         // Remove this waiter from the pending list
         const pending = this.pendingDownloads.get(sessionId);
         if (pending) {
-          const idx = pending.findIndex(w => w.resolve === resolve);
+          const idx = pending.findIndex(w => w.resolve === wrappedResolve);
           if (idx >= 0) pending.splice(idx, 1);
           if (pending.length === 0) this.pendingDownloads.delete(sessionId);
         }
