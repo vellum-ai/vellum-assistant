@@ -45,7 +45,7 @@ function isValidResult(value: unknown): value is ApprovalConversationResult {
   if (typeof obj.disposition !== 'string') return false;
   if (!VALID_DISPOSITIONS.has(obj.disposition as ApprovalConversationDisposition)) return false;
   if (typeof obj.replyText !== 'string' || obj.replyText.trim().length === 0) return false;
-  if (obj.targetRunId !== undefined && typeof obj.targetRunId !== 'string') return false;
+  if (obj.targetRequestId !== undefined && typeof obj.targetRequestId !== 'string') return false;
   return true;
 }
 
@@ -81,15 +81,15 @@ export async function runApprovalConversationTurn(
     return failClosed();
   }
 
-  // Validate targetRunId for decision-bearing dispositions:
-  // 1. When multiple approvals are pending, targetRunId is required.
-  // 2. When targetRunId is present, it must match a known pending approval
+  // Validate targetRequestId for decision-bearing dispositions:
+  // 1. When multiple approvals are pending, targetRequestId is required.
+  // 2. When targetRequestId is present, it must match a known pending approval
   //    regardless of how many approvals are pending.
   if (DECISION_BEARING_DISPOSITIONS.has(result.disposition)) {
-    if (context.pendingApprovals.length > 1 && !result.targetRunId) return failClosed();
-    if (result.targetRunId) {
-      const validRunIds = new Set(context.pendingApprovals.map((p) => p.runId));
-      if (!validRunIds.has(result.targetRunId)) return failClosed();
+    if (context.pendingApprovals.length > 1 && !result.targetRequestId) return failClosed();
+    if (result.targetRequestId) {
+      const validRequestIds = new Set(context.pendingApprovals.map((p) => p.requestId));
+      if (!validRequestIds.has(result.targetRequestId)) return failClosed();
     }
   }
 

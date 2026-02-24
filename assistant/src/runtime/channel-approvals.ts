@@ -2,18 +2,17 @@
  * Channel-agnostic approval orchestration module.
  *
  * Bridges the gap between external channel adapters (Telegram, SMS, etc.)
- * and the internal run orchestrator / permission system:
+ * and the pending-interactions tracker / permission system:
  *
  *   1. Detect pending confirmations for a conversation
  *   2. Build human-readable approval prompts with action buttons
- *   3. Consume user decisions and apply them to the underlying run
+ *   3. Consume user decisions and apply them to the underlying session
  */
 
-import { getPendingConfirmationsByConversation, getRun } from '../memory/runs-store.js';
-import type { PendingRunInfo } from '../memory/runs-store.js';
+import * as pendingInteractions from './pending-interactions.js';
+import type { PendingInteraction, ConfirmationDetails } from './pending-interactions.js';
 import { addRule } from '../permissions/trust-store.js';
 import { getTool } from '../tools/registry.js';
-import type { RunOrchestrator } from './run-orchestrator.js';
 import { DEFAULT_APPROVAL_ACTIONS } from './channel-approval-types.js';
 import type {
   ChannelApprovalPrompt,
@@ -21,6 +20,15 @@ import type {
   ApprovalDecisionResult,
 } from './channel-approval-types.js';
 import { composeApprovalMessage } from './approval-message-composer.js';
+
+/** Summary of a pending interaction, used by channel approval flows. */
+export interface PendingApprovalInfo {
+  requestId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  riskLevel: string;
+  persistentDecisionsAllowed?: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // 1. Detect pending confirmations and build prompt
@@ -35,18 +43,35 @@ import { composeApprovalMessage } from './approval-message-composer.js';
 export function getChannelApprovalPrompt(
   conversationId: string,
 ): ChannelApprovalPrompt | null {
-  const pending = getPendingConfirmationsByConversation(conversationId);
+  const pending = getApprovalInfoByConversation(conversationId);
   if (pending.length === 0) return null;
 
-  // Use the first pending run — channel UIs show one prompt at a time.
+  // Use the first pending interaction — channel UIs show one prompt at a time.
   const info = pending[0];
-  return buildPromptFromRunInfo(info);
+  return buildPromptFromApprovalInfo(info);
 }
 
 /**
- * Internal helper: turn a PendingRunInfo into a ChannelApprovalPrompt.
+ * Get all pending approval interactions for a conversation, mapped
+ * to the PendingApprovalInfo shape used by channel approval flows.
  */
-function buildPromptFromRunInfo(info: PendingRunInfo): ChannelApprovalPrompt {
+export function getApprovalInfoByConversation(conversationId: string): PendingApprovalInfo[] {
+  const interactions = pendingInteractions.getByConversation(conversationId);
+  return interactions
+    .filter((i) => i.kind === 'confirmation' && i.confirmationDetails)
+    .map((i) => ({
+      requestId: i.requestId,
+      toolName: i.confirmationDetails!.toolName,
+      input: i.confirmationDetails!.input,
+      riskLevel: i.confirmationDetails!.riskLevel,
+      persistentDecisionsAllowed: i.confirmationDetails!.persistentDecisionsAllowed,
+    }));
+}
+
+/**
+ * Internal helper: turn a PendingApprovalInfo into a ChannelApprovalPrompt.
+ */
+function buildPromptFromApprovalInfo(info: PendingApprovalInfo): ChannelApprovalPrompt {
   const promptText = composeApprovalMessage({
     scenario: 'standard_prompt',
     toolName: info.toolName,
@@ -70,33 +95,32 @@ function buildPromptFromRunInfo(info: PendingRunInfo): ChannelApprovalPrompt {
 // ---------------------------------------------------------------------------
 
 /**
- * Convert a prompt + run info into the `ApprovalUIMetadata` payload that
+ * Convert a prompt + approval info into the `ApprovalUIMetadata` payload that
  * gateway adapters use to render buttons and route decisions back.
  */
 export function buildApprovalUIMetadata(
   prompt: ChannelApprovalPrompt,
-  runInfo: PendingRunInfo,
+  info: PendingApprovalInfo,
 ): ApprovalUIMetadata {
   return {
-    runId: runInfo.runId,
-    requestId: runInfo.requestId,
+    requestId: info.requestId,
     actions: prompt.actions,
     plainTextFallback: prompt.plainTextFallback,
   };
 }
 
 // ---------------------------------------------------------------------------
-// 3. Consume a user decision and apply it to the run
+// 3. Consume a user decision and apply it to the session
 // ---------------------------------------------------------------------------
 
 export interface HandleDecisionResult {
   applied: boolean;
-  runId?: string;
+  requestId?: string;
 }
 
 /**
- * Find the pending run for a conversation, map the user's decision to the
- * permission system's vocabulary, and apply it.
+ * Find the pending interaction for a conversation, map the user's decision to the
+ * permission system's vocabulary, and apply it via session.handleConfirmationResponse().
  *
  * For `approve_always`, a trust rule is persisted using the first allowlist
  * option and first scope option from the pending confirmation (narrow
@@ -105,16 +129,15 @@ export interface HandleDecisionResult {
 export function handleChannelDecision(
   conversationId: string,
   decision: ApprovalDecisionResult,
-  orchestrator: RunOrchestrator,
   decisionContext?: string,
 ): HandleDecisionResult {
-  const pending = getPendingConfirmationsByConversation(conversationId);
+  const pending = getApprovalInfoByConversation(conversationId);
   if (pending.length === 0) return { applied: false };
 
-  // Callback-based decisions include a run ID and must resolve to that exact
+  // Callback-based decisions include a request ID and must resolve to that exact
   // pending confirmation. Plain-text decisions still apply to the first prompt.
-  const info = decision.runId
-    ? pending.find((candidate) => candidate.runId === decision.runId)
+  const info = decision.requestId
+    ? pending.find((candidate) => candidate.requestId === decision.requestId)
     : pending[0];
   if (!info) return { applied: false };
 
@@ -122,38 +145,50 @@ export function handleChannelDecision(
     // Only persist a trust rule when the confirmation explicitly allows persistence
     // AND provides explicit allowlist/scope options. Without explicit options we
     // would create a blanket "**"/"everywhere" rule, which is a security risk.
-    const run = getRun(info.runId);
-    const confirmation = run?.pendingConfirmation;
+    const interaction = pendingInteractions.get(info.requestId);
+    const details = interaction?.confirmationDetails;
     if (
-      confirmation &&
-      confirmation.persistentDecisionsAllowed !== false &&
-      confirmation.allowlistOptions?.length &&
-      confirmation.scopeOptions?.length
+      details &&
+      details.persistentDecisionsAllowed !== false &&
+      details.allowlistOptions?.length &&
+      details.scopeOptions?.length
     ) {
-      const pattern = confirmation.allowlistOptions[0].pattern;
-      const scope = confirmation.scopeOptions[0].scope;
+      const pattern = details.allowlistOptions[0].pattern;
+      const scope = details.scopeOptions[0].scope;
       // Only persist executionTarget for skill-origin tools — core tools don't
       // set it in their PolicyContext, so a persisted value would prevent the
       // rule from ever matching on subsequent permission checks.
-      const tool = getTool(confirmation.toolName);
-      const executionTarget = tool?.origin === 'skill' ? confirmation.executionTarget : undefined;
-      addRule(confirmation.toolName, pattern, scope, 'allow', 100, {
+      const tool = getTool(details.toolName);
+      const executionTarget = tool?.origin === 'skill' ? details.executionTarget : undefined;
+      addRule(details.toolName, pattern, scope, 'allow', 100, {
         executionTarget,
       });
     }
     // When persistence is not allowed or options are missing, the decision
-    // still proceeds as a one-time approval (falls through to submitDecision).
+    // still proceeds as a one-time approval (falls through to session call).
   }
+
+  // Resolve the interaction to get the session and remove from tracker
+  const resolved = pendingInteractions.resolve(info.requestId);
+  if (!resolved) return { applied: false };
 
   // Map channel-level action to the permission system's UserDecision type.
   const userDecision = decision.action === 'reject' ? 'deny' as const : 'allow' as const;
-  const result = decisionContext === undefined
-    ? orchestrator.submitDecision(info.runId, userDecision)
-    : orchestrator.submitDecision(info.runId, userDecision, decisionContext);
+  if (decisionContext === undefined) {
+    resolved.session.handleConfirmationResponse(info.requestId, userDecision);
+  } else {
+    resolved.session.handleConfirmationResponse(
+      info.requestId,
+      userDecision,
+      undefined,
+      undefined,
+      decisionContext,
+    );
+  }
 
   return {
-    applied: result === 'applied',
-    runId: info.runId,
+    applied: true,
+    requestId: info.requestId,
   };
 }
 
@@ -167,7 +202,7 @@ export function handleChannelDecision(
  * can approve or deny on behalf of the requester.
  */
 export function buildGuardianApprovalPrompt(
-  info: PendingRunInfo,
+  info: PendingApprovalInfo,
   requesterIdentifier: string,
 ): ChannelApprovalPrompt {
   const promptText = composeApprovalMessage({

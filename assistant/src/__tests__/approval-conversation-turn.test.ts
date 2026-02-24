@@ -15,7 +15,7 @@ function makeContext(overrides: Partial<ApprovalConversationContext> = {}): Appr
     toolName: 'execute_shell',
     allowedActions: ['approve_once', 'approve_always', 'reject'],
     role: 'guardian',
-    pendingApprovals: [{ runId: 'run-1', toolName: 'execute_shell' }],
+    pendingApprovals: [{ requestId: 'run-1', toolName: 'execute_shell' }],
     userMessage: 'yes, go ahead',
     ...overrides,
   };
@@ -40,7 +40,7 @@ describe('runApprovalConversationTurn', () => {
     );
     expect(result.disposition).toBe('keep_pending');
     expect(result.replyText).toBe('This tool runs shell commands. Would you like to approve it?');
-    expect(result.targetRunId).toBeUndefined();
+    expect(result.targetRequestId).toBeUndefined();
   });
 
   test('successful approve_once response', async () => {
@@ -49,12 +49,12 @@ describe('runApprovalConversationTurn', () => {
       makeGenerator({
         disposition: 'approve_once',
         replyText: 'Approved! Running the command now.',
-        targetRunId: 'run-1',
+        targetRequestId: 'run-1',
       }),
     );
     expect(result.disposition).toBe('approve_once');
     expect(result.replyText).toBe('Approved! Running the command now.');
-    expect(result.targetRunId).toBe('run-1');
+    expect(result.targetRequestId).toBe('run-1');
   });
 
   test('successful reject response', async () => {
@@ -63,7 +63,7 @@ describe('runApprovalConversationTurn', () => {
       makeGenerator({
         disposition: 'reject',
         replyText: 'Request denied.',
-        targetRunId: 'run-1',
+        targetRequestId: 'run-1',
       }),
     );
     expect(result.disposition).toBe('reject');
@@ -109,7 +109,7 @@ describe('runApprovalConversationTurn', () => {
       makeGenerator({
         disposition: 'approve_always',
         replyText: 'Approved permanently!',
-        targetRunId: 'run-1',
+        targetRequestId: 'run-1',
       }),
     );
     expect(result.disposition).toBe('keep_pending');
@@ -132,27 +132,27 @@ describe('runApprovalConversationTurn', () => {
     expect(result.replyText).toBe('Can you tell me more about this request?');
   });
 
-  test('fail-closed when single pending approval and hallucinated targetRunId', async () => {
-    // Only one pending approval, but model returns a non-matching targetRunId
+  test('fail-closed when single pending approval and hallucinated targetRequestId', async () => {
+    // Only one pending approval, but model returns a non-matching targetRequestId
     const result = await runApprovalConversationTurn(
       makeContext({
-        pendingApprovals: [{ runId: 'run-1', toolName: 'execute_shell' }],
+        pendingApprovals: [{ requestId: 'run-1', toolName: 'execute_shell' }],
       }),
       makeGenerator({
         disposition: 'approve_once',
         replyText: 'Approved!',
-        targetRunId: 'run-nonexistent',
+        targetRequestId: 'run-nonexistent',
       }),
     );
     expect(result.disposition).toBe('keep_pending');
     expect(result.replyText).toContain("couldn't process");
   });
 
-  test('fail-closed when targetRunId does not match any pending approval', async () => {
+  test('fail-closed when targetRequestId does not match any pending approval', async () => {
     const contextWithMultiple = makeContext({
       pendingApprovals: [
-        { runId: 'run-1', toolName: 'execute_shell' },
-        { runId: 'run-2', toolName: 'file_write' },
+        { requestId: 'run-1', toolName: 'execute_shell' },
+        { requestId: 'run-2', toolName: 'file_write' },
       ],
     });
 
@@ -162,46 +162,46 @@ describe('runApprovalConversationTurn', () => {
       makeGenerator({
         disposition: 'approve_once',
         replyText: 'Approved!',
-        targetRunId: 'run-nonexistent',
+        targetRequestId: 'run-nonexistent',
       }),
     );
     expect(result.disposition).toBe('keep_pending');
     expect(result.replyText).toContain("couldn't process");
   });
 
-  test('targetRunId validation when multiple pending approvals', async () => {
+  test('targetRequestId validation when multiple pending approvals', async () => {
     const contextWithMultiple = makeContext({
       pendingApprovals: [
-        { runId: 'run-1', toolName: 'execute_shell' },
-        { runId: 'run-2', toolName: 'file_write' },
+        { requestId: 'run-1', toolName: 'execute_shell' },
+        { requestId: 'run-2', toolName: 'file_write' },
       ],
     });
 
-    // Decision-bearing disposition without targetRunId should fail-close
+    // Decision-bearing disposition without targetRequestId should fail-close
     const resultWithoutTarget = await runApprovalConversationTurn(
       contextWithMultiple,
       makeGenerator({
         disposition: 'approve_once',
         replyText: 'Approved!',
-        // no targetRunId
+        // no targetRequestId
       }),
     );
     expect(resultWithoutTarget.disposition).toBe('keep_pending');
     expect(resultWithoutTarget.replyText).toContain("couldn't process");
 
-    // Decision-bearing disposition with targetRunId should succeed
+    // Decision-bearing disposition with targetRequestId should succeed
     const resultWithTarget = await runApprovalConversationTurn(
       contextWithMultiple,
       makeGenerator({
         disposition: 'approve_once',
         replyText: 'Approved!',
-        targetRunId: 'run-1',
+        targetRequestId: 'run-1',
       }),
     );
     expect(resultWithTarget.disposition).toBe('approve_once');
-    expect(resultWithTarget.targetRunId).toBe('run-1');
+    expect(resultWithTarget.targetRequestId).toBe('run-1');
 
-    // Non-decision disposition without targetRunId should pass through fine
+    // Non-decision disposition without targetRequestId should pass through fine
     const resultKeepPending = await runApprovalConversationTurn(
       contextWithMultiple,
       makeGenerator({

@@ -663,6 +663,7 @@ export const channelGuardianVerificationChallenges = sqliteTable('channel_guardi
 export const channelGuardianApprovalRequests = sqliteTable('channel_guardian_approval_requests', {
   id: text('id').primaryKey(),
   runId: text('run_id').notNull(),
+  requestId: text('request_id'),
   conversationId: text('conversation_id').notNull(),
   assistantId: text('assistant_id').notNull().default('self'),
   channel: text('channel').notNull(),

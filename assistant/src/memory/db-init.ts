@@ -1012,6 +1012,11 @@ export function initializeDb(): void {
   // Existing rows default to 'self' for backward compatibility.
   try { database.run(/*sql*/ `ALTER TABLE channel_guardian_approval_requests ADD COLUMN assistant_id TEXT NOT NULL DEFAULT 'self'`); } catch { /* already exists */ }
 
+  // Migration: add request_id column to link approval requests to pending interactions
+  // instead of runs. Nullable for backward compatibility with existing rows.
+  try { database.run(/*sql*/ `ALTER TABLE channel_guardian_approval_requests ADD COLUMN request_id TEXT`); } catch { /* already exists */ }
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_approval_request_id ON channel_guardian_approval_requests(request_id, status)`);
+
   // ── Channel Guardian Verification Rate Limits ─────────────────────
 
   database.run(/*sql*/ `

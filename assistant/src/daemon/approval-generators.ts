@@ -47,10 +47,10 @@ const APPROVAL_CONVERSATION_TOOL_SCHEMA = {
         type: 'string',
         description: 'A natural language reply to send back to the user.',
       },
-      targetRunId: {
+      targetRequestId: {
         type: 'string',
         description:
-          'The run ID of the specific pending approval being acted on. '
+          'The request ID of the specific pending approval being acted on. '
           + 'Required when there are multiple pending approvals and the disposition is decision-bearing.',
       },
     },
@@ -124,7 +124,7 @@ export function createApprovalConversationGenerator(): ApprovalConversationGener
     const provider = getFailoverProvider(config.provider, config.providerOrder);
 
     const pendingDescription = context.pendingApprovals
-      .map((p) => `- Run ${p.runId}: tool "${p.toolName}"`)
+      .map((p) => `- Request ${p.requestId}: tool "${p.toolName}"`)
       .join('\n');
 
     const userPrompt = [
@@ -169,17 +169,17 @@ export function createApprovalConversationGenerator(): ApprovalConversationGener
       throw new Error('Missing or empty replyText in tool_use response');
     }
 
-    const targetRunId = input.targetRunId;
-    if (targetRunId !== undefined && typeof targetRunId !== 'string') {
-      throw new Error('Invalid targetRunId in tool_use response');
+    const targetRequestId = input.targetRequestId;
+    if (targetRequestId !== undefined && typeof targetRequestId !== 'string') {
+      throw new Error('Invalid targetRequestId in tool_use response');
     }
 
     const result: ApprovalConversationResult = {
       disposition: disposition as ApprovalConversationDisposition,
       replyText: replyText.trim(),
     };
-    if (typeof targetRunId === 'string' && targetRunId.length > 0) {
-      result.targetRunId = targetRunId;
+    if (typeof targetRequestId === 'string' && targetRequestId.length > 0) {
+      result.targetRequestId = targetRequestId;
     }
     return result;
   };

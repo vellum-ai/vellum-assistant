@@ -37,7 +37,7 @@ export function buildInlineKeyboard(
 ): { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } {
   return {
     inline_keyboard: approval.actions.map((action) => {
-      const callbackData = `apr:${approval.runId}:${action.id}`;
+      const callbackData = `apr:${approval.requestId}:${action.id}`;
       if (Buffer.byteLength(callbackData) > TELEGRAM_MAX_CALLBACK_DATA_BYTES) {
         throw new Error(
           `callback_data for action "${action.id}" is ${Buffer.byteLength(callbackData)} bytes, exceeding Telegram's ${TELEGRAM_MAX_CALLBACK_DATA_BYTES}-byte limit`,

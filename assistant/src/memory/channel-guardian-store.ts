@@ -57,6 +57,7 @@ export interface VerificationChallenge {
 export interface GuardianApprovalRequest {
   id: string;
   runId: string;
+  requestId: string | null;
   conversationId: string;
   assistantId: string;
   channel: string;
@@ -114,6 +115,7 @@ function rowToApprovalRequest(row: typeof channelGuardianApprovalRequests.$infer
   return {
     id: row.id,
     runId: row.runId,
+    requestId: row.requestId ?? null,
     conversationId: row.conversationId,
     assistantId: row.assistantId,
     channel: row.channel,
@@ -348,6 +350,7 @@ export function consumeChallenge(
 
 export function createApprovalRequest(params: {
   runId: string;
+  requestId?: string;
   conversationId: string;
   assistantId?: string;
   channel: string;
@@ -367,6 +370,7 @@ export function createApprovalRequest(params: {
   const row = {
     id,
     runId: params.runId,
+    requestId: params.requestId ?? null,
     conversationId: params.conversationId,
     assistantId: params.assistantId ?? 'self',
     channel: params.channel,
@@ -408,6 +412,25 @@ export function getPendingApprovalForRun(runId: string): GuardianApprovalRequest
   return row ? rowToApprovalRequest(row) : null;
 }
 
+export function getPendingApprovalForRequest(requestId: string): GuardianApprovalRequest | null {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(
+      and(
+        eq(channelGuardianApprovalRequests.requestId, requestId),
+        eq(channelGuardianApprovalRequests.status, 'pending'),
+        gt(channelGuardianApprovalRequests.expiresAt, now),
+      ),
+    )
+    .get();
+
+  return row ? rowToApprovalRequest(row) : null;
+}
+
 /**
  * Find a pending (status = 'pending') guardian approval request for a run
  * regardless of whether it has expired. Used by the non-guardian gate to
@@ -423,6 +446,23 @@ export function getUnresolvedApprovalForRun(runId: string): GuardianApprovalRequ
     .where(
       and(
         eq(channelGuardianApprovalRequests.runId, runId),
+        eq(channelGuardianApprovalRequests.status, 'pending'),
+      ),
+    )
+    .get();
+
+  return row ? rowToApprovalRequest(row) : null;
+}
+
+export function getUnresolvedApprovalForRequest(requestId: string): GuardianApprovalRequest | null {
+  const db = getDb();
+
+  const row = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(
+      and(
+        eq(channelGuardianApprovalRequests.requestId, requestId),
         eq(channelGuardianApprovalRequests.status, 'pending'),
       ),
     )
@@ -486,6 +526,41 @@ export function getPendingApprovalByRunAndGuardianChat(
 
   const conditions = [
     eq(channelGuardianApprovalRequests.runId, runId),
+    eq(channelGuardianApprovalRequests.channel, channel),
+    eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
+    eq(channelGuardianApprovalRequests.status, 'pending'),
+    gt(channelGuardianApprovalRequests.expiresAt, now),
+  ];
+  if (assistantId) {
+    conditions.push(eq(channelGuardianApprovalRequests.assistantId, assistantId));
+  }
+
+  const row = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(and(...conditions))
+    .get();
+
+  return row ? rowToApprovalRequest(row) : null;
+}
+
+/**
+ * Find a pending guardian approval request scoped to a specific requestId,
+ * guardian chat, and channel. Used when a callback button provides a requestId,
+ * so the decision is applied to exactly the right approval even when
+ * multiple approvals target the same guardian chat.
+ */
+export function getPendingApprovalByRequestAndGuardianChat(
+  requestId: string,
+  channel: string,
+  guardianChatId: string,
+  assistantId?: string,
+): GuardianApprovalRequest | null {
+  const db = getDb();
+  const now = Date.now();
+
+  const conditions = [
+    eq(channelGuardianApprovalRequests.requestId, requestId),
     eq(channelGuardianApprovalRequests.channel, channel),
     eq(channelGuardianApprovalRequests.guardianChatId, guardianChatId),
     eq(channelGuardianApprovalRequests.status, 'pending'),

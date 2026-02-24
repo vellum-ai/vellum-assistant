@@ -12,7 +12,6 @@ export type ApprovalAction = {
 };
 
 export type ApprovalPayload = {
-  runId: string;
   requestId: string;
   actions: ApprovalAction[];
   plainTextFallback: string;
@@ -100,9 +99,6 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
           { status: 400 },
         );
       }
-      if (!approval.runId || typeof approval.runId !== "string") {
-        return Response.json({ error: "approval.runId is required" }, { status: 400 });
-      }
       if (!approval.requestId || typeof approval.requestId !== "string") {
         return Response.json({ error: "approval.requestId is required" }, { status: 400 });
       }
@@ -122,7 +118,7 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
         // Telegram enforces a 1-64 byte limit on callback_data. Validate
         // the would-be value up front so callers get a clear 400 instead of
         // a downstream Telegram API failure surfaced as a 502.
-        const callbackData = `apr:${approval.runId}:${action.id}`;
+        const callbackData = `apr:${approval.requestId}:${action.id}`;
         if (Buffer.byteLength(callbackData) > 64) {
           return Response.json(
             { error: `callback_data for action "${action.id}" exceeds Telegram's 64-byte limit` },
