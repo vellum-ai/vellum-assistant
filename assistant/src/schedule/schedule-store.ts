@@ -2,6 +2,7 @@ import { and, asc, desc, eq, lte } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { Cron } from 'croner';
 import { getDb } from '../memory/db.js';
+import { rawChanges } from '../memory/raw-query.js';
 import { scheduleJobs, scheduleRuns } from '../memory/schema.js';
 import { computeNextRunAt as computeNextRunAtEngine, isValidScheduleExpression } from './recurrence-engine.js';
 import { getLogger } from '../util/logger.js';
@@ -189,8 +190,8 @@ export function updateSchedule(
 
 export function deleteSchedule(id: string): boolean {
   const db = getDb();
-  const result = db.delete(scheduleJobs).where(eq(scheduleJobs.id, id)).run() as unknown as { changes?: number };
-  return (result.changes ?? 0) > 0;
+  db.delete(scheduleJobs).where(eq(scheduleJobs.id, id)).run();
+  return rawChanges() > 0;
 }
 
 /**
@@ -244,13 +245,13 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
       updates.nextRunAt = newNextRunAt!;
     }
 
-    const result = db
+    db
       .update(scheduleJobs)
       .set(updates)
       .where(and(eq(scheduleJobs.id, row.id), eq(scheduleJobs.nextRunAt, row.nextRunAt)))
-      .run() as unknown as { changes?: number };
+      .run();
 
-    if ((result.changes ?? 0) === 0) continue;
+    if (rawChanges() === 0) continue;
 
     claimed.push(parseJobRow({
       ...row,
@@ -359,7 +360,14 @@ export function formatLocalDate(timestamp: number): string {
 export function describeCronExpression(expr: string): string {
   try {
     const cron = new Cron(expr, { maxRuns: 0 });
-    const p = (cron as unknown as { _states: { pattern: {
+    // Access Croner internal state to extract the parsed cron pattern.
+    // This is fragile but necessary — Croner doesn't expose a public API for this.
+    const cronInternal = cron as Record<string, unknown>;
+    const states = cronInternal._states;
+    if (!states || typeof states !== 'object') return expr;
+    const p = (states as Record<string, unknown>).pattern;
+    if (!p || typeof p !== 'object') return expr;
+    const pattern = p as {
       minute: number[];
       hour: number[];
       day: number[];
@@ -367,18 +375,18 @@ export function describeCronExpression(expr: string): string {
       dayOfWeek: number[];
       starDOM: boolean;
       starDOW: boolean;
-    } } })._states.pattern;
+    };
 
-    const activeMinutes = p.minute.reduce<number[]>((acc, v, i) => { if (v) acc.push(i); return acc; }, []);
-    const activeHours = p.hour.reduce<number[]>((acc, v, i) => { if (v) acc.push(i); return acc; }, []);
-    const activeDays = p.day.reduce<number[]>((acc, v, i) => { if (v) acc.push(i + 1); return acc; }, []);
-    const activeDOW = p.dayOfWeek.reduce<number[]>((acc, v, i) => { if (v) acc.push(i); return acc; }, []);
-    const activeMonths = p.month.reduce<number[]>((acc, v, i) => { if (v) acc.push(i + 1); return acc; }, []);
+    const activeMinutes = pattern.minute.reduce<number[]>((acc, v, i) => { if (v) acc.push(i); return acc; }, []);
+    const activeHours = pattern.hour.reduce<number[]>((acc, v, i) => { if (v) acc.push(i); return acc; }, []);
+    const activeDays = pattern.day.reduce<number[]>((acc, v, i) => { if (v) acc.push(i + 1); return acc; }, []);
+    const activeDOW = pattern.dayOfWeek.reduce<number[]>((acc, v, i) => { if (v) acc.push(i); return acc; }, []);
+    const activeMonths = pattern.month.reduce<number[]>((acc, v, i) => { if (v) acc.push(i + 1); return acc; }, []);
 
     const allMinutes = activeMinutes.length === 60;
     const allHours = activeHours.length === 24;
-    const allDays = p.starDOM;
-    const allDOW = p.starDOW;
+    const allDays = pattern.starDOM;
+    const allDOW = pattern.starDOW;
     const allMonths = activeMonths.length === 12;
 
     const fixedMinute = activeMinutes.length === 1;

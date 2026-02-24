@@ -778,9 +778,15 @@ function isAbortError(err: unknown): boolean {
  * HTTP/API clients), then falls back to looking for "status <code>" patterns
  * in the message. This avoids false positives from dimension numbers like 512.
  */
+function getErrorStatusCode(err: Error): unknown {
+  if ('status' in err) return (err as { status: unknown }).status;
+  if ('statusCode' in err) return (err as { statusCode: unknown }).statusCode;
+  return undefined;
+}
+
 function isHttpStatusError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  const status = (err as Record<string, unknown>).status ?? (err as Record<string, unknown>).statusCode;
+  const status = getErrorStatusCode(err);
   if (typeof status === 'number') {
     return status === 429 || (status >= 500 && status < 600);
   }
