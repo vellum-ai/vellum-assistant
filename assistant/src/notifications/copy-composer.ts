@@ -19,49 +19,59 @@ function str(value: unknown, fallback: string): string {
   return fallback;
 }
 
-// Templates keyed by free-form sourceEventName strings.
+// Templates keyed by dot-separated sourceEventName strings matching producers.
 const TEMPLATES: Record<string, CopyTemplate> = {
-  reminder_fired: (payload) => ({
+  'reminder.fired': (payload) => ({
     title: 'Reminder',
     body: str(payload.message, str(payload.label, 'A reminder has fired')),
   }),
 
-  schedule_complete: (payload) => ({
+  'schedule.complete': (payload) => ({
     title: 'Schedule Complete',
     body: `${str(payload.name, 'A schedule')} has finished running`,
   }),
 
-  guardian_question_required_action: (payload) => ({
+  'guardian.question': (payload) => ({
     title: 'Guardian Question',
     body: str(payload.questionText, 'A guardian question needs your attention'),
   }),
 
-  ingress_escalation_required_action: (_payload) => ({
+  'ingress.escalation': (payload) => ({
     title: 'Escalation',
-    body: 'An incoming message needs attention',
+    body: str(payload.senderIdentifier, 'An incoming message') + ' needs attention',
   }),
 
-  tool_confirmation_required_action: (payload) => ({
+  'watcher.notification': (payload) => ({
+    title: str(payload.title, 'Watcher Notification'),
+    body: str(payload.body, 'A watcher event occurred'),
+  }),
+
+  'watcher.escalation': (payload) => ({
+    title: str(payload.title, 'Watcher Escalation'),
+    body: str(payload.body, 'A watcher event requires your attention'),
+  }),
+
+  'tool_confirmation.required_action': (payload) => ({
     title: 'Tool Confirmation',
     body: str(payload.toolName, 'A tool') + ' requires your confirmation',
   }),
 
-  activity_complete: (payload) => ({
+  'activity.complete': (payload) => ({
     title: 'Activity Complete',
     body: str(payload.summary, 'An activity has completed'),
   }),
 
-  quick_chat_response_ready: (payload) => ({
+  'quick_chat.response_ready': (payload) => ({
     title: 'Response Ready',
     body: str(payload.preview, 'Your quick chat response is ready'),
   }),
 
-  voice_response_ready: (payload) => ({
+  'voice.response_ready': (payload) => ({
     title: 'Voice Response',
     body: str(payload.preview, 'A voice response is ready'),
   }),
 
-  ride_shotgun_invitation: (payload) => ({
+  'ride_shotgun.invitation': (payload) => ({
     title: 'Ride Shotgun',
     body: str(payload.message, 'You have been invited to ride shotgun'),
   }),
@@ -97,7 +107,7 @@ export function composeFallbackCopy(
  * sourceEventName and attention hints to produce something reasonable.
  */
 function buildGenericCopy(signal: NotificationSignal): RenderedChannelCopy {
-  const humanName = signal.sourceEventName.replace(/_/g, ' ');
+  const humanName = signal.sourceEventName.replace(/[._]/g, ' ');
   const urgencyPrefix = signal.attentionHints.urgency === 'high' ? 'Urgent: ' : '';
   const actionSuffix = signal.attentionHints.requiresAction ? ' — action required' : '';
 

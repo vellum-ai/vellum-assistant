@@ -237,7 +237,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
 
   // Fire-and-forget: detect notification preferences in the queued message
   // and persist any that are found, mirroring the logic in processMessage.
-  if (session.assistantId) {
+  if (session.assistantId && getConfig().notifications.enabled) {
     const aid = session.assistantId;
     extractPreferences(resolvedContent)
       .then((result) => {
@@ -405,7 +405,7 @@ export async function processMessage(
   // Fire-and-forget: detect notification preferences in the user message
   // and persist any that are found. Runs in the background so it doesn't
   // block the main conversation flow.
-  if (session.assistantId) {
+  if (session.assistantId && getConfig().notifications.enabled) {
     const aid = session.assistantId;
     extractPreferences(resolvedContent)
       .then((result) => {
