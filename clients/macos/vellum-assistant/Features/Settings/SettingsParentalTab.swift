@@ -45,21 +45,6 @@ struct SettingsParentalTab: View {
                     lockedPlaceholder
                 }
             }
-
-            if let error = errorMessage {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-                    .textSelection(.enabled)
-            }
-            if let success = successMessage {
-                Text(success)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.success)
-                    .textSelection(.enabled)
-            }
-
-            Spacer()
         }
         .onAppear { loadSettings() }
         .sheet(isPresented: $showingPINSheet) {
@@ -125,7 +110,16 @@ struct SettingsParentalTab: View {
                 .textSelection(.enabled)
 
             HStack {
-                Toggle("Enable Parental Controls", isOn: Binding(
+                Text("Enable Parental Controls")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .padding(.leading, VSpacing.xs)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
                     get: { isEnabled },
                     set: { newValue in
                         // Toggling off a PIN-locked session requires PIN verification
@@ -136,17 +130,26 @@ struct SettingsParentalTab: View {
                         }
                     }
                 ))
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
+                .toggleStyle(.switch)
+                .labelsHidden()
                 .disabled(isLoading)
+            }
 
-                if isLoading {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                        .padding(.leading, VSpacing.xs)
-                }
+            if let error = errorMessage {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+                    .textSelection(.enabled)
+            }
+            if let success = successMessage {
+                Text(success)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.success)
+                    .textSelection(.enabled)
             }
         }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     private var pinSection: some View {
@@ -187,6 +190,8 @@ struct SettingsParentalTab: View {
                 }
             }
         }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     private var contentRestrictionsSection: some View {
@@ -201,19 +206,27 @@ struct SettingsParentalTab: View {
                 .textSelection(.enabled)
 
             ForEach(ContentTopic.allCases) { topic in
-                Toggle(topic.displayName, isOn: Binding(
-                    get: { contentRestrictions.contains(topic.rawValue) },
-                    set: { enabled in
-                        var updated = contentRestrictions
-                        if enabled { updated.insert(topic.rawValue) } else { updated.remove(topic.rawValue) }
-                        updateContentRestrictions(Array(updated))
-                    }
-                ))
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .disabled(isLoading)
+                HStack {
+                    Text(topic.displayName)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { contentRestrictions.contains(topic.rawValue) },
+                        set: { enabled in
+                            var updated = contentRestrictions
+                            if enabled { updated.insert(topic.rawValue) } else { updated.remove(topic.rawValue) }
+                            updateContentRestrictions(Array(updated))
+                        }
+                    ))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .disabled(isLoading)
+                }
             }
         }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     private var toolCategorySection: some View {
@@ -228,27 +241,33 @@ struct SettingsParentalTab: View {
                 .textSelection(.enabled)
 
             ForEach(ToolCategory.allCases) { category in
-                VStack(alignment: .leading, spacing: 2) {
-                    Toggle(category.displayName, isOn: Binding(
-                        get: { blockedToolCategories.contains(category.rawValue) },
-                        set: { blocked in
-                            var updated = blockedToolCategories
-                            if blocked { updated.insert(category.rawValue) } else { updated.remove(category.rawValue) }
-                            updateToolCategories(Array(updated))
-                        }
-                    ))
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-                    .disabled(isLoading)
-
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack {
+                        Text(category.displayName)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { blockedToolCategories.contains(category.rawValue) },
+                            set: { blocked in
+                                var updated = blockedToolCategories
+                                if blocked { updated.insert(category.rawValue) } else { updated.remove(category.rawValue) }
+                                updateToolCategories(Array(updated))
+                            }
+                        ))
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                        .disabled(isLoading)
+                    }
                     Text(category.description)
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
-                        .padding(.leading, 20)
                         .textSelection(.enabled)
                 }
             }
         }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     private var lockedPlaceholder: some View {
@@ -274,6 +293,8 @@ struct SettingsParentalTab: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.xxl)
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Daemon interactions
