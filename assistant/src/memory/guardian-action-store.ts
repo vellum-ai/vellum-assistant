@@ -338,6 +338,29 @@ export function getPendingDeliveriesByDestination(
   return rows.map((r) => rowToDelivery(r.delivery));
 }
 
+/**
+ * Look up a pending delivery by destination conversation ID (for mac channel routing).
+ */
+export function getPendingDeliveryByConversation(conversationId: string): GuardianActionDelivery | null {
+  const db = getDb();
+  const rows = db
+    .select({ delivery: guardianActionDeliveries })
+    .from(guardianActionDeliveries)
+    .innerJoin(
+      guardianActionRequests,
+      eq(guardianActionDeliveries.requestId, guardianActionRequests.id),
+    )
+    .where(
+      and(
+        eq(guardianActionDeliveries.destinationConversationId, conversationId),
+        eq(guardianActionDeliveries.status, 'sent'),
+        eq(guardianActionRequests.status, 'pending'),
+      ),
+    )
+    .all();
+  return rows.length > 0 ? rowToDelivery(rows[0].delivery) : null;
+}
+
 export function updateDeliveryStatus(
   deliveryId: string,
   status: GuardianActionDeliveryStatus,
