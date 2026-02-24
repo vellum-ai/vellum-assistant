@@ -206,7 +206,7 @@ Common issues:
 The skill references IPC messages (`channel_readiness`, `twilio_config`) that are sent via Unix socket to the daemon. The assistant does not have an HTTP endpoint for IPC. Use the following pattern to send IPC messages:
 
 ```bash
-cd /Users/noaflaherty/Repos/vellum-ai/vellum-assistant/assistant && bun -e '
+cd "$(git rev-parse --show-toplevel)/assistant" && bun -e '
 import { sendOneMessage } from "./src/cli/ipc-client.js";
 const res = await sendOneMessage({ type: "twilio_config", action: "get" });
 console.log(JSON.stringify(res, null, 2));
