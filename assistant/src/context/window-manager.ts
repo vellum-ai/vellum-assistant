@@ -186,14 +186,27 @@ export class ContextWindowManager {
     const projectedGainTokens = Math.max(0, previousEstimatedInputTokens - projectedInputTokens);
     const severePressure = previousEstimatedInputTokens >= Math.floor(this.config.maxInputTokens * SEVERE_PRESSURE_RATIO);
     const lastCompactedAt = options?.lastCompactedAt;
+
+    // Adaptive cooldown: conversations growing quickly (high projected gain) compact
+    // sooner. Scale the cooldown inversely with the growth-rate multiplier, capped at
+    // 1/4 of the base cooldown so we never check more than 4× as frequently.
+    const growthRateMultiplier = Math.max(1, projectedGainTokens / MIN_GAIN_TOKENS_DURING_COOLDOWN);
+    const adaptiveCooldownMs = Math.max(
+      COMPACTION_COOLDOWN_MS / 4,
+      COMPACTION_COOLDOWN_MS / growthRateMultiplier,
+    );
     const withinCooldown = typeof lastCompactedAt === 'number'
-      && Date.now() - lastCompactedAt < COMPACTION_COOLDOWN_MS;
+      && Date.now() - lastCompactedAt < adaptiveCooldownMs;
 
     if (
       withinCooldown
       && projectedGainTokens < MIN_GAIN_TOKENS_DURING_COOLDOWN
       && !severePressure
     ) {
+      log.debug(
+        { projectedGainTokens, adaptiveCooldownMs, growthRateMultiplier, msSinceCompaction: typeof lastCompactedAt === 'number' ? Date.now() - lastCompactedAt : null },
+        'Compaction cooldown active with low projected gain',
+      );
       return {
         messages,
         compacted: false,
